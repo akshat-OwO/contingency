@@ -1,0 +1,20 @@
+{
+  "name": "@contingency/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "nub watch src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:effect",
+    "effect": "catalog:effect"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:effect",
+    "@nubjs/types": "catalog:types",
+    "@types/node": "catalog:types",
+    "typescript": "catalog:",
+    "vitest": "catalog:effect"
+  }
+}

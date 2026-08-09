@@ -1,10 +1,27 @@
 {
   "name": "contingency",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalogs": {
+      "types": {
+        "@types/node": "^26.2.0",
+        "@nubjs/types": ">=0.4.13 <=0.7.4"
+      },
+      "effect": {
+        "effect": "^4.0.0-beta.106",
+        "@effect/platform-node": "^4.0.0-beta.106",
+        "@effect/vitest": "^4.0.0-beta.106",
+        "vitest": "^4.1.10"
+      }
+    },
+    "catalog": {
+      "typescript": "^7.0.2"
+    }
+  },
   "type": "module",
   "scripts": {
     "build": "turbo run build",
@@ -21,7 +38,7 @@
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
     "turbo": "^2.10.9",
-    "typescript": "5.9.2",
+    "typescript": "catalog:",
     "ultracite": "7.10.1"
   },
   "devEngines": {
