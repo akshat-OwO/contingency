@@ -3,5 +3,9 @@ import core from "ultracite/oxlint/core";
 
 export default defineConfig({
   extends: [core],
-  ignorePatterns: core.ignorePatterns,
+  ignorePatterns: [
+    ...core.ignorePatterns,
+    "apps/web/src/components/ui/**",
+    "apps/web/src/routeTree.gen.ts",
+  ],
 });

@@ -5,10 +5,11 @@ import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 
 import packageJson from "../package.json" with { type: "json" };
-import { commands } from "./cmds/index.js";
-import { AgentBrowserLive } from "./services/agent-browser.js";
+import { commands } from "./cmds/index";
+import { AgentBrowserLive } from "./services/agent-browser";
+import { UiInterfaceLive } from "./services/ui-interface";
 
-const servicesLayer = AgentBrowserLive.pipe(
+const servicesLayer = Layer.merge(AgentBrowserLive, UiInterfaceLive).pipe(
   Layer.provideMerge(NodeServices.layer)
 );
 
