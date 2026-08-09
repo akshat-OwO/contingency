@@ -14,14 +14,16 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsdown",
-    "dev": "nub watch src/index.ts",
+    "build": "tsdown && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
+    "check-types": "tsc --noEmit",
+    "dev": "nub watch src/index.ts web --no-browser",
     "prepack": "nub run build",
     "test": "nub run build && vitest run"
   },
   "dependencies": {
     "@effect/platform-node": "^4.0.0-beta.106",
-    "effect": "^4.0.0-beta.106"
+    "effect": "^4.0.0-beta.106",
+    "open": "^11.0.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect",

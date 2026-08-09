@@ -5,6 +5,9 @@ export default defineConfig({
     neverBundle: true,
   },
   entry: "src/index.ts",
+  env: {
+    NODE_ENV: "production",
+  },
   fixedExtension: false,
   platform: "node",
   target: "node24",

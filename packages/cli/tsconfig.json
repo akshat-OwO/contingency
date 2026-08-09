@@ -1,12 +1,11 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "target": "es2024",
     "lib": ["es2024"],
     "types": ["node", "@nubjs/types"],
     "moduleDetection": "force",
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
@@ -19,7 +18,7 @@
     "noEmit": true,
 
     "paths": {
-      "@/*": ["./src/*.ts"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]

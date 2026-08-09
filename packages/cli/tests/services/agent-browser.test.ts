@@ -7,8 +7,8 @@ import agentBrowserPackage from "../../assets/agent-browser/package.json" with {
 import {
   AgentBrowser,
   makeAgentBrowserLive,
-} from "../../src/services/agent-browser.ts";
-import type { AgentBrowserRuntime } from "../../src/services/agent-browser.ts";
+} from "../../src/services/agent-browser";
+import type { AgentBrowserRuntime } from "../../src/services/agent-browser";
 
 interface FileSystemCalls {
   readonly chmod: string[];
