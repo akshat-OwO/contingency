@@ -1,29 +1,38 @@
 {
   "name": "contingency",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt .",
+    "check-types": "turbo run check-types",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
   },
   "devDependencies": {
-    "prettier": "^3.7.4",
+    "oxfmt": "0.62.0",
+    "oxlint": "1.77.0",
     "turbo": "^2.10.9",
-    "typescript": "5.9.2"
-  },
-  "engines": {
-    "node": ">=18"
+    "typescript": "5.9.2",
+    "ultracite": "7.10.1"
   },
   "devEngines": {
     "packageManager": {
       "name": "nub",
-      "version": "0.6.0"
+      "version": "^0.7.4",
+      "onFail": "ignore"
     }
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "nub@0.7.4"
 }
