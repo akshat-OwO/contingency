@@ -1,11 +1,12 @@
+#!/usr/bin/env node
+
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 
-import { commands } from "@/cmds/index";
-import { AgentBrowserLive } from "@/services/agent-browser";
-
 import packageJson from "../package.json" with { type: "json" };
+import { commands } from "./cmds/index.js";
+import { AgentBrowserLive } from "./services/agent-browser.js";
 
 const servicesLayer = AgentBrowserLive.pipe(
   Layer.provideMerge(NodeServices.layer)

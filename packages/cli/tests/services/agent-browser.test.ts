@@ -6,8 +6,9 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import agentBrowserPackage from "../../assets/agent-browser/package.json" with { type: "json" };
 import {
   AgentBrowser,
-  AgentBrowserLive,
+  makeAgentBrowserLive,
 } from "../../src/services/agent-browser.ts";
+import type { AgentBrowserRuntime } from "../../src/services/agent-browser.ts";
 
 interface FileSystemCalls {
   readonly chmod: string[];
@@ -25,6 +26,7 @@ interface TestFixture {
 const makeFixture = (options: {
   readonly exitCode?: number;
   readonly markerExists?: boolean;
+  readonly runtime?: AgentBrowserRuntime;
 }): TestFixture => {
   const commands: ChildProcess.Command[] = [];
   const fileSystemCalls: FileSystemCalls = {
@@ -86,7 +88,9 @@ const makeFixture = (options: {
   return {
     commands,
     fileSystemCalls,
-    layer: AgentBrowserLive.pipe(Layer.provide(dependencies)),
+    layer: makeAgentBrowserLive(options.runtime).pipe(
+      Layer.provide(dependencies)
+    ),
   };
 };
 
@@ -139,5 +143,26 @@ it.effect("does not write the marker when installation fails", () => {
     expect(error.message).toContain("exited with code 1");
     expect(fixture.fileSystemCalls.makeDirectory).toHaveLength(0);
     expect(fixture.fileSystemCalls.writeFileString).toHaveLength(0);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("skips the unsupported Chrome download on Linux ARM64", () => {
+  const fixture = makeFixture({
+    runtime: {
+      architecture: "arm64",
+      isMusl: false,
+      operatingSystem: "linux",
+    },
+  });
+
+  return Effect.gen(function* handleLinuxArm64() {
+    const agentBrowser = yield* AgentBrowser;
+    yield* agentBrowser.init();
+
+    expect(fixture.commands).toHaveLength(0);
+    expect(fixture.fileSystemCalls.exists[1]).toContain(
+      "agent-browser-linux-arm64"
+    );
+    expect(fixture.fileSystemCalls.writeFileString).toHaveLength(1);
   }).pipe(Effect.provide(fixture.layer));
 });

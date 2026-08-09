@@ -1,19 +1,33 @@
 {
   "name": "@contingency/cli",
   "version": "0.0.1",
+  "bin": {
+    "contingency": "./dist/index.js"
+  },
+  "files": [
+    "assets",
+    "dist",
+    "README.md"
+  ],
   "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
+    "build": "tsdown",
     "dev": "nub watch src/index.ts",
-    "test": "vitest run"
+    "prepack": "nub run build",
+    "test": "nub run build && vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "catalog:effect",
-    "effect": "catalog:effect"
+    "@effect/platform-node": "^4.0.0-beta.106",
+    "effect": "^4.0.0-beta.106"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect",
     "@nubjs/types": "catalog:types",
     "@types/node": "catalog:types",
+    "tsdown": "^0.22.14",
     "typescript": "catalog:",
     "vitest": "catalog:effect"
   }
