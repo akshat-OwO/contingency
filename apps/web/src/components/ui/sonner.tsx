@@ -11,12 +11,22 @@ import { useTheme } from "next-themes";
 import { Toaster as Sonner } from "sonner";
 import type { ToasterProps } from "sonner";
 
+const resolveTheme = (
+  theme: string | undefined
+): NonNullable<ToasterProps["theme"]> => {
+  if (theme === "light" || theme === "dark" || theme === "system") {
+    return theme;
+  }
+
+  return "system";
+};
+
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
+  const { theme } = useTheme();
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={resolveTheme(theme)}
       className="toaster group"
       icons={{
         error: <OctagonXIcon className="size-4" />,
