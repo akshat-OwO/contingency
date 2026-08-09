@@ -2,13 +2,10 @@ import { createServer } from "node:http";
 import path from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
-import {
-  HttpRouter,
-  HttpServerResponse,
-  HttpStaticServer,
-} from "effect/unstable/http";
-import { Socket } from "effect/unstable/socket";
+import { Layer } from "effect";
+import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
+
+import { makeRpcRoutes } from "../routes/rpc";
 
 export const resolveWebRoot = (moduleDirectory: string): string =>
   path.basename(moduleDirectory) === "dist"
@@ -19,6 +16,7 @@ const webRoot = resolveWebRoot(import.meta.dirname);
 
 export interface HttpServerOptions {
   readonly allowedOrigins: ReadonlySet<string>;
+  readonly authToken: string;
   readonly host: string;
   readonly port: number;
   readonly serveWebUi: boolean;
@@ -29,39 +27,9 @@ export const isAllowedWebSocketOrigin = (
   allowedOrigins: ReadonlySet<string>
 ): boolean => origin !== undefined && allowedOrigins.has(origin);
 
-const makeWebSocketRoutes = (allowedOrigins: ReadonlySet<string>) =>
-  HttpRouter.add("GET", "/ws", (request) => {
-    const { origin } = request.headers;
-
-    if (!isAllowedWebSocketOrigin(origin, allowedOrigins)) {
-      return Effect.succeed(HttpServerResponse.empty({ status: 403 }));
-    }
-
-    return Effect.gen(function* serveWebSocket() {
-      const socket = yield* request.upgrade;
-      const write = yield* socket.writer;
-
-      yield* socket
-        .runString(() => Effect.void, {
-          onOpen: write(JSON.stringify({ type: "connected" })).pipe(
-            Effect.ignore
-          ),
-        })
-        .pipe(
-          Effect.catchIf(
-            (error): error is Socket.SocketError =>
-              Socket.SocketError.is(error) &&
-              error.reason._tag === "SocketCloseError",
-            () => Effect.void
-          )
-        );
-
-      return HttpServerResponse.empty();
-    });
-  });
-
 export const makeHttpServerLayer = ({
   allowedOrigins,
+  authToken,
   host,
   port,
   serveWebUi,
@@ -72,7 +40,10 @@ export const makeHttpServerLayer = ({
         spa: true,
       })
     : Layer.empty;
-  const routes = Layer.merge(makeWebSocketRoutes(allowedOrigins), webRoutes);
+  const routes = Layer.merge(
+    makeRpcRoutes({ allowedOrigins, authToken }),
+    webRoutes
+  );
 
   return HttpRouter.serve(routes).pipe(
     Layer.provide(

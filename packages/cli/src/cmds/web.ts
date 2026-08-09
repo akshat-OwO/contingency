@@ -1,6 +1,9 @@
+import { randomBytes } from "node:crypto";
+
 import { Config, Console, Effect, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
+import { AgentBrowser } from "../services/agent-browser";
 import { makeHttpServerLayer } from "../services/http-server";
 import { UiInterface } from "../services/ui-interface";
 import { resolveAllowedOrigins, resolveBrowserUrl } from "../services/web-url";
@@ -12,6 +15,7 @@ export const webCommand = Command.make(
   },
   Effect.fnUntraced(function* runWeb({ noBrowser }) {
     const isProduction = process.env.NODE_ENV === "production";
+    const agentBrowser = yield* AgentBrowser;
     const uiInterface = yield* UiInterface;
     const config = yield* Config.all({
       devUrl: Config.string("DEV_URL").pipe(
@@ -25,12 +29,20 @@ export const webCommand = Command.make(
       ...config,
       isProduction,
     });
+    const authToken = randomBytes(32).toString("base64url");
+    const authenticatedBrowserUrl = new URL(browserUrl);
+    authenticatedBrowserUrl.hash = new URLSearchParams({
+      token: authToken,
+    }).toString();
+
+    yield* agentBrowser.init();
 
     return yield* Effect.scoped(
       Effect.gen(function* serveWebInterface() {
         yield* Layer.build(
           makeHttpServerLayer({
             allowedOrigins: resolveAllowedOrigins(browserUrl),
+            authToken,
             host: config.host,
             port: config.port,
             serveWebUi: isProduction,
@@ -38,10 +50,14 @@ export const webCommand = Command.make(
         );
 
         if (noBrowser) {
-          yield* Console.log(`Contingency UI available at ${browserUrl.href}`);
+          yield* Console.log(
+            `Contingency UI available at ${authenticatedBrowserUrl.href}`
+          );
         } else {
-          yield* Console.log(`Opening Contingency UI at ${browserUrl.href}...`);
-          yield* uiInterface.open(browserUrl.href);
+          yield* Console.log(
+            `Opening Contingency UI at ${authenticatedBrowserUrl.href}...`
+          );
+          yield* uiInterface.open(authenticatedBrowserUrl.href);
         }
 
         return yield* Effect.never;

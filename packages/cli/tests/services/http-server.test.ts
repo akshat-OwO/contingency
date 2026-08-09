@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { expect, it } from "@effect/vitest";
 
+import { isValidRpcToken } from "../../src/routes/rpc";
 import {
   isAllowedWebSocketOrigin,
   resolveWebRoot,
@@ -17,6 +18,12 @@ it("accepts only configured WebSocket origins", () => {
     isAllowedWebSocketOrigin("https://malicious.example", allowedOrigins)
   ).toBe(false);
   expect(isAllowedWebSocketOrigin(undefined, allowedOrigins)).toBe(false);
+});
+
+it("requires an exact RPC authentication token", () => {
+  expect(isValidRpcToken("launch-token", "launch-token")).toBe(true);
+  expect(isValidRpcToken("wrong-token", "launch-token")).toBe(false);
+  expect(isValidRpcToken(undefined, "launch-token")).toBe(false);
 });
 
 it("resolves bundled web assets from source modules", () => {

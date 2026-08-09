@@ -27,6 +27,7 @@ const makeFixture = (options: {
   readonly exitCode?: number;
   readonly markerExists?: boolean;
   readonly runtime?: AgentBrowserRuntime;
+  readonly stdout?: (command: ChildProcess.Command) => string;
 }): TestFixture => {
   const commands: ChildProcess.Command[] = [];
   const fileSystemCalls: FileSystemCalls = {
@@ -52,6 +53,7 @@ const makeFixture = (options: {
       Effect.sync(() => {
         fileSystemCalls.makeDirectory.push(target);
       }),
+    makeTempDirectoryScoped: () => Effect.succeed("/tmp/ctg-test"),
     writeFileString: (target, data) =>
       Effect.sync(() => {
         fileSystemCalls.writeFileString.push([target, data]);
@@ -74,7 +76,10 @@ const makeFixture = (options: {
         pid: ChildProcessSpawner.ProcessId(1),
         stderr: Stream.empty,
         stdin: Sink.drain,
-        stdout: Stream.empty,
+        stdout:
+          options.stdout === undefined
+            ? Stream.empty
+            : Stream.make(Buffer.from(options.stdout(command))),
         unref: Effect.succeed(Effect.void),
       });
     })
@@ -165,4 +170,123 @@ it.effect("skips the unsupported Chrome download on Linux ARM64", () => {
     );
     expect(fixture.fileSystemCalls.writeFileString).toHaveLength(1);
   }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("closes every owned session namespace when its scope ends", () => {
+  const fixture = makeFixture({ markerExists: true });
+
+  return Effect.gen(function* verifyScopedSessionCleanup() {
+    const sessionId = yield* AgentBrowser.use((agentBrowser) =>
+      agentBrowser.create("checkout", {
+        deviceScaleFactor: 1,
+        height: 720,
+        width: 1280,
+      })
+    ).pipe(Effect.provide(fixture.layer));
+
+    expect(sessionId).toBe("create-checkout");
+    expect(fixture.commands).toHaveLength(3);
+    const [openCommand, viewportCommand, closeCommand] = fixture.commands;
+    if (
+      openCommand?._tag !== "StandardCommand" ||
+      viewportCommand?._tag !== "StandardCommand" ||
+      closeCommand?._tag !== "StandardCommand"
+    ) {
+      return yield* Effect.die(new Error("Expected standard commands"));
+    }
+
+    const [, namespace] = openCommand.args;
+    expect(namespace).toMatch(/^contingency-/u);
+    expect(openCommand.args).toContain("create-checkout");
+    expect(openCommand.args).toContain("open");
+    expect(viewportCommand.args).toContain("viewport");
+    expect(closeCommand.args).toEqual([
+      "--namespace",
+      namespace,
+      "close",
+      "--all",
+      "--json",
+    ]);
+  });
+});
+
+it.effect(
+  "rejects invalid create session names before starting Chromium",
+  () => {
+    const fixture = makeFixture({ markerExists: true });
+
+    return Effect.gen(function* rejectInvalidSessionName() {
+      const error = yield* AgentBrowser.use((agentBrowser) =>
+        Effect.flip(
+          agentBrowser.create("contains spaces", {
+            deviceScaleFactor: 1,
+            height: 720,
+            width: 1280,
+          })
+        )
+      ).pipe(Effect.provide(fixture.layer));
+
+      expect(error.code).toBe("invalid_session");
+      expect(fixture.commands).toHaveLength(0);
+    });
+  }
+);
+
+it.effect("relaunches a session when its user agent changes", () => {
+  const defaultUserAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.1234.0 Safari/537.36";
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: (command) => {
+      if (command._tag !== "StandardCommand") {
+        return "";
+      }
+      if (command.args.includes("eval")) {
+        return JSON.stringify({
+          data: { result: defaultUserAgent },
+          success: true,
+        });
+      }
+      if (command.args.includes("list")) {
+        return JSON.stringify({
+          data: { sessions: ["create-user-agent"] },
+          success: true,
+        });
+      }
+      return "";
+    },
+  });
+  const viewport = {
+    deviceScaleFactor: 1,
+    height: 720,
+    width: 1280,
+  } as const;
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* verifyUserAgentRelaunch() {
+      const sessionId = yield* agentBrowser.create("user-agent", viewport);
+      yield* agentBrowser.open(
+        sessionId,
+        "https://example.com",
+        viewport,
+        "chrome-windows"
+      );
+      yield* agentBrowser.setUserAgent(
+        sessionId,
+        "https://example.com",
+        viewport,
+        "default"
+      );
+
+      const launchCommands = fixture.commands.filter(
+        (command): command is ChildProcess.StandardCommand =>
+          command._tag === "StandardCommand" &&
+          command.args.includes("--user-agent")
+      );
+      expect(launchCommands).toHaveLength(2);
+      const [chromeWindows, browserDefault] = launchCommands;
+      expect(chromeWindows?.args.join(" ")).toContain("Chrome/151.0.1234.0");
+      expect(browserDefault?.args).toContain(defaultUserAgent);
+    })
+  ).pipe(Effect.provide(fixture.layer));
 });

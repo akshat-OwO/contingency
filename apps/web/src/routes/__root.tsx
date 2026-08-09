@@ -1,11 +1,24 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router";
 
+import { AppNavbar } from "@/components/app-navbar";
+import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const RootLayout = () => (
-  <TooltipProvider>
-    <Outlet />
-  </TooltipProvider>
+  <ThemeProvider
+    attribute="class"
+    defaultTheme="system"
+    disableTransitionOnChange
+    enableSystem
+    storageKey="contingency-theme"
+  >
+    <TooltipProvider>
+      <div className="bg-background text-foreground h-svh overflow-hidden">
+        <AppNavbar />
+        <Outlet />
+      </div>
+    </TooltipProvider>
+  </ThemeProvider>
 );
 
 const NotFound = () => (

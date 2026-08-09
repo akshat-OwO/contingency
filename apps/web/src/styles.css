@@ -11,10 +11,13 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground h-svh overflow-hidden overscroll-none;
   }
   html {
-    @apply font-sans;
+    @apply h-full overflow-hidden overscroll-none font-sans;
+  }
+  #root {
+    @apply h-full overflow-hidden;
   }
 }
 
