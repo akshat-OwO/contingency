@@ -5,7 +5,12 @@ import type {
 } from "@contingency/protocol";
 import { isBrowserRpcError } from "@contingency/protocol";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { LoaderCircleIcon, MonitorIcon, PlusIcon } from "lucide-react";
+import {
+  LoaderCircleIcon,
+  MonitorIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 
@@ -21,6 +26,7 @@ import {
 } from "@/components/ui/combobox";
 import {
   browserSessionAttachMutation,
+  browserSessionCloseMutation,
   browserSessionCreateMutation,
   browserSessionsAtom,
 } from "@/lib/rpc";
@@ -49,12 +55,14 @@ const sessionNameToCreate = (
 };
 
 interface BrowserSessionPickerProps {
-  readonly onSelect: (sessionId: SessionId) => void;
+  readonly onDelete: (sessionId: SessionId) => void;
+  readonly onSelect: (sessionId: SessionId, url: string) => void;
   readonly selectedSessionId: SessionId | undefined;
   readonly viewport: Viewport;
 }
 
 export const BrowserSessionPicker = ({
+  onDelete,
   onSelect,
   selectedSessionId,
   viewport,
@@ -65,6 +73,9 @@ export const BrowserSessionPicker = ({
     mode: "promise",
   });
   const attachSession = useAtomSet(browserSessionAttachMutation, {
+    mode: "promise",
+  });
+  const closeSession = useAtomSet(browserSessionCloseMutation, {
     mode: "promise",
   });
   const [error, setError] = useState<string>();
@@ -104,8 +115,8 @@ export const BrowserSessionPicker = ({
   );
   const loading = sessionsResult._tag === "Initial" || sessionsResult.waiting;
 
-  const completeAction = (sessionId: SessionId) => {
-    onSelect(sessionId);
+  const completeAction = (sessionId: SessionId, url: string) => {
+    onSelect(sessionId, url);
     setOpen(false);
     setQuery("");
     refreshSessions();
@@ -124,21 +135,23 @@ export const BrowserSessionPicker = ({
     setPending(true);
 
     try {
-      const result =
-        action._tag === "create"
-          ? await createSession({
-              payload: {
-                data: { name: action.name, viewport },
-                type: "browser.session.create",
-              },
-            })
-          : await attachSession({
-              payload: {
-                data: { sessionId: action.sessionId },
-                type: "browser.session.attach",
-              },
-            });
-      completeAction(result.data.sessionId);
+      if (action._tag === "create") {
+        const result = await createSession({
+          payload: {
+            data: { name: action.name, viewport },
+            type: "browser.session.create",
+          },
+        });
+        completeAction(result.data.sessionId, "");
+      } else {
+        const result = await attachSession({
+          payload: {
+            data: { sessionId: action.sessionId },
+            type: "browser.session.attach",
+          },
+        });
+        completeAction(result.data.sessionId, result.data.url);
+      }
     } catch (actionError) {
       setError(toErrorMessage(actionError));
     } finally {
@@ -172,94 +185,137 @@ export const BrowserSessionPicker = ({
     await runAction({ _tag: "create", name: createName });
   };
 
+  const deleteSelectedSession = async () => {
+    if (selectedSessionId === undefined || pending) {
+      return;
+    }
+
+    setError(undefined);
+    setPending(true);
+    try {
+      await closeSession({
+        payload: {
+          data: { sessionId: selectedSessionId },
+          type: "browser.session.close",
+        },
+      });
+      onDelete(selectedSessionId);
+      setOpen(false);
+      setQuery("");
+      refreshSessions();
+    } catch (closeError) {
+      setError(toErrorMessage(closeError));
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
-    <Combobox
-      filteredItems={filteredItems}
-      items={items}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        setError(undefined);
-        if (nextOpen) {
-          refreshSessions();
-        } else {
-          setQuery("");
-        }
-      }}
-      onValueChange={selectSession}
-      open={open}
-      value={selectedSessionId ?? null}
-    >
-      <ComboboxTrigger
-        aria-label={
-          selectedSessionId === undefined
-            ? "Choose browser session"
-            : `Browser session: ${selectedSessionId}`
-        }
-        className="max-w-52 shrink-0"
-        disabled={pending}
-        render={<Button size="sm" variant="outline" />}
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Combobox
+        filteredItems={filteredItems}
+        items={items}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          setError(undefined);
+          if (nextOpen) {
+            refreshSessions();
+          } else {
+            setQuery("");
+          }
+        }}
+        onValueChange={selectSession}
+        open={open}
+        value={selectedSessionId ?? null}
       >
-        <MonitorIcon data-icon="inline-start" />
-        <span className="hidden max-w-32 truncate 2xl:inline">
-          {selectedSessionId ?? "Session"}
-        </span>
-      </ComboboxTrigger>
-      <ComboboxContent align="end" className="w-72">
-        <div className="contents" onKeyDownCapture={createOnEnter}>
-          <ComboboxInput
-            autoFocus
-            disabled={pending}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search or create a session..."
-            showTrigger={false}
-            value={query}
-          />
-        </div>
-        <ComboboxList>
-          {loading ? (
-            <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-sm">
-              <LoaderCircleIcon className="size-4 animate-spin" />
-              Loading sessions...
+        <ComboboxTrigger
+          aria-label={
+            selectedSessionId === undefined
+              ? "Choose browser session"
+              : `Browser session: ${selectedSessionId}`
+          }
+          className="max-w-52 shrink-0"
+          disabled={pending}
+          render={<Button size="sm" variant="outline" />}
+        >
+          <MonitorIcon data-icon="inline-start" />
+          <span className="hidden max-w-32 truncate 2xl:inline">
+            {selectedSessionId ?? "Session"}
+          </span>
+        </ComboboxTrigger>
+        <ComboboxContent align="end" className="w-72">
+          <div className="contents" onKeyDownCapture={createOnEnter}>
+            <ComboboxInput
+              autoFocus
+              disabled={pending}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search or create a session..."
+              showTrigger={false}
+              value={query}
+            />
+          </div>
+          <ComboboxList>
+            {loading ? (
+              <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-sm">
+                <LoaderCircleIcon className="size-4 animate-spin" />
+                Loading sessions...
+              </div>
+            ) : null}
+            {loading || sessionsResult._tag !== "Failure" ? null : (
+              <div className="text-destructive px-2 py-3 text-sm">
+                Unable to load browser sessions.
+              </div>
+            )}
+            {loading ? null : (
+              <ComboboxEmpty>No matching sessions.</ComboboxEmpty>
+            )}
+            {loading || createName === undefined ? null : (
+              <ComboboxItem disabled={pending} value={createItemValue}>
+                <PlusIcon />
+                <span className="truncate">Create session “{createName}”</span>
+              </ComboboxItem>
+            )}
+            {loading
+              ? null
+              : visibleSessions.map(({ id }) => (
+                  <ComboboxItem disabled={pending} key={id} value={id}>
+                    <MonitorIcon />
+                    <span className="truncate">{id}</span>
+                  </ComboboxItem>
+                ))}
+          </ComboboxList>
+          {pending ? (
+            <div className="text-muted-foreground flex items-center gap-2 border-t px-2 py-2 text-xs">
+              <LoaderCircleIcon className="size-3 animate-spin" />
+              Updating session...
             </div>
           ) : null}
-          {loading || sessionsResult._tag !== "Failure" ? null : (
-            <div className="text-destructive px-2 py-3 text-sm">
-              Unable to load browser sessions.
-            </div>
+          {error === undefined ? null : (
+            <p
+              className="text-destructive border-t px-2 py-2 text-xs"
+              role="alert"
+            >
+              {error}
+            </p>
           )}
-          {loading ? null : (
-            <ComboboxEmpty>No matching sessions.</ComboboxEmpty>
-          )}
-          {loading || createName === undefined ? null : (
-            <ComboboxItem disabled={pending} value={createItemValue}>
-              <PlusIcon />
-              <span className="truncate">Create session “{createName}”</span>
-            </ComboboxItem>
-          )}
-          {loading
-            ? null
-            : visibleSessions.map(({ id }) => (
-                <ComboboxItem disabled={pending} key={id} value={id}>
-                  <MonitorIcon />
-                  <span className="truncate">{id}</span>
-                </ComboboxItem>
-              ))}
-        </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+      <Button
+        aria-label="Delete current browser session"
+        disabled={selectedSessionId === undefined || pending}
+        onClick={() => {
+          void deleteSelectedSession();
+        }}
+        size="icon-sm"
+        title="Delete current session"
+        variant="ghost"
+      >
         {pending ? (
-          <div className="text-muted-foreground flex items-center gap-2 border-t px-2 py-2 text-xs">
-            <LoaderCircleIcon className="size-3 animate-spin" />
-            Updating session...
-          </div>
-        ) : null}
-        {error === undefined ? null : (
-          <p
-            className="text-destructive border-t px-2 py-2 text-xs"
-            role="alert"
-          >
-            {error}
-          </p>
+          <LoaderCircleIcon className="animate-spin" />
+        ) : (
+          <Trash2Icon />
         )}
-      </ComboboxContent>
-    </Combobox>
+      </Button>
+    </div>
   );
 };

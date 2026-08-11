@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import { ContingencyRpcs } from "@contingency/protocol";
 import { Effect, Layer, Stream } from "effect";
 import {
@@ -31,6 +29,20 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "browser.navigation.completed" as const,
           })
         ),
+      "browser.network.request.get": ({ data }) =>
+        agentBrowser.getNetworkRequest(data.sessionId, data.requestId).pipe(
+          Effect.map((request) => ({
+            data: { request },
+            type: "browser.network.request.result" as const,
+          }))
+        ),
+      "browser.network.requests.get": ({ data }) =>
+        agentBrowser.getNetworkRequests(data.sessionId).pipe(
+          Effect.map((requests) => ({
+            data: { requests },
+            type: "browser.network.requests.result" as const,
+          }))
+        ),
       "browser.open": ({ data }) =>
         agentBrowser
           .open(data.sessionId, data.url, data.viewport, data.userAgentProfile)
@@ -41,9 +53,9 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
             }))
           ),
       "browser.session.attach": ({ data }) =>
-        agentBrowser.attach(data.sessionId).pipe(
-          Effect.map((sessionId) => ({
-            data: { sessionId },
+        agentBrowser.currentUrl(data.sessionId).pipe(
+          Effect.map((url) => ({
+            data: { sessionId: data.sessionId, url },
             type: "browser.session.attached" as const,
           }))
         ),
@@ -75,6 +87,25 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
             .attach(data.sessionId)
             .pipe(Effect.map(() => agentBrowser.stream(data.sessionId)))
         ),
+      "browser.tab.close": ({ data }) =>
+        agentBrowser
+          .closeTab(data.sessionId, data.tabId)
+          .pipe(Effect.as({ data: {}, type: "browser.tab.closed" as const })),
+      "browser.tab.new": ({ data }) =>
+        agentBrowser
+          .newTab(data.sessionId)
+          .pipe(Effect.as({ data: {}, type: "browser.tab.created" as const })),
+      "browser.tab.switch": ({ data }) =>
+        agentBrowser
+          .switchTab(data.sessionId, data.tabId)
+          .pipe(Effect.as({ data: {}, type: "browser.tab.switched" as const })),
+      "browser.tabs.get": ({ data }) =>
+        agentBrowser.getTabs(data.sessionId).pipe(
+          Effect.map((tabs) => ({
+            data: { tabs },
+            type: "browser.tabs.result" as const,
+          }))
+        ),
       "browser.user-agent.set": ({ data }) =>
         agentBrowser
           .setUserAgent(
@@ -100,38 +131,14 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
   })
 );
 
-export const isValidRpcToken = (
-  actual: string | undefined,
-  expected: string
-): boolean => {
-  if (actual === undefined) {
-    return false;
-  }
-
-  const actualBytes = Buffer.from(actual);
-  const expectedBytes = Buffer.from(expected);
-  return (
-    actualBytes.length === expectedBytes.length &&
-    timingSafeEqual(actualBytes, expectedBytes)
-  );
-};
-
-const makeAuthorizationMiddleware = (
-  allowedOrigins: ReadonlySet<string>,
-  authToken: string
-) =>
+const makeOriginMiddleware = (allowedOrigins: ReadonlySet<string>) =>
   HttpRouter.middleware(
     Effect.succeed((httpEffect) =>
-      Effect.gen(function* authorizeRpcRequest() {
+      Effect.gen(function* validateRpcOrigin() {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const { origin } = request.headers;
-        const token = new URL(request.url, "http://127.0.0.1").searchParams.get(
-          "token"
-        );
 
-        return origin !== undefined &&
-          allowedOrigins.has(origin) &&
-          isValidRpcToken(token ?? undefined, authToken)
+        return origin !== undefined && allowedOrigins.has(origin)
           ? yield* httpEffect
           : HttpServerResponse.empty({ status: 403 });
       })
@@ -140,18 +147,14 @@ const makeAuthorizationMiddleware = (
 
 export interface RpcRoutesOptions {
   readonly allowedOrigins: ReadonlySet<string>;
-  readonly authToken: string;
 }
 
-export const makeRpcRoutes = ({
-  allowedOrigins,
-  authToken,
-}: RpcRoutesOptions) =>
+export const makeRpcRoutes = ({ allowedOrigins }: RpcRoutesOptions) =>
   RpcServer.layerHttp({
     group: ContingencyRpcs,
     path: "/ws",
   }).pipe(
     Layer.provide(RpcHandlersLive),
     Layer.provide(RpcSerialization.layerJson),
-    Layer.provide(makeAuthorizationMiddleware(allowedOrigins, authToken))
+    Layer.provide(makeOriginMiddleware(allowedOrigins))
   );

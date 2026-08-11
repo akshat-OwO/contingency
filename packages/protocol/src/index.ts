@@ -266,6 +266,56 @@ export const BrowserSession = Schema.Struct({
 });
 export type BrowserSession = typeof BrowserSession.Type;
 
+export const BrowserTab = Schema.Struct({
+  active: Schema.Boolean,
+  label: Schema.optional(Schema.NullOr(Schema.String)),
+  tabId: Schema.String,
+  title: Schema.String,
+  type: Schema.String,
+  url: Schema.String,
+});
+export type BrowserTab = typeof BrowserTab.Type;
+
+export const BrowserConsoleEntry = Schema.Union([
+  Schema.Struct({
+    level: Schema.String,
+    text: Schema.String,
+    timestamp: Schema.Finite,
+    type: Schema.Literal("console"),
+  }),
+  Schema.Struct({
+    column: Schema.NullOr(Schema.Int),
+    line: Schema.NullOr(Schema.Int),
+    text: Schema.String,
+    timestamp: Schema.Finite,
+    type: Schema.Literal("page_error"),
+  }),
+]);
+export type BrowserConsoleEntry = typeof BrowserConsoleEntry.Type;
+
+export const BrowserNetworkRequest = Schema.Struct({
+  headers: Schema.Unknown,
+  method: Schema.String,
+  mimeType: Schema.optional(Schema.String),
+  postData: Schema.optional(Schema.String),
+  requestId: Schema.String,
+  resourceType: Schema.String,
+  responseHeaders: Schema.optional(Schema.Unknown),
+  status: Schema.optional(Schema.Int),
+  timestamp: Schema.Int,
+  url: Schema.String,
+});
+export type BrowserNetworkRequest = typeof BrowserNetworkRequest.Type;
+
+export const BrowserNetworkRequestDetail = Schema.Struct({
+  ...BrowserNetworkRequest.fields,
+  initiator: Schema.optional(Schema.Unknown),
+  responseBody: Schema.optional(Schema.String),
+  timing: Schema.optional(Schema.Unknown),
+});
+export type BrowserNetworkRequestDetail =
+  typeof BrowserNetworkRequestDetail.Type;
+
 export const MouseButton = Schema.Literals([
   "none",
   "left",
@@ -300,6 +350,7 @@ export const KeyboardInput = Schema.Struct({
   modifiers: Schema.optional(Schema.Int),
   text: Schema.optional(Schema.String),
   type: Schema.Literal("input_keyboard"),
+  windowsVirtualKeyCode: Schema.optional(Schema.Int),
 });
 export type KeyboardInput = typeof KeyboardInput.Type;
 
@@ -333,6 +384,12 @@ export const BrowserStreamEvent = Schema.Union([
     timestamp: Schema.optional(Schema.Finite),
     type: Schema.Literal("url"),
     url: Schema.String,
+  }),
+  BrowserConsoleEntry,
+  Schema.Struct({
+    tabs: Schema.Array(BrowserTab),
+    timestamp: Schema.Finite,
+    type: Schema.Literal("tabs"),
   }),
 ]);
 export type BrowserStreamEvent = typeof BrowserStreamEvent.Type;
@@ -369,6 +426,18 @@ export const BrandId = Schema.Literals([
   "browser.input.sent",
   "browser.frame.ack",
   "browser.frame.acked",
+  "browser.tabs.get",
+  "browser.tabs.result",
+  "browser.tab.new",
+  "browser.tab.created",
+  "browser.tab.switch",
+  "browser.tab.switched",
+  "browser.tab.close",
+  "browser.tab.closed",
+  "browser.network.requests.get",
+  "browser.network.requests.result",
+  "browser.network.request.get",
+  "browser.network.request.result",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -390,6 +459,7 @@ export const BrowserSessionAttach = request("browser.session.attach", {
 });
 export const BrowserSessionAttached = response("browser.session.attached", {
   sessionId: SessionId,
+  url: Schema.String,
 });
 
 export const BrowserSessionClose = request("browser.session.close", {
@@ -452,6 +522,48 @@ export const BrowserFrameAck = request("browser.frame.ack", {
 });
 export const BrowserFrameAcked = response("browser.frame.acked", {});
 
+export const BrowserTabsGet = request("browser.tabs.get", {
+  sessionId: SessionId,
+});
+export const BrowserTabsResult = response("browser.tabs.result", {
+  tabs: Schema.Array(BrowserTab),
+});
+
+export const BrowserTabNew = request("browser.tab.new", {
+  sessionId: SessionId,
+});
+export const BrowserTabCreated = response("browser.tab.created", {});
+
+export const BrowserTabSwitch = request("browser.tab.switch", {
+  sessionId: SessionId,
+  tabId: Schema.String,
+});
+export const BrowserTabSwitched = response("browser.tab.switched", {});
+
+export const BrowserTabClose = request("browser.tab.close", {
+  sessionId: SessionId,
+  tabId: Schema.String,
+});
+export const BrowserTabClosed = response("browser.tab.closed", {});
+
+export const BrowserNetworkRequestsGet = request(
+  "browser.network.requests.get",
+  { sessionId: SessionId }
+);
+export const BrowserNetworkRequestsResult = response(
+  "browser.network.requests.result",
+  { requests: Schema.Array(BrowserNetworkRequest) }
+);
+
+export const BrowserNetworkRequestGet = request("browser.network.request.get", {
+  requestId: Schema.String,
+  sessionId: SessionId,
+});
+export const BrowserNetworkRequestResult = response(
+  "browser.network.request.result",
+  { request: BrowserNetworkRequestDetail }
+);
+
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
   payload: BrowserSessionsGet,
@@ -508,6 +620,36 @@ const BrowserFrameAckRpc = Rpc.make("browser.frame.ack", {
   payload: BrowserFrameAck,
   success: BrowserFrameAcked,
 });
+const BrowserTabsGetRpc = Rpc.make("browser.tabs.get", {
+  error: BrowserRpcError,
+  payload: BrowserTabsGet,
+  success: BrowserTabsResult,
+});
+const BrowserTabNewRpc = Rpc.make("browser.tab.new", {
+  error: BrowserRpcError,
+  payload: BrowserTabNew,
+  success: BrowserTabCreated,
+});
+const BrowserTabSwitchRpc = Rpc.make("browser.tab.switch", {
+  error: BrowserRpcError,
+  payload: BrowserTabSwitch,
+  success: BrowserTabSwitched,
+});
+const BrowserTabCloseRpc = Rpc.make("browser.tab.close", {
+  error: BrowserRpcError,
+  payload: BrowserTabClose,
+  success: BrowserTabClosed,
+});
+const BrowserNetworkRequestsGetRpc = Rpc.make("browser.network.requests.get", {
+  error: BrowserRpcError,
+  payload: BrowserNetworkRequestsGet,
+  success: BrowserNetworkRequestsResult,
+});
+const BrowserNetworkRequestGetRpc = Rpc.make("browser.network.request.get", {
+  error: BrowserRpcError,
+  payload: BrowserNetworkRequestGet,
+  success: BrowserNetworkRequestResult,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -520,5 +662,11 @@ export class ContingencyRpcs extends RpcGroup.make(
   BrowserUserAgentSetRpc,
   BrowserStreamSubscribeRpc,
   BrowserInputSendRpc,
-  BrowserFrameAckRpc
+  BrowserFrameAckRpc,
+  BrowserTabsGetRpc,
+  BrowserTabNewRpc,
+  BrowserTabSwitchRpc,
+  BrowserTabCloseRpc,
+  BrowserNetworkRequestsGetRpc,
+  BrowserNetworkRequestGetRpc
 ) {}

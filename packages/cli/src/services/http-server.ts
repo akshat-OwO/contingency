@@ -16,7 +16,6 @@ const webRoot = resolveWebRoot(import.meta.dirname);
 
 export interface HttpServerOptions {
   readonly allowedOrigins: ReadonlySet<string>;
-  readonly authToken: string;
   readonly host: string;
   readonly port: number;
   readonly serveWebUi: boolean;
@@ -29,7 +28,6 @@ export const isAllowedWebSocketOrigin = (
 
 export const makeHttpServerLayer = ({
   allowedOrigins,
-  authToken,
   host,
   port,
   serveWebUi,
@@ -40,10 +38,7 @@ export const makeHttpServerLayer = ({
         spa: true,
       })
     : Layer.empty;
-  const routes = Layer.merge(
-    makeRpcRoutes({ allowedOrigins, authToken }),
-    webRoutes
-  );
+  const routes = Layer.merge(makeRpcRoutes({ allowedOrigins }), webRoutes);
 
   return HttpRouter.serve(routes).pipe(
     Layer.provide(

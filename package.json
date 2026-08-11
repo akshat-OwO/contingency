@@ -33,7 +33,7 @@
     "check-types": "turbo run check-types",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "doctor": "npx react-doctor@latest"
+    "doctor": "nubx react-doctor@latest"
   },
   "devDependencies": {
     "oxfmt": "0.62.0",

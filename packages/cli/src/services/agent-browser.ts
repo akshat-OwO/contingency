@@ -11,8 +11,11 @@ import {
 } from "@contingency/protocol";
 import type {
   BrowserInput,
+  BrowserNetworkRequest,
+  BrowserNetworkRequestDetail,
   BrowserRpcErrorType,
   BrowserStreamEvent,
+  BrowserTab,
   SessionId,
   UserAgentProfileId,
   Viewport,
@@ -48,6 +51,8 @@ const getAgentBrowserAssetsDirectory = (): string => {
 
 const AGENT_BROWSER_ASSETS_DIRECTORY = getAgentBrowserAssetsDirectory();
 const INSTALL_MARKER = `agent-browser-${agentBrowserPackage.version}.installed`;
+// Match the protocol's maximum viewport so agent-browser never downsamples a frame.
+const MAX_STREAM_DIMENSION = "10000";
 
 class AgentBrowserSetupError extends Data.TaggedError(
   "AgentBrowserSetupError"
@@ -75,10 +80,26 @@ export interface AgentBrowser {
     viewport: Viewport
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly init: () => Effect.Effect<void, AgentBrowserInitError>;
+  readonly currentUrl: (
+    sessionId: SessionId
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  readonly getNetworkRequests: (
+    sessionId: SessionId
+  ) => Effect.Effect<readonly BrowserNetworkRequest[], BrowserRpcErrorType>;
+  readonly getNetworkRequest: (
+    sessionId: SessionId,
+    requestId: string
+  ) => Effect.Effect<BrowserNetworkRequestDetail, BrowserRpcErrorType>;
+  readonly getTabs: (
+    sessionId: SessionId
+  ) => Effect.Effect<readonly BrowserTab[], BrowserRpcErrorType>;
   readonly list: () => Effect.Effect<readonly SessionId[], BrowserRpcErrorType>;
   readonly navigate: (
     sessionId: SessionId,
     action: "back" | "forward" | "reload"
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  readonly newTab: (
+    sessionId: SessionId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly open: (
     sessionId: SessionId | undefined,
@@ -96,6 +117,14 @@ export interface AgentBrowser {
   readonly stream: (
     sessionId: SessionId
   ) => Stream.Stream<BrowserStreamEvent, BrowserRpcErrorType>;
+  readonly switchTab: (
+    sessionId: SessionId,
+    tabId: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  readonly closeTab: (
+    sessionId: SessionId,
+    tabId: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly setViewport: (
     sessionId: SessionId,
     viewport: Viewport
@@ -218,8 +247,58 @@ const EvalStringResult = AgentBrowserJsonResult(
   Schema.Struct({ result: Schema.String })
 );
 
+const CurrentUrlResult = AgentBrowserJsonResult(
+  Schema.Struct({ url: Schema.String })
+);
+
+const BrowserTabSchema = Schema.Struct({
+  active: Schema.Boolean,
+  label: Schema.optional(Schema.NullOr(Schema.String)),
+  tabId: Schema.String,
+  title: Schema.String,
+  type: Schema.String,
+  url: Schema.String,
+});
+
+const BrowserTabsResult = AgentBrowserJsonResult(
+  Schema.Struct({ tabs: Schema.Array(BrowserTabSchema) })
+);
+
+const BrowserNetworkRequestSchema = Schema.Struct({
+  headers: Schema.Unknown,
+  method: Schema.String,
+  mimeType: Schema.optional(Schema.String),
+  postData: Schema.optional(Schema.String),
+  requestId: Schema.String,
+  resourceType: Schema.String,
+  responseHeaders: Schema.optional(Schema.Unknown),
+  status: Schema.optional(Schema.Int),
+  timestamp: Schema.Int,
+  url: Schema.String,
+});
+
+const BrowserNetworkRequestsResult = AgentBrowserJsonResult(
+  Schema.Struct({ requests: Schema.Array(BrowserNetworkRequestSchema) })
+);
+
+const BrowserNetworkRequestDetailResult = AgentBrowserJsonResult(
+  Schema.Struct({
+    ...BrowserNetworkRequestSchema.fields,
+    initiator: Schema.optional(Schema.Unknown),
+    responseBody: Schema.optional(Schema.String),
+    timing: Schema.optional(Schema.Unknown),
+  })
+);
+
 const StreamMessageEnvelope = Schema.Struct({ type: Schema.String });
-const relayedStreamMessageTypes = new Set(["frame", "status", "url"]);
+const relayedStreamMessageTypes = new Set([
+  "console",
+  "frame",
+  "page_error",
+  "status",
+  "tabs",
+  "url",
+]);
 
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
@@ -296,7 +375,12 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         )
       );
       const command = ChildProcess.make(binaryPath, [...args], {
-        env: { AGENT_BROWSER_SOCKET_DIR: socketDirectory },
+        env: {
+          AGENT_BROWSER_SOCKET_DIR: socketDirectory,
+          AGENT_BROWSER_STREAM_MAX_HEIGHT: MAX_STREAM_DIMENSION,
+          AGENT_BROWSER_STREAM_MAX_WIDTH: MAX_STREAM_DIMENSION,
+          AGENT_BROWSER_STREAM_QUALITY: "100",
+        },
         extendEnv: true,
         stderr: "pipe",
         stdout: "pipe",
@@ -487,6 +571,73 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       return sessionId;
     });
 
+    const currentUrl = Effect.fn("AgentBrowser.currentUrl")(
+      function* currentUrl(sessionId: SessionId) {
+        yield* attach(sessionId);
+        const result = yield* runJson(
+          sessionArgs(sessionId, ["get", "url"]),
+          CurrentUrlResult
+        );
+        return result.data.url;
+      }
+    );
+
+    const getTabs = Effect.fn("AgentBrowser.getTabs")(function* getTabs(
+      sessionId: SessionId
+    ) {
+      yield* attach(sessionId);
+      const result = yield* runJson(
+        sessionArgs(sessionId, ["tab"]),
+        BrowserTabsResult
+      );
+      return result.data.tabs;
+    });
+
+    const newTab = Effect.fn("AgentBrowser.newTab")(function* newTab(
+      sessionId: SessionId
+    ) {
+      yield* attach(sessionId);
+      yield* run(sessionArgs(sessionId, ["tab", "new"]));
+    });
+
+    const switchTab = Effect.fn("AgentBrowser.switchTab")(function* switchTab(
+      sessionId: SessionId,
+      tabId: string
+    ) {
+      yield* attach(sessionId);
+      yield* run(sessionArgs(sessionId, ["tab", tabId]));
+    });
+
+    const closeTab = Effect.fn("AgentBrowser.closeTab")(function* closeTab(
+      sessionId: SessionId,
+      tabId: string
+    ) {
+      yield* attach(sessionId);
+      yield* run(sessionArgs(sessionId, ["tab", "close", tabId]));
+    });
+
+    const getNetworkRequests = Effect.fn("AgentBrowser.getNetworkRequests")(
+      function* getNetworkRequests(sessionId: SessionId) {
+        yield* attach(sessionId);
+        const result = yield* runJson(
+          sessionArgs(sessionId, ["network", "requests"]),
+          BrowserNetworkRequestsResult
+        );
+        return result.data.requests;
+      }
+    );
+
+    const getNetworkRequest = Effect.fn("AgentBrowser.getNetworkRequest")(
+      function* getNetworkRequest(sessionId: SessionId, requestId: string) {
+        yield* attach(sessionId);
+        const result = yield* runJson(
+          sessionArgs(sessionId, ["network", "request", requestId]),
+          BrowserNetworkRequestDetailResult
+        );
+        return result.data;
+      }
+    );
+
     const resolveUserAgent = Effect.fn("AgentBrowser.resolveUserAgent")(
       function* resolveUserAgent(
         sessionId: SessionId,
@@ -608,9 +759,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
             Stream.callback<BrowserStreamEvent, BrowserRpcErrorType>((queue) =>
               Effect.acquireRelease(
                 Effect.callback<WebSocket, BrowserRpcErrorType>((resume) => {
-                  const socket = new WebSocket(
-                    `ws://127.0.0.1:${port}/?pacing=ack&maxFps=30`
-                  );
+                  const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
                   let opened = false;
 
                   const handleOpen = () => {
@@ -772,15 +921,22 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       acknowledgeFrame,
       attach,
       close,
+      closeTab,
       create,
+      currentUrl,
+      getNetworkRequest,
+      getNetworkRequests,
+      getTabs,
       init,
       list,
       navigate,
+      newTab,
       open,
       sendInput,
       setUserAgent,
       setViewport,
       stream,
+      switchTab,
     });
   });
 

@@ -12,7 +12,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const groups = [...new Set(userAgentProfiles.map(({ group }) => group))];
+type UserAgentProfile = (typeof userAgentProfiles)[number];
+
+const userAgentGroups: {
+  readonly group: string;
+  readonly profiles: UserAgentProfile[];
+}[] = [];
+
+for (const profile of userAgentProfiles) {
+  const existingGroup = userAgentGroups.find(
+    ({ group }) => group === profile.group
+  );
+  if (existingGroup === undefined) {
+    userAgentGroups.push({ group: profile.group, profiles: [profile] });
+  } else {
+    existingGroup.profiles.push(profile);
+  }
+}
 
 interface UserAgentPickerProps {
   readonly disabled: boolean;
@@ -45,16 +61,14 @@ const UserAgentPicker = ({
         <SelectValue>{selectedProfile?.label ?? "Browser default"}</SelectValue>
       </SelectTrigger>
       <SelectContent align="start" className="w-80">
-        {groups.map((group) => (
+        {userAgentGroups.map(({ group, profiles }) => (
           <SelectGroup key={group}>
             <SelectLabel>{group}</SelectLabel>
-            {userAgentProfiles
-              .filter((profile) => profile.group === group)
-              .map((profile) => (
-                <SelectItem key={profile.id} value={profile.id}>
-                  {profile.label}
-                </SelectItem>
-              ))}
+            {profiles.map((profile) => (
+              <SelectItem key={profile.id} value={profile.id}>
+                {profile.label}
+              </SelectItem>
+            ))}
           </SelectGroup>
         ))}
       </SelectContent>

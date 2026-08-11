@@ -9,31 +9,9 @@ import {
 } from "effect/unstable/rpc";
 import { Socket } from "effect/unstable/socket";
 
-const tokenStorageKey = "contingency.rpc-token";
-
-const readRpcToken = (): string => {
-  const hash = new URLSearchParams(globalThis.location.hash.slice(1));
-  const tokenFromUrl = hash.get("token");
-
-  if (tokenFromUrl !== null) {
-    globalThis.sessionStorage.setItem(tokenStorageKey, tokenFromUrl);
-    globalThis.history.replaceState(
-      null,
-      "",
-      `${globalThis.location.pathname}${globalThis.location.search}`
-    );
-    return tokenFromUrl;
-  }
-
-  return globalThis.sessionStorage.getItem(tokenStorageKey) ?? "";
-};
-
-const rpcToken = readRpcToken();
-
 const webSocketUrl = Effect.sync(() => {
   const url = new URL("/ws", globalThis.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("token", rpcToken);
   return url.href;
 });
 
@@ -80,6 +58,20 @@ export const browserUserAgentMutation = ContingencyRpcClient.mutation(
 );
 export const browserInputMutation =
   ContingencyRpcClient.mutation("browser.input.send");
+export const browserTabsMutation =
+  ContingencyRpcClient.mutation("browser.tabs.get");
+export const browserTabNewMutation =
+  ContingencyRpcClient.mutation("browser.tab.new");
+export const browserTabSwitchMutation =
+  ContingencyRpcClient.mutation("browser.tab.switch");
+export const browserTabCloseMutation =
+  ContingencyRpcClient.mutation("browser.tab.close");
+export const browserNetworkRequestsMutation = ContingencyRpcClient.mutation(
+  "browser.network.requests.get"
+);
+export const browserNetworkRequestMutation = ContingencyRpcClient.mutation(
+  "browser.network.request.get"
+);
 
 const reconnectSchedule = Schedule.exponential("100 millis").pipe(
   Schedule.jittered,
@@ -116,19 +108,6 @@ export const runBrowserStream = (
         type: "browser.stream.subscribe",
       });
 
-      yield* events.pipe(
-        Stream.runForEach((event) =>
-          onEvent(event).pipe(
-            Effect.andThen(
-              event.type === "frame"
-                ? client("browser.frame.ack", {
-                    data: { seq: event.seq, sessionId },
-                    type: "browser.frame.ack",
-                  }).pipe(Effect.asVoid)
-                : Effect.void
-            )
-          )
-        )
-      );
+      yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
     })
   ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));

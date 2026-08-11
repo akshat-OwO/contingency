@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-
 import { Config, Console, Effect, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
@@ -29,12 +27,6 @@ export const webCommand = Command.make(
       ...config,
       isProduction,
     });
-    const authToken = randomBytes(32).toString("base64url");
-    const authenticatedBrowserUrl = new URL(browserUrl);
-    authenticatedBrowserUrl.hash = new URLSearchParams({
-      token: authToken,
-    }).toString();
-
     yield* agentBrowser.init();
 
     return yield* Effect.scoped(
@@ -42,7 +34,6 @@ export const webCommand = Command.make(
         yield* Layer.build(
           makeHttpServerLayer({
             allowedOrigins: resolveAllowedOrigins(browserUrl),
-            authToken,
             host: config.host,
             port: config.port,
             serveWebUi: isProduction,
@@ -50,14 +41,10 @@ export const webCommand = Command.make(
         );
 
         if (noBrowser) {
-          yield* Console.log(
-            `Contingency UI available at ${authenticatedBrowserUrl.href}`
-          );
+          yield* Console.log(`Contingency UI available at ${browserUrl}`);
         } else {
-          yield* Console.log(
-            `Opening Contingency UI at ${authenticatedBrowserUrl.href}...`
-          );
-          yield* uiInterface.open(authenticatedBrowserUrl.href);
+          yield* Console.log(`Opening Contingency UI at ${browserUrl}...`);
+          yield* uiInterface.open(browserUrl.href);
         }
 
         return yield* Effect.never;

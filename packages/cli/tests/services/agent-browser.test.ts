@@ -196,6 +196,12 @@ it.effect("closes every owned session namespace when its scope ends", () => {
     }
 
     const [, namespace] = openCommand.args;
+    expect(openCommand.options.env).toMatchObject({
+      AGENT_BROWSER_SOCKET_DIR: "/tmp/ctg-test",
+      AGENT_BROWSER_STREAM_MAX_HEIGHT: "10000",
+      AGENT_BROWSER_STREAM_MAX_WIDTH: "10000",
+      AGENT_BROWSER_STREAM_QUALITY: "100",
+    });
     expect(namespace).toMatch(/^contingency-/u);
     expect(openCommand.args).toContain("create-checkout");
     expect(openCommand.args).toContain("open");
