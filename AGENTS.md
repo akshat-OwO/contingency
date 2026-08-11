@@ -22,3 +22,17 @@
 - Await promises, handle errors meaningfully, and remove production `console.log`, `debugger`, and `alert` statements.
 - Keep functions focused, validate external input, avoid `eval()` and unsafe HTML, and do not commit focused or skipped tests.
 - Follow the root Oxlint and Oxfmt output as the source of truth for mechanical style and correctness rules.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (via `gh`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical roles map 1:1 to tracker labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
