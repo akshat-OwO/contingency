@@ -76,13 +76,18 @@ const sessionNameToCreate = (
 };
 
 interface BrowserSessionPickerProps {
+  readonly disabled?: boolean;
   readonly onDelete: (sessionId: SessionId) => void;
   readonly onSelect: (sessionId: SessionId, url: string) => void;
   readonly selectedSessionId: SessionId | undefined;
   readonly viewport: Viewport;
 }
 
+// Session creation, attachment, deletion, filtering, and keyboard interaction
+// share one popover boundary.
+// oxlint-disable-next-line eslint/complexity
 export const BrowserSessionPicker = ({
+  disabled = false,
   onDelete,
   onSelect,
   selectedSessionId,
@@ -278,7 +283,7 @@ export const BrowserSessionPicker = ({
               : `Browser session: ${selectedSessionId}`
           }
           className="max-w-52 shrink-0"
-          disabled={pending}
+          disabled={disabled || pending}
           render={<Button size="sm" variant="outline" />}
         >
           <MonitorIcon data-icon="inline-start" />
@@ -347,7 +352,7 @@ export const BrowserSessionPicker = ({
       </Combobox>
       <Button
         aria-label="Delete current browser session"
-        disabled={selectedSessionId === undefined || pending}
+        disabled={disabled || selectedSessionId === undefined || pending}
         onClick={() => {
           deleteSelectedSession();
         }}

@@ -7,11 +7,17 @@ import { Command } from "effect/unstable/cli";
 import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index";
 import { AgentBrowserLive } from "./services/agent-browser";
+import { RecordingLive } from "./services/cdp-recorder";
 import { UiInterfaceLive } from "./services/ui-interface";
 
-const servicesLayer = Layer.merge(AgentBrowserLive, UiInterfaceLive).pipe(
-  Layer.provideMerge(NodeServices.layer)
+const browserAndRecordingLayer = Layer.merge(
+  AgentBrowserLive,
+  RecordingLive.pipe(Layer.provide(AgentBrowserLive))
 );
+const servicesLayer = Layer.merge(
+  browserAndRecordingLayer,
+  UiInterfaceLive.pipe(Layer.provide(browserAndRecordingLayer))
+).pipe(Layer.provideMerge(NodeServices.layer));
 
 Command.run(commands, { version: packageJson.version }).pipe(
   Effect.provide(servicesLayer),

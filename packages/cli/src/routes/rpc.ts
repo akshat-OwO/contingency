@@ -1,4 +1,4 @@
-import { ContingencyRpcs } from "@contingency/protocol";
+import { ContingencyRpcs, makeBrowserRpcError } from "@contingency/protocol";
 import { Effect, Layer, Stream } from "effect";
 import {
   HttpRouter,
@@ -8,27 +8,73 @@ import {
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { AgentBrowser } from "../services/agent-browser";
+import { Recording } from "../services/recording";
 
-const RpcHandlersLive = ContingencyRpcs.toLayer(
+export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.gen(function* makeRpcHandlers() {
     const agentBrowser = yield* AgentBrowser;
+    const recording = yield* Recording;
 
+    const requireBrowserControl = (sessionId: string, control: string) =>
+      recording
+        .get()
+        .pipe(
+          Effect.flatMap((snapshot) =>
+            snapshot !== null &&
+            snapshot.sessionId === sessionId &&
+            (snapshot.phase === "active" || snapshot.phase === "paused")
+              ? Effect.fail(
+                  makeBrowserRpcError(
+                    "recording_conflict",
+                    `${control} is locked while this Recording is in progress.`
+                  )
+                )
+              : Effect.void
+          )
+        );
+
+    // Handlers stay grouped by browser and Recording lifecycle operations.
+    // oxlint-disable-next-line eslint/sort-keys
     return {
       "browser.frame.ack": ({ data }) =>
         agentBrowser
           .acknowledgeFrame(data.sessionId, data.seq, data.streamId)
           .pipe(Effect.as({ data: {}, type: "browser.frame.acked" as const })),
       "browser.input.send": ({ data }) =>
-        agentBrowser
-          .sendInput(data.sessionId, data.input)
-          .pipe(Effect.as({ data: {}, type: "browser.input.sent" as const })),
+        Effect.gen(function* sendBrowserInput() {
+          const snapshot = yield* recording.get();
+          if (
+            snapshot?.sessionId === data.sessionId &&
+            snapshot.phase === "paused" &&
+            snapshot.captureMode === "ordinary"
+          ) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "recording_conflict",
+                "The browser canvas is read-only while Recording is paused."
+              )
+            );
+          }
+          yield* agentBrowser.sendInput(data.sessionId, data.input);
+          return { data: {}, type: "browser.input.sent" as const };
+        }),
       "browser.navigation.run": ({ data }) =>
-        agentBrowser.navigate(data.sessionId, data.action).pipe(
-          Effect.as({
+        Effect.gen(function* navigateBrowser() {
+          yield* agentBrowser.navigate(data.sessionId, data.action);
+          const snapshot = yield* recording.get();
+          if (
+            snapshot !== null &&
+            snapshot.sessionId === data.sessionId &&
+            snapshot.phase === "active"
+          ) {
+            const url = yield* agentBrowser.currentUrl(data.sessionId);
+            yield* recording.recordNavigation(url);
+          }
+          return {
             data: {},
             type: "browser.navigation.completed" as const,
-          })
-        ),
+          };
+        }),
       "browser.network.request.get": ({ data }) =>
         agentBrowser
           .getNetworkRequest(data.sessionId, data.tabId, data.requestId)
@@ -49,6 +95,19 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
         agentBrowser
           .open(data.sessionId, data.url, data.viewport, data.userAgentProfile)
           .pipe(
+            Effect.tap(({ sessionId, url }) =>
+              recording
+                .get()
+                .pipe(
+                  Effect.flatMap((snapshot) =>
+                    snapshot !== null &&
+                    snapshot.sessionId === sessionId &&
+                    snapshot.phase === "active"
+                      ? recording.recordNavigation(url)
+                      : Effect.void
+                  )
+                )
+            ),
             Effect.map(({ sessionId, url }) => ({
               data: { sessionId, url },
               type: "browser.opened" as const,
@@ -62,11 +121,14 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "browser.session.close": ({ data }) =>
-        agentBrowser
-          .close(data.sessionId)
-          .pipe(
-            Effect.as({ data: {}, type: "browser.session.closed" as const })
-          ),
+        Effect.gen(function* closeBrowserSession() {
+          const snapshot = yield* recording.get();
+          if (snapshot?.sessionId === data.sessionId) {
+            yield* recording.fail("The pinned browser session was closed.");
+          }
+          yield* agentBrowser.close(data.sessionId);
+          return { data: {}, type: "browser.session.closed" as const };
+        }),
       "browser.session.create": ({ data }) =>
         agentBrowser.create(data.name, data.viewport).pipe(
           Effect.map((sessionId) => ({
@@ -90,17 +152,20 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
             .pipe(Effect.map(() => agentBrowser.stream(data.sessionId)))
         ),
       "browser.tab.close": ({ data }) =>
-        agentBrowser
-          .closeTab(data.sessionId, data.tabId)
-          .pipe(Effect.as({ data: {}, type: "browser.tab.closed" as const })),
+        requireBrowserControl(data.sessionId, "Tab changes").pipe(
+          Effect.andThen(agentBrowser.closeTab(data.sessionId, data.tabId)),
+          Effect.as({ data: {}, type: "browser.tab.closed" as const })
+        ),
       "browser.tab.new": ({ data }) =>
-        agentBrowser
-          .newTab(data.sessionId)
-          .pipe(Effect.as({ data: {}, type: "browser.tab.created" as const })),
+        requireBrowserControl(data.sessionId, "Tab changes").pipe(
+          Effect.andThen(agentBrowser.newTab(data.sessionId)),
+          Effect.as({ data: {}, type: "browser.tab.created" as const })
+        ),
       "browser.tab.switch": ({ data }) =>
-        agentBrowser
-          .switchTab(data.sessionId, data.tabId)
-          .pipe(Effect.as({ data: {}, type: "browser.tab.switched" as const })),
+        requireBrowserControl(data.sessionId, "Tab changes").pipe(
+          Effect.andThen(agentBrowser.switchTab(data.sessionId, data.tabId)),
+          Effect.as({ data: {}, type: "browser.tab.switched" as const })
+        ),
       "browser.tabs.get": ({ data }) =>
         agentBrowser.getTabs(data.sessionId).pipe(
           Effect.map((tabs) => ({
@@ -109,25 +174,167 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "browser.user-agent.set": ({ data }) =>
-        agentBrowser
-          .setUserAgent(
-            data.sessionId,
-            data.url,
-            data.viewport,
-            data.userAgentProfile
-          )
-          .pipe(
-            Effect.map(({ url }) => ({
-              data: { url, userAgentProfile: data.userAgentProfile },
-              type: "browser.user-agent.updated" as const,
-            }))
+        requireBrowserControl(data.sessionId, "User agent changes").pipe(
+          Effect.andThen(
+            agentBrowser.setUserAgent(
+              data.sessionId,
+              data.url,
+              data.viewport,
+              data.userAgentProfile
+            )
           ),
+          Effect.map(({ url }) => ({
+            data: { url, userAgentProfile: data.userAgentProfile },
+            type: "browser.user-agent.updated" as const,
+          }))
+        ),
       "browser.viewport.set": ({ data }) =>
-        agentBrowser.setViewport(data.sessionId, data.viewport).pipe(
+        requireBrowserControl(data.sessionId, "Viewport changes").pipe(
+          Effect.andThen(
+            agentBrowser.setViewport(data.sessionId, data.viewport)
+          ),
           Effect.as({
             data: { viewport: data.viewport },
             type: "browser.viewport.updated" as const,
           })
+        ),
+      "recording.capture.cancel": () =>
+        recording.cancelCaptureMode().pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.discard": () =>
+        recording
+          .discard()
+          .pipe(Effect.as({ data: {}, type: "recording.discarded" as const })),
+      "recording.finish": () =>
+        recording.finish().pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.get": () =>
+        recording.get().pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.pause": () =>
+        recording.pause().pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.pre-step.arm": ({ data }) =>
+        recording
+          .armPreStep(
+            data.scope === "flow"
+              ? { type: "flow" }
+              : { stepId: data.stepId ?? "", type: "step" }
+          )
+          .pipe(
+            Effect.map((snapshot) => ({
+              data: { recording: snapshot },
+              type: "recording.result" as const,
+            }))
+          ),
+      "recording.pre-step.condition.arm": ({ data }) =>
+        recording
+          .armPreStepCondition(
+            data.scope === "flow"
+              ? { index: data.index, type: "flow" }
+              : {
+                  index: data.index,
+                  stepId: data.stepId ?? "",
+                  type: "step",
+                }
+          )
+          .pipe(
+            Effect.map((snapshot) => ({
+              data: { recording: snapshot },
+              type: "recording.result" as const,
+            }))
+          ),
+      "recording.resume": () =>
+        recording.resume().pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.start": ({ data }) =>
+        Effect.gen(function* startRecording() {
+          const [initialUrl, tabs] = yield* Effect.all([
+            agentBrowser.currentUrl(data.sessionId),
+            agentBrowser.getTabs(data.sessionId),
+          ]);
+          const activeTab = tabs.find(({ active }) => active);
+          if (activeTab === undefined) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "recording_unavailable",
+                "The browser session has no active tab."
+              )
+            );
+          }
+          const snapshot = yield* recording.start({
+            initialUrl,
+            sessionId: data.sessionId,
+            tabId: activeTab.tabId,
+            title: data.title,
+          });
+          return {
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          };
+        }),
+      "recording.step.audit.set": ({ data }) =>
+        recording.setAudit(data.stepId, data.audit, data.enabled).pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.step.secret.bind": ({ data }) =>
+        recording.bindSecret(data.stepId, data.name).pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.secret.rename": ({ data }) =>
+        recording.renameSecret(data.from, data.name).pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.step.delete": ({ data }) =>
+        recording.deleteStep(data.stepId).pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.step.undo": () =>
+        recording.undoDelete().pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
+        ),
+      "recording.stream.subscribe": () => recording.stream(),
+      "recording.title.update": ({ data }) =>
+        recording.updateTitle(data.title).pipe(
+          Effect.map((snapshot) => ({
+            data: { recording: snapshot },
+            type: "recording.result" as const,
+          }))
         ),
     };
   })

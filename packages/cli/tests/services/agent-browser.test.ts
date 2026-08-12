@@ -481,3 +481,46 @@ it.effect(
     ).pipe(Effect.provide(fixture.layer));
   }
 );
+
+it.effect(
+  "discovers the private CDP endpoint without exposing it in RPC data",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: (command) => {
+        if (command._tag !== "StandardCommand") {
+          return "";
+        }
+        if (command.args.includes("list")) {
+          return JSON.stringify({
+            data: { sessions: ["create-recorder"] },
+            success: true,
+          });
+        }
+        if (command.args.includes("cdp-url")) {
+          return JSON.stringify({
+            data: { cdpUrl: "ws://127.0.0.1:9222/devtools/browser/test" },
+            success: true,
+          });
+        }
+        return "";
+      },
+    });
+
+    return AgentBrowser.use((agentBrowser) =>
+      Effect.gen(function* discoverRecorderEndpoint() {
+        const sessionId =
+          Schema.decodeUnknownSync(SessionId)("create-recorder");
+        const url = yield* agentBrowser.cdpUrl(sessionId);
+
+        expect(url).toBe("ws://127.0.0.1:9222/devtools/browser/test");
+        const command = fixture.commands.find(
+          (candidate) =>
+            candidate._tag === "StandardCommand" &&
+            candidate.args.includes("cdp-url")
+        );
+        expect(command?._tag).toBe("StandardCommand");
+      })
+    ).pipe(Effect.provide(fixture.layer));
+  }
+);

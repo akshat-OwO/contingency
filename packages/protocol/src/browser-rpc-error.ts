@@ -7,6 +7,10 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "session_not_found",
     "agent_browser_failed",
     "stream_failed",
+    "recording_conflict",
+    "recording_invalid",
+    "recording_incomplete",
+    "recording_unavailable",
   ]),
   message: Schema.String,
 });

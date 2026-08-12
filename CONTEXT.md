@@ -18,6 +18,8 @@ Contingency lets companies author and re-run website Flows that check performanc
 
 **Recording**: The in-progress capture session in Create View that produces or updates a Flow when finished. _Avoid_: Flow, Chrome JSON file (as synonyms for the session)
 
+**Secret Variable**: A named sensitive value intentionally omitted from a Recording and supplied to the Runner when a Flow is executed. _Avoid_: environment variable, captured secret, redacted value
+
 **Finding**: One addressable issue produced by an Audit (rule, severity, target, message, and related metadata). _Avoid_: report, violation (as the umbrella term), issue blob
 
 **Replay**: Re-executing a Flow's recorded actions against a live browser, Chrome Recorder–style. Snapshots are not the v1 replay engine. _Avoid_: restore, snapshot replay (for v1 execution)

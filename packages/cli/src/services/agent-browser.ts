@@ -80,6 +80,9 @@ export interface AgentBrowser {
   readonly close: (
     sessionId: SessionId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  readonly cdpUrl: (
+    sessionId: SessionId
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
   readonly create: (
     name: string,
     viewport: Viewport
@@ -265,6 +268,10 @@ const CurrentUrlResult = AgentBrowserJsonResult(
 
 const CurrentTitleResult = AgentBrowserJsonResult(
   Schema.Struct({ title: Schema.String })
+);
+
+const CdpUrlResult = AgentBrowserJsonResult(
+  Schema.Struct({ cdpUrl: Schema.String })
 );
 
 const BrowserTabSchema = Schema.Struct({
@@ -629,6 +636,17 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         return result.data.url;
       }
     );
+
+    const cdpUrl = Effect.fn("AgentBrowser.cdpUrl")(function* cdpUrl(
+      sessionId: SessionId
+    ) {
+      yield* attach(sessionId);
+      const result = yield* runJson(
+        sessionArgs(sessionId, ["get", "cdp-url"]),
+        CdpUrlResult
+      );
+      return result.data.cdpUrl;
+    });
 
     const getTabs = Effect.fn("AgentBrowser.getTabs")(function* getTabs(
       sessionId: SessionId
@@ -1180,6 +1198,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     return AgentBrowser.of({
       acknowledgeFrame,
       attach,
+      cdpUrl,
       close,
       closeTab,
       create,
