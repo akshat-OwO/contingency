@@ -1,10 +1,10 @@
 import type { RecordingSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { createWorkspaceAtom } from "@/components/create/create-workspace-state";
 
@@ -25,6 +25,9 @@ const makeSnapshot = (
     title: "Checkout",
   },
   initialUrl: "https://example.com/start",
+  ...(phase === "incomplete"
+    ? { incompleteReason: "The original capture connection failed." }
+    : {}),
   phase,
   recordedSteps: [
     {
@@ -73,6 +76,7 @@ vi.mock("@/lib/rpc", () => {
     recordingPauseMutation: mutation("paused"),
     recordingPreStepMutation: mutation("active"),
     recordingPreStepConditionMutation: mutation("active"),
+    recordingRecoverMutation: mutation("active"),
     recordingResumeMutation: mutation("active"),
     recordingSecretBindMutation: mutation("active"),
     recordingSecretRenameMutation: mutation("active"),
@@ -90,6 +94,8 @@ const { InstructionsPanel } =
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+afterEach(cleanup);
 
 test("starts, pauses, and resumes a Recording through accessible controls", async () => {
   const user = userEvent.setup();
@@ -125,5 +131,33 @@ test("starts, pauses, and resumes a Recording through accessible controls", asyn
   await user.click(screen.getByRole("button", { name: "Pause" }));
   expect(await screen.findByText("paused")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Resume" }));
+  expect(await screen.findByText("active")).toBeVisible();
+});
+
+test("reloads an incomplete Recording from a navigation checkpoint", async () => {
+  const user = userEvent.setup();
+  render(
+    <RegistryProvider
+      initialValues={[
+        [
+          createWorkspaceAtom,
+          {
+            activeTabId: "tab-1",
+            address: "https://example.com/start",
+            recording: makeSnapshot("incomplete"),
+            selectedSessionId: "create-checkout",
+          },
+        ],
+      ]}
+    >
+      <InstructionsPanel />
+    </RegistryProvider>
+  );
+
+  expect(screen.getByText("Recording is incomplete")).toBeVisible();
+  expect(
+    screen.getByText(/Actions performed after the failure/u)
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Reload & Resume" }));
   expect(await screen.findByText("active")).toBeVisible();
 });

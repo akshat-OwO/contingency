@@ -150,6 +150,69 @@ it.effect("fails closed when the pinned tab navigates while paused", () => {
   });
 });
 
+it.effect("preserves the first failure reason during recorder cleanup", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* preserveFailureReason() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId: "tab-1",
+      title: "Failure reason",
+    });
+    yield* recording.fail("A replayable selector could not be generated.");
+    yield* recording.fail("Recorder connection closed.");
+    const incomplete = yield* recording.get();
+
+    expect(incomplete?.incompleteReason).toBe(
+      "A replayable selector could not be generated."
+    );
+  });
+});
+
+it.effect("recovers from a deterministic navigation checkpoint", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* recoverRecording() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com/start",
+      sessionId,
+      tabId: "tab-1",
+      title: "Recovery",
+    });
+    yield* capture.emit({
+      offsetX: 2,
+      offsetY: 3,
+      selectors: ["aria/Continue"],
+      type: "click",
+    });
+    yield* recording.fail("The original capture connection failed.");
+
+    const recovered = yield* recording.recover(
+      "https://example.com/checkpoint#private-fragment"
+    );
+
+    expect(recovered.phase).toBe("active");
+    expect(recovered.incompleteReason).toBeUndefined();
+    expect(recovered.recordedSteps).toHaveLength(3);
+    expect(recovered.recordedSteps.at(-1)?.step).toEqual({
+      type: "navigate",
+      url: "https://example.com/checkpoint",
+    });
+
+    yield* capture.emit({
+      offsetX: 4,
+      offsetY: 5,
+      selectors: ["aria/Recovered action"],
+      type: "click",
+    });
+    const active = yield* recording.get();
+    expect(active?.recordedSteps).toHaveLength(4);
+  });
+});
+
 it.effect(
   "authors conditional Pre-steps and Audits on a Step aggregate",
   () => {

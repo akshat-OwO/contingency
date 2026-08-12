@@ -1,5 +1,9 @@
-import { ContingencyRpcs, makeBrowserRpcError } from "@contingency/protocol";
-import { Effect, Layer, Stream } from "effect";
+import {
+  ContingencyRpcs,
+  makeBrowserRpcError,
+  SessionId,
+} from "@contingency/protocol";
+import { Effect, Layer, Schema, Stream } from "effect";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -267,6 +271,48 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "recording.result" as const,
           }))
         ),
+      "recording.recover": () =>
+        Effect.gen(function* recoverRecording() {
+          const snapshot = yield* recording.get();
+          if (snapshot === null || snapshot.phase !== "incomplete") {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "recording_invalid",
+                "Only an incomplete Recording can be recovered."
+              )
+            );
+          }
+          const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(
+            snapshot.sessionId
+          ).pipe(
+            Effect.mapError(() =>
+              makeBrowserRpcError(
+                "recording_unavailable",
+                "The pinned browser session is no longer available."
+              )
+            )
+          );
+          const tabs = yield* agentBrowser.getTabs(sessionId);
+          const pinnedTab = tabs.find(({ tabId }) => tabId === snapshot.tabId);
+          if (pinnedTab === undefined) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "recording_unavailable",
+                "The pinned browser tab is no longer available."
+              )
+            );
+          }
+          if (!pinnedTab.active) {
+            yield* agentBrowser.switchTab(sessionId, snapshot.tabId);
+          }
+          yield* agentBrowser.navigate(sessionId, "reload");
+          const currentUrl = yield* agentBrowser.currentUrl(sessionId);
+          const recovered = yield* recording.recover(currentUrl);
+          return {
+            data: { recording: recovered },
+            type: "recording.result" as const,
+          };
+        }),
       "recording.start": ({ data }) =>
         Effect.gen(function* startRecording() {
           const [initialUrl, tabs] = yield* Effect.all([

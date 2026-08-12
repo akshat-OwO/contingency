@@ -30,6 +30,7 @@ import {
   recordingPauseMutation,
   recordingPreStepConditionMutation,
   recordingPreStepMutation,
+  recordingRecoverMutation,
   recordingResumeMutation,
   recordingSecretBindMutation,
   recordingSecretRenameMutation,
@@ -338,6 +339,7 @@ const InstructionsPanel = () => {
   const start = useAtomSet(recordingStartMutation, { mode: "promise" });
   const pause = useAtomSet(recordingPauseMutation, { mode: "promise" });
   const resume = useAtomSet(recordingResumeMutation, { mode: "promise" });
+  const recover = useAtomSet(recordingRecoverMutation, { mode: "promise" });
   const finish = useAtomSet(recordingFinishMutation, { mode: "promise" });
   const discard = useAtomSet(recordingDiscardMutation, { mode: "promise" });
   const updateTitle = useAtomSet(recordingTitleMutation, { mode: "promise" });
@@ -512,6 +514,26 @@ const InstructionsPanel = () => {
               <p className="text-muted-foreground mt-1 text-xs">
                 {recording.incompleteReason}
               </p>
+              <p className="text-muted-foreground mt-2 text-xs">
+                Reloading restores capture from a navigation checkpoint. Actions
+                performed after the failure are not retained.
+              </p>
+              <Button
+                className="mt-3"
+                disabled={busy}
+                onClick={() => {
+                  void runResult(() =>
+                    recover({
+                      payload: { data: {}, type: "recording.recover" },
+                    })
+                  );
+                }}
+                size="sm"
+                variant="outline"
+              >
+                <RotateCcwIcon />
+                Reload &amp; Resume
+              </Button>
             </div>
           ) : null}
           {error === undefined ? null : (

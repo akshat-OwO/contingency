@@ -479,6 +479,7 @@ export const BrandId = Schema.Literals([
   "recording.start",
   "recording.pause",
   "recording.resume",
+  "recording.recover",
   "recording.finish",
   "recording.discard",
   "recording.discarded",
@@ -630,6 +631,7 @@ export const RecordingStart = request("recording.start", {
 });
 export const RecordingPause = request("recording.pause", {});
 export const RecordingResume = request("recording.resume", {});
+export const RecordingRecover = request("recording.recover", {});
 export const RecordingFinish = request("recording.finish", {});
 export const RecordingDiscard = request("recording.discard", {});
 export const RecordingDiscarded = response("recording.discarded", {});
@@ -777,6 +779,11 @@ const RecordingResumeRpc = Rpc.make("recording.resume", {
   payload: RecordingResume,
   success: RecordingResult,
 });
+const RecordingRecoverRpc = Rpc.make("recording.recover", {
+  error: BrowserRpcError,
+  payload: RecordingRecover,
+  success: RecordingResult,
+});
 const RecordingFinishRpc = Rpc.make("recording.finish", {
   error: BrowserRpcError,
   payload: RecordingFinish,
@@ -864,6 +871,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingStartRpc,
   RecordingPauseRpc,
   RecordingResumeRpc,
+  RecordingRecoverRpc,
   RecordingFinishRpc,
   RecordingDiscardRpc,
   RecordingTitleUpdateRpc,

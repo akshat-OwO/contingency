@@ -89,6 +89,8 @@ export const recordingPauseMutation =
   ContingencyRpcClient.mutation("recording.pause");
 export const recordingResumeMutation =
   ContingencyRpcClient.mutation("recording.resume");
+export const recordingRecoverMutation =
+  ContingencyRpcClient.mutation("recording.recover");
 export const recordingFinishMutation =
   ContingencyRpcClient.mutation("recording.finish");
 export const recordingDiscardMutation =

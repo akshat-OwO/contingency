@@ -96,7 +96,7 @@ interface RecordingState {
   readonly pendingNavigation: boolean;
   readonly revision: number;
   readonly secretVariables: readonly string[];
-  readonly sessionId: string;
+  readonly sessionId: SessionId;
   readonly steps: readonly RecordedStep[];
   readonly stopCapture: Effect.Effect<void>;
   readonly tabId: string;
@@ -145,6 +145,9 @@ export interface RecordingService {
   readonly pause: () => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly recordNavigation: (
     url: string
+  ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
+  readonly recover: (
+    currentUrl: string
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly resume: () => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly renameSecret: (
@@ -478,7 +481,11 @@ export const makeRecordingService = (
     const failUnlocked = (reason: string) =>
       Effect.gen(function* failRecording() {
         const current = yield* Ref.get(stateRef);
-        if (current === null || current.phase === "finished") {
+        if (
+          current === null ||
+          current.phase === "finished" ||
+          current.phase === "incomplete"
+        ) {
           return;
         }
         yield* current.stopCapture;
@@ -1006,6 +1013,54 @@ export const makeRecordingService = (
             Effect.map(toSnapshot)
           );
         }),
+      recover: (currentUrl) =>
+        transitions.withPermit(
+          Effect.gen(function* recoverRecording() {
+            const current = yield* Ref.get(stateRef).pipe(
+              Effect.flatMap(requireState)
+            );
+            if (current.phase !== "incomplete") {
+              return yield* Effect.fail(
+                recordingError(
+                  "recording_invalid",
+                  "Only an incomplete Recording can be recovered."
+                )
+              );
+            }
+            const sanitized = yield* sanitizeUrl(
+              currentUrl,
+              current.secretVariables
+            );
+            const stopCapture = yield* capture.start({
+              onEvent: captureAction,
+              onFailure: fail,
+              sessionId: current.sessionId,
+              tabId: current.tabId,
+            });
+            const checkpoint: RecordedStep = {
+              audits: [],
+              id: randomUUID(),
+              preSteps: [],
+              step: { type: "navigate", url: sanitized.url },
+            };
+            const next = {
+              ...current,
+              captureMode: "ordinary" as const,
+              deletedStep: undefined,
+              incompleteReason: undefined,
+              pendingNavigation: false,
+              phase: "active" as const,
+              revision: current.revision + 1,
+              secretVariables: sanitized.secretVariables,
+              steps: [...current.steps, checkpoint],
+              stopCapture,
+              targetPreStepIndex: undefined,
+              targetStepId: undefined,
+            };
+            yield* setState(next);
+            return toSnapshot(next);
+          })
+        ),
       resume: () =>
         mutate((state) =>
           Effect.gen(function* resumeRecording() {
