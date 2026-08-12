@@ -1,5 +1,6 @@
+import { Geolocation as GeolocationSchema } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Sink, Stream } from "effect";
+import { Effect, FileSystem, Layer, Schema, Sink, Stream } from "effect";
 import type { ChildProcess } from "effect/unstable/process";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -24,7 +25,7 @@ interface TestFixture {
 }
 
 const makeFixture = (options: {
-  readonly exitCode?: number;
+  readonly exitCode?: number | ((command: ChildProcess.Command) => number);
   readonly markerExists?: boolean;
   readonly runtime?: AgentBrowserRuntime;
   readonly stdout?: (command: ChildProcess.Command) => string;
@@ -67,7 +68,11 @@ const makeFixture = (options: {
       return ChildProcessSpawner.makeHandle({
         all: Stream.empty,
         exitCode: Effect.succeed(
-          ChildProcessSpawner.ExitCode(options.exitCode ?? 0)
+          ChildProcessSpawner.ExitCode(
+            typeof options.exitCode === "function"
+              ? options.exitCode(command)
+              : (options.exitCode ?? 0)
+          )
         ),
         getInputFd: () => Sink.drain,
         getOutputFd: () => Stream.empty,
@@ -293,6 +298,304 @@ it.effect("relaunches a session when its user agent changes", () => {
       const [chromeWindows, browserDefault] = launchCommands;
       expect(chromeWindows?.args.join(" ")).toContain("Chrome/151.0.1234.0");
       expect(browserDefault?.args).toContain(defaultUserAgent);
+      expect(
+        fixture.commands.some(
+          (command) =>
+            command._tag === "StandardCommand" && command.args.includes("geo")
+        )
+      ).toBe(false);
     })
   ).pipe(Effect.provide(fixture.layer));
 });
+
+it.effect("applies and remembers geolocation for a session", () => {
+  const fixture = makeFixture({ markerExists: true });
+  const viewport = {
+    deviceScaleFactor: 1,
+    height: 720,
+    width: 1280,
+  } as const;
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* applyGeolocation() {
+      const sessionId = yield* agentBrowser.create("geolocation", viewport);
+      const initialGeolocation = yield* agentBrowser.getGeolocation(sessionId);
+
+      expect(initialGeolocation).toBeNull();
+
+      const geolocation = yield* agentBrowser.setGeolocation(sessionId, {
+        latitude: 12.9716,
+        longitude: 77.5946,
+      });
+
+      expect(geolocation).toEqual({
+        latitude: 12.9716,
+        longitude: 77.5946,
+      });
+      const rememberedGeolocation =
+        yield* agentBrowser.getGeolocation(sessionId);
+      expect(rememberedGeolocation).toEqual(geolocation);
+
+      const replacement = yield* agentBrowser.setGeolocation(sessionId, {
+        latitude: 51.5072,
+        longitude: -0.1276,
+      });
+      const rememberedReplacement =
+        yield* agentBrowser.getGeolocation(sessionId);
+      expect(rememberedReplacement).toEqual(replacement);
+
+      const geolocationCommand = fixture.commands.find(
+        (command): command is ChildProcess.StandardCommand =>
+          command._tag === "StandardCommand" && command.args.includes("geo")
+      );
+      const sessionArgumentIndex =
+        geolocationCommand?.args.indexOf("--session") ?? -1;
+      expect(geolocationCommand?.args.slice(sessionArgumentIndex)).toEqual([
+        "--session",
+        sessionId,
+        "set",
+        "geo",
+        "12.9716",
+        "77.5946",
+        "--json",
+      ]);
+    })
+  ).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("preserves the last geolocation when an update fails", () => {
+  const fixture = makeFixture({
+    exitCode: (command) =>
+      command._tag === "StandardCommand" && command.args.includes("51.5072")
+        ? 1
+        : 0,
+    markerExists: true,
+  });
+  const viewport = {
+    deviceScaleFactor: 1,
+    height: 720,
+    width: 1280,
+  } as const;
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* preserveGeolocation() {
+      const sessionId = yield* agentBrowser.create("geolocation", viewport);
+      const lastSuccessful = yield* agentBrowser.setGeolocation(sessionId, {
+        latitude: 12.9716,
+        longitude: 77.5946,
+      });
+
+      const error = yield* Effect.flip(
+        agentBrowser.setGeolocation(sessionId, {
+          latitude: 51.5072,
+          longitude: -0.1276,
+        })
+      );
+
+      expect(error.code).toBe("agent_browser_failed");
+      const rememberedGeolocation =
+        yield* agentBrowser.getGeolocation(sessionId);
+      expect(rememberedGeolocation).toEqual(lastSuccessful);
+    })
+  ).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reapplies geolocation after changing the user agent", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: (command) => {
+      if (command._tag !== "StandardCommand") {
+        return "";
+      }
+      if (command.args.includes("eval")) {
+        return JSON.stringify({
+          data: {
+            result: "Mozilla/5.0 Chrome/151.0.1234.0 Safari/537.36",
+          },
+          success: true,
+        });
+      }
+      if (command.args.includes("list")) {
+        return JSON.stringify({
+          data: { sessions: ["create-geolocation"] },
+          success: true,
+        });
+      }
+      return "";
+    },
+  });
+  const viewport = {
+    deviceScaleFactor: 1,
+    height: 720,
+    width: 1280,
+  } as const;
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* reapplyGeolocation() {
+      const sessionId = yield* agentBrowser.create("geolocation", viewport);
+      yield* agentBrowser.setGeolocation(sessionId, {
+        latitude: -33.8688,
+        longitude: 151.2093,
+      });
+      yield* agentBrowser.setUserAgent(
+        sessionId,
+        "https://example.com",
+        viewport,
+        "chrome-windows"
+      );
+
+      const geolocationCommands = fixture.commands.filter(
+        (command): command is ChildProcess.StandardCommand =>
+          command._tag === "StandardCommand" && command.args.includes("geo")
+      );
+      expect(geolocationCommands).toHaveLength(2);
+      expect(geolocationCommands[1]?.args).toContain("-33.8688");
+      expect(geolocationCommands[1]?.args).toContain("151.2093");
+    })
+  ).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("forgets geolocation when relaunch reapplication fails", () => {
+  let geolocationCommandCount = 0;
+  const fixture = makeFixture({
+    exitCode: (command) => {
+      if (command._tag !== "StandardCommand" || !command.args.includes("geo")) {
+        return 0;
+      }
+      geolocationCommandCount += 1;
+      return geolocationCommandCount === 2 ? 1 : 0;
+    },
+    markerExists: true,
+    stdout: (command) => {
+      if (command._tag !== "StandardCommand") {
+        return "";
+      }
+      if (command.args.includes("eval")) {
+        return JSON.stringify({
+          data: {
+            result: "Mozilla/5.0 Chrome/151.0.1234.0 Safari/537.36",
+          },
+          success: true,
+        });
+      }
+      if (command.args.includes("list")) {
+        return JSON.stringify({
+          data: { sessions: ["create-geolocation"] },
+          success: true,
+        });
+      }
+      return "";
+    },
+  });
+  const viewport = {
+    deviceScaleFactor: 1,
+    height: 720,
+    width: 1280,
+  } as const;
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* forgetFailedReapplication() {
+      const sessionId = yield* agentBrowser.create("geolocation", viewport);
+      yield* agentBrowser.setGeolocation(sessionId, {
+        latitude: -33.8688,
+        longitude: 151.2093,
+      });
+
+      const error = yield* Effect.flip(
+        agentBrowser.setUserAgent(
+          sessionId,
+          "https://example.com",
+          viewport,
+          "chrome-windows"
+        )
+      );
+
+      expect(error.code).toBe("agent_browser_failed");
+      expect(geolocationCommandCount).toBe(2);
+      expect(yield* agentBrowser.getGeolocation(sessionId)).toBeNull();
+    })
+  ).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("rejects invalid geolocation before invoking agent-browser", () => {
+  const fixture = makeFixture({ markerExists: true });
+  const viewport = {
+    deviceScaleFactor: 1,
+    height: 720,
+    width: 1280,
+  } as const;
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* rejectInvalidGeolocation() {
+      const sessionId = yield* agentBrowser.create("geolocation", viewport);
+      const commandCount = fixture.commands.length;
+
+      const invalidGeolocations = [
+        { latitude: 90.000001, longitude: 77.5946 },
+        { latitude: 0, longitude: 180.000001 },
+        { latitude: Number.NaN, longitude: 0 },
+        { latitude: 0, longitude: Number.POSITIVE_INFINITY },
+      ];
+      for (const geolocation of invalidGeolocations) {
+        const error = yield* Effect.flip(
+          agentBrowser.setGeolocation(sessionId, geolocation)
+        );
+        expect(error.code).toBe("invalid_geolocation");
+      }
+
+      const malformedGeolocations: readonly unknown[] = [
+        { latitude: "12.9716", longitude: 77.5946 },
+        { latitude: 12.9716 },
+      ];
+      for (const geolocation of malformedGeolocations) {
+        yield* Schema.decodeUnknownEffect(GeolocationSchema)(geolocation).pipe(
+          Effect.flip
+        );
+      }
+      expect(fixture.commands).toHaveLength(commandCount);
+    })
+  ).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect(
+  "keeps geolocation isolated by session and forgets closed sessions",
+  () => {
+    const fixture = makeFixture({ markerExists: true });
+    const viewport = {
+      deviceScaleFactor: 1,
+      height: 720,
+      width: 1280,
+    } as const;
+
+    return AgentBrowser.use((agentBrowser) =>
+      Effect.gen(function* isolateGeolocation() {
+        const firstSession = yield* agentBrowser.create("first", viewport);
+        const secondSession = yield* agentBrowser.create("second", viewport);
+        const firstGeolocation = yield* agentBrowser.setGeolocation(
+          firstSession,
+          { latitude: 90, longitude: -180 }
+        );
+        const secondGeolocation = yield* agentBrowser.setGeolocation(
+          secondSession,
+          { latitude: -90, longitude: 180 }
+        );
+        const rememberedFirst =
+          yield* agentBrowser.getGeolocation(firstSession);
+        const rememberedSecond =
+          yield* agentBrowser.getGeolocation(secondSession);
+
+        expect(rememberedFirst).toEqual(firstGeolocation);
+        expect(rememberedSecond).toEqual(secondGeolocation);
+
+        yield* agentBrowser.close(firstSession);
+        const closedGeolocation =
+          yield* agentBrowser.getGeolocation(firstSession);
+        const remainingGeolocation =
+          yield* agentBrowser.getGeolocation(secondSession);
+
+        expect(closedGeolocation).toBeNull();
+        expect(remainingGeolocation).toEqual(secondGeolocation);
+      })
+    ).pipe(Effect.provide(fixture.layer));
+  }
+);

@@ -5,8 +5,8 @@ This describes what exists today for the Create View live browser. Domain langua
 ## Status
 
 | Piece | Status |
-|-------|--------|
-| Live browser session, tabs, viewport, user-agent | Built |
+| --- | --- |
+| Live browser session, tabs, viewport, user-agent, geolocation emulation | Built |
 | Screencast frames to a canvas + pointer/keyboard input | Built |
 | Console / network DevTools panels | Built |
 | Recording → Flow (steps, Pre-steps, Audits) | Not built (instructions panel is stub UI) |
@@ -46,8 +46,14 @@ Contingency does not expose CDP to the web app. CDP stays inside `agent-browser`
 ## Session model
 
 - Session IDs are branded strings matching `create-[A-Za-z0-9][A-Za-z0-9._-]{0,63}`.
-- RPCs cover: list/create/attach/close session, open URL, back/forward/reload, viewport, user-agent profile, tabs, network request inspection, input, stream subscribe, frame ack.
+- RPCs cover: list/create/attach/close session, open URL, back/forward/reload, viewport, user-agent profile, session-wide geolocation emulation, tabs, network request inspection, input, stream subscribe, frame ack.
 - Stream events: `frame` (JPEG payload + metadata), `status` (connected / screencasting / optional `recording` flag unused by UI today), `url`, console / page_error, `tabs`.
+
+## Geolocation emulation
+
+Create View can apply a latitude and longitude to a live browser session through the public `agent-browser set geo` command. The CLI remembers only coordinates that it successfully applied during the current process, reports that known state to attached Create Views, and reapplies it after a user-agent change relaunches the session. The value applies to every tab and origin in the session; closing the session removes the remembered value.
+
+This is coordinate emulation, not website-permission management. It does not grant a page geolocation access. The bundled `agent-browser` has no public command to clear an override, so Create View does not offer an in-place reset; the browser session must be closed. Proper permission and reset controls remain deferred pending a supported upstream interface; track [`agent-browser` issue #1322](https://github.com/vercel-labs/agent-browser/issues/1322).
 
 ## Input and backpressure
 

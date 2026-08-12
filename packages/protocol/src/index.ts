@@ -31,6 +31,16 @@ export const Viewport = Schema.Struct({
 });
 export type Viewport = typeof Viewport.Type;
 
+export const Geolocation = Schema.Struct({
+  latitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 90, minimum: -90 })
+  ),
+  longitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 180, minimum: -180 })
+  ),
+});
+export type Geolocation = typeof Geolocation.Type;
+
 export const UserAgentProfileId = Schema.Literals([
   "default",
   "chrome-android-mobile",
@@ -417,6 +427,10 @@ export const BrandId = Schema.Literals([
   "browser.opened",
   "browser.navigation.run",
   "browser.navigation.completed",
+  "browser.geolocation.get",
+  "browser.geolocation.result",
+  "browser.geolocation.set",
+  "browser.geolocation.updated",
   "browser.viewport.set",
   "browser.viewport.updated",
   "browser.user-agent.set",
@@ -485,6 +499,22 @@ export const BrowserNavigationRun = request("browser.navigation.run", {
 export const BrowserNavigationCompleted = response(
   "browser.navigation.completed",
   {}
+);
+
+export const BrowserGeolocationGet = request("browser.geolocation.get", {
+  sessionId: SessionId,
+});
+export const BrowserGeolocationResult = response("browser.geolocation.result", {
+  geolocation: Schema.NullOr(Geolocation),
+});
+
+export const BrowserGeolocationSet = request("browser.geolocation.set", {
+  geolocation: Geolocation,
+  sessionId: SessionId,
+});
+export const BrowserGeolocationUpdated = response(
+  "browser.geolocation.updated",
+  { geolocation: Geolocation }
 );
 
 export const BrowserViewportSet = request("browser.viewport.set", {
@@ -594,6 +624,16 @@ const BrowserNavigationRunRpc = Rpc.make("browser.navigation.run", {
   payload: BrowserNavigationRun,
   success: BrowserNavigationCompleted,
 });
+const BrowserGeolocationGetRpc = Rpc.make("browser.geolocation.get", {
+  error: BrowserRpcError,
+  payload: BrowserGeolocationGet,
+  success: BrowserGeolocationResult,
+});
+const BrowserGeolocationSetRpc = Rpc.make("browser.geolocation.set", {
+  error: BrowserRpcError,
+  payload: BrowserGeolocationSet,
+  success: BrowserGeolocationUpdated,
+});
 const BrowserViewportSetRpc = Rpc.make("browser.viewport.set", {
   error: BrowserRpcError,
   payload: BrowserViewportSet,
@@ -658,6 +698,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionCloseRpc,
   BrowserOpenRpc,
   BrowserNavigationRunRpc,
+  BrowserGeolocationGetRpc,
+  BrowserGeolocationSetRpc,
   BrowserViewportSetRpc,
   BrowserUserAgentSetRpc,
   BrowserStreamSubscribeRpc,

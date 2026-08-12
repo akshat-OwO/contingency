@@ -18,6 +18,20 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
         agentBrowser
           .acknowledgeFrame(data.sessionId, data.seq)
           .pipe(Effect.as({ data: {}, type: "browser.frame.acked" as const })),
+      "browser.geolocation.get": ({ data }) =>
+        agentBrowser.getGeolocation(data.sessionId).pipe(
+          Effect.map((geolocation) => ({
+            data: { geolocation },
+            type: "browser.geolocation.result" as const,
+          }))
+        ),
+      "browser.geolocation.set": ({ data }) =>
+        agentBrowser.setGeolocation(data.sessionId, data.geolocation).pipe(
+          Effect.map((geolocation) => ({
+            data: { geolocation },
+            type: "browser.geolocation.updated" as const,
+          }))
+        ),
       "browser.input.send": ({ data }) =>
         agentBrowser
           .sendInput(data.sessionId, data.input)

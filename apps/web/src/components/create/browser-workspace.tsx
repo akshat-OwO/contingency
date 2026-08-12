@@ -3,6 +3,7 @@ import type {
   BrowserInput,
   BrowserStreamEvent,
   BrowserTab,
+  Geolocation,
   MouseButton,
   SessionId,
   UserAgentProfileId,
@@ -36,6 +37,7 @@ import {
   removeSessionDevtools,
 } from "@/components/create/browser-devtools-state";
 import { BrowserSessionPicker } from "@/components/create/browser-session-picker";
+import { GeolocationPicker } from "@/components/create/geolocation-picker";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,6 +69,8 @@ import {
 } from "@/components/ui/select";
 import {
   browserInputMutation,
+  browserGeolocationGetMutation,
+  browserGeolocationMutation,
   browserNetworkRequestsMutation,
   browserNavigationMutation,
   browserOpenMutation,
@@ -83,6 +87,9 @@ const RESPONSIVE_PRESET_ID = "responsive";
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
 const userAgentProfileAtom = Atom.make<UserAgentProfileId>("default");
 const browserTabsAtom = Atom.make<readonly BrowserTab[]>([]);
+const sessionGeolocationsAtom = Atom.make<ReadonlyMap<SessionId, Geolocation>>(
+  new Map()
+);
 
 const keyboardKeyInfo: Readonly<
   Record<string, { readonly keyCode: number; readonly text?: string }>
@@ -341,11 +348,20 @@ const useBrowserWorkspace = () => {
   const [refreshingNetwork, setRefreshingNetwork] = useState(false);
   const [presetId, setPresetId] = useState(RESPONSIVE_PRESET_ID);
   const [selectedSessionId, setSelectedSessionId] = useState<SessionId>();
+  const [sessionGeolocations, setSessionGeolocations] = useAtom(
+    sessionGeolocationsAtom
+  );
   const [streamConnected, setStreamConnected] = useState(false);
   const [tabs, setTabs] = useAtom(browserTabsAtom);
   const [width, setWidth] = useState("1280");
   const [userAgentProfile, setUserAgentProfile] = useAtom(userAgentProfileAtom);
   const openBrowser = useAtomSet(browserOpenMutation, { mode: "promise" });
+  const getBrowserGeolocation = useAtomSet(browserGeolocationGetMutation, {
+    mode: "promise",
+  });
+  const updateBrowserGeolocation = useAtomSet(browserGeolocationMutation, {
+    mode: "promise",
+  });
   const runNavigation = useAtomSet(browserNavigationMutation, {
     mode: "promise",
   });
@@ -370,6 +386,10 @@ const useBrowserWorkspace = () => {
     mode: "promise",
   });
   const selectedPresetName = presetName(presetId);
+  const geolocation =
+    selectedSessionId === undefined
+      ? null
+      : (sessionGeolocations.get(selectedSessionId) ?? null);
   const activeTab = tabs.find(({ active }) => active);
   const visibleDevtools = devtoolsContext(
     devtoolsOpen,
@@ -392,6 +412,44 @@ const useBrowserWorkspace = () => {
     activeTabIdRef.current = null;
     setTabs([]);
   }, [selectedSessionId, setTabs]);
+
+  useEffect(() => {
+    if (selectedSessionId === undefined) {
+      return;
+    }
+
+    let cancelled = false;
+    const synchronizeGeolocation = async () => {
+      try {
+        const result = await getBrowserGeolocation({
+          payload: {
+            data: { sessionId: selectedSessionId },
+            type: "browser.geolocation.get",
+          },
+        });
+        if (!cancelled) {
+          setSessionGeolocations((knownGeolocations) => {
+            const updated = new Map(knownGeolocations);
+            if (result.data.geolocation === null) {
+              updated.delete(selectedSessionId);
+            } else {
+              updated.set(selectedSessionId, result.data.geolocation);
+            }
+            return updated;
+          });
+        }
+      } catch (geolocationError) {
+        if (!cancelled) {
+          setError(toErrorMessage(geolocationError));
+        }
+      }
+    };
+    void synchronizeGeolocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getBrowserGeolocation, selectedSessionId, setSessionGeolocations]);
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
@@ -787,6 +845,28 @@ const useBrowserWorkspace = () => {
     }
   };
 
+  const applyGeolocation = async (nextGeolocation: Geolocation) => {
+    if (selectedSessionId === undefined) {
+      throw new Error("Choose a browser session before setting a location.");
+    }
+    const result = await updateBrowserGeolocation({
+      payload: {
+        data: {
+          geolocation: nextGeolocation,
+          sessionId: selectedSessionId,
+        },
+        type: "browser.geolocation.set",
+      },
+    });
+    setSessionGeolocations(
+      (knownGeolocations) =>
+        new Map([
+          ...knownGeolocations,
+          [selectedSessionId, result.data.geolocation] as const,
+        ])
+    );
+  };
+
   const navigate = async (action: "back" | "forward" | "reload") => {
     if (selectedSessionId === undefined) {
       return;
@@ -810,6 +890,11 @@ const useBrowserWorkspace = () => {
 
   const deleteSession = (sessionId: SessionId) => {
     setDevtoolsState((state) => removeSessionDevtools(state, sessionId));
+    setSessionGeolocations((knownGeolocations) => {
+      const updated = new Map(knownGeolocations);
+      updated.delete(sessionId);
+      return updated;
+    });
     if (selectedSessionId === sessionId) {
       setAddress("");
       setFrameReady(false);
@@ -1014,6 +1099,7 @@ const useBrowserWorkspace = () => {
     activeTabData,
     address,
     addressEditingRef,
+    applyGeolocation,
     canvasRef,
     closeTab,
     commitViewport,
@@ -1022,6 +1108,7 @@ const useBrowserWorkspace = () => {
     devtoolsOpen,
     error,
     frameReady,
+    geolocation,
     handleKey,
     handlePointerDown,
     handlePointerMove,
@@ -1174,12 +1261,15 @@ const BrowserDeviceToolbar = ({
   readonly controller: BrowserWorkspaceController;
 }) => {
   const {
+    applyGeolocation,
     commitViewport,
     devtoolsOpen,
     height,
+    geolocation,
     opening,
     presetId,
     selectedPresetName,
+    selectedSessionId,
     selectPreset,
     selectUserAgent,
     setDevtoolsOpen,
@@ -1250,6 +1340,12 @@ const BrowserDeviceToolbar = ({
           }
         }}
         value={height}
+      />
+      <GeolocationPicker
+        appliedGeolocation={geolocation}
+        disabled={opening || selectedSessionId === undefined}
+        key={selectedSessionId ?? "no-session"}
+        onApply={applyGeolocation}
       />
       <Button
         aria-label={devtoolsOpen ? "Close DevTools" : "Open DevTools"}

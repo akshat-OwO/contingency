@@ -50,6 +50,12 @@ export const browserOpenMutation =
 export const browserNavigationMutation = ContingencyRpcClient.mutation(
   "browser.navigation.run"
 );
+export const browserGeolocationMutation = ContingencyRpcClient.mutation(
+  "browser.geolocation.set"
+);
+export const browserGeolocationGetMutation = ContingencyRpcClient.mutation(
+  "browser.geolocation.get"
+);
 export const browserViewportMutation = ContingencyRpcClient.mutation(
   "browser.viewport.set"
 );

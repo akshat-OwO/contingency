@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   BrowserStreamEvent as BrowserStreamEventSchema,
+  Geolocation as GeolocationSchema,
   isBrowserRpcError,
   makeBrowserRpcError,
   SessionId as SessionIdSchema,
@@ -16,6 +17,7 @@ import type {
   BrowserRpcErrorType,
   BrowserStreamEvent,
   BrowserTab,
+  Geolocation,
   SessionId,
   UserAgentProfileId,
   Viewport,
@@ -90,6 +92,9 @@ export interface AgentBrowser {
     sessionId: SessionId,
     requestId: string
   ) => Effect.Effect<BrowserNetworkRequestDetail, BrowserRpcErrorType>;
+  readonly getGeolocation: (
+    sessionId: SessionId
+  ) => Effect.Effect<Geolocation | null>;
   readonly getTabs: (
     sessionId: SessionId
   ) => Effect.Effect<readonly BrowserTab[], BrowserRpcErrorType>;
@@ -135,6 +140,10 @@ export interface AgentBrowser {
     viewport: Viewport,
     userAgentProfile: UserAgentProfileId
   ) => Effect.Effect<{ readonly url: string }, BrowserRpcErrorType>;
+  readonly setGeolocation: (
+    sessionId: SessionId,
+    geolocation: Geolocation
+  ) => Effect.Effect<Geolocation, BrowserRpcErrorType>;
 }
 
 export interface AgentBrowserRuntime {
@@ -358,6 +367,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     const chromeVersion = yield* Ref.make<string | null>(null);
     const defaultUserAgent = yield* Ref.make<string | null>(null);
     const inputSemaphores = new Map<SessionId, Semaphore.Semaphore>();
+    const sessionGeolocations = yield* Ref.make<
+      ReadonlyMap<SessionId, Geolocation>
+    >(new Map());
     const sessionProfiles = new Map<SessionId, UserAgentProfileId>();
     const streamConnections = new Map<SessionId, WebSocket>();
 
@@ -539,6 +551,42 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    const getGeolocation = Effect.fn("AgentBrowser.getGeolocation")(
+      function* getGeolocation(sessionId: SessionId) {
+        const geolocations = yield* Ref.get(sessionGeolocations);
+        return geolocations.get(sessionId) ?? null;
+      }
+    );
+
+    const setGeolocation = Effect.fn("AgentBrowser.setGeolocation")(
+      function* setGeolocation(sessionId: SessionId, geolocation: Geolocation) {
+        const validated = yield* Schema.decodeUnknownEffect(GeolocationSchema)(
+          geolocation
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "invalid_geolocation",
+              "Latitude must be between -90 and 90 and longitude between -180 and 180."
+            )
+          )
+        );
+        yield* run(
+          sessionArgs(sessionId, [
+            "set",
+            "geo",
+            String(validated.latitude),
+            String(validated.longitude),
+          ])
+        );
+        yield* Ref.update(
+          sessionGeolocations,
+          (geolocations) =>
+            new Map([...geolocations, [sessionId, validated] as const])
+        );
+        return validated;
+      }
+    );
+
     const create = Effect.fn("AgentBrowser.create")(function* create(
       name: string,
       viewport: Viewport
@@ -711,6 +759,18 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         userAgentProfile: UserAgentProfileId
       ) {
         const result = yield* open(sessionId, url, viewport, userAgentProfile);
+        const geolocation = yield* getGeolocation(sessionId);
+        if (geolocation !== null) {
+          yield* setGeolocation(sessionId, geolocation).pipe(
+            Effect.onError(() =>
+              Ref.update(sessionGeolocations, (geolocations) => {
+                const updated = new Map(geolocations);
+                updated.delete(sessionId);
+                return updated;
+              })
+            )
+          );
+        }
         return { url: result.url } as const;
       }
     );
@@ -732,6 +792,11 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       inputSemaphores.delete(sessionId);
       sessionProfiles.delete(sessionId);
       yield* run(sessionArgs(sessionId, ["close"]));
+      yield* Ref.update(sessionGeolocations, (geolocations) => {
+        const updated = new Map(geolocations);
+        updated.delete(sessionId);
+        return updated;
+      });
     });
 
     const streamStatus = Effect.fn("AgentBrowser.streamStatus")(
@@ -903,6 +968,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         }
         streamConnections.clear();
         inputSemaphores.clear();
+        yield* Ref.set(sessionGeolocations, new Map());
         sessionProfiles.clear();
 
         if (yield* Ref.get(ownsSessions)) {
@@ -924,6 +990,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       closeTab,
       create,
       currentUrl,
+      getGeolocation,
       getNetworkRequest,
       getNetworkRequests,
       getTabs,
@@ -933,6 +1000,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       newTab,
       open,
       sendInput,
+      setGeolocation,
       setUserAgent,
       setViewport,
       stream,

@@ -4,6 +4,7 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
   code: Schema.Literals([
     "invalid_session",
     "invalid_url",
+    "invalid_geolocation",
     "session_not_found",
     "agent_browser_failed",
     "stream_failed",
