@@ -90,6 +90,42 @@ const asString = (value: unknown): string | undefined =>
 const recorderError = (message: string): BrowserRpcErrorType =>
   makeBrowserRpcError("recording_unavailable", message);
 
+export const selectRecorderTarget = (
+  targetInfos: readonly unknown[],
+  requestedTabId: string,
+  isFocused: (targetId: string) => Effect.Effect<boolean, BrowserRpcErrorType>
+): Effect.Effect<string, BrowserRpcErrorType> =>
+  Effect.gen(function* resolveRecorderTarget() {
+    const pageTargetIds = targetInfos.flatMap((target) =>
+      isRecord(target) &&
+      target.type === "page" &&
+      typeof target.targetId === "string"
+        ? [target.targetId]
+        : []
+    );
+    if (pageTargetIds.includes(requestedTabId)) {
+      return requestedTabId;
+    }
+
+    const focusedTargetIds: string[] = [];
+    for (const targetId of pageTargetIds) {
+      if (yield* isFocused(targetId)) {
+        focusedTargetIds.push(targetId);
+      }
+    }
+    const [focusedTargetId] = focusedTargetIds;
+    if (focusedTargetIds.length === 1 && focusedTargetId !== undefined) {
+      return focusedTargetId;
+    }
+    return yield* Effect.fail(
+      recorderError(
+        focusedTargetIds.length === 0
+          ? "The active browser tab could not be resolved."
+          : "Multiple browser tabs reported themselves as active."
+      )
+    );
+  });
+
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
@@ -330,6 +366,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
     // Assigned after the root page target has attached.
     // oxlint-disable-next-line eslint/prefer-const
     let primarySessionId: string | undefined;
+    let resolvingTarget = true;
     let closing = false;
     let eventWindowStart = Date.now();
     let eventCount = 0;
@@ -525,6 +562,9 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         const targetId = isRecord(targetInfo)
           ? asString(targetInfo.targetId)
           : undefined;
+        if (resolvingTarget && targetType === "page") {
+          return;
+        }
         if (
           targetType === "page" &&
           pinnedTargetId !== undefined &&
@@ -647,21 +687,48 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         isRecord(targetsResult) && Array.isArray(targetsResult.targetInfos)
           ? targetsResult.targetInfos
           : [];
-      const selectedTarget = targetInfos.find(
-        (target) => isRecord(target) && target.targetId === options.tabId
+      const selectedTargetId = yield* selectRecorderTarget(
+        targetInfos,
+        options.tabId,
+        (targetId) =>
+          Effect.gen(function* probePageFocus() {
+            const attachResult = yield* connection.send(
+              "Target.attachToTarget",
+              { flatten: true, targetId }
+            );
+            const sessionId = isRecord(attachResult)
+              ? asString(attachResult.sessionId)
+              : undefined;
+            if (sessionId === undefined) {
+              return false;
+            }
+            return yield* connection
+              .send(
+                "Runtime.evaluate",
+                {
+                  expression: "document.hasFocus()",
+                  returnByValue: true,
+                },
+                sessionId
+              )
+              .pipe(
+                Effect.map((evaluation) => {
+                  const result = responseField(evaluation, "result");
+                  return result?.value === true;
+                }),
+                Effect.ensuring(
+                  connection
+                    .send("Target.detachFromTarget", { sessionId })
+                    .pipe(Effect.ignore)
+                )
+              );
+          })
       );
-      if (
-        !isRecord(selectedTarget) ||
-        typeof selectedTarget.targetId !== "string"
-      ) {
-        return yield* Effect.fail(
-          recorderError("The active browser tab could not be attached.")
-        );
-      }
-      ({ targetId: pinnedTargetId } = selectedTarget);
+      resolvingTarget = false;
+      pinnedTargetId = selectedTargetId;
       const attachResult = yield* connection.send("Target.attachToTarget", {
         flatten: true,
-        targetId: selectedTarget.targetId,
+        targetId: selectedTargetId,
       });
       const sessionId = isRecord(attachResult)
         ? asString(attachResult.sessionId)

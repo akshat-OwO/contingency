@@ -1,7 +1,10 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
 
-import { makeCdpConnection } from "../../src/services/cdp-recorder";
+import {
+  makeCdpConnection,
+  selectRecorderTarget,
+} from "../../src/services/cdp-recorder";
 
 class FakeSocket extends EventTarget {
   readonly sent: string[] = [];
@@ -14,6 +17,32 @@ class FakeSocket extends EventTarget {
     this.sent.push(value);
   }
 }
+
+it.effect("resolves an agent-browser tab alias to the focused CDP page", () =>
+  selectRecorderTarget(
+    [
+      {
+        targetId: "1372BD1461BDFE711E1F3C6D24FB3A1E",
+        type: "page",
+        url: "https://example.com/",
+      },
+      {
+        targetId: "9A491CFAB5BCDD689B17A50B060E838B",
+        type: "page",
+        url: "chrome://newtab/",
+      },
+    ],
+    "t1",
+    (targetId) =>
+      Effect.succeed(targetId === "1372BD1461BDFE711E1F3C6D24FB3A1E")
+  ).pipe(
+    Effect.tap((targetId) =>
+      Effect.sync(() => {
+        expect(targetId).toBe("1372BD1461BDFE711E1F3C6D24FB3A1E");
+      })
+    )
+  )
+);
 
 it.effect("fails an in-flight CDP command when the remote socket closes", () =>
   Effect.gen(function* closePendingCommand() {
