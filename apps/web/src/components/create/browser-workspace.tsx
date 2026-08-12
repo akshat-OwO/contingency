@@ -3,13 +3,13 @@ import type {
   BrowserInput,
   BrowserStreamEvent,
   BrowserTab,
-  MouseButton,
+  BrowserTabId,
   SessionId,
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
-import { Effect, Fiber, Queue, Result, Stream } from "effect";
+import { Cause, Effect, Fiber, Queue, Result, Schedule, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import {
   ArrowLeftIcon,
@@ -22,9 +22,14 @@ import {
   RotateCwIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { FormEvent, KeyboardEvent, PointerEvent } from "react";
 
+import {
+  devicePresets,
+  presetName,
+  RESPONSIVE_PRESET_ID,
+} from "@/components/create/browser-device-presets";
 import { BrowserDevtools } from "@/components/create/browser-devtools";
 import {
   appendConsoleEntry,
@@ -35,7 +40,23 @@ import {
   mergeNetworkRequests,
   removeSessionDevtools,
 } from "@/components/create/browser-devtools-state";
+import {
+  keyboardKeyInfo,
+  keyboardModifiers,
+  mousePosition,
+  pointerButton,
+  renderFrame,
+} from "@/components/create/browser-input";
 import { BrowserSessionPicker } from "@/components/create/browser-session-picker";
+import {
+  browserAddressFromUrlEvent,
+  browserNetworkRefreshEffect,
+  browserStreamIdentity,
+  browserTabSynchronizationEffect,
+  hasActiveTabChanged,
+  preserveBrowserTabMetadata,
+  reconcileActiveTab,
+} from "@/components/create/browser-workspace-state";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,164 +100,27 @@ import {
   runBrowserStream,
 } from "@/lib/rpc";
 
-const RESPONSIVE_PRESET_ID = "responsive";
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
 const userAgentProfileAtom = Atom.make<UserAgentProfileId>("default");
 const browserTabsAtom = Atom.make<readonly BrowserTab[]>([]);
+const addressAtom = Atom.make("");
+const devtoolsOpenAtom = Atom.make(false);
+const frameReadyAtom = Atom.make(false);
+const viewportHeightAtom = Atom.make("720");
+const openingAtom = Atom.make(false);
+const refreshingNetworkAtom = Atom.make(false);
+const viewportPresetAtom = Atom.make(RESPONSIVE_PRESET_ID);
+interface BrowserOptionalState {
+  readonly error: string | undefined;
+  readonly selectedSessionId: SessionId | undefined;
+}
 
-const keyboardKeyInfo: Readonly<
-  Record<string, { readonly keyCode: number; readonly text?: string }>
-> = {
-  ArrowDown: { keyCode: 40 },
-  ArrowLeft: { keyCode: 37 },
-  ArrowRight: { keyCode: 39 },
-  ArrowUp: { keyCode: 38 },
-  Backspace: { keyCode: 8, text: "\b" },
-  Delete: { keyCode: 46 },
-  End: { keyCode: 35 },
-  Enter: { keyCode: 13, text: "\r" },
-  Escape: { keyCode: 27 },
-  Home: { keyCode: 36 },
-  PageDown: { keyCode: 34 },
-  PageUp: { keyCode: 33 },
-  Tab: { keyCode: 9, text: "\t" },
-};
-
-const devicePresets = [
-  { height: 667, id: "iphone-se", name: "iPhone SE", width: 375 },
-  { height: 896, id: "iphone-xr", name: "iPhone XR", width: 414 },
-  { height: 844, id: "iphone-12-pro", name: "iPhone 12 Pro", width: 390 },
-  {
-    height: 932,
-    id: "iphone-14-pro-max",
-    name: "iPhone 14 Pro Max",
-    width: 430,
-  },
-  { height: 915, id: "pixel-7", name: "Pixel 7", width: 412 },
-  {
-    height: 740,
-    id: "samsung-galaxy-s8-plus",
-    name: "Samsung Galaxy S8+",
-    width: 360,
-  },
-  {
-    height: 915,
-    id: "samsung-galaxy-s20-ultra",
-    name: "Samsung Galaxy S20 Ultra",
-    width: 412,
-  },
-  { height: 1024, id: "ipad-mini", name: "iPad Mini", width: 768 },
-  { height: 1180, id: "ipad-air", name: "iPad Air", width: 820 },
-  { height: 1366, id: "ipad-pro", name: "iPad Pro", width: 1024 },
-  { height: 1368, id: "surface-pro-7", name: "Surface Pro 7", width: 912 },
-  { height: 720, id: "surface-duo", name: "Surface Duo", width: 540 },
-  {
-    height: 882,
-    id: "galaxy-z-fold-5",
-    name: "Galaxy Z Fold 5",
-    width: 344,
-  },
-  {
-    height: 1280,
-    id: "asus-zenbook-fold",
-    name: "Asus Zenbook Fold",
-    width: 853,
-  },
-  {
-    height: 914,
-    id: "samsung-galaxy-a51-71",
-    name: "Samsung Galaxy A51/71",
-    width: 412,
-  },
-  { height: 600, id: "nest-hub", name: "Nest Hub", width: 1024 },
-  { height: 800, id: "nest-hub-max", name: "Nest Hub Max", width: 1280 },
-] as const;
-
-const presetName = (presetId: string): string => {
-  if (presetId === RESPONSIVE_PRESET_ID) {
-    return "Responsive";
-  }
-  return devicePresets.find(({ id }) => id === presetId)?.name ?? "Responsive";
-};
-
-const pointerButton = (button: number): typeof MouseButton.Type => {
-  switch (button) {
-    case 1: {
-      return "middle";
-    }
-    case 2: {
-      return "right";
-    }
-    case 3: {
-      return "back";
-    }
-    case 4: {
-      return "forward";
-    }
-    default: {
-      return "left";
-    }
-  }
-};
-
-const keyboardModifiers = (
-  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">
-): number =>
-  (event.altKey ? 1 : 0) +
-  (event.ctrlKey ? 2 : 0) +
-  (event.metaKey ? 4 : 0) +
-  (event.shiftKey ? 8 : 0);
-
-const mousePosition = (
-  canvas: HTMLCanvasElement,
-  event: Pick<MouseEvent, "clientX" | "clientY">
-) => {
-  const bounds = canvas.getBoundingClientRect();
-  return {
-    x: ((event.clientX - bounds.left) * canvas.width) / bounds.width,
-    y: ((event.clientY - bounds.top) * canvas.height) / bounds.height,
-  };
-};
-
-const renderFrame = (
-  canvas: HTMLCanvasElement,
-  event: Extract<BrowserStreamEvent, { readonly type: "frame" }>
-) =>
-  Effect.tryPromise({
-    catch: (cause) => cause,
-    try: async () => {
-      const binary = globalThis.atob(event.data);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.codePointAt(index) ?? 0;
-      }
-
-      const bitmap = await globalThis.createImageBitmap(
-        new Blob([bytes], { type: "image/jpeg" })
-      );
-      const context = canvas.getContext("2d", { alpha: false });
-      if (context !== null) {
-        canvas.width = event.metadata.deviceWidth;
-        canvas.height = event.metadata.deviceHeight;
-        // Chromium keeps a wider capture surface for narrow viewports. Preserve
-        // one CSS pixel per canvas pixel by cropping it instead of stretching it.
-        const sourceWidth = Math.min(bitmap.width, canvas.width);
-        const sourceHeight = Math.min(bitmap.height, canvas.height);
-        context.drawImage(
-          bitmap,
-          0,
-          0,
-          sourceWidth,
-          sourceHeight,
-          0,
-          0,
-          canvas.width,
-          canvas.height
-        );
-      }
-      bitmap.close();
-    },
-  }).pipe(Effect.ignore);
+const browserOptionalStateAtom = Atom.make<BrowserOptionalState>({
+  error: undefined,
+  selectedSessionId: undefined,
+});
+const streamConnectedAtom = Atom.make(false);
+const viewportWidthAtom = Atom.make("1280");
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error || isBrowserRpcError(error)
@@ -321,7 +205,7 @@ const devtoolsContext = (
 const useBrowserWorkspace = () => {
   const addressEditingRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const activeTabIdRef = useRef<string | null>(null);
+  const activeTabIdRef = useRef<BrowserTabId | null>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const inputQueueRef = useRef<Queue.Queue<BrowserInput> | null>(null);
   const moveFrameRef = useRef<number | null>(null);
@@ -330,20 +214,38 @@ const useBrowserWorkspace = () => {
     BrowserStreamEvent,
     { readonly type: "frame" }
   > | null>(null);
-  const knownTabIdsRef = useRef<ReadonlySet<string> | null>(null);
-  const [address, setAddress] = useState("");
+  const knownTabIdsRef = useRef<ReadonlySet<BrowserTabId> | null>(null);
+  const enrichedTabsRef = useRef<readonly BrowserTab[]>([]);
+  const [address, setAddress] = useAtom(addressAtom);
   const [devtoolsState, setDevtoolsState] = useAtom(browserDevtoolsAtom);
-  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
-  const [error, setError] = useState<string>();
-  const [frameReady, setFrameReady] = useState(false);
-  const [height, setHeight] = useState("720");
-  const [opening, setOpening] = useState(false);
-  const [refreshingNetwork, setRefreshingNetwork] = useState(false);
-  const [presetId, setPresetId] = useState(RESPONSIVE_PRESET_ID);
-  const [selectedSessionId, setSelectedSessionId] = useState<SessionId>();
-  const [streamConnected, setStreamConnected] = useState(false);
+  const [devtoolsOpen, setDevtoolsOpen] = useAtom(devtoolsOpenAtom);
+  const [optionalState, setOptionalState] = useAtom(browserOptionalStateAtom);
+  const { error, selectedSessionId } = optionalState;
+  const setError = useCallback(
+    (nextError: string | undefined) => {
+      setOptionalState((current) => ({ ...current, error: nextError }));
+    },
+    [setOptionalState]
+  );
+  const setSelectedSessionId = useCallback(
+    (nextSessionId: SessionId | undefined) => {
+      setOptionalState((current) => ({
+        ...current,
+        selectedSessionId: nextSessionId,
+      }));
+    },
+    [setOptionalState]
+  );
+  const [frameReady, setFrameReady] = useAtom(frameReadyAtom);
+  const [height, setHeight] = useAtom(viewportHeightAtom);
+  const [opening, setOpening] = useAtom(openingAtom);
+  const [refreshingNetwork, setRefreshingNetwork] = useAtom(
+    refreshingNetworkAtom
+  );
+  const [presetId, setPresetId] = useAtom(viewportPresetAtom);
+  const [streamConnected, setStreamConnected] = useAtom(streamConnectedAtom);
   const [tabs, setTabs] = useAtom(browserTabsAtom);
-  const [width, setWidth] = useState("1280");
+  const [width, setWidth] = useAtom(viewportWidthAtom);
   const [userAgentProfile, setUserAgentProfile] = useAtom(userAgentProfileAtom);
   const openBrowser = useAtomSet(browserOpenMutation, { mode: "promise" });
   const runNavigation = useAtomSet(browserNavigationMutation, {
@@ -371,6 +273,10 @@ const useBrowserWorkspace = () => {
   });
   const selectedPresetName = presetName(presetId);
   const activeTab = tabs.find(({ active }) => active);
+  const streamIdentity = browserStreamIdentity(
+    selectedSessionId,
+    activeTab?.tabId
+  );
   const visibleDevtools = devtoolsContext(
     devtoolsOpen,
     selectedSessionId,
@@ -389,9 +295,36 @@ const useBrowserWorkspace = () => {
 
   useEffect(() => {
     knownTabIdsRef.current = null;
+    enrichedTabsRef.current = [];
     activeTabIdRef.current = null;
     setTabs([]);
   }, [selectedSessionId, setTabs]);
+
+  const synchronizeTabState = useCallback(
+    (nextTabs: readonly BrowserTab[], rememberMetadata = false) => {
+      const resolvedTabs = rememberMetadata
+        ? nextTabs
+        : preserveBrowserTabMetadata(nextTabs, enrichedTabsRef.current);
+      if (rememberMetadata) {
+        enrichedTabsRef.current = resolvedTabs;
+      }
+      if (hasActiveTabChanged(resolvedTabs, activeTabIdRef.current)) {
+        setFrameReady(false);
+      }
+      setTabs(resolvedTabs);
+      setAddress((currentAddress) => {
+        const reconciliation = reconcileActiveTab(
+          resolvedTabs,
+          activeTabIdRef.current,
+          currentAddress,
+          addressEditingRef.current
+        );
+        activeTabIdRef.current = reconciliation.activeTabId;
+        return reconciliation.address;
+      });
+    },
+    [setAddress, setFrameReady, setTabs]
+  );
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
@@ -400,17 +333,21 @@ const useBrowserWorkspace = () => {
 
     let cancelled = false;
     let refreshing = false;
-    const synchronizeTabs = async (switchNewTab: boolean) => {
+    const synchronizeTabs = (switchNewTab: boolean) => {
       if (refreshing) {
-        return;
+        return Effect.void;
       }
       refreshing = true;
-      try {
-        let result = await getBrowserTabs({
-          payload: {
-            data: { sessionId: selectedSessionId },
-            type: "browser.tabs.get",
-          },
+      return Effect.gen(function* synchronizeBrowserTabs() {
+        let result = yield* Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            getBrowserTabs({
+              payload: {
+                data: { sessionId: selectedSessionId },
+                type: "browser.tabs.get",
+              },
+            }),
         });
         const knownTabIds = knownTabIdsRef.current;
         const newTab =
@@ -419,20 +356,28 @@ const useBrowserWorkspace = () => {
             : result.data.tabs.find(({ tabId }) => !knownTabIds.has(tabId));
 
         if (switchNewTab && newTab !== undefined) {
-          await switchBrowserTab({
-            payload: {
-              data: { sessionId: selectedSessionId, tabId: newTab.tabId },
-              type: "browser.tab.switch",
-            },
+          yield* Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              switchBrowserTab({
+                payload: {
+                  data: { sessionId: selectedSessionId, tabId: newTab.tabId },
+                  type: "browser.tab.switch",
+                },
+              }),
           });
           if (!cancelled) {
             setFrameReady(false);
           }
-          result = await getBrowserTabs({
-            payload: {
-              data: { sessionId: selectedSessionId },
-              type: "browser.tabs.get",
-            },
+          result = yield* Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              getBrowserTabs({
+                payload: {
+                  data: { sessionId: selectedSessionId },
+                  type: "browser.tabs.get",
+                },
+              }),
           });
         }
 
@@ -440,88 +385,97 @@ const useBrowserWorkspace = () => {
           knownTabIdsRef.current = new Set(
             result.data.tabs.map(({ tabId }) => tabId)
           );
-          setTabs(result.data.tabs);
-          const activeSessionTab = result.data.tabs.find(
-            ({ active }) => active
-          );
-          if (activeSessionTab !== undefined) {
-            const activeTabChanged =
-              activeTabIdRef.current !== activeSessionTab.tabId;
-            activeTabIdRef.current = activeSessionTab.tabId;
-            if (activeTabChanged || !addressEditingRef.current) {
-              setAddress(
-                activeSessionTab.url === "about:blank"
-                  ? ""
-                  : activeSessionTab.url
-              );
+          synchronizeTabState(result.data.tabs, true);
+        }
+      }).pipe(
+        Effect.catchCause((tabsCause) =>
+          Effect.sync(() => {
+            if (!cancelled) {
+              setError(toErrorMessage(Cause.squash(tabsCause)));
             }
-          }
-        }
-      } catch (tabsError) {
-        if (!cancelled) {
-          setError(toErrorMessage(tabsError));
-        }
-      } finally {
-        refreshing = false;
-      }
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            refreshing = false;
+          })
+        )
+      );
     };
 
-    void synchronizeTabs(false);
-    const interval = globalThis.setInterval(() => {
-      void synchronizeTabs(true);
-    }, 750);
+    const pollingFiber = Effect.runFork(
+      browserTabSynchronizationEffect(
+        () => synchronizeTabs(false),
+        () =>
+          synchronizeTabs(true).pipe(
+            Effect.repeat(Schedule.spaced("750 millis"))
+          )
+      ).pipe(Effect.ignore)
+    );
 
     return () => {
       cancelled = true;
-      globalThis.clearInterval(interval);
+      Effect.runFork(Fiber.interrupt(pollingFiber));
     };
-  }, [getBrowserTabs, selectedSessionId, setTabs, switchBrowserTab]);
+  }, [
+    getBrowserTabs,
+    selectedSessionId,
+    setError,
+    setFrameReady,
+    switchBrowserTab,
+    synchronizeTabState,
+  ]);
 
-  const refreshNetwork = useCallback(async () => {
-    if (selectedSessionId === undefined) {
-      return;
+  const refreshNetwork = useCallback(() => {
+    const activeTabId = activeTabIdRef.current;
+    if (selectedSessionId === undefined || activeTabId === null) {
+      return Effect.void;
     }
-    try {
-      const result = await getNetworkRequests({
-        payload: {
-          data: { sessionId: selectedSessionId },
-          type: "browser.network.requests.get",
-        },
-      });
-      const activeTabId = activeTabIdRef.current;
-      if (activeTabId !== null) {
-        setDevtoolsState((state) =>
-          mergeNetworkRequests(
-            state,
-            selectedSessionId,
-            activeTabId,
-            result.data.requests
+    return Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        getNetworkRequests({
+          payload: {
+            data: { sessionId: selectedSessionId, tabId: activeTabId },
+            type: "browser.network.requests.get",
+          },
+        }),
+    }).pipe(
+      Effect.tap((result) =>
+        Effect.sync(() =>
+          setDevtoolsState((state) =>
+            mergeNetworkRequests(state, selectedSessionId, result.data.requests)
           )
-        );
-      }
-    } catch (networkError) {
-      setError(toErrorMessage(networkError));
-    }
-  }, [getNetworkRequests, selectedSessionId, setDevtoolsState]);
+        )
+      ),
+      Effect.catchCause((networkCause) =>
+        Effect.sync(() => setError(toErrorMessage(Cause.squash(networkCause))))
+      )
+    );
+  }, [getNetworkRequests, selectedSessionId, setDevtoolsState, setError]);
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
       return;
     }
-    void refreshNetwork();
-    const interval = globalThis.setInterval(() => {
-      void refreshNetwork();
-    }, 1000);
-    return () => globalThis.clearInterval(interval);
+    const pollingFiber = Effect.runFork(
+      browserNetworkRefreshEffect(refreshNetwork).pipe(
+        Effect.repeat(Schedule.spaced("1 second")),
+        Effect.ignore
+      )
+    );
+    return () => {
+      Effect.runFork(Fiber.interrupt(pollingFiber));
+    };
   }, [refreshNetwork, selectedSessionId]);
 
-  const manuallyRefreshNetwork = async () => {
+  const manuallyRefreshNetwork = () => {
     setRefreshingNetwork(true);
-    try {
-      await refreshNetwork();
-    } finally {
-      setRefreshingNetwork(false);
-    }
+    Effect.runFork(
+      refreshNetwork().pipe(
+        Effect.ensuring(Effect.sync(() => setRefreshingNetwork(false)))
+      )
+    );
   };
 
   const enqueueFrame = useCallback(
@@ -550,7 +504,7 @@ const useBrowserWorkspace = () => {
       );
       frameRenderFiberRef.current = Effect.runFork(renderFrames);
     },
-    []
+    [setFrameReady]
   );
 
   useEffect(() => {
@@ -572,40 +526,27 @@ const useBrowserWorkspace = () => {
 
           return Effect.sync(() => {
             if (event.type === "url") {
-              setAddress(event.url);
-              return;
-            }
-
-            if (event.type === "console" || event.type === "page_error") {
-              const activeTabId = activeTabIdRef.current;
-              if (activeTabId !== null) {
-                setDevtoolsState((state) =>
-                  appendConsoleEntry(
-                    state,
-                    selectedSessionId,
-                    activeTabId,
-                    event
+              if (event.tabId === activeTabIdRef.current) {
+                setAddress((currentAddress) =>
+                  browserAddressFromUrlEvent(
+                    currentAddress,
+                    addressEditingRef.current,
+                    event.url
                   )
                 );
               }
               return;
             }
 
+            if (event.type === "console" || event.type === "page_error") {
+              setDevtoolsState((state) =>
+                appendConsoleEntry(state, selectedSessionId, event)
+              );
+              return;
+            }
+
             if (event.type === "tabs") {
-              setTabs(event.tabs);
-              const activeSessionTab = event.tabs.find(({ active }) => active);
-              if (activeSessionTab !== undefined) {
-                const activeTabChanged =
-                  activeTabIdRef.current !== activeSessionTab.tabId;
-                activeTabIdRef.current = activeSessionTab.tabId;
-                if (activeTabChanged || !addressEditingRef.current) {
-                  setAddress(
-                    activeSessionTab.url === "about:blank"
-                      ? ""
-                      : activeSessionTab.url
-                  );
-                }
-              }
+              synchronizeTabState(event.tabs);
               return;
             }
 
@@ -635,7 +576,20 @@ const useBrowserWorkspace = () => {
       }
       pendingFrameRef.current = null;
     };
-  }, [enqueueFrame, selectedSessionId, setDevtoolsState, setTabs]);
+  }, [
+    enqueueFrame,
+    selectedSessionId,
+    setAddress,
+    setDevtoolsState,
+    setError,
+    setFrameReady,
+    setHeight,
+    setPresetId,
+    setStreamConnected,
+    setWidth,
+    streamIdentity,
+    synchronizeTabState,
+  ]);
 
   useEffect(
     () => () => {
@@ -692,7 +646,7 @@ const useBrowserWorkspace = () => {
     return () => {
       Effect.runFork(Fiber.interrupt(inputFiber));
     };
-  }, [selectedSessionId, sendBrowserInput]);
+  }, [selectedSessionId, sendBrowserInput, setError]);
 
   const dispatchInput = useCallback((input: BrowserInput) => {
     const queue = inputQueueRef.current;
@@ -726,7 +680,7 @@ const useBrowserWorkspace = () => {
     };
   }, [dispatchInput]);
 
-  const submitAddress = async (event: FormEvent<HTMLFormElement>) => {
+  const submitAddress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (opening || address.trim().length === 0) {
       return;
@@ -734,28 +688,37 @@ const useBrowserWorkspace = () => {
 
     setError(undefined);
     setOpening(true);
-    try {
-      const result = await openBrowser({
-        payload: {
-          data: {
-            sessionId: selectedSessionId,
-            url: address,
-            userAgentProfile,
-            viewport,
-          },
-          type: "browser.open",
-        },
-      });
-      setSelectedSessionId(result.data.sessionId);
-      setAddress(result.data.url);
-    } catch (openError) {
-      setError(toErrorMessage(openError));
-    } finally {
-      setOpening(false);
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          openBrowser({
+            payload: {
+              data: {
+                sessionId: selectedSessionId,
+                url: address,
+                userAgentProfile,
+                viewport,
+              },
+              type: "browser.open",
+            },
+          }),
+      }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            setSelectedSessionId(result.data.sessionId);
+            setAddress(result.data.url);
+          })
+        ),
+        Effect.catchCause((openCause) =>
+          Effect.sync(() => setError(toErrorMessage(Cause.squash(openCause))))
+        ),
+        Effect.ensuring(Effect.sync(() => setOpening(false)))
+      )
+    );
   };
 
-  const selectUserAgent = async (profile: UserAgentProfileId) => {
+  const selectUserAgent = (profile: UserAgentProfileId) => {
     setUserAgentProfile(profile);
     if (
       selectedSessionId === undefined ||
@@ -767,40 +730,55 @@ const useBrowserWorkspace = () => {
 
     setError(undefined);
     setOpening(true);
-    try {
-      const result = await updateUserAgent({
-        payload: {
-          data: {
-            sessionId: selectedSessionId,
-            url: address,
-            userAgentProfile: profile,
-            viewport,
-          },
-          type: "browser.user-agent.set",
-        },
-      });
-      setAddress(result.data.url);
-    } catch (userAgentError) {
-      setError(toErrorMessage(userAgentError));
-    } finally {
-      setOpening(false);
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          updateUserAgent({
+            payload: {
+              data: {
+                sessionId: selectedSessionId,
+                url: address,
+                userAgentProfile: profile,
+                viewport,
+              },
+              type: "browser.user-agent.set",
+            },
+          }),
+      }).pipe(
+        Effect.tap((result) => Effect.sync(() => setAddress(result.data.url))),
+        Effect.catchCause((userAgentCause) =>
+          Effect.sync(() =>
+            setError(toErrorMessage(Cause.squash(userAgentCause)))
+          )
+        ),
+        Effect.ensuring(Effect.sync(() => setOpening(false)))
+      )
+    );
   };
 
-  const navigate = async (action: "back" | "forward" | "reload") => {
+  const navigate = (action: "back" | "forward" | "reload") => {
     if (selectedSessionId === undefined) {
       return;
     }
-    try {
-      await runNavigation({
-        payload: {
-          data: { action, sessionId: selectedSessionId },
-          type: "browser.navigation.run",
-        },
-      });
-    } catch (navigationError) {
-      setError(toErrorMessage(navigationError));
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          runNavigation({
+            payload: {
+              data: { action, sessionId: selectedSessionId },
+              type: "browser.navigation.run",
+            },
+          }),
+      }).pipe(
+        Effect.catchCause((navigationCause) =>
+          Effect.sync(() =>
+            setError(toErrorMessage(Cause.squash(navigationCause)))
+          )
+        )
+      )
+    );
   };
 
   const selectSession = (sessionId: SessionId, url: string) => {
@@ -818,86 +796,124 @@ const useBrowserWorkspace = () => {
     }
   };
 
-  const createTab = async () => {
+  const createTab = () => {
     if (selectedSessionId === undefined) {
       return;
     }
-    try {
-      await newBrowserTab({
-        payload: {
-          data: { sessionId: selectedSessionId },
-          type: "browser.tab.new",
-        },
-      });
-      setAddress("");
-      setFrameReady(false);
-    } catch (tabError) {
-      setError(toErrorMessage(tabError));
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          newBrowserTab({
+            payload: {
+              data: { sessionId: selectedSessionId },
+              type: "browser.tab.new",
+            },
+          }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            setAddress("");
+            setFrameReady(false);
+          })
+        ),
+        Effect.catchCause((tabCause) =>
+          Effect.sync(() => setError(toErrorMessage(Cause.squash(tabCause))))
+        )
+      )
+    );
   };
 
-  const switchTab = async (tab: BrowserTab) => {
+  const switchTab = (tab: BrowserTab) => {
     if (selectedSessionId === undefined || tab.active) {
       return;
     }
-    try {
-      await switchBrowserTab({
-        payload: {
-          data: { sessionId: selectedSessionId, tabId: tab.tabId },
-          type: "browser.tab.switch",
-        },
-      });
-      setAddress(tab.url === "about:blank" ? "" : tab.url);
-      activeTabIdRef.current = tab.tabId;
-      setFrameReady(false);
-    } catch (tabError) {
-      setError(toErrorMessage(tabError));
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          switchBrowserTab({
+            payload: {
+              data: { sessionId: selectedSessionId, tabId: tab.tabId },
+              type: "browser.tab.switch",
+            },
+          }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            setAddress(tab.url === "about:blank" ? "" : tab.url);
+            activeTabIdRef.current = tab.tabId;
+            setFrameReady(false);
+          })
+        ),
+        Effect.catchCause((tabCause) =>
+          Effect.sync(() => setError(toErrorMessage(Cause.squash(tabCause))))
+        )
+      )
+    );
   };
 
-  const closeTab = async (tab: BrowserTab) => {
+  const closeTab = (tab: BrowserTab) => {
     if (selectedSessionId === undefined) {
       return;
     }
-    try {
-      await closeBrowserTab({
-        payload: {
-          data: { sessionId: selectedSessionId, tabId: tab.tabId },
-          type: "browser.tab.close",
-        },
-      });
-      const remainingTabIds = new Set<string>();
-      for (const { tabId } of tabs) {
-        if (tabId !== tab.tabId) {
-          remainingTabIds.add(tabId);
-        }
-      }
-      knownTabIdsRef.current = remainingTabIds;
-      if (tab.active) {
-        setFrameReady(false);
-      }
-    } catch (tabError) {
-      setError(toErrorMessage(tabError));
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          closeBrowserTab({
+            payload: {
+              data: { sessionId: selectedSessionId, tabId: tab.tabId },
+              type: "browser.tab.close",
+            },
+          }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            const remainingTabIds = new Set<BrowserTabId>();
+            for (const { tabId } of tabs) {
+              if (tabId !== tab.tabId) {
+                remainingTabIds.add(tabId);
+              }
+            }
+            knownTabIdsRef.current = remainingTabIds;
+            if (tab.active) {
+              setFrameReady(false);
+            }
+          })
+        ),
+        Effect.catchCause((tabCause) =>
+          Effect.sync(() => setError(toErrorMessage(Cause.squash(tabCause))))
+        )
+      )
+    );
   };
 
-  const applyViewport = async (nextViewport: Viewport) => {
+  const applyViewport = (nextViewport: Viewport) => {
     if (selectedSessionId === undefined) {
       return;
     }
-    try {
-      await updateViewport({
-        payload: {
-          data: { sessionId: selectedSessionId, viewport: nextViewport },
-          type: "browser.viewport.set",
-        },
-      });
-    } catch (viewportError) {
-      setError(toErrorMessage(viewportError));
-    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          updateViewport({
+            payload: {
+              data: { sessionId: selectedSessionId, viewport: nextViewport },
+              type: "browser.viewport.set",
+            },
+          }),
+      }).pipe(
+        Effect.catchCause((viewportCause) =>
+          Effect.sync(() =>
+            setError(toErrorMessage(Cause.squash(viewportCause)))
+          )
+        )
+      )
+    );
   };
 
-  const selectPreset = async (nextPresetId: string | null) => {
+  const selectPreset = (nextPresetId: string | null) => {
     if (nextPresetId === null) {
       return;
     }
@@ -908,7 +924,7 @@ const useBrowserWorkspace = () => {
     }
     setWidth(String(preset.width));
     setHeight(String(preset.height));
-    await applyViewport({
+    applyViewport({
       deviceScaleFactor: 1,
       height: preset.height,
       width: preset.width,
@@ -926,8 +942,8 @@ const useBrowserWorkspace = () => {
     setDimension(nextValue);
   };
 
-  const commitViewport = async () => {
-    await applyViewport(viewport);
+  const commitViewport = () => {
+    applyViewport(viewport);
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLCanvasElement>) => {

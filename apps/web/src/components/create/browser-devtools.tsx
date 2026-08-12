@@ -2,9 +2,11 @@ import type {
   BrowserConsoleEntry,
   BrowserNetworkRequest,
   BrowserNetworkRequestDetail,
+  BrowserRequestId,
+  BrowserTabId,
   SessionId,
 } from "@contingency/protocol";
-import { useAtomSet } from "@effect/atom-react";
+import { useAtom, useAtomSet } from "@effect/atom-react";
 import type { HighlightTokenClass } from "@tanstack/highlight";
 import { createHighlighter } from "@tanstack/highlight/core";
 import { html } from "@tanstack/highlight/languages/html";
@@ -12,6 +14,8 @@ import { js } from "@tanstack/highlight/languages/js";
 import { json } from "@tanstack/highlight/languages/json";
 import { plaintext } from "@tanstack/highlight/languages/plaintext";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Effect } from "effect";
+import { Atom } from "effect/unstable/reactivity";
 import {
   CircleAlertIcon,
   CircleXIcon,
@@ -21,7 +25,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,7 +56,7 @@ interface BrowserDevtoolsProps {
   readonly onRefreshNetwork: () => void;
   readonly refreshingNetwork: boolean;
   readonly sessionId: SessionId;
-  readonly tabId: string;
+  readonly tabId: BrowserTabId;
   readonly tabTitle: string;
 }
 
@@ -77,6 +81,28 @@ const networkFilters: readonly {
   { label: "WS", value: "websocket" },
   { label: "Other", value: "other" },
 ];
+
+interface DevtoolsUiState {
+  readonly detail: BrowserNetworkRequestDetail | undefined;
+  readonly detailLoading: boolean;
+  readonly detailTab: NetworkDetailTab;
+  readonly networkFilter: NetworkFilter;
+  readonly networkQuery: string;
+  readonly selectedRequestId: BrowserRequestId | undefined;
+  readonly tab: DevtoolsTab;
+}
+
+const devtoolsUiStateAtoms = Atom.family(() =>
+  Atom.make<DevtoolsUiState>({
+    detail: undefined,
+    detailLoading: false,
+    detailTab: "headers",
+    networkFilter: "all",
+    networkQuery: "",
+    selectedRequestId: undefined,
+    tab: "console",
+  })
+);
 
 const highlighter = createHighlighter({
   fallbackLanguage: "plaintext",
@@ -422,6 +448,7 @@ export const BrowserDevtools = ({
   onRefreshNetwork,
   refreshingNetwork,
   sessionId,
+  tabId,
   tabTitle,
 }: BrowserDevtoolsProps) => {
   const consoleScrollRef = useRef<HTMLDivElement>(null);
@@ -429,13 +456,21 @@ export const BrowserDevtools = ({
   const getNetworkRequest = useAtomSet(browserNetworkRequestMutation, {
     mode: "promise",
   });
-  const [detail, setDetail] = useState<BrowserNetworkRequestDetail>();
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailTab, setDetailTab] = useState<NetworkDetailTab>("headers");
-  const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
-  const [networkQuery, setNetworkQuery] = useState("");
-  const [selectedRequestId, setSelectedRequestId] = useState<string>();
-  const [tab, setTab] = useState<DevtoolsTab>("console");
+  const [uiState, setUiState] = useAtom(
+    devtoolsUiStateAtoms(`${sessionId}:${tabId}`)
+  );
+  const {
+    detail,
+    detailLoading,
+    detailTab,
+    networkFilter,
+    networkQuery,
+    selectedRequestId,
+    tab,
+  } = uiState;
+  const updateUiState = (update: Partial<DevtoolsUiState>) => {
+    setUiState((current) => ({ ...current, ...update }));
+  };
   const normalizedQuery = networkQuery.trim().toLocaleLowerCase();
   const visibleRequests = useMemo(
     () =>
@@ -476,29 +511,40 @@ export const BrowserDevtools = ({
     return () => globalThis.cancelAnimationFrame(frame);
   }, [consoleVirtualizer, networkVirtualizer, tab]);
 
-  const selectRequest = async (request: BrowserNetworkRequest) => {
-    setSelectedRequestId(request.requestId);
-    setDetail(undefined);
-    setDetailLoading(true);
-    try {
-      const result = await getNetworkRequest({
-        payload: {
-          data: { requestId: request.requestId, sessionId },
-          type: "browser.network.request.get",
-        },
-      });
-      setDetail(result.data.request);
-    } catch {
-      setDetail(undefined);
-    } finally {
-      setDetailLoading(false);
-    }
+  const selectRequest = (request: BrowserNetworkRequest) => {
+    updateUiState({
+      detail: undefined,
+      detailLoading: true,
+      selectedRequestId: request.requestId,
+    });
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          getNetworkRequest({
+            payload: {
+              data: { requestId: request.requestId, sessionId, tabId },
+              type: "browser.network.request.get",
+            },
+          }),
+      }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => updateUiState({ detail: result.data.request }))
+        ),
+        Effect.catchCause(() =>
+          Effect.sync(() => updateUiState({ detail: undefined }))
+        ),
+        Effect.ensuring(
+          Effect.sync(() => updateUiState({ detailLoading: false }))
+        )
+      )
+    );
   };
 
   return (
     <Tabs
       className="bg-background size-full min-h-0 gap-0"
-      onValueChange={(value) => setTab(value as DevtoolsTab)}
+      onValueChange={(value) => updateUiState({ tab: value as DevtoolsTab })}
       value={tab}
     >
       {renderDevtoolsHeader({
@@ -558,7 +604,9 @@ export const BrowserDevtools = ({
             <Input
               aria-label="Filter network requests"
               className="h-7 pl-7 text-xs"
-              onChange={(event) => setNetworkQuery(event.target.value)}
+              onChange={(event) =>
+                updateUiState({ networkQuery: event.target.value })
+              }
               placeholder="Filter by URL, method, or type"
               value={networkQuery}
             />
@@ -569,7 +617,7 @@ export const BrowserDevtools = ({
                 aria-pressed={networkFilter === filter.value}
                 className="h-6 rounded-full px-2 text-[11px]"
                 key={filter.value}
-                onClick={() => setNetworkFilter(filter.value)}
+                onClick={() => updateUiState({ networkFilter: filter.value })}
                 size="sm"
                 variant={networkFilter === filter.value ? "secondary" : "ghost"}
               >
@@ -619,7 +667,7 @@ export const BrowserDevtools = ({
                         )}
                         key={virtualRow.key}
                         onClick={() => {
-                          void selectRequest(request);
+                          selectRequest(request);
                         }}
                         style={{
                           transform: `translateY(${virtualRow.start}px)`,
@@ -651,7 +699,7 @@ export const BrowserDevtools = ({
                   <Button
                     className="h-7 rounded-none px-2 text-[11px] capitalize"
                     key={detailTabValue}
-                    onClick={() => setDetailTab(detailTabValue)}
+                    onClick={() => updateUiState({ detailTab: detailTabValue })}
                     size="sm"
                     variant={
                       detailTab === detailTabValue ? "secondary" : "ghost"
@@ -663,7 +711,9 @@ export const BrowserDevtools = ({
                 <Button
                   aria-label="Close request details"
                   className="ml-auto"
-                  onClick={() => setSelectedRequestId(undefined)}
+                  onClick={() =>
+                    updateUiState({ selectedRequestId: undefined })
+                  }
                   size="icon-sm"
                   variant="ghost"
                 >

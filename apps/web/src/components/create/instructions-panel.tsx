@@ -20,20 +20,17 @@ const InstructionsPanel = () => (
     <ScrollArea className="min-h-0 flex-1">
       <div className="space-y-5 p-4">
         <div className="space-y-2">
-          <label
-            className="text-sm font-medium"
-            htmlFor="workflow-instructions"
-          >
-            What should this workflow do?
+          <label className="text-sm font-medium" htmlFor="flow-instructions">
+            What should this Flow do?
           </label>
           <Textarea
             className="min-h-28 resize-none"
-            id="workflow-instructions"
+            id="flow-instructions"
             placeholder="For example: Sign in with a mobile number, continue to verification, and audit each page."
           />
           <p className="text-muted-foreground text-xs leading-relaxed">
             Describe the goal and any checkpoints. Your interactions in the
-            browser will become semantic steps.
+            browser will become Steps.
           </p>
         </div>
 
@@ -54,7 +51,7 @@ const InstructionsPanel = () => (
               />
               <p className="text-sm font-medium">No actions recorded</p>
               <p className="text-muted-foreground text-xs leading-relaxed">
-                Click, type, and navigate in the browser to build your workflow.
+                Click, type, and navigate in the browser to build your Flow.
               </p>
             </div>
           </div>

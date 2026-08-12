@@ -4,14 +4,21 @@ import type {
   Viewport,
 } from "@contingency/protocol";
 import { isBrowserRpcError } from "@contingency/protocol";
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
+import { Cause, Effect } from "effect";
+import { Atom } from "effect/unstable/reactivity";
 import {
   LoaderCircleIcon,
   MonitorIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +41,20 @@ import {
 const createItemPrefix = "__create_session__:";
 const noSessions: readonly BrowserSession[] = [];
 const validSessionSuffix = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+
+interface SessionPickerState {
+  readonly error: string | undefined;
+  readonly open: boolean;
+  readonly pending: boolean;
+  readonly query: string;
+}
+
+const sessionPickerStateAtom = Atom.make<SessionPickerState>({
+  error: undefined,
+  open: false,
+  pending: false,
+  query: "",
+});
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error || isBrowserRpcError(error)
@@ -78,10 +99,11 @@ export const BrowserSessionPicker = ({
   const closeSession = useAtomSet(browserSessionCloseMutation, {
     mode: "promise",
   });
-  const [error, setError] = useState<string>();
-  const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [query, setQuery] = useState("");
+  const [pickerState, setPickerState] = useAtom(sessionPickerStateAtom);
+  const { error, open, pending, query } = pickerState;
+  const updatePickerState = (update: Partial<SessionPickerState>) => {
+    setPickerState((current) => ({ ...current, ...update }));
+  };
   const sessions =
     sessionsResult._tag === "Success"
       ? sessionsResult.value.data.sessions
@@ -117,97 +139,119 @@ export const BrowserSessionPicker = ({
 
   const completeAction = (sessionId: SessionId, url: string) => {
     onSelect(sessionId, url);
-    setOpen(false);
-    setQuery("");
+    updatePickerState({ open: false, query: "" });
     refreshSessions();
   };
 
-  const runAction = async (
+  const runAction = (
     action:
       | { readonly _tag: "create"; readonly name: string }
       | { readonly _tag: "attach"; readonly sessionId: SessionId }
-  ) => {
-    if (pending) {
-      return;
-    }
-
-    setError(undefined);
-    setPending(true);
-
-    try {
-      if (action._tag === "create") {
-        const result = await createSession({
-          payload: {
-            data: { name: action.name, viewport },
-            type: "browser.session.create",
-          },
-        });
-        completeAction(result.data.sessionId, "");
-      } else {
-        const result = await attachSession({
-          payload: {
-            data: { sessionId: action.sessionId },
-            type: "browser.session.attach",
-          },
-        });
-        completeAction(result.data.sessionId, result.data.url);
+  ) =>
+    Effect.gen(function* updateBrowserSession() {
+      if (pending) {
+        return;
       }
-    } catch (actionError) {
-      setError(toErrorMessage(actionError));
-    } finally {
-      setPending(false);
-    }
-  };
 
-  const selectSession = async (nextValue: string | null) => {
+      updatePickerState({ error: undefined, pending: true });
+      const actionEffect =
+        action._tag === "create"
+          ? Effect.tryPromise({
+              catch: (cause) => cause,
+              try: () =>
+                createSession({
+                  payload: {
+                    data: { name: action.name, viewport },
+                    type: "browser.session.create",
+                  },
+                }),
+            }).pipe(
+              Effect.map((created) => ({
+                sessionId: created.data.sessionId,
+                url: "",
+              }))
+            )
+          : Effect.tryPromise({
+              catch: (cause) => cause,
+              try: () =>
+                attachSession({
+                  payload: {
+                    data: { sessionId: action.sessionId },
+                    type: "browser.session.attach",
+                  },
+                }),
+            }).pipe(
+              Effect.map((attached) => ({
+                sessionId: attached.data.sessionId,
+                url: attached.data.url,
+              }))
+            );
+      const result = yield* Effect.result(actionEffect);
+      if (result._tag === "Success") {
+        completeAction(result.success.sessionId, result.success.url);
+      } else {
+        updatePickerState({ error: toErrorMessage(result.failure) });
+      }
+      updatePickerState({ pending: false });
+    });
+
+  const selectSession = (nextValue: string | null) => {
     if (nextValue === null || pending) {
       return;
     }
 
     if (nextValue === createItemValue && createName !== undefined) {
-      await runAction({ _tag: "create", name: createName });
+      Effect.runFork(runAction({ _tag: "create", name: createName }));
       return;
     }
 
     const session = sessions.find(({ id }) => id === nextValue);
     if (session !== undefined) {
-      await runAction({ _tag: "attach", sessionId: session.id });
+      Effect.runFork(runAction({ _tag: "attach", sessionId: session.id }));
     }
   };
 
-  const createOnEnter = async (event: KeyboardEvent<HTMLDivElement>) => {
+  const createOnEnter = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" || createName === undefined || pending) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    await runAction({ _tag: "create", name: createName });
+    Effect.runFork(runAction({ _tag: "create", name: createName }));
   };
 
-  const deleteSelectedSession = async () => {
+  const deleteSelectedSession = () => {
     if (selectedSessionId === undefined || pending) {
       return;
     }
 
-    setError(undefined);
-    setPending(true);
-    try {
-      await closeSession({
-        payload: {
-          data: { sessionId: selectedSessionId },
-          type: "browser.session.close",
-        },
-      });
-      onDelete(selectedSessionId);
-      setOpen(false);
-      setQuery("");
-      refreshSessions();
-    } catch (closeError) {
-      setError(toErrorMessage(closeError));
-    } finally {
-      setPending(false);
-    }
+    const closeEffect = Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        closeSession({
+          payload: {
+            data: { sessionId: selectedSessionId },
+            type: "browser.session.close",
+          },
+        }),
+    }).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          onDelete(selectedSessionId);
+          updatePickerState({ open: false, query: "" });
+          refreshSessions();
+        })
+      ),
+      Effect.catchCause((closeCause) =>
+        Effect.sync(() =>
+          updatePickerState({ error: toErrorMessage(Cause.squash(closeCause)) })
+        )
+      ),
+      Effect.ensuring(Effect.sync(() => updatePickerState({ pending: false })))
+    );
+    updatePickerState({ error: undefined, pending: true });
+    Effect.runFork(closeEffect);
   };
 
   return (
@@ -216,12 +260,11 @@ export const BrowserSessionPicker = ({
         filteredItems={filteredItems}
         items={items}
         onOpenChange={(nextOpen) => {
-          setOpen(nextOpen);
-          setError(undefined);
+          updatePickerState({ error: undefined, open: nextOpen });
           if (nextOpen) {
             refreshSessions();
           } else {
-            setQuery("");
+            updatePickerState({ query: "" });
           }
         }}
         onValueChange={selectSession}
@@ -248,7 +291,9 @@ export const BrowserSessionPicker = ({
             <ComboboxInput
               autoFocus
               disabled={pending}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) =>
+                updatePickerState({ query: event.target.value })
+              }
               placeholder="Search or create a session..."
               showTrigger={false}
               value={query}
@@ -304,7 +349,7 @@ export const BrowserSessionPicker = ({
         aria-label="Delete current browser session"
         disabled={selectedSessionId === undefined || pending}
         onClick={() => {
-          void deleteSelectedSession();
+          deleteSelectedSession();
         }}
         size="icon-sm"
         title="Delete current session"

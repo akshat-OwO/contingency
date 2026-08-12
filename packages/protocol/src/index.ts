@@ -17,6 +17,16 @@ export const SessionId = Schema.String.check(
 ).pipe(Schema.brand("@contingency/SessionId"));
 export type SessionId = typeof SessionId.Type;
 
+export const BrowserTabId = Schema.String.check(Schema.isMinLength(1)).pipe(
+  Schema.brand("@contingency/BrowserTabId")
+);
+export type BrowserTabId = typeof BrowserTabId.Type;
+
+export const BrowserRequestId = Schema.String.check(Schema.isMinLength(1)).pipe(
+  Schema.brand("@contingency/BrowserRequestId")
+);
+export type BrowserRequestId = typeof BrowserRequestId.Type;
+
 export const FrameSequence = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(0)
 ).pipe(Schema.brand("@contingency/FrameSequence"));
@@ -269,7 +279,7 @@ export type BrowserSession = typeof BrowserSession.Type;
 export const BrowserTab = Schema.Struct({
   active: Schema.Boolean,
   label: Schema.optional(Schema.NullOr(Schema.String)),
-  tabId: Schema.String,
+  tabId: BrowserTabId,
   title: Schema.String,
   type: Schema.String,
   url: Schema.String,
@@ -279,6 +289,7 @@ export type BrowserTab = typeof BrowserTab.Type;
 export const BrowserConsoleEntry = Schema.Union([
   Schema.Struct({
     level: Schema.String,
+    tabId: BrowserTabId,
     text: Schema.String,
     timestamp: Schema.Finite,
     type: Schema.Literal("console"),
@@ -286,6 +297,7 @@ export const BrowserConsoleEntry = Schema.Union([
   Schema.Struct({
     column: Schema.NullOr(Schema.Int),
     line: Schema.NullOr(Schema.Int),
+    tabId: BrowserTabId,
     text: Schema.String,
     timestamp: Schema.Finite,
     type: Schema.Literal("page_error"),
@@ -298,10 +310,11 @@ export const BrowserNetworkRequest = Schema.Struct({
   method: Schema.String,
   mimeType: Schema.optional(Schema.String),
   postData: Schema.optional(Schema.String),
-  requestId: Schema.String,
+  requestId: BrowserRequestId,
   resourceType: Schema.String,
   responseHeaders: Schema.optional(Schema.Unknown),
   status: Schema.optional(Schema.Int),
+  tabId: BrowserTabId,
   timestamp: Schema.Int,
   url: Schema.String,
 });
@@ -381,6 +394,7 @@ export const BrowserStreamEvent = Schema.Union([
     viewportWidth: Schema.Int,
   }),
   Schema.Struct({
+    tabId: BrowserTabId,
     timestamp: Schema.optional(Schema.Finite),
     type: Schema.Literal("url"),
     url: Schema.String,
@@ -536,19 +550,19 @@ export const BrowserTabCreated = response("browser.tab.created", {});
 
 export const BrowserTabSwitch = request("browser.tab.switch", {
   sessionId: SessionId,
-  tabId: Schema.String,
+  tabId: BrowserTabId,
 });
 export const BrowserTabSwitched = response("browser.tab.switched", {});
 
 export const BrowserTabClose = request("browser.tab.close", {
   sessionId: SessionId,
-  tabId: Schema.String,
+  tabId: BrowserTabId,
 });
 export const BrowserTabClosed = response("browser.tab.closed", {});
 
 export const BrowserNetworkRequestsGet = request(
   "browser.network.requests.get",
-  { sessionId: SessionId }
+  { sessionId: SessionId, tabId: BrowserTabId }
 );
 export const BrowserNetworkRequestsResult = response(
   "browser.network.requests.result",
@@ -556,8 +570,9 @@ export const BrowserNetworkRequestsResult = response(
 );
 
 export const BrowserNetworkRequestGet = request("browser.network.request.get", {
-  requestId: Schema.String,
+  requestId: BrowserRequestId,
   sessionId: SessionId,
+  tabId: BrowserTabId,
 });
 export const BrowserNetworkRequestResult = response(
   "browser.network.request.result",

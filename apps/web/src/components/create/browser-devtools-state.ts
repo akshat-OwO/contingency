@@ -1,6 +1,7 @@
 import type {
   BrowserConsoleEntry,
   BrowserNetworkRequest,
+  BrowserTabId,
   SessionId,
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
@@ -15,7 +16,6 @@ export interface TabDevtoolsData {
 
 interface SessionDevtoolsData {
   readonly ignoredRequestIds: Readonly<Record<string, true>>;
-  readonly requestOwners: Readonly<Record<string, string>>;
   readonly tabs: Readonly<Record<string, TabDevtoolsData>>;
 }
 
@@ -30,7 +30,6 @@ const emptyTabData: TabDevtoolsData = {
 
 const emptySessionData: SessionDevtoolsData = {
   ignoredRequestIds: {},
-  requestOwners: {},
   tabs: {},
 };
 
@@ -46,7 +45,7 @@ const sessionData = (
 export const getTabDevtoolsData = (
   state: BrowserDevtoolsState,
   sessionId: SessionId | undefined,
-  tabId: string | undefined
+  tabId: BrowserTabId | undefined
 ): TabDevtoolsData => {
   if (sessionId === undefined || tabId === undefined) {
     return emptyTabData;
@@ -65,10 +64,10 @@ const updateSession = (
 export const appendConsoleEntry = (
   state: BrowserDevtoolsState,
   sessionId: SessionId,
-  tabId: string,
   entry: BrowserConsoleEntry
 ): BrowserDevtoolsState => {
   const session = sessionData(state, sessionId);
+  const { tabId } = entry;
   const tab = session.tabs[tabId] ?? emptyTabData;
   return updateSession(state, sessionId, {
     ...session,
@@ -87,47 +86,49 @@ export const appendConsoleEntry = (
 export const mergeNetworkRequests = (
   state: BrowserDevtoolsState,
   sessionId: SessionId,
-  activeTabId: string,
   requests: readonly BrowserNetworkRequest[]
 ): BrowserDevtoolsState => {
   const session = sessionData(state, sessionId);
-  const requestOwners = { ...session.requestOwners };
-  const tabRequests = new Map(
-    (session.tabs[activeTabId]?.networkRequests ?? []).map((request) => [
-      request.requestId,
-      request,
-    ])
-  );
+  const requestsByTab = new Map<
+    BrowserTabId,
+    Map<BrowserNetworkRequest["requestId"], BrowserNetworkRequest>
+  >();
 
   for (const request of requests) {
-    const owner = requestOwners[request.requestId] ?? activeTabId;
-    requestOwners[request.requestId] = owner;
-    if (
-      owner === activeTabId &&
-      session.ignoredRequestIds[request.requestId] !== true
-    ) {
-      tabRequests.set(request.requestId, request);
+    if (session.ignoredRequestIds[request.requestId] === true) {
+      continue;
     }
+    let tabRequests = requestsByTab.get(request.tabId);
+    if (tabRequests === undefined) {
+      tabRequests = new Map(
+        (session.tabs[request.tabId]?.networkRequests ?? []).map(
+          (existingRequest) => [existingRequest.requestId, existingRequest]
+        )
+      );
+      requestsByTab.set(request.tabId, tabRequests);
+    }
+    tabRequests.set(request.requestId, request);
   }
 
-  const tab = session.tabs[activeTabId] ?? emptyTabData;
+  const tabs = { ...session.tabs };
+  for (const [tabId, tabRequests] of requestsByTab) {
+    const tab = session.tabs[tabId] ?? emptyTabData;
+    tabs[tabId] = {
+      ...tab,
+      networkRequests: [...tabRequests.values()].slice(-MAX_NETWORK_REQUESTS),
+    };
+  }
+
   return updateSession(state, sessionId, {
     ...session,
-    requestOwners,
-    tabs: {
-      ...session.tabs,
-      [activeTabId]: {
-        ...tab,
-        networkRequests: [...tabRequests.values()].slice(-MAX_NETWORK_REQUESTS),
-      },
-    },
+    tabs,
   });
 };
 
 export const clearTabConsole = (
   state: BrowserDevtoolsState,
   sessionId: SessionId,
-  tabId: string
+  tabId: BrowserTabId
 ): BrowserDevtoolsState => {
   const session = sessionData(state, sessionId);
   const tab = session.tabs[tabId] ?? emptyTabData;
@@ -143,7 +144,7 @@ export const clearTabConsole = (
 export const clearTabNetwork = (
   state: BrowserDevtoolsState,
   sessionId: SessionId,
-  tabId: string
+  tabId: BrowserTabId
 ): BrowserDevtoolsState => {
   const session = sessionData(state, sessionId);
   const tab = session.tabs[tabId] ?? emptyTabData;

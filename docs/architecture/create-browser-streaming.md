@@ -5,7 +5,7 @@ This describes what exists today for the Create View live browser. Domain langua
 ## Status
 
 | Piece | Status |
-|-------|--------|
+| --- | --- |
 | Live browser session, tabs, viewport, user-agent | Built |
 | Screencast frames to a canvas + pointer/keyboard input | Built |
 | Console / network DevTools panels | Built |

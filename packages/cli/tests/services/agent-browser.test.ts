@@ -1,5 +1,6 @@
+import { SessionId } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Sink, Stream } from "effect";
+import { Effect, FileSystem, Layer, Schema, Sink, Stream } from "effect";
 import type { ChildProcess } from "effect/unstable/process";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -259,6 +260,9 @@ it.effect("relaunches a session when its user agent changes", () => {
           success: true,
         });
       }
+      if (command.args.includes("network")) {
+        return JSON.stringify({ data: { requests: [] }, success: true });
+      }
       return "";
     },
   });
@@ -293,6 +297,145 @@ it.effect("relaunches a session when its user agent changes", () => {
       const [chromeWindows, browserDefault] = launchCommands;
       expect(chromeWindows?.args.join(" ")).toContain("Chrome/151.0.1234.0");
       expect(browserDefault?.args).toContain(defaultUserAgent);
+
+      const closeIndex = fixture.commands.findIndex(
+        (command) =>
+          command._tag === "StandardCommand" &&
+          command.args.includes("close") &&
+          command.args.includes("create-user-agent")
+      );
+      if (browserDefault === undefined) {
+        return yield* Effect.die(
+          new Error("Expected a browser-default relaunch command")
+        );
+      }
+      const defaultLaunchIndex = fixture.commands.indexOf(browserDefault);
+      expect(closeIndex).toBeGreaterThan(-1);
+      expect(closeIndex).toBeLessThan(defaultLaunchIndex);
     })
   ).pipe(Effect.provide(fixture.layer));
 });
+
+it.effect("enables network capture before navigating a new session", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: (command) => {
+      if (
+        command._tag === "StandardCommand" &&
+        command.args.includes("network")
+      ) {
+        return JSON.stringify({ data: { requests: [] }, success: true });
+      }
+      return "";
+    },
+  });
+
+  return AgentBrowser.use((agentBrowser) =>
+    Effect.gen(function* verifyNetworkCaptureOrdering() {
+      yield* agentBrowser.open(
+        undefined,
+        "https://example.com",
+        { deviceScaleFactor: 1, height: 720, width: 1280 },
+        "default"
+      );
+
+      const networkIndex = fixture.commands.findIndex(
+        (command) =>
+          command._tag === "StandardCommand" &&
+          command.args.includes("network") &&
+          command.args.includes("requests")
+      );
+      const navigationIndex = fixture.commands.findIndex(
+        (command) =>
+          command._tag === "StandardCommand" &&
+          command.args.includes("https://example.com/")
+      );
+
+      expect(networkIndex).toBeGreaterThan(-1);
+      expect(navigationIndex).toBeGreaterThan(networkIndex);
+    })
+  ).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect(
+  "keeps an observed title when its tab moves to the background",
+  () => {
+    let tabReadCount = 0;
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: (command) => {
+        if (command._tag !== "StandardCommand") {
+          return "";
+        }
+        if (command.args.includes("list")) {
+          return JSON.stringify({
+            data: { sessions: ["create-title"] },
+            success: true,
+          });
+        }
+        if (command.args.includes("title")) {
+          return JSON.stringify({
+            data: { title: "Online Pharmacy India" },
+            success: true,
+          });
+        }
+        if (command.args.includes("url")) {
+          return JSON.stringify({
+            data: { url: "https://www.1mg.com/" },
+            success: true,
+          });
+        }
+        if (command.args.includes("tab")) {
+          tabReadCount += 1;
+          return JSON.stringify({
+            data: {
+              tabs:
+                tabReadCount === 1
+                  ? [
+                      {
+                        active: true,
+                        label: null,
+                        tabId: "t1",
+                        title: "1mg.com",
+                        type: "page",
+                        url: "https://www.1mg.com/",
+                      },
+                    ]
+                  : [
+                      {
+                        active: false,
+                        label: null,
+                        tabId: "t1",
+                        title: "1mg.com",
+                        type: "page",
+                        url: "https://www.1mg.com/",
+                      },
+                      {
+                        active: true,
+                        label: null,
+                        tabId: "t2",
+                        title: "Cancer Care",
+                        type: "page",
+                        url: "https://www.1mg.com/cancer-care",
+                      },
+                    ],
+            },
+            success: true,
+          });
+        }
+        return "";
+      },
+    });
+
+    return AgentBrowser.use((agentBrowser) =>
+      Effect.gen(function* verifyTitleCache() {
+        const sessionId =
+          yield* Schema.decodeUnknownEffect(SessionId)("create-title");
+        yield* agentBrowser.getTabs(sessionId);
+        const tabs = yield* agentBrowser.getTabs(sessionId);
+
+        expect(tabs[0]?.title).toBe("Online Pharmacy India");
+      })
+    ).pipe(Effect.provide(fixture.layer));
+  }
+);

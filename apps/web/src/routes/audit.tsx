@@ -5,7 +5,7 @@ const Audit = () => (
     <section className="w-full max-w-xl space-y-2 text-center">
       <h1 className="text-3xl font-semibold tracking-tight">Audit</h1>
       <p className="text-muted-foreground">
-        Run and review accessibility workflows here.
+        Run and review accessibility Flows here.
       </p>
     </section>
   </main>

@@ -30,14 +30,16 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
           })
         ),
       "browser.network.request.get": ({ data }) =>
-        agentBrowser.getNetworkRequest(data.sessionId, data.requestId).pipe(
-          Effect.map((request) => ({
-            data: { request },
-            type: "browser.network.request.result" as const,
-          }))
-        ),
+        agentBrowser
+          .getNetworkRequest(data.sessionId, data.tabId, data.requestId)
+          .pipe(
+            Effect.map((request) => ({
+              data: { request },
+              type: "browser.network.request.result" as const,
+            }))
+          ),
       "browser.network.requests.get": ({ data }) =>
-        agentBrowser.getNetworkRequests(data.sessionId).pipe(
+        agentBrowser.getNetworkRequests(data.sessionId, data.tabId).pipe(
           Effect.map((requests) => ({
             data: { requests },
             type: "browser.network.requests.result" as const,

@@ -3,7 +3,9 @@ import { arch, homedir, platform } from "node:os";
 import path from "node:path";
 
 import {
+  BrowserRequestId,
   BrowserStreamEvent as BrowserStreamEventSchema,
+  BrowserTabId,
   isBrowserRpcError,
   makeBrowserRpcError,
   SessionId as SessionIdSchema,
@@ -84,11 +86,13 @@ export interface AgentBrowser {
     sessionId: SessionId
   ) => Effect.Effect<string, BrowserRpcErrorType>;
   readonly getNetworkRequests: (
-    sessionId: SessionId
+    sessionId: SessionId,
+    tabId: BrowserTabId
   ) => Effect.Effect<readonly BrowserNetworkRequest[], BrowserRpcErrorType>;
   readonly getNetworkRequest: (
     sessionId: SessionId,
-    requestId: string
+    tabId: BrowserTabId,
+    requestId: BrowserRequestId
   ) => Effect.Effect<BrowserNetworkRequestDetail, BrowserRpcErrorType>;
   readonly getTabs: (
     sessionId: SessionId
@@ -119,11 +123,11 @@ export interface AgentBrowser {
   ) => Stream.Stream<BrowserStreamEvent, BrowserRpcErrorType>;
   readonly switchTab: (
     sessionId: SessionId,
-    tabId: string
+    tabId: BrowserTabId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly closeTab: (
     sessionId: SessionId,
-    tabId: string
+    tabId: BrowserTabId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly setViewport: (
     sessionId: SessionId,
@@ -251,10 +255,14 @@ const CurrentUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ url: Schema.String })
 );
 
+const CurrentTitleResult = AgentBrowserJsonResult(
+  Schema.Struct({ title: Schema.String })
+);
+
 const BrowserTabSchema = Schema.Struct({
   active: Schema.Boolean,
   label: Schema.optional(Schema.NullOr(Schema.String)),
-  tabId: Schema.String,
+  tabId: BrowserTabId,
   title: Schema.String,
   type: Schema.String,
   url: Schema.String,
@@ -264,12 +272,12 @@ const BrowserTabsResult = AgentBrowserJsonResult(
   Schema.Struct({ tabs: Schema.Array(BrowserTabSchema) })
 );
 
-const BrowserNetworkRequestSchema = Schema.Struct({
+const AgentBrowserNetworkRequestSchema = Schema.Struct({
   headers: Schema.Unknown,
   method: Schema.String,
   mimeType: Schema.optional(Schema.String),
   postData: Schema.optional(Schema.String),
-  requestId: Schema.String,
+  requestId: BrowserRequestId,
   resourceType: Schema.String,
   responseHeaders: Schema.optional(Schema.Unknown),
   status: Schema.optional(Schema.Int),
@@ -278,17 +286,39 @@ const BrowserNetworkRequestSchema = Schema.Struct({
 });
 
 const BrowserNetworkRequestsResult = AgentBrowserJsonResult(
-  Schema.Struct({ requests: Schema.Array(BrowserNetworkRequestSchema) })
+  Schema.Struct({ requests: Schema.Array(AgentBrowserNetworkRequestSchema) })
 );
 
 const BrowserNetworkRequestDetailResult = AgentBrowserJsonResult(
   Schema.Struct({
-    ...BrowserNetworkRequestSchema.fields,
+    ...AgentBrowserNetworkRequestSchema.fields,
     initiator: Schema.optional(Schema.Unknown),
     responseBody: Schema.optional(Schema.String),
     timing: Schema.optional(Schema.Unknown),
   })
 );
+
+const AgentBrowserConsoleEntry = Schema.Union([
+  Schema.Struct({
+    level: Schema.String,
+    text: Schema.String,
+    timestamp: Schema.Finite,
+    type: Schema.Literal("console"),
+  }),
+  Schema.Struct({
+    column: Schema.NullOr(Schema.Int),
+    line: Schema.NullOr(Schema.Int),
+    text: Schema.String,
+    timestamp: Schema.Finite,
+    type: Schema.Literal("page_error"),
+  }),
+]);
+
+const AgentBrowserUrlEvent = Schema.Struct({
+  timestamp: Schema.optional(Schema.Finite),
+  type: Schema.Literal("url"),
+  url: Schema.String,
+});
 
 const StreamMessageEnvelope = Schema.Struct({ type: Schema.String });
 const relayedStreamMessageTypes = new Set([
@@ -358,8 +388,14 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     const chromeVersion = yield* Ref.make<string | null>(null);
     const defaultUserAgent = yield* Ref.make<string | null>(null);
     const inputSemaphores = new Map<SessionId, Semaphore.Semaphore>();
+    const tabCommandSemaphores = new Map<SessionId, Semaphore.Semaphore>();
     const sessionProfiles = new Map<SessionId, UserAgentProfileId>();
     const streamConnections = new Map<SessionId, WebSocket>();
+    const activeTabIds = new Map<SessionId, BrowserTabId>();
+    const tabMetadata = new Map<
+      SessionId,
+      Map<BrowserTabId, { readonly title: string; readonly url: string }>
+    >();
 
     const executablePath = Effect.gen(function* resolveExecutablePath() {
       const executable = yield* getAgentBrowserExecutable(runtime);
@@ -590,8 +626,65 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         sessionArgs(sessionId, ["tab"]),
         BrowserTabsResult
       );
-      return result.data.tabs;
+      const activeTab = result.data.tabs.find(({ active }) => active);
+      const sessionTabMetadata =
+        tabMetadata.get(sessionId) ??
+        new Map<
+          BrowserTabId,
+          { readonly title: string; readonly url: string }
+        >();
+      tabMetadata.set(sessionId, sessionTabMetadata);
+
+      if (activeTab !== undefined) {
+        activeTabIds.set(sessionId, activeTab.tabId);
+        const titleResult = yield* runJson(
+          sessionArgs(sessionId, ["get", "title"]),
+          CurrentTitleResult
+        ).pipe(Effect.option);
+        const urlResult = yield* runJson(
+          sessionArgs(sessionId, ["get", "url"]),
+          CurrentUrlResult
+        ).pipe(Effect.option);
+        sessionTabMetadata.set(activeTab.tabId, {
+          title:
+            titleResult._tag === "Some"
+              ? titleResult.value.data.title
+              : activeTab.title,
+          url:
+            urlResult._tag === "Some"
+              ? urlResult.value.data.url
+              : activeTab.url,
+        });
+      }
+
+      const openTabIds = new Set(result.data.tabs.map(({ tabId }) => tabId));
+      for (const tabId of sessionTabMetadata.keys()) {
+        if (!openTabIds.has(tabId)) {
+          sessionTabMetadata.delete(tabId);
+        }
+      }
+
+      return result.data.tabs.map((tab) => {
+        const metadata = sessionTabMetadata.get(tab.tabId);
+        return metadata === undefined ? tab : { ...tab, ...metadata };
+      });
     });
+
+    const getActiveTabId = Effect.fn("AgentBrowser.getActiveTabId")(
+      function* resolveActiveBrowserTab(sessionId: SessionId) {
+        const knownActiveTabId = activeTabIds.get(sessionId);
+        if (knownActiveTabId !== undefined) {
+          return knownActiveTabId;
+        }
+
+        const tabs = yield* getTabs(sessionId);
+        const activeTab = tabs.find(({ active }) => active);
+        if (activeTab !== undefined) {
+          activeTabIds.set(sessionId, activeTab.tabId);
+        }
+        return activeTab?.tabId;
+      }
+    );
 
     const newTab = Effect.fn("AgentBrowser.newTab")(function* newTab(
       sessionId: SessionId
@@ -600,41 +693,79 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       yield* run(sessionArgs(sessionId, ["tab", "new"]));
     });
 
-    const switchTab = Effect.fn("AgentBrowser.switchTab")(function* switchTab(
+    const withTabCommandPermit = <A, E>(
       sessionId: SessionId,
-      tabId: string
-    ) {
-      yield* attach(sessionId);
-      yield* run(sessionArgs(sessionId, ["tab", tabId]));
-    });
+      effect: Effect.Effect<A, E>
+    ) => {
+      const semaphore =
+        tabCommandSemaphores.get(sessionId) ?? Semaphore.makeUnsafe(1);
+      tabCommandSemaphores.set(sessionId, semaphore);
+      return semaphore.withPermit(effect);
+    };
+
+    const switchTab = Effect.fn("AgentBrowser.switchTab")(
+      (sessionId: SessionId, tabId: BrowserTabId) =>
+        withTabCommandPermit(
+          sessionId,
+          Effect.gen(function* switchBrowserTab() {
+            yield* attach(sessionId);
+            yield* run(sessionArgs(sessionId, ["tab", tabId]));
+            activeTabIds.set(sessionId, tabId);
+          })
+        )
+    );
 
     const closeTab = Effect.fn("AgentBrowser.closeTab")(function* closeTab(
       sessionId: SessionId,
-      tabId: string
+      tabId: BrowserTabId
     ) {
       yield* attach(sessionId);
       yield* run(sessionArgs(sessionId, ["tab", "close", tabId]));
     });
 
     const getNetworkRequests = Effect.fn("AgentBrowser.getNetworkRequests")(
-      function* getNetworkRequests(sessionId: SessionId) {
-        yield* attach(sessionId);
-        const result = yield* runJson(
-          sessionArgs(sessionId, ["network", "requests"]),
-          BrowserNetworkRequestsResult
-        );
-        return result.data.requests;
-      }
+      (sessionId: SessionId, tabId: BrowserTabId) =>
+        withTabCommandPermit(
+          sessionId,
+          Effect.gen(function* readTabNetworkRequests() {
+            yield* attach(sessionId);
+            const tabs = yield* getTabs(sessionId);
+            if (!tabs.some((tab) => tab.active && tab.tabId === tabId)) {
+              return [];
+            }
+            const result = yield* runJson(
+              sessionArgs(sessionId, ["network", "requests"]),
+              BrowserNetworkRequestsResult
+            );
+            return result.data.requests.map((request) => ({
+              ...request,
+              tabId,
+            }));
+          })
+        )
     );
 
+    const enableNetworkTracking = Effect.fn(
+      "AgentBrowser.enableNetworkTracking"
+    )(function* enableNetworkTracking(sessionId: SessionId) {
+      yield* runJson(
+        sessionArgs(sessionId, ["network", "requests"]),
+        BrowserNetworkRequestsResult
+      );
+    });
+
     const getNetworkRequest = Effect.fn("AgentBrowser.getNetworkRequest")(
-      function* getNetworkRequest(sessionId: SessionId, requestId: string) {
+      function* getNetworkRequest(
+        sessionId: SessionId,
+        tabId: BrowserTabId,
+        requestId: BrowserRequestId
+      ) {
         yield* attach(sessionId);
         const result = yield* runJson(
           sessionArgs(sessionId, ["network", "request", requestId]),
           BrowserNetworkRequestDetailResult
         );
-        return result.data;
+        return { ...result.data, tabId };
       }
     );
 
@@ -681,23 +812,29 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       userAgentProfile: UserAgentProfileId
     ) {
       const url = yield* normalizeUrl(requestedUrl);
+      const previousProfile =
+        selectedSessionId === undefined
+          ? "default"
+          : (sessionProfiles.get(selectedSessionId) ?? "default");
       const sessionId =
         selectedSessionId === undefined
           ? yield* create(`create-${randomUUID().slice(0, 8)}`, viewport)
           : yield* attach(selectedSessionId);
 
       const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
-      if ((sessionProfiles.get(sessionId) ?? "default") !== userAgentProfile) {
+      if (previousProfile !== userAgentProfile) {
         streamConnections.get(sessionId)?.close();
         streamConnections.delete(sessionId);
+        yield* run(
+          sessionArgs(sessionId, [
+            ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
+            "open",
+          ])
+        );
+        yield* setViewport(sessionId, viewport);
       }
-      yield* run(
-        sessionArgs(sessionId, [
-          ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
-          "open",
-          url,
-        ])
-      );
+      yield* enableNetworkTracking(sessionId);
+      yield* run(sessionArgs(sessionId, ["open", url]));
       sessionProfiles.set(sessionId, userAgentProfile);
       yield* setViewport(sessionId, viewport);
       return { sessionId, url } as const;
@@ -710,8 +847,36 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         viewport: Viewport,
         userAgentProfile: UserAgentProfileId
       ) {
-        const result = yield* open(sessionId, url, viewport, userAgentProfile);
-        return { url: result.url } as const;
+        const normalizedUrl = yield* normalizeUrl(url);
+        yield* attach(sessionId);
+        const previousProfile = sessionProfiles.get(sessionId) ?? "default";
+        if (previousProfile === userAgentProfile) {
+          const result = yield* open(
+            sessionId,
+            normalizedUrl,
+            viewport,
+            userAgentProfile
+          );
+          return { url: result.url } as const;
+        }
+
+        const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
+        streamConnections.get(sessionId)?.close();
+        streamConnections.delete(sessionId);
+        activeTabIds.delete(sessionId);
+        tabMetadata.delete(sessionId);
+        yield* run(sessionArgs(sessionId, ["close"]));
+        yield* run(
+          sessionArgs(sessionId, [
+            ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
+            "open",
+          ])
+        );
+        yield* setViewport(sessionId, viewport);
+        yield* enableNetworkTracking(sessionId);
+        yield* run(sessionArgs(sessionId, ["open", normalizedUrl]));
+        sessionProfiles.set(sessionId, userAgentProfile);
+        return { url: normalizedUrl } as const;
       }
     );
 
@@ -730,7 +895,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       connection?.close();
       streamConnections.delete(sessionId);
       inputSemaphores.delete(sessionId);
+      tabCommandSemaphores.delete(sessionId);
       sessionProfiles.delete(sessionId);
+      activeTabIds.delete(sessionId);
+      tabMetadata.delete(sessionId);
       yield* run(sessionArgs(sessionId, ["close"]));
     });
 
@@ -817,9 +985,46 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                               return;
                             }
 
+                            if (
+                              envelope.type === "console" ||
+                              envelope.type === "page_error"
+                            ) {
+                              const entry = yield* Schema.decodeUnknownEffect(
+                                AgentBrowserConsoleEntry
+                              )(parsed);
+                              const tabId = yield* getActiveTabId(sessionId);
+                              if (tabId !== undefined) {
+                                yield* Queue.offer(queue, { ...entry, tabId });
+                              }
+                              return;
+                            }
+
+                            if (envelope.type === "url") {
+                              const urlEvent =
+                                yield* Schema.decodeUnknownEffect(
+                                  AgentBrowserUrlEvent
+                                )(parsed);
+                              const tabId = yield* getActiveTabId(sessionId);
+                              if (tabId !== undefined) {
+                                yield* Queue.offer(queue, {
+                                  ...urlEvent,
+                                  tabId,
+                                });
+                              }
+                              return;
+                            }
+
                             const message = yield* Schema.decodeUnknownEffect(
                               BrowserStreamEventSchema
                             )(parsed);
+                            if (message.type === "tabs") {
+                              const activeTab = message.tabs.find(
+                                ({ active }) => active
+                              );
+                              if (activeTab !== undefined) {
+                                activeTabIds.set(sessionId, activeTab.tabId);
+                              }
+                            }
                             yield* Queue.offer(queue, message);
                           }).pipe(
                             Effect.mapError((cause) =>
@@ -903,7 +1108,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         }
         streamConnections.clear();
         inputSemaphores.clear();
+        tabCommandSemaphores.clear();
         sessionProfiles.clear();
+        activeTabIds.clear();
+        tabMetadata.clear();
 
         if (yield* Ref.get(ownsSessions)) {
           yield* run([
