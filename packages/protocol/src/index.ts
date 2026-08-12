@@ -32,6 +32,11 @@ export const FrameSequence = Schema.Int.check(
 ).pipe(Schema.brand("@contingency/FrameSequence"));
 export type FrameSequence = typeof FrameSequence.Type;
 
+export const BrowserStreamId = Schema.String.check(Schema.isMinLength(1)).pipe(
+  Schema.brand("@contingency/BrowserStreamId")
+);
+export type BrowserStreamId = typeof BrowserStreamId.Type;
+
 export const Viewport = Schema.Struct({
   deviceScaleFactor: Schema.Finite.check(
     Schema.isBetween({ maximum: 4, minimum: 0.25 })
@@ -370,29 +375,45 @@ export type KeyboardInput = typeof KeyboardInput.Type;
 export const BrowserInput = Schema.Union([MouseInput, KeyboardInput]);
 export type BrowserInput = typeof BrowserInput.Type;
 
+export const AgentBrowserFrame = Schema.Struct({
+  data: Schema.String,
+  metadata: Schema.Struct({
+    deviceHeight: Schema.Int,
+    deviceWidth: Schema.Int,
+    offsetTop: Schema.Finite,
+    pageScaleFactor: Schema.Finite,
+    scrollOffsetX: Schema.Finite,
+    scrollOffsetY: Schema.Finite,
+    timestamp: Schema.Finite,
+  }),
+  seq: FrameSequence,
+  type: Schema.Literal("frame"),
+});
+
+export const BrowserStreamStatus = Schema.Struct({
+  connected: Schema.Boolean,
+  recording: Schema.optional(Schema.Boolean),
+  screencasting: Schema.Boolean,
+  type: Schema.Literal("status"),
+  viewportHeight: Schema.Int,
+  viewportWidth: Schema.Int,
+});
+
+export const BrowserTabsEvent = Schema.Struct({
+  tabs: Schema.Array(BrowserTab),
+  timestamp: Schema.Finite,
+  type: Schema.Literal("tabs"),
+});
+
+export const AgentBrowserViewEvent = Schema.Union([
+  AgentBrowserFrame,
+  BrowserStreamStatus,
+  BrowserTabsEvent,
+]);
+
 export const BrowserStreamEvent = Schema.Union([
-  Schema.Struct({
-    data: Schema.String,
-    metadata: Schema.Struct({
-      deviceHeight: Schema.Int,
-      deviceWidth: Schema.Int,
-      offsetTop: Schema.Finite,
-      pageScaleFactor: Schema.Finite,
-      scrollOffsetX: Schema.Finite,
-      scrollOffsetY: Schema.Finite,
-      timestamp: Schema.Finite,
-    }),
-    seq: FrameSequence,
-    type: Schema.Literal("frame"),
-  }),
-  Schema.Struct({
-    connected: Schema.Boolean,
-    recording: Schema.optional(Schema.Boolean),
-    screencasting: Schema.Boolean,
-    type: Schema.Literal("status"),
-    viewportHeight: Schema.Int,
-    viewportWidth: Schema.Int,
-  }),
+  Schema.Struct({ ...AgentBrowserFrame.fields, streamId: BrowserStreamId }),
+  BrowserStreamStatus,
   Schema.Struct({
     tabId: BrowserTabId,
     timestamp: Schema.optional(Schema.Finite),
@@ -400,11 +421,7 @@ export const BrowserStreamEvent = Schema.Union([
     url: Schema.String,
   }),
   BrowserConsoleEntry,
-  Schema.Struct({
-    tabs: Schema.Array(BrowserTab),
-    timestamp: Schema.Finite,
-    type: Schema.Literal("tabs"),
-  }),
+  BrowserTabsEvent,
 ]);
 export type BrowserStreamEvent = typeof BrowserStreamEvent.Type;
 
@@ -533,6 +550,7 @@ export const BrowserInputSent = response("browser.input.sent", {});
 export const BrowserFrameAck = request("browser.frame.ack", {
   seq: FrameSequence,
   sessionId: SessionId,
+  streamId: BrowserStreamId,
 });
 export const BrowserFrameAcked = response("browser.frame.acked", {});
 

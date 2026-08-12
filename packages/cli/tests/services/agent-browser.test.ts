@@ -1,6 +1,14 @@
 import { SessionId } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema, Sink, Stream } from "effect";
+import {
+  Effect,
+  FileSystem,
+  Layer,
+  Schema,
+  Semaphore,
+  Sink,
+  Stream,
+} from "effect";
 import type { ChildProcess } from "effect/unstable/process";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
@@ -8,6 +16,7 @@ import agentBrowserPackage from "../../assets/agent-browser/package.json" with {
 import {
   AgentBrowser,
   makeAgentBrowserLive,
+  serializeBrowserStreamEvent,
 } from "../../src/services/agent-browser";
 import type { AgentBrowserRuntime } from "../../src/services/agent-browser";
 
@@ -238,6 +247,39 @@ it.effect(
     });
   }
 );
+
+it.effect("attributes events after earlier tab transitions finish", () => {
+  const semaphore = Semaphore.makeUnsafe(1);
+  let activeTab = "t1";
+  const attributedTabs: string[] = [];
+
+  const delayedPopupTransition = serializeBrowserStreamEvent(
+    semaphore,
+    Effect.yieldNow.pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          activeTab = "t2";
+        })
+      )
+    )
+  );
+  const consoleEvent = serializeBrowserStreamEvent(
+    semaphore,
+    Effect.sync(() => {
+      attributedTabs.push(activeTab);
+    })
+  );
+
+  return Effect.all([delayedPopupTransition, consoleEvent], {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        expect(attributedTabs).toEqual(["t2"]);
+      })
+    )
+  );
+});
 
 it.effect("relaunches a session when its user agent changes", () => {
   const defaultUserAgent =

@@ -9,6 +9,7 @@ import {
   browserTabSynchronizationEffect,
   preserveBrowserTabMetadata,
   reconcileActiveTab,
+  replacePendingBrowserFrame,
 } from "../../../src/components/create/browser-workspace-state";
 
 describe("browserAddressFromUrlEvent", () => {
@@ -147,5 +148,18 @@ describe("preserveBrowserTabMetadata", () => {
         url: "https://www.1mg.com/",
       },
     ]);
+  });
+});
+
+describe("replacePendingBrowserFrame", () => {
+  it("releases a coalesced frame before replacing it", () => {
+    const released: number[] = [];
+
+    expect(
+      replacePendingBrowserFrame({ seq: 1 }, { seq: 2 }, ({ seq }) => {
+        released.push(seq);
+      })
+    ).toEqual({ seq: 2 });
+    expect(released).toEqual([1]);
   });
 });

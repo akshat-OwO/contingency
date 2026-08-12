@@ -58,6 +58,8 @@ export const browserUserAgentMutation = ContingencyRpcClient.mutation(
 );
 export const browserInputMutation =
   ContingencyRpcClient.mutation("browser.input.send");
+export const browserFrameAckMutation =
+  ContingencyRpcClient.mutation("browser.frame.ack");
 export const browserTabsMutation =
   ContingencyRpcClient.mutation("browser.tabs.get");
 export const browserTabNewMutation =

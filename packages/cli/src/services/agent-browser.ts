@@ -3,8 +3,9 @@ import { arch, homedir, platform } from "node:os";
 import path from "node:path";
 
 import {
+  AgentBrowserViewEvent,
+  BrowserStreamId,
   BrowserRequestId,
-  BrowserStreamEvent as BrowserStreamEventSchema,
   BrowserTabId,
   isBrowserRpcError,
   makeBrowserRpcError,
@@ -17,6 +18,7 @@ import type {
   BrowserNetworkRequestDetail,
   BrowserRpcErrorType,
   BrowserStreamEvent,
+  BrowserStreamId as BrowserStreamIdType,
   BrowserTab,
   SessionId,
   UserAgentProfileId,
@@ -69,7 +71,8 @@ type AgentBrowserInitError =
 export interface AgentBrowser {
   readonly acknowledgeFrame: (
     sessionId: SessionId,
-    sequence: number
+    sequence: number,
+    streamId: BrowserStreamIdType
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly attach: (
     sessionId: SessionId
@@ -146,6 +149,11 @@ export interface AgentBrowserRuntime {
   readonly isMusl: boolean;
   readonly operatingSystem: NodeJS.Platform;
 }
+
+export const serializeBrowserStreamEvent = <A, E, R>(
+  semaphore: Semaphore.Semaphore,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E, R> => semaphore.withPermit(effect);
 
 export const AgentBrowser = Context.Service<AgentBrowser>(
   "@contingency/AgentBrowser"
@@ -390,8 +398,12 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     const inputSemaphores = new Map<SessionId, Semaphore.Semaphore>();
     const tabCommandSemaphores = new Map<SessionId, Semaphore.Semaphore>();
     const sessionProfiles = new Map<SessionId, UserAgentProfileId>();
-    const streamConnections = new Map<SessionId, WebSocket>();
+    const streamConnections = new Map<
+      SessionId,
+      { readonly socket: WebSocket; readonly streamId: BrowserStreamIdType }
+    >();
     const activeTabIds = new Map<SessionId, BrowserTabId>();
+    const streamActiveTabIds = new Map<SessionId, BrowserTabId>();
     const tabMetadata = new Map<
       SessionId,
       Map<BrowserTabId, { readonly title: string; readonly url: string }>
@@ -670,22 +682,6 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       });
     });
 
-    const getActiveTabId = Effect.fn("AgentBrowser.getActiveTabId")(
-      function* resolveActiveBrowserTab(sessionId: SessionId) {
-        const knownActiveTabId = activeTabIds.get(sessionId);
-        if (knownActiveTabId !== undefined) {
-          return knownActiveTabId;
-        }
-
-        const tabs = yield* getTabs(sessionId);
-        const activeTab = tabs.find(({ active }) => active);
-        if (activeTab !== undefined) {
-          activeTabIds.set(sessionId, activeTab.tabId);
-        }
-        return activeTab?.tabId;
-      }
-    );
-
     const newTab = Effect.fn("AgentBrowser.newTab")(function* newTab(
       sessionId: SessionId
     ) {
@@ -823,7 +819,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
       const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
       if (previousProfile !== userAgentProfile) {
-        streamConnections.get(sessionId)?.close();
+        streamConnections.get(sessionId)?.socket.close();
         streamConnections.delete(sessionId);
         yield* run(
           sessionArgs(sessionId, [
@@ -861,9 +857,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         }
 
         const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
-        streamConnections.get(sessionId)?.close();
+        streamConnections.get(sessionId)?.socket.close();
         streamConnections.delete(sessionId);
         activeTabIds.delete(sessionId);
+        streamActiveTabIds.delete(sessionId);
         tabMetadata.delete(sessionId);
         yield* run(sessionArgs(sessionId, ["close"]));
         yield* run(
@@ -892,12 +889,13 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       sessionId: SessionId
     ) {
       const connection = streamConnections.get(sessionId);
-      connection?.close();
+      connection?.socket.close();
       streamConnections.delete(sessionId);
       inputSemaphores.delete(sessionId);
       tabCommandSemaphores.delete(sessionId);
       sessionProfiles.delete(sessionId);
       activeTabIds.delete(sessionId);
+      streamActiveTabIds.delete(sessionId);
       tabMetadata.delete(sessionId);
       yield* run(sessionArgs(sessionId, ["close"]));
     });
@@ -922,18 +920,35 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     const stream = (sessionId: SessionId) =>
       Stream.unwrap(
-        streamStatus(sessionId).pipe(
-          Effect.map(({ port }) =>
+        Effect.gen(function* prepareBrowserStream() {
+          const streamId = yield* Schema.decodeUnknownEffect(BrowserStreamId)(
+            randomUUID()
+          ).pipe(
+            Effect.mapError((cause) =>
+              browserError("stream_failed", errorMessage(cause))
+            )
+          );
+          const { port } = yield* streamStatus(sessionId);
+          return { port, streamId } as const;
+        }).pipe(
+          Effect.map(({ port, streamId }) =>
             Stream.callback<BrowserStreamEvent, BrowserRpcErrorType>((queue) =>
               Effect.acquireRelease(
                 Effect.callback<WebSocket, BrowserRpcErrorType>((resume) => {
-                  const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
+                  const socket = new WebSocket(
+                    `ws://127.0.0.1:${port}/?pacing=ack`
+                  );
+                  const decodeSemaphore = Semaphore.makeUnsafe(1);
                   let opened = false;
 
                   const handleOpen = () => {
                     opened = true;
-                    streamConnections.get(sessionId)?.close();
-                    streamConnections.set(sessionId, socket);
+                    streamConnections.get(sessionId)?.socket.close();
+                    streamConnections.set(sessionId, { socket, streamId });
+                    const activeTabId = activeTabIds.get(sessionId);
+                    if (activeTabId !== undefined) {
+                      streamActiveTabIds.set(sessionId, activeTabId);
+                    }
                     resume(Effect.succeed(socket));
                   };
                   const handleError = () => {
@@ -967,6 +982,11 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
                     const decodeEvent = Effect.gen(
                       function* decodeBrowserStreamEvent() {
+                        if (
+                          streamConnections.get(sessionId)?.socket !== socket
+                        ) {
+                          return;
+                        }
                         const outcome = yield* Effect.result(
                           Effect.gen(function* decodeRelayedStreamEvent() {
                             const parsed = yield* Effect.try({
@@ -992,7 +1012,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                               const entry = yield* Schema.decodeUnknownEffect(
                                 AgentBrowserConsoleEntry
                               )(parsed);
-                              const tabId = yield* getActiveTabId(sessionId);
+                              const tabId = streamActiveTabIds.get(sessionId);
                               if (tabId !== undefined) {
                                 yield* Queue.offer(queue, { ...entry, tabId });
                               }
@@ -1004,7 +1024,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                                 yield* Schema.decodeUnknownEffect(
                                   AgentBrowserUrlEvent
                                 )(parsed);
-                              const tabId = yield* getActiveTabId(sessionId);
+                              const tabId = streamActiveTabIds.get(sessionId);
                               if (tabId !== undefined) {
                                 yield* Queue.offer(queue, {
                                   ...urlEvent,
@@ -1015,7 +1035,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                             }
 
                             const message = yield* Schema.decodeUnknownEffect(
-                              BrowserStreamEventSchema
+                              AgentBrowserViewEvent
                             )(parsed);
                             if (message.type === "tabs") {
                               const activeTab = message.tabs.find(
@@ -1023,9 +1043,18 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                               );
                               if (activeTab !== undefined) {
                                 activeTabIds.set(sessionId, activeTab.tabId);
+                                streamActiveTabIds.set(
+                                  sessionId,
+                                  activeTab.tabId
+                                );
                               }
                             }
-                            yield* Queue.offer(queue, message);
+                            yield* Queue.offer(
+                              queue,
+                              message.type === "frame"
+                                ? { ...message, streamId }
+                                : message
+                            );
                           }).pipe(
                             Effect.mapError((cause) =>
                               isBrowserRpcError(cause)
@@ -1043,7 +1072,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                         }
                       }
                     );
-                    Effect.runFork(decodeEvent);
+                    Effect.runFork(
+                      serializeBrowserStreamEvent(decodeSemaphore, decodeEvent)
+                    );
                   };
 
                   socket.addEventListener("open", handleOpen, { once: true });
@@ -1061,8 +1092,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                 }),
                 (socket) =>
                   Effect.sync(() => {
-                    if (streamConnections.get(sessionId) === socket) {
+                    if (streamConnections.get(sessionId)?.socket === socket) {
                       streamConnections.delete(sessionId);
+                      streamActiveTabIds.delete(sessionId);
                     }
                     socket.close();
                   })
@@ -1073,14 +1105,30 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       );
 
     const writeToStream = Effect.fn("AgentBrowser.writeToStream")(
-      function* writeToStream(sessionId: SessionId, message: unknown) {
-        const socket = streamConnections.get(sessionId);
-        if (socket?.readyState !== WebSocket.OPEN) {
+      function* writeToStream(
+        sessionId: SessionId,
+        message: unknown,
+        expectedStreamId?: BrowserStreamIdType
+      ) {
+        const connection = streamConnections.get(sessionId);
+        if (
+          connection === undefined ||
+          connection.socket.readyState !== WebSocket.OPEN
+        ) {
           return yield* Effect.fail(
             browserError(
               "stream_failed",
               `Browser session ${sessionId} has no attached viewport.`
             )
+          );
+        }
+        const { socket } = connection;
+        if (
+          expectedStreamId !== undefined &&
+          connection.streamId !== expectedStreamId
+        ) {
+          return yield* Effect.fail(
+            browserError("stream_failed", "Browser stream was replaced.")
           );
         }
 
@@ -1098,12 +1146,15 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       return semaphore.withPermit(writeToStream(sessionId, input));
     };
 
-    const acknowledgeFrame = (sessionId: SessionId, sequence: number) =>
-      writeToStream(sessionId, { seq: sequence, type: "ack" });
+    const acknowledgeFrame = (
+      sessionId: SessionId,
+      sequence: number,
+      streamId: BrowserStreamIdType
+    ) => writeToStream(sessionId, { seq: sequence, type: "ack" }, streamId);
 
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* closeOwnedSessions() {
-        for (const socket of streamConnections.values()) {
+        for (const { socket } of streamConnections.values()) {
           socket.close();
         }
         streamConnections.clear();
@@ -1111,6 +1162,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         tabCommandSemaphores.clear();
         sessionProfiles.clear();
         activeTabIds.clear();
+        streamActiveTabIds.clear();
         tabMetadata.clear();
 
         if (yield* Ref.get(ownsSessions)) {

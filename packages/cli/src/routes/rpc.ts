@@ -16,7 +16,7 @@ const RpcHandlersLive = ContingencyRpcs.toLayer(
     return {
       "browser.frame.ack": ({ data }) =>
         agentBrowser
-          .acknowledgeFrame(data.sessionId, data.seq)
+          .acknowledgeFrame(data.sessionId, data.seq, data.streamId)
           .pipe(Effect.as({ data: {}, type: "browser.frame.acked" as const })),
       "browser.input.send": ({ data }) =>
         agentBrowser

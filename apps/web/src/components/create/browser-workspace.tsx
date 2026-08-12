@@ -56,6 +56,7 @@ import {
   hasActiveTabChanged,
   preserveBrowserTabMetadata,
   reconcileActiveTab,
+  replacePendingBrowserFrame,
 } from "@/components/create/browser-workspace-state";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,7 @@ import {
 } from "@/components/ui/select";
 import {
   browserInputMutation,
+  browserFrameAckMutation,
   browserNetworkRequestsMutation,
   browserNavigationMutation,
   browserOpenMutation,
@@ -258,6 +260,9 @@ const useBrowserWorkspace = () => {
     mode: "promise",
   });
   const sendBrowserInput = useAtomSet(browserInputMutation, {
+    mode: "promise",
+  });
+  const acknowledgeBrowserFrame = useAtomSet(browserFrameAckMutation, {
     mode: "promise",
   });
   const getBrowserTabs = useAtomSet(browserTabsMutation, { mode: "promise" });
@@ -478,9 +483,38 @@ const useBrowserWorkspace = () => {
     );
   };
 
+  const acknowledgeFrame = useCallback(
+    (event: Extract<BrowserStreamEvent, { readonly type: "frame" }>) => {
+      if (selectedSessionId === undefined) {
+        return Effect.void;
+      }
+      return Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          acknowledgeBrowserFrame({
+            payload: {
+              data: {
+                seq: event.seq,
+                sessionId: selectedSessionId,
+                streamId: event.streamId,
+              },
+              type: "browser.frame.ack",
+            },
+          }),
+      }).pipe(Effect.ignore);
+    },
+    [acknowledgeBrowserFrame, selectedSessionId]
+  );
+
   const enqueueFrame = useCallback(
     (event: Extract<BrowserStreamEvent, { readonly type: "frame" }>) => {
-      pendingFrameRef.current = event;
+      pendingFrameRef.current = replacePendingBrowserFrame(
+        pendingFrameRef.current,
+        event,
+        (droppedFrame) => {
+          Effect.runFork(acknowledgeFrame(droppedFrame));
+        }
+      );
       if (frameRenderFiberRef.current !== null) {
         return;
       }
@@ -490,8 +524,12 @@ const useBrowserWorkspace = () => {
           const latestFrame = pendingFrameRef.current;
           pendingFrameRef.current = null;
           const canvas = canvasRef.current;
-          if (canvas !== null) {
-            yield* renderFrame(canvas, latestFrame);
+          if (canvas === null) {
+            yield* acknowledgeFrame(latestFrame);
+          } else {
+            yield* renderFrame(canvas, latestFrame).pipe(
+              Effect.ensuring(acknowledgeFrame(latestFrame))
+            );
             setFrameReady(true);
           }
         }
@@ -504,7 +542,7 @@ const useBrowserWorkspace = () => {
       );
       frameRenderFiberRef.current = Effect.runFork(renderFrames);
     },
-    [setFrameReady]
+    [acknowledgeFrame, setFrameReady]
   );
 
   useEffect(() => {
@@ -574,10 +612,15 @@ const useBrowserWorkspace = () => {
         Effect.runFork(Fiber.interrupt(frameFiber));
         frameRenderFiberRef.current = null;
       }
+      const pendingFrame = pendingFrameRef.current;
       pendingFrameRef.current = null;
+      if (pendingFrame !== null) {
+        Effect.runFork(acknowledgeFrame(pendingFrame));
+      }
     };
   }, [
     enqueueFrame,
+    acknowledgeFrame,
     selectedSessionId,
     setAddress,
     setDevtoolsState,

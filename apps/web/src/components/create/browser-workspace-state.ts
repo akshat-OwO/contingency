@@ -53,6 +53,17 @@ export const preserveBrowserTabMetadata = (
     return { ...incomingTab, title: enrichedTab.title };
   });
 
+export const replacePendingBrowserFrame = <Frame>(
+  pendingFrame: Frame | null,
+  nextFrame: Frame,
+  releaseFrame: (frame: Frame) => void
+): Frame => {
+  if (pendingFrame !== null) {
+    releaseFrame(pendingFrame);
+  }
+  return nextFrame;
+};
+
 export const browserTabSynchronizationEffect = <A, E, R, B, E2, R2>(
   initial: () => Effect.Effect<A, E, R>,
   recurring: () => Effect.Effect<B, E2, R2>
