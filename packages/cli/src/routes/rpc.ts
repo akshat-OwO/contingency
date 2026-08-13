@@ -1,10 +1,10 @@
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
-  SessionId,
+  recordingMakesBrowserInputReadOnly,
 } from "@contingency/protocol";
 import type { RecordingSnapshot } from "@contingency/protocol";
-import { Effect, Layer, Schema, Stream } from "effect";
+import { Effect, Layer, Stream } from "effect";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -28,8 +28,7 @@ export const browserInputIsReadOnly = (
   sessionId: string
 ): boolean =>
   snapshot?.sessionId === sessionId &&
-  (snapshot.phase === "incomplete" ||
-    (snapshot.phase === "paused" && snapshot.captureMode === "ordinary"));
+  recordingMakesBrowserInputReadOnly(snapshot);
 
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.gen(function* makeRpcHandlers() {
@@ -239,7 +238,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           .armPreStep(
             data.scope === "flow"
               ? { type: "flow" }
-              : { stepId: data.stepId ?? "", type: "step" }
+              : { stepId: data.stepId, type: "step" }
           )
           .pipe(Effect.map(toRecordingResult)),
       "recording.pre-step.condition.arm": ({ data }) =>
@@ -249,7 +248,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               ? { index: data.index, type: "flow" }
               : {
                   index: data.index,
-                  stepId: data.stepId ?? "",
+                  stepId: data.stepId,
                   type: "step",
                 }
           )
@@ -267,16 +266,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               )
             );
           }
-          const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(
-            snapshot.sessionId
-          ).pipe(
-            Effect.mapError(() =>
-              makeBrowserRpcError(
-                "recording_unavailable",
-                "The pinned browser session is no longer available."
-              )
-            )
-          );
+          const { sessionId } = snapshot;
           const tabs = yield* agentBrowser.getTabs(sessionId);
           const pinnedTab = tabs.find(({ tabId }) => tabId === snapshot.tabId);
           if (pinnedTab === undefined) {

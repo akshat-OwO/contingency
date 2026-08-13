@@ -1,6 +1,9 @@
+import { SessionId } from "@contingency/protocol";
 import { describe, expect, it } from "vitest";
 
 import { browserInputIsReadOnly } from "../../src/routes/rpc";
+
+const sessionId = SessionId.make("create-session-1");
 
 const snapshotWithPhase = (
   phase: "active" | "finished" | "incomplete" | "paused"
@@ -8,13 +11,13 @@ const snapshotWithPhase = (
   ({
     captureMode: "ordinary",
     phase,
-    sessionId: "session-1",
+    sessionId,
   }) as const;
 
 describe("browser input guard", () => {
   it("rejects input after a single-tab Recording becomes incomplete", () => {
     expect(
-      browserInputIsReadOnly(snapshotWithPhase("incomplete"), "session-1")
+      browserInputIsReadOnly(snapshotWithPhase("incomplete"), sessionId)
     ).toBe(true);
   });
 });

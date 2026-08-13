@@ -1,11 +1,27 @@
-import { Flow, SessionId } from "@contingency/protocol";
+import { BrowserTabId, Flow, SessionId } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { makeRecordingService } from "../../src/services/recording";
+import {
+  flowDownloadName,
+  makeRecordingService,
+} from "../../src/services/recording";
 import type { RecorderCapture } from "../../src/services/recording";
 
 const sessionId = Schema.decodeUnknownSync(SessionId)("create-recording-test");
+const tabId = Schema.decodeUnknownSync(BrowserTabId)("tab-1");
+
+it("retains localhost ports in Flow download names", () => {
+  expect(flowDownloadName("http://localhost:3000/login", "Login")).toBe(
+    "localhost-3000-login.json"
+  );
+});
+
+it("falls back when a download name cannot be normalized", () => {
+  expect(flowDownloadName("https://example.com", "🧪")).toBe(
+    "contingency-flow.json"
+  );
+});
 
 const makeCapture = () => {
   let emit: Parameters<RecorderCapture["start"]>[0]["onEvent"] | undefined;
@@ -40,7 +56,7 @@ it.effect("finishes captured browser actions as a validated Flow", () => {
     yield* recording.start({
       initialUrl: "https://www.1mg.com/pharmacy",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Pharmacy",
     });
     yield* capture.emit({
@@ -67,6 +83,54 @@ it.effect("finishes captured browser actions as a validated Flow", () => {
   });
 });
 
+it.effect("keeps the localhost port in a Flow download name", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* nameLocalhostFlow() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "http://localhost:3000/login",
+      sessionId,
+      tabId,
+      title: "Login",
+    });
+    yield* capture.emit({
+      offsetX: 1,
+      offsetY: 1,
+      selectors: ["aria/Submit"],
+      type: "click",
+    });
+
+    const finished = yield* recording.finish();
+
+    expect(finished.downloadName).toBe("localhost-3000-login.json");
+  });
+});
+
+it.effect("falls back when a Flow download name cannot be normalized", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* fallbackDownloadName() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId,
+      title: "!!!",
+    });
+    yield* capture.emit({
+      offsetX: 1,
+      offsetY: 1,
+      selectors: ["aria/Continue"],
+      type: "click",
+    });
+
+    const finished = yield* recording.finish();
+
+    expect(finished.downloadName).toBe("contingency-flow.json");
+  });
+});
+
 it.effect("discards a finished Flow without closing its capture twice", () => {
   const capture = makeCapture();
 
@@ -75,7 +139,7 @@ it.effect("discards a finished Flow without closing its capture twice", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Finished Flow",
     });
     yield* capture.emit({
@@ -103,7 +167,7 @@ it.effect("rejects finishing when the only authored Step is an Audit", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Audit only",
     });
     yield* recording.addAudit("accessibility");
@@ -123,7 +187,7 @@ it.effect("keeps a redirect chain asserted on its triggering action", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Redirect chain",
     });
     yield* capture.emit({
@@ -182,7 +246,7 @@ it.effect("pauses capture and resumes into the pinned Recording", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Checkout",
     });
     yield* recording.pause();
@@ -217,7 +281,7 @@ it.effect("serializes concurrently delivered capture events", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Concurrent capture",
     });
     yield* Effect.all(
@@ -246,7 +310,7 @@ it.effect("fails closed when the pinned tab navigates while paused", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Checkout",
     });
     yield* recording.pause();
@@ -259,6 +323,15 @@ it.effect("fails closed when the pinned tab navigates while paused", () => {
       "navigated while capture was paused"
     );
     expect(incomplete.recordedSteps).toHaveLength(1);
+
+    const error = yield* Effect.flip(
+      recording.recover("https://example.com/other")
+    );
+    const stillIncomplete = yield* recording.get();
+
+    expect(error.code).toBe("recording_invalid");
+    expect(error.message).toContain("capture integrity");
+    expect(stillIncomplete?.phase).toBe("incomplete");
   });
 });
 
@@ -270,7 +343,7 @@ it.effect("preserves the first failure reason during recorder cleanup", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Failure reason",
     });
     yield* recording.fail("A replayable selector could not be generated.");
@@ -291,7 +364,7 @@ it.effect("recovers from a deterministic navigation checkpoint", () => {
     yield* recording.start({
       initialUrl: "https://example.com/start",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Recovery",
     });
     yield* capture.emit({
@@ -325,6 +398,39 @@ it.effect("recovers from a deterministic navigation checkpoint", () => {
   });
 });
 
+it.effect("does not recover a Recording that opened another tab", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* rejectPopupRecovery() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId,
+      title: "Popup",
+    });
+    yield* capture.emit({
+      offsetX: 2,
+      offsetY: 3,
+      selectors: ["aria/Open"],
+      type: "click",
+    });
+    yield* recording.fail(
+      "The Recording opened or activated an unsupported additional tab."
+    );
+
+    const error = yield* Effect.flip(
+      recording.recover("https://example.com/popup")
+    );
+    const incomplete = yield* recording.get();
+
+    expect(error.code).toBe("recording_invalid");
+    expect(error.message).toContain("capture integrity");
+    expect(incomplete?.phase).toBe("incomplete");
+    expect(incomplete?.recordedSteps).toHaveLength(2);
+  });
+});
+
 it.effect("authors conditional Pre-steps and ordered Audit Steps", () => {
   const capture = makeCapture();
 
@@ -333,7 +439,7 @@ it.effect("authors conditional Pre-steps and ordered Audit Steps", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Checkout",
     });
     yield* capture.emit({
@@ -399,7 +505,7 @@ it.effect("attaches action-caused navigation without a duplicate Step", () => {
     yield* recording.start({
       initialUrl: "https://example.com/products",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Products",
     });
     yield* capture.emit({
@@ -436,7 +542,7 @@ it.effect("attaches late navigation events to the preceding action", () => {
     yield* recording.start({
       initialUrl: "https://example.com/products",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Products",
     });
     yield* capture.emit({
@@ -475,7 +581,7 @@ it.effect("retains sensitive changes using a Secret Variable only", () => {
     yield* recording.start({
       initialUrl: "https://example.com/sign-in",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Sign in",
     });
     yield* capture.emit({
@@ -503,7 +609,7 @@ it.effect("coalesces changes and resolves Secret Variable collisions", () => {
     yield* recording.start({
       initialUrl: "https://example.com/sign-in",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Sign in",
     });
     yield* capture.emit({
@@ -547,7 +653,7 @@ it.effect("marks, renames, and reuses Secret Variables", () => {
     yield* recording.start({
       initialUrl: "https://example.com/profile",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Profile",
     });
     yield* capture.emit({ selectors: ["#pin"], type: "change", value: "1234" });
@@ -585,7 +691,7 @@ it.effect("declares and renames Secret Variables used by Pre-steps", () => {
     yield* recording.start({
       initialUrl: "https://example.com/sign-in",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Sign in",
     });
     yield* capture.emit({
@@ -620,7 +726,7 @@ it.effect("deletes and restores a Step aggregate with one-level undo", () => {
     yield* recording.start({
       initialUrl: "https://example.com/sign-in",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Sign in",
     });
     yield* capture.emit({
@@ -655,7 +761,7 @@ it.effect("deletes and restores an ordered Audit Step", () => {
     yield* recording.start({
       initialUrl: "https://example.com",
       sessionId,
-      tabId: "tab-1",
+      tabId,
       title: "Audit ordering",
     });
     const withAudit = yield* recording.addAudit("performance");
@@ -689,7 +795,7 @@ it.effect(
         initialUrl:
           "https://example.com/reset?token=sensitive&locale=en#temporary-secret",
         sessionId,
-        tabId: "tab-1",
+        tabId,
         title: "Reset password",
       });
       const serialized = JSON.stringify(active.flow);

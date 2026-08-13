@@ -1,12 +1,14 @@
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
+import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import { AuditKind, RecordingSnapshot } from "./flow.ts";
 
 // The protocol package intentionally exposes one public contract surface.
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./flow.ts";
+export { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 
 export {
   BrowserRpcError,
@@ -14,18 +16,6 @@ export {
   makeBrowserRpcError,
 } from "./browser-rpc-error.ts";
 export type { BrowserRpcError as BrowserRpcErrorType } from "./browser-rpc-error.ts";
-
-const sessionIdPattern = /^create-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
-
-export const SessionId = Schema.String.check(
-  Schema.isPattern(sessionIdPattern)
-).pipe(Schema.brand("@contingency/SessionId"));
-export type SessionId = typeof SessionId.Type;
-
-export const BrowserTabId = Schema.String.check(Schema.isMinLength(1)).pipe(
-  Schema.brand("@contingency/BrowserTabId")
-);
-export type BrowserTabId = typeof BrowserTabId.Type;
 
 export const BrowserRequestId = Schema.String.check(Schema.isMinLength(1)).pipe(
   Schema.brand("@contingency/BrowserRequestId")
@@ -653,18 +643,27 @@ export const RecordingSecretRename = request("recording.secret.rename", {
   from: Schema.String,
   name: Schema.String,
 });
-export const RecordingPreStepArm = request("recording.pre-step.arm", {
-  scope: Schema.Literals(["flow", "step"]),
-  stepId: Schema.optional(Schema.String),
+const stepId = Schema.String.check(Schema.isMinLength(1));
+const RecordingPreStepScope = Schema.Union([
+  Schema.Struct({ scope: Schema.Literal("flow") }),
+  Schema.Struct({ scope: Schema.Literal("step"), stepId }),
+]);
+
+export const RecordingPreStepArm = Schema.Struct({
+  data: RecordingPreStepScope,
+  type: Schema.Literal("recording.pre-step.arm"),
 });
-export const RecordingPreStepConditionArm = request(
-  "recording.pre-step.condition.arm",
-  {
-    index: Schema.Int,
-    scope: Schema.Literals(["flow", "step"]),
-    stepId: Schema.optional(Schema.String),
-  }
-);
+export const RecordingPreStepConditionArm = Schema.Struct({
+  data: Schema.Union([
+    Schema.Struct({ index: Schema.Int, scope: Schema.Literal("flow") }),
+    Schema.Struct({
+      index: Schema.Int,
+      scope: Schema.Literal("step"),
+      stepId,
+    }),
+  ]),
+  type: Schema.Literal("recording.pre-step.condition.arm"),
+});
 export const RecordingCaptureCancel = request("recording.capture.cancel", {});
 export const RecordingStreamSubscribe = request(
   "recording.stream.subscribe",

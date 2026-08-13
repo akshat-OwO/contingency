@@ -1,4 +1,5 @@
 import type { RecordingSnapshot } from "@contingency/protocol";
+import { BrowserTabId, SessionId } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import {
   cleanup,
@@ -20,7 +21,28 @@ const stream = vi.hoisted(() => ({
   run: vi.fn(),
 }));
 
+const rpc = vi.hoisted(() => ({
+  bindSecret: vi.fn(),
+  bindSecretResult: null as RecordingSnapshot | null,
+  condition: vi.fn(),
+  conditionResult: null as RecordingSnapshot | null,
+  deleteStep: vi.fn(),
+  deleteStepResult: null as RecordingSnapshot | null,
+  discard: vi.fn(),
+  preStep: vi.fn(),
+  preStepResult: null as RecordingSnapshot | null,
+  renameSecret: vi.fn(),
+  renameSecretResult: null as RecordingSnapshot | null,
+  undoDelete: vi.fn(),
+  undoDeleteResult: null as RecordingSnapshot | null,
+}));
+
+const sessionId = SessionId.make("create-checkout");
+const tabId = BrowserTabId.make("tab-1");
+
 vi.mock("@/components/create/browser-workspace", async () => {
+  const { BrowserTabId: TabId, SessionId: BrowserSessionId } =
+    await import("@contingency/protocol");
   const { useAtom } = await import("@effect/atom-react");
   const { useEffect } = await import("react");
   const { createWorkspaceAtom: workspaceAtom, recordingLocksBrowser } =
@@ -34,9 +56,9 @@ vi.mock("@/components/create/browser-workspace", async () => {
         }
         setWorkspace((current) => ({
           ...current,
-          activeTabId: "tab-1",
+          activeTabId: TabId.make("tab-1"),
           address: "https://example.com/start",
-          selectedSessionId: "create-checkout",
+          selectedSessionId: BrowserSessionId.make("create-checkout"),
         }));
       }, [setWorkspace, workspace.selectedSessionId]);
       return (
@@ -100,8 +122,8 @@ const makeSnapshot = (
     },
   ],
   revision: 1,
-  sessionId: "create-checkout",
-  tabId: "tab-1",
+  sessionId,
+  tabId,
   undoAvailable: false,
 });
 
@@ -113,6 +135,14 @@ const rpcResult = (recording: RecordingSnapshot | null) => ({
 vi.mock("@/lib/rpc", () => {
   const mutation = (phase: RecordingSnapshot["phase"]) =>
     Atom.fn(() => Effect.succeed(rpcResult(makeSnapshot(phase))));
+  const controlledMutation = (
+    call: ReturnType<typeof vi.fn>,
+    result: () => RecordingSnapshot | null
+  ) =>
+    Atom.fn((request) => {
+      call(request);
+      return Effect.succeed(rpcResult(result() ?? makeSnapshot("active")));
+    });
 
   // Match the production RPC module's authoring groups.
   // oxlint-disable-next-line eslint/sort-keys
@@ -125,20 +155,42 @@ vi.mock("@/lib/rpc", () => {
     }),
     recordingAuditMutation: mutation("active"),
     recordingCaptureCancelMutation: mutation("active"),
-    recordingDiscardMutation: Atom.fn(() =>
-      Effect.succeed({ data: {}, type: "recording.discarded" as const })
-    ),
+    recordingDiscardMutation: Atom.fn((request) => {
+      rpc.discard(request);
+      return Effect.succeed({
+        data: {},
+        type: "recording.discarded" as const,
+      });
+    }),
     recordingFinishMutation: mutation("finished"),
     recordingPauseMutation: mutation("paused"),
-    recordingPreStepMutation: mutation("active"),
-    recordingPreStepConditionMutation: mutation("active"),
+    recordingPreStepMutation: controlledMutation(
+      rpc.preStep,
+      () => rpc.preStepResult
+    ),
+    recordingPreStepConditionMutation: controlledMutation(
+      rpc.condition,
+      () => rpc.conditionResult
+    ),
     recordingRecoverMutation: mutation("active"),
     recordingResumeMutation: mutation("active"),
-    recordingSecretBindMutation: mutation("active"),
-    recordingSecretRenameMutation: mutation("active"),
+    recordingSecretBindMutation: controlledMutation(
+      rpc.bindSecret,
+      () => rpc.bindSecretResult
+    ),
+    recordingSecretRenameMutation: controlledMutation(
+      rpc.renameSecret,
+      () => rpc.renameSecretResult
+    ),
     recordingStartMutation: mutation("active"),
-    recordingStepDeleteMutation: mutation("active"),
-    recordingStepUndoMutation: mutation("active"),
+    recordingStepDeleteMutation: controlledMutation(
+      rpc.deleteStep,
+      () => rpc.deleteStepResult
+    ),
+    recordingStepUndoMutation: controlledMutation(
+      rpc.undoDelete,
+      () => rpc.undoDeleteResult
+    ),
     recordingTitleMutation: mutation("active"),
     runRecordingStream: (onEvent: (recording: RecordingSnapshot) => unknown) =>
       stream.run(onEvent),
@@ -148,8 +200,35 @@ vi.mock("@/lib/rpc", () => {
 const { CreateWorkspace } =
   await import("@/components/create/create-workspace");
 
+const renderRecording = (recording: RecordingSnapshot) => {
+  stream.recording = recording;
+  return render(
+    <RegistryProvider
+      initialValues={[
+        [
+          createWorkspaceAtom,
+          {
+            activeTabId: recording.tabId,
+            address: recording.initialUrl,
+            recording,
+            selectedSessionId: recording.sessionId,
+          },
+        ],
+      ]}
+    >
+      <CreateWorkspace />
+    </RegistryProvider>
+  );
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  rpc.bindSecretResult = null;
+  rpc.conditionResult = null;
+  rpc.deleteStepResult = null;
+  rpc.preStepResult = null;
+  rpc.renameSecretResult = null;
+  rpc.undoDeleteResult = null;
   stream.recording = null;
   stream.run.mockReturnValue(Effect.never);
 });
@@ -175,7 +254,11 @@ test("starts a Recording only after browser and title prerequisites", async () =
     screen.getByRole("textbox", { name: "Flow title" }),
     "Checkout"
   );
-  expect(screen.getByRole("button", { name: "Start Recording" })).toBeEnabled();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Start Recording" })
+    ).toBeEnabled()
+  );
   await user.click(screen.getByRole("button", { name: "Start Recording" }));
 
   expect(await screen.findByText("active")).toBeVisible();
@@ -193,10 +276,10 @@ test("locks the composed browser while pausing and resuming a Recording", async 
         [
           createWorkspaceAtom,
           {
-            activeTabId: "tab-1",
+            activeTabId: tabId,
             address: "https://example.com/start",
             recording: makeSnapshot("active"),
-            selectedSessionId: "create-checkout",
+            selectedSessionId: sessionId,
           },
         ],
       ]}
@@ -231,10 +314,10 @@ test("reloads an incomplete Recording from a navigation checkpoint", async () =>
         [
           createWorkspaceAtom,
           {
-            activeTabId: "tab-1",
+            activeTabId: tabId,
             address: "https://example.com/start",
             recording: makeSnapshot("incomplete"),
-            selectedSessionId: "create-checkout",
+            selectedSessionId: sessionId,
           },
         ],
       ]}
@@ -293,10 +376,10 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
         [
           createWorkspaceAtom,
           {
-            activeTabId: "tab-1",
+            activeTabId: tabId,
             address: "https://example.com/start",
             recording,
-            selectedSessionId: "create-checkout",
+            selectedSessionId: sessionId,
           },
         ],
       ]}
@@ -385,4 +468,153 @@ test("does not finish a Flow whose only authored Step is an Audit", () => {
   );
 
   expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
+});
+
+test("deletes and restores a Step through one-level undo", async () => {
+  const user = userEvent.setup();
+  const active = makeSnapshot("active");
+  const [initial] = active.recordedSteps;
+  const [initialFlowStep] = active.flow.steps;
+  if (initial === undefined || initialFlowStep === undefined) {
+    throw new Error("The Recording fixture requires an initial Step.");
+  }
+  rpc.deleteStepResult = {
+    ...active,
+    flow: { ...active.flow, steps: [initialFlowStep] },
+    recordedSteps: [initial],
+    undoAvailable: true,
+  };
+  rpc.undoDeleteResult = active;
+  renderRecording(active);
+
+  await user.click(screen.getByRole("button", { name: "Delete Step 2" }));
+  expect(await screen.findByText("1 Steps")).toBeVisible();
+  expect(rpc.deleteStep).toHaveBeenCalledOnce();
+  await user.click(screen.getByRole("button", { name: "Undo delete" }));
+  expect(await screen.findByText("2 Steps")).toBeVisible();
+  expect(rpc.undoDelete).toHaveBeenCalledOnce();
+});
+
+test("arms explicit Flow Pre-step capture and condition picking", async () => {
+  const user = userEvent.setup();
+  const active = makeSnapshot("active");
+  rpc.preStepResult = { ...active, captureMode: "flowPreStep" };
+  const view = renderRecording(active);
+
+  await user.click(screen.getByRole("button", { name: "Add Flow Pre-step" }));
+  expect(await screen.findByText("Record the next Pre-step")).toBeVisible();
+  expect(rpc.preStep).toHaveBeenCalledOnce();
+
+  view.unmount();
+  const preStep = {
+    id: "dismiss-dialog",
+    step: {
+      offsetX: 2,
+      offsetY: 3,
+      selectors: ["aria/Close dialog"],
+      type: "click" as const,
+    },
+    when: {
+      selectors: ["aria/Dialog"],
+      type: "selectorVisible" as const,
+    },
+  };
+  const withPreStep: RecordingSnapshot = {
+    ...active,
+    flow: {
+      ...active.flow,
+      contingency: { preSteps: [preStep] },
+    },
+  };
+  rpc.conditionResult = { ...withPreStep, captureMode: "conditionPicker" };
+  renderRecording(withPreStep);
+  await user.click(screen.getByRole("button", { name: "Pick condition" }));
+  expect(await screen.findByText("Pick the condition element")).toBeVisible();
+  expect(rpc.condition).toHaveBeenCalledOnce();
+});
+
+test("renames and rebinds Secret Variables", async () => {
+  const user = userEvent.setup();
+  const active = makeSnapshot("active");
+  const changeStep = {
+    id: "email-change",
+    preSteps: [],
+    secretVariable: "ACCOUNT",
+    step: {
+      selectors: ["aria/Email"],
+      type: "change" as const,
+      value: "{{ACCOUNT}}",
+    },
+  };
+  const recording: RecordingSnapshot = {
+    ...active,
+    flow: {
+      ...active.flow,
+      contingency: {
+        secretVariables: [{ name: "ACCOUNT" }, { name: "LOGIN" }],
+      },
+      steps: [...active.flow.steps, changeStep.step],
+    },
+    recordedSteps: [...active.recordedSteps, changeStep],
+  };
+  rpc.bindSecretResult = recording;
+  rpc.renameSecretResult = recording;
+  renderRecording(recording);
+
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Secret Variable for Step 3" }),
+    "LOGIN"
+  );
+  expect(rpc.bindSecret).toHaveBeenCalledOnce();
+  const rename = screen.getByRole("textbox", { name: "Rename ACCOUNT" });
+  await user.clear(rename);
+  await user.type(rename, "CUSTOMER_EMAIL");
+  await user.tab();
+  expect(rpc.renameSecret).toHaveBeenCalledOnce();
+});
+
+test("confirms discarding an authored finished Flow before replacement", async () => {
+  const user = userEvent.setup();
+  const finished = {
+    ...makeSnapshot("finished"),
+    downloadName: "example-checkout.json",
+  };
+  renderRecording(finished);
+
+  await user.click(screen.getByRole("button", { name: "Discard" }));
+  expect(rpc.discard).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Confirm discard" }));
+  expect(rpc.discard).toHaveBeenCalledOnce();
+  expect(
+    await screen.findByRole("button", { name: "Start Recording" })
+  ).toBeVisible();
+});
+
+test("downloads only the finished Flow with its normalized filename", async () => {
+  const user = userEvent.setup();
+  const finished = {
+    ...makeSnapshot("finished"),
+    downloadName: "example-checkout.json",
+  };
+  let downloadedName: string | undefined;
+  let downloadedBlob: Blob | undefined;
+  vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    downloadedBlob = blob;
+    return "blob:flow";
+  });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => null);
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+    function captureDownload(this: HTMLAnchorElement) {
+      downloadedName = this.download;
+    }
+  );
+  renderRecording(finished);
+
+  await user.click(
+    screen.getByRole("button", { name: "Download example-checkout.json" })
+  );
+  expect(downloadedName).toBe("example-checkout.json");
+  expect(downloadedBlob).toBeDefined();
+  const downloadedText = await downloadedBlob?.text();
+  expect(downloadedText).toBe(`${JSON.stringify(finished.flow, null, 2)}\n`);
 });

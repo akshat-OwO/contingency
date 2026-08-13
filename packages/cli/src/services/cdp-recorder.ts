@@ -96,6 +96,17 @@ interface CdpResponse {
   readonly result?: unknown;
 }
 
+const isActionCapture = (
+  capture: RecorderCaptureEvent
+): capture is Extract<
+  RecorderCaptureEvent,
+  { readonly type: "change" | "click" | "keyDown" | "keyUp" }
+> =>
+  capture.type === "click" ||
+  capture.type === "change" ||
+  capture.type === "keyDown" ||
+  capture.type === "keyUp";
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -476,9 +487,165 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
     // over this connection for future attached iframe targets.
     // oxlint-disable-next-line eslint/prefer-const
     let connection: CdpConnection;
-    // CDP methods are intentionally dispatched here so every event passes
-    // through the same context, sequence, and payload validation boundary.
-    // oxlint-disable-next-line eslint/complexity
+    const handleExecutionContext = (
+      event: CdpEvent,
+      params: Record<string, unknown>
+    ) => {
+      if (event.sessionId === undefined) {
+        return;
+      }
+      const { context } = params;
+      if (!isRecord(context) || context.name !== worldName) {
+        return;
+      }
+      const id = typeof context.id === "number" ? context.id : undefined;
+      const { auxData } = context;
+      const frameId = isRecord(auxData) ? asString(auxData.frameId) : undefined;
+      if (id === undefined || frameId === undefined) {
+        return;
+      }
+      const contextKey = `${event.sessionId}:${id}`;
+      contextFrames.set(contextKey, {
+        executionContextId: id,
+        frameId,
+        path: framePaths.get(frameId) ?? [],
+        sessionId: event.sessionId,
+      });
+      nextSequence.set(contextKey, 1);
+    };
+    const handleFrameNavigation = (
+      event: CdpEvent,
+      params: Record<string, unknown>
+    ) => {
+      if (event.sessionId !== primarySessionId) {
+        return;
+      }
+      const { frame } = params;
+      if (!isRecord(frame) || frame.parentId !== undefined) {
+        return;
+      }
+      const navigation = decodeNavigationEvent({
+        title: frame.name,
+        url: frame.url,
+      });
+      if (navigation !== undefined) {
+        runEvent(navigation);
+      }
+    };
+    const handleSameDocumentNavigation = (
+      event: CdpEvent,
+      params: Record<string, unknown>
+    ) => {
+      if (event.sessionId !== primarySessionId) {
+        return;
+      }
+      const frameId = asString(params.frameId);
+      const navigation = decodeNavigationEvent({
+        ...(frameId !== undefined &&
+        lastActionAtByFrame.has(frameId) &&
+        Date.now() - (lastActionAtByFrame.get(frameId) ?? 0) <= 1000
+          ? { causedByAction: true }
+          : {}),
+        url: params.url,
+      });
+      if (
+        frameId !== undefined &&
+        rootFrameIds.has(frameId) &&
+        navigation !== undefined
+      ) {
+        runEvent(navigation);
+      }
+    };
+    const handleAttachedTarget = (params: Record<string, unknown>) => {
+      const sessionId = asString(params.sessionId);
+      const { targetInfo } = params;
+      const targetType = isRecord(targetInfo)
+        ? asString(targetInfo.type)
+        : undefined;
+      if (resolvingTarget && targetType === "page") {
+        return;
+      }
+      if (
+        sessionId === undefined ||
+        (targetType !== "page" && targetType !== "iframe")
+      ) {
+        return;
+      }
+      Effect.runFork(
+        // setupSession is initialized before any target can emit after
+        // the initial attachment command.
+        // oxlint-disable-next-line eslint/no-use-before-define
+        setupSession(connection, sessionId).pipe(
+          // Effect error recovery is callback-based by design.
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks
+          Effect.tapError((error) => options.onFailure(error.message)),
+          Effect.ignore
+        )
+      );
+    };
+    const invalidCapture = (reason: string) =>
+      runEvent({ reason, type: "unsupported" });
+    const handleBindingCall = (
+      event: CdpEvent,
+      params: Record<string, unknown>
+    ) => {
+      if (params.name !== bindingName || typeof params.payload !== "string") {
+        return;
+      }
+      const contextId =
+        typeof params.executionContextId === "number"
+          ? params.executionContextId
+          : undefined;
+      if (
+        contextId === undefined ||
+        event.sessionId === undefined ||
+        new TextEncoder().encode(params.payload).byteLength >
+          MAX_BINDING_PAYLOAD_BYTES
+      ) {
+        invalidCapture("The page sent an invalid recorder event.");
+        return;
+      }
+      const contextKey = `${event.sessionId}:${contextId}`;
+      if (!contextFrames.has(contextKey)) {
+        invalidCapture("The page sent an invalid recorder event.");
+        return;
+      }
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(params.payload) as unknown;
+      } catch {
+        invalidCapture("The page sent malformed recorder data.");
+        return;
+      }
+      const result = Schema.decodeUnknownResult(BindingCapture)(decoded);
+      if (result._tag === "Failure") {
+        invalidCapture("The page sent unsupported recorder data.");
+        return;
+      }
+      const expectedSequence = nextSequence.get(contextKey);
+      if (
+        expectedSequence === undefined ||
+        result.success.sequence !== expectedSequence
+      ) {
+        invalidCapture("The page recorder event sequence was interrupted.");
+        return;
+      }
+      nextSequence.set(contextKey, expectedSequence + 1);
+      const captureEvent = result.success.event;
+      const context = contextFrames.get(contextKey);
+      if (context !== undefined && isActionCapture(captureEvent)) {
+        lastActionAtByFrame.set(context.frameId, Date.now());
+      }
+      if (
+        context !== undefined &&
+        context.path.length > 0 &&
+        isActionCapture(captureEvent)
+      ) {
+        runEvent({ ...captureEvent, frame: context.path });
+        return;
+      }
+      runEvent(captureEvent);
+    };
     const handleCdpEvent = (event: CdpEvent) => {
       const { params } = event;
       if (!isRecord(params)) {
@@ -495,177 +662,23 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         return;
       }
       if (event.method === "Runtime.executionContextCreated") {
-        if (event.sessionId === undefined) {
-          return;
-        }
-        const { context } = params;
-        if (!isRecord(context) || context.name !== worldName) {
-          return;
-        }
-        const id = typeof context.id === "number" ? context.id : undefined;
-        const { auxData } = context;
-        const frameId = isRecord(auxData)
-          ? asString(auxData.frameId)
-          : undefined;
-        if (id !== undefined && frameId !== undefined) {
-          const contextKey = `${event.sessionId}:${id}`;
-          contextFrames.set(contextKey, {
-            executionContextId: id,
-            frameId,
-            path: framePaths.get(frameId) ?? [],
-            sessionId: event.sessionId,
-          });
-          nextSequence.set(contextKey, 1);
-        }
+        handleExecutionContext(event, params);
         return;
       }
       if (event.method === "Runtime.bindingCalled") {
-        if (params.name !== bindingName || typeof params.payload !== "string") {
-          return;
-        }
-        const contextId =
-          typeof params.executionContextId === "number"
-            ? params.executionContextId
-            : undefined;
-        if (
-          contextId === undefined ||
-          event.sessionId === undefined ||
-          new TextEncoder().encode(params.payload).byteLength >
-            MAX_BINDING_PAYLOAD_BYTES
-        ) {
-          runEvent({
-            reason: "The page sent an invalid recorder event.",
-            type: "unsupported",
-          });
-          return;
-        }
-        const contextKey = `${event.sessionId}:${contextId}`;
-        if (!contextFrames.has(contextKey)) {
-          runEvent({
-            reason: "The page sent an invalid recorder event.",
-            type: "unsupported",
-          });
-          return;
-        }
-        let decoded: unknown;
-        try {
-          decoded = JSON.parse(params.payload) as unknown;
-        } catch {
-          runEvent({
-            reason: "The page sent malformed recorder data.",
-            type: "unsupported",
-          });
-          return;
-        }
-        const result = Schema.decodeUnknownResult(BindingCapture)(decoded);
-        if (result._tag === "Failure") {
-          runEvent({
-            reason: "The page sent unsupported recorder data.",
-            type: "unsupported",
-          });
-          return;
-        }
-        const expectedSequence = nextSequence.get(contextKey);
-        if (
-          expectedSequence === undefined ||
-          result.success.sequence !== expectedSequence
-        ) {
-          runEvent({
-            reason: "The page recorder event sequence was interrupted.",
-            type: "unsupported",
-          });
-          return;
-        }
-        nextSequence.set(contextKey, expectedSequence + 1);
-        const captureEvent = result.success.event;
-        const context = contextFrames.get(contextKey);
-        if (
-          context !== undefined &&
-          (captureEvent.type === "click" ||
-            captureEvent.type === "change" ||
-            captureEvent.type === "keyDown" ||
-            captureEvent.type === "keyUp")
-        ) {
-          lastActionAtByFrame.set(context.frameId, Date.now());
-        }
-        if (
-          context !== undefined &&
-          context.path.length > 0 &&
-          (captureEvent.type === "click" ||
-            captureEvent.type === "change" ||
-            captureEvent.type === "keyDown" ||
-            captureEvent.type === "keyUp")
-        ) {
-          runEvent({ ...captureEvent, frame: context.path });
-          return;
-        }
-        runEvent(captureEvent);
+        handleBindingCall(event, params);
         return;
       }
       if (event.method === "Page.frameNavigated") {
-        if (event.sessionId !== primarySessionId) {
-          return;
-        }
-        const { frame } = params;
-        if (!isRecord(frame) || frame.parentId !== undefined) {
-          return;
-        }
-        const navigation = decodeNavigationEvent({
-          title: frame.name,
-          url: frame.url,
-        });
-        if (navigation !== undefined) {
-          runEvent(navigation);
-        }
+        handleFrameNavigation(event, params);
         return;
       }
       if (event.method === "Page.navigatedWithinDocument") {
-        if (event.sessionId !== primarySessionId) {
-          return;
-        }
-        const frameId = asString(params.frameId);
-        const navigation = decodeNavigationEvent({
-          ...(frameId !== undefined &&
-          lastActionAtByFrame.has(frameId) &&
-          Date.now() - (lastActionAtByFrame.get(frameId) ?? 0) <= 1000
-            ? { causedByAction: true }
-            : {}),
-          url: params.url,
-        });
-        if (
-          frameId !== undefined &&
-          rootFrameIds.has(frameId) &&
-          navigation !== undefined
-        ) {
-          runEvent(navigation);
-        }
+        handleSameDocumentNavigation(event, params);
         return;
       }
       if (event.method === "Target.attachedToTarget") {
-        const sessionId = asString(params.sessionId);
-        const { targetInfo } = params;
-        const targetType = isRecord(targetInfo)
-          ? asString(targetInfo.type)
-          : undefined;
-        if (resolvingTarget && targetType === "page") {
-          return;
-        }
-        if (
-          sessionId !== undefined &&
-          (targetType === "page" || targetType === "iframe")
-        ) {
-          Effect.runFork(
-            // setupSession is initialized before any target can emit after
-            // the initial attachment command.
-            // oxlint-disable-next-line eslint/no-use-before-define
-            setupSession(connection, sessionId).pipe(
-              // Effect error recovery is callback-based by design.
-              // oxlint-disable-next-line promise/prefer-await-to-callbacks
-              Effect.tapError((error) => options.onFailure(error.message)),
-              Effect.ignore
-            )
-          );
-        }
+        handleAttachedTarget(params);
       }
     };
 

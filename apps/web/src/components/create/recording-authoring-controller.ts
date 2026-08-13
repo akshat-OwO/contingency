@@ -1,9 +1,11 @@
 import type { AuditKind, RecordingSnapshot } from "@contingency/protocol";
 import { isBrowserRpcError } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
-import { useEffect, useRef, useState } from "react";
 
-import { createWorkspaceAtom } from "@/components/create/create-workspace-state";
+import {
+  createWorkspaceAtom,
+  recordingAuthoringUiAtom,
+} from "@/components/create/create-workspace-state";
 import {
   recordingAuditMutation,
   recordingCaptureCancelMutation,
@@ -60,11 +62,7 @@ export interface RecordingAuthoringController {
 
 export const useRecordingAuthoring = (): RecordingAuthoringController => {
   const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
-  const [title, setTitle] = useState(workspace.recording?.flow.title ?? "");
-  const [busy, setBusy] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [error, setError] = useState<string>();
-  const serverTitleRef = useRef(workspace.recording?.flow.title);
+  const [ui, setUi] = useAtom(recordingAuthoringUiAtom);
   const startMutation = useAtomSet(recordingStartMutation, { mode: "promise" });
   const pauseMutation = useAtomSet(recordingPauseMutation, { mode: "promise" });
   const resumeMutation = useAtomSet(recordingResumeMutation, {
@@ -103,13 +101,8 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
     mode: "promise",
   });
   const { address, recording, selectedSessionId } = workspace;
-
-  useEffect(() => {
-    if (recording !== null && recording.flow.title !== serverTitleRef.current) {
-      serverTitleRef.current = recording.flow.title;
-      setTitle(recording.flow.title);
-    }
-  }, [recording]);
+  const { busy, confirmDiscard, error, titleDraft } = ui;
+  const title = titleDraft ?? recording?.flow.title ?? "";
 
   const applyRecording = (next: RecordingSnapshot | null) => {
     setWorkspace((current) => ({ ...current, recording: next }));
@@ -119,16 +112,18 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
     if (busy) {
       return false;
     }
-    setBusy(true);
-    setError(undefined);
+    setUi((current) => ({ ...current, busy: true, error: undefined }));
     try {
       applyRecording(await operation());
       return true;
     } catch (operationError) {
-      setError(errorMessage(operationError));
+      setUi((current) => ({
+        ...current,
+        error: errorMessage(operationError),
+      }));
       return false;
     } finally {
-      setBusy(false);
+      setUi((current) => ({ ...current, busy: false }));
     }
   };
 
@@ -148,7 +143,7 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
         (recording.flow.contingency?.preSteps?.length ?? 0) > 0 ||
         (recording.flow.contingency?.secretVariables?.length ?? 0) > 0);
     if (hasAuthoredContent && !confirmDiscard) {
-      setConfirmDiscard(true);
+      setUi((current) => ({ ...current, confirmDiscard: true }));
       return;
     }
     const discardAndReset = async () => {
@@ -159,7 +154,11 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
         return null;
       });
       if (succeeded) {
-        setConfirmDiscard(false);
+        setUi((current) => ({
+          ...current,
+          confirmDiscard: false,
+          titleDraft: undefined,
+        }));
       }
     };
     void discardAndReset();
@@ -268,7 +267,8 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
         );
       }
     },
-    setTitle,
+    setTitle: (nextTitle) =>
+      setUi((current) => ({ ...current, titleDraft: nextTitle })),
     start: () => {
       if (selectedSessionId !== undefined) {
         invoke(() =>

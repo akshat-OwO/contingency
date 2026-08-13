@@ -1,9 +1,12 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Effect, Fiber, Result } from "effect";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { BrowserWorkspace } from "@/components/create/browser-workspace";
-import { createWorkspaceAtom } from "@/components/create/create-workspace-state";
+import {
+  createWorkspaceAtom,
+  recordingStreamErrorAtom,
+} from "@/components/create/create-workspace-state";
 import { InstructionsPanel } from "@/components/create/instructions-panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -17,8 +20,8 @@ import { recordingAtom, runRecordingStream } from "@/lib/rpc";
 const CreateWorkspace = () => {
   const isMobile = useIsMobile();
   const [, setWorkspace] = useAtom(createWorkspaceAtom);
+  const [streamError, setStreamError] = useAtom(recordingStreamErrorAtom);
   const recordingResult = useAtomValue(recordingAtom);
-  const [streamError, setStreamError] = useState<string>();
 
   useEffect(() => {
     if (recordingResult._tag !== "Success") {
@@ -36,7 +39,7 @@ const CreateWorkspace = () => {
         const outcome = yield* Effect.result(
           runRecordingStream((recording) =>
             Effect.sync(() => {
-              setStreamError(undefined);
+              setStreamError(null);
               setWorkspace((current) => ({ ...current, recording }));
             })
           )
@@ -53,11 +56,11 @@ const CreateWorkspace = () => {
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [setWorkspace]);
+  }, [setStreamError, setWorkspace]);
 
   return (
     <main className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col overflow-hidden overscroll-none p-2 sm:p-3">
-      {streamError === undefined ? null : (
+      {streamError === null ? null : (
         <Alert className="mb-2" variant="destructive">
           <AlertTitle>Recording updates disconnected</AlertTitle>
           <AlertDescription>{streamError}</AlertDescription>

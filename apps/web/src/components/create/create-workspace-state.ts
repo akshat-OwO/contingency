@@ -1,4 +1,5 @@
 import type { RecordingSnapshot, SessionId } from "@contingency/protocol";
+import { recordingMakesBrowserInputReadOnly } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
 export interface CreateWorkspaceState {
@@ -15,12 +16,26 @@ export const createWorkspaceAtom = Atom.make<CreateWorkspaceState>({
   selectedSessionId: undefined,
 });
 
+export interface RecordingAuthoringUiState {
+  readonly busy: boolean;
+  readonly confirmDiscard: boolean;
+  readonly error: string | undefined;
+  readonly titleDraft: string | undefined;
+}
+
+export const recordingAuthoringUiAtom = Atom.make<RecordingAuthoringUiState>({
+  busy: false,
+  confirmDiscard: false,
+  error: undefined,
+  titleDraft: undefined,
+});
+
+export const recordingStreamErrorAtom = Atom.make<string | null>(null);
+
 export const recordingLocksBrowser = (
   recording: RecordingSnapshot | null
 ): boolean => recording !== null && recording.phase !== "finished";
 
 export const recordingMakesCanvasReadOnly = (
   recording: RecordingSnapshot | null
-): boolean =>
-  recording?.phase === "incomplete" ||
-  (recording?.phase === "paused" && recording.captureMode === "ordinary");
+): boolean => recordingMakesBrowserInputReadOnly(recording);

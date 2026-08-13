@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
 export const Selector = Schema.Array(
@@ -162,9 +164,15 @@ export const RecordingSnapshot = Schema.Struct({
   phase: RecordingPhase,
   recordedSteps: Schema.Array(RecordedStep),
   revision: Schema.Int,
-  sessionId: nonEmptyString,
-  tabId: nonEmptyString,
+  sessionId: SessionId,
+  tabId: BrowserTabId,
   targetStepId: Schema.optional(Schema.String),
   undoAvailable: Schema.Boolean,
 });
 export type RecordingSnapshot = typeof RecordingSnapshot.Type;
+
+export const recordingMakesBrowserInputReadOnly = (
+  recording: Pick<RecordingSnapshot, "captureMode" | "phase"> | null
+): boolean =>
+  recording?.phase === "incomplete" ||
+  (recording?.phase === "paused" && recording.captureMode === "ordinary");
