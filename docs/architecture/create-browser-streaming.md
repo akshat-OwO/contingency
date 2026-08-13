@@ -9,7 +9,7 @@ This describes what exists today for the Create View live browser. Domain langua
 | Live browser session, tabs, viewport, user-agent | Built |
 | Screencast frames to a canvas + pointer/keyboard input | Built |
 | Console / network DevTools panels | Built |
-| Recording → Flow (steps, Pre-steps, Audits) | Not built (instructions panel is stub UI) |
+| Recording → Flow (Steps, Pre-steps, Audit Steps, Secret Variables) | Built |
 | Audit View / Runner / Runs | Not built (Audit route is a placeholder) |
 
 ## Packages
@@ -41,7 +41,9 @@ agent-browser  ──CDP──  Chrome for Testing
         Canvas blit + DevTools state in web UI
 ```
 
-Contingency does not expose CDP to the web app. CDP stays inside `agent-browser`; the CLI relays a typed stream and command surface.
+Contingency does not expose CDP to the web app. Browser streaming and input stay behind `agent-browser`; during a Recording, a CLI-owned CDP sidecar injects the recorder into restricted isolated worlds and relays only validated semantic actions. See [ADR 0004](../adr/0004-cli-owned-cdp-recorder-sidecar.md).
+
+The injected recorder also renders an authoring-only hover inspector inside each instrumented frame. It shows a blue target outline with bounded tag, ARIA, and geometry metadata. The inspector does not emit hover data into the Recording or Flow and is removed when capture stops.
 
 ## Session model
 
@@ -66,5 +68,5 @@ Production builds can serve the SPA from the CLI (`serveWebUi`). Dev typically u
 
 ## Intentionally out of scope here
 
-- Flow schema, Recording capture, Pre-steps, Audits, Findings — see [`../future/product-path.md`](../future/product-path.md).
+- Runner execution of Pre-steps and Audit Steps, plus Findings — see [`../future/product-path.md`](../future/product-path.md).
 - agent-browser features not yet wrapped (DOM snapshot, axe audit, video `record`, state restore) — available in the bundled binary, unused by Contingency's protocol today.

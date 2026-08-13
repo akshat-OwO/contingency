@@ -1,6 +1,6 @@
 # Flow is Chrome DevTools Recorder JSON plus Contingency extensions
 
-Contingency's durable artifact is a **Flow**. Rather than invent a parallel recording format, a Flow is Chrome DevTools Recorder–compatible JSON with Contingency-specific fields (Pre-steps with explicit conditions, per-Step Audits, and related metadata). Plain Chrome Recorder exports are valid Flows that simply omit Contingency fields. This maximizes import compatibility and keeps Create View's recorder aligned with a format users already know, at the cost of carrying Chrome's action model as a long-term constraint.
+Contingency's durable artifact is a **Flow**. Rather than invent a parallel recording format, a Flow is Chrome DevTools Recorder–compatible JSON with Contingency-specific fields (Pre-steps with explicit conditions, Audit custom Steps, and related metadata). Plain Chrome Recorder exports are valid Flows that simply omit Contingency fields. This maximizes import compatibility and keeps Create View's recorder aligned with a format users already know, at the cost of carrying Chrome's action model as a long-term constraint.
 
 ## Considered Options
 

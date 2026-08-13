@@ -1,7 +1,14 @@
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
+import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
+import { AuditKind, RecordingSnapshot } from "./flow.ts";
+
+// The protocol package intentionally exposes one public contract surface.
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./flow.ts";
+export { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 
 export {
   BrowserRpcError,
@@ -9,18 +16,6 @@ export {
   makeBrowserRpcError,
 } from "./browser-rpc-error.ts";
 export type { BrowserRpcError as BrowserRpcErrorType } from "./browser-rpc-error.ts";
-
-const sessionIdPattern = /^create-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
-
-export const SessionId = Schema.String.check(
-  Schema.isPattern(sessionIdPattern)
-).pipe(Schema.brand("@contingency/SessionId"));
-export type SessionId = typeof SessionId.Type;
-
-export const BrowserTabId = Schema.String.check(Schema.isMinLength(1)).pipe(
-  Schema.brand("@contingency/BrowserTabId")
-);
-export type BrowserTabId = typeof BrowserTabId.Type;
 
 export const BrowserRequestId = Schema.String.check(Schema.isMinLength(1)).pipe(
   Schema.brand("@contingency/BrowserRequestId")
@@ -469,6 +464,25 @@ export const BrandId = Schema.Literals([
   "browser.network.requests.result",
   "browser.network.request.get",
   "browser.network.request.result",
+  "recording.get",
+  "recording.result",
+  "recording.start",
+  "recording.pause",
+  "recording.resume",
+  "recording.recover",
+  "recording.finish",
+  "recording.discard",
+  "recording.discarded",
+  "recording.title.update",
+  "recording.step.delete",
+  "recording.step.undo",
+  "recording.audit.add",
+  "recording.step.secret.bind",
+  "recording.secret.rename",
+  "recording.pre-step.arm",
+  "recording.pre-step.condition.arm",
+  "recording.capture.cancel",
+  "recording.stream.subscribe",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -597,6 +611,65 @@ export const BrowserNetworkRequestResult = response(
   { request: BrowserNetworkRequestDetail }
 );
 
+export const RecordingGet = request("recording.get", {});
+export const RecordingResult = response("recording.result", {
+  recording: Schema.NullOr(RecordingSnapshot),
+});
+export const RecordingStart = request("recording.start", {
+  sessionId: SessionId,
+  title: Schema.String,
+});
+export const RecordingPause = request("recording.pause", {});
+export const RecordingResume = request("recording.resume", {});
+export const RecordingRecover = request("recording.recover", {});
+export const RecordingFinish = request("recording.finish", {});
+export const RecordingDiscard = request("recording.discard", {});
+export const RecordingDiscarded = response("recording.discarded", {});
+export const RecordingTitleUpdate = request("recording.title.update", {
+  title: Schema.String,
+});
+export const RecordingStepDelete = request("recording.step.delete", {
+  stepId: Schema.String,
+});
+export const RecordingStepUndo = request("recording.step.undo", {});
+export const RecordingAuditAdd = request("recording.audit.add", {
+  audit: AuditKind,
+});
+export const RecordingStepSecretBind = request("recording.step.secret.bind", {
+  name: Schema.String,
+  stepId: Schema.String,
+});
+export const RecordingSecretRename = request("recording.secret.rename", {
+  from: Schema.String,
+  name: Schema.String,
+});
+const stepId = Schema.String.check(Schema.isMinLength(1));
+const RecordingPreStepScope = Schema.Union([
+  Schema.Struct({ scope: Schema.Literal("flow") }),
+  Schema.Struct({ scope: Schema.Literal("step"), stepId }),
+]);
+
+export const RecordingPreStepArm = Schema.Struct({
+  data: RecordingPreStepScope,
+  type: Schema.Literal("recording.pre-step.arm"),
+});
+export const RecordingPreStepConditionArm = Schema.Struct({
+  data: Schema.Union([
+    Schema.Struct({ index: Schema.Int, scope: Schema.Literal("flow") }),
+    Schema.Struct({
+      index: Schema.Int,
+      scope: Schema.Literal("step"),
+      stepId,
+    }),
+  ]),
+  type: Schema.Literal("recording.pre-step.condition.arm"),
+});
+export const RecordingCaptureCancel = request("recording.capture.cancel", {});
+export const RecordingStreamSubscribe = request(
+  "recording.stream.subscribe",
+  {}
+);
+
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
   payload: BrowserSessionsGet,
@@ -683,6 +756,95 @@ const BrowserNetworkRequestGetRpc = Rpc.make("browser.network.request.get", {
   payload: BrowserNetworkRequestGet,
   success: BrowserNetworkRequestResult,
 });
+const RecordingGetRpc = Rpc.make("recording.get", {
+  error: BrowserRpcError,
+  payload: RecordingGet,
+  success: RecordingResult,
+});
+const RecordingStartRpc = Rpc.make("recording.start", {
+  error: BrowserRpcError,
+  payload: RecordingStart,
+  success: RecordingResult,
+});
+const RecordingPauseRpc = Rpc.make("recording.pause", {
+  error: BrowserRpcError,
+  payload: RecordingPause,
+  success: RecordingResult,
+});
+const RecordingResumeRpc = Rpc.make("recording.resume", {
+  error: BrowserRpcError,
+  payload: RecordingResume,
+  success: RecordingResult,
+});
+const RecordingRecoverRpc = Rpc.make("recording.recover", {
+  error: BrowserRpcError,
+  payload: RecordingRecover,
+  success: RecordingResult,
+});
+const RecordingFinishRpc = Rpc.make("recording.finish", {
+  error: BrowserRpcError,
+  payload: RecordingFinish,
+  success: RecordingResult,
+});
+const RecordingDiscardRpc = Rpc.make("recording.discard", {
+  error: BrowserRpcError,
+  payload: RecordingDiscard,
+  success: RecordingDiscarded,
+});
+const RecordingTitleUpdateRpc = Rpc.make("recording.title.update", {
+  error: BrowserRpcError,
+  payload: RecordingTitleUpdate,
+  success: RecordingResult,
+});
+const RecordingStepDeleteRpc = Rpc.make("recording.step.delete", {
+  error: BrowserRpcError,
+  payload: RecordingStepDelete,
+  success: RecordingResult,
+});
+const RecordingStepUndoRpc = Rpc.make("recording.step.undo", {
+  error: BrowserRpcError,
+  payload: RecordingStepUndo,
+  success: RecordingResult,
+});
+const RecordingAuditAddRpc = Rpc.make("recording.audit.add", {
+  error: BrowserRpcError,
+  payload: RecordingAuditAdd,
+  success: RecordingResult,
+});
+const RecordingStepSecretBindRpc = Rpc.make("recording.step.secret.bind", {
+  error: BrowserRpcError,
+  payload: RecordingStepSecretBind,
+  success: RecordingResult,
+});
+const RecordingSecretRenameRpc = Rpc.make("recording.secret.rename", {
+  error: BrowserRpcError,
+  payload: RecordingSecretRename,
+  success: RecordingResult,
+});
+const RecordingPreStepArmRpc = Rpc.make("recording.pre-step.arm", {
+  error: BrowserRpcError,
+  payload: RecordingPreStepArm,
+  success: RecordingResult,
+});
+const RecordingPreStepConditionArmRpc = Rpc.make(
+  "recording.pre-step.condition.arm",
+  {
+    error: BrowserRpcError,
+    payload: RecordingPreStepConditionArm,
+    success: RecordingResult,
+  }
+);
+const RecordingCaptureCancelRpc = Rpc.make("recording.capture.cancel", {
+  error: BrowserRpcError,
+  payload: RecordingCaptureCancel,
+  success: RecordingResult,
+});
+const RecordingStreamSubscribeRpc = Rpc.make("recording.stream.subscribe", {
+  error: BrowserRpcError,
+  payload: RecordingStreamSubscribe,
+  stream: true,
+  success: RecordingSnapshot,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -701,5 +863,22 @@ export class ContingencyRpcs extends RpcGroup.make(
   BrowserTabSwitchRpc,
   BrowserTabCloseRpc,
   BrowserNetworkRequestsGetRpc,
-  BrowserNetworkRequestGetRpc
+  BrowserNetworkRequestGetRpc,
+  RecordingGetRpc,
+  RecordingStartRpc,
+  RecordingPauseRpc,
+  RecordingResumeRpc,
+  RecordingRecoverRpc,
+  RecordingFinishRpc,
+  RecordingDiscardRpc,
+  RecordingTitleUpdateRpc,
+  RecordingStepDeleteRpc,
+  RecordingStepUndoRpc,
+  RecordingAuditAddRpc,
+  RecordingStepSecretBindRpc,
+  RecordingSecretRenameRpc,
+  RecordingPreStepArmRpc,
+  RecordingPreStepConditionArmRpc,
+  RecordingCaptureCancelRpc,
+  RecordingStreamSubscribeRpc
 ) {}

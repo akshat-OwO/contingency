@@ -1,5 +1,9 @@
 import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
-import type { BrowserStreamEvent, SessionId } from "@contingency/protocol";
+import type {
+  BrowserStreamEvent,
+  RecordingSnapshot,
+  SessionId,
+} from "@contingency/protocol";
 import { Duration, Effect, Layer, Schedule, Stream } from "effect";
 import { AtomRpc } from "effect/unstable/reactivity";
 import {
@@ -75,6 +79,50 @@ export const browserNetworkRequestMutation = ContingencyRpcClient.mutation(
   "browser.network.request.get"
 );
 
+export const recordingAtom = ContingencyRpcClient.query("recording.get", {
+  data: {},
+  type: "recording.get",
+});
+export const recordingStartMutation =
+  ContingencyRpcClient.mutation("recording.start");
+export const recordingPauseMutation =
+  ContingencyRpcClient.mutation("recording.pause");
+export const recordingResumeMutation =
+  ContingencyRpcClient.mutation("recording.resume");
+export const recordingRecoverMutation =
+  ContingencyRpcClient.mutation("recording.recover");
+export const recordingFinishMutation =
+  ContingencyRpcClient.mutation("recording.finish");
+export const recordingDiscardMutation =
+  ContingencyRpcClient.mutation("recording.discard");
+export const recordingTitleMutation = ContingencyRpcClient.mutation(
+  "recording.title.update"
+);
+export const recordingStepDeleteMutation = ContingencyRpcClient.mutation(
+  "recording.step.delete"
+);
+export const recordingStepUndoMutation = ContingencyRpcClient.mutation(
+  "recording.step.undo"
+);
+export const recordingAuditMutation = ContingencyRpcClient.mutation(
+  "recording.audit.add"
+);
+export const recordingSecretBindMutation = ContingencyRpcClient.mutation(
+  "recording.step.secret.bind"
+);
+export const recordingSecretRenameMutation = ContingencyRpcClient.mutation(
+  "recording.secret.rename"
+);
+export const recordingPreStepMutation = ContingencyRpcClient.mutation(
+  "recording.pre-step.arm"
+);
+export const recordingPreStepConditionMutation = ContingencyRpcClient.mutation(
+  "recording.pre-step.condition.arm"
+);
+export const recordingCaptureCancelMutation = ContingencyRpcClient.mutation(
+  "recording.capture.cancel"
+);
+
 const reconnectSchedule = Schedule.exponential("100 millis").pipe(
   Schedule.jittered,
   Schedule.modifyDelay(({ duration }) =>
@@ -111,5 +159,19 @@ export const runBrowserStream = (
       });
 
       yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
+    })
+  ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
+
+export const runRecordingStream = (
+  onEvent: (event: RecordingSnapshot) => Effect.Effect<void>
+) =>
+  Effect.scoped(
+    Effect.gen(function* streamRecording() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      const events = client("recording.stream.subscribe", {
+        data: {},
+        type: "recording.stream.subscribe",
+      });
+      yield* events.pipe(Stream.runForEach(onEvent));
     })
   ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));

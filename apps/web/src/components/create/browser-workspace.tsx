@@ -59,6 +59,11 @@ import {
   reconcileActiveTab,
   replacePendingBrowserFrame,
 } from "@/components/create/browser-workspace-state";
+import {
+  createWorkspaceAtom,
+  recordingLocksBrowser,
+  recordingMakesCanvasReadOnly,
+} from "@/components/create/create-workspace-state";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -106,7 +111,6 @@ import {
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
 const userAgentProfileAtom = Atom.make<UserAgentProfileId>("default");
 const browserTabsAtom = Atom.make<readonly BrowserTab[]>([]);
-const addressAtom = Atom.make("");
 const devtoolsOpenAtom = Atom.make(false);
 const frameReadyAtom = Atom.make(false);
 const viewportHeightAtom = Atom.make("720");
@@ -115,12 +119,10 @@ const refreshingNetworkAtom = Atom.make(false);
 const viewportPresetAtom = Atom.make(RESPONSIVE_PRESET_ID);
 interface BrowserOptionalState {
   readonly error: string | undefined;
-  readonly selectedSessionId: SessionId | undefined;
 }
 
 const browserOptionalStateAtom = Atom.make<BrowserOptionalState>({
   error: undefined,
-  selectedSessionId: undefined,
 });
 const streamConnectedAtom = Atom.make(false);
 const viewportWidthAtom = Atom.make("1280");
@@ -131,6 +133,7 @@ const toErrorMessage = (error: unknown): string =>
     : "Browser operation failed";
 
 interface BrowserTabStripProps {
+  readonly disabled: boolean;
   readonly onClose: (tab: BrowserTab) => void;
   readonly onCreate: () => void;
   readonly onSwitch: (tab: BrowserTab) => void;
@@ -139,6 +142,7 @@ interface BrowserTabStripProps {
 }
 
 const BrowserTabStrip = ({
+  disabled,
   onClose,
   onCreate,
   onSwitch,
@@ -162,6 +166,7 @@ const BrowserTabStrip = ({
         >
           <button
             className="min-w-0 flex-1 truncate px-2 text-left text-xs"
+            disabled={disabled}
             onClick={() => onSwitch(tab)}
             title={tab.title || tab.url || "New tab"}
             type="button"
@@ -172,6 +177,7 @@ const BrowserTabStrip = ({
             <Button
               aria-label={`Close ${tab.title || "tab"}`}
               className="mr-0.5 size-6"
+              disabled={disabled}
               onClick={() => onClose(tab)}
               size="icon-sm"
               variant="ghost"
@@ -184,6 +190,7 @@ const BrowserTabStrip = ({
       <Button
         aria-label="New tab"
         className="mb-0.5 shrink-0"
+        disabled={disabled}
         onClick={onCreate}
         size="icon-sm"
         variant="ghost"
@@ -219,25 +226,38 @@ const useBrowserWorkspace = () => {
   > | null>(null);
   const knownTabIdsRef = useRef<ReadonlySet<BrowserTabId> | null>(null);
   const enrichedTabsRef = useRef<readonly BrowserTab[]>([]);
-  const [address, setAddress] = useAtom(addressAtom);
+  const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
   const [devtoolsState, setDevtoolsState] = useAtom(browserDevtoolsAtom);
   const [devtoolsOpen, setDevtoolsOpen] = useAtom(devtoolsOpenAtom);
   const [optionalState, setOptionalState] = useAtom(browserOptionalStateAtom);
-  const { error, selectedSessionId } = optionalState;
+  const { error } = optionalState;
+  const { address, selectedSessionId } = workspace;
   const setError = useCallback(
     (nextError: string | undefined) => {
       setOptionalState((current) => ({ ...current, error: nextError }));
     },
     [setOptionalState]
   );
+  const setAddress = useCallback(
+    (nextAddress: string | ((currentAddress: string) => string)) => {
+      setWorkspace((current) => ({
+        ...current,
+        address:
+          typeof nextAddress === "function"
+            ? nextAddress(current.address)
+            : nextAddress,
+      }));
+    },
+    [setWorkspace]
+  );
   const setSelectedSessionId = useCallback(
     (nextSessionId: SessionId | undefined) => {
-      setOptionalState((current) => ({
+      setWorkspace((current) => ({
         ...current,
         selectedSessionId: nextSessionId,
       }));
     },
-    [setOptionalState]
+    [setWorkspace]
   );
   const [frameReady, setFrameReady] = useAtom(frameReadyAtom);
   const [height, setHeight] = useAtom(viewportHeightAtom);
@@ -279,6 +299,8 @@ const useBrowserWorkspace = () => {
   });
   const selectedPresetName = presetName(presetId);
   const activeTab = tabs.find(({ active }) => active);
+  const browserLocked = recordingLocksBrowser(workspace.recording);
+  const canvasReadOnly = recordingMakesCanvasReadOnly(workspace.recording);
   const streamIdentity = browserStreamIdentity(
     selectedSessionId,
     activeTab?.tabId
@@ -692,12 +714,18 @@ const useBrowserWorkspace = () => {
     };
   }, [selectedSessionId, sendBrowserInput, setError]);
 
-  const dispatchInput = useCallback((input: BrowserInput) => {
-    const queue = inputQueueRef.current;
-    if (queue !== null) {
-      Effect.runFork(Queue.offer(queue, input));
-    }
-  }, []);
+  const dispatchInput = useCallback(
+    (input: BrowserInput) => {
+      if (recordingMakesCanvasReadOnly(workspace.recording)) {
+        return;
+      }
+      const queue = inputQueueRef.current;
+      if (queue !== null) {
+        Effect.runFork(Queue.offer(queue, input));
+      }
+    },
+    [workspace.recording]
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1075,6 +1103,8 @@ const useBrowserWorkspace = () => {
     activeTabData,
     address,
     addressEditingRef,
+    browserLocked,
+    canvasReadOnly,
     canvasRef,
     closeTab,
     commitViewport,
@@ -1125,6 +1155,7 @@ const BrowserNavigationToolbar = ({
   const {
     address,
     addressEditingRef,
+    browserLocked,
     closeTab,
     createTab,
     deleteSession,
@@ -1142,6 +1173,7 @@ const BrowserNavigationToolbar = ({
   return (
     <>
       <BrowserTabStrip
+        disabled={browserLocked}
         onClose={(tab) => {
           void closeTab(tab);
         }}
@@ -1223,6 +1255,7 @@ const BrowserNavigationToolbar = ({
         </form>
 
         <BrowserSessionPicker
+          disabled={browserLocked}
           onDelete={deleteSession}
           onSelect={selectSession}
           selectedSessionId={selectedSessionId}
@@ -1239,6 +1272,7 @@ const BrowserDeviceToolbar = ({
   readonly controller: BrowserWorkspaceController;
 }) => {
   const {
+    browserLocked,
     commitViewport,
     devtoolsOpen,
     height,
@@ -1258,14 +1292,18 @@ const BrowserDeviceToolbar = ({
   return (
     <div className="bg-background flex h-10 shrink-0 items-center justify-center gap-1.5 overflow-x-auto overscroll-x-contain border-b px-2">
       <UserAgentPicker
-        disabled={opening}
+        disabled={browserLocked || opening}
         onValueChange={(profile) => {
           void selectUserAgent(profile);
         }}
         value={userAgentProfile}
       />
 
-      <Select onValueChange={selectPreset} value={presetId}>
+      <Select
+        disabled={browserLocked}
+        onValueChange={selectPreset}
+        value={presetId}
+      >
         <SelectTrigger aria-label="Viewport preset" className="w-44" size="sm">
           <SelectValue>{selectedPresetName}</SelectValue>
         </SelectTrigger>
@@ -1290,6 +1328,7 @@ const BrowserDeviceToolbar = ({
       <Input
         aria-label="Viewport width"
         className="h-7 w-16 text-center tabular-nums"
+        disabled={browserLocked}
         inputMode="numeric"
         onBlur={commitViewport}
         onChange={(event) => updateDimension(event.target.value, setWidth)}
@@ -1306,6 +1345,7 @@ const BrowserDeviceToolbar = ({
       <Input
         aria-label="Viewport height"
         className="h-7 w-16 text-center tabular-nums"
+        disabled={browserLocked}
         inputMode="numeric"
         onBlur={commitViewport}
         onChange={(event) => updateDimension(event.target.value, setHeight)}
@@ -1338,6 +1378,7 @@ const BrowserViewportPanels = ({
   const {
     activeTabData,
     canvasRef,
+    canvasReadOnly,
     devtoolsOpen,
     error,
     frameReady,
@@ -1397,7 +1438,8 @@ const BrowserViewportPanels = ({
             <ContextMenuTrigger className="contents">
               <canvas
                 aria-label="Interactive browser viewport"
-                className="focus-visible:ring-ring max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2"
+                aria-readonly={canvasReadOnly}
+                className="focus-visible:ring-ring max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 aria-readonly:cursor-not-allowed aria-readonly:opacity-70"
                 onKeyDown={(event) => handleKey(event, "keyDown")}
                 onKeyUp={(event) => handleKey(event, "keyUp")}
                 onPointerCancel={handlePointerUp}
