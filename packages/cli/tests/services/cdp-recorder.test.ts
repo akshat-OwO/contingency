@@ -210,7 +210,7 @@ it.effect("drains an accepted final event before finishing", () =>
             if (ordered === undefined) {
               return Effect.void;
             }
-            return ordered.awaitIdle;
+            return ordered.close();
           });
         }),
     };
