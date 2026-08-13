@@ -49,6 +49,7 @@ import {
 } from "@/components/create/browser-input";
 import { BrowserSessionPicker } from "@/components/create/browser-session-picker";
 import {
+  browserAddressEditingAfter,
   browserAddressFromUrlEvent,
   browserNetworkRefreshEffect,
   browserStreamIdentity,
@@ -729,6 +730,7 @@ const useBrowserWorkspace = () => {
       return;
     }
 
+    addressEditingRef.current = browserAddressEditingAfter("submit");
     setError(undefined);
     setOpening(true);
     Effect.runFork(
@@ -1203,11 +1205,15 @@ const BrowserNavigationToolbar = ({
               aria-label="Browser address"
               disabled={opening}
               onBlur={() => {
-                addressEditingRef.current = false;
+                addressEditingRef.current = browserAddressEditingAfter("blur");
               }}
-              onChange={(event) => setAddress(event.target.value)}
+              onChange={(event) => {
+                addressEditingRef.current =
+                  browserAddressEditingAfter("change");
+                setAddress(event.target.value);
+              }}
               onFocus={() => {
-                addressEditingRef.current = true;
+                addressEditingRef.current = browserAddressEditingAfter("focus");
               }}
               placeholder="Enter a URL to start recording"
               spellCheck={false}

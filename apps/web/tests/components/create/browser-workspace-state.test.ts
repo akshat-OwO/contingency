@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   browserAddressFromUrlEvent,
+  browserAddressEditingAfter,
   browserNetworkRefreshEffect,
   browserStreamIdentity,
   browserTabSynchronizationEffect,
@@ -11,6 +12,16 @@ import {
   reconcileActiveTab,
   replacePendingBrowserFrame,
 } from "../../../src/components/create/browser-workspace-state";
+
+describe("browserAddressEditingAfter", () => {
+  it("ends the edit on submit so navigation can replace the typed URL", () => {
+    const focused = browserAddressEditingAfter("focus");
+
+    expect(focused).toBe(true);
+    expect(browserAddressEditingAfter("submit")).toBe(false);
+    expect(browserAddressEditingAfter("change")).toBe(true);
+  });
+});
 
 describe("browserAddressFromUrlEvent", () => {
   it("preserves an in-progress address edit when a late URL event arrives", () => {

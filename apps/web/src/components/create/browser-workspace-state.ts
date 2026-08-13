@@ -16,6 +16,12 @@ export const browserAddressFromUrlEvent = (
   return nextUrl === "about:blank" ? "" : nextUrl;
 };
 
+export type BrowserAddressEditEvent = "blur" | "change" | "focus" | "submit";
+
+export const browserAddressEditingAfter = (
+  event: BrowserAddressEditEvent
+): boolean => event === "change" || event === "focus";
+
 export interface ActiveTabReconciliation {
   readonly activeTabChanged: boolean;
   readonly activeTabId: BrowserTabId | null;
