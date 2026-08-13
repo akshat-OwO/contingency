@@ -973,7 +973,9 @@ export const makeRecordingService = (
             const current = yield* Ref.get(stateRef).pipe(
               Effect.flatMap(requireState)
             );
-            yield* current.stopCapture;
+            if (current.phase === "active" || current.phase === "paused") {
+              yield* current.stopCapture;
+            }
             yield* Ref.set(stateRef, null);
           })
         ),

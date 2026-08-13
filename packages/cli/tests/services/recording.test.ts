@@ -9,11 +9,14 @@ const sessionId = Schema.decodeUnknownSync(SessionId)("create-recording-test");
 
 const makeCapture = () => {
   let emit: Parameters<RecorderCapture["start"]>[0]["onEvent"] | undefined;
+  let stopCount = 0;
   const capture: RecorderCapture = {
     start: (options) =>
       Effect.sync(() => {
         emit = options.onEvent;
-        return Effect.void;
+        return Effect.sync(() => {
+          stopCount += 1;
+        });
       }),
   };
 
@@ -25,6 +28,7 @@ const makeCapture = () => {
       }
       return emit(event);
     },
+    stopCount: () => stopCount,
   };
 };
 
@@ -59,6 +63,34 @@ it.effect("finishes captured browser actions as a validated Flow", () => {
         type: "click",
       },
     ]);
+  });
+});
+
+it.effect("discards a finished Flow without closing its capture twice", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* discardFinishedFlow() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId: "tab-1",
+      title: "Finished Flow",
+    });
+    yield* capture.emit({
+      offsetX: 4,
+      offsetY: 5,
+      selectors: ["aria/Continue"],
+      type: "click",
+    });
+
+    yield* recording.finish();
+    expect(capture.stopCount()).toBe(1);
+
+    yield* recording.discard();
+
+    expect(capture.stopCount()).toBe(1);
+    expect(yield* recording.get()).toBeNull();
   });
 });
 
