@@ -1,13 +1,45 @@
+import { BrowserTabId, SessionId } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, Latch, Schema } from "effect";
 
 import {
   cleanupRecorderContexts,
   decodeNavigationEvent,
   isUnsupportedRecordingTarget,
   makeCdpConnection,
+  makeOrderedRecorderEventHandler,
   selectRecorderTarget,
 } from "../../src/services/cdp-recorder";
+import type {
+  RecorderCapture,
+  RecorderCaptureStartOptions,
+} from "../../src/services/recording";
+import { makeRecordingService } from "../../src/services/recording";
+
+const sessionId = Schema.decodeUnknownSync(SessionId)("create-ordering");
+const tabId = Schema.decodeUnknownSync(BrowserTabId)("tab-ordering");
+
+const makeCapture = (): {
+  readonly capture: RecorderCapture;
+  readonly options: () => RecorderCaptureStartOptions;
+} => {
+  let activeOptions: RecorderCaptureStartOptions | undefined;
+  return {
+    capture: {
+      start: (options) =>
+        Effect.sync(() => {
+          activeOptions = options;
+          return Effect.void;
+        }),
+    },
+    options: () => {
+      if (activeOptions === undefined) {
+        throw new Error("Recorder capture has not started.");
+      }
+      return activeOptions;
+    },
+  };
+};
 
 class FakeSocket extends EventTarget {
   readonly sent: string[] = [];
@@ -59,6 +91,54 @@ it("ignores an unrelated page discovered outside the pinned recording tab", () =
     )
   ).toBe(false);
 });
+
+it.effect(
+  "preserves change-before-click order through Recording mutation",
+  () =>
+    Effect.gen(function* preserveRecordingOrder() {
+      const capture = makeCapture();
+      const recording = yield* makeRecordingService(capture.capture);
+      yield* recording.start({
+        initialUrl: "https://example.com/form",
+        sessionId,
+        tabId,
+        title: "Submit form",
+      });
+      const releaseChange = yield* Latch.make();
+      const captureOptions = capture.options();
+      const ordered = makeOrderedRecorderEventHandler(
+        (event) =>
+          event.type === "change"
+            ? releaseChange.await.pipe(
+                Effect.andThen(captureOptions.onEvent(event))
+              )
+            : captureOptions.onEvent(event),
+        captureOptions.onFailure
+      );
+
+      ordered.dispatch({
+        selectors: ["#email"],
+        type: "change",
+        value: "a@b.c",
+      });
+      ordered.dispatch({
+        offsetX: 10,
+        offsetY: 10,
+        selectors: ["aria/Submit"],
+        type: "click",
+      });
+      yield* Effect.yieldNow;
+      yield* releaseChange.open;
+      yield* ordered.awaitIdle;
+
+      const snapshot = yield* recording.get();
+      expect(snapshot?.recordedSteps.map(({ step }) => step.type)).toEqual([
+        "navigate",
+        "change",
+        "click",
+      ]);
+    })
+);
 
 it.effect("resolves an agent-browser tab alias to the focused CDP page", () =>
   selectRecorderTarget(
@@ -170,9 +250,9 @@ it.effect("cleans up each recorder inside its isolated execution context", () =>
     }[] = [];
     yield* cleanupRecorderContexts(
       {
-        send: (method, params, sessionId) =>
+        send: (method, params, recorderSessionId) =>
           Effect.sync(() => {
-            commands.push({ method, params, sessionId });
+            commands.push({ method, params, sessionId: recorderSessionId });
           }),
       },
       [

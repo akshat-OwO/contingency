@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { makeBrowserRpcError } from "@contingency/protocol";
 import type { BrowserRpcErrorType } from "@contingency/protocol";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import { Deferred, Effect, FileSystem, Layer, Schema } from "effect";
 
 import { AgentBrowser } from "./agent-browser";
 import type {
@@ -150,6 +150,40 @@ export const isUnsupportedRecordingTarget = (
     targetId !== pinnedTargetId &&
     openerId === pinnedTargetId
   );
+};
+
+interface OrderedRecorderEventHandler {
+  readonly awaitIdle: Effect.Effect<void>;
+  readonly dispatch: (event: RecorderCaptureEvent) => void;
+}
+
+export const makeOrderedRecorderEventHandler = (
+  onEvent: RecorderCaptureStartOptions["onEvent"],
+  onFailure: RecorderCaptureStartOptions["onFailure"]
+): OrderedRecorderEventHandler => {
+  let tail = Deferred.makeUnsafe<true>();
+  Deferred.doneUnsafe(tail, Effect.succeed(true));
+
+  return {
+    get awaitIdle() {
+      return Effect.suspend(() => Deferred.await(tail)).pipe(Effect.asVoid);
+    },
+    dispatch: (event) => {
+      const previous = tail;
+      const completed = Deferred.makeUnsafe<true>();
+      tail = completed;
+      Effect.runFork(
+        Deferred.await(previous).pipe(
+          Effect.andThen(onEvent(event)),
+          // Effect error recovery is callback-based by design.
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks
+          Effect.tapError((error) => onFailure(error.message)),
+          Effect.ignore,
+          Effect.ensuring(Deferred.succeed(completed, true))
+        )
+      );
+    },
+  };
 };
 
 export const selectRecorderTarget = (
@@ -463,6 +497,10 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
     let closing = false;
     let eventWindowStart = Date.now();
     let eventCount = 0;
+    const orderedEvents = makeOrderedRecorderEventHandler(
+      options.onEvent,
+      options.onFailure
+    );
 
     const runEvent = (event: RecorderCaptureEvent) => {
       const now = Date.now();
@@ -477,14 +515,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         );
         return;
       }
-      Effect.runFork(
-        options.onEvent(event).pipe(
-          // Effect error recovery is callback-based by design.
-          // oxlint-disable-next-line promise/prefer-await-to-callbacks
-          Effect.tapError((error) => options.onFailure(error.message)),
-          Effect.ignore
-        )
-      );
+      orderedEvents.dispatch(event);
     };
 
     // The CDP callback is installed before target setup completes and closes
