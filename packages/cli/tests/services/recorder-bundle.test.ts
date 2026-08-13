@@ -93,9 +93,6 @@ it.effect("keeps sensitive values inside the isolated recorder bundle", () =>
     const emitted: string[] = [];
     const listeners = new Map<string, (event: unknown) => void>();
     const removed = new Set<string>();
-    const clearedTimers = new Set<number>();
-    const timers = new Map<number, () => void>();
-    let nextTimerId = 1;
     const context = vm.createContext({
       CSS: { escape: (value: string) => value },
       Document: FakeElement,
@@ -109,10 +106,6 @@ it.effect("keeps sensitive values inside the isolated recorder bundle", () =>
         listeners.set(name, listener);
       },
       cancelAnimationFrame: () => null,
-      clearTimeout: (timerId: number) => {
-        clearedTimers.add(timerId);
-        timers.delete(timerId);
-      },
       document: documentNode,
       removeEventListener: (name: string) => {
         removed.add(name);
@@ -120,12 +113,6 @@ it.effect("keeps sensitive values inside the isolated recorder bundle", () =>
       requestAnimationFrame: (handler: () => void) => {
         handler();
         return 1;
-      },
-      setTimeout: (handler: () => void) => {
-        const timerId = nextTimerId;
-        nextTimerId += 1;
-        timers.set(timerId, handler);
-        return timerId;
       },
     });
     new vm.Script(source).runInContext(context);
@@ -136,7 +123,6 @@ it.effect("keeps sensitive values inside the isolated recorder bundle", () =>
       "987654"
     );
     listeners.get("input")?.({ isTrusted: true, target: input });
-    timers.get(1)?.();
 
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).not.toContain("987654");
@@ -148,7 +134,6 @@ it.effect("keeps sensitive values inside the isolated recorder bundle", () =>
       "refresh-secret-value"
     );
     listeners.get("input")?.({ isTrusted: true, target: credential });
-    timers.get(2)?.();
     expect(emitted).toHaveLength(2);
     expect(emitted[1]).not.toContain("refresh-secret-value");
     expect(emitted[1]).toContain("{{REFRESH_TOKEN}}");
@@ -171,13 +156,30 @@ it.effect("keeps sensitive values inside the isolated recorder bundle", () =>
     expect(inspectorLabel?.textContent).toContain("role=button");
     expect(inspectorLabel?.textContent).toContain("aria-label=Continue");
 
+    const eventStart = emitted.length;
     const pendingInput = new FakeElement("input", {}, "ordinary draft");
     listeners.get("input")?.({ isTrusted: true, target: pendingInput });
+    const submit = new FakeElement("button", { "aria-label": "Submit" });
+    listeners.get("click")?.({
+      button: 0,
+      clientX: 40,
+      clientY: 50,
+      composedPath: () => [submit],
+      isTrusted: true,
+    });
+    expect(
+      emitted.slice(eventStart).map((payload) => {
+        const parsed = JSON.parse(payload) as { readonly event?: unknown };
+        return parsed.event;
+      })
+    ).toMatchObject([
+      { type: "change", value: "ordinary draft" },
+      { type: "click" },
+    ]);
 
     new vm.Script("globalThis.__contingencyRecorderCleanup()").runInContext(
       context
     );
-    expect(clearedTimers).toContain(3);
     expect(removed).toEqual(
       new Set([
         "blur",

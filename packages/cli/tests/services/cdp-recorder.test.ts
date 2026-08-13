@@ -41,6 +41,25 @@ it("rejects a newly opened page outside the pinned recording tab", () => {
   ).toBe(true);
 });
 
+it("ignores an unrelated page discovered outside the pinned recording tab", () => {
+  expect(
+    isUnsupportedRecordingTarget(
+      {
+        method: "Target.targetCreated",
+        params: {
+          targetInfo: {
+            targetId: "unrelated-page",
+            type: "page",
+            url: "https://example.org/",
+          },
+        },
+      },
+      "pinned-page",
+      false
+    )
+  ).toBe(false);
+});
+
 it.effect("resolves an agent-browser tab alias to the focused CDP page", () =>
   selectRecorderTarget(
     [

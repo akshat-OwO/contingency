@@ -144,8 +144,12 @@ export const isUnsupportedRecordingTarget = (
   ) {
     return false;
   }
-  const { targetId, type } = event.params.targetInfo;
-  return type === "page" && targetId !== pinnedTargetId;
+  const { openerId, targetId, type } = event.params.targetInfo;
+  return (
+    type === "page" &&
+    targetId !== pinnedTargetId &&
+    openerId === pinnedTargetId
+  );
 };
 
 export const selectRecorderTarget = (

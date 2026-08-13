@@ -25,7 +25,6 @@
     "PageDown",
     "PageUp",
   ]);
-  const pendingChanges = new Map();
   const inspector = document.createElement("div");
   const inspectorLabel = document.createElement("div");
   let inspectedElement;
@@ -325,14 +324,7 @@
     ) {
       return;
     }
-    const previous = pendingChanges.get(target);
-    if (previous !== undefined) {
-      clearTimeout(previous);
-    }
-    pendingChanges.set(
-      target,
-      setTimeout(() => emitChange(target), 100)
-    );
+    emitChange(target);
   };
 
   const handleKey = (event) => {
@@ -377,10 +369,6 @@
     removeEventListener("keydown", handleKey, true);
     removeEventListener("keyup", handleKey, true);
     removeEventListener("beforeunload", handleBeforeUnload, true);
-    for (const timer of pendingChanges.values()) {
-      clearTimeout(timer);
-    }
-    pendingChanges.clear();
     if (inspectorFrame !== undefined) {
       cancelAnimationFrame(inspectorFrame);
     }
@@ -392,7 +380,6 @@
   };
 
   const emitChange = (element) => {
-    pendingChanges.delete(element);
     const selectors = selectorsFor(element);
     if (selectors.length === 0) {
       emit({
