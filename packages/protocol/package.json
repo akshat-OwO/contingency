@@ -1,0 +1,19 @@
+{
+  "name": "@contingency/protocol",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:effect"
+  },
+  "devDependencies": {
+    "@nubjs/types": "catalog:types",
+    "typescript": "catalog:"
+  }
+}

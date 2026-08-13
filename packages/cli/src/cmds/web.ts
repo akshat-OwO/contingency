@@ -1,6 +1,7 @@
 import { Config, Console, Effect, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
+import { AgentBrowser } from "../services/agent-browser";
 import { makeHttpServerLayer } from "../services/http-server";
 import { UiInterface } from "../services/ui-interface";
 import { resolveAllowedOrigins, resolveBrowserUrl } from "../services/web-url";
@@ -12,6 +13,7 @@ export const webCommand = Command.make(
   },
   Effect.fnUntraced(function* runWeb({ noBrowser }) {
     const isProduction = process.env.NODE_ENV === "production";
+    const agentBrowser = yield* AgentBrowser;
     const uiInterface = yield* UiInterface;
     const config = yield* Config.all({
       devUrl: Config.string("DEV_URL").pipe(
@@ -25,6 +27,7 @@ export const webCommand = Command.make(
       ...config,
       isProduction,
     });
+    yield* agentBrowser.init();
 
     return yield* Effect.scoped(
       Effect.gen(function* serveWebInterface() {
@@ -38,9 +41,9 @@ export const webCommand = Command.make(
         );
 
         if (noBrowser) {
-          yield* Console.log(`Contingency UI available at ${browserUrl.href}`);
+          yield* Console.log(`Contingency UI available at ${browserUrl}`);
         } else {
-          yield* Console.log(`Opening Contingency UI at ${browserUrl.href}...`);
+          yield* Console.log(`Opening Contingency UI at ${browserUrl}...`);
           yield* uiInterface.open(browserUrl.href);
         }
 

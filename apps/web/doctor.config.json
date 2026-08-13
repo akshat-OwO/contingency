@@ -1,0 +1,12 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "files": ["src/components/ui/**", "src/hooks/use-web-socket-status.ts"],
+    "overrides": [
+      {
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dependency"]
+      }
+    ]
+  }
+}

@@ -21,6 +21,7 @@
     "test": "nub run build && vitest run"
   },
   "dependencies": {
+    "@contingency/protocol": "workspace:*",
     "@effect/platform-node": "^4.0.0-beta.106",
     "effect": "^4.0.0-beta.106",
     "open": "^11.0.0"
