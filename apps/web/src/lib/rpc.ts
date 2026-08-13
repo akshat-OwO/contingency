@@ -105,7 +105,7 @@ export const recordingStepUndoMutation = ContingencyRpcClient.mutation(
   "recording.step.undo"
 );
 export const recordingAuditMutation = ContingencyRpcClient.mutation(
-  "recording.step.audit.set"
+  "recording.audit.add"
 );
 export const recordingSecretBindMutation = ContingencyRpcClient.mutation(
   "recording.step.secret.bind"

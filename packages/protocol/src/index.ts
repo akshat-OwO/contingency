@@ -486,7 +486,7 @@ export const BrandId = Schema.Literals([
   "recording.title.update",
   "recording.step.delete",
   "recording.step.undo",
-  "recording.step.audit.set",
+  "recording.audit.add",
   "recording.step.secret.bind",
   "recording.secret.rename",
   "recording.pre-step.arm",
@@ -642,10 +642,8 @@ export const RecordingStepDelete = request("recording.step.delete", {
   stepId: Schema.String,
 });
 export const RecordingStepUndo = request("recording.step.undo", {});
-export const RecordingStepAuditSet = request("recording.step.audit.set", {
+export const RecordingAuditAdd = request("recording.audit.add", {
   audit: AuditKind,
-  enabled: Schema.Boolean,
-  stepId: Schema.String,
 });
 export const RecordingStepSecretBind = request("recording.step.secret.bind", {
   name: Schema.String,
@@ -809,9 +807,9 @@ const RecordingStepUndoRpc = Rpc.make("recording.step.undo", {
   payload: RecordingStepUndo,
   success: RecordingResult,
 });
-const RecordingStepAuditSetRpc = Rpc.make("recording.step.audit.set", {
+const RecordingAuditAddRpc = Rpc.make("recording.audit.add", {
   error: BrowserRpcError,
-  payload: RecordingStepAuditSet,
+  payload: RecordingAuditAdd,
   success: RecordingResult,
 });
 const RecordingStepSecretBindRpc = Rpc.make("recording.step.secret.bind", {
@@ -877,7 +875,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingTitleUpdateRpc,
   RecordingStepDeleteRpc,
   RecordingStepUndoRpc,
-  RecordingStepAuditSetRpc,
+  RecordingAuditAddRpc,
   RecordingStepSecretBindRpc,
   RecordingSecretRenameRpc,
   RecordingPreStepArmRpc,

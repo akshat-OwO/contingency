@@ -65,8 +65,12 @@ export type ChromeStep = typeof ChromeStep.Type;
 export const AuditKind = Schema.Literals(["accessibility", "performance"]);
 export type AuditKind = typeof AuditKind.Type;
 
-export const Audit = Schema.Struct({ type: AuditKind });
-export type Audit = typeof Audit.Type;
+export const AuditStep = Schema.Struct({
+  name: Schema.Literal("contingency.audit"),
+  parameters: Schema.Struct({ kind: AuditKind }),
+  type: Schema.Literal("customStep"),
+});
+export type AuditStep = typeof AuditStep.Type;
 
 export const PreStep = Schema.Struct({
   id: nonEmptyString,
@@ -84,7 +88,6 @@ export const SecretVariable = Schema.Struct({
 export type SecretVariable = typeof SecretVariable.Type;
 
 const StepExtension = Schema.Struct({
-  audits: Schema.optional(Schema.Array(Audit)),
   id: nonEmptyString,
   preSteps: Schema.optional(Schema.Array(PreStep)),
   secretVariable: Schema.optional(nonEmptyString),
@@ -101,6 +104,7 @@ export const FlowStep = Schema.Union([
   extendStep(ClickStep.fields),
   extendStep(ChangeStep.fields),
   extendStep(KeyStep.fields),
+  AuditStep,
 ]);
 export type FlowStep = typeof FlowStep.Type;
 
@@ -135,11 +139,10 @@ export const RecordingCaptureMode = Schema.Literals([
 export type RecordingCaptureMode = typeof RecordingCaptureMode.Type;
 
 export const RecordedStep = Schema.Struct({
-  audits: Schema.Array(Audit),
   id: nonEmptyString,
   preSteps: Schema.Array(PreStep),
   secretVariable: Schema.optional(nonEmptyString),
-  step: ChromeStep,
+  step: Schema.Union([ChromeStep, AuditStep]),
 });
 export type RecordedStep = typeof RecordedStep.Type;
 

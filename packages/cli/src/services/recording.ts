@@ -113,6 +113,9 @@ export interface RecordingStartInput {
 }
 
 export interface RecordingService {
+  readonly addAudit: (
+    audit: AuditKind
+  ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly bindSecret: (
     stepId: string,
     name: string
@@ -153,11 +156,6 @@ export interface RecordingService {
   readonly renameSecret: (
     from: string,
     name: string
-  ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
-  readonly setAudit: (
-    stepId: string,
-    audit: AuditKind,
-    enabled: boolean
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly start: (
     input: RecordingStartInput
@@ -237,6 +235,9 @@ const renameStepSecret = (
   name: string
 ): RecordedStep => {
   const { step } = recorded;
+  if (step.type === "customStep") {
+    return recorded;
+  }
   const assertedEvents = step.assertedEvents?.map((event) => ({
     ...event,
     url: replaceSecretReference(event.url, from, name),
@@ -343,10 +344,11 @@ export const flowDownloadName = (initialUrl: string, title: string): string => {
 };
 
 const toFlowStep = (recorded: RecordedStep): Flow["steps"][number] => {
+  if (recorded.step.type === "customStep") {
+    return recorded.step;
+  }
   const hasExtensions =
-    recorded.audits.length > 0 ||
-    recorded.preSteps.length > 0 ||
-    recorded.secretVariable !== undefined;
+    recorded.preSteps.length > 0 || recorded.secretVariable !== undefined;
   if (!hasExtensions) {
     return recorded.step;
   }
@@ -355,7 +357,6 @@ const toFlowStep = (recorded: RecordedStep): Flow["steps"][number] => {
     ...recorded.step,
     contingency: {
       id: recorded.id,
-      ...(recorded.audits.length === 0 ? {} : { audits: recorded.audits }),
       ...(recorded.preSteps.length === 0
         ? {}
         : { preSteps: recorded.preSteps }),
@@ -535,7 +536,9 @@ export const makeRecordingService = (
               event.url,
               mutable.secretVariables
             );
-            const last = mutable.steps.at(-1);
+            const last = mutable.steps.findLast(
+              ({ step }) => step.type !== "customStep"
+            );
             if (
               (mutable.pendingNavigation || event.causedByAction === true) &&
               last !== undefined &&
@@ -585,7 +588,6 @@ export const makeRecordingService = (
               ] as const;
             }
             const navigation: RecordedStep = {
-              audits: [],
               id: randomUUID(),
               preSteps: [],
               step: { type: "navigate", url: sanitized.url },
@@ -630,7 +632,6 @@ export const makeRecordingService = (
                 }
               : toChromeStep(action);
           const recorded: RecordedStep = {
-            audits: [],
             id: randomUUID(),
             preSteps: [],
             ...(assignedSecretVariable === undefined
@@ -790,6 +791,36 @@ export const makeRecordingService = (
     // Keep the public service operations grouped by authoring concern.
     // oxlint-disable-next-line eslint/sort-keys
     const service: RecordingService = {
+      addAudit: (audit) =>
+        mutate((state) =>
+          Effect.gen(function* addAuditStep() {
+            const mutable = yield* requireMutable(state);
+            if (mutable.captureMode !== "ordinary") {
+              return yield* Effect.fail(
+                recordingError(
+                  "recording_invalid",
+                  "Finish or cancel Pre-step authoring before adding an Audit."
+                )
+              );
+            }
+            const auditStep: RecordedStep = {
+              id: randomUUID(),
+              preSteps: [],
+              step: {
+                name: "contingency.audit",
+                parameters: { kind: audit },
+                type: "customStep",
+              },
+            };
+            const next = {
+              ...mutable,
+              deletedStep: undefined,
+              revision: mutable.revision + 1,
+              steps: [...mutable.steps, auditStep],
+            };
+            return [toSnapshot(next), next] as const;
+          })
+        ),
       bindSecret: (stepId, requestedName) =>
         mutate((state) =>
           Effect.gen(function* bindStepSecret() {
@@ -849,7 +880,10 @@ export const makeRecordingService = (
             }
             if (
               scope.type === "step" &&
-              !mutable.steps.some(({ id }) => id === scope.stepId)
+              !mutable.steps.some(
+                ({ id, step }) =>
+                  id === scope.stepId && step.type !== "customStep"
+              )
             ) {
               return yield* Effect.fail(
                 recordingError("recording_invalid", "Step was not found.")
@@ -1038,7 +1072,6 @@ export const makeRecordingService = (
               tabId: current.tabId,
             });
             const checkpoint: RecordedStep = {
-              audits: [],
               id: randomUUID(),
               preSteps: [],
               step: { type: "navigate", url: sanitized.url },
@@ -1120,35 +1153,6 @@ export const makeRecordingService = (
             return [toSnapshot(next), next] as const;
           })
         ),
-      setAudit: (stepId, audit, enabled) =>
-        mutate((state) =>
-          Effect.gen(function* setStepAudit() {
-            const mutable = yield* requireMutable(state);
-            let found = false;
-            const steps = mutable.steps.map((step) => {
-              if (step.id !== stepId) {
-                return step;
-              }
-              found = true;
-              let audits = step.audits.filter(({ type }) => type !== audit);
-              if (enabled && audits.length === step.audits.length) {
-                audits = [...audits, { type: audit }];
-              }
-              return { ...step, audits };
-            });
-            if (!found) {
-              return yield* Effect.fail(
-                recordingError("recording_invalid", "Step was not found.")
-              );
-            }
-            const next = {
-              ...mutable,
-              revision: mutable.revision + 1,
-              steps,
-            };
-            return [toSnapshot(next), next] as const;
-          })
-        ),
       start: (input) =>
         transitions.withPermit(
           Effect.gen(function* startRecording() {
@@ -1174,7 +1178,6 @@ export const makeRecordingService = (
             }
             const sanitized = yield* sanitizeUrl(input.initialUrl, []);
             const initialStep: RecordedStep = {
-              audits: [],
               id: randomUUID(),
               preSteps: [],
               step: { type: "navigate", url: sanitized.url },

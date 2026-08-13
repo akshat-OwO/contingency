@@ -25,7 +25,83 @@
     "PageUp",
   ]);
   const pendingChanges = new WeakMap();
+  const inspector = document.createElement("div");
+  const inspectorLabel = document.createElement("div");
+  let inspectedElement;
+  let inspectorFrame;
   let sequence = 0;
+
+  inspector.setAttribute("aria-hidden", "true");
+  inspector.style.cssText =
+    "position:fixed;display:none;pointer-events:none;z-index:2147483646;box-sizing:border-box;border:2px solid #3b82f6;background:rgba(59,130,246,.16);border-radius:3px;";
+  inspectorLabel.style.cssText =
+    "position:fixed;display:none;pointer-events:none;z-index:2147483647;box-sizing:border-box;max-width:min(420px,calc(100vw - 16px));overflow:hidden;padding:4px 7px;border-radius:4px;background:#1d4ed8;color:#fff;font:500 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;text-overflow:ellipsis;box-shadow:0 1px 3px rgba(0,0,0,.24);";
+
+  const hideInspector = () => {
+    inspectedElement = undefined;
+    inspector.style.display = "none";
+    inspectorLabel.style.display = "none";
+  };
+
+  const inspectorDetails = (element, bounds) => {
+    const details = [
+      element.localName,
+      `${Math.round(bounds.width)} × ${Math.round(bounds.height)}`,
+    ];
+    if (isSensitive(element)) {
+      details.push("sensitive field");
+      return details.join(" · ");
+    }
+    for (const attribute of [
+      "role",
+      "aria-label",
+      "aria-expanded",
+      "aria-checked",
+      "aria-selected",
+    ]) {
+      const value = element.getAttribute(attribute)?.trim();
+      if (value) {
+        details.push(`${attribute}=${value.slice(0, 64)}`);
+      }
+    }
+    return details.join(" · ");
+  };
+
+  const updateInspector = () => {
+    inspectorFrame = undefined;
+    const element = inspectedElement;
+    if (!element?.isConnected) {
+      hideInspector();
+      return;
+    }
+    const bounds = element.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      hideInspector();
+      return;
+    }
+    if (!inspector.isConnected) {
+      document.documentElement.append(inspector, inspectorLabel);
+    }
+    inspector.style.display = "block";
+    inspector.style.left = `${bounds.left}px`;
+    inspector.style.top = `${bounds.top}px`;
+    inspector.style.width = `${bounds.width}px`;
+    inspector.style.height = `${bounds.height}px`;
+    inspectorLabel.textContent = inspectorDetails(element, bounds);
+    inspectorLabel.style.display = "block";
+    inspectorLabel.style.left = `${Math.max(8, bounds.left)}px`;
+    inspectorLabel.style.top = `${Math.max(8, bounds.top - 27)}px`;
+  };
+
+  const inspectPointerTarget = (event) => {
+    if (!event.isTrusted) {
+      return;
+    }
+    inspectedElement = targetFrom(event);
+    if (inspectorFrame === undefined) {
+      inspectorFrame = requestAnimationFrame(updateInspector);
+    }
+  };
 
   const emit = (value) => {
     sequence += 1;
@@ -156,6 +232,22 @@
         sensitiveAutocomplete.test(autocomplete)) ||
       sensitiveFieldMetadata.test(fieldMetadata)
     );
+  };
+
+  addEventListener("mousemove", inspectPointerTarget, true);
+  addEventListener("mouseleave", hideInspector, true);
+  addEventListener("blur", hideInspector, true);
+
+  globalThis.__contingencyRecorderCleanup = () => {
+    removeEventListener("mousemove", inspectPointerTarget, true);
+    removeEventListener("mouseleave", hideInspector, true);
+    removeEventListener("blur", hideInspector, true);
+    if (inspectorFrame !== undefined) {
+      cancelAnimationFrame(inspectorFrame);
+    }
+    hideInspector();
+    inspector.remove();
+    inspectorLabel.remove();
   };
 
   const emitChange = (element) => {

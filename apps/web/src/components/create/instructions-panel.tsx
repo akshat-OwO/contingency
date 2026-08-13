@@ -1,5 +1,6 @@
 import type {
   AuditKind,
+  PreStep,
   RecordedStep,
   RecordingSnapshot,
 } from "@contingency/protocol";
@@ -7,6 +8,7 @@ import { isBrowserRpcError } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import {
   DownloadIcon,
+  InfoIcon,
   ListChecksIcon,
   PauseIcon,
   PlayIcon,
@@ -22,6 +24,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   recordingAuditMutation,
   recordingCaptureCancelMutation,
@@ -45,8 +52,15 @@ const errorMessage = (error: unknown): string =>
     ? error.message
     : "Unable to update the Recording.";
 
-const stepLabel = (recorded: RecordedStep): string => {
-  const { step } = recorded;
+const stepLabel = (
+  step: RecordedStep["step"] | PreStep["step"],
+  secretVariable?: string
+): string => {
+  if (step.type === "customStep") {
+    return step.parameters.kind === "accessibility"
+      ? "Accessibility Audit"
+      : "Performance Audit";
+  }
   if (step.type === "navigate") {
     try {
       return `Navigate to ${new URL(step.url).hostname}`;
@@ -55,9 +69,9 @@ const stepLabel = (recorded: RecordedStep): string => {
     }
   }
   if (step.type === "change") {
-    return recorded.secretVariable === undefined
+    return secretVariable === undefined
       ? "Change form value"
-      : `Enter {{${recorded.secretVariable}}}`;
+      : `Enter {{${secretVariable}}}`;
   }
   if (step.type === "click") {
     return "Click element";
@@ -66,6 +80,9 @@ const stepLabel = (recorded: RecordedStep): string => {
 };
 
 const selectorLabel = (recorded: RecordedStep): string | undefined => {
+  if (recorded.step.type === "customStep") {
+    return "Contingency custom Step";
+  }
   if (recorded.step.type === "navigate") {
     return recorded.step.url;
   }
@@ -92,11 +109,6 @@ const downloadFlow = (recording: RecordingSnapshot): void => {
 interface StepCardProps {
   readonly busy: boolean;
   readonly index: number;
-  readonly onAudit: (
-    stepId: string,
-    audit: AuditKind,
-    enabled: boolean
-  ) => void;
   readonly onDelete: (stepId: string) => void;
   readonly onCondition: (stepId: string, index: number) => void;
   readonly onPreStep: (stepId: string) => void;
@@ -109,7 +121,6 @@ interface StepCardProps {
 const StepCard = ({
   busy,
   index,
-  onAudit,
   onCondition,
   onDelete,
   onPreStep,
@@ -121,10 +132,7 @@ const StepCard = ({
   const frozen =
     recording.phase === "finished" || recording.phase === "incomplete";
   const initial = index === 0;
-  const accessibility = step.audits.some(
-    ({ type }) => type === "accessibility"
-  );
-  const performance = step.audits.some(({ type }) => type === "performance");
+  const audit = step.step.type === "customStep";
 
   return (
     <li className="bg-card space-y-3 rounded-lg border p-3">
@@ -133,7 +141,9 @@ const StepCard = ({
           {index + 1}
         </Badge>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{stepLabel(step)}</p>
+          <p className="text-sm font-medium">
+            {stepLabel(step.step, step.secretVariable)}
+          </p>
           <p
             className="text-muted-foreground truncate text-xs"
             title={selectorLabel(step)}
@@ -171,7 +181,7 @@ const StepCard = ({
         )}
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {initial ? null : (
+        {initial || audit ? null : (
           <Button
             disabled={busy || frozen}
             onClick={() => onPreStep(step.id)}
@@ -181,24 +191,6 @@ const StepCard = ({
             Add Pre-step
           </Button>
         )}
-        <Button
-          aria-pressed={accessibility}
-          disabled={busy || frozen}
-          onClick={() => onAudit(step.id, "accessibility", !accessibility)}
-          size="xs"
-          variant={accessibility ? "secondary" : "outline"}
-        >
-          Accessibility
-        </Button>
-        <Button
-          aria-pressed={performance}
-          disabled={busy || frozen}
-          onClick={() => onAudit(step.id, "performance", !performance)}
-          size="xs"
-          variant={performance ? "secondary" : "outline"}
-        >
-          Performance
-        </Button>
         {step.step.type === "change" && step.secretVariable === undefined ? (
           <Button
             disabled={busy || frozen}
@@ -225,6 +217,55 @@ const StepCard = ({
           </select>
         ) : null}
       </div>
+    </li>
+  );
+};
+
+interface FlowPreStepCardProps {
+  readonly busy: boolean;
+  readonly index: number;
+  readonly onCondition: (index: number) => void;
+  readonly preStep: PreStep;
+  readonly recording: RecordingSnapshot;
+}
+
+const FlowPreStepCard = ({
+  busy,
+  index,
+  onCondition,
+  preStep,
+  recording,
+}: FlowPreStepCardProps) => {
+  const frozen =
+    recording.phase === "finished" || recording.phase === "incomplete";
+  const [selector] = preStep.step.selectors;
+  const selectorText =
+    typeof selector === "string" ? selector : selector?.join(" → ");
+
+  return (
+    <li className="bg-card space-y-3 rounded-lg border p-3">
+      <div className="flex items-start gap-3">
+        <Badge className="mt-0.5 tabular-nums" variant="outline">
+          {index + 1}
+        </Badge>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{stepLabel(preStep.step)}</p>
+          <p
+            className="text-muted-foreground truncate text-xs"
+            title={selectorText}
+          >
+            {selectorText}
+          </p>
+        </div>
+      </div>
+      <Button
+        disabled={busy || frozen}
+        onClick={() => onCondition(index)}
+        size="xs"
+        variant="outline"
+      >
+        Pick condition
+      </Button>
     </li>
   );
 };
@@ -347,7 +388,7 @@ const InstructionsPanel = () => {
     mode: "promise",
   });
   const undoDelete = useAtomSet(recordingStepUndoMutation, { mode: "promise" });
-  const setAudit = useAtomSet(recordingAuditMutation, { mode: "promise" });
+  const addAuditStep = useAtomSet(recordingAuditMutation, { mode: "promise" });
   const bindSecret = useAtomSet(recordingSecretBindMutation, {
     mode: "promise",
   });
@@ -420,8 +461,7 @@ const InstructionsPanel = () => {
       recording !== null &&
       (recording.recordedSteps.length > 1 ||
         (recording.flow.contingency?.preSteps?.length ?? 0) > 0 ||
-        (recording.flow.contingency?.secretVariables?.length ?? 0) > 0 ||
-        recording.recordedSteps.some(({ audits }) => audits.length > 0));
+        (recording.flow.contingency?.secretVariables?.length ?? 0) > 0);
     if (hasAuthoredContent && !confirmDiscard) {
       setConfirmDiscard(true);
       return;
@@ -439,12 +479,12 @@ const InstructionsPanel = () => {
     void discardAndResetConfirmation();
   };
 
-  const setStepAudit = (stepId: string, audit: AuditKind, enabled: boolean) => {
+  const addAudit = (audit: AuditKind) => {
     void runResult(() =>
-      setAudit({
+      addAuditStep({
         payload: {
-          data: { audit, enabled, stepId },
-          type: "recording.step.audit.set",
+          data: { audit },
+          type: "recording.audit.add",
         },
       })
     );
@@ -614,33 +654,45 @@ const InstructionsPanel = () => {
               aria-labelledby="flow-pre-steps-heading"
               className="space-y-2"
             >
-              <h3 className="text-sm font-medium" id="flow-pre-steps-heading">
-                Flow Pre-steps
-              </h3>
-              {recording?.flow.contingency?.preSteps?.map((preStep, index) => (
-                <Button
-                  disabled={
-                    busy ||
-                    recording.phase === "finished" ||
-                    recording.phase === "incomplete"
-                  }
-                  key={preStep.id}
-                  onClick={() => {
-                    void runResult(() =>
-                      armCondition({
-                        payload: {
-                          data: { index, scope: "flow" },
-                          type: "recording.pre-step.condition.arm",
-                        },
-                      })
-                    );
-                  }}
-                  size="xs"
-                  variant="outline"
-                >
-                  Pick condition for Pre-step {index + 1}
-                </Button>
-              ))}
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-medium" id="flow-pre-steps-heading">
+                  Flow Pre-steps
+                </h3>
+                <Tooltip>
+                  <TooltipTrigger
+                    aria-label="About Flow Pre-steps"
+                    className="text-muted-foreground hover:text-foreground inline-flex rounded-sm"
+                  >
+                    <InfoIcon aria-hidden="true" className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Runs before every Step after the starting navigation.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <ol className="space-y-2">
+                {recording?.flow.contingency?.preSteps?.map(
+                  (preStep, index) => (
+                    <FlowPreStepCard
+                      busy={busy}
+                      index={index}
+                      key={preStep.id}
+                      onCondition={(preStepIndex) => {
+                        void runResult(() =>
+                          armCondition({
+                            payload: {
+                              data: { index: preStepIndex, scope: "flow" },
+                              type: "recording.pre-step.condition.arm",
+                            },
+                          })
+                        );
+                      }}
+                      preStep={preStep}
+                      recording={recording}
+                    />
+                  )
+                )}
+              </ol>
             </section>
           ) : null}
 
@@ -676,7 +728,6 @@ const InstructionsPanel = () => {
                     busy={busy}
                     index={index}
                     key={step.id}
-                    onAudit={setStepAudit}
                     onDelete={(stepId) => {
                       void runResult(() =>
                         deleteStep({
@@ -754,6 +805,22 @@ const InstructionsPanel = () => {
                 variant="outline"
               >
                 Add Flow Pre-step
+              </Button>
+              <Button
+                disabled={busy || recording.captureMode !== "ordinary"}
+                onClick={() => addAudit("accessibility")}
+                size="sm"
+                variant="outline"
+              >
+                Add accessibility Audit
+              </Button>
+              <Button
+                disabled={busy || recording.captureMode !== "ordinary"}
+                onClick={() => addAudit("performance")}
+                size="sm"
+                variant="outline"
+              >
+                Add performance Audit
               </Button>
               <Button
                 disabled={busy || !recording.undoAvailable}

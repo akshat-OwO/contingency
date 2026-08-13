@@ -1,6 +1,6 @@
 import type { RecordingSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -31,13 +31,11 @@ const makeSnapshot = (
   phase,
   recordedSteps: [
     {
-      audits: [],
       id: "initial",
       preSteps: [],
       step: { type: "navigate", url: "https://example.com/start" },
     },
     {
-      audits: [],
       id: "continue",
       preSteps: [],
       step: {
@@ -160,4 +158,78 @@ test("reloads an incomplete Recording from a navigation checkpoint", async () =>
   ).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Reload & Resume" }));
   expect(await screen.findByText("active")).toBeVisible();
+});
+
+test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => {
+  const user = userEvent.setup();
+  const base = makeSnapshot("active");
+  const preStep = {
+    id: "dismiss-banner",
+    step: {
+      offsetX: 2,
+      offsetY: 3,
+      selectors: ["aria/Close banner"],
+      type: "click" as const,
+    },
+    when: {
+      selectors: ["aria/Banner"],
+      type: "selectorVisible" as const,
+    },
+  };
+  const auditStep = {
+    id: "accessibility-audit",
+    preSteps: [],
+    step: {
+      name: "contingency.audit" as const,
+      parameters: { kind: "accessibility" as const },
+      type: "customStep" as const,
+    },
+  };
+  const recording: RecordingSnapshot = {
+    ...base,
+    flow: {
+      contingency: { preSteps: [preStep] },
+      steps: [...base.flow.steps, auditStep.step],
+      title: base.flow.title,
+    },
+    recordedSteps: [...base.recordedSteps, auditStep],
+  };
+
+  render(
+    <RegistryProvider
+      initialValues={[
+        [
+          createWorkspaceAtom,
+          {
+            activeTabId: "tab-1",
+            address: "https://example.com/start",
+            recording,
+            selectedSessionId: "create-checkout",
+          },
+        ],
+      ]}
+    >
+      <InstructionsPanel />
+    </RegistryProvider>
+  );
+
+  const preSteps = screen.getByRole("region", { name: "Flow Pre-steps" });
+  expect(within(preSteps).getByText("Click element")).toBeVisible();
+  expect(within(preSteps).getByText("aria/Close banner")).toBeVisible();
+  await user.hover(
+    screen.getByRole("button", { name: "About Flow Pre-steps" })
+  );
+  expect(
+    await screen.findByText(
+      "Runs before every Step after the starting navigation."
+    )
+  ).toBeVisible();
+
+  expect(screen.getByText("Accessibility Audit")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Add accessibility Audit" })
+  ).toBeEnabled();
+  expect(
+    screen.getByRole("button", { name: "Add performance Audit" })
+  ).toBeEnabled();
 });

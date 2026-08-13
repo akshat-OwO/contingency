@@ -19,6 +19,8 @@ const MAX_SELECTOR_ALTERNATIVES = 8;
 const MAX_SELECTOR_LENGTH = 2048;
 const MAX_SHADOW_SEGMENTS = 16;
 const MAX_VALUE_LENGTH = 16 * 1024;
+const RECORDER_CLEANUP_EXPRESSION =
+  "globalThis.__contingencyRecorderCleanup?.()";
 
 const BoundedString = Schema.String.check(
   Schema.isMaxLength(MAX_SELECTOR_LENGTH)
@@ -741,9 +743,22 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
       primarySessionId = sessionId;
       yield* setupSession(connection, sessionId);
 
-      return Effect.sync(() => {
+      return Effect.gen(function* stopRecorder() {
         closing = true;
-      }).pipe(Effect.andThen(connection.close));
+        for (const recorderSessionId of recorderSessions) {
+          yield* connection
+            .send(
+              "Runtime.evaluate",
+              {
+                expression: RECORDER_CLEANUP_EXPRESSION,
+                returnByValue: false,
+              },
+              recorderSessionId
+            )
+            .pipe(Effect.ignore);
+        }
+        yield* connection.close;
+      });
     }).pipe(
       // Effect cleanup is expressed with typed error callbacks.
       // oxlint-disable-next-line promise/prefer-await-to-callbacks

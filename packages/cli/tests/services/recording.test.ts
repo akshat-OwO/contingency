@@ -213,70 +213,71 @@ it.effect("recovers from a deterministic navigation checkpoint", () => {
   });
 });
 
-it.effect(
-  "authors conditional Pre-steps and Audits on a Step aggregate",
-  () => {
-    const capture = makeCapture();
+it.effect("authors conditional Pre-steps and ordered Audit Steps", () => {
+  const capture = makeCapture();
 
-    return Effect.gen(function* authorStepExtensions() {
-      const recording = yield* makeRecordingService(capture.capture);
-      yield* recording.start({
-        initialUrl: "https://example.com",
-        sessionId,
-        tabId: "tab-1",
-        title: "Checkout",
-      });
-      yield* capture.emit({
-        offsetX: 3,
-        offsetY: 4,
-        selectors: ["aria/Checkout"],
-        type: "click",
-      });
-      const active = yield* recording.get();
-      const stepId = active?.recordedSteps[1]?.id;
-      if (stepId === undefined) {
-        return yield* Effect.die(new Error("Expected an authored Step"));
-      }
-
-      yield* recording.setAudit(stepId, "accessibility", true);
-      yield* recording.armPreStep({ stepId, type: "step" });
-      yield* capture.emit({
-        offsetX: 2,
-        offsetY: 2,
-        selectors: ["aria/Close popup"],
-        type: "click",
-      });
-      yield* recording.armPreStepCondition({
-        index: 0,
-        stepId,
-        type: "step",
-      });
-      yield* capture.emit({
-        offsetX: 1,
-        offsetY: 1,
-        selectors: ["aria/Popup visible"],
-        type: "click",
-      });
-      const finished = yield* recording.finish();
-
-      expect(finished.flow.steps[1]).toMatchObject({
-        contingency: {
-          audits: [{ type: "accessibility" }],
-          preSteps: [
-            {
-              step: { selectors: ["aria/Close popup"], type: "click" },
-              when: {
-                selectors: ["aria/Popup visible"],
-                type: "selectorVisible",
-              },
-            },
-          ],
-        },
-        type: "click",
-      });
+  return Effect.gen(function* authorStepExtensions() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId: "tab-1",
+      title: "Checkout",
     });
-  }
-);
+    yield* capture.emit({
+      offsetX: 3,
+      offsetY: 4,
+      selectors: ["aria/Checkout"],
+      type: "click",
+    });
+    const active = yield* recording.get();
+    const stepId = active?.recordedSteps[1]?.id;
+    if (stepId === undefined) {
+      return yield* Effect.die(new Error("Expected an authored Step"));
+    }
+
+    yield* recording.armPreStep({ stepId, type: "step" });
+    yield* capture.emit({
+      offsetX: 2,
+      offsetY: 2,
+      selectors: ["aria/Close popup"],
+      type: "click",
+    });
+    yield* recording.armPreStepCondition({
+      index: 0,
+      stepId,
+      type: "step",
+    });
+    yield* capture.emit({
+      offsetX: 1,
+      offsetY: 1,
+      selectors: ["aria/Popup visible"],
+      type: "click",
+    });
+    yield* recording.addAudit("accessibility");
+    const finished = yield* recording.finish();
+
+    expect(finished.flow.steps[1]).toMatchObject({
+      contingency: {
+        preSteps: [
+          {
+            step: { selectors: ["aria/Close popup"], type: "click" },
+            when: {
+              selectors: ["aria/Popup visible"],
+              type: "selectorVisible",
+            },
+          },
+        ],
+      },
+      type: "click",
+    });
+    expect(finished.flow.steps[2]).toEqual({
+      name: "contingency.audit",
+      parameters: { kind: "accessibility" },
+      type: "customStep",
+    });
+  });
+});
 
 it.effect("attaches action-caused navigation without a duplicate Step", () => {
   const capture = makeCapture();
@@ -312,6 +313,45 @@ it.effect("attaches action-caused navigation without a duplicate Step", () => {
       ],
       type: "click",
     });
+  });
+});
+
+it.effect("attaches late navigation events to the preceding action", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* reduceNavigationAcrossAudit() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com/products",
+      sessionId,
+      tabId: "tab-1",
+      title: "Products",
+    });
+    yield* capture.emit({
+      offsetX: 3,
+      offsetY: 4,
+      selectors: ["aria/Open product"],
+      type: "click",
+    });
+    yield* recording.addAudit("accessibility");
+    yield* capture.emit({
+      causedByAction: true,
+      type: "navigation",
+      url: "https://example.com/products/1",
+    });
+    const active = yield* recording.get();
+
+    expect(active?.recordedSteps).toHaveLength(3);
+    expect(active?.recordedSteps[1]?.step).toMatchObject({
+      assertedEvents: [
+        {
+          type: "navigation",
+          url: "https://example.com/products/1",
+        },
+      ],
+      type: "click",
+    });
+    expect(active?.recordedSteps[2]?.step.type).toBe("customStep");
   });
 });
 
@@ -492,6 +532,37 @@ it.effect("deletes and restores a Step aggregate with one-level undo", () => {
     expect(restored.flow.contingency?.secretVariables).toEqual([
       { name: "PASSWORD" },
     ]);
+  });
+});
+
+it.effect("deletes and restores an ordered Audit Step", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* deleteAndUndoAudit() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId: "tab-1",
+      title: "Audit ordering",
+    });
+    const withAudit = yield* recording.addAudit("performance");
+    const auditId = withAudit.recordedSteps[1]?.id;
+    if (auditId === undefined) {
+      return yield* Effect.die(new Error("Expected an Audit Step"));
+    }
+
+    const deleted = yield* recording.deleteStep(auditId);
+    expect(deleted.recordedSteps).toHaveLength(1);
+    const restored = yield* recording.undoDelete();
+    expect(restored.recordedSteps[1]).toMatchObject({
+      id: auditId,
+      step: {
+        name: "contingency.audit",
+        parameters: { kind: "performance" },
+        type: "customStep",
+      },
+    });
   });
 });
 

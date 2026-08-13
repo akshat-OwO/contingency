@@ -303,7 +303,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             );
           }
           if (!pinnedTab.active) {
-            yield* agentBrowser.switchTab(sessionId, snapshot.tabId);
+            yield* agentBrowser.switchTab(sessionId, pinnedTab.tabId);
           }
           yield* agentBrowser.navigate(sessionId, "reload");
           const currentUrl = yield* agentBrowser.currentUrl(sessionId);
@@ -339,8 +339,8 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "recording.result" as const,
           };
         }),
-      "recording.step.audit.set": ({ data }) =>
-        recording.setAudit(data.stepId, data.audit, data.enabled).pipe(
+      "recording.audit.add": ({ data }) =>
+        recording.addAudit(data.audit).pipe(
           Effect.map((snapshot) => ({
             data: { recording: snapshot },
             type: "recording.result" as const,
