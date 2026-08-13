@@ -162,6 +162,7 @@ export const makeOrderedRecorderEventHandler = (
   onFailure: RecorderCaptureStartOptions["onFailure"]
 ): OrderedRecorderEventHandler => {
   let tail = Deferred.makeUnsafe<true>();
+  let failed = false;
   Deferred.doneUnsafe(tail, Effect.succeed(true));
 
   return {
@@ -174,11 +175,24 @@ export const makeOrderedRecorderEventHandler = (
       tail = completed;
       Effect.runFork(
         Deferred.await(previous).pipe(
-          Effect.andThen(onEvent(event)),
+          Effect.andThen(
+            Effect.suspend(() => {
+              if (failed) {
+                return Effect.void;
+              }
+              return event.type === "unsupported"
+                ? Effect.fail(recorderError(event.reason))
+                : onEvent(event);
+            })
+          ),
           // Effect error recovery is callback-based by design.
-          // oxlint-disable-next-line promise/prefer-await-to-callbacks
-          Effect.tapError((error) => onFailure(error.message)),
-          Effect.ignore,
+          // oxlint-disable-next-line promise/prefer-await-to-callbacks, promise/prefer-await-to-then
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              failed = true;
+              Effect.runFork(onFailure(error.message));
+            })
+          ),
           Effect.ensuring(Deferred.succeed(completed, true))
         )
       );
@@ -867,6 +881,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
 
       return Effect.gen(function* stopRecorder() {
         closing = true;
+        yield* orderedEvents.awaitIdle;
         yield* cleanupRecorderContexts(connection, contextFrames.values());
         yield* connection.close;
       });

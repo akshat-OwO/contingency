@@ -516,7 +516,6 @@ export const makeRecordingService = (
         ) {
           return;
         }
-        yield* current.stopCapture;
         yield* setState({
           ...current,
           captureMode: "ordinary",
@@ -527,7 +526,23 @@ export const makeRecordingService = (
         });
       });
     const fail = (reason: string) =>
-      transitions.withPermit(failUnlocked(reason));
+      Effect.gen(function* stopAndFailRecording() {
+        const stopCapture = yield* transitions.withPermit(
+          Effect.gen(function* findCaptureToStop() {
+            const current = yield* Ref.get(stateRef);
+            return current === null ||
+              current.phase === "finished" ||
+              current.phase === "incomplete"
+              ? undefined
+              : current.stopCapture;
+          })
+        );
+        if (stopCapture === undefined) {
+          return;
+        }
+        yield* stopCapture;
+        yield* transitions.withPermit(failUnlocked(reason));
+      });
 
     const reduceNavigation = (
       mutable: RecordingState,
@@ -826,6 +841,57 @@ export const makeRecordingService = (
       ).pipe(Effect.asVoid);
     };
 
+    const finishRecording = (
+      state: RecordingState
+    ): Effect.Effect<
+      readonly [RecordingSnapshot, RecordingState],
+      BrowserRpcErrorType
+    > =>
+      Effect.gen(function* validateAndFinishRecording() {
+        const mutable = yield* requireMutable(state);
+        if (mutable.captureMode !== "ordinary") {
+          return yield* Effect.fail(
+            recordingError(
+              "recording_invalid",
+              "Finish or cancel Pre-step authoring first."
+            )
+          );
+        }
+        if (mutable.steps.length < 2 || mutable.title.trim().length === 0) {
+          return yield* Effect.fail(
+            recordingError(
+              "recording_invalid",
+              "A Flow requires a title and at least one authored Step."
+            )
+          );
+        }
+        if (!hasAuthoredBrowserStep(mutable.steps)) {
+          return yield* Effect.fail(
+            recordingError(
+              "recording_invalid",
+              "A Flow requires at least one authored browser Step."
+            )
+          );
+        }
+        const flow = yield* Schema.decodeUnknownEffect(FlowSchema)(
+          toFlow(mutable)
+        ).pipe(
+          Effect.mapError(() =>
+            recordingError(
+              "recording_invalid",
+              "The captured Flow failed validation."
+            )
+          )
+        );
+        const next = {
+          ...mutable,
+          deletedStep: undefined,
+          phase: "finished" as const,
+          revision: mutable.revision + 1,
+        };
+        return [{ ...toSnapshot(next), flow }, next] as const;
+      });
+
     // Keep the public service operations grouped by authoring concern.
     // oxlint-disable-next-line eslint/sort-keys
     const service: RecordingService = {
@@ -1006,66 +1072,41 @@ export const makeRecordingService = (
           })
         ),
       discard: () =>
-        transitions.withPermit(
-          Effect.gen(function* discardRecording() {
-            const current = yield* Ref.get(stateRef).pipe(
-              Effect.flatMap(requireState)
-            );
-            if (current.phase === "active" || current.phase === "paused") {
-              yield* current.stopCapture;
-            }
-            yield* Ref.set(stateRef, null);
-          })
-        ),
+        Effect.gen(function* stopAndDiscardRecording() {
+          const stopCapture = yield* transitions.withPermit(
+            Effect.gen(function* findCaptureToDiscard() {
+              const current = yield* Ref.get(stateRef).pipe(
+                Effect.flatMap(requireState)
+              );
+              return current.phase === "active" || current.phase === "paused"
+                ? current.stopCapture
+                : Effect.void;
+            })
+          );
+          yield* stopCapture;
+          yield* transitions.withPermit(
+            Effect.gen(function* discardRecording() {
+              yield* Ref.get(stateRef).pipe(Effect.flatMap(requireState));
+              yield* Ref.set(stateRef, null);
+            })
+          );
+        }),
       fail,
       finish: () =>
-        mutate((state) =>
-          Effect.gen(function* finishRecording() {
-            const mutable = yield* requireMutable(state);
-            if (mutable.captureMode !== "ordinary") {
-              return yield* Effect.fail(
-                recordingError(
-                  "recording_invalid",
-                  "Finish or cancel Pre-step authoring first."
-                )
+        Effect.gen(function* stopAndFinishRecording() {
+          const stopCapture = yield* transitions.withPermit(
+            Effect.gen(function* validateBeforeStopping() {
+              const mutable = yield* Ref.get(stateRef).pipe(
+                Effect.flatMap(requireState),
+                Effect.flatMap(requireMutable)
               );
-            }
-            if (mutable.steps.length < 2 || mutable.title.trim().length === 0) {
-              return yield* Effect.fail(
-                recordingError(
-                  "recording_invalid",
-                  "A Flow requires a title and at least one authored Step."
-                )
-              );
-            }
-            if (!hasAuthoredBrowserStep(mutable.steps)) {
-              return yield* Effect.fail(
-                recordingError(
-                  "recording_invalid",
-                  "A Flow requires at least one authored browser Step."
-                )
-              );
-            }
-            const flow = yield* Schema.decodeUnknownEffect(FlowSchema)(
-              toFlow(mutable)
-            ).pipe(
-              Effect.mapError(() =>
-                recordingError(
-                  "recording_invalid",
-                  "The captured Flow failed validation."
-                )
-              )
-            );
-            yield* mutable.stopCapture;
-            const next = {
-              ...mutable,
-              deletedStep: undefined,
-              phase: "finished" as const,
-              revision: mutable.revision + 1,
-            };
-            return [{ ...toSnapshot(next), flow }, next] as const;
-          })
-        ),
+              yield* finishRecording(mutable);
+              return mutable.stopCapture;
+            })
+          );
+          yield* stopCapture;
+          return yield* mutate(finishRecording);
+        }),
       get: () =>
         Ref.get(stateRef).pipe(
           Effect.map((state) => state && toSnapshot(state))

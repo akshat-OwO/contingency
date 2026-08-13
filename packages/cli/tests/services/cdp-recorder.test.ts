@@ -190,6 +190,66 @@ it.effect("fails an in-flight CDP command when the remote socket closes", () =>
   })
 );
 
+it.effect("drains an accepted final event before finishing", () =>
+  Effect.gen(function* drainBeforeFinish() {
+    const releaseFinalEvent = yield* Latch.make();
+    let ordered: ReturnType<typeof makeOrderedRecorderEventHandler> | undefined;
+    const capture: RecorderCapture = {
+      start: (options) =>
+        Effect.sync(() => {
+          ordered = makeOrderedRecorderEventHandler(
+            (event) =>
+              event.type === "change"
+                ? releaseFinalEvent.await.pipe(
+                    Effect.andThen(options.onEvent(event))
+                  )
+                : options.onEvent(event),
+            options.onFailure
+          );
+          return Effect.suspend(() => {
+            if (ordered === undefined) {
+              return Effect.void;
+            }
+            return ordered.awaitIdle;
+          });
+        }),
+    };
+    const recording = yield* makeRecordingService(capture);
+    yield* recording.start({
+      initialUrl: "https://example.com/form",
+      sessionId,
+      tabId,
+      title: "Submit form",
+    });
+    if (ordered === undefined) {
+      return yield* Effect.die(new Error("Recorder capture did not start."));
+    }
+    ordered.dispatch({
+      offsetX: 10,
+      offsetY: 10,
+      selectors: ["aria/Open form"],
+      type: "click",
+    });
+    yield* ordered.awaitIdle;
+    ordered.dispatch({
+      selectors: ["#email"],
+      type: "change",
+      value: "final@value.test",
+    });
+    const finishing = yield* Effect.forkChild(recording.finish());
+    yield* Effect.yieldNow;
+    yield* releaseFinalEvent.open;
+    const finished = yield* Fiber.join(finishing);
+
+    expect(finished.phase).toBe("finished");
+    expect(finished.recordedSteps.map(({ step }) => step.type)).toEqual([
+      "navigate",
+      "click",
+      "change",
+    ]);
+  })
+);
+
 it.effect("narrows malformed CDP error payloads without throwing", () =>
   Effect.gen(function* narrowResponse() {
     const socket = new FakeSocket();
