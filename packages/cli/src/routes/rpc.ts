@@ -1,7 +1,9 @@
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
+  recordingLocksStorageMutations,
   recordingMakesBrowserInputReadOnly,
+  STORAGE_LOCKED_MESSAGE,
 } from "@contingency/protocol";
 import type { RecordingSnapshot } from "@contingency/protocol";
 import { Effect, Layer, Stream } from "effect";
@@ -47,6 +49,22 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   makeBrowserRpcError(
                     "recording_conflict",
                     `${control} is locked while this Recording is in progress.`
+                  )
+                )
+              : Effect.void
+          )
+        );
+
+    const requireStorageMutation = (sessionId: string) =>
+      recording
+        .get()
+        .pipe(
+          Effect.flatMap((snapshot) =>
+            recordingLocksStorageMutations(snapshot, sessionId)
+              ? Effect.fail(
+                  makeBrowserRpcError(
+                    "recording_conflict",
+                    STORAGE_LOCKED_MESSAGE
                   )
                 )
               : Effect.void
@@ -108,6 +126,53 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             data: { requests },
             type: "browser.network.requests.result" as const,
           }))
+        ),
+      "browser.storage.clear": ({ data }) =>
+        requireStorageMutation(data.sessionId).pipe(
+          Effect.andThen(
+            agentBrowser.clearStorage(data.sessionId, data.tabId, data.kind)
+          ),
+          Effect.as({ data: {}, type: "browser.storage.updated" as const })
+        ),
+      "browser.storage.delete": ({ data }) =>
+        requireStorageMutation(data.sessionId).pipe(
+          Effect.andThen(
+            data.kind === "cookies"
+              ? agentBrowser.deleteStorage(data.sessionId, data.tabId, {
+                  domain: data.domain,
+                  kind: "cookies",
+                  name: data.name,
+                  path: data.path,
+                })
+              : agentBrowser.deleteStorage(data.sessionId, data.tabId, {
+                  key: data.key,
+                  kind: data.kind,
+                })
+          ),
+          Effect.as({ data: {}, type: "browser.storage.updated" as const })
+        ),
+      "browser.storage.get": ({ data }) =>
+        agentBrowser.getStorage(data.sessionId, data.tabId, data.kind).pipe(
+          Effect.map((snapshot) => ({
+            data: { snapshot },
+            type: "browser.storage.result" as const,
+          }))
+        ),
+      "browser.storage.set": ({ data }) =>
+        requireStorageMutation(data.sessionId).pipe(
+          Effect.andThen(
+            data.kind === "cookies"
+              ? agentBrowser.setStorage(data.sessionId, data.tabId, {
+                  cookie: data.cookie,
+                  kind: "cookies",
+                })
+              : agentBrowser.setStorage(data.sessionId, data.tabId, {
+                  key: data.key,
+                  kind: data.kind,
+                  value: data.value,
+                })
+          ),
+          Effect.as({ data: {}, type: "browser.storage.updated" as const })
         ),
       "browser.open": ({ data }) =>
         agentBrowser

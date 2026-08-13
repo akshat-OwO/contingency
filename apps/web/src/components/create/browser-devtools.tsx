@@ -5,6 +5,7 @@ import type {
   BrowserRequestId,
   BrowserTabId,
   SessionId,
+  StorageKind,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import type { HighlightTokenClass } from "@tanstack/highlight";
@@ -25,15 +26,26 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { BrowserStoragePanel } from "@/components/create/browser-storage-panel";
+import type { StoragePanelUiState } from "@/components/create/browser-storage-panel";
+import {
+  initialStoragePanelUiState,
+  isStorageDraftDirty,
+} from "@/components/create/browser-storage-state";
+import type {
+  StorageDraft,
+  StorageSelection,
+  StorageSnapshots,
+} from "@/components/create/browser-storage-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { browserNetworkRequestMutation } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
-type DevtoolsTab = "console" | "network";
+type DevtoolsTab = "console" | "network" | "storage";
 type NetworkDetailTab = "headers" | "payload" | "response";
 type NetworkFilter =
   | "all"
@@ -49,15 +61,18 @@ type NetworkFilter =
 
 interface BrowserDevtoolsProps {
   readonly consoleEntries: readonly BrowserConsoleEntry[];
+  readonly mutationsLocked: boolean;
   readonly networkRequests: readonly BrowserNetworkRequest[];
   readonly onClearConsole: () => void;
   readonly onClearNetwork: () => void;
   readonly onClose: () => void;
+  readonly onError: (message: string) => void;
   readonly onRefreshNetwork: () => void;
   readonly refreshingNetwork: boolean;
   readonly sessionId: SessionId;
   readonly tabId: BrowserTabId;
   readonly tabTitle: string;
+  readonly tabUrl: string;
 }
 
 const detailTabs: readonly NetworkDetailTab[] = [
@@ -89,6 +104,14 @@ interface DevtoolsUiState {
   readonly networkFilter: NetworkFilter;
   readonly networkQuery: string;
   readonly selectedRequestId: BrowserRequestId | undefined;
+  readonly storageDraft: StorageDraft | undefined;
+  readonly storageFocused: boolean;
+  readonly storageKind: StorageKind;
+  readonly storageMutateError: string | undefined;
+  readonly storageRefreshNonce: number;
+  readonly storageSearch: string;
+  readonly storageSelection: StorageSelection | undefined;
+  readonly storageSnapshots: StorageSnapshots;
   readonly tab: DevtoolsTab;
 }
 
@@ -100,9 +123,21 @@ const devtoolsUiStateAtoms = Atom.family(() =>
     networkFilter: "all",
     networkQuery: "",
     selectedRequestId: undefined,
+    storageRefreshNonce: 0,
     tab: "console",
+    ...initialStoragePanelUiState,
   })
 );
+
+const storageSlice = (state: DevtoolsUiState): StoragePanelUiState => ({
+  storageDraft: state.storageDraft,
+  storageFocused: state.storageFocused,
+  storageKind: state.storageKind,
+  storageMutateError: state.storageMutateError,
+  storageSearch: state.storageSearch,
+  storageSelection: state.storageSelection,
+  storageSnapshots: state.storageSnapshots,
+});
 
 const highlighter = createHighlighter({
   fallbackLanguage: "plaintext",
@@ -369,10 +404,12 @@ const renderRequestDetails = (
 interface DevtoolsHeaderOptions {
   readonly consoleCount: number;
   readonly networkCount: number;
-  readonly onClear: () => void;
+  readonly onClear: (() => void) | undefined;
   readonly onClose: () => void;
-  readonly onRefreshNetwork: () => void;
-  readonly refreshingNetwork: boolean;
+  readonly onRefresh: () => void;
+  readonly refreshDisabled: boolean;
+  readonly refreshing: boolean;
+  readonly showRefresh: boolean;
   readonly tab: DevtoolsTab;
   readonly tabTitle: string;
 }
@@ -382,8 +419,10 @@ const renderDevtoolsHeader = ({
   networkCount,
   onClear,
   onClose,
-  onRefreshNetwork,
-  refreshingNetwork,
+  onRefresh,
+  refreshDisabled,
+  refreshing,
+  showRefresh,
   tab,
   tabTitle,
 }: DevtoolsHeaderOptions) => (
@@ -401,30 +440,33 @@ const renderDevtoolsHeader = ({
           {networkCount}
         </span>
       </TabsTrigger>
+      <TabsTrigger value="storage">Storage</TabsTrigger>
     </TabsList>
     <span className="text-muted-foreground ml-2 min-w-0 truncate text-[11px]">
       {tabTitle}
     </span>
     <div className="ml-auto flex items-center gap-0.5">
-      <Button
-        aria-label={`Clear ${tab} for ${tabTitle}`}
-        onClick={onClear}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <Trash2Icon />
-      </Button>
-      {tab === "network" ? (
+      {onClear === undefined ? null : (
         <Button
-          aria-label="Refresh network requests"
-          disabled={refreshingNetwork}
-          onClick={onRefreshNetwork}
+          aria-label={`Clear ${tab} for ${tabTitle}`}
+          onClick={onClear}
           size="icon-sm"
           variant="ghost"
         >
-          <RefreshCwIcon
-            className={refreshingNetwork ? "animate-spin" : undefined}
-          />
+          <Trash2Icon />
+        </Button>
+      )}
+      {showRefresh ? (
+        <Button
+          aria-label={
+            tab === "storage" ? "Refresh storage" : "Refresh network requests"
+          }
+          disabled={refreshDisabled}
+          onClick={onRefresh}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
         </Button>
       ) : null}
       <Button
@@ -441,21 +483,25 @@ const renderDevtoolsHeader = ({
 
 export const BrowserDevtools = ({
   consoleEntries,
+  mutationsLocked,
   networkRequests,
   onClearConsole,
   onClearNetwork,
   onClose,
+  onError,
   onRefreshNetwork,
   refreshingNetwork,
   sessionId,
   tabId,
   tabTitle,
+  tabUrl,
 }: BrowserDevtoolsProps) => {
   const consoleScrollRef = useRef<HTMLDivElement>(null);
   const networkScrollRef = useRef<HTMLDivElement>(null);
   const getNetworkRequest = useAtomSet(browserNetworkRequestMutation, {
     mode: "promise",
   });
+  const [refreshingStorage, setRefreshingStorage] = useState(false);
   const [uiState, setUiState] = useAtom(
     devtoolsUiStateAtoms(`${sessionId}:${tabId}`)
   );
@@ -466,8 +512,11 @@ export const BrowserDevtools = ({
     networkFilter,
     networkQuery,
     selectedRequestId,
+    storageDraft,
+    storageSnapshots,
     tab,
   } = uiState;
+  const storageDirty = isStorageDraftDirty(storageDraft, storageSnapshots);
   const updateUiState = (update: Partial<DevtoolsUiState>) => {
     setUiState((current) => ({ ...current, ...update }));
   };
@@ -501,6 +550,9 @@ export const BrowserDevtools = ({
   });
 
   useEffect(() => {
+    if (tab === "storage") {
+      return;
+    }
     const frame = globalThis.requestAnimationFrame(() => {
       if (tab === "network") {
         networkVirtualizer.measure();
@@ -541,6 +593,15 @@ export const BrowserDevtools = ({
     );
   };
 
+  const clearAction = () => {
+    if (tab === "console") {
+      return onClearConsole;
+    }
+    if (tab === "network") {
+      return onClearNetwork;
+    }
+  };
+
   return (
     <Tabs
       className="bg-background size-full min-h-0 gap-0"
@@ -550,10 +611,23 @@ export const BrowserDevtools = ({
       {renderDevtoolsHeader({
         consoleCount: consoleEntries.length,
         networkCount: networkRequests.length,
-        onClear: tab === "console" ? onClearConsole : onClearNetwork,
+        onClear: clearAction(),
         onClose,
-        onRefreshNetwork,
-        refreshingNetwork,
+        onRefresh: () => {
+          if (tab === "storage") {
+            updateUiState({
+              storageRefreshNonce: uiState.storageRefreshNonce + 1,
+            });
+            return;
+          }
+          onRefreshNetwork();
+        },
+        refreshDisabled:
+          tab === "storage"
+            ? refreshingStorage || storageDirty
+            : refreshingNetwork,
+        refreshing: tab === "storage" ? refreshingStorage : refreshingNetwork,
+        showRefresh: tab === "network" || tab === "storage",
         tab,
         tabTitle,
       })}
@@ -731,6 +805,27 @@ export const BrowserDevtools = ({
             </div>
           )}
         </div>
+      </TabsContent>
+
+      <TabsContent className="flex min-h-0 flex-col" value="storage">
+        {tab === "storage" ? (
+          <BrowserStoragePanel
+            mutationsLocked={mutationsLocked}
+            onError={onError}
+            onRefreshStateChange={setRefreshingStorage}
+            refreshNonce={uiState.storageRefreshNonce}
+            sessionId={sessionId}
+            setUiState={(update) => {
+              setUiState((current) => ({
+                ...current,
+                ...update(storageSlice(current)),
+              }));
+            }}
+            tabId={tabId}
+            tabUrl={tabUrl}
+            uiState={storageSlice(uiState)}
+          />
+        ) : null}
       </TabsContent>
     </Tabs>
   );

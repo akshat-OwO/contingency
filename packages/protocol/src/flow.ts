@@ -176,3 +176,11 @@ export const recordingMakesBrowserInputReadOnly = (
 ): boolean =>
   recording?.phase === "incomplete" ||
   (recording?.phase === "paused" && recording.captureMode === "ordinary");
+
+export const recordingLocksStorageMutations = (
+  recording: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
+  sessionId: string
+): boolean =>
+  recording !== null &&
+  recording.sessionId === sessionId &&
+  recording.phase !== "finished";
