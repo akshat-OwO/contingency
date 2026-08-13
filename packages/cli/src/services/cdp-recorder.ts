@@ -117,6 +117,26 @@ const asString = (value: unknown): string | undefined =>
 const recorderError = (message: string): BrowserRpcErrorType =>
   makeBrowserRpcError("recording_unavailable", message);
 
+export const isUnsupportedRecordingTarget = (
+  event: unknown,
+  pinnedTargetId: string | undefined,
+  resolvingTarget: boolean
+): boolean => {
+  if (
+    resolvingTarget ||
+    pinnedTargetId === undefined ||
+    !isRecord(event) ||
+    (event.method !== "Target.attachedToTarget" &&
+      event.method !== "Target.targetCreated") ||
+    !isRecord(event.params) ||
+    !isRecord(event.params.targetInfo)
+  ) {
+    return false;
+  }
+  const { targetId, type } = event.params.targetInfo;
+  return type === "page" && targetId !== pinnedTargetId;
+};
+
 export const selectRecorderTarget = (
   targetInfos: readonly unknown[],
   requestedTabId: string,
@@ -464,6 +484,16 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
       if (!isRecord(params)) {
         return;
       }
+      if (
+        isUnsupportedRecordingTarget(event, pinnedTargetId, resolvingTarget)
+      ) {
+        Effect.runFork(
+          options.onFailure(
+            "The Recording opened or activated an unsupported additional tab."
+          )
+        );
+        return;
+      }
       if (event.method === "Runtime.executionContextCreated") {
         if (event.sessionId === undefined) {
           return;
@@ -617,22 +647,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         const targetType = isRecord(targetInfo)
           ? asString(targetInfo.type)
           : undefined;
-        const targetId = isRecord(targetInfo)
-          ? asString(targetInfo.targetId)
-          : undefined;
         if (resolvingTarget && targetType === "page") {
-          return;
-        }
-        if (
-          targetType === "page" &&
-          pinnedTargetId !== undefined &&
-          targetId !== pinnedTargetId
-        ) {
-          Effect.runFork(
-            options.onFailure(
-              "The Recording opened or activated an unsupported additional tab."
-            )
-          );
           return;
         }
         if (
@@ -742,6 +757,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
       });
 
     return yield* Effect.gen(function* initializeRecorder() {
+      yield* connection.send("Target.setDiscoverTargets", { discover: true });
       const targetsResult = yield* connection.send("Target.getTargets");
       const targetInfos =
         isRecord(targetsResult) && Array.isArray(targetsResult.targetInfos)

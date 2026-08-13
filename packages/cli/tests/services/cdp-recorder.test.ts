@@ -4,6 +4,7 @@ import { Effect, Fiber } from "effect";
 import {
   cleanupRecorderContexts,
   decodeNavigationEvent,
+  isUnsupportedRecordingTarget,
   makeCdpConnection,
   selectRecorderTarget,
 } from "../../src/services/cdp-recorder";
@@ -19,6 +20,26 @@ class FakeSocket extends EventTarget {
     this.sent.push(value);
   }
 }
+
+it("rejects a newly opened page outside the pinned recording tab", () => {
+  expect(
+    isUnsupportedRecordingTarget(
+      {
+        method: "Target.targetCreated",
+        params: {
+          targetInfo: {
+            openerId: "pinned-page",
+            targetId: "popup-page",
+            type: "page",
+            url: "https://example.com/popup",
+          },
+        },
+      },
+      "pinned-page",
+      false
+    )
+  ).toBe(true);
+});
 
 it.effect("resolves an agent-browser tab alias to the focused CDP page", () =>
   selectRecorderTarget(

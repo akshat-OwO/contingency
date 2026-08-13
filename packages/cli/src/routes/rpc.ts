@@ -20,6 +20,17 @@ const toRecordingResult = (recording: RecordingSnapshot) => ({
   type: "recording.result" as const,
 });
 
+export const browserInputIsReadOnly = (
+  snapshot: Pick<
+    RecordingSnapshot,
+    "captureMode" | "phase" | "sessionId"
+  > | null,
+  sessionId: string
+): boolean =>
+  snapshot?.sessionId === sessionId &&
+  (snapshot.phase === "incomplete" ||
+    (snapshot.phase === "paused" && snapshot.captureMode === "ordinary"));
+
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.gen(function* makeRpcHandlers() {
     const agentBrowser = yield* AgentBrowser;
@@ -53,15 +64,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "browser.input.send": ({ data }) =>
         Effect.gen(function* sendBrowserInput() {
           const snapshot = yield* recording.get();
-          if (
-            snapshot?.sessionId === data.sessionId &&
-            snapshot.phase === "paused" &&
-            snapshot.captureMode === "ordinary"
-          ) {
+          if (browserInputIsReadOnly(snapshot, data.sessionId)) {
             return yield* Effect.fail(
               makeBrowserRpcError(
                 "recording_conflict",
-                "The browser canvas is read-only while Recording is paused."
+                snapshot?.phase === "incomplete"
+                  ? "The browser canvas is read-only because this Recording is incomplete. Recover or discard it to continue."
+                  : "The browser canvas is read-only while Recording is paused."
               )
             );
           }
