@@ -26,7 +26,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrowserStoragePanel } from "@/components/create/browser-storage-panel";
 import type { StoragePanelUiState } from "@/components/create/browser-storage-panel";
@@ -520,6 +520,19 @@ export const BrowserDevtools = ({
   const updateUiState = (update: Partial<DevtoolsUiState>) => {
     setUiState((current) => ({ ...current, ...update }));
   };
+  const updateStorageUiState = useCallback(
+    (update: (current: StoragePanelUiState) => StoragePanelUiState) => {
+      setUiState((current) => {
+        const slice = storageSlice(current);
+        const nextSlice = update(slice);
+        if (nextSlice === slice) {
+          return current;
+        }
+        return { ...current, ...nextSlice };
+      });
+    },
+    [setUiState]
+  );
   const normalizedQuery = networkQuery.trim().toLocaleLowerCase();
   const visibleRequests = useMemo(
     () =>
@@ -815,12 +828,7 @@ export const BrowserDevtools = ({
             onRefreshStateChange={setRefreshingStorage}
             refreshNonce={uiState.storageRefreshNonce}
             sessionId={sessionId}
-            setUiState={(update) => {
-              setUiState((current) => ({
-                ...current,
-                ...update(storageSlice(current)),
-              }));
-            }}
+            setUiState={updateStorageUiState}
             tabId={tabId}
             tabUrl={tabUrl}
             uiState={storageSlice(uiState)}

@@ -234,10 +234,19 @@ export const replaceStorageKindSnapshot = (
     };
   }
   if (kind === "cookies") {
+    if (origin === snapshots.origin && cookies === snapshots.cookies) {
+      return snapshots;
+    }
     return { ...snapshots, cookies, origin };
   }
   if (kind === "local") {
+    if (origin === snapshots.origin && entries === snapshots.local) {
+      return snapshots;
+    }
     return { ...snapshots, local: entries, origin };
+  }
+  if (origin === snapshots.origin && entries === snapshots.session) {
+    return snapshots;
   }
   return { ...snapshots, origin, session: entries };
 };
@@ -359,15 +368,27 @@ export const applyFetchedStorageSnapshot = (
     );
   const dropDraft =
     originChange.clearSearchAndSelection || cookieDraftGone || webDraftGone;
+  const nextDraft = dropDraft ? undefined : current.storageDraft;
+  const nextError = originChange.clearSearchAndSelection
+    ? undefined
+    : current.storageMutateError;
+  const nextSearch = originChange.clearSearchAndSelection
+    ? ""
+    : current.storageSearch;
+  if (
+    nextDraft === current.storageDraft &&
+    nextError === current.storageMutateError &&
+    nextSearch === current.storageSearch &&
+    nextSelection === current.storageSelection &&
+    nextSnapshots === current.storageSnapshots
+  ) {
+    return current;
+  }
   return {
     ...current,
-    storageDraft: dropDraft ? undefined : current.storageDraft,
-    storageMutateError: originChange.clearSearchAndSelection
-      ? undefined
-      : current.storageMutateError,
-    storageSearch: originChange.clearSearchAndSelection
-      ? ""
-      : current.storageSearch,
+    storageDraft: nextDraft,
+    storageMutateError: nextError,
+    storageSearch: nextSearch,
     storageSelection: nextSelection,
     storageSnapshots: nextSnapshots,
   };

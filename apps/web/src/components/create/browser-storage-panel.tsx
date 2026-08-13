@@ -693,25 +693,25 @@ const useStoragePolling = ({
   readonly uiState: StoragePanelUiState;
 }) => {
   const onRefreshStateChangeRef = useRef(onRefreshStateChange);
-  onRefreshStateChangeRef.current = onRefreshStateChange;
   const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
+  const getStorageRef = useRef(getStorage);
+  const setUiStateRef = useRef(setUiState);
+  const tabUrlRef = useRef(tabUrl);
 
-  const applySnapshot = useCallback(
-    (snapshot: Parameters<typeof applyFetchedStorageSnapshot>[2]) => {
-      setUiState((current) =>
-        applyFetchedStorageSnapshot(current, tabUrl, snapshot)
-      );
-    },
-    [setUiState, tabUrl]
-  );
+  useEffect(() => {
+    getStorageRef.current = getStorage;
+    onErrorRef.current = onError;
+    onRefreshStateChangeRef.current = onRefreshStateChange;
+    setUiStateRef.current = setUiState;
+    tabUrlRef.current = tabUrl;
+  });
 
   const fetchKind = useCallback(
     (kind: StorageKind) =>
       Effect.tryPromise({
         catch: (cause) => cause,
         try: () =>
-          getStorage({
+          getStorageRef.current({
             payload: {
               data: { kind, sessionId, tabId },
               type: "browser.storage.get",
@@ -719,7 +719,15 @@ const useStoragePolling = ({
           }),
       }).pipe(
         Effect.tap((result) =>
-          Effect.sync(() => applySnapshot(result.data.snapshot))
+          Effect.sync(() => {
+            setUiStateRef.current((current) =>
+              applyFetchedStorageSnapshot(
+                current,
+                tabUrlRef.current,
+                result.data.snapshot
+              )
+            );
+          })
         ),
         Effect.catchCause((cause) =>
           Effect.sync(() =>
@@ -727,12 +735,14 @@ const useStoragePolling = ({
           )
         )
       ),
-    [applySnapshot, getStorage, sessionId, tabId]
+    [sessionId, tabId]
   );
 
   useEffect(() => {
-    setUiState((current) => applyTabUrlOriginChange(current, tabUrl));
-  }, [setUiState, tabUrl]);
+    setUiStateRef.current((current) =>
+      applyTabUrlOriginChange(current, tabUrl)
+    );
+  }, [tabUrl]);
 
   useEffect(() => {
     if (dirty) {
@@ -766,27 +776,24 @@ const useStoragePolling = ({
       cancelled = true;
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [
-    dirty,
-    fetchKind,
-    pollPaused,
-    refreshNonce,
-    sessionId,
-    tabId,
-    tabUrl,
-    uiState.storageKind,
-  ]);
+  }, [dirty, fetchKind, pollPaused, refreshNonce, tabUrl, uiState.storageKind]);
 
   useEffect(() => {
-    if (mutationsLocked && uiState.storageDraft !== undefined) {
-      setUiState((current) => ({
+    if (!(mutationsLocked && uiState.storageDraft !== undefined)) {
+      return;
+    }
+    setUiStateRef.current((current) => {
+      if (current.storageDraft === undefined) {
+        return current;
+      }
+      return {
         ...current,
         storageDraft: undefined,
         storageFocused: false,
         storageMutateError: undefined,
-      }));
-    }
-  }, [mutationsLocked, setUiState, uiState.storageDraft]);
+      };
+    });
+  }, [mutationsLocked, uiState.storageDraft]);
 
   return fetchKind;
 };

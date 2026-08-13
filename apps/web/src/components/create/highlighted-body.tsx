@@ -48,7 +48,7 @@ const tokenClassName = (className: HighlightTokenClass | undefined): string => {
   }
 };
 
-export const prettyJsonIfParseable = (
+const prettyJsonIfParseable = (
   value: string
 ): { readonly language: "json" | "plaintext"; readonly text: string } => {
   if (value.length === 0) {
