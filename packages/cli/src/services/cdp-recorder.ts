@@ -154,6 +154,7 @@ export const isUnsupportedRecordingTarget = (
 
 interface OrderedRecorderEventHandler {
   readonly awaitIdle: Effect.Effect<void>;
+  readonly close: () => Effect.Effect<void>;
   readonly dispatch: (event: RecorderCaptureEvent) => void;
 }
 
@@ -162,6 +163,7 @@ export const makeOrderedRecorderEventHandler = (
   onFailure: RecorderCaptureStartOptions["onFailure"]
 ): OrderedRecorderEventHandler => {
   let tail = Deferred.makeUnsafe<true>();
+  let accepting = true;
   let failed = false;
   Deferred.doneUnsafe(tail, Effect.succeed(true));
 
@@ -169,7 +171,15 @@ export const makeOrderedRecorderEventHandler = (
     get awaitIdle() {
       return Effect.suspend(() => Deferred.await(tail)).pipe(Effect.asVoid);
     },
+    close: () => {
+      accepting = false;
+      const finalTail = tail;
+      return Deferred.await(finalTail).pipe(Effect.asVoid);
+    },
     dispatch: (event) => {
+      if (!accepting) {
+        return;
+      }
       const previous = tail;
       const completed = Deferred.makeUnsafe<true>();
       tail = completed;
@@ -517,6 +527,9 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
     );
 
     const runEvent = (event: RecorderCaptureEvent) => {
+      if (closing) {
+        return;
+      }
       const now = Date.now();
       if (now - eventWindowStart >= 1000) {
         eventWindowStart = now;
@@ -881,7 +894,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
 
       return Effect.gen(function* stopRecorder() {
         closing = true;
-        yield* orderedEvents.awaitIdle;
+        yield* orderedEvents.close();
         yield* cleanupRecorderContexts(connection, contextFrames.values());
         yield* connection.close;
       });

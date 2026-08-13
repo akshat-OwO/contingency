@@ -238,6 +238,12 @@ it.effect("drains an accepted final event before finishing", () =>
     });
     const finishing = yield* Effect.forkChild(recording.finish());
     yield* Effect.yieldNow;
+    ordered.dispatch({
+      offsetX: 5,
+      offsetY: 5,
+      selectors: ["aria/Too late"],
+      type: "click",
+    });
     yield* releaseFinalEvent.open;
     const finished = yield* Fiber.join(finishing);
 
