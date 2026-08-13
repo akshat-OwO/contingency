@@ -4,7 +4,10 @@ import type {
   RecordedStep,
   RecordingSnapshot,
 } from "@contingency/protocol";
-import { isBrowserRpcError } from "@contingency/protocol";
+import {
+  hasAuthoredBrowserStep,
+  isBrowserRpcError,
+} from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import {
   DownloadIcon,
@@ -296,7 +299,7 @@ const RecordingControls = ({
   const finishDisabled =
     busy ||
     recording === null ||
-    recording.recordedSteps.length < 2 ||
+    !hasAuthoredBrowserStep(recording.recordedSteps) ||
     recording.captureMode !== "ordinary";
 
   return (

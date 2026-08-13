@@ -3,6 +3,7 @@ import {
   makeBrowserRpcError,
   SessionId,
 } from "@contingency/protocol";
+import type { RecordingSnapshot } from "@contingency/protocol";
 import { Effect, Layer, Schema, Stream } from "effect";
 import {
   HttpRouter,
@@ -13,6 +14,11 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { AgentBrowser } from "../services/agent-browser";
 import { Recording } from "../services/recording";
+
+const toRecordingResult = (recording: RecordingSnapshot) => ({
+  data: { recording },
+  type: "recording.result" as const,
+});
 
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.gen(function* makeRpcHandlers() {
@@ -203,23 +209,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           })
         ),
       "recording.capture.cancel": () =>
-        recording.cancelCaptureMode().pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.cancelCaptureMode().pipe(Effect.map(toRecordingResult)),
       "recording.discard": () =>
         recording
           .discard()
           .pipe(Effect.as({ data: {}, type: "recording.discarded" as const })),
       "recording.finish": () =>
-        recording.finish().pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.finish().pipe(Effect.map(toRecordingResult)),
       "recording.get": () =>
         recording.get().pipe(
           Effect.map((snapshot) => ({
@@ -228,12 +224,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "recording.pause": () =>
-        recording.pause().pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.pause().pipe(Effect.map(toRecordingResult)),
       "recording.pre-step.arm": ({ data }) =>
         recording
           .armPreStep(
@@ -241,12 +232,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               ? { type: "flow" }
               : { stepId: data.stepId ?? "", type: "step" }
           )
-          .pipe(
-            Effect.map((snapshot) => ({
-              data: { recording: snapshot },
-              type: "recording.result" as const,
-            }))
-          ),
+          .pipe(Effect.map(toRecordingResult)),
       "recording.pre-step.condition.arm": ({ data }) =>
         recording
           .armPreStepCondition(
@@ -258,19 +244,9 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   type: "step",
                 }
           )
-          .pipe(
-            Effect.map((snapshot) => ({
-              data: { recording: snapshot },
-              type: "recording.result" as const,
-            }))
-          ),
+          .pipe(Effect.map(toRecordingResult)),
       "recording.resume": () =>
-        recording.resume().pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.resume().pipe(Effect.map(toRecordingResult)),
       "recording.recover": () =>
         Effect.gen(function* recoverRecording() {
           const snapshot = yield* recording.get();
@@ -308,10 +284,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           yield* agentBrowser.navigate(sessionId, "reload");
           const currentUrl = yield* agentBrowser.currentUrl(sessionId);
           const recovered = yield* recording.recover(currentUrl);
-          return {
-            data: { recording: recovered },
-            type: "recording.result" as const,
-          };
+          return toRecordingResult(recovered);
         }),
       "recording.start": ({ data }) =>
         Effect.gen(function* startRecording() {
@@ -334,54 +307,25 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             tabId: activeTab.tabId,
             title: data.title,
           });
-          return {
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          };
+          return toRecordingResult(snapshot);
         }),
       "recording.audit.add": ({ data }) =>
-        recording.addAudit(data.audit).pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.addAudit(data.audit).pipe(Effect.map(toRecordingResult)),
       "recording.step.secret.bind": ({ data }) =>
-        recording.bindSecret(data.stepId, data.name).pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording
+          .bindSecret(data.stepId, data.name)
+          .pipe(Effect.map(toRecordingResult)),
       "recording.secret.rename": ({ data }) =>
-        recording.renameSecret(data.from, data.name).pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording
+          .renameSecret(data.from, data.name)
+          .pipe(Effect.map(toRecordingResult)),
       "recording.step.delete": ({ data }) =>
-        recording.deleteStep(data.stepId).pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.deleteStep(data.stepId).pipe(Effect.map(toRecordingResult)),
       "recording.step.undo": () =>
-        recording.undoDelete().pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.undoDelete().pipe(Effect.map(toRecordingResult)),
       "recording.stream.subscribe": () => recording.stream(),
       "recording.title.update": ({ data }) =>
-        recording.updateTitle(data.title).pipe(
-          Effect.map((snapshot) => ({
-            data: { recording: snapshot },
-            type: "recording.result" as const,
-          }))
-        ),
+        recording.updateTitle(data.title).pipe(Effect.map(toRecordingResult)),
     };
   })
 );

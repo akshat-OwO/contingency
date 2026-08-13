@@ -146,6 +146,13 @@ export const RecordedStep = Schema.Struct({
 });
 export type RecordedStep = typeof RecordedStep.Type;
 
+export const hasAuthoredBrowserStep = (
+  recordedSteps: readonly RecordedStep[]
+): boolean =>
+  recordedSteps.some(
+    ({ step }, index) => index > 0 && step.type !== "customStep"
+  );
+
 export const RecordingSnapshot = Schema.Struct({
   captureMode: RecordingCaptureMode,
   downloadName: Schema.optional(Schema.String),

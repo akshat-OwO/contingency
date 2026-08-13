@@ -2,6 +2,8 @@ import { expect, it } from "@effect/vitest";
 import { Effect, Fiber } from "effect";
 
 import {
+  cleanupRecorderContexts,
+  decodeNavigationEvent,
   makeCdpConnection,
   selectRecorderTarget,
 } from "../../src/services/cdp-recorder";
@@ -91,5 +93,73 @@ it.effect("narrows malformed CDP error payloads without throwing", () =>
       })
     );
     expect(result).toBeUndefined();
+  })
+);
+
+it("bounds page-controlled navigation data", () => {
+  expect(
+    decodeNavigationEvent({
+      title: "Account",
+      url: "https://example.com/account",
+    })
+  ).toEqual({
+    title: "Account",
+    type: "navigation",
+    url: "https://example.com/account",
+  });
+  expect(
+    decodeNavigationEvent({
+      title: "Account",
+      url: `https://example.com/${"a".repeat(3000)}`,
+    })
+  ).toBeUndefined();
+  expect(
+    decodeNavigationEvent({
+      title: "a".repeat(3000),
+      url: "https://example.com/account",
+    })
+  ).toBeUndefined();
+});
+
+it.effect("cleans up each recorder inside its isolated execution context", () =>
+  Effect.gen(function* cleanRecorderContexts() {
+    const commands: {
+      readonly method: string;
+      readonly params: Readonly<Record<string, unknown>> | undefined;
+      readonly sessionId: string | undefined;
+    }[] = [];
+    yield* cleanupRecorderContexts(
+      {
+        send: (method, params, sessionId) =>
+          Effect.sync(() => {
+            commands.push({ method, params, sessionId });
+          }),
+      },
+      [
+        { executionContextId: 12, sessionId: "page-session" },
+        { executionContextId: 34, sessionId: "iframe-session" },
+      ]
+    );
+
+    expect(commands).toEqual([
+      {
+        method: "Runtime.evaluate",
+        params: {
+          contextId: 12,
+          expression: "globalThis.__contingencyRecorderCleanup?.()",
+          returnByValue: false,
+        },
+        sessionId: "page-session",
+      },
+      {
+        method: "Runtime.evaluate",
+        params: {
+          contextId: 34,
+          expression: "globalThis.__contingencyRecorderCleanup?.()",
+          returnByValue: false,
+        },
+        sessionId: "iframe-session",
+      },
+    ]);
   })
 );

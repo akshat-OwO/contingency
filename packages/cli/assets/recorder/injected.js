@@ -6,11 +6,12 @@
     return;
   }
   globalThis.__contingencyRecorder = true;
+  const selectorAttribute = "data-testid";
 
   const sensitiveAutocomplete =
     /^(?:current-password|new-password|one-time-code|cc-)/u;
   const sensitiveFieldMetadata =
-    /(?:api[_-]?key|access[_-]?token|auth(?:orization)?[_-]?code|secret|pass(?:word|code)?|pin)/u;
+    /(?:api[_-]?key|(?:access|refresh|id|session)[_-]?token|auth(?:orization)?[_-]?code|client[_-]?secret|credential|secret|pass(?:word|code)?|pin|otp|one[_-]?time|cvv|cvc|social[_-]?security|ssn|private[_-]?key)/u;
   const meaningfulKeys = new Set([
     "Enter",
     "Escape",
@@ -24,7 +25,7 @@
     "PageDown",
     "PageUp",
   ]);
-  const pendingChanges = new WeakMap();
+  const pendingChanges = new Map();
   const inspector = document.createElement("div");
   const inspectorLabel = document.createElement("div");
   let inspectedElement;
@@ -115,7 +116,7 @@
         return candidate;
       }
     }
-    for (const attribute of ["data-testid", "data-test", "data-cy"]) {
+    for (const attribute of [selectorAttribute, "data-test", "data-cy"]) {
       const value = element.getAttribute(attribute);
       if (value) {
         const candidate = `[${attribute}="${CSS.escape(value)}"]`;
@@ -173,6 +174,34 @@
     return segments.length === 1 ? segments[0] : segments;
   };
 
+  const xpathSelector = (element) => {
+    const parts = [];
+    let current = element;
+    while (current instanceof Element) {
+      const root = current.getRootNode();
+      if (!(root instanceof Document)) {
+        return;
+      }
+      const name = current.localName;
+      const parent = current.parentElement;
+      const siblings = parent
+        ? [...parent.children].filter((sibling) => sibling.localName === name)
+        : [];
+      const index = siblings.indexOf(current) + 1;
+      parts.unshift(`${name}[${Math.max(index, 1)}]`);
+      current = parent;
+    }
+    return parts.length === 0 ? undefined : `xpath//${parts.join("/")}`;
+  };
+
+  const pierceSelector = (element) => {
+    const css = cssSelector(element);
+    if (!css) {
+      return;
+    }
+    return `pierce/${Array.isArray(css) ? css.join(" >>> ") : css}`;
+  };
+
   const selectorsFor = (element) => {
     const selectors = [];
     const label = element.getAttribute("aria-label")?.trim();
@@ -186,6 +215,14 @@
     const text = element.textContent?.trim().replaceAll(/\s+/gu, " ");
     if (text && text.length <= 80) {
       selectors.push(`text/${text}`);
+    }
+    const xpath = xpathSelector(element);
+    if (xpath) {
+      selectors.push(xpath);
+    }
+    const pierce = pierceSelector(element);
+    if (pierce) {
+      selectors.push(pierce);
     }
     return selectors;
   };
@@ -226,12 +263,105 @@
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
+    const inputMode = element.getAttribute("inputmode")?.toLowerCase();
+    const maximumLength = Number(element.getAttribute("maxlength"));
+    const looksLikeUnlabelledCode =
+      (inputMode === "numeric" || inputMode === "decimal") &&
+      Number.isInteger(maximumLength) &&
+      maximumLength >= 4 &&
+      maximumLength <= 8;
     return (
       type === "password" ||
       (autocomplete !== undefined &&
         sensitiveAutocomplete.test(autocomplete)) ||
-      sensitiveFieldMetadata.test(fieldMetadata)
+      sensitiveFieldMetadata.test(fieldMetadata) ||
+      looksLikeUnlabelledCode
     );
+  };
+
+  const handleClick = (event) => {
+    if (!event.isTrusted) {
+      return;
+    }
+    const target = targetFrom(event);
+    if (!target) {
+      return;
+    }
+    const selectors = selectorsFor(target);
+    if (selectors.length === 0) {
+      emit({
+        reason: "A replayable selector could not be generated.",
+        type: "unsupported",
+      });
+      return;
+    }
+    const bounds = target.getBoundingClientRect();
+    let button = "primary";
+    if (event.button === 1) {
+      button = "middle";
+    } else if (event.button === 2) {
+      button = "secondary";
+    }
+    emit({
+      button,
+      offsetX: event.clientX - bounds.left,
+      offsetY: event.clientY - bounds.top,
+      selectors,
+      type: "click",
+    });
+  };
+
+  const handleInput = (event) => {
+    if (!event.isTrusted) {
+      return;
+    }
+    const { target } = event;
+    if (
+      !(
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      )
+    ) {
+      return;
+    }
+    const previous = pendingChanges.get(target);
+    if (previous !== undefined) {
+      clearTimeout(previous);
+    }
+    pendingChanges.set(
+      target,
+      setTimeout(() => emitChange(target), 100)
+    );
+  };
+
+  const handleKey = (event) => {
+    if (!event.isTrusted || !meaningfulKeys.has(event.key)) {
+      return;
+    }
+    const target = targetFrom(event);
+    if (!target) {
+      return;
+    }
+    const selectors = selectorsFor(target);
+    if (selectors.length === 0) {
+      emit({
+        reason: "A replayable selector could not be generated.",
+        type: "unsupported",
+      });
+      return;
+    }
+    emit({
+      key: event.key,
+      selectors,
+      type: event.type === "keydown" ? "keyDown" : "keyUp",
+    });
+  };
+
+  const handleBeforeUnload = (event) => {
+    if (event.isTrusted) {
+      emit({ type: "beforeUnload" });
+    }
   };
 
   addEventListener("mousemove", inspectPointerTarget, true);
@@ -242,12 +372,23 @@
     removeEventListener("mousemove", inspectPointerTarget, true);
     removeEventListener("mouseleave", hideInspector, true);
     removeEventListener("blur", hideInspector, true);
+    removeEventListener("click", handleClick, true);
+    removeEventListener("input", handleInput, true);
+    removeEventListener("keydown", handleKey, true);
+    removeEventListener("keyup", handleKey, true);
+    removeEventListener("beforeunload", handleBeforeUnload, true);
+    for (const timer of pendingChanges.values()) {
+      clearTimeout(timer);
+    }
+    pendingChanges.clear();
     if (inspectorFrame !== undefined) {
       cancelAnimationFrame(inspectorFrame);
     }
     hideInspector();
     inspector.remove();
     inspectorLabel.remove();
+    globalThis.__contingencyRecorder = false;
+    delete globalThis.__contingencyRecorderCleanup;
   };
 
   const emitChange = (element) => {
@@ -273,106 +414,9 @@
     emit({ selectors, type: "change", value: String(element.value ?? "") });
   };
 
-  addEventListener(
-    "click",
-    (event) => {
-      if (!event.isTrusted) {
-        return;
-      }
-      const target = targetFrom(event);
-      if (!target) {
-        return;
-      }
-      const selectors = selectorsFor(target);
-      if (selectors.length === 0) {
-        emit({
-          reason: "A replayable selector could not be generated.",
-          type: "unsupported",
-        });
-        return;
-      }
-      const bounds = target.getBoundingClientRect();
-      let button = "primary";
-      if (event.button === 1) {
-        button = "middle";
-      } else if (event.button === 2) {
-        button = "secondary";
-      }
-      emit({
-        button,
-        offsetX: event.clientX - bounds.left,
-        offsetY: event.clientY - bounds.top,
-        selectors,
-        type: "click",
-      });
-    },
-    true
-  );
-
-  addEventListener(
-    "input",
-    (event) => {
-      if (!event.isTrusted) {
-        return;
-      }
-      const { target } = event;
-      if (
-        !(
-          target instanceof HTMLInputElement ||
-          target instanceof HTMLTextAreaElement ||
-          target instanceof HTMLSelectElement
-        )
-      ) {
-        return;
-      }
-      const previous = pendingChanges.get(target);
-      if (previous !== undefined) {
-        clearTimeout(previous);
-      }
-      pendingChanges.set(
-        target,
-        setTimeout(() => emitChange(target), 100)
-      );
-    },
-    true
-  );
-
-  for (const type of ["keydown", "keyup"]) {
-    addEventListener(
-      type,
-      (event) => {
-        if (!event.isTrusted || !meaningfulKeys.has(event.key)) {
-          return;
-        }
-        const target = targetFrom(event);
-        if (!target) {
-          return;
-        }
-        const selectors = selectorsFor(target);
-        if (selectors.length === 0) {
-          emit({
-            reason: "A replayable selector could not be generated.",
-            type: "unsupported",
-          });
-          return;
-        }
-        emit({
-          key: event.key,
-          selectors,
-          type: type === "keydown" ? "keyDown" : "keyUp",
-        });
-      },
-      true
-    );
-  }
-
-  addEventListener(
-    "beforeunload",
-    (event) => {
-      if (event.isTrusted) {
-        emit({ type: "beforeUnload" });
-      }
-    },
-    true
-  );
+  addEventListener("click", handleClick, true);
+  addEventListener("input", handleInput, true);
+  addEventListener("keydown", handleKey, true);
+  addEventListener("keyup", handleKey, true);
+  addEventListener("beforeunload", handleBeforeUnload, true);
 })();

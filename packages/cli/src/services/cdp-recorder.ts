@@ -19,6 +19,7 @@ const MAX_SELECTOR_ALTERNATIVES = 8;
 const MAX_SELECTOR_LENGTH = 2048;
 const MAX_SHADOW_SEGMENTS = 16;
 const MAX_VALUE_LENGTH = 16 * 1024;
+const MAX_NAVIGATION_FIELD_LENGTH = 2048;
 const RECORDER_CLEANUP_EXPRESSION =
   "globalThis.__contingencyRecorderCleanup?.()";
 
@@ -71,6 +72,18 @@ const BindingCapture = Schema.Struct({
   sequence: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 
+const NavigationCapture = Schema.Struct({
+  causedByAction: Schema.optional(Schema.Boolean),
+  title: Schema.optional(
+    Schema.String.check(Schema.isMaxLength(MAX_NAVIGATION_FIELD_LENGTH))
+  ),
+  type: Schema.Literal("navigation"),
+  url: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_NAVIGATION_FIELD_LENGTH)
+  ),
+});
+
 interface CdpEvent {
   readonly method: string;
   readonly params?: unknown;
@@ -85,6 +98,18 @@ interface CdpResponse {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+export const decodeNavigationEvent = (
+  value: unknown
+):
+  | Extract<RecorderCaptureEvent, { readonly type: "navigation" }>
+  | undefined => {
+  const candidate = isRecord(value) ? { ...value, type: "navigation" } : value;
+  const decoded = Schema.decodeUnknownResult(NavigationCapture)(candidate);
+  return decoded._tag === "Success" && decoded.success.url.startsWith("http")
+    ? decoded.success
+    : undefined;
+};
 
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
@@ -180,6 +205,32 @@ interface CdpConnection {
     sessionId?: string
   ) => Effect.Effect<unknown, BrowserRpcErrorType>;
 }
+
+interface RecorderExecutionContext {
+  readonly executionContextId: number;
+  readonly sessionId: string;
+}
+
+export const cleanupRecorderContexts = (
+  connection: Pick<CdpConnection, "send">,
+  contexts: Iterable<RecorderExecutionContext>
+): Effect.Effect<void> =>
+  Effect.forEach(
+    contexts,
+    (context) =>
+      connection
+        .send(
+          "Runtime.evaluate",
+          {
+            contextId: context.executionContextId,
+            expression: RECORDER_CLEANUP_EXPRESSION,
+            returnByValue: false,
+          },
+          context.sessionId
+        )
+        .pipe(Effect.ignore),
+    { discard: true }
+  );
 
 export const makeCdpConnection = (
   socket: WebSocket,
@@ -355,7 +406,12 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
     const injectedSource = buildInjectedSource(injectedTemplate, bindingName);
     const contextFrames = new Map<
       string,
-      { readonly frameId: string; readonly path: readonly number[] }
+      {
+        readonly executionContextId: number;
+        readonly frameId: string;
+        readonly path: readonly number[];
+        readonly sessionId: string;
+      }
     >();
     const framePaths = new Map<string, readonly number[]>();
     const lastActionAtByFrame = new Map<string, number>();
@@ -424,8 +480,10 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         if (id !== undefined && frameId !== undefined) {
           const contextKey = `${event.sessionId}:${id}`;
           contextFrames.set(contextKey, {
+            executionContextId: id,
             frameId,
             path: framePaths.get(frameId) ?? [],
+            sessionId: event.sessionId,
           });
           nextSequence.set(contextKey, 1);
         }
@@ -522,13 +580,12 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
         if (!isRecord(frame) || frame.parentId !== undefined) {
           return;
         }
-        const url = asString(frame.url);
-        if (url !== undefined && url.startsWith("http")) {
-          runEvent({
-            title: asString(frame.name),
-            type: "navigation",
-            url,
-          });
+        const navigation = decodeNavigationEvent({
+          title: frame.name,
+          url: frame.url,
+        });
+        if (navigation !== undefined) {
+          runEvent(navigation);
         }
         return;
       }
@@ -537,21 +594,20 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
           return;
         }
         const frameId = asString(params.frameId);
-        const url = asString(params.url);
+        const navigation = decodeNavigationEvent({
+          ...(frameId !== undefined &&
+          lastActionAtByFrame.has(frameId) &&
+          Date.now() - (lastActionAtByFrame.get(frameId) ?? 0) <= 1000
+            ? { causedByAction: true }
+            : {}),
+          url: params.url,
+        });
         if (
           frameId !== undefined &&
           rootFrameIds.has(frameId) &&
-          url !== undefined &&
-          url.startsWith("http")
+          navigation !== undefined
         ) {
-          const lastActionAt = lastActionAtByFrame.get(frameId);
-          runEvent({
-            ...(lastActionAt !== undefined && Date.now() - lastActionAt <= 1000
-              ? { causedByAction: true }
-              : {}),
-            type: "navigation",
-            url,
-          });
+          runEvent(navigation);
         }
         return;
       }
@@ -665,8 +721,10 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
           if (typeof executionContextId === "number") {
             const contextKey = `${sessionId}:${executionContextId}`;
             contextFrames.set(contextKey, {
+              executionContextId,
               frameId,
               path: framePath,
+              sessionId,
             });
             nextSequence.set(contextKey, 1);
             yield* activeConnection.send(
@@ -745,18 +803,7 @@ const makeCdpCapture = Effect.gen(function* makeCdpCapture() {
 
       return Effect.gen(function* stopRecorder() {
         closing = true;
-        for (const recorderSessionId of recorderSessions) {
-          yield* connection
-            .send(
-              "Runtime.evaluate",
-              {
-                expression: RECORDER_CLEANUP_EXPRESSION,
-                returnByValue: false,
-              },
-              recorderSessionId
-            )
-            .pipe(Effect.ignore);
-        }
+        yield* cleanupRecorderContexts(connection, contextFrames.values());
         yield* connection.close;
       });
     }).pipe(

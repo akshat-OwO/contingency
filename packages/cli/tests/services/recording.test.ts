@@ -54,6 +54,7 @@ it.effect("finishes captured browser actions as a validated Flow", () => {
 
     expect(finished.phase).toBe("finished");
     expect(finished.downloadName).toBe("1mg-pharmacy.json");
+    expect(finished.flow.selectorAttribute).toBe("data-testid");
     expect(finished.flow.steps).toEqual([
       { type: "navigate", url: "https://www.1mg.com/pharmacy" },
       {
@@ -91,6 +92,85 @@ it.effect("discards a finished Flow without closing its capture twice", () => {
 
     expect(capture.stopCount()).toBe(1);
     expect(yield* recording.get()).toBeNull();
+  });
+});
+
+it.effect("rejects finishing when the only authored Step is an Audit", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* rejectAuditOnlyFlow() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId: "tab-1",
+      title: "Audit only",
+    });
+    yield* recording.addAudit("accessibility");
+
+    const error = yield* Effect.flip(recording.finish());
+
+    expect(error.code).toBe("recording_invalid");
+    expect(error.message).toContain("authored browser Step");
+  });
+});
+
+it.effect("keeps a redirect chain asserted on its triggering action", () => {
+  const capture = makeCapture();
+
+  return Effect.gen(function* recordRedirectChain() {
+    const recording = yield* makeRecordingService(capture.capture);
+    yield* recording.start({
+      initialUrl: "https://example.com",
+      sessionId,
+      tabId: "tab-1",
+      title: "Redirect chain",
+    });
+    yield* capture.emit({
+      offsetX: 4,
+      offsetY: 5,
+      selectors: ["aria/Sign in"],
+      type: "click",
+    });
+    yield* capture.emit({ type: "beforeUnload" });
+    yield* capture.emit({
+      title: "Redirecting",
+      type: "navigation",
+      url: "https://auth.example.com/start",
+    });
+    yield* capture.emit({
+      title: "Signed in",
+      type: "navigation",
+      url: "https://example.com/account",
+    });
+
+    const current = yield* recording.get();
+
+    expect(current?.recordedSteps).toHaveLength(2);
+    expect(current?.recordedSteps[1]?.step).toMatchObject({
+      assertedEvents: [
+        {
+          title: "Redirecting",
+          type: "navigation",
+          url: "https://auth.example.com/start",
+        },
+        {
+          title: "Signed in",
+          type: "navigation",
+          url: "https://example.com/account",
+        },
+      ],
+      type: "click",
+    });
+
+    const afterDirectNavigation = yield* recording.recordNavigation(
+      "https://example.com/settings"
+    );
+    expect(afterDirectNavigation.recordedSteps).toHaveLength(3);
+    expect(afterDirectNavigation.recordedSteps[2]?.step).toEqual({
+      type: "navigate",
+      url: "https://example.com/settings",
+    });
   });
 });
 

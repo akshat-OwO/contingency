@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { Flow as FlowSchema, makeBrowserRpcError } from "@contingency/protocol";
+import {
+  Flow as FlowSchema,
+  hasAuthoredBrowserStep,
+  makeBrowserRpcError,
+} from "@contingency/protocol";
 import type {
   AuditKind,
   BrowserRpcErrorType,
@@ -384,6 +388,7 @@ const toFlow = (state: RecordingState): Flow => ({
               }),
         },
       }),
+  selectorAttribute: "data-testid",
   steps: state.steps.map(toFlowStep),
   title: state.title,
 });
@@ -540,7 +545,8 @@ export const makeRecordingService = (
               ({ step }) => step.type !== "customStep"
             );
             if (
-              (mutable.pendingNavigation || event.causedByAction === true) &&
+              ((mutable.pendingNavigation && event.causedByAction !== false) ||
+                event.causedByAction === true) &&
               last !== undefined &&
               last.step.type !== "navigate"
             ) {
@@ -572,7 +578,7 @@ export const makeRecordingService = (
               });
               const next = {
                 ...mutable,
-                pendingNavigation: false,
+                pendingNavigation: true,
                 revision: mutable.revision + 1,
                 secretVariables: sanitized.secretVariables,
                 steps,
@@ -1000,6 +1006,14 @@ export const makeRecordingService = (
                 )
               );
             }
+            if (!hasAuthoredBrowserStep(mutable.steps)) {
+              return yield* Effect.fail(
+                recordingError(
+                  "recording_invalid",
+                  "A Flow requires at least one authored browser Step."
+                )
+              );
+            }
             const flow = yield* Schema.decodeUnknownEffect(FlowSchema)(
               toFlow(mutable)
             ).pipe(
@@ -1043,7 +1057,11 @@ export const makeRecordingService = (
         ),
       recordNavigation: (url) =>
         Effect.gen(function* recordBrowserNavigation() {
-          yield* captureAction({ type: "navigation", url });
+          yield* captureAction({
+            causedByAction: false,
+            type: "navigation",
+            url,
+          });
           return yield* Ref.get(stateRef).pipe(
             Effect.flatMap(requireState),
             Effect.map(toSnapshot)

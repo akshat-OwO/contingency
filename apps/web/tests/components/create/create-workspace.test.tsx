@@ -1,12 +1,65 @@
 import type { RecordingSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { createWorkspaceAtom } from "@/components/create/create-workspace-state";
+
+const stream = vi.hoisted(() => ({
+  recording: null as RecordingSnapshot | null,
+  run: vi.fn(),
+}));
+
+vi.mock("@/components/create/browser-workspace", async () => {
+  const { useAtom } = await import("@effect/atom-react");
+  const { useEffect } = await import("react");
+  const { createWorkspaceAtom: workspaceAtom, recordingLocksBrowser } =
+    await import("@/components/create/create-workspace-state");
+  return {
+    BrowserWorkspace: () => {
+      const [workspace, setWorkspace] = useAtom(workspaceAtom);
+      useEffect(() => {
+        if (workspace.selectedSessionId !== undefined) {
+          return;
+        }
+        setWorkspace((current) => ({
+          ...current,
+          activeTabId: "tab-1",
+          address: "https://example.com/start",
+          selectedSessionId: "create-checkout",
+        }));
+      }, [setWorkspace, workspace.selectedSessionId]);
+      return (
+        <section
+          aria-label="Browser workspace"
+          data-address={workspace.address}
+          data-locked={recordingLocksBrowser(workspace.recording)}
+          data-session={workspace.selectedSessionId}
+        />
+      );
+    },
+  };
+});
+
+vi.mock("@/components/ui/resizable", () => ({
+  ResizableHandle: () => <hr />,
+  ResizablePanel: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  ResizablePanelGroup: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
 
 const makeSnapshot = (
   phase: RecordingSnapshot["phase"]
@@ -64,7 +117,12 @@ vi.mock("@/lib/rpc", () => {
   // Match the production RPC module's authoring groups.
   // oxlint-disable-next-line eslint/sort-keys
   return {
-    recordingAtom: Atom.make(Effect.succeed(rpcResult(null))),
+    recordingAtom: Atom.make({
+      _tag: "Success" as const,
+      get value() {
+        return rpcResult(stream.recording);
+      },
+    }),
     recordingAuditMutation: mutation("active"),
     recordingCaptureCancelMutation: mutation("active"),
     recordingDiscardMutation: Atom.fn(() =>
@@ -82,49 +140,81 @@ vi.mock("@/lib/rpc", () => {
     recordingStepDeleteMutation: mutation("active"),
     recordingStepUndoMutation: mutation("active"),
     recordingTitleMutation: mutation("active"),
-    runRecordingStream: () => Effect.never,
+    runRecordingStream: (onEvent: (recording: RecordingSnapshot) => unknown) =>
+      stream.run(onEvent),
   };
 });
 
-const { InstructionsPanel } =
-  await import("@/components/create/instructions-panel");
+const { CreateWorkspace } =
+  await import("@/components/create/create-workspace");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  stream.recording = null;
+  stream.run.mockReturnValue(Effect.never);
 });
 
 afterEach(cleanup);
 
-test("starts, pauses, and resumes a Recording through accessible controls", async () => {
+test("starts a Recording only after browser and title prerequisites", async () => {
   const user = userEvent.setup();
+  render(
+    <RegistryProvider>
+      <CreateWorkspace />
+    </RegistryProvider>
+  );
+
+  const start = screen.getByRole("button", { name: "Start Recording" });
+  expect(start).toBeDisabled();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("region", { name: "Browser workspace" })
+    ).toHaveAttribute("data-session", "create-checkout")
+  );
+  await user.type(
+    screen.getByRole("textbox", { name: "Flow title" }),
+    "Checkout"
+  );
+  expect(screen.getByRole("button", { name: "Start Recording" })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "Start Recording" }));
+
+  expect(await screen.findByText("active")).toBeVisible();
+  expect(
+    screen.getByRole("region", { name: "Browser workspace" })
+  ).toHaveAttribute("data-locked", "true");
+});
+
+test("locks the composed browser while pausing and resuming a Recording", async () => {
+  const user = userEvent.setup();
+  stream.recording = makeSnapshot("active");
   render(
     <RegistryProvider
       initialValues={[
         [
           createWorkspaceAtom,
           {
-            activeTabId: undefined,
+            activeTabId: "tab-1",
             address: "https://example.com/start",
-            recording: null,
+            recording: makeSnapshot("active"),
             selectedSessionId: "create-checkout",
           },
         ],
       ]}
     >
-      <InstructionsPanel />
+      <CreateWorkspace />
     </RegistryProvider>
   );
 
-  const start = screen.getByRole("button", { name: "Start Recording" });
-  expect(start).toBeDisabled();
-  await user.type(
-    screen.getByRole("textbox", { name: "Flow title" }),
-    "Checkout"
-  );
-  expect(start).toBeEnabled();
-  await user.click(start);
-
-  expect(await screen.findByText("active")).toBeVisible();
+  expect(
+    screen.getByRole("region", { name: "Browser workspace" })
+  ).toHaveAttribute("data-session", "create-checkout");
+  expect(
+    screen.getByRole("region", { name: "Browser workspace" })
+  ).toHaveAttribute("data-address", "https://example.com/start");
+  expect(screen.getByText("active")).toBeVisible();
+  expect(
+    screen.getByRole("region", { name: "Browser workspace" })
+  ).toHaveAttribute("data-locked", "true");
   expect(screen.getByText("2 Steps")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Pause" }));
   expect(await screen.findByText("paused")).toBeVisible();
@@ -134,6 +224,7 @@ test("starts, pauses, and resumes a Recording through accessible controls", asyn
 
 test("reloads an incomplete Recording from a navigation checkpoint", async () => {
   const user = userEvent.setup();
+  stream.recording = makeSnapshot("incomplete");
   render(
     <RegistryProvider
       initialValues={[
@@ -148,7 +239,7 @@ test("reloads an incomplete Recording from a navigation checkpoint", async () =>
         ],
       ]}
     >
-      <InstructionsPanel />
+      <CreateWorkspace />
     </RegistryProvider>
   );
 
@@ -194,6 +285,7 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
     },
     recordedSteps: [...base.recordedSteps, auditStep],
   };
+  stream.recording = recording;
 
   render(
     <RegistryProvider
@@ -209,7 +301,7 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
         ],
       ]}
     >
-      <InstructionsPanel />
+      <CreateWorkspace />
     </RegistryProvider>
   );
 
@@ -232,4 +324,65 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
   expect(
     screen.getByRole("button", { name: "Add performance Audit" })
   ).toBeEnabled();
+});
+
+test("surfaces a terminal Recording stream failure", async () => {
+  stream.run.mockReturnValue(Effect.fail(new Error("Recorder stream failed")));
+
+  render(
+    <RegistryProvider>
+      <CreateWorkspace />
+    </RegistryProvider>
+  );
+
+  expect(
+    await screen.findByText("Recording updates disconnected")
+  ).toBeVisible();
+  expect(screen.getByText("Recorder stream failed")).toBeVisible();
+});
+
+test("does not finish a Flow whose only authored Step is an Audit", () => {
+  const active = makeSnapshot("active");
+  const auditOnly: RecordingSnapshot = {
+    ...active,
+    flow: {
+      ...active.flow,
+      steps: [
+        active.flow.steps[0] ?? {
+          type: "navigate",
+          url: "https://example.com/start",
+        },
+        {
+          name: "contingency.audit",
+          parameters: { kind: "accessibility" },
+          type: "customStep",
+        },
+      ],
+    },
+    recordedSteps: [
+      active.recordedSteps[0] ?? {
+        id: "initial",
+        preSteps: [],
+        step: { type: "navigate", url: "https://example.com/start" },
+      },
+      {
+        id: "audit",
+        preSteps: [],
+        step: {
+          name: "contingency.audit",
+          parameters: { kind: "accessibility" },
+          type: "customStep",
+        },
+      },
+    ],
+  };
+  stream.recording = auditOnly;
+
+  render(
+    <RegistryProvider>
+      <CreateWorkspace />
+    </RegistryProvider>
+  );
+
+  expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
 });
