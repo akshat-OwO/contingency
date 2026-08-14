@@ -382,7 +382,9 @@ const BrowserCookiesResult = AgentBrowserJsonResult(
 );
 
 const BrowserWebStorageResult = AgentBrowserJsonResult(
-  Schema.Record(Schema.String, Schema.String)
+  Schema.Struct({
+    data: Schema.Record(Schema.String, Schema.String),
+  })
 );
 
 const AgentBrowserConsoleEntry = Schema.Union([
@@ -902,7 +904,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
               sessionArgs(sessionId, [...webStorageGetArgs(kind)]),
               BrowserWebStorageResult
             );
-            return { entries: result.data, kind, tabId };
+            return { entries: result.data.data, kind, tabId };
           })
         )
     );

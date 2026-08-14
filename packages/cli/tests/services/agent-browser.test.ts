@@ -603,7 +603,10 @@ const storageStdout = (command: ChildProcess.Command, sessionName: string) => {
     !args.includes("set") &&
     !args.includes("clear")
   ) {
-    return JSON.stringify({ data: { flag: "on" }, success: true });
+    return JSON.stringify({
+      data: { data: { flag: "on" } },
+      success: true,
+    });
   }
   if (
     args.includes("storage") &&
@@ -611,7 +614,10 @@ const storageStdout = (command: ChildProcess.Command, sessionName: string) => {
     !args.includes("set") &&
     !args.includes("clear")
   ) {
-    return JSON.stringify({ data: { nonce: "1" }, success: true });
+    return JSON.stringify({
+      data: { data: { nonce: "1" } },
+      success: true,
+    });
   }
   if (args.includes("eval")) {
     return JSON.stringify({ data: { result: "" }, success: true });
