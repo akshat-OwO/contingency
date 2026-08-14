@@ -32,6 +32,7 @@ import {
   formatCookieExpires,
   isStorageDraftDirty,
   selectedWebStorageValue,
+  saveCookieMutation,
   storageEntryCount,
   truncateStorageValue,
   validateCookieName,
@@ -1168,24 +1169,24 @@ const StorageCookiesWorkspace = ({
             const recreate = cookieIdentityChanged(draft);
             const { identity } = draft;
             mutate(
-              Effect.gen(function* saveCookie() {
-                if (recreate && identity !== undefined) {
-                  yield* deleteStorageEffect({
-                    domain: identity.domain,
-                    kind: "cookies",
-                    name: identity.name,
-                    path: identity.path,
-                    sessionId,
-                    tabId,
-                  });
-                }
-                yield* setStorageEffect({
+              saveCookieMutation(
+                setStorageEffect({
                   cookie: write,
                   kind: "cookies",
                   sessionId,
                   tabId,
-                });
-              })
+                }),
+                recreate && identity !== undefined
+                  ? deleteStorageEffect({
+                      domain: identity.domain,
+                      kind: "cookies",
+                      name: identity.name,
+                      path: identity.path,
+                      sessionId,
+                      tabId,
+                    })
+                  : undefined
+              )
             );
           }}
         />

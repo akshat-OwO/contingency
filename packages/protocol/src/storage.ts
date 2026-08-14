@@ -140,15 +140,16 @@ export const cookieDomainMatchesHost = (
   cookieDomain: string,
   host: string
 ): boolean => {
-  const domain = asciiLowerCase(cookieDomain.replace(/^\./u, ""));
+  const domain = asciiLowerCase(cookieDomain);
+  const domainName = domain.replace(/^\./u, "");
   const hostname = asciiLowerCase(host);
-  if (hostname === domain) {
+  if (hostname === domainName) {
     return true;
   }
-  if (domain.split(".").length < 2) {
+  if (!domain.startsWith(".") || domainName.split(".").length < 2) {
     return false;
   }
-  return hostname.endsWith(`.${domain}`);
+  return hostname.endsWith(`.${domainName}`);
 };
 
 export const filterCookiesForOriginHost = (

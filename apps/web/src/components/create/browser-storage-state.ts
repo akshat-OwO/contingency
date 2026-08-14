@@ -15,6 +15,7 @@ import {
   httpOriginFromUrl,
   sortCookiesByIdentity,
 } from "@contingency/protocol";
+import { Effect } from "effect";
 
 export type StorageSelection =
   | { readonly identity: BrowserCookieIdentity; readonly kind: "cookies" }
@@ -134,6 +135,17 @@ export const cookieWriteFromDraft = (
     value: draft.value,
   };
 };
+
+export const saveCookieMutation = (
+  write: Effect.Effect<unknown, unknown>,
+  deleteOriginal: Effect.Effect<unknown, unknown> | undefined
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* saveCookieMutationEffect() {
+    yield* write;
+    if (deleteOriginal !== undefined) {
+      yield* deleteOriginal;
+    }
+  });
 
 export const storageSearchMatchesCookie = (
   cookie: BrowserCookie,

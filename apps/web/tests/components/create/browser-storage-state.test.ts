@@ -7,6 +7,7 @@ import {
   httpOriginFromUrl,
   recordingLocksStorageMutations,
 } from "@contingency/protocol";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -21,6 +22,7 @@ import {
   initialStoragePanelUiState,
   isStorageDraftDirty,
   retainStorageSelection,
+  saveCookieMutation,
   selectedStorageRowExists,
   storageSearchMatchesCookie,
   storageSearchMatchesEntry,
@@ -81,6 +83,14 @@ describe("filterCookiesForOriginHost", () => {
       "App.Example.Com"
     );
     expect(visible.map((entry) => entry.name)).toEqual(["parent"]);
+  });
+
+  it("does not treat a host-only parent cookie as a domain cookie", () => {
+    const visible = filterCookiesForOriginHost(
+      [cookie({ domain: "example.com", name: "host-only" })],
+      "app.example.com"
+    );
+    expect(visible).toEqual([]);
   });
 });
 
@@ -256,6 +266,39 @@ describe("commit validation", () => {
       expires: 1_700_000_000,
       name: "sid",
     });
+  });
+
+  it("writes a replacement before deleting the original identity", async () => {
+    const operations: string[] = [];
+
+    await Effect.runPromise(
+      saveCookieMutation(
+        Effect.sync(() => {
+          operations.push("write");
+        }),
+        Effect.sync(() => {
+          operations.push("delete");
+        })
+      )
+    );
+
+    expect(operations).toEqual(["write", "delete"]);
+  });
+
+  it("does not delete the original when replacement writing fails", async () => {
+    let deleted = false;
+
+    await expect(
+      Effect.runPromise(
+        saveCookieMutation(
+          Effect.fail(new Error("replacement failed")),
+          Effect.sync(() => {
+            deleted = true;
+          })
+        )
+      )
+    ).rejects.toThrow("replacement failed");
+    expect(deleted).toBe(false);
   });
 
   it("keeps a same-origin selection after the next snapshot when the row still exists", () => {

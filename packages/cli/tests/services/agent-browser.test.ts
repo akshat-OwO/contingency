@@ -560,6 +560,17 @@ const originCookies = [
     value: "abc",
   },
   {
+    domain: "example.com",
+    expires: -1,
+    httpOnly: false,
+    name: "host-only-parent",
+    path: "/",
+    secure: false,
+    session: true,
+    size: 17,
+    value: "parent",
+  },
+  {
     domain: "app.example.com",
     expires: -1,
     httpOnly: false,
@@ -870,6 +881,9 @@ it.effect(
             (command) =>
               command.includes("cookies") && command.includes("stripe.com")
           )
+        ).toBe(false);
+        expect(
+          args.some((command) => command.includes("host-only-parent"))
         ).toBe(false);
       })
     ).pipe(Effect.provide(fixture.layer));
