@@ -207,6 +207,14 @@ const CookieTable = ({
   </>
 );
 
+const isFocusInside = (
+  currentTarget: EventTarget,
+  relatedTarget: EventTarget | null
+): boolean =>
+  relatedTarget instanceof Node &&
+  currentTarget instanceof Node &&
+  currentTarget.contains(relatedTarget);
+
 const WebStorageInlineAdd = ({
   draft,
   onCancel,
@@ -222,18 +230,26 @@ const WebStorageInlineAdd = ({
 }) => {
   const dirty = draft.key.length > 0 || draft.value.length > 0;
   return (
-    <div className="grid grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_1.75rem] items-start gap-1 border-b px-2 py-1">
+    <div
+      className="grid grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_1.75rem] items-start gap-1 border-b px-2 py-1"
+      onBlur={(event) => {
+        if (isFocusInside(event.currentTarget, event.relatedTarget)) {
+          return;
+        }
+        onFocusChange(false);
+        if (dirty) {
+          onCommit(draft);
+        }
+      }}
+      onFocus={() => {
+        onFocusChange(true);
+      }}
+    >
       <Field>
         <Input
           aria-invalid={draft.fieldError !== undefined}
           aria-label="New storage key"
           className="h-7 font-mono text-xs"
-          onBlur={() => {
-            onFocusChange(false);
-            if (dirty) {
-              onCommit(draft);
-            }
-          }}
           onChange={(event) =>
             onDraftChange({
               ...draft,
@@ -241,9 +257,6 @@ const WebStorageInlineAdd = ({
               key: event.target.value,
             })
           }
-          onFocus={() => {
-            onFocusChange(true);
-          }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -264,18 +277,9 @@ const WebStorageInlineAdd = ({
       <Input
         aria-label="New storage value"
         className="h-7 font-mono text-xs"
-        onBlur={() => {
-          onFocusChange(false);
-          if (dirty) {
-            onCommit(draft);
-          }
-        }}
         onChange={(event) =>
           onDraftChange({ ...draft, value: event.target.value })
         }
-        onFocus={() => {
-          onFocusChange(true);
-        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();

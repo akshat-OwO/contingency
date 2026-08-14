@@ -222,6 +222,8 @@ test("adds a Web Storage entry inline and disables Refresh while a cookie draft 
   });
   await user.click(screen.getByRole("button", { name: "Add entry" }));
   await user.type(screen.getByLabelText("New storage key"), "flag");
+  await user.click(screen.getByLabelText("New storage value"));
+  expect(rpc.set).not.toHaveBeenCalled();
   await user.type(screen.getByLabelText("New storage value"), "on");
   await user.keyboard("{Enter}");
   await waitFor(() => {
