@@ -7,20 +7,26 @@ import {
   BrowserStreamId,
   BrowserRequestId,
   BrowserTabId,
+  filterCookiesForOriginHost,
+  sortCookiesByIdentity,
+  httpOriginFromUrl,
   isBrowserRpcError,
   makeBrowserRpcError,
   SessionId as SessionIdSchema,
   userAgentProfiles,
 } from "@contingency/protocol";
 import type {
+  BrowserCookieWrite,
   BrowserInput,
   BrowserNetworkRequest,
   BrowserNetworkRequestDetail,
   BrowserRpcErrorType,
+  BrowserStorageSnapshot,
   BrowserStreamEvent,
   BrowserStreamId as BrowserStreamIdType,
   BrowserTab,
   SessionId,
+  StorageKind,
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
@@ -42,6 +48,15 @@ import type { PlatformError } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import agentBrowserPackage from "../../assets/agent-browser/package.json" with { type: "json" };
+import {
+  cookieDeleteArgs,
+  cookieSetArgs,
+  normalizeAgentBrowserCookie,
+  webStorageClearArgs,
+  webStorageDeleteScript,
+  webStorageGetArgs,
+  webStorageSetArgs,
+} from "./browser-storage";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -67,6 +82,23 @@ class AgentBrowserSetupError extends Data.TaggedError(
 type AgentBrowserInitError =
   | AgentBrowserSetupError
   | PlatformError.PlatformError;
+
+export type BrowserStorageSetInput =
+  | { readonly cookie: BrowserCookieWrite; readonly kind: "cookies" }
+  | {
+      readonly key: string;
+      readonly kind: "local" | "session";
+      readonly value: string;
+    };
+
+export type BrowserStorageDeleteInput =
+  | {
+      readonly domain: string;
+      readonly kind: "cookies";
+      readonly name: string;
+      readonly path: string;
+    }
+  | { readonly key: string; readonly kind: "local" | "session" };
 
 export interface AgentBrowser {
   readonly acknowledgeFrame: (
@@ -100,6 +132,26 @@ export interface AgentBrowser {
     tabId: BrowserTabId,
     requestId: BrowserRequestId
   ) => Effect.Effect<BrowserNetworkRequestDetail, BrowserRpcErrorType>;
+  readonly getStorage: (
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Effect.Effect<BrowserStorageSnapshot, BrowserRpcErrorType>;
+  readonly setStorage: (
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    payload: BrowserStorageSetInput
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  readonly deleteStorage: (
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    payload: BrowserStorageDeleteInput
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  readonly clearStorage: (
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly getTabs: (
     sessionId: SessionId
   ) => Effect.Effect<readonly BrowserTab[], BrowserRpcErrorType>;
@@ -313,6 +365,29 @@ const BrowserNetworkRequestDetailResult = AgentBrowserJsonResult(
   })
 );
 
+const AgentBrowserCookieSchema = Schema.Struct({
+  domain: Schema.String,
+  expires: Schema.optional(Schema.Finite),
+  httpOnly: Schema.optional(Schema.Boolean),
+  name: Schema.String,
+  path: Schema.String,
+  sameSite: Schema.optional(Schema.String),
+  secure: Schema.optional(Schema.Boolean),
+  session: Schema.optional(Schema.Boolean),
+  size: Schema.optional(Schema.Finite),
+  value: Schema.String,
+});
+
+const BrowserCookiesResult = AgentBrowserJsonResult(
+  Schema.Struct({ cookies: Schema.Array(AgentBrowserCookieSchema) })
+);
+
+const BrowserWebStorageResult = AgentBrowserJsonResult(
+  Schema.Struct({
+    data: Schema.Record(Schema.String, Schema.String),
+  })
+);
+
 const AgentBrowserConsoleEntry = Schema.Union([
   Schema.Struct({
     level: Schema.String,
@@ -387,6 +462,14 @@ const normalizeSessionId = (name: string) => {
     )
   );
 };
+
+const emptyStorageSnapshot = (
+  tabId: BrowserTabId,
+  kind: StorageKind
+): BrowserStorageSnapshot =>
+  kind === "cookies"
+    ? { cookies: [], kind, tabId }
+    : { entries: {}, kind, tabId };
 
 const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
   Effect.gen(function* buildAgentBrowser() {
@@ -781,6 +864,162 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         );
         return { ...result.data, tabId };
       }
+    );
+
+    const requireActiveTab = Effect.fn("AgentBrowser.requireActiveTab")(
+      function* requireActiveTab(sessionId: SessionId, tabId: BrowserTabId) {
+        yield* attach(sessionId);
+        const tabs = yield* getTabs(sessionId);
+        return tabs.find((tab) => tab.active && tab.tabId === tabId);
+      }
+    );
+
+    const getStorage = Effect.fn("AgentBrowser.getStorage")(
+      (sessionId: SessionId, tabId: BrowserTabId, kind: StorageKind) =>
+        withTabCommandPermit(
+          sessionId,
+          Effect.gen(function* readTabStorage() {
+            const activeTab = yield* requireActiveTab(sessionId, tabId);
+            if (activeTab === undefined) {
+              return emptyStorageSnapshot(tabId, kind);
+            }
+            const origin = httpOriginFromUrl(activeTab.url);
+            if (origin === undefined) {
+              return emptyStorageSnapshot(tabId, kind);
+            }
+            if (kind === "cookies") {
+              const result = yield* runJson(
+                sessionArgs(sessionId, ["cookies", "get"]),
+                BrowserCookiesResult
+              );
+              return {
+                cookies: sortCookiesByIdentity(
+                  filterCookiesForOriginHost(
+                    result.data.cookies.map(normalizeAgentBrowserCookie),
+                    origin.host
+                  )
+                ),
+                kind,
+                tabId,
+              };
+            }
+            const result = yield* runJson(
+              sessionArgs(sessionId, [...webStorageGetArgs(kind)]),
+              BrowserWebStorageResult
+            );
+            return { entries: result.data.data, kind, tabId };
+          })
+        )
+    );
+
+    const requireActiveStorageTab = Effect.fn(
+      "AgentBrowser.requireActiveStorageTab"
+    )(function* requireActiveStorageTab(
+      sessionId: SessionId,
+      tabId: BrowserTabId
+    ) {
+      const activeTab = yield* requireActiveTab(sessionId, tabId);
+      if (activeTab === undefined) {
+        return yield* Effect.fail(
+          browserError("session_not_found", "The requested tab is not active.")
+        );
+      }
+      return activeTab;
+    });
+
+    const setStorage = Effect.fn("AgentBrowser.setStorage")(
+      (
+        sessionId: SessionId,
+        tabId: BrowserTabId,
+        payload: BrowserStorageSetInput
+      ) =>
+        withTabCommandPermit(
+          sessionId,
+          Effect.gen(function* writeTabStorage() {
+            yield* requireActiveStorageTab(sessionId, tabId);
+            if (payload.kind === "cookies") {
+              yield* run(
+                sessionArgs(sessionId, [...cookieSetArgs(payload.cookie)])
+              );
+              return;
+            }
+            yield* run(
+              sessionArgs(sessionId, [
+                ...webStorageSetArgs(payload.kind, payload.key, payload.value),
+              ])
+            );
+          })
+        )
+    );
+
+    const deleteStorage = Effect.fn("AgentBrowser.deleteStorage")(
+      (
+        sessionId: SessionId,
+        tabId: BrowserTabId,
+        payload: BrowserStorageDeleteInput
+      ) =>
+        withTabCommandPermit(
+          sessionId,
+          Effect.gen(function* deleteTabStorage() {
+            yield* requireActiveStorageTab(sessionId, tabId);
+            if (payload.kind === "cookies") {
+              yield* run(
+                sessionArgs(sessionId, [
+                  ...cookieDeleteArgs(
+                    payload.name,
+                    payload.domain,
+                    payload.path
+                  ),
+                ])
+              );
+              return;
+            }
+            yield* runJson(
+              sessionArgs(sessionId, [
+                "eval",
+                webStorageDeleteScript(payload.kind, payload.key),
+              ]),
+              EvalStringResult
+            );
+          })
+        )
+    );
+
+    const clearStorage = Effect.fn("AgentBrowser.clearStorage")(
+      (sessionId: SessionId, tabId: BrowserTabId, kind: StorageKind) =>
+        withTabCommandPermit(
+          sessionId,
+          Effect.gen(function* clearTabStorage() {
+            const activeTab = yield* requireActiveStorageTab(sessionId, tabId);
+            if (kind === "cookies") {
+              const origin = httpOriginFromUrl(activeTab.url);
+              if (origin === undefined) {
+                return;
+              }
+              const result = yield* runJson(
+                sessionArgs(sessionId, ["cookies", "get"]),
+                BrowserCookiesResult
+              );
+              const inScope = filterCookiesForOriginHost(
+                result.data.cookies.map(normalizeAgentBrowserCookie),
+                origin.host
+              );
+              for (const cookie of inScope) {
+                yield* run(
+                  sessionArgs(sessionId, [
+                    ...cookieDeleteArgs(
+                      cookie.name,
+                      cookie.domain,
+                      cookie.path
+                    ),
+                  ])
+                );
+              }
+              return;
+            }
+            yield* run(sessionArgs(sessionId, [...webStorageClearArgs(kind)]));
+          })
+        )
     );
 
     const resolveUserAgent = Effect.fn("AgentBrowser.resolveUserAgent")(
@@ -1199,12 +1438,15 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       acknowledgeFrame,
       attach,
       cdpUrl,
+      clearStorage,
       close,
       closeTab,
       create,
       currentUrl,
+      deleteStorage,
       getNetworkRequest,
       getNetworkRequests,
+      getStorage,
       getTabs,
       init,
       list,
@@ -1212,6 +1454,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       newTab,
       open,
       sendInput,
+      setStorage,
       setUserAgent,
       setViewport,
       stream,

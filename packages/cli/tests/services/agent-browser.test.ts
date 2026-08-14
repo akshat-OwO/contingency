@@ -1,4 +1,4 @@
-import { SessionId } from "@contingency/protocol";
+import { BrowserTabId, SessionId } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import {
   Effect,
@@ -19,6 +19,7 @@ import {
   serializeBrowserStreamEvent,
 } from "../../src/services/agent-browser";
 import type { AgentBrowserRuntime } from "../../src/services/agent-browser";
+import { commandIncludesCookiesClear } from "../../src/services/browser-storage";
 
 interface FileSystemCalls {
   readonly chmod: string[];
@@ -520,6 +521,370 @@ it.effect(
             candidate.args.includes("cdp-url")
         );
         expect(command?._tag).toBe("StandardCommand");
+      })
+    ).pipe(Effect.provide(fixture.layer));
+  }
+);
+
+const storageTab = {
+  active: true,
+  label: null,
+  tabId: "t1",
+  title: "App",
+  type: "page",
+  url: "https://app.example.com/home",
+} as const;
+
+const originCookies = [
+  {
+    domain: "app.example.com",
+    expires: -1,
+    httpOnly: false,
+    name: "theme",
+    path: "/",
+    secure: false,
+    session: true,
+    size: 9,
+    value: "dark",
+  },
+  {
+    domain: ".example.com",
+    expires: -1,
+    httpOnly: true,
+    name: "sid",
+    path: "/",
+    sameSite: "Lax",
+    secure: true,
+    session: true,
+    size: 12,
+    value: "abc",
+  },
+  {
+    domain: "example.com",
+    expires: -1,
+    httpOnly: false,
+    name: "host-only-parent",
+    path: "/",
+    secure: false,
+    session: true,
+    size: 17,
+    value: "parent",
+  },
+  {
+    domain: "app.example.com",
+    expires: -1,
+    httpOnly: false,
+    name: "locale",
+    path: "/",
+    secure: false,
+    session: true,
+    size: 8,
+    value: "en",
+  },
+  {
+    domain: "stripe.com",
+    expires: -1,
+    httpOnly: false,
+    name: "third",
+    path: "/",
+    secure: true,
+    session: true,
+    size: 8,
+    value: "x",
+  },
+] as const;
+
+const storageStdout = (command: ChildProcess.Command, sessionName: string) => {
+  if (command._tag !== "StandardCommand") {
+    return "";
+  }
+  const { args } = command;
+  if (args.includes("list")) {
+    return JSON.stringify({
+      data: { sessions: [sessionName] },
+      success: true,
+    });
+  }
+  if (
+    args.includes("tab") &&
+    !args.includes("new") &&
+    !args.includes("close")
+  ) {
+    return JSON.stringify({
+      data: { tabs: [storageTab] },
+      success: true,
+    });
+  }
+  if (args.includes("title")) {
+    return JSON.stringify({ data: { title: "App" }, success: true });
+  }
+  if (args.includes("url")) {
+    return JSON.stringify({
+      data: { url: storageTab.url },
+      success: true,
+    });
+  }
+  if (args.includes("cookies") && args.includes("get")) {
+    return JSON.stringify({
+      data: { cookies: originCookies },
+      success: true,
+    });
+  }
+  if (
+    args.includes("storage") &&
+    args.includes("local") &&
+    !args.includes("set") &&
+    !args.includes("clear")
+  ) {
+    return JSON.stringify({
+      data: { data: { flag: "on" } },
+      success: true,
+    });
+  }
+  if (
+    args.includes("storage") &&
+    args.includes("session") &&
+    !args.includes("set") &&
+    !args.includes("clear")
+  ) {
+    return JSON.stringify({
+      data: { data: { nonce: "1" } },
+      success: true,
+    });
+  }
+  if (args.includes("eval")) {
+    return JSON.stringify({ data: { result: "" }, success: true });
+  }
+  return "";
+};
+
+const commandArgs = (
+  commands: readonly ChildProcess.Command[]
+): readonly (readonly string[])[] =>
+  commands.flatMap((command) =>
+    command._tag === "StandardCommand" ? [command.args] : []
+  );
+
+it.effect(
+  "filters cookies to the current tab origin and maps Web Storage JSON",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: (command) => storageStdout(command, "create-storage"),
+    });
+
+    return AgentBrowser.use((agentBrowser) =>
+      Effect.gen(function* inspectOriginStorage() {
+        const sessionId = yield* agentBrowser.create("storage", {
+          deviceScaleFactor: 1,
+          height: 720,
+          width: 1280,
+        });
+        const tabId = Schema.decodeUnknownSync(BrowserTabId)("t1");
+        const cookies = yield* agentBrowser.getStorage(
+          sessionId,
+          tabId,
+          "cookies"
+        );
+        const local = yield* agentBrowser.getStorage(sessionId, tabId, "local");
+        const session = yield* agentBrowser.getStorage(
+          sessionId,
+          tabId,
+          "session"
+        );
+
+        expect(cookies).toEqual({
+          cookies: [
+            {
+              domain: "app.example.com",
+              expires: -1,
+              httpOnly: false,
+              name: "locale",
+              path: "/",
+              secure: false,
+              session: true,
+              size: 8,
+              value: "en",
+            },
+            {
+              domain: ".example.com",
+              expires: -1,
+              httpOnly: true,
+              name: "sid",
+              path: "/",
+              sameSite: "Lax",
+              secure: true,
+              session: true,
+              size: 12,
+              value: "abc",
+            },
+            {
+              domain: "app.example.com",
+              expires: -1,
+              httpOnly: false,
+              name: "theme",
+              path: "/",
+              secure: false,
+              session: true,
+              size: 9,
+              value: "dark",
+            },
+          ],
+          kind: "cookies",
+          tabId: "t1",
+        });
+        expect(local).toEqual({
+          entries: { flag: "on" },
+          kind: "local",
+          tabId: "t1",
+        });
+        expect(session).toEqual({
+          entries: { nonce: "1" },
+          kind: "session",
+          tabId: "t1",
+        });
+      })
+    ).pipe(Effect.provide(fixture.layer));
+  }
+);
+
+it.effect(
+  "returns an empty snapshot when the requested tab is not active",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: (command) => storageStdout(command, "create-storage"),
+    });
+
+    return AgentBrowser.use((agentBrowser) =>
+      Effect.gen(function* skipInactiveTab() {
+        const sessionId = yield* agentBrowser.create("storage", {
+          deviceScaleFactor: 1,
+          height: 720,
+          width: 1280,
+        });
+        const otherTabId = Schema.decodeUnknownSync(BrowserTabId)("t-other");
+        fixture.commands.length = 0;
+        const snapshot = yield* agentBrowser.getStorage(
+          sessionId,
+          otherTabId,
+          "cookies"
+        );
+        expect(snapshot).toEqual({
+          cookies: [],
+          kind: "cookies",
+          tabId: otherTabId,
+        });
+        expect(
+          commandArgs(fixture.commands).some((args) => args.includes("cookies"))
+        ).toBe(false);
+      })
+    ).pipe(Effect.provide(fixture.layer));
+  }
+);
+
+it.effect(
+  "sets, deletes, and clears storage without running cookies clear",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: (command) => storageStdout(command, "create-storage"),
+    });
+
+    return AgentBrowser.use((agentBrowser) =>
+      Effect.gen(function* mutateOriginStorage() {
+        const sessionId = yield* agentBrowser.create("storage", {
+          deviceScaleFactor: 1,
+          height: 720,
+          width: 1280,
+        });
+        const tabId = Schema.decodeUnknownSync(BrowserTabId)("t1");
+        fixture.commands.length = 0;
+        yield* agentBrowser.setStorage(sessionId, tabId, {
+          cookie: {
+            domain: "app.example.com",
+            expires: 1_700_000_000,
+            httpOnly: true,
+            name: "sid",
+            path: "/",
+            secure: true,
+            value: "next",
+          },
+          kind: "cookies",
+        });
+        yield* agentBrowser.setStorage(sessionId, tabId, {
+          key: "flag",
+          kind: "local",
+          value: "off",
+        });
+        yield* agentBrowser.deleteStorage(sessionId, tabId, {
+          domain: "app.example.com",
+          kind: "cookies",
+          name: "sid",
+          path: "/",
+        });
+        yield* agentBrowser.deleteStorage(sessionId, tabId, {
+          key: "nonce",
+          kind: "session",
+        });
+        yield* agentBrowser.clearStorage(sessionId, tabId, "cookies");
+        yield* agentBrowser.clearStorage(sessionId, tabId, "local");
+
+        const args = commandArgs(fixture.commands);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("cookies") &&
+              command.includes("set") &&
+              command.includes("next")
+          )
+        ).toBe(true);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("cookies") &&
+              command.includes("--expires") &&
+              command.includes("1700000000")
+          )
+        ).toBe(true);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("storage") &&
+              command.includes("local") &&
+              command.includes("set") &&
+              command.includes("flag")
+          )
+        ).toBe(true);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("cookies") &&
+              command.includes("set") &&
+              command.includes("--expires") &&
+              command.includes("0")
+          )
+        ).toBe(true);
+        expect(
+          args.some((command) => commandIncludesCookiesClear(command))
+        ).toBe(false);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("storage") &&
+              command.includes("local") &&
+              command.includes("clear")
+          )
+        ).toBe(true);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("cookies") && command.includes("stripe.com")
+          )
+        ).toBe(false);
+        expect(
+          args.some((command) => command.includes("host-only-parent"))
+        ).toBe(false);
       })
     ).pipe(Effect.provide(fixture.layer));
   }

@@ -8,7 +8,7 @@ This describes what exists today for the Create View live browser. Domain langua
 | --- | --- |
 | Live browser session, tabs, viewport, user-agent | Built |
 | Screencast frames to a canvas + pointer/keyboard input | Built |
-| Console / network DevTools panels | Built |
+| Console / Network / Storage DevTools panels | Built |
 | Recording → Flow (Steps, Pre-steps, Audit Steps, Secret Variables) | Built |
 | Audit View / Runner / Runs | Not built (Audit route is a placeholder) |
 
@@ -48,7 +48,7 @@ The injected recorder also renders an authoring-only hover inspector inside each
 ## Session model
 
 - Session IDs are branded strings matching `create-[A-Za-z0-9][A-Za-z0-9._-]{0,63}`.
-- RPCs cover: list/create/attach/close session, open URL, back/forward/reload, viewport, user-agent profile, tabs, network request inspection, input, stream subscribe, frame ack.
+- RPCs cover: list/create/attach/close session, open URL, back/forward/reload, viewport, user-agent profile, tabs, network request inspection, Storage inspect/mutate (cookies, `localStorage`, `sessionStorage`), input, stream subscribe, frame ack.
 - Stream events: `frame` (JPEG payload + metadata), `status` (connected / screencasting / optional `recording` flag unused by UI today), `url`, console / page_error, `tabs`.
 
 ## Input and backpressure
@@ -69,4 +69,4 @@ Production builds can serve the SPA from the CLI (`serveWebUi`). Dev typically u
 ## Intentionally out of scope here
 
 - Runner execution of Pre-steps and Audit Steps, plus Findings — see [`../future/product-path.md`](../future/product-path.md).
-- agent-browser features not yet wrapped (DOM snapshot, axe audit, video `record`, state restore) — available in the bundled binary, unused by Contingency's protocol today.
+- agent-browser features not yet wrapped (DOM snapshot, axe audit, video `record`, `state save/load`, `--restore`) — available in the bundled binary, unused by Contingency's protocol today. Storage DevTools does not wrap `state save/load` or `--restore`.

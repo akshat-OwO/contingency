@@ -4,10 +4,18 @@ import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import { AuditKind, RecordingSnapshot } from "./flow.ts";
+import {
+  BrowserStorageDeletePayload,
+  BrowserStorageSetPayload,
+  BrowserStorageSnapshot,
+  StorageKind,
+} from "./storage.ts";
 
 // The protocol package intentionally exposes one public contract surface.
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./flow.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./storage.ts";
 export { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 
 export {
@@ -464,6 +472,12 @@ export const BrandId = Schema.Literals([
   "browser.network.requests.result",
   "browser.network.request.get",
   "browser.network.request.result",
+  "browser.storage.get",
+  "browser.storage.result",
+  "browser.storage.set",
+  "browser.storage.delete",
+  "browser.storage.clear",
+  "browser.storage.updated",
   "recording.get",
   "recording.result",
   "recording.start",
@@ -611,6 +625,30 @@ export const BrowserNetworkRequestResult = response(
   { request: BrowserNetworkRequestDetail }
 );
 
+export const BrowserStorageGet = request("browser.storage.get", {
+  kind: StorageKind,
+  sessionId: SessionId,
+  tabId: BrowserTabId,
+});
+export const BrowserStorageResult = Schema.Struct({
+  data: Schema.Struct({ snapshot: BrowserStorageSnapshot }),
+  type: Schema.Literal("browser.storage.result"),
+});
+export const BrowserStorageSet = Schema.Struct({
+  data: BrowserStorageSetPayload,
+  type: Schema.Literal("browser.storage.set"),
+});
+export const BrowserStorageDelete = Schema.Struct({
+  data: BrowserStorageDeletePayload,
+  type: Schema.Literal("browser.storage.delete"),
+});
+export const BrowserStorageClear = request("browser.storage.clear", {
+  kind: StorageKind,
+  sessionId: SessionId,
+  tabId: BrowserTabId,
+});
+export const BrowserStorageUpdated = response("browser.storage.updated", {});
+
 export const RecordingGet = request("recording.get", {});
 export const RecordingResult = response("recording.result", {
   recording: Schema.NullOr(RecordingSnapshot),
@@ -756,6 +794,26 @@ const BrowserNetworkRequestGetRpc = Rpc.make("browser.network.request.get", {
   payload: BrowserNetworkRequestGet,
   success: BrowserNetworkRequestResult,
 });
+const BrowserStorageGetRpc = Rpc.make("browser.storage.get", {
+  error: BrowserRpcError,
+  payload: BrowserStorageGet,
+  success: BrowserStorageResult,
+});
+const BrowserStorageSetRpc = Rpc.make("browser.storage.set", {
+  error: BrowserRpcError,
+  payload: BrowserStorageSet,
+  success: BrowserStorageUpdated,
+});
+const BrowserStorageDeleteRpc = Rpc.make("browser.storage.delete", {
+  error: BrowserRpcError,
+  payload: BrowserStorageDelete,
+  success: BrowserStorageUpdated,
+});
+const BrowserStorageClearRpc = Rpc.make("browser.storage.clear", {
+  error: BrowserRpcError,
+  payload: BrowserStorageClear,
+  success: BrowserStorageUpdated,
+});
 const RecordingGetRpc = Rpc.make("recording.get", {
   error: BrowserRpcError,
   payload: RecordingGet,
@@ -864,6 +922,10 @@ export class ContingencyRpcs extends RpcGroup.make(
   BrowserTabCloseRpc,
   BrowserNetworkRequestsGetRpc,
   BrowserNetworkRequestGetRpc,
+  BrowserStorageGetRpc,
+  BrowserStorageSetRpc,
+  BrowserStorageDeleteRpc,
+  BrowserStorageClearRpc,
   RecordingGetRpc,
   RecordingStartRpc,
   RecordingPauseRpc,

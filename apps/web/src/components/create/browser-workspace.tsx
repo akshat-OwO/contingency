@@ -1,4 +1,7 @@
-import { isBrowserRpcError } from "@contingency/protocol";
+import {
+  isBrowserRpcError,
+  recordingLocksStorageMutations,
+} from "@contingency/protocol";
 import type {
   BrowserInput,
   BrowserStreamEvent,
@@ -1122,6 +1125,7 @@ const useBrowserWorkspace = () => {
     navigate,
     opening,
     presetId,
+    recording: workspace.recording,
     refreshingNetwork,
     selectPreset,
     selectSession,
@@ -1131,6 +1135,7 @@ const useBrowserWorkspace = () => {
     setAddress,
     setDevtoolsOpen,
     setDevtoolsState,
+    setError,
     setHeight,
     setWidth,
     streamConnected,
@@ -1389,10 +1394,12 @@ const BrowserViewportPanels = ({
     height,
     manuallyRefreshNetwork,
     navigate,
+    recording,
     refreshingNetwork,
     selectedSessionId,
     setDevtoolsOpen,
     setDevtoolsState,
+    setError,
     streamConnected,
     visibleDevtools,
     width,
@@ -1506,13 +1513,21 @@ const BrowserViewportPanels = ({
                 );
               }}
               onClose={() => setDevtoolsOpen(false)}
+              onError={(message) => {
+                setError(message);
+              }}
               onRefreshNetwork={() => {
                 void manuallyRefreshNetwork();
               }}
+              mutationsLocked={recordingLocksStorageMutations(
+                recording,
+                visibleDevtools.sessionId
+              )}
               refreshingNetwork={refreshingNetwork}
               sessionId={visibleDevtools.sessionId}
               tabId={visibleDevtools.activeTab.tabId}
               tabTitle={visibleDevtools.activeTab.title || "Current tab"}
+              tabUrl={visibleDevtools.activeTab.url}
             />
           </ResizablePanel>
         </>

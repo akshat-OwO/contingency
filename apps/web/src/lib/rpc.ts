@@ -78,6 +78,18 @@ export const browserNetworkRequestsMutation = ContingencyRpcClient.mutation(
 export const browserNetworkRequestMutation = ContingencyRpcClient.mutation(
   "browser.network.request.get"
 );
+export const browserStorageGetMutation = ContingencyRpcClient.mutation(
+  "browser.storage.get"
+);
+export const browserStorageSetMutation = ContingencyRpcClient.mutation(
+  "browser.storage.set"
+);
+export const browserStorageDeleteMutation = ContingencyRpcClient.mutation(
+  "browser.storage.delete"
+);
+export const browserStorageClearMutation = ContingencyRpcClient.mutation(
+  "browser.storage.clear"
+);
 
 export const recordingAtom = ContingencyRpcClient.query("recording.get", {
   data: {},
