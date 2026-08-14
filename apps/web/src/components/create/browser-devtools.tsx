@@ -414,6 +414,254 @@ interface DevtoolsHeaderOptions {
   readonly tabTitle: string;
 }
 
+const DevtoolsConsolePanel = ({
+  consoleEntries,
+}: {
+  readonly consoleEntries: readonly BrowserConsoleEntry[];
+}) => {
+  const consoleScrollRef = useRef<HTMLDivElement>(null);
+  const consoleVirtualizer = useVirtualizer({
+    count: consoleEntries.length,
+    estimateSize: () => 34,
+    getScrollElement: () => consoleScrollRef.current,
+    overscan: 12,
+  });
+
+  useEffect(() => {
+    const frame = globalThis.requestAnimationFrame(() => {
+      consoleVirtualizer.measure();
+    });
+    return () => globalThis.cancelAnimationFrame(frame);
+  }, [consoleVirtualizer]);
+
+  return (
+    <TabsContent className="min-h-0" value="console">
+      <div className="size-full overflow-auto" ref={consoleScrollRef}>
+        {consoleEntries.length === 0 ? (
+          <div className="text-muted-foreground grid h-28 place-items-center text-xs">
+            Console messages for this tab will appear here.
+          </div>
+        ) : (
+          <div
+            className="relative w-full font-mono text-xs"
+            style={{ height: consoleVirtualizer.getTotalSize() }}
+          >
+            {consoleVirtualizer.getVirtualItems().map((virtualRow) => {
+              const entry = consoleEntries[virtualRow.index];
+              if (entry === undefined) {
+                return null;
+              }
+              return (
+                <div
+                  className="absolute top-0 left-0 grid w-full grid-cols-[auto_1fr_auto] gap-2 border-b px-2 py-1.5"
+                  data-index={virtualRow.index}
+                  key={virtualRow.key}
+                  ref={consoleVirtualizer.measureElement}
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  {renderConsoleIcon(entry)}
+                  <pre className="font-inherit min-w-0 overflow-x-auto break-words whitespace-pre-wrap">
+                    {entry.text}
+                  </pre>
+                  <time className="text-muted-foreground tabular-nums">
+                    {formatTime(entry.timestamp)}
+                  </time>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </TabsContent>
+  );
+};
+
+const DevtoolsNetworkPanel = ({
+  detail,
+  detailLoading,
+  detailTab,
+  networkFilter,
+  networkQuery,
+  networkRequests,
+  onSelectRequest,
+  onUpdateUiState,
+  selectedRequestId,
+}: {
+  readonly detail: BrowserNetworkRequestDetail | undefined;
+  readonly detailLoading: boolean;
+  readonly detailTab: NetworkDetailTab;
+  readonly networkFilter: NetworkFilter;
+  readonly networkQuery: string;
+  readonly networkRequests: readonly BrowserNetworkRequest[];
+  readonly onSelectRequest: (request: BrowserNetworkRequest) => void;
+  readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
+  readonly selectedRequestId: BrowserRequestId | undefined;
+}) => {
+  const networkScrollRef = useRef<HTMLDivElement>(null);
+  const normalizedQuery = networkQuery.trim().toLocaleLowerCase();
+  const visibleRequests = useMemo(
+    () =>
+      networkRequests.filter(
+        (request) =>
+          requestMatchesFilter(request, networkFilter) &&
+          (normalizedQuery.length === 0 ||
+            request.url.toLocaleLowerCase().includes(normalizedQuery) ||
+            request.method.toLocaleLowerCase().includes(normalizedQuery) ||
+            request.resourceType.toLocaleLowerCase().includes(normalizedQuery))
+      ),
+    [networkFilter, networkRequests, normalizedQuery]
+  );
+  const selectedRequest = networkRequests.find(
+    ({ requestId }) => requestId === selectedRequestId
+  );
+  const networkVirtualizer = useVirtualizer({
+    count: visibleRequests.length,
+    estimateSize: () => 30,
+    getScrollElement: () => networkScrollRef.current,
+    overscan: 16,
+  });
+
+  useEffect(() => {
+    const frame = globalThis.requestAnimationFrame(() => {
+      networkVirtualizer.measure();
+    });
+    return () => globalThis.cancelAnimationFrame(frame);
+  }, [networkVirtualizer]);
+
+  return (
+    <TabsContent className="flex min-h-0 flex-col" value="network">
+      <div className="shrink-0 border-b p-1.5">
+        <div className="relative">
+          <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+          <Input
+            aria-label="Filter network requests"
+            className="h-7 pl-7 text-xs"
+            onChange={(event) =>
+              onUpdateUiState({ networkQuery: event.target.value })
+            }
+            placeholder="Filter by URL, method, or type"
+            value={networkQuery}
+          />
+        </div>
+        <div className="mt-1.5 flex gap-1 overflow-x-auto" role="group">
+          {networkFilters.map((filter) => (
+            <Button
+              aria-pressed={networkFilter === filter.value}
+              className="h-6 rounded-full px-2 text-[11px]"
+              key={filter.value}
+              onClick={() => onUpdateUiState({ networkFilter: filter.value })}
+              size="sm"
+              variant={networkFilter === filter.value ? "secondary" : "ghost"}
+            >
+              {filter.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <div
+          className={cn(
+            "flex min-w-0 flex-col",
+            selectedRequest === undefined ? "flex-1" : "w-1/2 border-r"
+          )}
+        >
+          <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] border-b px-2 py-1 text-[11px] font-medium">
+            <span>Status</span>
+            <span>Method</span>
+            <span>Name</span>
+            <span>Type</span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto" ref={networkScrollRef}>
+            {visibleRequests.length === 0 ? (
+              <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
+                {networkRequests.length === 0
+                  ? "Network requests for this tab will appear here."
+                  : "No requests match this filter."}
+              </div>
+            ) : (
+              <div
+                className="relative w-full font-mono text-xs"
+                style={{ height: networkVirtualizer.getTotalSize() }}
+              >
+                {networkVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const request = visibleRequests[virtualRow.index];
+                  if (request === undefined) {
+                    return null;
+                  }
+                  return (
+                    <button
+                      className={cn(
+                        "hover:bg-muted/50 absolute top-0 left-0 grid h-[30px] w-full grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] items-center px-2 text-left",
+                        selectedRequestId === request.requestId && "bg-muted"
+                      )}
+                      key={virtualRow.key}
+                      onClick={() => {
+                        onSelectRequest(request);
+                      }}
+                      style={{
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      title={request.url}
+                      type="button"
+                    >
+                      <span className={statusClassName(request.status)}>
+                        {request.status ?? "—"}
+                      </span>
+                      <span>{request.method}</span>
+                      <span className="truncate">
+                        {requestName(request.url)}
+                      </span>
+                      <span className="text-muted-foreground truncate">
+                        {request.resourceType}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        {selectedRequest === undefined ? null : (
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="flex h-8 shrink-0 items-center overflow-x-auto border-b px-1">
+              {detailTabs.map((detailTabValue) => (
+                <Button
+                  className="h-7 rounded-none px-2 text-[11px] capitalize"
+                  key={detailTabValue}
+                  onClick={() => onUpdateUiState({ detailTab: detailTabValue })}
+                  size="sm"
+                  variant={detailTab === detailTabValue ? "secondary" : "ghost"}
+                >
+                  {detailTabValue}
+                </Button>
+              ))}
+              <Button
+                aria-label="Close request details"
+                className="ml-auto"
+                onClick={() =>
+                  onUpdateUiState({ selectedRequestId: undefined })
+                }
+                size="icon-sm"
+                variant="ghost"
+              >
+                <XIcon />
+              </Button>
+            </div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+              {renderRequestDetails(
+                detail,
+                detailTab,
+                detailLoading,
+                selectedRequest
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </TabsContent>
+  );
+};
+
 const renderDevtoolsHeader = ({
   consoleCount,
   networkCount,
@@ -496,8 +744,6 @@ export const BrowserDevtools = ({
   tabTitle,
   tabUrl,
 }: BrowserDevtoolsProps) => {
-  const consoleScrollRef = useRef<HTMLDivElement>(null);
-  const networkScrollRef = useRef<HTMLDivElement>(null);
   const getNetworkRequest = useAtomSet(browserNetworkRequestMutation, {
     mode: "promise",
   });
@@ -533,48 +779,6 @@ export const BrowserDevtools = ({
     },
     [setUiState]
   );
-  const normalizedQuery = networkQuery.trim().toLocaleLowerCase();
-  const visibleRequests = useMemo(
-    () =>
-      networkRequests.filter(
-        (request) =>
-          requestMatchesFilter(request, networkFilter) &&
-          (normalizedQuery.length === 0 ||
-            request.url.toLocaleLowerCase().includes(normalizedQuery) ||
-            request.method.toLocaleLowerCase().includes(normalizedQuery) ||
-            request.resourceType.toLocaleLowerCase().includes(normalizedQuery))
-      ),
-    [networkFilter, networkRequests, normalizedQuery]
-  );
-  const selectedRequest = networkRequests.find(
-    ({ requestId }) => requestId === selectedRequestId
-  );
-  const consoleVirtualizer = useVirtualizer({
-    count: consoleEntries.length,
-    estimateSize: () => 34,
-    getScrollElement: () => consoleScrollRef.current,
-    overscan: 12,
-  });
-  const networkVirtualizer = useVirtualizer({
-    count: visibleRequests.length,
-    estimateSize: () => 30,
-    getScrollElement: () => networkScrollRef.current,
-    overscan: 16,
-  });
-
-  useEffect(() => {
-    if (tab === "storage") {
-      return;
-    }
-    const frame = globalThis.requestAnimationFrame(() => {
-      if (tab === "network") {
-        networkVirtualizer.measure();
-      } else {
-        consoleVirtualizer.measure();
-      }
-    });
-    return () => globalThis.cancelAnimationFrame(frame);
-  }, [consoleVirtualizer, networkVirtualizer, tab]);
 
   const selectRequest = (request: BrowserNetworkRequest) => {
     updateUiState({
@@ -645,180 +849,19 @@ export const BrowserDevtools = ({
         tabTitle,
       })}
 
-      <TabsContent className="min-h-0" value="console">
-        <div className="size-full overflow-auto" ref={consoleScrollRef}>
-          {consoleEntries.length === 0 ? (
-            <div className="text-muted-foreground grid h-28 place-items-center text-xs">
-              Console messages for this tab will appear here.
-            </div>
-          ) : (
-            <div
-              className="relative w-full font-mono text-xs"
-              style={{ height: consoleVirtualizer.getTotalSize() }}
-            >
-              {consoleVirtualizer.getVirtualItems().map((virtualRow) => {
-                const entry = consoleEntries[virtualRow.index];
-                if (entry === undefined) {
-                  return null;
-                }
-                return (
-                  <div
-                    className="absolute top-0 left-0 grid w-full grid-cols-[auto_1fr_auto] gap-2 border-b px-2 py-1.5"
-                    data-index={virtualRow.index}
-                    key={virtualRow.key}
-                    ref={consoleVirtualizer.measureElement}
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
-                  >
-                    {renderConsoleIcon(entry)}
-                    <pre className="font-inherit min-w-0 overflow-x-auto break-words whitespace-pre-wrap">
-                      {entry.text}
-                    </pre>
-                    <time className="text-muted-foreground tabular-nums">
-                      {formatTime(entry.timestamp)}
-                    </time>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </TabsContent>
+      <DevtoolsConsolePanel consoleEntries={consoleEntries} />
 
-      <TabsContent className="flex min-h-0 flex-col" value="network">
-        <div className="shrink-0 border-b p-1.5">
-          <div className="relative">
-            <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-            <Input
-              aria-label="Filter network requests"
-              className="h-7 pl-7 text-xs"
-              onChange={(event) =>
-                updateUiState({ networkQuery: event.target.value })
-              }
-              placeholder="Filter by URL, method, or type"
-              value={networkQuery}
-            />
-          </div>
-          <div className="mt-1.5 flex gap-1 overflow-x-auto" role="group">
-            {networkFilters.map((filter) => (
-              <Button
-                aria-pressed={networkFilter === filter.value}
-                className="h-6 rounded-full px-2 text-[11px]"
-                key={filter.value}
-                onClick={() => updateUiState({ networkFilter: filter.value })}
-                size="sm"
-                variant={networkFilter === filter.value ? "secondary" : "ghost"}
-              >
-                {filter.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-1">
-          <div
-            className={cn(
-              "flex min-w-0 flex-col",
-              selectedRequest === undefined ? "flex-1" : "w-1/2 border-r"
-            )}
-          >
-            <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] border-b px-2 py-1 text-[11px] font-medium">
-              <span>Status</span>
-              <span>Method</span>
-              <span>Name</span>
-              <span>Type</span>
-            </div>
-            <div
-              className="min-h-0 flex-1 overflow-auto"
-              ref={networkScrollRef}
-            >
-              {visibleRequests.length === 0 ? (
-                <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
-                  {networkRequests.length === 0
-                    ? "Network requests for this tab will appear here."
-                    : "No requests match this filter."}
-                </div>
-              ) : (
-                <div
-                  className="relative w-full font-mono text-xs"
-                  style={{ height: networkVirtualizer.getTotalSize() }}
-                >
-                  {networkVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const request = visibleRequests[virtualRow.index];
-                    if (request === undefined) {
-                      return null;
-                    }
-                    return (
-                      <button
-                        className={cn(
-                          "hover:bg-muted/50 absolute top-0 left-0 grid h-[30px] w-full grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] items-center px-2 text-left",
-                          selectedRequestId === request.requestId && "bg-muted"
-                        )}
-                        key={virtualRow.key}
-                        onClick={() => {
-                          selectRequest(request);
-                        }}
-                        style={{
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                        title={request.url}
-                        type="button"
-                      >
-                        <span className={statusClassName(request.status)}>
-                          {request.status ?? "—"}
-                        </span>
-                        <span>{request.method}</span>
-                        <span className="truncate">
-                          {requestName(request.url)}
-                        </span>
-                        <span className="text-muted-foreground truncate">
-                          {request.resourceType}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-          {selectedRequest === undefined ? null : (
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              <div className="flex h-8 shrink-0 items-center overflow-x-auto border-b px-1">
-                {detailTabs.map((detailTabValue) => (
-                  <Button
-                    className="h-7 rounded-none px-2 text-[11px] capitalize"
-                    key={detailTabValue}
-                    onClick={() => updateUiState({ detailTab: detailTabValue })}
-                    size="sm"
-                    variant={
-                      detailTab === detailTabValue ? "secondary" : "ghost"
-                    }
-                  >
-                    {detailTabValue}
-                  </Button>
-                ))}
-                <Button
-                  aria-label="Close request details"
-                  className="ml-auto"
-                  onClick={() =>
-                    updateUiState({ selectedRequestId: undefined })
-                  }
-                  size="icon-sm"
-                  variant="ghost"
-                >
-                  <XIcon />
-                </Button>
-              </div>
-              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                {renderRequestDetails(
-                  detail,
-                  detailTab,
-                  detailLoading,
-                  selectedRequest
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </TabsContent>
+      <DevtoolsNetworkPanel
+        detail={detail}
+        detailLoading={detailLoading}
+        detailTab={detailTab}
+        networkFilter={networkFilter}
+        networkQuery={networkQuery}
+        networkRequests={networkRequests}
+        onSelectRequest={selectRequest}
+        onUpdateUiState={updateUiState}
+        selectedRequestId={selectedRequestId}
+      />
 
       <TabsContent className="flex min-h-0 flex-col" value="storage">
         {tab === "storage" ? (

@@ -798,122 +798,63 @@ const useStoragePolling = ({
   return fetchKind;
 };
 
-// Cookie and Web Storage mutate handlers keep this component above the default budget.
-// oxlint-disable-next-line eslint/complexity
-export const BrowserStoragePanel = ({
-  mutationsLocked,
-  onError,
-  onRefreshStateChange,
-  refreshNonce,
-  sessionId,
-  setUiState,
-  tabId,
-  tabUrl,
-  uiState,
-}: BrowserStoragePanelProps) => {
-  const getStorage = useAtomSet(browserStorageGetMutation, { mode: "promise" });
-  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
-  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
-    mode: "promise",
-  });
-  const clearStorage = useAtomSet(browserStorageClearMutation, {
-    mode: "promise",
-  });
-  const [confirmClear, setConfirmClear] = useState(false);
-  const host = httpOriginFromUrl(tabUrl)?.host;
-  const dirty = isStorageDraftDirty(
-    uiState.storageDraft,
-    uiState.storageSnapshots
-  );
-  const pollPaused = uiState.storageFocused || dirty;
-  const fetchKind = useStoragePolling({
-    dirty,
-    getStorage,
-    mutationsLocked,
-    onError,
-    onRefreshStateChange,
-    pollPaused,
-    refreshNonce,
-    sessionId,
-    setUiState,
-    tabId,
-    tabUrl,
-    uiState,
-  });
+type StorageFetchKind = (kind: StorageKind) => Effect.Effect<unknown, unknown>;
 
-  const runMutate = (effect: Effect.Effect<unknown, unknown>) => {
-    onRefreshStateChange(true);
-    Effect.runFork(
-      effect.pipe(
-        Effect.tap(() =>
-          Effect.sync(() =>
-            setUiState((current) => ({
-              ...current,
-              storageDraft: undefined,
-              storageFocused: false,
-              storageMutateError: undefined,
-            }))
-          )
-        ),
-        Effect.andThen(fetchKind(uiState.storageKind)),
-        Effect.catchCause((cause) =>
-          Effect.sync(() => {
-            const message = toErrorMessage(Cause.squash(cause));
-            setUiState((current) => ({
-              ...current,
-              storageMutateError: message,
-            }));
-            onError(message);
-          })
-        ),
-        Effect.ensuring(Effect.sync(() => onRefreshStateChange(false)))
-      )
-    );
-  };
-
-  const cookies = visibleCookies(
-    uiState.storageSnapshots.cookies,
-    uiState.storageSearch
-  );
-  const webEntries = visibleWebStorageEntries(
-    uiState.storageKind === "local"
-      ? uiState.storageSnapshots.local
-      : uiState.storageSnapshots.session,
-    uiState.storageSearch
-  );
-  const selectedCookie =
-    uiState.storageSelection?.kind === "cookies"
-      ? uiState.storageSnapshots.cookies.find((cookie) =>
-          cookieIdentitiesEqualRow(cookie, uiState.storageSelection)
+const runStorageMutate = (
+  effect: Effect.Effect<unknown, unknown>,
+  fetchKind: StorageFetchKind,
+  kind: StorageKind,
+  onError: (message: string) => void,
+  onRefreshStateChange: (refreshing: boolean) => void,
+  setUiState: BrowserStoragePanelProps["setUiState"]
+) => {
+  onRefreshStateChange(true);
+  Effect.runFork(
+    effect.pipe(
+      Effect.tap(() =>
+        Effect.sync(() =>
+          setUiState((current) => ({
+            ...current,
+            storageDraft: undefined,
+            storageFocused: false,
+            storageMutateError: undefined,
+          }))
         )
-      : undefined;
-  const selectedWebValue = selectedWebStorageValue(
-    uiState.storageSelection,
-    uiState.storageSnapshots,
-    uiState.storageKind
+      ),
+      Effect.andThen(fetchKind(kind)),
+      Effect.catchCause((cause) =>
+        Effect.sync(() => {
+          const message = toErrorMessage(Cause.squash(cause));
+          setUiState((current) => ({
+            ...current,
+            storageMutateError: message,
+          }));
+          onError(message);
+        })
+      ),
+      Effect.ensuring(Effect.sync(() => onRefreshStateChange(false)))
+    )
   );
+};
 
-  const webKind = uiState.storageKind === "session" ? "session" : "local";
+const StoragePanelChrome = ({
+  host,
+  mutationsLocked,
+  onConfirmClear,
+  setUiState,
+  uiState,
+}: {
+  readonly host: string | undefined;
+  readonly mutationsLocked: boolean;
+  readonly onConfirmClear: () => void;
+  readonly setUiState: BrowserStoragePanelProps["setUiState"];
+  readonly uiState: StoragePanelUiState;
+}) => {
   const mutateDisabledReason = mutationsLocked
     ? storageLockedMessage
     : undefined;
-
-  const switchKind = (kind: StorageKind) => {
-    setUiState((current) => ({
-      ...current,
-      storageDraft: undefined,
-      storageFocused: false,
-      storageKind: kind,
-      storageMutateError: undefined,
-      storageSelection:
-        current.storageSelection?.kind === kind
-          ? current.storageSelection
-          : undefined,
-    }));
-  };
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <>
       <div className="flex shrink-0 items-center gap-1 border-b px-1.5 py-1">
         <div
           className="flex min-w-0 flex-1 gap-1 overflow-x-auto"
@@ -925,7 +866,17 @@ export const BrowserStoragePanel = ({
               className="h-6 rounded-full px-2 text-[11px]"
               key={tab.kind}
               onClick={() => {
-                switchKind(tab.kind);
+                setUiState((current) => ({
+                  ...current,
+                  storageDraft: undefined,
+                  storageFocused: false,
+                  storageKind: tab.kind,
+                  storageMutateError: undefined,
+                  storageSelection:
+                    current.storageSelection?.kind === tab.kind
+                      ? current.storageSelection
+                      : undefined,
+                }));
               }}
               role="tab"
               size="sm"
@@ -968,9 +919,7 @@ export const BrowserStoragePanel = ({
         <Button
           aria-label={`Clear ${innerTabs.find((tab) => tab.kind === uiState.storageKind)?.label ?? "store"}`}
           disabled={mutationsLocked}
-          onClick={() => {
-            setConfirmClear(true);
-          }}
+          onClick={onConfirmClear}
           size="sm"
           title={mutateDisabledReason}
           variant="ghost"
@@ -1021,363 +970,564 @@ export const BrowserStoragePanel = ({
           <AlertDescription>{uiState.storageMutateError}</AlertDescription>
         </Alert>
       )}
-      <div className="flex min-h-0 flex-1">
-        <div
-          className={cn(
-            "flex min-w-0 flex-col",
-            uiState.storageSelection === undefined &&
-              uiState.storageDraft === undefined
-              ? "flex-1"
-              : "w-1/2 border-r"
-          )}
-        >
-          {uiState.storageKind === "cookies" ? (
-            <CookieTable
-              cookies={cookies}
-              empty={uiState.storageSnapshots.cookies.length === 0}
-              mutationsLocked={mutationsLocked}
-              onDelete={(cookie) => {
-                runMutate(
-                  Effect.tryPromise({
-                    catch: (cause) => cause,
-                    try: () =>
-                      deleteStorage({
-                        payload: {
-                          data: {
-                            domain: cookie.domain,
-                            kind: "cookies",
-                            name: cookie.name,
-                            path: cookie.path,
-                            sessionId,
-                            tabId,
-                          },
-                          type: "browser.storage.delete",
-                        },
-                      }),
-                  })
-                );
-              }}
-              onSelect={(cookie) => {
-                setUiState((current) => ({
-                  ...current,
-                  storageDraft: undefined,
-                  storageMutateError: undefined,
-                  storageSelection: {
-                    identity: cookieIdentityOf(cookie),
-                    kind: "cookies",
-                  },
-                }));
-              }}
-              selected={uiState.storageSelection}
-            />
-          ) : (
-            <WebStorageTable
-              draft={
-                uiState.storageDraft?.kind === uiState.storageKind
-                  ? uiState.storageDraft
-                  : undefined
-              }
-              empty={
-                Object.keys(
-                  uiState.storageKind === "local"
-                    ? uiState.storageSnapshots.local
-                    : uiState.storageSnapshots.session
-                ).length === 0 && uiState.storageDraft === undefined
-              }
-              entries={webEntries}
-              kind={webKind}
-              mutationsLocked={mutationsLocked}
-              onCancelDraft={() =>
-                setUiState((current) => ({
-                  ...current,
-                  storageDraft: undefined,
-                  storageFocused: false,
-                }))
-              }
-              onCommitDraft={(draft) => {
-                const fieldError = validateStorageKey(draft.key);
-                if (fieldError !== undefined) {
-                  setUiState((current) => ({
-                    ...current,
-                    storageDraft: { ...draft, fieldError },
-                  }));
-                  return;
-                }
-                runMutate(
-                  Effect.tryPromise({
-                    catch: (cause) => cause,
-                    try: () =>
-                      setStorage({
-                        payload: {
-                          data: {
-                            key: draft.key,
-                            kind: draft.kind,
-                            sessionId,
-                            tabId,
-                            value: draft.value,
-                          },
-                          type: "browser.storage.set",
-                        },
-                      }),
-                  })
-                );
-              }}
-              onDelete={(key) => {
-                runMutate(
-                  Effect.tryPromise({
-                    catch: (cause) => cause,
-                    try: () =>
-                      deleteStorage({
-                        payload: {
-                          data: {
-                            key,
-                            kind: webKind,
-                            sessionId,
-                            tabId,
-                          },
-                          type: "browser.storage.delete",
-                        },
-                      }),
-                  })
-                );
-              }}
-              onDraftChange={(draft) =>
-                setUiState((current) => ({
-                  ...current,
-                  storageDraft: draft,
-                }))
-              }
-              onFocusChange={(focused) =>
-                setUiState((current) => ({
-                  ...current,
-                  storageFocused: focused,
-                }))
-              }
-              onSelect={(key, value) => {
-                setUiState((current) => ({
-                  ...current,
-                  storageDraft: webStorageDraftFromEntry(webKind, key, value),
-                  storageMutateError: undefined,
-                  storageSelection: { key, kind: webKind },
-                }));
-              }}
-              selectedKey={
-                uiState.storageSelection?.kind === uiState.storageKind
-                  ? uiState.storageSelection.key
-                  : undefined
-              }
-            />
-          )}
-        </div>
-        {uiState.storageKind === "cookies" &&
-        (selectedCookie !== undefined ||
-          uiState.storageDraft?.kind === "cookies") ? (
-          <CookieDetail
-            cookie={selectedCookie}
-            draft={cookieDetailDraft(uiState.storageDraft, selectedCookie)}
-            editing={uiState.storageDraft?.kind === "cookies"}
-            mutationsLocked={mutationsLocked}
-            onCancel={() =>
-              setUiState((current) => ({
-                ...current,
-                storageDraft: undefined,
-                storageFocused: false,
-                storageMutateError: undefined,
-                storageSelection:
-                  current.storageDraft?.kind === "cookies" &&
-                  current.storageDraft.identity === undefined
-                    ? undefined
-                    : current.storageSelection,
-              }))
+    </>
+  );
+};
+
+interface StorageWorkspaceProps {
+  readonly fetchKind: StorageFetchKind;
+  readonly mutationsLocked: boolean;
+  readonly onError: (message: string) => void;
+  readonly onRefreshStateChange: (refreshing: boolean) => void;
+  readonly sessionId: SessionId;
+  readonly setUiState: BrowserStoragePanelProps["setUiState"];
+  readonly tabId: BrowserTabId;
+  readonly uiState: StoragePanelUiState;
+}
+
+const StorageCookiesWorkspace = ({
+  fetchKind,
+  mutationsLocked,
+  onError,
+  onRefreshStateChange,
+  sessionId,
+  setUiState,
+  tabId,
+  uiState,
+}: StorageWorkspaceProps) => {
+  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
+  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
+    mode: "promise",
+  });
+  const cookies = visibleCookies(
+    uiState.storageSnapshots.cookies,
+    uiState.storageSearch
+  );
+  const selectedCookie =
+    uiState.storageSelection?.kind === "cookies"
+      ? uiState.storageSnapshots.cookies.find((cookie) =>
+          cookieIdentitiesEqualRow(cookie, uiState.storageSelection)
+        )
+      : undefined;
+  const mutate = (effect: Effect.Effect<unknown, unknown>) =>
+    runStorageMutate(
+      effect,
+      fetchKind,
+      "cookies",
+      onError,
+      onRefreshStateChange,
+      setUiState
+    );
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div
+        className={cn(
+          "flex min-w-0 flex-col",
+          uiState.storageSelection === undefined &&
+            uiState.storageDraft === undefined
+            ? "flex-1"
+            : "w-1/2 border-r"
+        )}
+      >
+        <CookieTable
+          cookies={cookies}
+          empty={uiState.storageSnapshots.cookies.length === 0}
+          mutationsLocked={mutationsLocked}
+          onDelete={(cookie) => {
+            mutate(
+              Effect.tryPromise({
+                catch: (cause) => cause,
+                try: () =>
+                  deleteStorage({
+                    payload: {
+                      data: {
+                        domain: cookie.domain,
+                        kind: "cookies",
+                        name: cookie.name,
+                        path: cookie.path,
+                        sessionId,
+                        tabId,
+                      },
+                      type: "browser.storage.delete",
+                    },
+                  }),
+              })
+            );
+          }}
+          onSelect={(cookie) => {
+            setUiState((current) => ({
+              ...current,
+              storageDraft: undefined,
+              storageMutateError: undefined,
+              storageSelection: {
+                identity: cookieIdentityOf(cookie),
+                kind: "cookies",
+              },
+            }));
+          }}
+          selected={uiState.storageSelection}
+        />
+      </div>
+      {selectedCookie === undefined &&
+      uiState.storageDraft?.kind !== "cookies" ? null : (
+        <CookieDetail
+          cookie={selectedCookie}
+          draft={cookieDetailDraft(uiState.storageDraft, selectedCookie)}
+          editing={uiState.storageDraft?.kind === "cookies"}
+          mutationsLocked={mutationsLocked}
+          onCancel={() =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: undefined,
+              storageFocused: false,
+              storageMutateError: undefined,
+              storageSelection:
+                current.storageDraft?.kind === "cookies" &&
+                current.storageDraft.identity === undefined
+                  ? undefined
+                  : current.storageSelection,
+            }))
+          }
+          onClose={() =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: undefined,
+              storageSelection: undefined,
+            }))
+          }
+          onDraftChange={(draft) =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: draft,
+            }))
+          }
+          onEdit={() => {
+            if (selectedCookie === undefined) {
+              return;
             }
-            onClose={() =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: cookieDraftFromCookie(selectedCookie),
+            }));
+          }}
+          onFocusChange={(focused) =>
+            setUiState((current) => ({
+              ...current,
+              storageFocused: focused,
+            }))
+          }
+          onSave={(draft) => {
+            const fieldError = validateCookieName(draft.name);
+            if (fieldError !== undefined) {
               setUiState((current) => ({
                 ...current,
-                storageDraft: undefined,
-                storageSelection: undefined,
-              }))
-            }
-            onDraftChange={(draft) =>
-              setUiState((current) => ({
-                ...current,
-                storageDraft: draft,
-              }))
-            }
-            onEdit={() => {
-              if (selectedCookie === undefined) {
-                return;
-              }
-              setUiState((current) => ({
-                ...current,
-                storageDraft: cookieDraftFromCookie(selectedCookie),
+                storageDraft: { ...draft, fieldError },
               }));
-            }}
-            onFocusChange={(focused) =>
-              setUiState((current) => ({
-                ...current,
-                storageFocused: focused,
-              }))
+              return;
             }
-            onSave={(draft) => {
-              const fieldError = validateCookieName(draft.name);
-              if (fieldError !== undefined) {
-                setUiState((current) => ({
-                  ...current,
-                  storageDraft: { ...draft, fieldError },
-                }));
-                return;
-              }
-              const write = cookieWriteFromDraft(draft);
-              if (write === undefined) {
-                return;
-              }
-              const recreate = cookieIdentityChanged(draft);
-              const { identity } = draft;
-              runMutate(
-                Effect.gen(function* saveCookie() {
-                  if (recreate && identity !== undefined) {
-                    yield* Effect.tryPromise({
-                      catch: (cause) => cause,
-                      try: () =>
-                        deleteStorage({
-                          payload: {
-                            data: {
-                              domain: identity.domain,
-                              kind: "cookies",
-                              name: identity.name,
-                              path: identity.path,
-                              sessionId,
-                              tabId,
-                            },
-                            type: "browser.storage.delete",
-                          },
-                        }),
-                    });
-                  }
+            const write = cookieWriteFromDraft(draft);
+            if (write === undefined) {
+              return;
+            }
+            const recreate = cookieIdentityChanged(draft);
+            const { identity } = draft;
+            mutate(
+              Effect.gen(function* saveCookie() {
+                if (recreate && identity !== undefined) {
                   yield* Effect.tryPromise({
                     catch: (cause) => cause,
                     try: () =>
-                      setStorage({
+                      deleteStorage({
                         payload: {
                           data: {
-                            cookie: write,
+                            domain: identity.domain,
                             kind: "cookies",
+                            name: identity.name,
+                            path: identity.path,
                             sessionId,
                             tabId,
                           },
-                          type: "browser.storage.set",
+                          type: "browser.storage.delete",
                         },
                       }),
                   });
-                })
-              );
-            }}
-          />
-        ) : null}
-        {uiState.storageKind !== "cookies" &&
-        selectedWebValue !== undefined &&
-        uiState.storageDraft !== undefined &&
-        uiState.storageDraft.kind !== "cookies" &&
-        uiState.storageDraft.lockedKey ? (
-          <WebStorageDetail
-            dirty={isStorageDraftDirty(
-              uiState.storageDraft,
-              uiState.storageSnapshots
-            )}
-            locked={mutationsLocked}
-            onChange={(value) =>
-              setUiState((current) =>
-                current.storageDraft?.kind === current.storageKind
-                  ? {
-                      ...current,
-                      storageDraft: { ...current.storageDraft, value },
-                    }
-                  : current
-              )
-            }
-            onClose={() =>
-              setUiState((current) => ({
-                ...current,
-                storageDraft: undefined,
-                storageSelection: undefined,
-              }))
-            }
-            onCommit={() => {
-              const draft = uiState.storageDraft;
-              if (draft === undefined || draft.kind === "cookies") {
-                return;
-              }
-              runMutate(
-                Effect.tryPromise({
+                }
+                yield* Effect.tryPromise({
                   catch: (cause) => cause,
                   try: () =>
                     setStorage({
                       payload: {
                         data: {
-                          key: draft.key,
-                          kind: draft.kind,
+                          cookie: write,
+                          kind: "cookies",
                           sessionId,
                           tabId,
-                          value: draft.value,
                         },
                         type: "browser.storage.set",
                       },
                     }),
-                })
-              );
-            }}
-            onFocusChange={(focused) =>
+                });
+              })
+            );
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+const StorageWebWorkspace = ({
+  fetchKind,
+  mutationsLocked,
+  onError,
+  onRefreshStateChange,
+  sessionId,
+  setUiState,
+  tabId,
+  uiState,
+}: StorageWorkspaceProps) => {
+  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
+  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
+    mode: "promise",
+  });
+  const webKind = uiState.storageKind === "session" ? "session" : "local";
+  const webDraft =
+    uiState.storageDraft !== undefined && uiState.storageDraft.kind === webKind
+      ? uiState.storageDraft
+      : undefined;
+  const webEntries = visibleWebStorageEntries(
+    webKind === "local"
+      ? uiState.storageSnapshots.local
+      : uiState.storageSnapshots.session,
+    uiState.storageSearch
+  );
+  const selectedWebValue = selectedWebStorageValue(
+    uiState.storageSelection,
+    uiState.storageSnapshots,
+    uiState.storageKind
+  );
+  const selectedKey =
+    uiState.storageSelection !== undefined &&
+    uiState.storageSelection.kind === webKind
+      ? uiState.storageSelection.key
+      : undefined;
+  const mutate = (effect: Effect.Effect<unknown, unknown>) =>
+    runStorageMutate(
+      effect,
+      fetchKind,
+      webKind,
+      onError,
+      onRefreshStateChange,
+      setUiState
+    );
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div
+        className={cn(
+          "flex min-w-0 flex-col",
+          uiState.storageSelection === undefined &&
+            uiState.storageDraft === undefined
+            ? "flex-1"
+            : "w-1/2 border-r"
+        )}
+      >
+        <WebStorageTable
+          draft={webDraft}
+          empty={
+            Object.keys(
+              webKind === "local"
+                ? uiState.storageSnapshots.local
+                : uiState.storageSnapshots.session
+            ).length === 0 && uiState.storageDraft === undefined
+          }
+          entries={webEntries}
+          kind={webKind}
+          mutationsLocked={mutationsLocked}
+          onCancelDraft={() =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: undefined,
+              storageFocused: false,
+            }))
+          }
+          onCommitDraft={(draft) => {
+            const fieldError = validateStorageKey(draft.key);
+            if (fieldError !== undefined) {
               setUiState((current) => ({
                 ...current,
-                storageFocused: focused,
-              }))
+                storageDraft: { ...draft, fieldError },
+              }));
+              return;
             }
-            storageKey={
-              uiState.storageSelection?.kind === "cookies"
-                ? ""
-                : (uiState.storageSelection?.key ?? "")
-            }
-            value={uiState.storageDraft.value}
-          />
-        ) : null}
+            mutate(
+              Effect.tryPromise({
+                catch: (cause) => cause,
+                try: () =>
+                  setStorage({
+                    payload: {
+                      data: {
+                        key: draft.key,
+                        kind: draft.kind,
+                        sessionId,
+                        tabId,
+                        value: draft.value,
+                      },
+                      type: "browser.storage.set",
+                    },
+                  }),
+              })
+            );
+          }}
+          onDelete={(key) => {
+            mutate(
+              Effect.tryPromise({
+                catch: (cause) => cause,
+                try: () =>
+                  deleteStorage({
+                    payload: {
+                      data: {
+                        key,
+                        kind: webKind,
+                        sessionId,
+                        tabId,
+                      },
+                      type: "browser.storage.delete",
+                    },
+                  }),
+              })
+            );
+          }}
+          onDraftChange={(draft) =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: draft,
+            }))
+          }
+          onFocusChange={(focused) =>
+            setUiState((current) => ({
+              ...current,
+              storageFocused: focused,
+            }))
+          }
+          onSelect={(key, value) => {
+            setUiState((current) => ({
+              ...current,
+              storageDraft: webStorageDraftFromEntry(webKind, key, value),
+              storageMutateError: undefined,
+              storageSelection: { key, kind: webKind },
+            }));
+          }}
+          selectedKey={selectedKey}
+        />
       </div>
-      <AlertDialog onOpenChange={setConfirmClear} open={confirmClear}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clear this store?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {clearConfirmCopy(uiState.storageKind)}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmClear(false);
-                runMutate(
-                  Effect.tryPromise({
-                    catch: (cause) => cause,
-                    try: () =>
-                      clearStorage({
-                        payload: {
-                          data: {
-                            kind: uiState.storageKind,
-                            sessionId,
-                            tabId,
-                          },
-                          type: "browser.storage.clear",
-                        },
-                      }),
-                  })
-                );
-              }}
-              variant="destructive"
-            >
-              Clear
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {selectedWebValue === undefined ||
+      uiState.storageDraft === undefined ||
+      uiState.storageDraft.kind === "cookies" ||
+      !uiState.storageDraft.lockedKey ? null : (
+        <WebStorageDetail
+          dirty={isStorageDraftDirty(
+            uiState.storageDraft,
+            uiState.storageSnapshots
+          )}
+          locked={mutationsLocked}
+          onChange={(value) =>
+            setUiState((current) =>
+              current.storageDraft?.kind === current.storageKind
+                ? {
+                    ...current,
+                    storageDraft: { ...current.storageDraft, value },
+                  }
+                : current
+            )
+          }
+          onClose={() =>
+            setUiState((current) => ({
+              ...current,
+              storageDraft: undefined,
+              storageSelection: undefined,
+            }))
+          }
+          onCommit={() => {
+            const draft = uiState.storageDraft;
+            if (draft === undefined || draft.kind === "cookies") {
+              return;
+            }
+            mutate(
+              Effect.tryPromise({
+                catch: (cause) => cause,
+                try: () =>
+                  setStorage({
+                    payload: {
+                      data: {
+                        key: draft.key,
+                        kind: draft.kind,
+                        sessionId,
+                        tabId,
+                        value: draft.value,
+                      },
+                      type: "browser.storage.set",
+                    },
+                  }),
+              })
+            );
+          }}
+          onFocusChange={(focused) =>
+            setUiState((current) => ({
+              ...current,
+              storageFocused: focused,
+            }))
+          }
+          storageKey={
+            uiState.storageSelection?.kind === "cookies"
+              ? ""
+              : (uiState.storageSelection?.key ?? "")
+          }
+          value={uiState.storageDraft.value}
+        />
+      )}
+    </div>
+  );
+};
+
+const StorageClearDialog = ({
+  fetchKind,
+  kind,
+  onError,
+  onOpenChange,
+  onRefreshStateChange,
+  open,
+  sessionId,
+  setUiState,
+  tabId,
+}: {
+  readonly fetchKind: StorageFetchKind;
+  readonly kind: StorageKind;
+  readonly onError: (message: string) => void;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onRefreshStateChange: (refreshing: boolean) => void;
+  readonly open: boolean;
+  readonly sessionId: SessionId;
+  readonly setUiState: BrowserStoragePanelProps["setUiState"];
+  readonly tabId: BrowserTabId;
+}) => {
+  const clearStorage = useAtomSet(browserStorageClearMutation, {
+    mode: "promise",
+  });
+  return (
+    <AlertDialog onOpenChange={onOpenChange} open={open}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Clear this store?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {clearConfirmCopy(kind)}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              onOpenChange(false);
+              runStorageMutate(
+                Effect.tryPromise({
+                  catch: (cause) => cause,
+                  try: () =>
+                    clearStorage({
+                      payload: {
+                        data: { kind, sessionId, tabId },
+                        type: "browser.storage.clear",
+                      },
+                    }),
+                }),
+                fetchKind,
+                kind,
+                onError,
+                onRefreshStateChange,
+                setUiState
+              );
+            }}
+            variant="destructive"
+          >
+            Clear
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+};
+
+export const BrowserStoragePanel = ({
+  mutationsLocked,
+  onError,
+  onRefreshStateChange,
+  refreshNonce,
+  sessionId,
+  setUiState,
+  tabId,
+  tabUrl,
+  uiState,
+}: BrowserStoragePanelProps) => {
+  const getStorage = useAtomSet(browserStorageGetMutation, { mode: "promise" });
+  const [confirmClear, setConfirmClear] = useState(false);
+  const host = httpOriginFromUrl(tabUrl)?.host;
+  const dirty = isStorageDraftDirty(
+    uiState.storageDraft,
+    uiState.storageSnapshots
+  );
+  const pollPaused = uiState.storageFocused || dirty;
+  const fetchKind = useStoragePolling({
+    dirty,
+    getStorage,
+    mutationsLocked,
+    onError,
+    onRefreshStateChange,
+    pollPaused,
+    refreshNonce,
+    sessionId,
+    setUiState,
+    tabId,
+    tabUrl,
+    uiState,
+  });
+  const workspaceProps = {
+    fetchKind,
+    mutationsLocked,
+    onError,
+    onRefreshStateChange,
+    sessionId,
+    setUiState,
+    tabId,
+    uiState,
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <StoragePanelChrome
+        host={host}
+        mutationsLocked={mutationsLocked}
+        onConfirmClear={() => {
+          setConfirmClear(true);
+        }}
+        setUiState={setUiState}
+        uiState={uiState}
+      />
+      {uiState.storageKind === "cookies" ? (
+        <StorageCookiesWorkspace {...workspaceProps} />
+      ) : (
+        <StorageWebWorkspace {...workspaceProps} />
+      )}
+      <StorageClearDialog
+        fetchKind={fetchKind}
+        kind={uiState.storageKind}
+        onError={onError}
+        onOpenChange={setConfirmClear}
+        onRefreshStateChange={onRefreshStateChange}
+        open={confirmClear}
+        sessionId={sessionId}
+        setUiState={setUiState}
+        tabId={tabId}
+      />
     </div>
   );
 };
