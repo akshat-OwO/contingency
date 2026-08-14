@@ -146,6 +146,56 @@ export const filterCookiesForOriginHost = (
 ): readonly BrowserCookie[] =>
   cookies.filter((cookie) => cookieDomainMatchesHost(cookie.domain, host));
 
+export const compareCookieIdentities = (
+  left: BrowserCookieIdentity,
+  right: BrowserCookieIdentity
+): number => {
+  const byName = left.name.localeCompare(right.name);
+  if (byName !== 0) {
+    return byName;
+  }
+  const byDomain = left.domain.localeCompare(right.domain);
+  if (byDomain !== 0) {
+    return byDomain;
+  }
+  return left.path.localeCompare(right.path);
+};
+
+export const sortCookiesByIdentity = (
+  cookies: readonly BrowserCookie[]
+): readonly BrowserCookie[] => cookies.toSorted(compareCookieIdentities);
+
+const cookieRecordsEqual = (
+  left: BrowserCookie,
+  right: BrowserCookie
+): boolean =>
+  left.name === right.name &&
+  left.domain === right.domain &&
+  left.path === right.path &&
+  left.value === right.value &&
+  left.httpOnly === right.httpOnly &&
+  left.secure === right.secure &&
+  left.sameSite === right.sameSite &&
+  left.expires === right.expires &&
+  left.session === right.session &&
+  left.size === right.size;
+
+export const cookiesEquivalent = (
+  left: readonly BrowserCookie[],
+  right: readonly BrowserCookie[]
+): boolean => {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (const [index, cookie] of left.entries()) {
+    const other = right[index];
+    if (other === undefined || !cookieRecordsEqual(cookie, other)) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export const cookieIdentitiesEqual = (
   left: BrowserCookieIdentity,
   right: BrowserCookieIdentity

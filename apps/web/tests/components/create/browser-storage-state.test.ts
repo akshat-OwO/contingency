@@ -1,5 +1,6 @@
 import type { BrowserCookie } from "@contingency/protocol";
 import {
+  BrowserTabId,
   cookieIdentitiesEqual,
   cookieIdentityOf,
   filterCookiesForOriginHost,
@@ -9,12 +10,14 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  applyFetchedStorageSnapshot,
   applyStorageOriginChange,
   cookieIdentityChanged,
   cookieWriteFromDraft,
   defaultCookieDraft,
   defaultWebStorageDraft,
   emptyStorageSnapshots,
+  initialStoragePanelUiState,
   isStorageDraftDirty,
   retainStorageSelection,
   selectedStorageRowExists,
@@ -112,6 +115,25 @@ describe("storage search", () => {
     expect(visibleWebStorageEntries({ alpha: "1", beta: "2" }, "beta")).toEqual(
       [["beta", "2"]]
     );
+  });
+
+  it("sorts cookies by name, then domain, then path regardless of fetch order", () => {
+    expect(
+      visibleCookies(
+        [
+          cookie({ domain: "z.example.com", name: "theme", value: "dark" }),
+          cookie({ domain: "a.example.com", name: "sid", path: "/app" }),
+          cookie({ domain: "a.example.com", name: "sid", path: "/" }),
+          cookie({ domain: "example.com", name: "locale", value: "en" }),
+        ],
+        ""
+      ).map((entry) => `${entry.name}|${entry.domain}|${entry.path}`)
+    ).toEqual([
+      "locale|example.com|/",
+      "sid|a.example.com|/",
+      "sid|a.example.com|/app",
+      "theme|z.example.com|/",
+    ]);
   });
 });
 
@@ -238,6 +260,67 @@ describe("commit validation", () => {
         snapshots
       )
     ).toBeUndefined();
+  });
+});
+
+describe("fetched cookie snapshots", () => {
+  const tabId = BrowserTabId.make("tab-1");
+  const sid = cookie({ domain: "example.com", name: "sid", value: "a" });
+  const theme = cookie({ domain: "example.com", name: "theme", value: "dark" });
+  const locale = cookie({ domain: "example.com", name: "locale", value: "en" });
+
+  it("sorts polled cookies and reuses the panel state when only order changed", () => {
+    const first = applyFetchedStorageSnapshot(
+      {
+        ...initialStoragePanelUiState,
+        storageSnapshots: emptyStorageSnapshots("https://example.com"),
+      },
+      "https://example.com/",
+      {
+        cookies: [theme, sid, locale],
+        kind: "cookies",
+        tabId,
+      }
+    );
+    expect(first.storageSnapshots.cookies.map((entry) => entry.name)).toEqual([
+      "locale",
+      "sid",
+      "theme",
+    ]);
+    const second = applyFetchedStorageSnapshot(first, "https://example.com/", {
+      cookies: [sid, locale, theme],
+      kind: "cookies",
+      tabId,
+    });
+    expect(second).toBe(first);
+    expect(second.storageSnapshots.cookies).toBe(
+      first.storageSnapshots.cookies
+    );
+  });
+
+  it("replaces the snapshot when a cookie value changes", () => {
+    const first = applyFetchedStorageSnapshot(
+      {
+        ...initialStoragePanelUiState,
+        storageSnapshots: emptyStorageSnapshots("https://example.com"),
+      },
+      "https://example.com/",
+      {
+        cookies: [sid, theme],
+        kind: "cookies",
+        tabId,
+      }
+    );
+    const next = applyFetchedStorageSnapshot(first, "https://example.com/", {
+      cookies: [sid, { ...theme, value: "light" }],
+      kind: "cookies",
+      tabId,
+    });
+    expect(next).not.toBe(first);
+    expect(next.storageSnapshots.cookies.map((entry) => entry.value)).toEqual([
+      "a",
+      "light",
+    ]);
   });
 });
 

@@ -537,6 +537,17 @@ const storageTab = {
 
 const originCookies = [
   {
+    domain: "app.example.com",
+    expires: -1,
+    httpOnly: false,
+    name: "theme",
+    path: "/",
+    secure: false,
+    session: true,
+    size: 9,
+    value: "dark",
+  },
+  {
     domain: ".example.com",
     expires: -1,
     httpOnly: true,
@@ -547,6 +558,17 @@ const originCookies = [
     session: true,
     size: 12,
     value: "abc",
+  },
+  {
+    domain: "app.example.com",
+    expires: -1,
+    httpOnly: false,
+    name: "locale",
+    path: "/",
+    secure: false,
+    session: true,
+    size: 8,
+    value: "en",
   },
   {
     domain: "stripe.com",
@@ -663,6 +685,17 @@ it.effect(
         expect(cookies).toEqual({
           cookies: [
             {
+              domain: "app.example.com",
+              expires: -1,
+              httpOnly: false,
+              name: "locale",
+              path: "/",
+              secure: false,
+              session: true,
+              size: 8,
+              value: "en",
+            },
+            {
               domain: ".example.com",
               expires: -1,
               httpOnly: true,
@@ -673,6 +706,17 @@ it.effect(
               session: true,
               size: 12,
               value: "abc",
+            },
+            {
+              domain: "app.example.com",
+              expires: -1,
+              httpOnly: false,
+              name: "theme",
+              path: "/",
+              secure: false,
+              session: true,
+              size: 9,
+              value: "dark",
             },
           ],
           kind: "cookies",

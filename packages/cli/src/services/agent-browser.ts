@@ -8,6 +8,7 @@ import {
   BrowserRequestId,
   BrowserTabId,
   filterCookiesForOriginHost,
+  sortCookiesByIdentity,
   httpOriginFromUrl,
   isBrowserRpcError,
   makeBrowserRpcError,
@@ -892,9 +893,11 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
                 BrowserCookiesResult
               );
               return {
-                cookies: filterCookiesForOriginHost(
-                  result.data.cookies.map(normalizeAgentBrowserCookie),
-                  origin.host
+                cookies: sortCookiesByIdentity(
+                  filterCookiesForOriginHost(
+                    result.data.cookies.map(normalizeAgentBrowserCookie),
+                    origin.host
+                  )
                 ),
                 kind,
                 tabId,

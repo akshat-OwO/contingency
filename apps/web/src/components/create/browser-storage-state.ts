@@ -8,9 +8,12 @@ import type {
   StorageKind,
 } from "@contingency/protocol";
 import {
+  compareCookieIdentities,
   cookieIdentitiesEqual,
   cookieIdentityOf,
+  cookiesEquivalent,
   httpOriginFromUrl,
+  sortCookiesByIdentity,
 } from "@contingency/protocol";
 
 export type StorageSelection =
@@ -163,7 +166,9 @@ export const visibleCookies = (
   cookies: readonly BrowserCookie[],
   query: string
 ): readonly BrowserCookie[] =>
-  cookies.filter((cookie) => storageSearchMatchesCookie(cookie, query));
+  cookies
+    .filter((cookie) => storageSearchMatchesCookie(cookie, query))
+    .toSorted(compareCookieIdentities);
 
 export const visibleWebStorageEntries = (
   entries: BrowserWebStorageEntries,
@@ -218,6 +223,20 @@ export const applyStorageOriginChange = (
   };
 };
 
+const webStorageEntriesEqual = (
+  left: BrowserWebStorageEntries,
+  right: BrowserWebStorageEntries
+): boolean => {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return leftKeys.every(
+    (key) => Object.hasOwn(right, key) && left[key] === right[key]
+  );
+};
+
 export const replaceStorageKindSnapshot = (
   snapshots: StorageSnapshots,
   origin: string | undefined,
@@ -225,27 +244,28 @@ export const replaceStorageKindSnapshot = (
   cookies: readonly BrowserCookie[],
   entries: BrowserWebStorageEntries
 ): StorageSnapshots => {
+  const sortedCookies = sortCookiesByIdentity(cookies);
   if (origin !== snapshots.origin) {
     return {
-      cookies: kind === "cookies" ? cookies : [],
+      cookies: kind === "cookies" ? sortedCookies : [],
       local: kind === "local" ? entries : {},
       origin,
       session: kind === "session" ? entries : {},
     };
   }
   if (kind === "cookies") {
-    if (origin === snapshots.origin && cookies === snapshots.cookies) {
+    if (cookiesEquivalent(sortedCookies, snapshots.cookies)) {
       return snapshots;
     }
-    return { ...snapshots, cookies, origin };
+    return { ...snapshots, cookies: sortedCookies, origin };
   }
   if (kind === "local") {
-    if (origin === snapshots.origin && entries === snapshots.local) {
+    if (webStorageEntriesEqual(entries, snapshots.local)) {
       return snapshots;
     }
     return { ...snapshots, local: entries, origin };
   }
-  if (origin === snapshots.origin && entries === snapshots.session) {
+  if (webStorageEntriesEqual(entries, snapshots.session)) {
     return snapshots;
   }
   return { ...snapshots, origin, session: entries };
