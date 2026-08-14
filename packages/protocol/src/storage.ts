@@ -9,6 +9,7 @@ export type StorageKind = typeof StorageKind.Type;
 
 export const CookieSameSite = Schema.Literals(["Strict", "Lax", "None"]);
 export type CookieSameSite = typeof CookieSameSite.Type;
+export const isCookieSameSite = Schema.is(CookieSameSite);
 
 export const BrowserCookie = Schema.Struct({
   domain: nonEmptyString,
@@ -26,6 +27,7 @@ export type BrowserCookie = typeof BrowserCookie.Type;
 
 export const BrowserCookieWrite = Schema.Struct({
   domain: nonEmptyString,
+  expires: Schema.optional(Schema.Finite),
   httpOnly: Schema.Boolean,
   name: nonEmptyString,
   path: nonEmptyString,
@@ -108,6 +110,15 @@ export type BrowserStorageDeletePayload =
 const HTTP_ORIGIN_PATTERN =
   /^(?<scheme>https?):\/\/(?<host>\[[^\]]+\]|[^/?#:]+)(?::(?<port>\d+))?/u;
 
+const ASCII_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+
+const asciiLowerCase = (value: string): string =>
+  value.replaceAll(/[A-Z]/gu, (letter) => {
+    const index = ASCII_UPPERCASE.indexOf(letter);
+    return index === -1 ? letter : (ASCII_LOWERCASE[index] ?? letter);
+  });
+
 export const httpOriginFromUrl = (
   url: string
 ): { readonly host: string; readonly origin: string } | undefined => {
@@ -129,8 +140,8 @@ export const cookieDomainMatchesHost = (
   cookieDomain: string,
   host: string
 ): boolean => {
-  const domain = cookieDomain.replace(/^\./u, "").toLocaleLowerCase();
-  const hostname = host.toLocaleLowerCase();
+  const domain = asciiLowerCase(cookieDomain.replace(/^\./u, ""));
+  const hostname = asciiLowerCase(host);
   if (hostname === domain) {
     return true;
   }

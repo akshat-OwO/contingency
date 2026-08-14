@@ -1,10 +1,5 @@
-import type {
-  BrowserCookie,
-  BrowserCookieWrite,
-  CookieSameSite,
-} from "@contingency/protocol";
-
-const sameSiteValues = new Set<CookieSameSite>(["Strict", "Lax", "None"]);
+import type { BrowserCookie, BrowserCookieWrite } from "@contingency/protocol";
+import { isCookieSameSite } from "@contingency/protocol";
 
 export const normalizeAgentBrowserCookie = (cookie: {
   readonly domain: string;
@@ -21,9 +16,7 @@ export const normalizeAgentBrowserCookie = (cookie: {
   const expires = cookie.expires ?? -1;
   const { sameSite } = cookie;
   const normalizedSameSite =
-    sameSite !== undefined && sameSiteValues.has(sameSite as CookieSameSite)
-      ? (sameSite as CookieSameSite)
-      : undefined;
+    sameSite !== undefined && isCookieSameSite(sameSite) ? sameSite : undefined;
   return {
     domain: cookie.domain,
     expires,
@@ -44,8 +37,7 @@ export const normalizeAgentBrowserCookie = (cookie: {
 };
 
 export const cookieSetArgs = (
-  cookie: BrowserCookieWrite,
-  expires?: number
+  cookie: BrowserCookieWrite
 ): readonly string[] => {
   const args = [
     "cookies",
@@ -66,8 +58,8 @@ export const cookieSetArgs = (
   if (cookie.sameSite !== undefined) {
     args.push("--sameSite", cookie.sameSite);
   }
-  if (expires !== undefined && expires >= 0) {
-    args.push("--expires", String(Math.trunc(expires)));
+  if (cookie.expires !== undefined && cookie.expires >= 0) {
+    args.push("--expires", String(Math.trunc(cookie.expires)));
   }
   return args;
 };

@@ -13,6 +13,7 @@ import {
   applyFetchedStorageSnapshot,
   applyStorageOriginChange,
   cookieIdentityChanged,
+  cookieDraftFromCookie,
   cookieWriteFromDraft,
   defaultCookieDraft,
   defaultWebStorageDraft,
@@ -72,6 +73,14 @@ describe("filterCookiesForOriginHost", () => {
   it("omits other-site cookies including subframe third parties", () => {
     const visible = filterCookiesForOriginHost(cookies, "app.example.com");
     expect(visible.some((entry) => entry.domain === "stripe.com")).toBe(false);
+  });
+
+  it("matches cookie domains using ASCII case folding", () => {
+    const visible = filterCookiesForOriginHost(
+      [cookie({ domain: ".EXAMPLE.COM", name: "parent" })],
+      "App.Example.Com"
+    );
+    expect(visible.map((entry) => entry.name)).toEqual(["parent"]);
   });
 });
 
@@ -232,6 +241,21 @@ describe("commit validation", () => {
         }
       )
     ).toBe(true);
+  });
+
+  it("keeps an existing cookie expiry in the write payload", () => {
+    const dated = cookie({
+      domain: "app.example.com",
+      expires: 1_700_000_000,
+      name: "sid",
+      session: false,
+    });
+    const draft = cookieDraftFromCookie(dated);
+
+    expect(cookieWriteFromDraft(draft)).toMatchObject({
+      expires: 1_700_000_000,
+      name: "sid",
+    });
   });
 
   it("keeps a same-origin selection after the next snapshot when the row still exists", () => {

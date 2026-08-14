@@ -137,17 +137,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "browser.storage.delete": ({ data }) =>
         requireStorageMutation(data.sessionId).pipe(
           Effect.andThen(
-            data.kind === "cookies"
-              ? agentBrowser.deleteStorage(data.sessionId, data.tabId, {
-                  domain: data.domain,
-                  kind: "cookies",
-                  name: data.name,
-                  path: data.path,
-                })
-              : agentBrowser.deleteStorage(data.sessionId, data.tabId, {
-                  key: data.key,
-                  kind: data.kind,
-                })
+            agentBrowser.deleteStorage(data.sessionId, data.tabId, data)
           ),
           Effect.as({ data: {}, type: "browser.storage.updated" as const })
         ),
@@ -161,16 +151,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "browser.storage.set": ({ data }) =>
         requireStorageMutation(data.sessionId).pipe(
           Effect.andThen(
-            data.kind === "cookies"
-              ? agentBrowser.setStorage(data.sessionId, data.tabId, {
-                  cookie: data.cookie,
-                  kind: "cookies",
-                })
-              : agentBrowser.setStorage(data.sessionId, data.tabId, {
-                  key: data.key,
-                  kind: data.kind,
-                  value: data.value,
-                })
+            agentBrowser.setStorage(data.sessionId, data.tabId, data)
           ),
           Effect.as({ data: {}, type: "browser.storage.updated" as const })
         ),

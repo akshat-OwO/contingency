@@ -1,13 +1,17 @@
 import type {
   BrowserCookie,
   BrowserTabId,
+  BrowserStorageDeletePayload,
+  BrowserStorageSetPayload,
   CookieSameSite,
   SessionId,
   StorageKind,
 } from "@contingency/protocol";
 import {
+  cookieIdentitiesEqual,
   cookieIdentityOf,
   httpOriginFromUrl,
+  isCookieSameSite,
   isBrowserRpcError,
   STORAGE_LOCKED_MESSAGE as storageLockedMessage,
 } from "@contingency/protocol";
@@ -96,6 +100,18 @@ const clearConfirmCopy = (kind: StorageKind): string => {
 const sameSiteLabel = (value: CookieSameSite | undefined): string =>
   value ?? "—";
 
+const sameSiteUnsetValue = "unset";
+
+const sameSiteFromSelectValue = (
+  value: string | null,
+  current: CookieSameSite | undefined
+): CookieSameSite | undefined => {
+  if (value === null || value === sameSiteUnsetValue) {
+    return undefined;
+  }
+  return isCookieSameSite(value) ? value : current;
+};
+
 const flagLabel = (value: boolean): string => (value ? "Yes" : "No");
 
 const toErrorMessage = (error: unknown): string =>
@@ -124,9 +140,7 @@ const cookieIdentitiesEqualRow = (
   selection: StorageSelection | undefined
 ): boolean =>
   selection?.kind === "cookies" &&
-  cookie.name === selection.identity.name &&
-  cookie.domain === selection.identity.domain &&
-  cookie.path === selection.identity.path;
+  cookieIdentitiesEqual(cookie, selection.identity);
 
 const CookieTable = ({
   cookies,
@@ -440,7 +454,7 @@ const CookieDetail = ({
             <FieldLabel htmlFor="cookie-name">Name</FieldLabel>
             <Input
               aria-invalid={form.fieldError !== undefined}
-              disabled={readOnly}
+              disabled={readOnly || form.identity !== undefined}
               id="cookie-name"
               onBlur={() => {
                 onFocusChange(false);
@@ -547,19 +561,16 @@ const CookieDetail = ({
               onValueChange={(value) =>
                 onDraftChange({
                   ...form,
-                  sameSite:
-                    value === "none-set"
-                      ? undefined
-                      : (value as CookieSameSite),
+                  sameSite: sameSiteFromSelectValue(value, form.sameSite),
                 })
               }
-              value={form.sameSite ?? "none-set"}
+              value={form.sameSite ?? sameSiteUnsetValue}
             >
               <SelectTrigger aria-label="SameSite" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none-set">—</SelectItem>
+                <SelectItem value={sameSiteUnsetValue}>—</SelectItem>
                 <SelectItem value="Strict">Strict</SelectItem>
                 <SelectItem value="Lax">Lax</SelectItem>
                 <SelectItem value="None">None</SelectItem>
@@ -804,6 +815,38 @@ const useStoragePolling = ({
 
 type StorageFetchKind = (kind: StorageKind) => Effect.Effect<unknown, unknown>;
 
+type StorageMutationEffect = Effect.Effect<unknown, unknown>;
+
+const useStorageMutations = () => {
+  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
+  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
+    mode: "promise",
+  });
+  const setStorageEffect = useCallback(
+    (data: BrowserStorageSetPayload): StorageMutationEffect =>
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          setStorage({
+            payload: { data, type: "browser.storage.set" },
+          }),
+      }),
+    [setStorage]
+  );
+  const deleteStorageEffect = useCallback(
+    (data: BrowserStorageDeletePayload): StorageMutationEffect =>
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          deleteStorage({
+            payload: { data, type: "browser.storage.delete" },
+          }),
+      }),
+    [deleteStorage]
+  );
+  return { deleteStorageEffect, setStorageEffect };
+};
+
 const runStorageMutate = (
   effect: Effect.Effect<unknown, unknown>,
   fetchKind: StorageFetchKind,
@@ -999,10 +1042,7 @@ const StorageCookiesWorkspace = ({
   tabId,
   uiState,
 }: StorageWorkspaceProps) => {
-  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
-  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
-    mode: "promise",
-  });
+  const { deleteStorageEffect, setStorageEffect } = useStorageMutations();
   const cookies = visibleCookies(
     uiState.storageSnapshots.cookies,
     uiState.storageSearch
@@ -1040,22 +1080,13 @@ const StorageCookiesWorkspace = ({
           mutationsLocked={mutationsLocked}
           onDelete={(cookie) => {
             mutate(
-              Effect.tryPromise({
-                catch: (cause) => cause,
-                try: () =>
-                  deleteStorage({
-                    payload: {
-                      data: {
-                        domain: cookie.domain,
-                        kind: "cookies",
-                        name: cookie.name,
-                        path: cookie.path,
-                        sessionId,
-                        tabId,
-                      },
-                      type: "browser.storage.delete",
-                    },
-                  }),
+              deleteStorageEffect({
+                domain: cookie.domain,
+                kind: "cookies",
+                name: cookie.name,
+                path: cookie.path,
+                sessionId,
+                tabId,
               })
             );
           }}
@@ -1139,38 +1170,20 @@ const StorageCookiesWorkspace = ({
             mutate(
               Effect.gen(function* saveCookie() {
                 if (recreate && identity !== undefined) {
-                  yield* Effect.tryPromise({
-                    catch: (cause) => cause,
-                    try: () =>
-                      deleteStorage({
-                        payload: {
-                          data: {
-                            domain: identity.domain,
-                            kind: "cookies",
-                            name: identity.name,
-                            path: identity.path,
-                            sessionId,
-                            tabId,
-                          },
-                          type: "browser.storage.delete",
-                        },
-                      }),
+                  yield* deleteStorageEffect({
+                    domain: identity.domain,
+                    kind: "cookies",
+                    name: identity.name,
+                    path: identity.path,
+                    sessionId,
+                    tabId,
                   });
                 }
-                yield* Effect.tryPromise({
-                  catch: (cause) => cause,
-                  try: () =>
-                    setStorage({
-                      payload: {
-                        data: {
-                          cookie: write,
-                          kind: "cookies",
-                          sessionId,
-                          tabId,
-                        },
-                        type: "browser.storage.set",
-                      },
-                    }),
+                yield* setStorageEffect({
+                  cookie: write,
+                  kind: "cookies",
+                  sessionId,
+                  tabId,
                 });
               })
             );
@@ -1191,10 +1204,7 @@ const StorageWebWorkspace = ({
   tabId,
   uiState,
 }: StorageWorkspaceProps) => {
-  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
-  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
-    mode: "promise",
-  });
+  const { deleteStorageEffect, setStorageEffect } = useStorageMutations();
   const webKind = uiState.storageKind === "session" ? "session" : "local";
   const webDraft =
     uiState.storageDraft !== undefined && uiState.storageDraft.kind === webKind
@@ -1266,40 +1276,22 @@ const StorageWebWorkspace = ({
               return;
             }
             mutate(
-              Effect.tryPromise({
-                catch: (cause) => cause,
-                try: () =>
-                  setStorage({
-                    payload: {
-                      data: {
-                        key: draft.key,
-                        kind: draft.kind,
-                        sessionId,
-                        tabId,
-                        value: draft.value,
-                      },
-                      type: "browser.storage.set",
-                    },
-                  }),
+              setStorageEffect({
+                key: draft.key,
+                kind: draft.kind,
+                sessionId,
+                tabId,
+                value: draft.value,
               })
             );
           }}
           onDelete={(key) => {
             mutate(
-              Effect.tryPromise({
-                catch: (cause) => cause,
-                try: () =>
-                  deleteStorage({
-                    payload: {
-                      data: {
-                        key,
-                        kind: webKind,
-                        sessionId,
-                        tabId,
-                      },
-                      type: "browser.storage.delete",
-                    },
-                  }),
+              deleteStorageEffect({
+                key,
+                kind: webKind,
+                sessionId,
+                tabId,
               })
             );
           }}
@@ -1359,21 +1351,12 @@ const StorageWebWorkspace = ({
               return;
             }
             mutate(
-              Effect.tryPromise({
-                catch: (cause) => cause,
-                try: () =>
-                  setStorage({
-                    payload: {
-                      data: {
-                        key: draft.key,
-                        kind: draft.kind,
-                        sessionId,
-                        tabId,
-                        value: draft.value,
-                      },
-                      type: "browser.storage.set",
-                    },
-                  }),
+              setStorageEffect({
+                key: draft.key,
+                kind: draft.kind,
+                sessionId,
+                tabId,
+                value: draft.value,
               })
             );
           }}

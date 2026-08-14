@@ -792,6 +792,7 @@ it.effect(
         yield* agentBrowser.setStorage(sessionId, tabId, {
           cookie: {
             domain: "app.example.com",
+            expires: 1_700_000_000,
             httpOnly: true,
             name: "sid",
             path: "/",
@@ -825,6 +826,14 @@ it.effect(
               command.includes("cookies") &&
               command.includes("set") &&
               command.includes("next")
+          )
+        ).toBe(true);
+        expect(
+          args.some(
+            (command) =>
+              command.includes("cookies") &&
+              command.includes("--expires") &&
+              command.includes("1700000000")
           )
         ).toBe(true);
         expect(

@@ -22,6 +22,7 @@ export type StorageSelection =
 
 export interface CookieDraft {
   readonly domain: string;
+  readonly expires: number;
   readonly fieldError: string | undefined;
   readonly httpOnly: boolean;
   readonly identity: BrowserCookieIdentity | undefined;
@@ -61,6 +62,7 @@ export const emptyStorageSnapshots = (
 
 export const defaultCookieDraft = (host: string): CookieDraft => ({
   domain: host,
+  expires: -1,
   fieldError: undefined,
   httpOnly: false,
   identity: undefined,
@@ -74,6 +76,7 @@ export const defaultCookieDraft = (host: string): CookieDraft => ({
 
 export const cookieDraftFromCookie = (cookie: BrowserCookie): CookieDraft => ({
   domain: cookie.domain,
+  expires: cookie.expires,
   fieldError: undefined,
   httpOnly: cookie.httpOnly,
   identity: cookieIdentityOf(cookie),
@@ -122,6 +125,7 @@ export const cookieWriteFromDraft = (
   }
   return {
     domain: draft.domain.trim() || draft.domain,
+    ...(draft.expires < 0 ? {} : { expires: draft.expires }),
     httpOnly: draft.httpOnly,
     name: draft.name.trim(),
     path: draft.path.trim() || "/",

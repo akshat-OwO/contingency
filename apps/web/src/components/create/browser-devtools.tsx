@@ -8,7 +8,6 @@ import type {
   StorageKind,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
-import type { HighlightTokenClass } from "@tanstack/highlight";
 import { createHighlighter } from "@tanstack/highlight/core";
 import { html } from "@tanstack/highlight/languages/html";
 import { js } from "@tanstack/highlight/languages/js";
@@ -39,6 +38,7 @@ import type {
   StorageSelection,
   StorageSnapshots,
 } from "@/components/create/browser-storage-state";
+import { HighlightedCode } from "@/components/create/highlighted-code";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -250,67 +250,12 @@ const responseLanguage = (
   return "plaintext";
 };
 
-const tokenClassName = (className: HighlightTokenClass | undefined): string => {
-  switch (className) {
-    case "comment":
-    case "meta": {
-      return "text-muted-foreground";
-    }
-    case "deleted":
-    case "keyword":
-    case "tag": {
-      return "text-red-600 dark:text-red-400";
-    }
-    case "inserted":
-    case "selector": {
-      return "text-emerald-600 dark:text-emerald-400";
-    }
-    case "number":
-    case "literal":
-    case "property": {
-      return "text-blue-600 dark:text-blue-400";
-    }
-    case "string":
-    case "link": {
-      return "text-cyan-700 dark:text-cyan-300";
-    }
-    case "function":
-    case "operator":
-    case "command": {
-      return "text-violet-600 dark:text-violet-400";
-    }
-    case "attr":
-    case "type":
-    case "variable": {
-      return "text-amber-600 dark:text-amber-400";
-    }
-    default: {
-      return "";
-    }
-  }
-};
-
 const renderHighlightedText = (
   language: "html" | "js" | "json" | "plaintext",
   value: string
 ) => {
   const { tokens } = highlighter.tokenize(value, { lang: language });
-  return (
-    <div className="size-full min-h-0 min-w-0 overflow-auto">
-      <pre className="min-w-0 p-3 font-mono text-xs break-words whitespace-pre-wrap">
-        <code>
-          {tokens.map((token, index) => (
-            <span
-              className={tokenClassName(token.className)}
-              key={`${index}-${token.value.slice(0, 8)}`}
-            >
-              {token.value}
-            </span>
-          ))}
-        </code>
-      </pre>
-    </div>
-  );
+  return <HighlightedCode tokens={tokens} />;
 };
 
 const renderHeaderSection = (label: string, value: unknown) => {
