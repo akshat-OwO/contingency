@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import {
   navigateWithUserAgentOverride,
   platformFromUserAgent,
+  userAgentMetadataFromUserAgent,
 } from "../../src/services/cdp-user-agent";
 
 class FakeSocket extends EventTarget {
@@ -95,6 +96,29 @@ it("derives CDP platform hints from common profile user agents", () => {
   ).toBe("Win32");
 });
 
+it("builds Client Hints metadata that matches mobile and desktop profiles", () => {
+  const mobile = userAgentMetadataFromUserAgent(
+    "Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36"
+  );
+  expect(mobile).toMatchObject({
+    mobile: true,
+    model: "Pixel 10",
+    platform: "Android",
+    platformVersion: "16",
+  });
+  expect(mobile.brands.some(({ brand }) => brand === "Google Chrome")).toBe(
+    true
+  );
+
+  const desktop = userAgentMetadataFromUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+  );
+  expect(desktop).toMatchObject({
+    mobile: false,
+    platform: "Windows",
+  });
+});
+
 it.effect(
   "overrides the live page user agent and navigates without launch config",
   () =>
@@ -135,12 +159,25 @@ it.effect(
           (payload) =>
             JSON.parse(payload) as {
               method: string;
-              params?: { platform?: string; userAgent?: string };
+              params?: {
+                platform?: string;
+                userAgent?: string;
+                userAgentMetadata?: {
+                  mobile?: boolean;
+                  model?: string;
+                  platform?: string;
+                };
+              };
             }
         )
         .find((payload) => payload.method === "Emulation.setUserAgentOverride");
       expect(override?.params?.userAgent).toContain("Android 16");
       expect(override?.params?.platform).toBe("Linux armv8l");
+      expect(override?.params?.userAgentMetadata).toMatchObject({
+        mobile: true,
+        model: "Pixel 10",
+        platform: "Android",
+      });
 
       const navigate = socket.sent
         .map(

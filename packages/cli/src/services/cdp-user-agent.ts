@@ -30,6 +30,172 @@ export const platformFromUserAgent = (userAgent: string): string => {
   return "";
 };
 
+export interface UserAgentBrandVersion {
+  readonly brand: string;
+  readonly version: string;
+}
+
+export interface UserAgentMetadata {
+  readonly architecture: string;
+  readonly bitness: string;
+  readonly brands: readonly UserAgentBrandVersion[];
+  readonly fullVersionList: readonly UserAgentBrandVersion[];
+  readonly mobile: boolean;
+  readonly model: string;
+  readonly platform: string;
+  readonly platformVersion: string;
+  readonly wow64: boolean;
+}
+
+const chromeVersionFromUserAgent = (userAgent: string): string =>
+  /(?:Chrome|CriOS|Edg|Firefox|FxiOS|Version)\/(?<version>[\d.]+)/u.exec(
+    userAgent
+  )?.groups?.version ?? "151.0.0.0";
+
+const majorVersion = (version: string): string =>
+  version.split(".", 1)[0] ?? version;
+
+const brandList = (
+  brand: string,
+  fullVersion: string
+): readonly UserAgentBrandVersion[] => {
+  const major = majorVersion(fullVersion);
+  return [
+    { brand: "Not:A-Brand", version: "99" },
+    { brand, version: major },
+    { brand: "Chromium", version: major },
+  ];
+};
+
+const fullBrandList = (
+  brand: string,
+  fullVersion: string
+): readonly UserAgentBrandVersion[] => [
+  { brand: "Not:A-Brand", version: "10.0.0.0" },
+  { brand, version: fullVersion },
+  { brand: "Chromium", version: fullVersion },
+];
+
+const androidModel = (userAgent: string): string =>
+  /Android [^;]+; (?<model>[^)]+)\)/u.exec(userAgent)?.groups?.model?.trim() ??
+  "";
+
+const androidPlatformVersion = (userAgent: string): string =>
+  /Android (?<version>[\d.]+)/u.exec(userAgent)?.groups?.version ?? "16.0.0";
+
+const iosPlatformVersion = (userAgent: string): string => {
+  const match =
+    /(?:iPhone OS|CPU OS) (?<version>[\d_]+)/u.exec(userAgent)?.groups
+      ?.version ?? "18_0";
+  return match.replaceAll("_", ".");
+};
+
+/** Builds CDP `userAgentMetadata` so Client Hints match the selected profile. */
+export const userAgentMetadataFromUserAgent = (
+  userAgent: string
+): UserAgentMetadata => {
+  const fullVersion = chromeVersionFromUserAgent(userAgent);
+  const isFirefox = /Firefox|FxiOS/u.test(userAgent);
+  const isEdge = /Edg\//u.test(userAgent);
+  const brand = isFirefox ? "Firefox" : (isEdge ? "Microsoft Edge" : "Google Chrome");
+  const brands = isFirefox
+    ? [{ brand: "Firefox", version: majorVersion(fullVersion) }]
+    : brandList(brand, fullVersion);
+  const fullVersionList = isFirefox
+    ? [{ brand: "Firefox", version: fullVersion }]
+    : fullBrandList(brand, fullVersion);
+
+  if (userAgent.includes("Android")) {
+    return {
+      architecture: "",
+      bitness: "",
+      brands,
+      fullVersionList,
+      mobile: /Mobile/u.test(userAgent),
+      model: androidModel(userAgent),
+      platform: "Android",
+      platformVersion: androidPlatformVersion(userAgent),
+      wow64: false,
+    };
+  }
+  if (userAgent.includes("iPhone")) {
+    return {
+      architecture: "",
+      bitness: "",
+      brands,
+      fullVersionList,
+      mobile: true,
+      model: "iPhone",
+      platform: "iOS",
+      platformVersion: iosPlatformVersion(userAgent),
+      wow64: false,
+    };
+  }
+  if (userAgent.includes("iPad")) {
+    return {
+      architecture: "",
+      bitness: "",
+      brands,
+      fullVersionList,
+      mobile: false,
+      model: "iPad",
+      platform: "iOS",
+      platformVersion: iosPlatformVersion(userAgent),
+      wow64: false,
+    };
+  }
+  if (userAgent.includes("Windows")) {
+    return {
+      architecture: "x86",
+      bitness: "64",
+      brands,
+      fullVersionList,
+      mobile: false,
+      model: "",
+      platform: "Windows",
+      platformVersion: "10.0.0",
+      wow64: false,
+    };
+  }
+  if (userAgent.includes("CrOS")) {
+    return {
+      architecture: "x86",
+      bitness: "64",
+      brands,
+      fullVersionList,
+      mobile: false,
+      model: "",
+      platform: "Chrome OS",
+      platformVersion: "14541.0.0",
+      wow64: false,
+    };
+  }
+  if (userAgent.includes("Linux")) {
+    return {
+      architecture: "x86",
+      bitness: "64",
+      brands,
+      fullVersionList,
+      mobile: false,
+      model: "",
+      platform: "Linux",
+      platformVersion: "6.5.0",
+      wow64: false,
+    };
+  }
+  return {
+    architecture: "arm",
+    bitness: "64",
+    brands,
+    fullVersionList,
+    mobile: false,
+    model: "",
+    platform: "macOS",
+    platformVersion: "14.0.0",
+    wow64: false,
+  };
+};
+
 const openWebSocket = (
   url: string
 ): Effect.Effect<WebSocket, BrowserRpcErrorType> =>
@@ -353,7 +519,12 @@ export const navigateWithUserAgentOverride = (
           userAgent: options.userAgent,
           ...(options.userAgent.length === 0
             ? {}
-            : { platform: platformFromUserAgent(options.userAgent) }),
+            : {
+                platform: platformFromUserAgent(options.userAgent),
+                userAgentMetadata: userAgentMetadataFromUserAgent(
+                  options.userAgent
+                ),
+              }),
         },
         sessionId
       );
