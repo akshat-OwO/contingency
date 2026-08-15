@@ -447,6 +447,10 @@ const normalizeUrl = (value: string) =>
     },
   });
 
+// agent-browser only applies --user-agent when paired with a real navigation.
+const userAgentArgs = (userAgent: string | undefined): readonly string[] =>
+  userAgent === undefined ? [] : ["--user-agent", userAgent];
+
 const normalizeSessionId = (name: string) => {
   const trimmed = name.trim();
   const candidate = trimmed.startsWith("create-")
@@ -1065,29 +1069,19 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       userAgentProfile: UserAgentProfileId
     ) {
       const url = yield* normalizeUrl(requestedUrl);
-      const previousProfile =
-        selectedSessionId === undefined
-          ? "default"
-          : (sessionProfiles.get(selectedSessionId) ?? "default");
       const sessionId =
         selectedSessionId === undefined
           ? yield* create(`create-${randomUUID().slice(0, 8)}`, viewport)
           : yield* attach(selectedSessionId);
 
+      // Apply --user-agent on the navigate itself. agent-browser ignores the flag on a
+      // blank open, and closing/relaunching the session drops the canvas stream
+      // (same tab id, so the UI never remounts it) until a manual tab switch.
       const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
-      if (previousProfile !== userAgentProfile) {
-        streamConnections.get(sessionId)?.socket.close();
-        streamConnections.delete(sessionId);
-        yield* run(
-          sessionArgs(sessionId, [
-            ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
-            "open",
-          ])
-        );
-        yield* setViewport(sessionId, viewport);
-      }
       yield* enableNetworkTracking(sessionId);
-      yield* run(sessionArgs(sessionId, ["open", url]));
+      yield* run(
+        sessionArgs(sessionId, [...userAgentArgs(userAgent), "open", url])
+      );
       sessionProfiles.set(sessionId, userAgentProfile);
       yield* setViewport(sessionId, viewport);
       return { sessionId, url } as const;
@@ -1100,37 +1094,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         viewport: Viewport,
         userAgentProfile: UserAgentProfileId
       ) {
-        const normalizedUrl = yield* normalizeUrl(url);
-        yield* attach(sessionId);
-        const previousProfile = sessionProfiles.get(sessionId) ?? "default";
-        if (previousProfile === userAgentProfile) {
-          const result = yield* open(
-            sessionId,
-            normalizedUrl,
-            viewport,
-            userAgentProfile
-          );
-          return { url: result.url } as const;
-        }
-
-        const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
-        streamConnections.get(sessionId)?.socket.close();
-        streamConnections.delete(sessionId);
-        activeTabIds.delete(sessionId);
-        streamActiveTabIds.delete(sessionId);
-        tabMetadata.delete(sessionId);
-        yield* run(sessionArgs(sessionId, ["close"]));
-        yield* run(
-          sessionArgs(sessionId, [
-            ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
-            "open",
-          ])
-        );
-        yield* setViewport(sessionId, viewport);
-        yield* enableNetworkTracking(sessionId);
-        yield* run(sessionArgs(sessionId, ["open", normalizedUrl]));
-        sessionProfiles.set(sessionId, userAgentProfile);
-        return { url: normalizedUrl } as const;
+        const result = yield* open(sessionId, url, viewport, userAgentProfile);
+        return { url: result.url } as const;
       }
     );
 

@@ -282,7 +282,7 @@ it.effect("attributes events after earlier tab transitions finish", () => {
   );
 });
 
-it.effect("relaunches a session when its user agent changes", () => {
+it.effect("applies the user agent on the navigate open", () => {
   const defaultUserAgent =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.1234.0 Safari/537.36";
   const fixture = makeFixture({
@@ -316,7 +316,7 @@ it.effect("relaunches a session when its user agent changes", () => {
   } as const;
 
   return AgentBrowser.use((agentBrowser) =>
-    Effect.gen(function* verifyUserAgentRelaunch() {
+    Effect.gen(function* verifyUserAgentOnNavigate() {
       const sessionId = yield* agentBrowser.create("user-agent", viewport);
       yield* agentBrowser.open(
         sessionId,
@@ -324,37 +324,34 @@ it.effect("relaunches a session when its user agent changes", () => {
         viewport,
         "chrome-windows"
       );
+      const commandsBeforeSwitch = fixture.commands.length;
       yield* agentBrowser.setUserAgent(
         sessionId,
         "https://example.com",
         viewport,
-        "default"
+        "chrome-android-mobile"
       );
 
-      const launchCommands = fixture.commands.filter(
+      const navigateWithUserAgent = fixture.commands.filter(
         (command): command is ChildProcess.StandardCommand =>
           command._tag === "StandardCommand" &&
-          command.args.includes("--user-agent")
+          command.args.includes("--user-agent") &&
+          command.args.includes("https://example.com/")
       );
-      expect(launchCommands).toHaveLength(2);
-      const [chromeWindows, browserDefault] = launchCommands;
+      expect(navigateWithUserAgent).toHaveLength(2);
+      const [chromeWindows, chromeAndroid] = navigateWithUserAgent;
       expect(chromeWindows?.args.join(" ")).toContain("Chrome/151.0.1234.0");
-      expect(browserDefault?.args).toContain(defaultUserAgent);
+      expect(chromeAndroid?.args.join(" ")).toContain("Android 16");
+      expect(chromeAndroid?.args.join(" ")).toContain("Mobile Safari");
 
-      const closeIndex = fixture.commands.findIndex(
+      const commandsAfterSwitch = fixture.commands.slice(commandsBeforeSwitch);
+      const closedDuringSwitch = commandsAfterSwitch.some(
         (command) =>
           command._tag === "StandardCommand" &&
           command.args.includes("close") &&
           command.args.includes("create-user-agent")
       );
-      if (browserDefault === undefined) {
-        return yield* Effect.die(
-          new Error("Expected a browser-default relaunch command")
-        );
-      }
-      const defaultLaunchIndex = fixture.commands.indexOf(browserDefault);
-      expect(closeIndex).toBeGreaterThan(-1);
-      expect(closeIndex).toBeLessThan(defaultLaunchIndex);
+      expect(closedDuringSwitch).toBe(false);
     })
   ).pipe(Effect.provide(fixture.layer));
 });
