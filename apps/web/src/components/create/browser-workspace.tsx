@@ -65,6 +65,7 @@ import {
   reconcileActiveTab,
   replacePendingBrowserFrame,
   shouldDropStaleCanvasFrame,
+  shouldRevealCanvasAfterPaint,
 } from "@/components/create/browser-workspace-state";
 import type { CanvasFrameHold } from "@/components/create/browser-workspace-state";
 import {
@@ -540,6 +541,11 @@ const useBrowserWorkspace = () => {
 
   const beginCanvasHold = useCallback(() => {
     canvasHoldRef.current = "dropping";
+    const inFlightRender = frameRenderFiberRef.current;
+    if (inFlightRender !== null) {
+      frameRenderFiberRef.current = null;
+      Effect.runFork(Fiber.interrupt(inFlightRender));
+    }
     const pendingFrame = pendingFrameRef.current;
     pendingFrameRef.current = null;
     if (pendingFrame !== null) {
@@ -596,6 +602,9 @@ const useBrowserWorkspace = () => {
             yield* renderFrame(canvas, latestFrame).pipe(
               Effect.ensuring(acknowledgeFrame(latestFrame))
             );
+            if (!shouldRevealCanvasAfterPaint(canvasHoldRef.current)) {
+              continue;
+            }
             const previousHold = canvasHoldRef.current;
             const nextHold = canvasHoldAfterFirstFrame(previousHold);
             canvasHoldRef.current = nextHold;

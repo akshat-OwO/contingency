@@ -15,6 +15,7 @@ import {
   reconcileActiveTab,
   replacePendingBrowserFrame,
   shouldDropStaleCanvasFrame,
+  shouldRevealCanvasAfterPaint,
 } from "../../../src/components/create/browser-workspace-state";
 
 describe("browserAddressEditingAfter", () => {
@@ -192,6 +193,12 @@ describe("canvas frame hold", () => {
     );
     expect(canvasHoldAfterFirstFrame("awaiting-first-frame")).toBe("idle");
     expect(canvasHoldAfterFirstFrame("idle")).toBe("idle");
+  });
+
+  it("does not reveal the canvas while a hold is still dropping", () => {
+    expect(shouldRevealCanvasAfterPaint("dropping")).toBe(false);
+    expect(shouldRevealCanvasAfterPaint("awaiting-first-frame")).toBe(true);
+    expect(shouldRevealCanvasAfterPaint("idle")).toBe(true);
   });
 });
 

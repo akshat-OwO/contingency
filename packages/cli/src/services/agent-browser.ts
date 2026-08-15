@@ -57,6 +57,7 @@ import {
   webStorageGetArgs,
   webStorageSetArgs,
 } from "./browser-storage";
+import { navigateWithUserAgentOverride } from "./cdp-user-agent";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -203,6 +204,8 @@ export interface AgentBrowserRuntime {
   readonly architecture: string;
   readonly isMusl: boolean;
   readonly operatingSystem: NodeJS.Platform;
+  /** Test seam: override CDP UA + navigate without a live WebSocket. */
+  readonly navigateWithUserAgentOverride?: typeof navigateWithUserAgentOverride;
 }
 
 export const serializeBrowserStreamEvent = <A, E, R>(
@@ -446,10 +449,6 @@ const normalizeUrl = (value: string) =>
       return url.href;
     },
   });
-
-// agent-browser only applies --user-agent when paired with a real navigation.
-const userAgentArgs = (userAgent: string | undefined): readonly string[] =>
-  userAgent === undefined ? [] : ["--user-agent", userAgent];
 
 const normalizeSessionId = (name: string) => {
   const trimmed = name.trim();
@@ -1074,14 +1073,24 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           ? yield* create(`create-${randomUUID().slice(0, 8)}`, viewport)
           : yield* attach(selectedSessionId);
 
-      // Apply --user-agent on the navigate itself. agent-browser ignores the flag on a
-      // blank open, and closing/relaunching the session drops the canvas stream
-      // (same tab id, so the UI never remounts it) until a manual tab switch.
+      // Apply UA on the live page via CDP Emulation.setUserAgentOverride + Page.navigate.
+      // agent-browser `--user-agent` is launch-config (relaunch risk) and `open` clears
+      // an in-session Emulation override, which drops mobile/desktop shells mid-stream.
       const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
       yield* enableNetworkTracking(sessionId);
-      yield* run(
-        sessionArgs(sessionId, [...userAgentArgs(userAgent), "open", url])
-      );
+      if (userAgent === undefined) {
+        yield* run(sessionArgs(sessionId, ["open", url]));
+      } else {
+        const applyNavigation =
+          runtime.navigateWithUserAgentOverride ??
+          navigateWithUserAgentOverride;
+        yield* applyNavigation({
+          cdpUrl: yield* cdpUrl(sessionId),
+          requestedTabId: activeTabIds.get(sessionId),
+          url,
+          userAgent,
+        });
+      }
       sessionProfiles.set(sessionId, userAgentProfile);
       yield* setViewport(sessionId, viewport);
       return { sessionId, url } as const;

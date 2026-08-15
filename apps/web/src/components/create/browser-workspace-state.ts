@@ -156,3 +156,7 @@ export const canvasHoldAfterNavigationCommand = (
 export const canvasHoldAfterFirstFrame = (
   hold: CanvasFrameHold
 ): CanvasFrameHold => (hold === "awaiting-first-frame" ? "idle" : hold);
+
+/** True when a completed paint may clear Loading / show the canvas. */
+export const shouldRevealCanvasAfterPaint = (hold: CanvasFrameHold): boolean =>
+  !shouldDropStaleCanvasFrame(hold);

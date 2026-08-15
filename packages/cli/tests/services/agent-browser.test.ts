@@ -282,11 +282,29 @@ it.effect("attributes events after earlier tab transitions finish", () => {
   );
 });
 
-it.effect("applies the user agent on the navigate open", () => {
+it.effect("applies the user agent via CDP without relaunching", () => {
   const defaultUserAgent =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.1234.0 Safari/537.36";
+  const appliedNavigations: {
+    readonly requestedTabId: string | undefined;
+    readonly url: string;
+    readonly userAgent: string;
+  }[] = [];
   const fixture = makeFixture({
     markerExists: true,
+    runtime: {
+      architecture: "arm64",
+      isMusl: false,
+      navigateWithUserAgentOverride: (options) =>
+        Effect.sync(() => {
+          appliedNavigations.push({
+            requestedTabId: options.requestedTabId,
+            url: options.url,
+            userAgent: options.userAgent,
+          });
+        }),
+      operatingSystem: "darwin",
+    },
     stdout: (command) => {
       if (command._tag !== "StandardCommand") {
         return "";
@@ -303,6 +321,12 @@ it.effect("applies the user agent on the navigate open", () => {
           success: true,
         });
       }
+      if (command.args.includes("cdp-url")) {
+        return JSON.stringify({
+          data: { cdpUrl: "ws://127.0.0.1:9222/devtools/browser/test" },
+          success: true,
+        });
+      }
       if (command.args.includes("network")) {
         return JSON.stringify({ data: { requests: [] }, success: true });
       }
@@ -316,7 +340,7 @@ it.effect("applies the user agent on the navigate open", () => {
   } as const;
 
   return AgentBrowser.use((agentBrowser) =>
-    Effect.gen(function* verifyUserAgentOnNavigate() {
+    Effect.gen(function* verifyUserAgentViaCdp() {
       const sessionId = yield* agentBrowser.create("user-agent", viewport);
       yield* agentBrowser.open(
         sessionId,
@@ -332,17 +356,19 @@ it.effect("applies the user agent on the navigate open", () => {
         "chrome-android-mobile"
       );
 
-      const navigateWithUserAgent = fixture.commands.filter(
-        (command): command is ChildProcess.StandardCommand =>
-          command._tag === "StandardCommand" &&
-          command.args.includes("--user-agent") &&
-          command.args.includes("https://example.com/")
-      );
-      expect(navigateWithUserAgent).toHaveLength(2);
-      const [chromeWindows, chromeAndroid] = navigateWithUserAgent;
-      expect(chromeWindows?.args.join(" ")).toContain("Chrome/151.0.1234.0");
-      expect(chromeAndroid?.args.join(" ")).toContain("Android 16");
-      expect(chromeAndroid?.args.join(" ")).toContain("Mobile Safari");
+      expect(
+        fixture.commands.some(
+          (command) =>
+            command._tag === "StandardCommand" &&
+            command.args.includes("--user-agent")
+        )
+      ).toBe(false);
+      expect(appliedNavigations).toHaveLength(2);
+      expect(appliedNavigations[0]?.userAgent).toContain("Chrome/151.0.1234.0");
+      expect(appliedNavigations[0]?.userAgent).toContain("Windows NT");
+      expect(appliedNavigations[1]?.userAgent).toContain("Android 16");
+      expect(appliedNavigations[1]?.userAgent).toContain("Mobile Safari");
+      expect(appliedNavigations[1]?.url).toBe("https://example.com/");
 
       const commandsAfterSwitch = fixture.commands.slice(commandsBeforeSwitch);
       const closedDuringSwitch = commandsAfterSwitch.some(
@@ -352,6 +378,11 @@ it.effect("applies the user agent on the navigate open", () => {
           command.args.includes("create-user-agent")
       );
       expect(closedDuringSwitch).toBe(false);
+      const fetchedCdpUrl = commandsAfterSwitch.some(
+        (command) =>
+          command._tag === "StandardCommand" && command.args.includes("cdp-url")
+      );
+      expect(fetchedCdpUrl).toBe(true);
     })
   ).pipe(Effect.provide(fixture.layer));
 });
