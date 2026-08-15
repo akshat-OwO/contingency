@@ -10,7 +10,7 @@ Contingency lets companies author and re-run website Flows that check performanc
 
 **Audit View**: The execution and inspection mode over a Flow: import or open a Flow, watch a Run, step through the Run timeline to inspect a Step's actions and Findings. It observes the CLI Runner rather than executing Flows itself. Stepping back does not rewind browser state or fork the Run. _Avoid_: calling this mode itself "an Audit"
 
-**Audit**: A pluggable check represented as an ordered custom Step in a Flow. Running it produces Findings at that point in the Flow. v1 check kinds are accessibility and performance. _Avoid_: Audit View, axe, Lighthouse (those are implementations)
+**Audit**: A pluggable check represented as an ordered custom Step in a Flow. Running it produces Findings at that point in the Flow. The v1 check kind is accessibility. Performance is not an Audit: it is a toggle on a navigating Step, measured by the Runner at that navigation ([ADR 0008](./docs/adr/0008-performance-is-a-navigation-step-toggle.md)). _Avoid_: Audit View, axe (that is the implementation), performance audit
 
 **Step**: One ordered unit in a Flow: either a Chrome DevTools Recorder–shaped browser action (click, fill, navigate, and so on) or a Contingency Audit custom Step. _Avoid_: semantic step, page, checkpoint (as synonyms for Step)
 
@@ -18,7 +18,7 @@ Contingency lets companies author and re-run website Flows that check performanc
 
 **Recording**: The in-progress capture session in Create View that produces or updates a Flow when finished. _Avoid_: Flow, Chrome JSON file (as synonyms for the session)
 
-**Secret Variable**: A named sensitive value intentionally omitted from a Recording and supplied to the Runner when a Flow is executed. _Avoid_: environment variable, captured secret, redacted value
+**Variable**: A named value a Flow declares but does not contain, supplied to the Runner when the Flow is executed. Two independent properties: `secret` means the value is redacted from the persisted Run; `runtime` means the Runner may prompt for it when no value was supplied and the terminal is interactive. A 2FA code is both; a target environment URL is neither. _Avoid_: Secret Variable (superseded), environment variable, captured secret, redacted value
 
 **Finding**: One addressable issue produced by an Audit (rule, severity, target, message, and related metadata). _Avoid_: report, violation (as the umbrella term), issue blob
 

@@ -1,5 +1,7 @@
 # Audits are ordered custom Steps
 
+> Partially superseded by [ADR 0008](./0008-performance-is-a-navigation-step-toggle.md): performance is no longer an Audit kind. Everything below holds for accessibility Audits.
+
 Accessibility and performance Audits are standalone ordered Steps in a Flow, represented with Chrome Recorder's `customStep` shape using the name `contingency.audit` and a typed Audit kind in `parameters`. Create View appends an Audit Step where the author requests it instead of attaching Audit metadata to another browser-action Step. The CLI Runner will execute the Audit at that exact point and associate its Findings with the Audit Step.
 
 ## Consequences
