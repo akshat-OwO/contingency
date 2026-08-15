@@ -102,3 +102,57 @@ export const reconcileActiveTab = (
     ),
   };
 };
+
+export interface BrowserViewportEmptyState {
+  readonly description: string;
+  readonly icon: "globe" | "loading";
+  readonly title: string;
+}
+
+export const browserViewportEmptyState = (input: {
+  readonly error: string | undefined;
+  readonly opening: boolean;
+  readonly selectedSessionId: SessionId | undefined;
+}): BrowserViewportEmptyState => {
+  if (input.error === undefined && input.opening) {
+    return {
+      description: "Loading the page in the isolated browser…",
+      icon: "loading",
+      title: "Loading…",
+    };
+  }
+  if (input.error === undefined && input.selectedSessionId !== undefined) {
+    return {
+      description: "Connecting to the browser stream...",
+      icon: "loading",
+      title: "Your browser will appear here",
+    };
+  }
+  if (input.error === undefined) {
+    return {
+      description:
+        "Choose a session or enter a URL to start an isolated Chromium browser.",
+      icon: "globe",
+      title: "Your browser will appear here",
+    };
+  }
+  return {
+    description: input.error,
+    icon: "globe",
+    title: "Browser unavailable",
+  };
+};
+
+/** Suppresses stale canvas frames across navigate / UA-switch RPCs. */
+export type CanvasFrameHold = "idle" | "dropping" | "awaiting-first-frame";
+
+export const shouldDropStaleCanvasFrame = (hold: CanvasFrameHold): boolean =>
+  hold === "dropping";
+
+export const canvasHoldAfterNavigationCommand = (
+  hold: CanvasFrameHold
+): CanvasFrameHold => (hold === "dropping" ? "awaiting-first-frame" : hold);
+
+export const canvasHoldAfterFirstFrame = (
+  hold: CanvasFrameHold
+): CanvasFrameHold => (hold === "awaiting-first-frame" ? "idle" : hold);

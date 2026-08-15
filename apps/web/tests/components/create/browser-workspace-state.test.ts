@@ -8,9 +8,13 @@ import {
   browserNetworkRefreshEffect,
   browserStreamIdentity,
   browserTabSynchronizationEffect,
+  browserViewportEmptyState,
+  canvasHoldAfterFirstFrame,
+  canvasHoldAfterNavigationCommand,
   preserveBrowserTabMetadata,
   reconcileActiveTab,
   replacePendingBrowserFrame,
+  shouldDropStaleCanvasFrame,
 } from "../../../src/components/create/browser-workspace-state";
 
 describe("browserAddressEditingAfter", () => {
@@ -172,5 +176,36 @@ describe("replacePendingBrowserFrame", () => {
       })
     ).toEqual({ seq: 2 });
     expect(released).toEqual([1]);
+  });
+});
+
+describe("canvas frame hold", () => {
+  it("drops only while the navigation command is in flight", () => {
+    expect(shouldDropStaleCanvasFrame("idle")).toBe(false);
+    expect(shouldDropStaleCanvasFrame("dropping")).toBe(true);
+    expect(shouldDropStaleCanvasFrame("awaiting-first-frame")).toBe(false);
+  });
+
+  it("waits for the first paint after the command settles", () => {
+    expect(canvasHoldAfterNavigationCommand("dropping")).toBe(
+      "awaiting-first-frame"
+    );
+    expect(canvasHoldAfterFirstFrame("awaiting-first-frame")).toBe("idle");
+    expect(canvasHoldAfterFirstFrame("idle")).toBe("idle");
+  });
+});
+
+describe("browserViewportEmptyState", () => {
+  it("keeps the Loading copy while a navigation hold is active", () => {
+    expect(
+      browserViewportEmptyState({
+        error: undefined,
+        opening: true,
+        selectedSessionId: "create-1" as SessionId,
+      })
+    ).toMatchObject({
+      icon: "loading",
+      title: "Loading…",
+    });
   });
 });

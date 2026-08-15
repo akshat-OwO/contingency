@@ -1094,6 +1094,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         viewport: Viewport,
         userAgentProfile: UserAgentProfileId
       ) {
+        // Stable `browser.user-agent.set` surface; navigation + UA apply live in open.
         const result = yield* open(sessionId, url, viewport, userAgentProfile);
         return { url: result.url } as const;
       }

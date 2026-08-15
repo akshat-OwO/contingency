@@ -57,11 +57,16 @@ import {
   browserNetworkRefreshEffect,
   browserStreamIdentity,
   browserTabSynchronizationEffect,
+  browserViewportEmptyState,
+  canvasHoldAfterFirstFrame,
+  canvasHoldAfterNavigationCommand,
   hasActiveTabChanged,
   preserveBrowserTabMetadata,
   reconcileActiveTab,
   replacePendingBrowserFrame,
+  shouldDropStaleCanvasFrame,
 } from "@/components/create/browser-workspace-state";
+import type { CanvasFrameHold } from "@/components/create/browser-workspace-state";
 import {
   createWorkspaceAtom,
   recordingLocksBrowser,
@@ -227,7 +232,7 @@ const useBrowserWorkspace = () => {
     BrowserStreamEvent,
     { readonly type: "frame" }
   > | null>(null);
-  const openingRef = useRef(false);
+  const canvasHoldRef = useRef<CanvasFrameHold>("idle");
   const knownTabIdsRef = useRef<ReadonlySet<BrowserTabId> | null>(null);
   const enrichedTabsRef = useRef<readonly BrowserTab[]>([]);
   const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
@@ -533,8 +538,8 @@ const useBrowserWorkspace = () => {
     [acknowledgeBrowserFrame, selectedSessionId]
   );
 
-  const beginOpening = useCallback(() => {
-    openingRef.current = true;
+  const beginCanvasHold = useCallback(() => {
+    canvasHoldRef.current = "dropping";
     const pendingFrame = pendingFrameRef.current;
     pendingFrameRef.current = null;
     if (pendingFrame !== null) {
@@ -544,16 +549,23 @@ const useBrowserWorkspace = () => {
     setOpening(true);
   }, [acknowledgeFrame, setFrameReady, setOpening]);
 
-  const endOpening = useCallback(() => {
-    openingRef.current = false;
+  const releaseCanvasHold = useCallback(() => {
+    canvasHoldRef.current = "idle";
     setOpening(false);
   }, [setOpening]);
 
+  const markNavigationCommandSettled = useCallback(() => {
+    canvasHoldRef.current = canvasHoldAfterNavigationCommand(
+      canvasHoldRef.current
+    );
+  }, []);
+
   const enqueueFrame = useCallback(
     (event: Extract<BrowserStreamEvent, { readonly type: "frame" }>) => {
-      // Hide stale frames while a navigation / UA switch is in flight so the
-      // canvas does not keep showing the previous page until the new one paints.
-      if (openingRef.current) {
+      // Drop frames while the navigate/UA RPC is in flight so the previous shell
+      // cannot paint. After the command settles, accept the first frame (new paint)
+      // before clearing the Loading… state.
+      if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
         Effect.runFork(acknowledgeFrame(event));
         return;
       }
@@ -573,7 +585,7 @@ const useBrowserWorkspace = () => {
         while (pendingFrameRef.current !== null) {
           const latestFrame = pendingFrameRef.current;
           pendingFrameRef.current = null;
-          if (openingRef.current) {
+          if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
             yield* acknowledgeFrame(latestFrame);
             continue;
           }
@@ -584,6 +596,15 @@ const useBrowserWorkspace = () => {
             yield* renderFrame(canvas, latestFrame).pipe(
               Effect.ensuring(acknowledgeFrame(latestFrame))
             );
+            const previousHold = canvasHoldRef.current;
+            const nextHold = canvasHoldAfterFirstFrame(previousHold);
+            canvasHoldRef.current = nextHold;
+            if (
+              previousHold === "awaiting-first-frame" &&
+              nextHold === "idle"
+            ) {
+              setOpening(false);
+            }
             setFrameReady(true);
           }
         }
@@ -596,7 +617,7 @@ const useBrowserWorkspace = () => {
       );
       frameRenderFiberRef.current = Effect.runFork(renderFrames);
     },
-    [acknowledgeFrame, setFrameReady]
+    [acknowledgeFrame, setFrameReady, setOpening]
   );
 
   useEffect(() => {
@@ -791,7 +812,7 @@ const useBrowserWorkspace = () => {
 
     addressEditingRef.current = browserAddressEditingAfter("submit");
     setError(undefined);
-    beginOpening();
+    beginCanvasHold();
     Effect.runFork(
       Effect.tryPromise({
         catch: (cause) => cause,
@@ -812,12 +833,19 @@ const useBrowserWorkspace = () => {
           Effect.sync(() => {
             setSelectedSessionId(result.data.sessionId);
             setAddress(result.data.url);
+            markNavigationCommandSettled();
           })
         ),
         Effect.catchCause((openCause) =>
           Effect.sync(() => setError(toErrorMessage(Cause.squash(openCause))))
         ),
-        Effect.ensuring(Effect.sync(() => endOpening()))
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
+              releaseCanvasHold();
+            }
+          })
+        )
       )
     );
   };
@@ -833,7 +861,7 @@ const useBrowserWorkspace = () => {
     }
 
     setError(undefined);
-    beginOpening();
+    beginCanvasHold();
     Effect.runFork(
       Effect.tryPromise({
         catch: (cause) => cause,
@@ -850,13 +878,24 @@ const useBrowserWorkspace = () => {
             },
           }),
       }).pipe(
-        Effect.tap((result) => Effect.sync(() => setAddress(result.data.url))),
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            setAddress(result.data.url);
+            markNavigationCommandSettled();
+          })
+        ),
         Effect.catchCause((userAgentCause) =>
           Effect.sync(() =>
             setError(toErrorMessage(Cause.squash(userAgentCause)))
           )
         ),
-        Effect.ensuring(Effect.sync(() => endOpening()))
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
+              releaseCanvasHold();
+            }
+          })
+        )
       )
     );
   };
@@ -1434,25 +1473,11 @@ const BrowserViewportPanels = ({
     width,
   } = controller;
 
-  let emptyStateIcon: "globe" | "loading" = "loading";
-  let emptyStateTitle = "Your browser will appear here";
-  let emptyStateDescription =
-    "Choose a session or enter a URL to start an isolated Chromium browser.";
-  if (error === undefined && opening) {
-    emptyStateIcon = "loading";
-    emptyStateTitle = "Loading…";
-    emptyStateDescription = "Loading the page in the isolated browser…";
-  } else if (error === undefined && selectedSessionId !== undefined) {
-    emptyStateIcon = "loading";
-    emptyStateTitle = "Your browser will appear here";
-    emptyStateDescription = "Connecting to the browser stream...";
-  } else if (error === undefined) {
-    emptyStateIcon = "globe";
-  } else {
-    emptyStateIcon = "globe";
-    emptyStateTitle = "Browser unavailable";
-    emptyStateDescription = error;
-  }
+  const emptyState = browserViewportEmptyState({
+    error,
+    opening,
+    selectedSessionId,
+  });
 
   return (
     <ResizablePanelGroup className="min-h-0 flex-1" orientation="vertical">
@@ -1462,7 +1487,7 @@ const BrowserViewportPanels = ({
             <div className="absolute inset-0 grid place-items-center p-6">
               <div className="max-w-sm space-y-4 text-center">
                 <div className="bg-muted/50 mx-auto grid size-12 place-items-center rounded-xl border shadow-sm">
-                  {emptyStateIcon === "globe" ? (
+                  {emptyState.icon === "globe" ? (
                     <Globe2Icon
                       aria-hidden="true"
                       className="text-muted-foreground size-5"
@@ -1475,9 +1500,9 @@ const BrowserViewportPanels = ({
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <h1 className="font-medium">{emptyStateTitle}</h1>
+                  <h1 className="font-medium">{emptyState.title}</h1>
                   <p className="text-muted-foreground text-sm text-balance">
-                    {emptyStateDescription}
+                    {emptyState.description}
                   </p>
                 </div>
               </div>
