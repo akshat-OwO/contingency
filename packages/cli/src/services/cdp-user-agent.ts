@@ -47,13 +47,30 @@ export interface UserAgentMetadata {
   readonly wow64: boolean;
 }
 
-const chromeVersionFromUserAgent = (userAgent: string): string =>
-  /(?:Chrome|CriOS|Edg|Firefox|FxiOS|Version)\/(?<version>[\d.]+)/u.exec(
-    userAgent
-  )?.groups?.version ?? "151.0.0.0";
+const edgeVersionFromUserAgent = (userAgent: string): string | undefined =>
+  /(?:EdgA|EdgiOS|Edg)\/(?<version>[\d.]+)/u.exec(userAgent)?.groups?.version;
+
+const chromeVersionFromUserAgent = (userAgent: string): string => {
+  const edgeVersion = edgeVersionFromUserAgent(userAgent);
+  if (edgeVersion !== undefined) {
+    return edgeVersion;
+  }
+  return (
+    /(?:Chrome|CriOS|Firefox|FxiOS)\/(?<version>[\d.]+)/u.exec(userAgent)
+      ?.groups?.version ?? "151.0.0.0"
+  );
+};
 
 const majorVersion = (version: string): string =>
   version.split(".", 1)[0] ?? version;
+
+const normalizePlatformVersion = (version: string): string => {
+  const parts = version.split(".").filter((part) => part.length > 0);
+  while (parts.length < 3) {
+    parts.push("0");
+  }
+  return parts.slice(0, 3).join(".");
+};
 
 const brandList = (
   brand: string,
@@ -81,13 +98,15 @@ const androidModel = (userAgent: string): string =>
   "";
 
 const androidPlatformVersion = (userAgent: string): string =>
-  /Android (?<version>[\d.]+)/u.exec(userAgent)?.groups?.version ?? "16.0.0";
+  normalizePlatformVersion(
+    /Android (?<version>[\d.]+)/u.exec(userAgent)?.groups?.version ?? "16.0.0"
+  );
 
 const iosPlatformVersion = (userAgent: string): string => {
   const match =
     /(?:iPhone OS|CPU OS) (?<version>[\d_]+)/u.exec(userAgent)?.groups
       ?.version ?? "18_0";
-  return match.replaceAll("_", ".");
+  return normalizePlatformVersion(match.replaceAll("_", "."));
 };
 
 /** Builds CDP `userAgentMetadata` so Client Hints match the selected profile. */
@@ -96,7 +115,7 @@ export const userAgentMetadataFromUserAgent = (
 ): UserAgentMetadata => {
   const fullVersion = chromeVersionFromUserAgent(userAgent);
   const isFirefox = /Firefox|FxiOS/u.test(userAgent);
-  const isEdge = /Edg\//u.test(userAgent);
+  const isEdge = /EdgA\/|EdgiOS\/|Edg\//u.test(userAgent);
   let brand = "Google Chrome";
   if (isFirefox) {
     brand = "Firefox";

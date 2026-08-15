@@ -104,11 +104,16 @@ it("builds Client Hints metadata that matches mobile and desktop profiles", () =
     mobile: true,
     model: "Pixel 10",
     platform: "Android",
-    platformVersion: "16",
+    platformVersion: "16.0.0",
   });
   expect(mobile.brands.some(({ brand }) => brand === "Google Chrome")).toBe(
     true
   );
+
+  const androidPatch = userAgentMetadataFromUserAgent(
+    "Mozilla/5.0 (Linux; Android 8.1; Pixel Build/OPM4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36"
+  );
+  expect(androidPatch.platformVersion).toBe("8.1.0");
 
   const desktop = userAgentMetadataFromUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
@@ -117,6 +122,44 @@ it("builds Client Hints metadata that matches mobile and desktop profiles", () =
     mobile: false,
     platform: "Windows",
   });
+});
+
+it("classifies desktop, Android, and iOS Edge tokens as Microsoft Edge", () => {
+  const desktopEdge = userAgentMetadataFromUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0"
+  );
+  expect(
+    desktopEdge.brands.some(({ brand }) => brand === "Microsoft Edge")
+  ).toBe(true);
+  expect(
+    desktopEdge.fullVersionList.find(({ brand }) => brand === "Microsoft Edge")
+      ?.version
+  ).toBe("151.0.0.0");
+
+  const androidEdge = userAgentMetadataFromUserAgent(
+    "Mozilla/5.0 (Linux; Android 8.1.0; Pixel Build/OPM4.171019.021.D1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36 EdgA/42.0.0.2057"
+  );
+  expect(androidEdge).toMatchObject({
+    mobile: true,
+    platform: "Android",
+    platformVersion: "8.1.0",
+  });
+  expect(
+    androidEdge.fullVersionList.find(({ brand }) => brand === "Microsoft Edge")
+      ?.version
+  ).toBe("42.0.0.2057");
+
+  const iosEdge = userAgentMetadataFromUserAgent(
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 12_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.1.1 EdgiOS/44.5.0.10 Mobile/15E148 Safari/604.1"
+  );
+  expect(iosEdge).toMatchObject({
+    mobile: true,
+    platform: "iOS",
+  });
+  expect(
+    iosEdge.fullVersionList.find(({ brand }) => brand === "Microsoft Edge")
+      ?.version
+  ).toBe("44.5.0.10");
 });
 
 it.effect(
