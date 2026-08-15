@@ -97,7 +97,12 @@ export const userAgentMetadataFromUserAgent = (
   const fullVersion = chromeVersionFromUserAgent(userAgent);
   const isFirefox = /Firefox|FxiOS/u.test(userAgent);
   const isEdge = /Edg\//u.test(userAgent);
-  const brand = isFirefox ? "Firefox" : (isEdge ? "Microsoft Edge" : "Google Chrome");
+  let brand = "Google Chrome";
+  if (isFirefox) {
+    brand = "Firefox";
+  } else if (isEdge) {
+    brand = "Microsoft Edge";
+  }
   const brands = isFirefox
     ? [{ brand: "Firefox", version: majorVersion(fullVersion) }]
     : brandList(brand, fullVersion);
