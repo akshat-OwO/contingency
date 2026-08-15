@@ -1422,6 +1422,7 @@ const BrowserViewportPanels = ({
     height,
     manuallyRefreshNetwork,
     navigate,
+    opening,
     recording,
     refreshingNetwork,
     selectedSessionId,
@@ -1433,6 +1434,26 @@ const BrowserViewportPanels = ({
     width,
   } = controller;
 
+  let emptyStateIcon: "globe" | "loading" = "loading";
+  let emptyStateTitle = "Your browser will appear here";
+  let emptyStateDescription =
+    "Choose a session or enter a URL to start an isolated Chromium browser.";
+  if (error === undefined && opening) {
+    emptyStateIcon = "loading";
+    emptyStateTitle = "Loading…";
+    emptyStateDescription = "Loading the page in the isolated browser…";
+  } else if (error === undefined && selectedSessionId !== undefined) {
+    emptyStateIcon = "loading";
+    emptyStateTitle = "Your browser will appear here";
+    emptyStateDescription = "Connecting to the browser stream...";
+  } else if (error === undefined) {
+    emptyStateIcon = "globe";
+  } else {
+    emptyStateIcon = "globe";
+    emptyStateTitle = "Browser unavailable";
+    emptyStateDescription = error;
+  }
+
   return (
     <ResizablePanelGroup className="min-h-0 flex-1" orientation="vertical">
       <ResizablePanel defaultSize={devtoolsOpen ? 70 : 100} minSize={30}>
@@ -1441,7 +1462,7 @@ const BrowserViewportPanels = ({
             <div className="absolute inset-0 grid place-items-center p-6">
               <div className="max-w-sm space-y-4 text-center">
                 <div className="bg-muted/50 mx-auto grid size-12 place-items-center rounded-xl border shadow-sm">
-                  {selectedSessionId === undefined || error !== undefined ? (
+                  {emptyStateIcon === "globe" ? (
                     <Globe2Icon
                       aria-hidden="true"
                       className="text-muted-foreground size-5"
@@ -1454,16 +1475,9 @@ const BrowserViewportPanels = ({
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <h1 className="font-medium">
-                    {error === undefined
-                      ? "Your browser will appear here"
-                      : "Browser unavailable"}
-                  </h1>
+                  <h1 className="font-medium">{emptyStateTitle}</h1>
                   <p className="text-muted-foreground text-sm text-balance">
-                    {error ??
-                      (selectedSessionId === undefined
-                        ? "Choose a session or enter a URL to start an isolated Chromium browser."
-                        : "Connecting to the browser stream...")}
+                    {emptyStateDescription}
                   </p>
                 </div>
               </div>
