@@ -8,9 +8,14 @@ import {
   browserNetworkRefreshEffect,
   browserStreamIdentity,
   browserTabSynchronizationEffect,
+  browserViewportEmptyState,
+  canvasHoldAfterFirstFrame,
+  canvasHoldAfterNavigationCommand,
   preserveBrowserTabMetadata,
   reconcileActiveTab,
   replacePendingBrowserFrame,
+  shouldDropStaleCanvasFrame,
+  shouldRevealCanvasAfterPaint,
 } from "../../../src/components/create/browser-workspace-state";
 
 describe("browserAddressEditingAfter", () => {
@@ -172,5 +177,42 @@ describe("replacePendingBrowserFrame", () => {
       })
     ).toEqual({ seq: 2 });
     expect(released).toEqual([1]);
+  });
+});
+
+describe("canvas frame hold", () => {
+  it("drops only while the navigation command is in flight", () => {
+    expect(shouldDropStaleCanvasFrame("idle")).toBe(false);
+    expect(shouldDropStaleCanvasFrame("dropping")).toBe(true);
+    expect(shouldDropStaleCanvasFrame("awaiting-first-frame")).toBe(false);
+  });
+
+  it("waits for the first paint after the command settles", () => {
+    expect(canvasHoldAfterNavigationCommand("dropping")).toBe(
+      "awaiting-first-frame"
+    );
+    expect(canvasHoldAfterFirstFrame("awaiting-first-frame")).toBe("idle");
+    expect(canvasHoldAfterFirstFrame("idle")).toBe("idle");
+  });
+
+  it("does not reveal the canvas while a hold is still dropping", () => {
+    expect(shouldRevealCanvasAfterPaint("dropping")).toBe(false);
+    expect(shouldRevealCanvasAfterPaint("awaiting-first-frame")).toBe(true);
+    expect(shouldRevealCanvasAfterPaint("idle")).toBe(true);
+  });
+});
+
+describe("browserViewportEmptyState", () => {
+  it("keeps the Loading copy while a navigation hold is active", () => {
+    expect(
+      browserViewportEmptyState({
+        error: undefined,
+        opening: true,
+        selectedSessionId: "create-1" as SessionId,
+      })
+    ).toMatchObject({
+      icon: "loading",
+      title: "Loading…",
+    });
   });
 });

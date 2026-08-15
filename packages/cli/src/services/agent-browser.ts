@@ -57,6 +57,7 @@ import {
   webStorageGetArgs,
   webStorageSetArgs,
 } from "./browser-storage";
+import { navigateWithUserAgentOverride } from "./cdp-user-agent";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -203,6 +204,8 @@ export interface AgentBrowserRuntime {
   readonly architecture: string;
   readonly isMusl: boolean;
   readonly operatingSystem: NodeJS.Platform;
+  /** Test seam: override CDP UA + navigate without a live WebSocket. */
+  readonly navigateWithUserAgentOverride?: typeof navigateWithUserAgentOverride;
 }
 
 export const serializeBrowserStreamEvent = <A, E, R>(
@@ -1065,29 +1068,29 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       userAgentProfile: UserAgentProfileId
     ) {
       const url = yield* normalizeUrl(requestedUrl);
-      const previousProfile =
-        selectedSessionId === undefined
-          ? "default"
-          : (sessionProfiles.get(selectedSessionId) ?? "default");
       const sessionId =
         selectedSessionId === undefined
           ? yield* create(`create-${randomUUID().slice(0, 8)}`, viewport)
           : yield* attach(selectedSessionId);
 
+      // Apply UA on the live page via CDP Emulation.setUserAgentOverride + Page.navigate.
+      // agent-browser `--user-agent` is launch-config (relaunch risk) and `open` clears
+      // an in-session Emulation override, which drops mobile/desktop shells mid-stream.
       const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
-      if (previousProfile !== userAgentProfile) {
-        streamConnections.get(sessionId)?.socket.close();
-        streamConnections.delete(sessionId);
-        yield* run(
-          sessionArgs(sessionId, [
-            ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
-            "open",
-          ])
-        );
-        yield* setViewport(sessionId, viewport);
-      }
       yield* enableNetworkTracking(sessionId);
-      yield* run(sessionArgs(sessionId, ["open", url]));
+      if (userAgent === undefined) {
+        yield* run(sessionArgs(sessionId, ["open", url]));
+      } else {
+        const applyNavigation =
+          runtime.navigateWithUserAgentOverride ??
+          navigateWithUserAgentOverride;
+        yield* applyNavigation({
+          cdpUrl: yield* cdpUrl(sessionId),
+          requestedTabId: activeTabIds.get(sessionId),
+          url,
+          userAgent,
+        });
+      }
       sessionProfiles.set(sessionId, userAgentProfile);
       yield* setViewport(sessionId, viewport);
       return { sessionId, url } as const;
@@ -1100,37 +1103,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         viewport: Viewport,
         userAgentProfile: UserAgentProfileId
       ) {
-        const normalizedUrl = yield* normalizeUrl(url);
-        yield* attach(sessionId);
-        const previousProfile = sessionProfiles.get(sessionId) ?? "default";
-        if (previousProfile === userAgentProfile) {
-          const result = yield* open(
-            sessionId,
-            normalizedUrl,
-            viewport,
-            userAgentProfile
-          );
-          return { url: result.url } as const;
-        }
-
-        const userAgent = yield* resolveUserAgent(sessionId, userAgentProfile);
-        streamConnections.get(sessionId)?.socket.close();
-        streamConnections.delete(sessionId);
-        activeTabIds.delete(sessionId);
-        streamActiveTabIds.delete(sessionId);
-        tabMetadata.delete(sessionId);
-        yield* run(sessionArgs(sessionId, ["close"]));
-        yield* run(
-          sessionArgs(sessionId, [
-            ...(userAgent === undefined ? [] : ["--user-agent", userAgent]),
-            "open",
-          ])
-        );
-        yield* setViewport(sessionId, viewport);
-        yield* enableNetworkTracking(sessionId);
-        yield* run(sessionArgs(sessionId, ["open", normalizedUrl]));
-        sessionProfiles.set(sessionId, userAgentProfile);
-        return { url: normalizedUrl } as const;
+        // Stable `browser.user-agent.set` surface; navigation + UA apply live in open.
+        const result = yield* open(sessionId, url, viewport, userAgentProfile);
+        return { url: result.url } as const;
       }
     );
 
