@@ -227,6 +227,7 @@ const useBrowserWorkspace = () => {
     BrowserStreamEvent,
     { readonly type: "frame" }
   > | null>(null);
+  const openingRef = useRef(false);
   const knownTabIdsRef = useRef<ReadonlySet<BrowserTabId> | null>(null);
   const enrichedTabsRef = useRef<readonly BrowserTab[]>([]);
   const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
@@ -532,8 +533,31 @@ const useBrowserWorkspace = () => {
     [acknowledgeBrowserFrame, selectedSessionId]
   );
 
+  const beginOpening = useCallback(() => {
+    openingRef.current = true;
+    const pendingFrame = pendingFrameRef.current;
+    pendingFrameRef.current = null;
+    if (pendingFrame !== null) {
+      Effect.runFork(acknowledgeFrame(pendingFrame));
+    }
+    setFrameReady(false);
+    setOpening(true);
+  }, [acknowledgeFrame, setFrameReady, setOpening]);
+
+  const endOpening = useCallback(() => {
+    openingRef.current = false;
+    setOpening(false);
+  }, [setOpening]);
+
   const enqueueFrame = useCallback(
     (event: Extract<BrowserStreamEvent, { readonly type: "frame" }>) => {
+      // Hide stale frames while a navigation / UA switch is in flight so the
+      // canvas does not keep showing the previous page until the new one paints.
+      if (openingRef.current) {
+        Effect.runFork(acknowledgeFrame(event));
+        return;
+      }
+
       pendingFrameRef.current = replacePendingBrowserFrame(
         pendingFrameRef.current,
         event,
@@ -549,6 +573,10 @@ const useBrowserWorkspace = () => {
         while (pendingFrameRef.current !== null) {
           const latestFrame = pendingFrameRef.current;
           pendingFrameRef.current = null;
+          if (openingRef.current) {
+            yield* acknowledgeFrame(latestFrame);
+            continue;
+          }
           const canvas = canvasRef.current;
           if (canvas === null) {
             yield* acknowledgeFrame(latestFrame);
@@ -763,7 +791,7 @@ const useBrowserWorkspace = () => {
 
     addressEditingRef.current = browserAddressEditingAfter("submit");
     setError(undefined);
-    setOpening(true);
+    beginOpening();
     Effect.runFork(
       Effect.tryPromise({
         catch: (cause) => cause,
@@ -789,7 +817,7 @@ const useBrowserWorkspace = () => {
         Effect.catchCause((openCause) =>
           Effect.sync(() => setError(toErrorMessage(Cause.squash(openCause))))
         ),
-        Effect.ensuring(Effect.sync(() => setOpening(false)))
+        Effect.ensuring(Effect.sync(() => endOpening()))
       )
     );
   };
@@ -805,7 +833,7 @@ const useBrowserWorkspace = () => {
     }
 
     setError(undefined);
-    setOpening(true);
+    beginOpening();
     Effect.runFork(
       Effect.tryPromise({
         catch: (cause) => cause,
@@ -828,7 +856,7 @@ const useBrowserWorkspace = () => {
             setError(toErrorMessage(Cause.squash(userAgentCause)))
           )
         ),
-        Effect.ensuring(Effect.sync(() => setOpening(false)))
+        Effect.ensuring(Effect.sync(() => endOpening()))
       )
     );
   };
