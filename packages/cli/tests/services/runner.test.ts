@@ -11,6 +11,7 @@ import { Effect, FileSystem } from "effect";
 import type { AgentBrowser } from "../../src/services/agent-browser";
 import {
   flowDirectorySegment,
+  flowRunsDirectory,
   flowIdentity,
   hashFlow,
   makeRunnerService,
@@ -391,6 +392,18 @@ it.effect("substitutes a Variable into a navigate URL", () => {
       fixture.calls.find(({ command }) => command === "goto")?.args[0]
     ).toBe("https://staging.example.com/login");
   }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it("files every Run of a Flow in the directory preflight probes", () => {
+  // Preflight and persistence must agree on the path, or preflight checks
+  // somewhere the Run never writes.
+  const executed = flow([{ type: "navigate", url: "https://example.com/" }], {
+    flowId: "checkout-flow",
+  });
+
+  expect(flowRunsDirectory("/runs", executed)).toBe(
+    `/runs/${flowDirectorySegment("checkout-flow")}`
+  );
 });
 
 it("hashes a Flow independently of key order", () => {

@@ -4,7 +4,12 @@ import { Console, Data, Effect, FileSystem, Option, Runtime } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
 
 import { AgentBrowser } from "../services/agent-browser";
-import { decodeFlowDocument, Runner, RunnerError } from "../services/runner";
+import {
+  decodeFlowDocument,
+  flowRunsDirectory,
+  Runner,
+  RunnerError,
+} from "../services/runner";
 import { defaultRunsDirectory } from "../services/state-directory";
 import { preflight } from "../services/variables";
 
@@ -62,7 +67,9 @@ export const runCommand = Command.make(
     const { resolution, warnings } = yield* preflight(flow, {
       environment: process.env,
       interactive: process.stdin.isTTY === true,
-      outputDirectory,
+      // Probe the directory this Flow's Runs are actually filed in, not just
+      // the output root, which may be writable while that one is not.
+      outputDirectory: flowRunsDirectory(outputDirectory, flow),
       prompt: (variable) =>
         Prompt.run(
           Prompt.password({

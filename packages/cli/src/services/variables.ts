@@ -77,7 +77,12 @@ export interface ResolveVariablesOptions<R = never> {
   readonly environment: Readonly<Record<string, string | undefined>>;
   /** Whether stdin can be prompted. Never true for cron or CI. */
   readonly interactive: boolean;
-  /** Checked for writability now, so a Run cannot execute and then fail to persist. */
+  /**
+   * The exact directory the Run will write into — the output root plus this
+   * Flow's own key. Probed now, so a Run cannot execute and then fail to
+   * persist. It is passed in rather than derived here, because only the
+   * Runner knows how a Flow's identity becomes a directory.
+   */
   readonly outputDirectory: string;
   /** Prompts for one Variable. Only called when `interactive` is true. */
   readonly prompt: (
@@ -185,7 +190,8 @@ export const preflight = <R>(
     // after a Run has executed and has nowhere to go.
     //
     // The probe mirrors exactly what persisting a Run does — create a nested
-    // directory under the output root, then write a file inside it — because
+    // directory under this Flow's own output directory, then write a file
+    // inside it — because
     // every cheaper approximation misses a real case. A recursive create
     // succeeds on an existing directory whatever its permissions; a POSIX
     // directory that is writable but not searchable refuses to hold a file

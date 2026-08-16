@@ -125,6 +125,22 @@ export const flowDirectorySegment = (flowId: string): string => {
   return readable.length === 0 ? `flow-${digest}` : `${readable}-${digest}`;
 };
 
+/**
+ * Where every Run of this Flow is filed. Preflight probes this exact path, so
+ * a per-Flow directory left behind by an earlier Run with different
+ * permissions is caught before the browser opens rather than after.
+ */
+export const flowRunsDirectory = (
+  outputDirectory: string,
+  flow: Flow
+): string => {
+  const flowHash = hashFlow(flow);
+  return path.join(
+    outputDirectory,
+    flowDirectorySegment(flowIdentity(flow, flowHash))
+  );
+};
+
 /** Sortable, filesystem-safe, and readable: `20260816T112233-<short id>`. */
 export const runDirectoryName = (startedAt: Date, runId: string): string => {
   const stamp = startedAt.toISOString().replaceAll(/[-:]/gu, "").slice(0, 15);
