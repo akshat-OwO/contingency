@@ -94,16 +94,23 @@ export const flowIdentity = (flow: Flow, flowHash: string): string =>
 
 /**
  * A Flow's identity comes from a file the Runner did not write, so it can hold
- * path separators or `..`. It names the Run's directory, so it is reduced to a
- * single safe segment first; `Run.flowId` keeps the identity as declared.
+ * path separators, `..`, or a name a filesystem refuses. It names the Run's
+ * directory, so it is encoded to one safe segment first; `Run.flowId` keeps the
+ * identity as declared.
+ *
+ * Every key carries a hash of the original identity. That keeps the mapping
+ * injective — `a/b` and `a\b` sanitize alike, and long identities truncate
+ * alike, either of which would merge two Flows' histories into one directory —
+ * and it keeps a Windows device name such as `CON` or `LPT1` out of the
+ * segment, which would otherwise fail to create after the Run had executed.
  */
 export const flowDirectorySegment = (flowId: string): string => {
-  const safe = flowId
+  const digest = createHash("sha256").update(flowId).digest("hex").slice(0, 16);
+  const readable = flowId
     .replaceAll(/[^A-Za-z0-9._-]/gu, "-")
-    .replace(/^[.-]+/u, "");
-  return safe.length === 0
-    ? `flow-${createHash("sha256").update(flowId).digest("hex").slice(0, 16)}`
-    : safe.slice(0, 64);
+    .replaceAll(/^[.-]+|[.-]+$/gu, "")
+    .slice(0, 40);
+  return readable.length === 0 ? `flow-${digest}` : `${readable}-${digest}`;
 };
 
 /** Sortable, filesystem-safe, and readable: `20260816T112233-<short id>`. */

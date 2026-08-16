@@ -223,7 +223,7 @@ it.effect("writes a Run directory keyed on the Flow's stable identity", () => {
     });
     const result = yield* runner.run(executed, { outputDirectory: "/runs" });
 
-    expect(result.directory).toContain("/runs/checkout-flow/");
+    expect(result.directory).toContain("/runs/checkout-flow-");
     expect(fixture.directories).toContain(result.directory);
 
     const written = writtenRun(fixture.written);
@@ -410,7 +410,38 @@ it("keeps a hostile Flow identity inside the output directory", () => {
   expect(flowDirectorySegment("a/b\\c")).not.toMatch(/[/\\]/u);
   // A name that sanitizes away entirely still yields a stable segment.
   expect(flowDirectorySegment("../..")).toMatch(/^flow-[a-f0-9]{16}$/u);
-  expect(flowDirectorySegment("checkout-flow")).toBe("checkout-flow");
+  expect(flowDirectorySegment("checkout-flow")).toMatch(
+    /^checkout-flow-[a-f0-9]{16}$/u
+  );
+});
+
+it("gives distinct Flow identities distinct directories", () => {
+  // Sanitizing alone maps both of these to "a-b", which would file two
+  // unrelated Flows' Runs under one history.
+  expect(flowDirectorySegment("a/b")).not.toBe(flowDirectorySegment("a\\b"));
+
+  // Truncation alone collides for identities sharing a long prefix.
+  const prefix = "f".repeat(60);
+  expect(flowDirectorySegment(`${prefix}-one`)).not.toBe(
+    flowDirectorySegment(`${prefix}-two`)
+  );
+});
+
+it("keeps Windows device names out of a directory key", () => {
+  // `CON`, `PRN`, `NUL`, and `COM1`..`LPT9` cannot name a directory on
+  // Windows, so a Run would execute and then fail to persist.
+  for (const reserved of ["CON", "PRN", "AUX", "NUL", "COM1", "LPT9"]) {
+    expect(flowDirectorySegment(reserved)).not.toBe(reserved);
+    expect(flowDirectorySegment(reserved)).toMatch(
+      new RegExp(`^${reserved}-[a-f0-9]{16}$`, "u")
+    );
+  }
+});
+
+it("keeps a directory key free of trailing dots and spaces", () => {
+  // Windows silently strips both, which would break the mapping.
+  expect(flowDirectorySegment("checkout.")).not.toMatch(/[. ]$/u);
+  expect(flowDirectorySegment("checkout ")).not.toMatch(/[. ]$/u);
 });
 
 it.effect(
