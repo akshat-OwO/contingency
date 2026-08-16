@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { arch, homedir, platform } from "node:os";
+import { arch, platform } from "node:os";
 import path from "node:path";
 
 import {
@@ -13,6 +13,7 @@ import {
   isBrowserRpcError,
   makeBrowserRpcError,
   SessionId as SessionIdSchema,
+  sessionPrefixes,
   userAgentProfiles,
 } from "@contingency/protocol";
 import type {
@@ -58,6 +59,7 @@ import {
   webStorageSetArgs,
 } from "./browser-storage";
 import { navigateWithUserAgentOverride } from "./cdp-user-agent";
+import { stateDirectory } from "./state-directory";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -112,6 +114,38 @@ export interface AgentBrowser {
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly close: (
     sessionId: SessionId
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Click the element a selector resolves to. Used to replay a Flow. */
+  readonly clickSelector: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Clear a field and set its value in one command. */
+  readonly fillSelector: (
+    sessionId: SessionId,
+    selector: string,
+    value: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Type into a field with real keystrokes, leaving existing text in place. */
+  readonly typeSelector: (
+    sessionId: SessionId,
+    selector: string,
+    value: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Press a single key against the focused element. */
+  readonly pressKey: (
+    sessionId: SessionId,
+    key: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Wait for a selector to resolve, failing when it does not. */
+  readonly waitForSelector: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Navigate to a URL in an already-open session. */
+  readonly goto: (
+    sessionId: SessionId,
+    url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly cdpUrl: (
     sessionId: SessionId
@@ -277,27 +311,6 @@ const getAgentBrowserExecutable = Effect.fn("getAgentBrowserExecutable")(
   }
 );
 
-const getStateDirectory = (operatingSystem: NodeJS.Platform): string => {
-  const configuredStateDirectory = process.env.CONTINGENCY_STATE_DIR?.trim();
-  if (configuredStateDirectory) {
-    return configuredStateDirectory;
-  }
-
-  if (operatingSystem === "win32") {
-    const localApplicationData = process.env.LOCALAPPDATA?.trim();
-    return path.join(
-      localApplicationData || path.join(homedir(), "AppData", "Local"),
-      "contingency"
-    );
-  }
-
-  const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
-  return path.join(
-    xdgStateHome || path.join(homedir(), ".local", "state"),
-    "contingency"
-  );
-};
-
 const AgentBrowserJsonResult = <Data extends Schema.Top>(data: Data) =>
   Schema.Struct({ data, success: Schema.Literal(true) });
 
@@ -423,6 +436,26 @@ const relayedStreamMessageTypes = new Set([
   "url",
 ]);
 
+/**
+ * `--json` failures carry the human-readable reason in an `error` field.
+ * Surfacing the whole envelope instead puts a JSON blob in front of a
+ * developer who only needs the sentence inside it.
+ */
+const agentBrowserFailureMessage = (stdout: string): string => {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith("{")) {
+    return trimmed;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as { readonly error?: unknown };
+    return typeof parsed.error === "string" && parsed.error.length > 0
+      ? parsed.error
+      : trimmed;
+  } catch {
+    return trimmed;
+  }
+};
+
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
@@ -452,7 +485,9 @@ const normalizeUrl = (value: string) =>
 
 const normalizeSessionId = (name: string) => {
   const trimmed = name.trim();
-  const candidate = trimmed.startsWith("create-")
+  // An unprefixed name is a Create View session; the Runner passes `run-`
+  // explicitly so its sessions stay distinguishable from authoring ones.
+  const candidate = sessionPrefixes.some((prefix) => trimmed.startsWith(prefix))
     ? trimmed
     : `create-${trimmed}`;
 
@@ -551,7 +586,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           browserError(
             "agent_browser_failed",
             result.stderr.trim() ||
-              result.stdout.trim() ||
+              agentBrowserFailureMessage(result.stdout) ||
               `agent-browser exited with code ${result.exitCode}`
           )
         );
@@ -593,8 +628,11 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     ];
 
     const init = Effect.fn("AgentBrowser.init")(function* init() {
-      const stateDirectory = getStateDirectory(runtime.operatingSystem);
-      const installMarkerPath = path.join(stateDirectory, INSTALL_MARKER);
+      const contingencyStateDirectory = stateDirectory(runtime.operatingSystem);
+      const installMarkerPath = path.join(
+        contingencyStateDirectory,
+        INSTALL_MARKER
+      );
 
       if (yield* fileSystem.exists(installMarkerPath)) {
         return;
@@ -640,7 +678,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         );
       }
 
-      yield* fileSystem.makeDirectory(stateDirectory, { recursive: true });
+      yield* fileSystem.makeDirectory(contingencyStateDirectory, {
+        recursive: true,
+      });
       yield* fileSystem.writeFileString(
         installMarkerPath,
         `${agentBrowserPackage.version}\n`
@@ -1109,6 +1149,56 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    // Selector-level replay commands. The Create canvas drives the browser
+    // with coordinates and key events; a Flow addresses elements by selector,
+    // so the Runner needs these instead.
+    const clickSelector = Effect.fn("AgentBrowser.clickSelector")(
+      function* clickSelector(sessionId: SessionId, selector: string) {
+        yield* run(sessionArgs(sessionId, ["click", selector]));
+      }
+    );
+
+    const fillSelector = Effect.fn("AgentBrowser.fillSelector")(
+      function* fillSelector(
+        sessionId: SessionId,
+        selector: string,
+        value: string
+      ) {
+        yield* run(sessionArgs(sessionId, ["fill", selector, value]));
+      }
+    );
+
+    const typeSelector = Effect.fn("AgentBrowser.typeSelector")(
+      function* typeSelector(
+        sessionId: SessionId,
+        selector: string,
+        value: string
+      ) {
+        yield* run(sessionArgs(sessionId, ["type", selector, value]));
+      }
+    );
+
+    const pressKey = Effect.fn("AgentBrowser.pressKey")(function* pressKey(
+      sessionId: SessionId,
+      key: string
+    ) {
+      yield* run(sessionArgs(sessionId, ["press", key]));
+    });
+
+    const waitForSelector = Effect.fn("AgentBrowser.waitForSelector")(
+      function* waitForSelector(sessionId: SessionId, selector: string) {
+        yield* run(sessionArgs(sessionId, ["wait", selector]));
+      }
+    );
+
+    const goto = Effect.fn("AgentBrowser.goto")(function* goto(
+      sessionId: SessionId,
+      url: string
+    ) {
+      const normalized = yield* normalizeUrl(url);
+      yield* run(sessionArgs(sessionId, ["open", normalized]));
+    });
+
     const navigate = Effect.fn("AgentBrowser.navigate")(function* navigate(
       sessionId: SessionId,
       action: "back" | "forward" | "reload"
@@ -1414,26 +1504,32 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       attach,
       cdpUrl,
       clearStorage,
+      clickSelector,
       close,
       closeTab,
       create,
       currentUrl,
       deleteStorage,
+      fillSelector,
       getNetworkRequest,
       getNetworkRequests,
       getStorage,
       getTabs,
+      goto,
       init,
       list,
       navigate,
       newTab,
       open,
+      pressKey,
       sendInput,
       setStorage,
       setUserAgent,
       setViewport,
       stream,
       switchTab,
+      typeSelector,
+      waitForSelector,
     });
   });
 
