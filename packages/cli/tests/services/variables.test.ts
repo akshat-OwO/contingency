@@ -21,13 +21,20 @@ const unwritableFileSystem = FileSystem.layerNoop({
   makeDirectory: () => Effect.die(new Error("EACCES: permission denied")),
 });
 
-// A recursive create succeeds on a directory that already exists, whatever
-// its permissions, and a POSIX directory that is writable but not searchable
-// still refuses to hold a new file. Only creating one settles it.
+// A POSIX directory that is writable but not searchable refuses to hold a new
+// file even though creating it succeeded.
 const existingUnwritableFileSystem = FileSystem.layerNoop({
   makeDirectory: () => Effect.void,
   remove: () => Effect.void,
   writeFileString: () => Effect.die(new Error("EACCES: permission denied")),
+});
+
+// Windows grants create-file and create-subdirectory as separate rights, so a
+// path can accept a file and still refuse the nested directory a Run needs.
+const noSubdirectoryFileSystem = FileSystem.layerNoop({
+  makeDirectory: () => Effect.die(new Error("EPERM: operation not permitted")),
+  remove: () => Effect.void,
+  writeFileString: () => Effect.void,
 });
 
 const flowWith = (variables: readonly Variable[]): Flow =>
@@ -187,6 +194,17 @@ it.effect("rejects an output directory that cannot hold a new file", () =>
     expect(failure.problems).toHaveLength(1);
     expect(failure.message).toContain("/runs");
   }).pipe(Effect.provide(existingUnwritableFileSystem))
+);
+
+it.effect(
+  "rejects an output directory that cannot hold a nested directory",
+  () =>
+    Effect.gen(function* reportNoSubdirectory() {
+      const failure = yield* Effect.flip(preflight(flowWith([]), options()));
+
+      expect(failure.problems).toHaveLength(1);
+      expect(failure.message).toContain("/runs");
+    }).pipe(Effect.provide(noSubdirectoryFileSystem))
 );
 
 it.effect("warns that a single-use code cannot survive a retry", () =>

@@ -184,20 +184,27 @@ export const preflight = <R>(
     // An unwritable output path is worth knowing before a browser opens, not
     // after a Run has executed and has nowhere to go.
     //
-    // Neither creating the directory nor probing its mode settles this. A
-    // recursive create succeeds on an existing directory whatever its
-    // permissions, and a POSIX directory that is writable but not searchable
-    // passes a write-access check while still refusing to hold a new file.
-    // Creating and removing a real file is the only check that answers the
-    // question actually being asked, and it also covers read-only mounts,
-    // ACLs, and quota.
-    const probePath = `${options.outputDirectory}/.contingency-preflight-${randomUUID()}`;
+    // The probe mirrors exactly what persisting a Run does — create a nested
+    // directory under the output root, then write a file inside it — because
+    // every cheaper approximation misses a real case. A recursive create
+    // succeeds on an existing directory whatever its permissions; a POSIX
+    // directory that is writable but not searchable refuses to hold a file
+    // regardless; and Windows grants create-file and create-subdirectory as
+    // separate rights, so writing a file proves nothing about the nested
+    // directory the Run actually needs.
+    const probeDirectory = `${options.outputDirectory}/.contingency-preflight-${randomUUID()}`;
     const outputOutcome = yield* Effect.exit(
       fileSystem
-        .makeDirectory(options.outputDirectory, { recursive: true })
+        .makeDirectory(probeDirectory, { recursive: true })
         .pipe(
-          Effect.andThen(fileSystem.writeFileString(probePath, "")),
-          Effect.ensuring(fileSystem.remove(probePath).pipe(Effect.ignore))
+          Effect.andThen(
+            fileSystem.writeFileString(`${probeDirectory}/run.json`, "")
+          ),
+          Effect.ensuring(
+            fileSystem
+              .remove(probeDirectory, { recursive: true })
+              .pipe(Effect.ignore)
+          )
         )
     );
     if (Exit.isFailure(outputOutcome)) {
