@@ -50,7 +50,8 @@ const makeFixture = (options?: {
     fillSelector: (_session, selector, value) =>
       record("fill", [selector, value]),
     goto: (_session, url) => record("goto", [url]),
-    pressKey: (_session, key) => record("press", [key]),
+    keyDown: (_session, key) => record("keyDown", [key]),
+    keyUp: (_session, key) => record("keyUp", [key]),
     typeSelector: (_session, selector, value) =>
       record("type", [selector, value]),
     waitForSelector: (_session, selector) => record("wait", [selector]),
@@ -118,7 +119,7 @@ it.effect(
         "click",
         "fill",
         "wait",
-        "press",
+        "keyDown",
         "close",
       ]);
       const [created] = fixture.calls;
@@ -338,10 +339,10 @@ it.effect("fails a Step whose only selectors are chains", () => {
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
-it.effect("presses once for a Recorder keyDown and keyUp pair", () => {
+it.effect("dispatches a Recorder keyDown and keyUp pair as itself", () => {
   const fixture = makeFixture();
 
-  return Effect.gen(function* pressOncePerKeystroke() {
+  return Effect.gen(function* replayKeystrokeFaithfully() {
     const runner = yield* makeRunnerService(fixture.browser);
     const result = yield* runner.run(
       flow([
@@ -352,30 +353,43 @@ it.effect("presses once for a Recorder keyDown and keyUp pair", () => {
       { outputDirectory: "/runs" }
     );
 
-    // Two presses would type Enter twice and submit the form twice.
+    // One press and one release — not two complete keystrokes, which would
+    // submit a form twice.
     expect(
-      fixture.calls.filter(({ command }) => command === "press")
-    ).toHaveLength(1);
+      fixture.calls
+        .filter(({ command }) => command.startsWith("key"))
+        .map(({ args, command }) => [command, args[0]])
+    ).toEqual([
+      ["keyDown", "Enter"],
+      ["keyUp", "Enter"],
+    ]);
     expect(result.run.outcome).toBe("completed");
-    expect(result.run.steps).toHaveLength(3);
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
-it.effect("fails a Step that holds a modifier key down", () => {
+it.effect("holds a modifier across the Steps it was recorded around", () => {
   const fixture = makeFixture();
 
-  return Effect.gen(function* rejectHeldModifier() {
+  return Effect.gen(function* holdModifier() {
     const runner = yield* makeRunnerService(fixture.browser);
     const result = yield* runner.run(
       flow([
         { type: "navigate", url: "https://example.com/" },
-        { key: "Shift", selectors: [["#email"]], type: "keyDown" },
+        { key: "Shift", selectors: [["#grid"]], type: "keyDown" },
+        { offsetX: 1, offsetY: 2, selectors: [["#row"]], type: "click" },
+        { key: "Shift", selectors: [["#grid"]], type: "keyUp" },
       ]),
       { outputDirectory: "/runs" }
     );
 
-    expect(result.run.outcome).toBe("failed");
-    expect(result.run.failure?.message).toContain("Shift");
+    // The Step no longer fails: the modifier goes down, the click happens
+    // while it is held, and it comes back up.
+    expect(
+      fixture.calls
+        .filter(({ command }) => command !== "create" && command !== "close")
+        .map(({ command }) => command)
+    ).toEqual(["goto", "wait", "keyDown", "click", "wait", "keyUp"]);
+    expect(result.run.outcome).toBe("completed");
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 

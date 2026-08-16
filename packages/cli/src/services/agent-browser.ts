@@ -58,6 +58,7 @@ import {
   webStorageGetArgs,
   webStorageSetArgs,
 } from "./browser-storage";
+import { dispatchKey, dispatchModifiedClick, isModifierKey } from "./cdp-input";
 import { navigateWithUserAgentOverride } from "./cdp-user-agent";
 import { stateDirectory } from "./state-directory";
 
@@ -132,8 +133,16 @@ export interface AgentBrowser {
     selector: string,
     value: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
-  /** Press a single key against the focused element. */
-  readonly pressKey: (
+  /**
+   * Press a key down and leave it down. A modifier held this way applies to
+   * every later key and click in the session until it is released.
+   */
+  readonly keyDown: (
+    sessionId: SessionId,
+    key: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Release a key pressed with {@link keyDown}. */
+  readonly keyUp: (
     sessionId: SessionId,
     key: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
@@ -338,6 +347,21 @@ const CurrentTitleResult = AgentBrowserJsonResult(
   Schema.Struct({ title: Schema.String })
 );
 
+const ElementBox = Schema.Struct({
+  height: Schema.Finite,
+  width: Schema.Finite,
+  x: Schema.Finite,
+  y: Schema.Finite,
+});
+
+const BatchResults = Schema.Array(
+  Schema.Struct({
+    error: Schema.optional(Schema.NullOr(Schema.String)),
+    result: Schema.optional(Schema.Unknown),
+    success: Schema.Boolean,
+  })
+);
+
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
 );
@@ -437,20 +461,29 @@ const relayedStreamMessageTypes = new Set([
 ]);
 
 /**
- * `--json` failures carry the human-readable reason in an `error` field.
+ * `--json` failures carry the human-readable reason in an `error` field —
+ * either on the envelope, or on the failed entry of a `batch` result array.
  * Surfacing the whole envelope instead puts a JSON blob in front of a
  * developer who only needs the sentence inside it.
  */
 const agentBrowserFailureMessage = (stdout: string): string => {
   const trimmed = stdout.trim();
-  if (!trimmed.startsWith("{")) {
+  if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
     return trimmed;
   }
   try {
-    const parsed = JSON.parse(trimmed) as { readonly error?: unknown };
-    return typeof parsed.error === "string" && parsed.error.length > 0
-      ? parsed.error
-      : trimmed;
+    const parsed = JSON.parse(trimmed) as unknown;
+    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    for (const entry of entries) {
+      const error =
+        typeof entry === "object" && entry !== null && "error" in entry
+          ? (entry as { readonly error: unknown }).error
+          : undefined;
+      if (typeof error === "string" && error.length > 0) {
+        return error;
+      }
+    }
+    return trimmed;
   } catch {
     return trimmed;
   }
@@ -531,6 +564,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       { readonly socket: WebSocket; readonly streamId: BrowserStreamIdType }
     >();
     const activeTabIds = new Map<SessionId, BrowserTabId>();
+    // Keys a Flow pressed down and has not released. CDP does not remember a
+    // held modifier between synthesized events, so every later event has to
+    // carry the mask itself.
+    const heldKeys = new Map<SessionId, Set<string>>();
     const streamActiveTabIds = new Map<SessionId, BrowserTabId>();
     const tabMetadata = new Map<
       SessionId,
@@ -543,7 +580,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     });
 
     const run = Effect.fn("AgentBrowser.run")(function* run(
-      args: readonly string[]
+      args: readonly string[],
+      stdin?: string
     ) {
       const binaryPath = yield* executablePath.pipe(
         Effect.mapError((cause) =>
@@ -559,6 +597,11 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         },
         extendEnv: true,
         stderr: "pipe",
+        ...(stdin === undefined
+          ? {}
+          : {
+              stdin: Stream.make(new TextEncoder().encode(stdin)),
+            }),
         stdout: "pipe",
       });
 
@@ -616,6 +659,66 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           )
         )
       );
+    });
+
+    /**
+     * Run commands whose operands come from a Flow.
+     *
+     * `batch` reads a JSON array of pre-split argument arrays from stdin,
+     * which keeps two problems out of the argument vector at once. A resolved
+     * Variable never appears in argv, where `ps` would expose it to every
+     * local user — the reason `--secret NAME` exists at all. And an operand is
+     * not re-parsed as an option, so a Flow cannot smuggle a flag through a
+     * selector: `["click", "--headed"]` is reported as `Element not found:
+     * --headed` rather than switching the browser out of headless mode.
+     */
+    const runBatch = Effect.fn("AgentBrowser.runBatch")(function* runBatch(
+      sessionId: SessionId,
+      commands: readonly (readonly string[])[]
+    ) {
+      const output = yield* run(
+        [
+          "--namespace",
+          namespace,
+          "--session",
+          sessionId,
+          "batch",
+          "--bail",
+          "--json",
+        ],
+        JSON.stringify(commands)
+      );
+
+      const results = yield* Schema.decodeUnknownEffect(BatchResults)(
+        yield* Effect.try({
+          catch: (cause) =>
+            browserError(
+              "agent_browser_failed",
+              `Unable to parse agent-browser output: ${errorMessage(cause)}`
+            ),
+          try: () => JSON.parse(output) as unknown,
+        })
+      ).pipe(
+        Effect.mapError((cause) =>
+          browserError(
+            "agent_browser_failed",
+            `Unexpected agent-browser response: ${errorMessage(cause)}`
+          )
+        )
+      );
+
+      // `--bail` stops at the first failure, so the failed entry is the last.
+      const failed = results.find(({ success }) => !success);
+      if (failed !== undefined) {
+        return yield* Effect.fail(
+          browserError(
+            "agent_browser_failed",
+            failed.error ?? "agent-browser batch command failed."
+          )
+        );
+      }
+
+      return results;
     });
 
     const sessionArgs = (sessionId: SessionId, args: readonly string[]) => [
@@ -1152,9 +1255,39 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     // Selector-level replay commands. The Create canvas drives the browser
     // with coordinates and key events; a Flow addresses elements by selector,
     // so the Runner needs these instead.
+    const heldFor = (sessionId: SessionId): readonly string[] => [
+      ...(heldKeys.get(sessionId) ?? []),
+    ];
+
     const clickSelector = Effect.fn("AgentBrowser.clickSelector")(
       function* clickSelector(sessionId: SessionId, selector: string) {
-        yield* run(sessionArgs(sessionId, ["click", selector]));
+        const held = heldFor(sessionId);
+        if (held.length === 0) {
+          yield* runBatch(sessionId, [["click", selector]]);
+          return;
+        }
+
+        // The tool's own click dispatches without modifiers, which would drop
+        // a Shift the Flow is holding and click as if it were never pressed.
+        // Reading the box first keeps the tool's selector resolution.
+        const [box] = yield* runBatch(sessionId, [["get", "box", selector]]);
+        const geometry = yield* Schema.decodeUnknownEffect(ElementBox)(
+          box?.result
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              `Could not measure the element for ${selector}.`
+            )
+          )
+        );
+        yield* dispatchModifiedClick({
+          cdpUrl: yield* cdpUrl(sessionId),
+          held,
+          requestedTabId: activeTabIds.get(sessionId),
+          x: geometry.x + geometry.width / 2,
+          y: geometry.y + geometry.height / 2,
+        });
       }
     );
 
@@ -1164,7 +1297,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         selector: string,
         value: string
       ) {
-        yield* run(sessionArgs(sessionId, ["fill", selector, value]));
+        yield* runBatch(sessionId, [["fill", selector, value]]);
       }
     );
 
@@ -1174,20 +1307,55 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         selector: string,
         value: string
       ) {
-        yield* run(sessionArgs(sessionId, ["type", selector, value]));
+        yield* runBatch(sessionId, [["type", selector, value]]);
       }
     );
 
-    const pressKey = Effect.fn("AgentBrowser.pressKey")(function* pressKey(
+    const dispatchHalfKeystroke = (
       sessionId: SessionId,
-      key: string
-    ) {
-      yield* run(sessionArgs(sessionId, ["press", key]));
-    });
+      key: string,
+      type: "keyDown" | "keyUp"
+    ) =>
+      Effect.gen(function* sendHalfKeystroke() {
+        const held = heldKeys.get(sessionId) ?? new Set<string>();
+        heldKeys.set(sessionId, held);
+
+        if (isModifierKey(key)) {
+          // Tracked, never dispatched. A modifier left physically down makes
+          // Chrome emit thousands of keydown events per second until it is
+          // released, which floods the page for the whole time a Flow holds
+          // it. Every event dispatched meanwhile carries the mask instead, so
+          // the page still reads `event.shiftKey` correctly.
+          if (type === "keyDown") {
+            held.add(key);
+          } else {
+            held.delete(key);
+          }
+          return;
+        }
+
+        yield* dispatchKey({
+          cdpUrl: yield* cdpUrl(sessionId),
+          held: [...held],
+          key,
+          requestedTabId: activeTabIds.get(sessionId),
+          type,
+        });
+      });
+
+    const keyDown = Effect.fn("AgentBrowser.keyDown")(
+      (sessionId: SessionId, key: string) =>
+        dispatchHalfKeystroke(sessionId, key, "keyDown")
+    );
+
+    const keyUp = Effect.fn("AgentBrowser.keyUp")(
+      (sessionId: SessionId, key: string) =>
+        dispatchHalfKeystroke(sessionId, key, "keyUp")
+    );
 
     const waitForSelector = Effect.fn("AgentBrowser.waitForSelector")(
       function* waitForSelector(sessionId: SessionId, selector: string) {
-        yield* run(sessionArgs(sessionId, ["wait", selector]));
+        yield* runBatch(sessionId, [["wait", selector]]);
       }
     );
 
@@ -1195,8 +1363,11 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       sessionId: SessionId,
       url: string
     ) {
+      // `normalizeUrl` already refuses anything but http and https; the URL
+      // still travels on stdin, since a Flow may interpolate a Variable into
+      // it and query strings carry credentials more often than they should.
       const normalized = yield* normalizeUrl(url);
-      yield* run(sessionArgs(sessionId, ["open", normalized]));
+      yield* runBatch(sessionId, [["open", normalized]]);
     });
 
     const navigate = Effect.fn("AgentBrowser.navigate")(function* navigate(
@@ -1219,6 +1390,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       activeTabIds.delete(sessionId);
       streamActiveTabIds.delete(sessionId);
       tabMetadata.delete(sessionId);
+      heldKeys.delete(sessionId);
       yield* run(sessionArgs(sessionId, ["close"]));
     });
 
@@ -1517,11 +1689,12 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       getTabs,
       goto,
       init,
+      keyDown,
+      keyUp,
       list,
       navigate,
       newTab,
       open,
-      pressKey,
       sendInput,
       setStorage,
       setUserAgent,

@@ -917,3 +917,105 @@ it.effect(
     ).pipe(Effect.provide(fixture.layer));
   }
 );
+
+/**
+ * The last spawned command, narrowed, with the JSON it was handed on stdin.
+ */
+const lastBatchCommand = (fixture: TestFixture) =>
+  Effect.gen(function* readLastBatchCommand() {
+    const command = fixture.commands.at(-1);
+    if (command?._tag !== "StandardCommand") {
+      return yield* Effect.die(
+        new Error("Expected agent-browser to run as a standard command")
+      );
+    }
+    const options: { readonly stdin?: unknown } = command.options;
+    const source =
+      options.stdin !== null &&
+      typeof options.stdin === "object" &&
+      "stream" in options.stdin
+        ? (options.stdin as { readonly stream: unknown }).stream
+        : options.stdin;
+    if (source === undefined || typeof source === "string") {
+      return yield* Effect.die(
+        new Error("Expected the command to carry a stdin stream")
+      );
+    }
+    const chunks = yield* Stream.runCollect(
+      source as Stream.Stream<Uint8Array>
+    );
+    const text = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+    return {
+      args: command.args,
+      stdin: JSON.parse(text.toString("utf-8")) as unknown,
+    };
+  });
+
+it.effect(
+  "sends Flow-controlled operands on stdin rather than in the argument vector",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: () => JSON.stringify([{ error: null, success: true }]),
+    });
+
+    return Effect.gen(function* keepOperandsOffArgv() {
+      const agentBrowser = yield* AgentBrowser;
+      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+      const secret = "hunter2-should-never-reach-argv";
+
+      yield* agentBrowser.fillSelector(sessionId, "#password", secret);
+      const { args, stdin } = yield* lastBatchCommand(fixture);
+
+      // `ps` exposes the argument vector to every local user, so neither the
+      // resolved value nor the selector may appear there.
+      expect(args.join(" ")).not.toContain(secret);
+      expect(args).not.toContain("#password");
+      expect(args).toContain("batch");
+      expect(stdin).toEqual([["fill", "#password", secret]]);
+    }).pipe(Effect.provide(fixture.layer));
+  }
+);
+
+it.effect("passes a dash-prefixed selector as an operand, not a flag", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () => JSON.stringify([{ error: null, success: true }]),
+  });
+
+  return Effect.gen(function* refuseFlagSmuggling() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    // A Flow is a file the Runner did not write, so a selector can be crafted
+    // to look like an option. `--profile` would otherwise reuse the operator's
+    // real Chrome profile, with their live authenticated sessions.
+    yield* agentBrowser.clickSelector(sessionId, "--profile");
+    const { args, stdin } = yield* lastBatchCommand(fixture);
+
+    expect(args).not.toContain("--profile");
+    expect(stdin).toEqual([["click", "--profile"]]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails the command with the batch entry's own message", () => {
+  const fixture = makeFixture({
+    exitCode: 1,
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([{ error: "Element not found: #gone", success: false }]),
+  });
+
+  return Effect.gen(function* surfaceBatchFailure() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(
+      agentBrowser.clickSelector(sessionId, "#gone")
+    );
+
+    // The reason, not the JSON array wrapping it: a Step failure is read by a
+    // developer and is copied into the Run.
+    expect(error.message).toBe("Element not found: #gone");
+  }).pipe(Effect.provide(fixture.layer));
+});

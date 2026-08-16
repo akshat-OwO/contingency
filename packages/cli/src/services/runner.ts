@@ -171,9 +171,6 @@ export const selectorCandidates = (selectors: Selector): readonly string[] => {
   return candidates;
 };
 
-/** A key that only makes sense held down, which replay cannot express. */
-const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
-
 const nowIso = Effect.sync(() => new Date());
 
 interface StepExecution {
@@ -204,20 +201,6 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     });
   }
 
-  // The Recorder emits a keyDown/keyUp pair per keystroke, and the browser
-  // exposes only a complete keypress. Pressing on both halves would type the
-  // key twice, so the release half is recorded and issues no command.
-  if (step.type === "keyUp") {
-    return;
-  }
-  if (step.type === "keyDown" && MODIFIER_KEYS.has(step.key)) {
-    // A held modifier spanning later Steps cannot be expressed as a keypress,
-    // and replaying it as one would change what those Steps do.
-    return yield* new RunnerError({
-      message: `This Step holds the ${step.key} key, which replay cannot express.`,
-    });
-  }
-
   const candidates = selectorCandidates(step.selectors);
   if (candidates.length === 0) {
     return yield* new RunnerError({
@@ -234,9 +217,17 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     if (step.type === "change") {
       return browser.fillSelector(sessionId, selector, step.value);
     }
+    // Each half of the Recorder's pair is dispatched as itself, so a modifier
+    // stays down across the Steps it was recorded around.
     return browser
       .waitForSelector(sessionId, selector)
-      .pipe(Effect.andThen(browser.pressKey(sessionId, step.key)));
+      .pipe(
+        Effect.andThen(
+          step.type === "keyDown"
+            ? browser.keyDown(sessionId, step.key)
+            : browser.keyUp(sessionId, step.key)
+        )
+      );
   };
 
   // Selectors are alternatives, not a sequence: the first that resolves wins,

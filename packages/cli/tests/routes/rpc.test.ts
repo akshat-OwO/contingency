@@ -136,11 +136,12 @@ const agentBrowserStub: AgentBrowser = {
   getTabs: unused,
   goto: unused,
   init: unused,
+  keyDown: unused,
+  keyUp: unused,
   list: unused,
   navigate: unused,
   newTab: unused,
   open: unused,
-  pressKey: unused,
   sendInput: unused,
   setStorage: (_sessionId, _tabId, payload) =>
     Effect.sync(() => {
