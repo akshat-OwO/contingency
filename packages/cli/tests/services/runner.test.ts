@@ -5,6 +5,7 @@ import { Effect, FileSystem } from "effect";
 
 import type { AgentBrowser } from "../../src/services/agent-browser";
 import {
+  flowDirectorySegment,
   flowIdentity,
   hashFlow,
   makeRunnerService,
@@ -303,8 +304,133 @@ it("translates Chrome Recorder selector forms the browser can use", () => {
   ).toEqual(["#buy", "//*[@id='buy']", "#buy-inner", "text=Buy now"]);
 });
 
-it("addresses the target at the end of a piercing selector chain", () => {
-  expect(selectorCandidates([["#host", "#shadow-child"]])).toEqual([
-    "#shadow-child",
-  ]);
+it("drops a chained selector rather than acting on the wrong element", () => {
+  // Flattening ["#host", "#target"] to "#target" resolves against the top
+  // document, which silently clicks a same-named decoy outside the shadow
+  // root. Verified against a real browser before this rule was added.
+  expect(selectorCandidates([["#host", "#shadow-child"]])).toEqual([]);
+  expect(selectorCandidates([["#host", "#shadow-child"], ["#direct"]])).toEqual(
+    ["#direct"]
+  );
 });
+
+it.effect("fails a Step whose only selectors are chains", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* rejectChainOnlyStep() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        {
+          offsetX: 1,
+          offsetY: 2,
+          selectors: [["#host", "#shadow-child"]],
+          type: "click",
+        },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(fixture.calls.map(({ command }) => command)).not.toContain("click");
+    expect(result.run.outcome).toBe("failed");
+    expect(result.run.failure?.message).toContain("Chained shadow-root");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("presses once for a Recorder keyDown and keyUp pair", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* pressOncePerKeystroke() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        { key: "Enter", selectors: [["#email"]], type: "keyDown" },
+        { key: "Enter", selectors: [["#email"]], type: "keyUp" },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    // Two presses would type Enter twice and submit the form twice.
+    expect(
+      fixture.calls.filter(({ command }) => command === "press")
+    ).toHaveLength(1);
+    expect(result.run.outcome).toBe("completed");
+    expect(result.run.steps).toHaveLength(3);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("fails a Step that holds a modifier key down", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* rejectHeldModifier() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        { key: "Shift", selectors: [["#email"]], type: "keyDown" },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(result.run.outcome).toBe("failed");
+    expect(result.run.failure?.message).toContain("Shift");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("fails a Step that targets a nested frame", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* rejectFrameStep() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        {
+          frame: [0],
+          offsetX: 1,
+          offsetY: 2,
+          selectors: [["#inside"]],
+          type: "click",
+        },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(fixture.calls.map(({ command }) => command)).not.toContain("click");
+    expect(result.run.outcome).toBe("failed");
+    expect(result.run.failure?.message).toContain("nested frame");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it("keeps a hostile Flow identity inside the output directory", () => {
+  expect(flowDirectorySegment("../../escaped")).not.toContain("..");
+  expect(flowDirectorySegment("../../escaped")).not.toContain("/");
+  expect(flowDirectorySegment("a/b\\c")).not.toMatch(/[/\\]/u);
+  // A name that sanitizes away entirely still yields a stable segment.
+  expect(flowDirectorySegment("../..")).toMatch(/^flow-[a-f0-9]{16}$/u);
+  expect(flowDirectorySegment("checkout-flow")).toBe("checkout-flow");
+});
+
+it.effect(
+  "writes a traversing Flow identity under the output directory",
+  () => {
+    const fixture = makeFixture();
+
+    return Effect.gen(function* containHostileIdentity() {
+      const runner = yield* makeRunnerService(fixture.browser);
+      const result = yield* runner.run(
+        flow([{ type: "navigate", url: "https://example.com/" }], {
+          flowId: "../../etc/escaped",
+        }),
+        { outputDirectory: "/runs" }
+      );
+
+      expect(result.directory.startsWith("/runs/")).toBe(true);
+      expect(result.directory).not.toContain("..");
+      // The Run still records the identity the Flow declared.
+      expect(result.run.flowId).toBe("../../etc/escaped");
+    }).pipe(Effect.provide(fixture.fileSystemLayer));
+  }
+);

@@ -92,6 +92,20 @@ export const hashFlow = (flow: Flow): string =>
 export const flowIdentity = (flow: Flow, flowHash: string): string =>
   flow.contingency?.flowId ?? `sha256-${flowHash.slice(0, 16)}`;
 
+/**
+ * A Flow's identity comes from a file the Runner did not write, so it can hold
+ * path separators or `..`. It names the Run's directory, so it is reduced to a
+ * single safe segment first; `Run.flowId` keeps the identity as declared.
+ */
+export const flowDirectorySegment = (flowId: string): string => {
+  const safe = flowId
+    .replaceAll(/[^A-Za-z0-9._-]/gu, "-")
+    .replace(/^[.-]+/u, "");
+  return safe.length === 0
+    ? `flow-${createHash("sha256").update(flowId).digest("hex").slice(0, 16)}`
+    : safe.slice(0, 64);
+};
+
 /** Sortable, filesystem-safe, and readable: `20260816T112233-<short id>`. */
 export const runDirectoryName = (startedAt: Date, runId: string): string => {
   const stamp = startedAt.toISOString().replaceAll(/[-:]/gu, "").slice(0, 15);
@@ -103,7 +117,8 @@ const translateSelector = (selector: string): string | undefined => {
     return selector.slice("xpath/".length);
   }
   if (selector.startsWith("pierce/")) {
-    // Piercing selectors are plain CSS; the tool already crosses shadow roots.
+    // A `pierce/` selector is a single CSS selector the browser resolves
+    // through open shadow roots on its own.
     return selector.slice("pierce/".length);
   }
   if (selector.startsWith("text/")) {
@@ -119,26 +134,35 @@ const translateSelector = (selector: string): string | undefined => {
 
 /**
  * A Chrome Recorder Step carries several alternative selectors in priority
- * order, each of which may be a chain that pierces frames or shadow roots. The
- * browser tool takes one CSS or XPath selector, so the chain is flattened to
- * its last element — the one that addresses the target itself — and prefixed
- * forms the tool cannot parse are dropped.
+ * order. Most are a single selector; some are a **chain** that walks into a
+ * shadow root, one element per hop.
+ *
+ * A chain is dropped rather than flattened to its last hop. The browser tool
+ * resolves a selector against the current document, so a flattened chain does
+ * not fail — it silently matches a same-named element elsewhere in the page
+ * and acts on the wrong one. Verified against a fixture whose top-level decoy
+ * and shadow child share an id: the flattened selector clicked the decoy.
+ * A Step that offers only chains is unsupported and fails loudly.
  */
 export const selectorCandidates = (selectors: Selector): readonly string[] => {
   const candidates: string[] = [];
   for (const entry of selectors) {
     const chain = typeof entry === "string" ? [entry] : [...entry];
-    const target = chain.at(-1);
-    if (target === undefined) {
+    if (chain.length !== 1) {
       continue;
     }
-    const translated = translateSelector(target);
+    const [target] = chain;
+    const translated =
+      target === undefined ? undefined : translateSelector(target);
     if (translated !== undefined && !candidates.includes(translated)) {
       candidates.push(translated);
     }
   }
   return candidates;
 };
+
+/** A key that only makes sense held down, which replay cannot express. */
+const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
 
 const nowIso = Effect.sync(() => new Date());
 
@@ -162,10 +186,32 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     return;
   }
 
+  if (step.frame !== undefined && step.frame.length > 0) {
+    // Selectors resolve against the top document only. Acting there would
+    // address a different document than the Flow recorded.
+    return yield* new RunnerError({
+      message: `This ${step.type} Step targets a nested frame, which replay does not support yet.`,
+    });
+  }
+
+  // The Recorder emits a keyDown/keyUp pair per keystroke, and the browser
+  // exposes only a complete keypress. Pressing on both halves would type the
+  // key twice, so the release half is recorded and issues no command.
+  if (step.type === "keyUp") {
+    return;
+  }
+  if (step.type === "keyDown" && MODIFIER_KEYS.has(step.key)) {
+    // A held modifier spanning later Steps cannot be expressed as a keypress,
+    // and replaying it as one would change what those Steps do.
+    return yield* new RunnerError({
+      message: `This Step holds the ${step.key} key, which replay cannot express.`,
+    });
+  }
+
   const candidates = selectorCandidates(step.selectors);
   if (candidates.length === 0) {
     return yield* new RunnerError({
-      message: `No selector on this ${step.type} Step can be resolved by the browser.`,
+      message: `No selector on this ${step.type} Step can be resolved by the browser. Chained shadow-root selectors are not supported yet.`,
     });
   }
 
@@ -299,7 +345,7 @@ export const makeRunnerService = (browser: AgentBrowser) =>
 
           const directory = path.join(
             options.outputDirectory,
-            flowId,
+            flowDirectorySegment(flowId),
             runDirectoryName(startedAt, runId)
           );
           yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
