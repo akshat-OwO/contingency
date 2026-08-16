@@ -573,6 +573,32 @@ it.effect("attaches late navigation events to the preceding action", () => {
   });
 });
 
+it.effect(
+  "keys a Flow on a stable identity that a rename does not change",
+  () => {
+    const capture = makeCapture();
+
+    return Effect.gen(function* keepFlowIdentity() {
+      const recording = yield* makeRecordingService(capture.capture);
+      const started = yield* recording.start({
+        initialUrl: "https://example.com/sign-in",
+        sessionId,
+        tabId,
+        title: "Sign in",
+      });
+      const flowId = started.flow.contingency?.flowId;
+
+      expect(flowId).toBeTypeOf("string");
+      expect(flowId).not.toBe("Sign in");
+
+      const renamed = yield* recording.updateTitle("Checkout");
+
+      expect(renamed.flow.title).toBe("Checkout");
+      expect(renamed.flow.contingency?.flowId).toBe(flowId);
+    });
+  }
+);
+
 it.effect("retains sensitive changes using a Variable only", () => {
   const capture = makeCapture();
 
@@ -767,7 +793,7 @@ it.effect("deletes and restores an ordered Audit Step", () => {
       tabId,
       title: "Audit ordering",
     });
-    const withAudit = yield* recording.addAudit("performance");
+    const withAudit = yield* recording.addAudit("accessibility");
     const auditId = withAudit.recordedSteps[1]?.id;
     if (auditId === undefined) {
       return yield* Effect.die(new Error("Expected an Audit Step"));
@@ -780,7 +806,7 @@ it.effect("deletes and restores an ordered Audit Step", () => {
       id: auditId,
       step: {
         name: "contingency.audit",
-        parameters: { kind: "performance" },
+        parameters: { kind: "accessibility" },
         type: "customStep",
       },
     });

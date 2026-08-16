@@ -31,9 +31,7 @@ const stepLabel = (
   variable?: string
 ): string => {
   if (step.type === "customStep") {
-    return step.parameters.kind === "accessibility"
-      ? "Accessibility Audit"
-      : "Performance Audit";
+    return "Accessibility Audit";
   }
   if (step.type === "navigate") {
     try {
@@ -474,14 +472,6 @@ export const AuthoringActions = ({
         variant="outline"
       >
         Add accessibility Audit
-      </Button>
-      <Button
-        disabled={captureBusy}
-        onClick={() => controller.addAudit("performance")}
-        size="sm"
-        variant="outline"
-      >
-        Add performance Audit
       </Button>
       <Button
         disabled={busy || !recording.undoAvailable}
