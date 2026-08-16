@@ -12,11 +12,19 @@ import {
 } from "../../src/services/variables";
 
 const writableFileSystem = FileSystem.layerNoop({
+  access: () => Effect.void,
   makeDirectory: () => Effect.void,
 });
 
 const unwritableFileSystem = FileSystem.layerNoop({
   makeDirectory: () => Effect.die(new Error("EACCES: permission denied")),
+});
+
+// A recursive create succeeds on a directory that already exists, whatever
+// its permissions, so this models the case preflight must still catch.
+const existingUnwritableFileSystem = FileSystem.layerNoop({
+  access: () => Effect.die(new Error("EACCES: permission denied")),
+  makeDirectory: () => Effect.void,
 });
 
 const flowWith = (variables: readonly Variable[]): Flow =>
@@ -169,6 +177,15 @@ it.effect("reports an unwritable output directory alongside Variables", () =>
   }).pipe(Effect.provide(unwritableFileSystem))
 );
 
+it.effect("rejects an existing output directory that cannot be written", () =>
+  Effect.gen(function* reportExistingUnwritable() {
+    const failure = yield* Effect.flip(preflight(flowWith([]), options()));
+
+    expect(failure.problems).toHaveLength(1);
+    expect(failure.message).toContain("/runs");
+  }).pipe(Effect.provide(existingUnwritableFileSystem))
+);
+
 it.effect("warns that a single-use code cannot survive a retry", () =>
   Effect.gen(function* warnOnRetryableSecret() {
     const report = yield* preflight(
@@ -226,4 +243,34 @@ it("redacts secret values from text bound for the Run", () => {
   );
   // A Variable that is not secret is not redacted; it is not sensitive.
   expect(redactSecrets("region eu-west", resolution)).toBe("region eu-west");
+});
+
+it("redacts overlapping secret values in either declaration order", () => {
+  // Replacing SHORT first would turn "abc123456" into "{{SHORT}}123456",
+  // persisting the sensitive tail, so the longest value must go first.
+  const shortFirst = {
+    secretNames: new Set(["SHORT", "LONG"]),
+    values: new Map([
+      ["SHORT", "abc"],
+      ["LONG", "abc123456"],
+    ]),
+  };
+  const longFirst = {
+    secretNames: new Set(["SHORT", "LONG"]),
+    values: new Map([
+      ["LONG", "abc123456"],
+      ["SHORT", "abc"],
+    ]),
+  };
+
+  for (const resolution of [shortFirst, longFirst]) {
+    const redacted = redactSecrets("value abc123456 here", resolution);
+    expect(redacted).toBe("value {{LONG}} here");
+    expect(redacted).not.toContain("123456");
+  }
+
+  // The shorter value alone still redacts.
+  expect(redactSecrets("value abc here", shortFirst)).toBe(
+    "value {{SHORT}} here"
+  );
 });

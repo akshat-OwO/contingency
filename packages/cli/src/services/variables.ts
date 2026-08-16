@@ -180,9 +180,18 @@ export const preflight = <R>(
     }
 
     // An unwritable output path is worth knowing before a browser opens, not
-    // after a Run has executed and has nowhere to go.
+    // after a Run has executed and has nowhere to go. Creating the directory
+    // is not enough of a check: a recursive create succeeds on a directory
+    // that already exists, whatever its permissions, so write access is
+    // probed separately.
     const outputOutcome = yield* Effect.exit(
-      fileSystem.makeDirectory(options.outputDirectory, { recursive: true })
+      fileSystem
+        .makeDirectory(options.outputDirectory, { recursive: true })
+        .pipe(
+          Effect.andThen(
+            fileSystem.access(options.outputDirectory, { writable: true })
+          )
+        )
     );
     if (Exit.isFailure(outputOutcome)) {
       problems.push(
@@ -259,11 +268,19 @@ export const redactSecrets = (
   value: string,
   resolution: VariableResolution
 ): string => {
+  // Longest first. Replacing a shorter value that is a prefix of a longer one
+  // would rewrite part of the longer value and leave the rest in place —
+  // `SHORT=abc` before `LONG=abc123456` yields `{{SHORT}}123456`, persisting
+  // the sensitive tail.
+  const secretValues = [...resolution.values]
+    .filter(
+      ([name, secret]) => resolution.secretNames.has(name) && secret !== ""
+    )
+    .toSorted(([, left], [, right]) => right.length - left.length);
+
   let redacted = value;
-  for (const [name, secretValue] of resolution.values) {
-    if (resolution.secretNames.has(name) && secretValue.length > 0) {
-      redacted = redacted.replaceAll(secretValue, `{{${name}}}`);
-    }
+  for (const [name, secretValue] of secretValues) {
+    redacted = redacted.replaceAll(secretValue, `{{${name}}}`);
   }
   return redacted;
 };
