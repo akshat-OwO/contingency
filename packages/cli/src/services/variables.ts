@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { Flow, Variable } from "@contingency/protocol";
 import {
   Cause,
@@ -180,17 +182,22 @@ export const preflight = <R>(
     }
 
     // An unwritable output path is worth knowing before a browser opens, not
-    // after a Run has executed and has nowhere to go. Creating the directory
-    // is not enough of a check: a recursive create succeeds on a directory
-    // that already exists, whatever its permissions, so write access is
-    // probed separately.
+    // after a Run has executed and has nowhere to go.
+    //
+    // Neither creating the directory nor probing its mode settles this. A
+    // recursive create succeeds on an existing directory whatever its
+    // permissions, and a POSIX directory that is writable but not searchable
+    // passes a write-access check while still refusing to hold a new file.
+    // Creating and removing a real file is the only check that answers the
+    // question actually being asked, and it also covers read-only mounts,
+    // ACLs, and quota.
+    const probePath = `${options.outputDirectory}/.contingency-preflight-${randomUUID()}`;
     const outputOutcome = yield* Effect.exit(
       fileSystem
         .makeDirectory(options.outputDirectory, { recursive: true })
         .pipe(
-          Effect.andThen(
-            fileSystem.access(options.outputDirectory, { writable: true })
-          )
+          Effect.andThen(fileSystem.writeFileString(probePath, "")),
+          Effect.ensuring(fileSystem.remove(probePath).pipe(Effect.ignore))
         )
     );
     if (Exit.isFailure(outputOutcome)) {

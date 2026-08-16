@@ -12,8 +12,9 @@ import {
 } from "../../src/services/variables";
 
 const writableFileSystem = FileSystem.layerNoop({
-  access: () => Effect.void,
   makeDirectory: () => Effect.void,
+  remove: () => Effect.void,
+  writeFileString: () => Effect.void,
 });
 
 const unwritableFileSystem = FileSystem.layerNoop({
@@ -21,10 +22,12 @@ const unwritableFileSystem = FileSystem.layerNoop({
 });
 
 // A recursive create succeeds on a directory that already exists, whatever
-// its permissions, so this models the case preflight must still catch.
+// its permissions, and a POSIX directory that is writable but not searchable
+// still refuses to hold a new file. Only creating one settles it.
 const existingUnwritableFileSystem = FileSystem.layerNoop({
-  access: () => Effect.die(new Error("EACCES: permission denied")),
   makeDirectory: () => Effect.void,
+  remove: () => Effect.void,
+  writeFileString: () => Effect.die(new Error("EACCES: permission denied")),
 });
 
 const flowWith = (variables: readonly Variable[]): Flow =>
@@ -177,7 +180,7 @@ it.effect("reports an unwritable output directory alongside Variables", () =>
   }).pipe(Effect.provide(unwritableFileSystem))
 );
 
-it.effect("rejects an existing output directory that cannot be written", () =>
+it.effect("rejects an output directory that cannot hold a new file", () =>
   Effect.gen(function* reportExistingUnwritable() {
     const failure = yield* Effect.flip(preflight(flowWith([]), options()));
 
