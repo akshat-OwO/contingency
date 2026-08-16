@@ -1,11 +1,12 @@
 import path from "node:path";
 
 import { Console, Data, Effect, FileSystem, Option, Runtime } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
 
 import { AgentBrowser } from "../services/agent-browser";
 import { decodeFlowDocument, Runner, RunnerError } from "../services/runner";
 import { defaultRunsDirectory } from "../services/state-directory";
+import { preflight } from "../services/variables";
 
 /**
  * A Run that did not complete is the product's core signal, not a crash. It
@@ -29,8 +30,14 @@ export const runCommand = Command.make(
       ),
       Flag.optional
     ),
+    secret: Flag.string("secret").pipe(
+      Flag.withDescription(
+        "Supply a Variable as NAME=value, or as NAME to read it from CONTINGENCY_SECRET_NAME. Repeatable."
+      ),
+      Flag.atLeast(0)
+    ),
   },
-  Effect.fnUntraced(function* runFlow({ flowPath, output }) {
+  Effect.fnUntraced(function* runFlow({ flowPath, output, secret }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const runner = yield* Runner;
     const agentBrowser = yield* AgentBrowser;
@@ -46,6 +53,31 @@ export const runCommand = Command.make(
     );
     const flow = yield* decodeFlowDocument(contents, resolvedPath);
 
+    const outputDirectory = Option.isSome(output)
+      ? path.resolve(output.value)
+      : defaultRunsDirectory();
+
+    // Preflight before the browser opens, so a misconfigured invocation fails
+    // in seconds with every problem listed rather than eight Steps deep.
+    const { resolution, warnings } = yield* preflight(flow, {
+      environment: process.env,
+      interactive: process.stdin.isTTY === true,
+      outputDirectory,
+      prompt: (variable) =>
+        Prompt.run(
+          Prompt.password({
+            message: `Value for Variable ${variable.name}`,
+          })
+        ).pipe(Effect.orDie),
+      // `--retry` arrives with retry itself; the documented default is 3.
+      retriesEnabled: true,
+      secrets: secret,
+    }).pipe(Effect.tapError((failure) => Console.error(failure.message)));
+
+    for (const warning of warnings) {
+      yield* Console.warn(`Warning: ${warning}`);
+    }
+
     yield* agentBrowser.init().pipe(
       Effect.mapError(
         (cause) =>
@@ -55,10 +87,10 @@ export const runCommand = Command.make(
       )
     );
 
-    const outputDirectory = Option.isSome(output)
-      ? path.resolve(output.value)
-      : defaultRunsDirectory();
-    const { directory, run } = yield* runner.run(flow, { outputDirectory });
+    const { directory, run } = yield* runner.run(flow, {
+      outputDirectory,
+      variables: resolution,
+    });
 
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);
     yield* Console.log(directory);

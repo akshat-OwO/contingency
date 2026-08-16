@@ -25,6 +25,8 @@ import {
 } from "effect";
 
 import { AgentBrowser } from "./agent-browser";
+import type { VariableResolution } from "./variables";
+import { redactSecrets, substituteVariables } from "./variables";
 
 /**
  * Run sessions replay a Flow, so they open at the Flow's own viewport rather
@@ -44,7 +46,14 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
 export interface RunnerRunOptions {
   /** Directory holding one subdirectory per Flow. Defaults to the state dir. */
   readonly outputDirectory: string;
+  /** Values for the Flow's Variables, resolved by preflight before this runs. */
+  readonly variables?: VariableResolution | undefined;
 }
+
+const NO_VARIABLES: VariableResolution = {
+  secretNames: new Set(),
+  values: new Map(),
+};
 
 export interface RunnerService {
   readonly run: (
@@ -176,20 +185,24 @@ const nowIso = Effect.sync(() => new Date());
 interface StepExecution {
   readonly browser: AgentBrowser;
   readonly sessionId: SessionId;
+  readonly variables: VariableResolution;
 }
 
 /** Replay one Step. Fails with a message naming what could not be done. */
 const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
-  { browser, sessionId }: StepExecution,
+  { browser, sessionId, variables }: StepExecution,
   step: FlowStep
 ) {
+  const resolve = (value: string): string =>
+    substituteVariables(value, variables.values);
+
   if (step.type === "customStep") {
     // Audits arrive in their own ticket; until then a Flow's Audit Steps are
     // recorded as executed without producing Findings.
     return;
   }
   if (step.type === "navigate") {
-    yield* browser.goto(sessionId, step.url);
+    yield* browser.goto(sessionId, resolve(step.url));
     return;
   }
 
@@ -215,7 +228,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
       return browser.clickSelector(sessionId, selector);
     }
     if (step.type === "change") {
-      return browser.fillSelector(sessionId, selector, step.value);
+      return browser.fillSelector(sessionId, selector, resolve(step.value));
     }
     // Each half of the Recorder's pair is dispatched as itself, so a modifier
     // stays down across the Steps it was recorded around.
@@ -261,6 +274,7 @@ export const makeRunnerService = (browser: AgentBrowser) =>
     const run = (flow: Flow, options: RunnerRunOptions) =>
       runPermit.withPermit(
         Effect.gen(function* executeRun() {
+          const variables = options.variables ?? NO_VARIABLES;
           const runId = randomUUID();
           const flowHash = hashFlow(flow);
           const flowId = flowIdentity(flow, flowHash);
@@ -294,7 +308,10 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                 for (const [index, step] of flow.steps.entries()) {
                   const stepStartedAt = yield* nowIso;
                   const outcome = yield* Effect.result(
-                    executeStep({ browser, sessionId: opened }, step).pipe(
+                    executeStep(
+                      { browser, sessionId: opened, variables },
+                      step
+                    ).pipe(
                       Effect.mapError((cause) =>
                         cause instanceof RunnerError
                           ? cause
@@ -319,17 +336,17 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                     continue;
                   }
 
+                  // A browser message can echo a value typed into a field, so
+                  // it is redacted before it reaches the Run.
+                  const message = redactSecrets(
+                    outcome.failure.message,
+                    variables
+                  );
+
                   // A failed Step aborts the Run rather than continuing against
                   // a page state the Flow never described (ADR 0009).
-                  steps.push({
-                    ...base,
-                    error: outcome.failure.message,
-                    outcome: "failed",
-                  });
-                  failure = {
-                    message: outcome.failure.message,
-                    stepIndex: index,
-                  };
+                  steps.push({ ...base, error: message, outcome: "failed" });
+                  failure = { message, stepIndex: index };
                   return;
                 }
               }),
