@@ -9,7 +9,7 @@ This describes what exists today for the Create View live browser. Domain langua
 | Live browser session, tabs, viewport, user-agent | Built |
 | Screencast frames to a canvas + pointer/keyboard input | Built |
 | Console / Network / Storage DevTools panels | Built |
-| Recording → Flow (Steps, Pre-steps, Audit Steps, Secret Variables) | Built |
+| Recording → Flow (Steps, Pre-steps, Audit Steps, Variables) | Built |
 | Audit View / Runner / Runs | Not built (Audit route is a placeholder) |
 
 ## Packages

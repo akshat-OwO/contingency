@@ -84,15 +84,23 @@ export const PreStep = Schema.Struct({
 });
 export type PreStep = typeof PreStep.Type;
 
-export const SecretVariable = Schema.Struct({
+/**
+ * A named value a Flow declares but does not contain. `secret` redacts the
+ * value from a persisted Run; `runtime` lets the Runner prompt for it when no
+ * value was supplied and the terminal is interactive. The two are independent:
+ * a 2FA code is both, a target environment URL is neither.
+ */
+export const Variable = Schema.Struct({
   name: nonEmptyString,
+  runtime: Schema.Boolean,
+  secret: Schema.Boolean,
 });
-export type SecretVariable = typeof SecretVariable.Type;
+export type Variable = typeof Variable.Type;
 
 const StepExtension = Schema.Struct({
   id: nonEmptyString,
   preSteps: Schema.optional(Schema.Array(PreStep)),
-  secretVariable: Schema.optional(nonEmptyString),
+  variable: Schema.optional(nonEmptyString),
 });
 
 const extendStep = <S extends Schema.Struct.Fields>(fields: S) =>
@@ -114,7 +122,7 @@ export const Flow = Schema.Struct({
   contingency: Schema.optional(
     Schema.Struct({
       preSteps: Schema.optional(Schema.Array(PreStep)),
-      secretVariables: Schema.optional(Schema.Array(SecretVariable)),
+      variables: Schema.optional(Schema.Array(Variable)),
     })
   ),
   selectorAttribute: Schema.optional(Schema.String),
@@ -143,8 +151,8 @@ export type RecordingCaptureMode = typeof RecordingCaptureMode.Type;
 export const RecordedStep = Schema.Struct({
   id: nonEmptyString,
   preSteps: Schema.Array(PreStep),
-  secretVariable: Schema.optional(nonEmptyString),
   step: Schema.Union([ChromeStep, AuditStep]),
+  variable: Schema.optional(nonEmptyString),
 });
 export type RecordedStep = typeof RecordedStep.Type;
 

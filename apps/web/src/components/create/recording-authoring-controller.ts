@@ -16,8 +16,8 @@ import {
   recordingPreStepMutation,
   recordingRecoverMutation,
   recordingResumeMutation,
-  recordingSecretBindMutation,
-  recordingSecretRenameMutation,
+  recordingVariableBindMutation,
+  recordingVariableRenameMutation,
   recordingStartMutation,
   recordingStepDeleteMutation,
   recordingStepUndoMutation,
@@ -39,7 +39,7 @@ export interface RecordingAuthoringController {
   readonly armFlowPreStep: () => void;
   readonly armStepCondition: (stepId: string, index: number) => void;
   readonly armStepPreStep: (stepId: string) => void;
-  readonly bindSecret: (stepId: string, name: string) => void;
+  readonly bindVariable: (stepId: string, name: string) => void;
   readonly busy: boolean;
   readonly cancelCapture: () => void;
   readonly confirmDiscard: boolean;
@@ -50,7 +50,7 @@ export interface RecordingAuthoringController {
   readonly pause: () => void;
   readonly recording: RecordingSnapshot | null;
   readonly recover: () => void;
-  readonly renameSecret: (from: string, name: string) => void;
+  readonly renameVariable: (from: string, name: string) => void;
   readonly resume: () => void;
   readonly saveTitle: () => void;
   readonly setTitle: (title: string) => void;
@@ -85,10 +85,10 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
     mode: "promise",
   });
   const auditMutation = useAtomSet(recordingAuditMutation, { mode: "promise" });
-  const bindSecretMutation = useAtomSet(recordingSecretBindMutation, {
+  const bindVariableMutation = useAtomSet(recordingVariableBindMutation, {
     mode: "promise",
   });
-  const renameSecretMutation = useAtomSet(recordingSecretRenameMutation, {
+  const renameVariableMutation = useAtomSet(recordingVariableRenameMutation, {
     mode: "promise",
   });
   const preStepMutation = useAtomSet(recordingPreStepMutation, {
@@ -141,7 +141,7 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
       recording !== null &&
       (recording.recordedSteps.length > 1 ||
         (recording.flow.contingency?.preSteps?.length ?? 0) > 0 ||
-        (recording.flow.contingency?.secretVariables?.length ?? 0) > 0);
+        (recording.flow.contingency?.variables?.length ?? 0) > 0);
     if (hasAuthoredContent && !confirmDiscard) {
       setUi((current) => ({ ...current, confirmDiscard: true }));
       return;
@@ -207,12 +207,12 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
           },
         })
       ),
-    bindSecret: (stepId, name) =>
+    bindVariable: (stepId, name) =>
       invoke(() =>
-        bindSecretMutation({
+        bindVariableMutation({
           payload: {
             data: { name, stepId },
-            type: "recording.step.secret.bind",
+            type: "recording.step.variable.bind",
           },
         })
       ),
@@ -245,12 +245,12 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
       invoke(() =>
         recoverMutation({ payload: { data: {}, type: "recording.recover" } })
       ),
-    renameSecret: (from, name) =>
+    renameVariable: (from, name) =>
       invoke(() =>
-        renameSecretMutation({
+        renameVariableMutation({
           payload: {
             data: { from, name },
-            type: "recording.secret.rename",
+            type: "recording.variable.rename",
           },
         })
       ),

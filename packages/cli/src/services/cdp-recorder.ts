@@ -46,10 +46,10 @@ const ClickCapture = Schema.Struct({
 });
 
 const ChangeCapture = Schema.Struct({
-  secretVariable: Schema.optional(Schema.String),
   selectors: BoundedSelector,
   type: Schema.Literal("change"),
   value: Schema.String.check(Schema.isMaxLength(MAX_VALUE_LENGTH)),
+  variable: Schema.optional(Schema.String),
 });
 
 const KeyCapture = Schema.Struct({

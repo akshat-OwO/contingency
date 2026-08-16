@@ -573,7 +573,7 @@ it.effect("attaches late navigation events to the preceding action", () => {
   });
 });
 
-it.effect("retains sensitive changes using a Secret Variable only", () => {
+it.effect("retains sensitive changes using a Variable only", () => {
   const capture = makeCapture();
 
   return Effect.gen(function* protectSensitiveInput() {
@@ -585,23 +585,23 @@ it.effect("retains sensitive changes using a Secret Variable only", () => {
       title: "Sign in",
     });
     yield* capture.emit({
-      secretVariable: "PASSWORD",
       selectors: ["input[type=password]"],
       type: "change",
       value: "{{PASSWORD}}",
+      variable: "PASSWORD",
     });
     const finished = yield* recording.finish();
     const serialized = JSON.stringify(finished.flow);
 
     expect(serialized).toContain("{{PASSWORD}}");
-    expect(finished.flow.contingency?.secretVariables).toEqual([
-      { name: "PASSWORD" },
+    expect(finished.flow.contingency?.variables).toEqual([
+      { name: "PASSWORD", runtime: true, secret: true },
     ]);
     expect(serialized).not.toContain("hunter2");
   });
 });
 
-it.effect("coalesces changes and resolves Secret Variable collisions", () => {
+it.effect("coalesces changes and resolves Variable collisions", () => {
   const capture = makeCapture();
 
   return Effect.gen(function* coalesceChanges() {
@@ -623,32 +623,32 @@ it.effect("coalesces changes and resolves Secret Variable collisions", () => {
       value: "final",
     });
     yield* capture.emit({
-      secretVariable: "PASSWORD",
       selectors: ["#new-password"],
       type: "change",
       value: "{{PASSWORD}}",
+      variable: "PASSWORD",
     });
     yield* capture.emit({
-      secretVariable: "PASSWORD",
       selectors: ["#confirm-password"],
       type: "change",
       value: "{{PASSWORD}}",
+      variable: "PASSWORD",
     });
     const active = yield* recording.get();
 
     expect(active?.recordedSteps).toHaveLength(4);
     expect(active?.recordedSteps[1]?.step).toMatchObject({ value: "final" });
-    expect(active?.flow.contingency?.secretVariables).toEqual([
-      { name: "PASSWORD" },
-      { name: "PASSWORD_2" },
+    expect(active?.flow.contingency?.variables).toEqual([
+      { name: "PASSWORD", runtime: true, secret: true },
+      { name: "PASSWORD_2", runtime: true, secret: true },
     ]);
   });
 });
 
-it.effect("marks, renames, and reuses Secret Variables", () => {
+it.effect("marks, renames, and reuses Variables", () => {
   const capture = makeCapture();
 
-  return Effect.gen(function* authorSecrets() {
+  return Effect.gen(function* authorVariables() {
     const recording = yield* makeRecordingService(capture.capture);
     yield* recording.start({
       initialUrl: "https://example.com/profile",
@@ -669,12 +669,12 @@ it.effect("marks, renames, and reuses Secret Variables", () => {
       return yield* Effect.die(new Error("Expected recorded changes"));
     }
 
-    yield* recording.bindSecret(firstId, "pin");
-    yield* recording.renameSecret("PIN", "ACCOUNT_PIN");
-    const rebound = yield* recording.bindSecret(secondId, "ACCOUNT_PIN");
+    yield* recording.bindVariable(firstId, "pin");
+    yield* recording.renameVariable("PIN", "ACCOUNT_PIN");
+    const rebound = yield* recording.bindVariable(secondId, "ACCOUNT_PIN");
 
-    expect(rebound.flow.contingency?.secretVariables).toEqual([
-      { name: "ACCOUNT_PIN" },
+    expect(rebound.flow.contingency?.variables).toEqual([
+      { name: "ACCOUNT_PIN", runtime: true, secret: true },
     ]);
     expect(rebound.recordedSteps.slice(1).map(({ step }) => step)).toEqual([
       expect.objectContaining({ value: "{{ACCOUNT_PIN}}" }),
@@ -683,7 +683,7 @@ it.effect("marks, renames, and reuses Secret Variables", () => {
   });
 });
 
-it.effect("declares and renames Secret Variables used by Pre-steps", () => {
+it.effect("declares and renames Variables used by Pre-steps", () => {
   const capture = makeCapture();
 
   return Effect.gen(function* protectPreStep() {
@@ -702,15 +702,18 @@ it.effect("declares and renames Secret Variables used by Pre-steps", () => {
     });
     yield* recording.armPreStep({ type: "flow" });
     yield* capture.emit({
-      secretVariable: "PASSWORD",
       selectors: ["#password"],
       type: "change",
       value: "{{PASSWORD}}",
+      variable: "PASSWORD",
     });
-    const renamed = yield* recording.renameSecret("PASSWORD", "LOGIN_PASSWORD");
+    const renamed = yield* recording.renameVariable(
+      "PASSWORD",
+      "LOGIN_PASSWORD"
+    );
 
-    expect(renamed.flow.contingency?.secretVariables).toEqual([
-      { name: "LOGIN_PASSWORD" },
+    expect(renamed.flow.contingency?.variables).toEqual([
+      { name: "LOGIN_PASSWORD", runtime: true, secret: true },
     ]);
     expect(renamed.flow.contingency?.preSteps?.[0]?.step).toMatchObject({
       value: "{{LOGIN_PASSWORD}}",
@@ -730,10 +733,10 @@ it.effect("deletes and restores a Step aggregate with one-level undo", () => {
       title: "Sign in",
     });
     yield* capture.emit({
-      secretVariable: "PASSWORD",
       selectors: ["input[type=password]"],
       type: "change",
       value: "{{PASSWORD}}",
+      variable: "PASSWORD",
     });
     const active = yield* recording.get();
     const stepId = active?.recordedSteps[1]?.id;
@@ -742,13 +745,13 @@ it.effect("deletes and restores a Step aggregate with one-level undo", () => {
     }
 
     const deleted = yield* recording.deleteStep(stepId);
-    expect(deleted.flow.contingency?.secretVariables).toBeUndefined();
+    expect(deleted.flow.contingency?.variables).toBeUndefined();
     expect(deleted.undoAvailable).toBe(true);
 
     const restored = yield* recording.undoDelete();
     expect(restored.recordedSteps[1]?.id).toBe(stepId);
-    expect(restored.flow.contingency?.secretVariables).toEqual([
-      { name: "PASSWORD" },
+    expect(restored.flow.contingency?.variables).toEqual([
+      { name: "PASSWORD", runtime: true, secret: true },
     ]);
   });
 });

@@ -234,7 +234,7 @@
     }
   };
 
-  const secretName = (element) => {
+  const variableName = (element) => {
     const raw =
       element.getAttribute("autocomplete") ||
       element.getAttribute("name") ||
@@ -389,12 +389,12 @@
       return;
     }
     if (isSensitive(element)) {
-      const name = secretName(element);
+      const name = variableName(element);
       emit({
-        secretVariable: name,
         selectors,
         type: "change",
         value: `{{${name}}}`,
+        variable: name,
       });
       return;
     }
