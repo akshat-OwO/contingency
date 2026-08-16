@@ -429,12 +429,32 @@ it("gives distinct Flow identities distinct directories", () => {
 
 it("keeps Windows device names out of a directory key", () => {
   // `CON`, `PRN`, `NUL`, and `COM1`..`LPT9` cannot name a directory on
-  // Windows, so a Run would execute and then fail to persist.
-  for (const reserved of ["CON", "PRN", "AUX", "NUL", "COM1", "LPT9"]) {
-    expect(flowDirectorySegment(reserved)).not.toBe(reserved);
-    expect(flowDirectorySegment(reserved)).toMatch(
-      new RegExp(`^${reserved}-[a-f0-9]{16}$`, "u")
-    );
+  // Windows, so a Run would execute and then fail to persist. They stay
+  // reserved with an extension and in any case, so a key must never leave a
+  // reserved stem before a dot.
+  const reservedStems = [
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM9",
+    "LPT1",
+    "LPT9",
+  ];
+  const identities = reservedStems.flatMap((stem) => [
+    stem,
+    stem.toLowerCase(),
+    `${stem}.txt`,
+    `${stem.toLowerCase()}.log`,
+  ]);
+
+  for (const identity of identities) {
+    const segment = flowDirectorySegment(identity);
+    expect(segment).not.toBe(identity);
+    // No dot means the whole segment is the stem, and it ends in the hash.
+    expect(segment).not.toContain(".");
+    expect(segment).toMatch(/-[a-f0-9]{16}$/u);
   }
 });
 

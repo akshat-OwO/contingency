@@ -100,15 +100,18 @@ export const flowIdentity = (flow: Flow, flowHash: string): string =>
  *
  * Every key carries a hash of the original identity. That keeps the mapping
  * injective — `a/b` and `a\b` sanitize alike, and long identities truncate
- * alike, either of which would merge two Flows' histories into one directory —
- * and it keeps a Windows device name such as `CON` or `LPT1` out of the
- * segment, which would otherwise fail to create after the Run had executed.
+ * alike, either of which would merge two Flows' histories into one directory.
+ *
+ * The readable part keeps no dots, so a key is always one stem ending in
+ * `-<hash>`. Windows reserves device names such as `CON` and `LPT1` both bare
+ * and with any extension, so `CON.txt` would otherwise keep a reserved stem
+ * and fail to create after the Run had already executed.
  */
 export const flowDirectorySegment = (flowId: string): string => {
   const digest = createHash("sha256").update(flowId).digest("hex").slice(0, 16);
   const readable = flowId
-    .replaceAll(/[^A-Za-z0-9._-]/gu, "-")
-    .replaceAll(/^[.-]+|[.-]+$/gu, "")
+    .replaceAll(/[^A-Za-z0-9_-]/gu, "-")
+    .replaceAll(/^-+|-+$/gu, "")
     .slice(0, 40);
   return readable.length === 0 ? `flow-${digest}` : `${readable}-${digest}`;
 };
