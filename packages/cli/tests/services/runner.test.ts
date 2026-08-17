@@ -419,6 +419,76 @@ it.effect("records a failed Pre-step without failing the Run", () => {
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
+it.effect("records the Pre-steps of a Step that then failed", () => {
+  const fixture = makeFixture({
+    failOn: ({ args, command }) =>
+      command === "click" && args[0] === "#buy"
+        ? "Selector did not resolve"
+        : undefined,
+    visible: ["#banner"],
+  });
+
+  return Effect.gen(function* recordPreStepsOnFailure() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://shop.test/" },
+          { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        ],
+        { preSteps: [dismissBanner("dismiss", "#accept")] }
+      ),
+      { outputDirectory: "/runs" }
+    );
+
+    // The failing Step is the interesting case: what was cleared before it is
+    // the first thing anyone reads when a Run differs from its Baseline.
+    expect(result.run.steps[1]?.outcome).toBe("failed");
+    expect(result.run.steps[1]?.preSteps).toEqual([
+      { outcome: "completed", preStepId: "dismiss", scope: "flow" },
+    ]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records a condition it could not evaluate as failed", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* recordUnevaluatedCondition() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://shop.test/" },
+          { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        ],
+        {
+          preSteps: [
+            {
+              ...dismissBanner("dismiss", "#accept"),
+              // Only a chained shadow-root selector, which cannot be resolved.
+              when: {
+                selectors: [["#host", "#banner"]],
+                type: "selectorVisible",
+              },
+            },
+          ],
+        }
+      ),
+      { outputDirectory: "/runs" }
+    );
+
+    // Not `skipped`: that would claim the interference was absent, which the
+    // Run never established.
+    const [preStep] = result.run.steps[1]?.preSteps ?? [];
+    expect(preStep?.outcome).toBe("failed");
+    expect(preStep?.error).toContain("never evaluated");
+    expect(fixture.calls.map(({ command }) => command)).not.toContain(
+      "isVisible"
+    );
+    expect(result.run.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
 it.effect("writes a Run directory keyed on the Flow's stable identity", () => {
   const fixture = makeFixture();
 

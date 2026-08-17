@@ -998,6 +998,32 @@ it.effect("passes a dash-prefixed selector as an operand, not a flag", () => {
   }).pipe(Effect.provide(fixture.layer));
 });
 
+it.effect("reads visibility from the batch entry's own result", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error: null,
+          result: { origin: "https://shop.test/", visible: true },
+          success: true,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* readVisibility() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const visible = yield* agentBrowser.isVisible(sessionId, "#banner");
+    const { args, stdin } = yield* lastBatchCommand(fixture);
+
+    expect(visible).toBe(true);
+    expect(args).not.toContain("#banner");
+    expect(stdin).toEqual([["is", "visible", "#banner"]]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
 it.effect("fails the command with the batch entry's own message", () => {
   const fixture = makeFixture({
     exitCode: 1,

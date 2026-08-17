@@ -363,6 +363,8 @@ const BatchResults = Schema.Array(
   })
 );
 
+const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
+
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
 );
@@ -1353,21 +1355,17 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       selector: string
     ) {
       const results = yield* runBatch(sessionId, [["is", "visible", selector]]);
-      const [entry] = results;
-      const result: unknown = entry?.result;
-      if (
-        typeof result !== "object" ||
-        result === null ||
-        typeof (result as { readonly visible?: unknown }).visible !== "boolean"
-      ) {
-        return yield* Effect.fail(
+      const decoded = yield* Schema.decodeUnknownEffect(VisibilityResult)(
+        results.at(0)?.result
+      ).pipe(
+        Effect.mapError(() =>
           browserError(
             "agent_browser_failed",
             `agent-browser did not report visibility for ${selector}.`
           )
-        );
-      }
-      return (result as { readonly visible: boolean }).visible;
+        )
+      );
+      return decoded.visible;
     });
 
     const goto = Effect.fn("AgentBrowser.goto")(function* goto(

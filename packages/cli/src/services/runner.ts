@@ -287,13 +287,21 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
  * reported by the browser as an error rather than `false`, and either way the
  * interference is not on the page — so any failure to establish the condition
  * reads as "not there" and the Pre-step is skipped.
+ *
+ * A condition offering no selector the browser can resolve is different: it was
+ * never evaluated, and recording that as "not there" would claim evidence the
+ * Run does not have.
  */
 const conditionHolds = Effect.fn("Runner.conditionHolds")(
   function* conditionHolds(
     { browser, sessionId }: StepExecution,
     when: PreStep["when"]
   ) {
-    for (const selector of selectorCandidates(when.selectors)) {
+    const candidates = selectorCandidates(when.selectors);
+    if (candidates.length === 0) {
+      return "unevaluated" as const;
+    }
+    for (const selector of candidates) {
       const outcome = yield* Effect.result(
         browser.isVisible(sessionId, selector)
       );
@@ -318,12 +326,19 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
     scope: RunPreStep["scope"]
   ) {
     const base = { preStepId: preStep.id, scope } as const;
-    if (!(yield* conditionHolds(execution, preStep.when))) {
+    const condition = yield* conditionHolds(execution, preStep.when);
+    if (condition === "unevaluated") {
+      return {
+        ...base,
+        error:
+          "No selector on this Pre-step's condition can be resolved by the browser, so it was never evaluated. Chained shadow-root selectors are not supported yet.",
+        outcome: "failed",
+      } satisfies RunPreStep;
+    }
+    if (!condition) {
       return { ...base, outcome: "skipped" } satisfies RunPreStep;
     }
-    const outcome = yield* Effect.result(
-      executeStep(execution, preStep.step as FlowStep)
-    );
+    const outcome = yield* Effect.result(executeStep(execution, preStep.step));
     if (outcome._tag === "Success") {
       return { ...base, outcome: "completed" } satisfies RunPreStep;
     }
@@ -340,8 +355,11 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
 /**
  * The Pre-steps to evaluate before one Step, in evaluation order. Flow-level
  * Pre-steps clear interference that can appear anywhere, so they run before
- * every Step — including Audit Steps — except the initial navigation, which
- * opens the page they would be evaluated against.
+ * every Step — including Audit Steps (ADR 0005) — except the first.
+ *
+ * The exemption is positional rather than a test for a navigate Step. A Run
+ * opens a fresh session on a blank page, so before the first Step there is no
+ * page for a condition to be evaluated against, whatever that Step's type is.
  */
 const preStepsFor = (
   flow: Flow,
