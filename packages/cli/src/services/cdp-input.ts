@@ -274,7 +274,34 @@ const HIT_TEST = `(() => {
   if (!(hit === el || el.contains(hit))) {
     return { reason: "is covered by <" + hit.tagName.toLowerCase() + ">", ok: false };
   }
+  const guard = { landed: null };
+  const onClick = (event) => {
+    guard.landed = event.target === el || el.contains(event.target)
+      ? true
+      : "<" + (event.target.tagName || "?").toLowerCase() + ">";
+    window.removeEventListener("click", onClick, true);
+  };
+  window.addEventListener("click", onClick, true);
+  window.__contingencyClickGuard = guard;
   return { ok: true, x, y };
+})()`;
+
+/**
+ * What the click actually reached.
+ *
+ * The hit test and the dispatch are separate round trips, so layout can still
+ * move between them — a coordinate click cannot close that window. A
+ * capture-phase listener armed during the hit test turns the remaining race
+ * from a silently wrong click into a detected one.
+ *
+ * `null` means the guard did not report, which is the normal outcome when the
+ * click navigated and tore the document down. Only positive evidence of a
+ * wrong target fails the Step.
+ */
+const CLICK_LANDED = `(() => {
+  const guard = window.__contingencyClickGuard;
+  delete window.__contingencyClickGuard;
+  return guard === undefined ? null : guard.landed;
 })()`;
 
 /**
@@ -341,6 +368,30 @@ export const dispatchModifiedClick = (
             "Input.dispatchMouseEvent",
             { button: "left", clickCount: 1, modifiers, type, x, y },
             sessionId
+          );
+        }
+
+        const landing = yield* connection
+          .send(
+            "Runtime.evaluate",
+            { expression: CLICK_LANDED, returnByValue: true },
+            sessionId
+          )
+          .pipe(
+            Effect.map((guardResult) =>
+              isRecord(guardResult) && isRecord(guardResult.result)
+                ? guardResult.result.value
+                : null
+            ),
+            // A navigation can close the connection before the guard is read,
+            // which is not evidence of a wrong click.
+            Effect.orElseSucceed(() => null)
+          );
+        if (typeof landing === "string") {
+          return yield* Effect.fail(
+            inputError(
+              `${options.selector} moved before the click landed, which reached ${landing} instead.`
+            )
           );
         }
       })
