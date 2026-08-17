@@ -1,6 +1,7 @@
 import type {
   BrowserRpcError,
   Flow,
+  PreStep,
   Run,
   SessionId,
 } from "@contingency/protocol";
@@ -34,6 +35,8 @@ interface WrittenFile {
 
 const makeFixture = (options?: {
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
+  /** Selectors the page shows. Anything else is absent, as the browser reports it. */
+  readonly visible?: readonly string[];
 }) => {
   const calls: BrowserCall[] = [];
   const written: WrittenFile[] = [];
@@ -61,6 +64,20 @@ const makeFixture = (options?: {
     fillSelector: (_session, selector, value) =>
       record("fill", [selector, value]),
     goto: (_session, url) => record("goto", [url]),
+    // An unmatched selector is reported by the browser as an error, not `false`.
+    isVisible: (_session, selector) =>
+      record("isVisible", [selector]).pipe(
+        Effect.andThen(
+          options?.visible?.includes(selector) === true
+            ? Effect.succeed(true)
+            : Effect.fail(
+                makeBrowserRpcError(
+                  "agent_browser_failed",
+                  `Element not found: ${selector}`
+                )
+              )
+        )
+      ),
     keyDown: (_session, key) => record("keyDown", [key]),
     keyUp: (_session, key) => record("keyUp", [key]),
     typeSelector: (_session, selector, value) =>
@@ -255,6 +272,150 @@ it.effect("tries each alternative selector before failing the Step", () => {
         .map(({ args }) => args[0])
     ).toEqual(["#stale", "#stable"]);
     expect(result.run.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+const dismissBanner = (id: string, selector: string): PreStep => ({
+  id,
+  step: {
+    offsetX: 1,
+    offsetY: 2,
+    selectors: [[selector]],
+    type: "click",
+  },
+  when: { selectors: [["#banner"]], type: "selectorVisible" },
+});
+
+it.effect(
+  "evaluates Flow Pre-steps before every Step after the initial navigation",
+  () => {
+    const fixture = makeFixture({ visible: ["#banner"] });
+
+    return Effect.gen(function* evaluateFlowPreSteps() {
+      const runner = yield* makeRunnerService(fixture.browser);
+      const result = yield* runner.run(
+        flow(
+          [
+            { type: "navigate", url: "https://shop.test/" },
+            { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+            {
+              name: "contingency.audit",
+              parameters: { kind: "accessibility" },
+              type: "customStep",
+            },
+          ],
+          { preSteps: [dismissBanner("dismiss", "#accept")] }
+        ),
+        { outputDirectory: "/runs" }
+      );
+
+      // Not before Step 0: the initial navigation opens the page a Pre-step
+      // would be evaluated against.
+      expect(result.run.steps[0]?.preSteps).toBeUndefined();
+      // Before the browser Step and before the Audit Step alike (ADR 0005).
+      expect(result.run.steps[1]?.preSteps).toEqual([
+        { outcome: "completed", preStepId: "dismiss", scope: "flow" },
+      ]);
+      expect(result.run.steps[2]?.preSteps).toEqual([
+        { outcome: "completed", preStepId: "dismiss", scope: "flow" },
+      ]);
+      expect(
+        fixture.calls
+          .filter(({ command }) => command === "click")
+          .map(({ args }) => args[0])
+      ).toEqual(["#accept", "#buy", "#accept"]);
+      expect(result.run.outcome).toBe("completed");
+    }).pipe(Effect.provide(fixture.fileSystemLayer));
+  }
+);
+
+it.effect("evaluates a per-Step Pre-step only before its own Step", () => {
+  const fixture = makeFixture({ visible: ["#banner"] });
+
+  return Effect.gen(function* evaluateStepPreStep() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        {
+          contingency: {
+            id: "confirm",
+            preSteps: [dismissBanner("dismiss", "#accept")],
+          },
+          offsetX: 1,
+          offsetY: 2,
+          selectors: [["#confirm"]],
+          type: "click",
+        },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(result.run.steps[1]?.preSteps).toBeUndefined();
+    expect(result.run.steps[2]?.preSteps).toEqual([
+      { outcome: "completed", preStepId: "dismiss", scope: "step" },
+    ]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("skips a Pre-step whose condition does not hold", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* skipUnmetCondition() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://shop.test/" },
+          { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        ],
+        { preSteps: [dismissBanner("dismiss", "#accept")] }
+      ),
+      { outputDirectory: "/runs" }
+    );
+
+    // No banner on the page, so nothing was clicked to dismiss it.
+    expect(
+      fixture.calls
+        .filter(({ command }) => command === "click")
+        .map(({ args }) => args[0])
+    ).toEqual(["#buy"]);
+    expect(result.run.steps[1]?.preSteps).toEqual([
+      { outcome: "skipped", preStepId: "dismiss", scope: "flow" },
+    ]);
+    expect(result.run.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records a failed Pre-step without failing the Run", () => {
+  const fixture = makeFixture({
+    failOn: ({ args, command }) =>
+      command === "click" && args[0] === "#accept"
+        ? "Selector did not resolve"
+        : undefined,
+    visible: ["#banner"],
+  });
+
+  return Effect.gen(function* tolerateFailedPreStep() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://shop.test/" },
+          { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        ],
+        { preSteps: [dismissBanner("dismiss", "#accept")] }
+      ),
+      { outputDirectory: "/runs" }
+    );
+
+    // The real Step still ran, and it decides the Run's outcome (ADR 0009).
+    expect(result.run.outcome).toBe("completed");
+    expect(result.run.steps[1]?.outcome).toBe("completed");
+    const [preStep] = result.run.steps[1]?.preSteps ?? [];
+    expect(preStep?.outcome).toBe("failed");
+    expect(preStep?.error).toContain("Selector did not resolve");
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 

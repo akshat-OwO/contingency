@@ -9,7 +9,9 @@ import type {
   BrowserRpcErrorType,
   Flow,
   FlowStep,
+  PreStep,
   Run,
+  RunPreStep,
   RunStep,
   Selector,
   SessionId,
@@ -280,6 +282,84 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   });
 });
 
+/**
+ * Whether a Pre-step's condition holds. A selector that matches nothing is
+ * reported by the browser as an error rather than `false`, and either way the
+ * interference is not on the page — so any failure to establish the condition
+ * reads as "not there" and the Pre-step is skipped.
+ */
+const conditionHolds = Effect.fn("Runner.conditionHolds")(
+  function* conditionHolds(
+    { browser, sessionId }: StepExecution,
+    when: PreStep["when"]
+  ) {
+    for (const selector of selectorCandidates(when.selectors)) {
+      const outcome = yield* Effect.result(
+        browser.isVisible(sessionId, selector)
+      );
+      if (outcome._tag === "Success" && outcome.success) {
+        return true;
+      }
+    }
+    return false;
+  }
+);
+
+/**
+ * Evaluate one Pre-step and report what happened. Best-effort by design: a
+ * Pre-step never fails the Run. If the interference it clears genuinely blocked
+ * the journey, the real Step fails on its own and is reported as itself
+ * (ADR 0009).
+ */
+const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
+  function* evaluatePreStep(
+    execution: StepExecution,
+    preStep: PreStep,
+    scope: RunPreStep["scope"]
+  ) {
+    const base = { preStepId: preStep.id, scope } as const;
+    if (!(yield* conditionHolds(execution, preStep.when))) {
+      return { ...base, outcome: "skipped" } satisfies RunPreStep;
+    }
+    const outcome = yield* Effect.result(
+      executeStep(execution, preStep.step as FlowStep)
+    );
+    if (outcome._tag === "Success") {
+      return { ...base, outcome: "completed" } satisfies RunPreStep;
+    }
+    return {
+      ...base,
+      // A Pre-step can carry a Variable too, and a browser message can echo the
+      // value it typed, so the message is redacted before it reaches the Run.
+      error: redactSecrets(outcome.failure.message, execution.variables),
+      outcome: "failed",
+    } satisfies RunPreStep;
+  }
+);
+
+/**
+ * The Pre-steps to evaluate before one Step, in evaluation order. Flow-level
+ * Pre-steps clear interference that can appear anywhere, so they run before
+ * every Step — including Audit Steps — except the initial navigation, which
+ * opens the page they would be evaluated against.
+ */
+const preStepsFor = (
+  flow: Flow,
+  step: FlowStep,
+  index: number
+): readonly (readonly [PreStep, RunPreStep["scope"]])[] => {
+  if (index === 0) {
+    return [];
+  }
+  const flowLevel = (flow.contingency?.preSteps ?? []).map(
+    (preStep) => [preStep, "flow"] as const
+  );
+  const stepLevel = (
+    step.type === "customStep" ? [] : (step.contingency?.preSteps ?? [])
+  ).map((preStep) => [preStep, "step"] as const);
+  return [...flowLevel, ...stepLevel];
+};
+
 export const makeRunnerService = (browser: AgentBrowser) =>
   Effect.gen(function* buildRunner() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -321,13 +401,27 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             ),
             (opened) =>
               Effect.gen(function* replayFlow() {
+                const execution = {
+                  browser,
+                  sessionId: opened,
+                  variables,
+                };
                 for (const [index, step] of flow.steps.entries()) {
                   const stepStartedAt = yield* nowIso;
+
+                  const preSteps: RunPreStep[] = [];
+                  for (const [preStep, scope] of preStepsFor(
+                    flow,
+                    step,
+                    index
+                  )) {
+                    preSteps.push(
+                      yield* evaluatePreStep(execution, preStep, scope)
+                    );
+                  }
+
                   const outcome = yield* Effect.result(
-                    executeStep(
-                      { browser, sessionId: opened, variables },
-                      step
-                    ).pipe(
+                    executeStep(execution, step).pipe(
                       Effect.mapError((cause) =>
                         cause instanceof RunnerError
                           ? cause
@@ -339,6 +433,7 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                   const base = {
                     finishedAt: stepFinishedAt.toISOString(),
                     index,
+                    ...(preSteps.length === 0 ? {} : { preSteps }),
                     startedAt: stepStartedAt.toISOString(),
                     type: step.type,
                     ...(step.type === "customStep" ||

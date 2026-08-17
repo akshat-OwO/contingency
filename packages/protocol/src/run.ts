@@ -14,6 +14,32 @@ export const RunStepOutcome = Schema.Literals(["completed", "failed"]);
 export type RunStepOutcome = typeof RunStepOutcome.Type;
 
 /**
+ * Whether a Pre-step acted. `skipped` means its condition did not hold, so the
+ * interference it clears was not there. `failed` means its condition held but
+ * the action did not work; the Run continues either way (ADR 0009).
+ */
+export const RunPreStepOutcome = Schema.Literals([
+  "completed",
+  "skipped",
+  "failed",
+]);
+export type RunPreStepOutcome = typeof RunPreStepOutcome.Type;
+
+/**
+ * One Pre-step evaluation, recorded whether it ran or not. A silently-skipped
+ * Pre-step is the first thing anyone looks for when a Run differs unexpectedly
+ * from its Baseline, so the record is kept even when nothing happened.
+ */
+export const RunPreStep = Schema.Struct({
+  error: Schema.optional(Schema.String),
+  outcome: RunPreStepOutcome,
+  preStepId: nonEmptyString,
+  /** `flow` Pre-steps run before every Step after the initial navigation. */
+  scope: Schema.Literals(["flow", "step"]),
+});
+export type RunPreStep = typeof RunPreStep.Type;
+
+/**
  * One executed Step, recorded whether it succeeded or not. `index` is the
  * Step's position in the executed Flow, so a Run reads against its own
  * embedded Flow without a separate lookup.
@@ -23,6 +49,8 @@ export const RunStep = Schema.Struct({
   finishedAt: Instant,
   index: Schema.Int,
   outcome: RunStepOutcome,
+  /** Every Pre-step evaluated before this Step, in evaluation order. */
+  preSteps: Schema.optional(Schema.Array(RunPreStep)),
   startedAt: Instant,
   stepId: Schema.optional(Schema.String),
   type: nonEmptyString,

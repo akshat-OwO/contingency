@@ -146,6 +146,14 @@ export interface AgentBrowser {
     sessionId: SessionId,
     key: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Whether a selector resolves to a visible element. Fails when the selector
+   * matches nothing, which the browser reports as an error rather than `false`.
+   */
+  readonly isVisible: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<boolean, BrowserRpcErrorType>;
   /** Wait for a selector to resolve, failing when it does not. */
   readonly waitForSelector: (
     sessionId: SessionId,
@@ -1340,6 +1348,28 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    const isVisible = Effect.fn("AgentBrowser.isVisible")(function* isVisible(
+      sessionId: SessionId,
+      selector: string
+    ) {
+      const results = yield* runBatch(sessionId, [["is", "visible", selector]]);
+      const [entry] = results;
+      const result: unknown = entry?.result;
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        typeof (result as { readonly visible?: unknown }).visible !== "boolean"
+      ) {
+        return yield* Effect.fail(
+          browserError(
+            "agent_browser_failed",
+            `agent-browser did not report visibility for ${selector}.`
+          )
+        );
+      }
+      return (result as { readonly visible: boolean }).visible;
+    });
+
     const goto = Effect.fn("AgentBrowser.goto")(function* goto(
       sessionId: SessionId,
       url: string
@@ -1670,6 +1700,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       getTabs,
       goto,
       init,
+      isVisible,
       keyDown,
       keyUp,
       list,

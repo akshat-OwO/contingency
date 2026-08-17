@@ -136,6 +136,7 @@ const agentBrowserStub: AgentBrowser = {
   getTabs: unused,
   goto: unused,
   init: unused,
+  isVisible: unused,
   keyDown: unused,
   keyUp: unused,
   list: unused,
