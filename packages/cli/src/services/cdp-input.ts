@@ -389,7 +389,8 @@ export const dispatchModifiedClick = (
           );
         if (typeof landing === "string") {
           return yield* Effect.fail(
-            inputError(
+            makeBrowserRpcError(
+              "input_already_dispatched",
               `${options.selector} moved before the click landed, which reached ${landing} instead.`
             )
           );

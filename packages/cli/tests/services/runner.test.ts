@@ -1,4 +1,9 @@
-import type { Flow, Run, SessionId } from "@contingency/protocol";
+import type {
+  BrowserRpcError,
+  Flow,
+  Run,
+  SessionId,
+} from "@contingency/protocol";
 import { makeBrowserRpcError } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
@@ -27,7 +32,7 @@ interface WrittenFile {
 }
 
 const makeFixture = (options?: {
-  readonly failOn?: (call: BrowserCall) => string | undefined;
+  readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
 }) => {
   const calls: BrowserCall[] = [];
   const written: WrittenFile[] = [];
@@ -37,9 +42,14 @@ const makeFixture = (options?: {
     const call = { args, command };
     calls.push(call);
     const failure = options?.failOn?.(call);
-    return failure === undefined
-      ? Effect.void
-      : Effect.fail(makeBrowserRpcError("agent_browser_failed", failure));
+    if (failure === undefined) {
+      return Effect.void;
+    }
+    return Effect.fail(
+      typeof failure === "string"
+        ? makeBrowserRpcError("agent_browser_failed", failure)
+        : failure
+    );
   };
 
   const stub: Partial<AgentBrowser> = {
@@ -179,6 +189,39 @@ it.effect("aborts the Run at the first failed Step", () => {
     expect(fixture.calls.map(({ command }) => command)).not.toContain("fill");
     expect(result.run.steps).toHaveLength(2);
     expect(result.run.steps.at(-1)?.outcome).toBe("failed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("stops trying selectors once a click has reached the page", () => {
+  const fixture = makeFixture({
+    failOn: ({ args, command }) =>
+      command === "click" && args[0] === "#moved"
+        ? makeBrowserRpcError(
+            "input_already_dispatched",
+            "#moved moved before the click landed, which reached <body> instead."
+          )
+        : undefined,
+  });
+
+  return Effect.gen(function* stopAfterSideEffect() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        {
+          offsetX: 1,
+          offsetY: 2,
+          selectors: [["#moved"], ["#fallback"]],
+          type: "click",
+        },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    // #fallback would resolve, but the page has already been clicked once:
+    // a second click would repeat whatever the first one set off.
+    expect(fixture.calls.map(({ args }) => args[0])).not.toContain("#fallback");
+    expect(result.run.outcome).toBe("failed");
+    expect(result.run.failure?.message).toContain("moved before the click");
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 

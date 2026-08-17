@@ -238,6 +238,11 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     if (outcome._tag === "Success") {
       return;
     }
+    // A candidate that already reached the page is not an unresolved selector:
+    // trying the next one would act on the page a second time.
+    if (outcome.failure.code === "input_already_dispatched") {
+      return yield* new RunnerError({ message: outcome.failure.message });
+    }
     lastMessage = outcome.failure.message;
   }
 
