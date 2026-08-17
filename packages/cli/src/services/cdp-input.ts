@@ -124,7 +124,7 @@ export interface DispatchModifiedClickOptions {
   readonly cdpUrl: string;
   readonly held: readonly string[];
   readonly requestedTabId: string | undefined;
-  /** CSS selector, so the element clicked can be identified exactly. */
+  /** CSS or XPath, so the element clicked can be identified exactly. */
   readonly selector: string;
 }
 
@@ -234,23 +234,35 @@ export const dispatchKey = (
 };
 
 /**
- * A CSS selector can be resolved in page context, which is what makes the hit
- * test below exact. The browser tool also accepts XPath and `text=` forms, and
- * a modified click refuses those rather than clicking somewhere unverified.
+ * `text=` matching belongs to the browser tool's own engine — normalised
+ * whitespace, substring rules, deepest-match preference — and approximating it
+ * here would risk resolving a different element than an ordinary click does,
+ * which is the failure this whole path exists to prevent. Every other form the
+ * Runner produces resolves exactly in page context.
  */
-const isCssSelector = (selector: string): boolean =>
-  !(selector.startsWith("/") || selector.startsWith("text="));
+const isVerifiableSelector = (selector: string): boolean =>
+  !selector.startsWith("text=");
 
 /**
- * Measure the target and confirm nothing covers it, in one page evaluation.
+ * Resolve the target, measure it, and confirm nothing covers it, in one page
+ * evaluation.
  *
- * Splitting these would reintroduce the race the whole check exists to close:
- * an overlay can appear, or layout can move, between measuring a centre point
- * and clicking it, and a coordinate click reports success wherever it lands.
+ * Splitting these would reintroduce the race the check exists to close: an
+ * overlay can appear, or layout can move, between measuring a centre point and
+ * clicking it, and a coordinate click reports success wherever it lands.
+ *
+ * CSS resolves with `querySelector`, which matches the browser tool — neither
+ * pierces an open shadow root, verified against a shadow-only fixture where
+ * both return nothing. XPath resolves with `document.evaluate`.
  */
 const HIT_TEST = `(() => {
-  const el = document.querySelector(SELECTOR);
-  if (el === null) { return { reason: "no longer resolves", ok: false }; }
+  const selector = SELECTOR;
+  const el = selector.startsWith("/")
+    ? document.evaluate(selector, document, null, 9, null).singleNodeValue
+    : document.querySelector(selector);
+  if (el === null || el === undefined) {
+    return { reason: "no longer resolves", ok: false };
+  }
   const rect = el.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) {
     return { reason: "has no size", ok: false };
@@ -275,10 +287,10 @@ const HIT_TEST = `(() => {
 export const dispatchModifiedClick = (
   options: DispatchModifiedClickOptions
 ): Effect.Effect<void, BrowserRpcErrorType> => {
-  if (!isCssSelector(options.selector)) {
+  if (!isVerifiableSelector(options.selector)) {
     return Effect.fail(
       inputError(
-        `A click under a held modifier needs a CSS selector, and this Step resolved to ${options.selector}.`
+        `A click under a held modifier cannot verify the text selector ${options.selector}; use a CSS or XPath alternative.`
       )
     );
   }
