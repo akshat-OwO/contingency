@@ -1371,10 +1371,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         // the question could not be put to the page at all.
         Effect.catchIf(
           ({ message }) => message.startsWith(ELEMENT_NOT_FOUND),
-          () => Effect.succeed()
+          () => Effect.succeed(null)
         )
       );
-      if (results === undefined) {
+      if (results === null) {
         return false;
       }
       const decoded = yield* Schema.decodeUnknownEffect(VisibilityResult)(
