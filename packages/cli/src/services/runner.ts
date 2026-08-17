@@ -290,6 +290,9 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
  * dead session, an unusable response, or a condition offering no selector the
  * browser can resolve — is not evidence that the interference was absent, and
  * recording it as `skipped` would claim evidence the Run does not have.
+ *
+ * A visible candidate settles the condition on its own; `false` requires every
+ * candidate to have answered.
  */
 const conditionHolds = Effect.fn("Runner.conditionHolds")(
   function* conditionHolds(
@@ -303,28 +306,26 @@ const conditionHolds = Effect.fn("Runner.conditionHolds")(
           "No selector on this Pre-step's condition can be resolved by the browser. Chained shadow-root selectors are not supported yet.",
       };
     }
-    let answered = false;
-    let lastFailure = "";
+    let unanswered = "";
     for (const selector of candidates) {
       const outcome = yield* Effect.result(
         browser.isVisible(sessionId, selector)
       );
       if (outcome._tag === "Failure") {
-        lastFailure = outcome.failure.message;
+        unanswered = outcome.failure.message;
         continue;
       }
       if (outcome.success) {
         return true;
       }
-      // The browser answered for this selector: the element is not on the page.
-      answered = true;
     }
-    // A candidate that answered settles it. If none did, the question never
-    // reached the page and the condition is unknown rather than false.
-    return answered
+    // One candidate answering "not visible" does not settle the condition while
+    // another went unanswered: alternatives can match different elements, so the
+    // interference may be the one described by the candidate that failed.
+    return unanswered === ""
       ? false
       : {
-          reason: `Could not evaluate this Pre-step's condition (tried ${candidates.length}): ${lastFailure}`,
+          reason: `Could not evaluate this Pre-step's condition (tried ${candidates.length}): ${unanswered}`,
         };
   }
 );

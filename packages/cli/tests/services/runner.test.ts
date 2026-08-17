@@ -470,6 +470,46 @@ it.effect("records an unanswerable condition as failed, not skipped", () => {
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
+it.effect("does not let one answered candidate mask an unanswered one", () => {
+  const fixture = makeFixture({
+    failOn: ({ args, command }) =>
+      command === "isVisible" && args[0] === "#late"
+        ? "Session is not running"
+        : undefined,
+  });
+
+  return Effect.gen(function* preserveMixedCandidateResults() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://shop.test/" },
+          { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        ],
+        {
+          preSteps: [
+            {
+              ...dismissBanner("dismiss", "#accept"),
+              // `#early` answers "not visible"; `#late` never answers at all.
+              when: {
+                selectors: [["#early"], ["#late"]],
+                type: "selectorVisible",
+              },
+            },
+          ],
+        }
+      ),
+      { outputDirectory: "/runs" }
+    );
+
+    // Alternatives can match different elements, so `#early` saying no does not
+    // rule out the banner that `#late` describes.
+    const [preStep] = result.run.steps[1]?.preSteps ?? [];
+    expect(preStep?.outcome).toBe("failed");
+    expect(preStep?.error).toContain("Session is not running");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
 it.effect("records a condition it could not evaluate as failed", () => {
   const fixture = makeFixture();
 
