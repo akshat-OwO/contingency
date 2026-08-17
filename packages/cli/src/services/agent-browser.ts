@@ -147,8 +147,9 @@ export interface AgentBrowser {
     key: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
-   * Whether a selector resolves to a visible element. Fails when the selector
-   * matches nothing, which the browser reports as an error rather than `false`.
+   * Whether a selector resolves to a visible element. A selector matching
+   * nothing is `false`; the browser reports that case as an error, which this
+   * absorbs. A failure here means visibility could not be established at all.
    */
   readonly isVisible: (
     sessionId: SessionId,
