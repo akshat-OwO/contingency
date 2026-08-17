@@ -347,13 +347,6 @@ const CurrentTitleResult = AgentBrowserJsonResult(
   Schema.Struct({ title: Schema.String })
 );
 
-const ElementBox = Schema.Struct({
-  height: Schema.Finite,
-  width: Schema.Finite,
-  x: Schema.Finite,
-  y: Schema.Finite,
-});
-
 const BatchResults = Schema.Array(
   Schema.Struct({
     error: Schema.optional(Schema.NullOr(Schema.String)),
@@ -1268,25 +1261,13 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         }
 
         // The tool's own click dispatches without modifiers, which would drop
-        // a Shift the Flow is holding and click as if it were never pressed.
-        // Reading the box first keeps the tool's selector resolution.
-        const [box] = yield* runBatch(sessionId, [["get", "box", selector]]);
-        const geometry = yield* Schema.decodeUnknownEffect(ElementBox)(
-          box?.result
-        ).pipe(
-          Effect.mapError(() =>
-            browserError(
-              "agent_browser_failed",
-              `Could not measure the element for ${selector}.`
-            )
-          )
-        );
+        // a Shift the Flow is holding. This path re-establishes the
+        // covering-element guarantee the tool would have given.
         yield* dispatchModifiedClick({
           cdpUrl: yield* cdpUrl(sessionId),
           held,
           requestedTabId: activeTabIds.get(sessionId),
-          x: geometry.x + geometry.width / 2,
-          y: geometry.y + geometry.height / 2,
+          selector,
         });
       }
     );

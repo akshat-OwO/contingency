@@ -31,6 +31,20 @@ export type ModifierKey = keyof typeof MODIFIER_BITS;
 export const isModifierKey = (key: string): key is ModifierKey =>
   Object.hasOwn(MODIFIER_BITS, key);
 
+/**
+ * Shift is the only modifier that still produces a character. With Control,
+ * Meta, or Alt held the keystroke is an accelerator, so Chrome sends no text —
+ * and sending it anyway raises a spurious `keypress` a page can act on.
+ */
+export const suppressesText = (held: Iterable<string>): boolean => {
+  for (const key of held) {
+    if (isModifierKey(key) && key !== "Shift") {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const modifierMask = (held: Iterable<string>): number => {
   let mask = 0;
   for (const key of held) {
@@ -106,12 +120,12 @@ export interface DispatchKeyOptions {
   readonly type: "keyDown" | "keyUp";
 }
 
-export interface DispatchMouseClickOptions {
+export interface DispatchModifiedClickOptions {
   readonly cdpUrl: string;
   readonly held: readonly string[];
   readonly requestedTabId: string | undefined;
-  readonly x: number;
-  readonly y: number;
+  /** CSS selector, so the element clicked can be identified exactly. */
+  readonly selector: string;
 }
 
 const withPageSession = <A>(
@@ -184,6 +198,14 @@ export const dispatchKey = (
     );
   }
 
+  // A key that inserts nothing, a key held under an accelerator modifier, and
+  // a release all dispatch without text, which is what selects `rawKeyDown`.
+  const insertsText =
+    options.type === "keyDown" &&
+    definition.text !== undefined &&
+    !isModifierKey(options.key) &&
+    !suppressesText(options.held);
+
   return withPageSession(
     options.cdpUrl,
     options.requestedTabId,
@@ -196,17 +218,11 @@ export const dispatchKey = (
             key: options.key,
             modifiers: modifierMask(options.held),
             nativeVirtualKeyCode: definition.keyCode,
-            // A modifier has no text, and a keyUp never inserts one.
-            ...(options.type === "keyDown" &&
-            definition.text !== undefined &&
-            !isModifierKey(options.key)
+            ...(insertsText
               ? { text: definition.text, unmodifiedText: definition.text }
               : {}),
-            // `rawKeyDown` for a key that inserts nothing, so Chrome does not
-            // synthesize a character event for it.
             type:
-              options.type === "keyDown" &&
-              (definition.text === undefined || isModifierKey(options.key))
+              options.type === "keyDown" && !insertsText
                 ? "rawKeyDown"
                 : options.type,
             windowsVirtualKeyCode: definition.keyCode,
@@ -218,33 +234,103 @@ export const dispatchKey = (
 };
 
 /**
+ * A CSS selector can be resolved in page context, which is what makes the hit
+ * test below exact. The browser tool also accepts XPath and `text=` forms, and
+ * a modified click refuses those rather than clicking somewhere unverified.
+ */
+const isCssSelector = (selector: string): boolean =>
+  !(selector.startsWith("/") || selector.startsWith("text="));
+
+/**
+ * Measure the target and confirm nothing covers it, in one page evaluation.
+ *
+ * Splitting these would reintroduce the race the whole check exists to close:
+ * an overlay can appear, or layout can move, between measuring a centre point
+ * and clicking it, and a coordinate click reports success wherever it lands.
+ */
+const HIT_TEST = `(() => {
+  const el = document.querySelector(SELECTOR);
+  if (el === null) { return { reason: "no longer resolves", ok: false }; }
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return { reason: "has no size", ok: false };
+  }
+  const x = rect.x + rect.width / 2;
+  const y = rect.y + rect.height / 2;
+  const hit = document.elementFromPoint(x, y);
+  if (hit === null) { return { reason: "is outside the viewport", ok: false }; }
+  if (!(hit === el || el.contains(hit))) {
+    return { reason: "is covered by <" + hit.tagName.toLowerCase() + ">", ok: false };
+  }
+  return { ok: true, x, y };
+})()`;
+
+/**
  * Click through CDP so a modifier held by an earlier Step reaches the page. The
  * browser tool's own click is preferred everywhere else, because it resolves
  * selectors and refuses to click through a covering element; it dispatches with
- * no modifiers, which would silently drop a Shift the Flow is holding.
+ * no modifiers, which would silently drop a Shift the Flow is holding. This
+ * path reproduces that guarantee rather than giving it up.
  */
 export const dispatchModifiedClick = (
-  options: DispatchMouseClickOptions
-): Effect.Effect<void, BrowserRpcErrorType> =>
-  withPageSession(
+  options: DispatchModifiedClickOptions
+): Effect.Effect<void, BrowserRpcErrorType> => {
+  if (!isCssSelector(options.selector)) {
+    return Effect.fail(
+      inputError(
+        `A click under a held modifier needs a CSS selector, and this Step resolved to ${options.selector}.`
+      )
+    );
+  }
+
+  return withPageSession(
     options.cdpUrl,
     options.requestedTabId,
     (connection, sessionId) =>
       Effect.gen(function* clickWithModifiers() {
+        const evaluation = yield* connection.send(
+          "Runtime.evaluate",
+          {
+            expression: HIT_TEST.replace(
+              "SELECTOR",
+              JSON.stringify(options.selector)
+            ),
+            returnByValue: true,
+          },
+          sessionId
+        );
+        const value =
+          isRecord(evaluation) && isRecord(evaluation.result)
+            ? evaluation.result.value
+            : undefined;
+        if (!isRecord(value)) {
+          return yield* Effect.fail(
+            inputError(`Could not locate ${options.selector} to click.`)
+          );
+        }
+        if (value.ok !== true) {
+          return yield* Effect.fail(
+            inputError(
+              `${options.selector} ${asString(value.reason) ?? "cannot be clicked"}.`
+            )
+          );
+        }
+        const { x } = value;
+        const { y } = value;
+        if (typeof x !== "number" || typeof y !== "number") {
+          return yield* Effect.fail(
+            inputError(`Could not measure ${options.selector} to click.`)
+          );
+        }
+
         const modifiers = modifierMask(options.held);
         for (const type of ["mousePressed", "mouseReleased"] as const) {
           yield* connection.send(
             "Input.dispatchMouseEvent",
-            {
-              button: "left",
-              clickCount: 1,
-              modifiers,
-              type,
-              x: options.x,
-              y: options.y,
-            },
+            { button: "left", clickCount: 1, modifiers, type, x, y },
             sessionId
           );
         }
       })
   );
+};
