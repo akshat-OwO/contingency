@@ -64,19 +64,11 @@ const makeFixture = (options?: {
     fillSelector: (_session, selector, value) =>
       record("fill", [selector, value]),
     goto: (_session, url) => record("goto", [url]),
-    // An unmatched selector is reported by the browser as an error, not `false`.
+    // `isVisible` absorbs the browser's element-not-found answer into `false`,
+    // so a failure here means the question never reached the page.
     isVisible: (_session, selector) =>
       record("isVisible", [selector]).pipe(
-        Effect.andThen(
-          options?.visible?.includes(selector) === true
-            ? Effect.succeed(true)
-            : Effect.fail(
-                makeBrowserRpcError(
-                  "agent_browser_failed",
-                  `Element not found: ${selector}`
-                )
-              )
-        )
+        Effect.as(options?.visible?.includes(selector) === true)
       ),
     keyDown: (_session, key) => record("keyDown", [key]),
     keyUp: (_session, key) => record("keyUp", [key]),
@@ -450,6 +442,34 @@ it.effect("records the Pre-steps of a Step that then failed", () => {
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
+it.effect("records an unanswerable condition as failed, not skipped", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "isVisible" ? "Session is not running" : undefined,
+    visible: ["#banner"],
+  });
+
+  return Effect.gen(function* recordUnanswerableCondition() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://shop.test/" },
+          { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+        ],
+        { preSteps: [dismissBanner("dismiss", "#accept")] }
+      ),
+      { outputDirectory: "/runs" }
+    );
+
+    // A browser that cannot answer is not evidence that the banner was absent.
+    const [preStep] = result.run.steps[1]?.preSteps ?? [];
+    expect(preStep?.outcome).toBe("failed");
+    expect(preStep?.error).toContain("Session is not running");
+    expect(result.run.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
 it.effect("records a condition it could not evaluate as failed", () => {
   const fixture = makeFixture();
 
@@ -481,7 +501,7 @@ it.effect("records a condition it could not evaluate as failed", () => {
     // Run never established.
     const [preStep] = result.run.steps[1]?.preSteps ?? [];
     expect(preStep?.outcome).toBe("failed");
-    expect(preStep?.error).toContain("never evaluated");
+    expect(preStep?.error).toContain("can be resolved by the browser");
     expect(fixture.calls.map(({ command }) => command)).not.toContain(
       "isVisible"
     );

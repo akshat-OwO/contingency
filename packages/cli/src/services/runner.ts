@@ -283,14 +283,13 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
 });
 
 /**
- * Whether a Pre-step's condition holds. A selector that matches nothing is
- * reported by the browser as an error rather than `false`, and either way the
- * interference is not on the page — so any failure to establish the condition
- * reads as "not there" and the Pre-step is skipped.
+ * Whether a Pre-step's condition holds — `true`, `false`, or a reason it could
+ * not be established at all.
  *
- * A condition offering no selector the browser can resolve is different: it was
- * never evaluated, and recording that as "not there" would claim evidence the
- * Run does not have.
+ * The third case is kept separate on purpose. An unanswerable condition — a
+ * dead session, an unusable response, or a condition offering no selector the
+ * browser can resolve — is not evidence that the interference was absent, and
+ * recording it as `skipped` would claim evidence the Run does not have.
  */
 const conditionHolds = Effect.fn("Runner.conditionHolds")(
   function* conditionHolds(
@@ -299,17 +298,34 @@ const conditionHolds = Effect.fn("Runner.conditionHolds")(
   ) {
     const candidates = selectorCandidates(when.selectors);
     if (candidates.length === 0) {
-      return "unevaluated" as const;
+      return {
+        reason:
+          "No selector on this Pre-step's condition can be resolved by the browser. Chained shadow-root selectors are not supported yet.",
+      };
     }
+    let answered = false;
+    let lastFailure = "";
     for (const selector of candidates) {
       const outcome = yield* Effect.result(
         browser.isVisible(sessionId, selector)
       );
-      if (outcome._tag === "Success" && outcome.success) {
+      if (outcome._tag === "Failure") {
+        lastFailure = outcome.failure.message;
+        continue;
+      }
+      if (outcome.success) {
         return true;
       }
+      // The browser answered for this selector: the element is not on the page.
+      answered = true;
     }
-    return false;
+    // A candidate that answered settles it. If none did, the question never
+    // reached the page and the condition is unknown rather than false.
+    return answered
+      ? false
+      : {
+          reason: `Could not evaluate this Pre-step's condition (tried ${candidates.length}): ${lastFailure}`,
+        };
   }
 );
 
@@ -327,11 +343,10 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
   ) {
     const base = { preStepId: preStep.id, scope } as const;
     const condition = yield* conditionHolds(execution, preStep.when);
-    if (condition === "unevaluated") {
+    if (typeof condition === "object") {
       return {
         ...base,
-        error:
-          "No selector on this Pre-step's condition can be resolved by the browser, so it was never evaluated. Chained shadow-root selectors are not supported yet.",
+        error: condition.reason,
         outcome: "failed",
       } satisfies RunPreStep;
     }

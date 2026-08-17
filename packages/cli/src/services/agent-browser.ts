@@ -365,6 +365,13 @@ const BatchResults = Schema.Array(
 
 const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
+/**
+ * How agent-browser reports a selector matching nothing. Verified against the
+ * bundled binary for CSS and XPath selectors alike; a `text=` selector resolves
+ * to `visible: false` instead and never reaches this path.
+ */
+const ELEMENT_NOT_FOUND = "Element not found:";
+
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
 );
@@ -1354,7 +1361,21 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       sessionId: SessionId,
       selector: string
     ) {
-      const results = yield* runBatch(sessionId, [["is", "visible", selector]]);
+      const results = yield* runBatch(sessionId, [
+        ["is", "visible", selector],
+      ]).pipe(
+        // The browser answers "is it visible" for an element that is not there
+        // by failing rather than reporting `false`. That is still an answer,
+        // and it is the only failure here that is one: everything else means
+        // the question could not be put to the page at all.
+        Effect.catchIf(
+          ({ message }) => message.startsWith(ELEMENT_NOT_FOUND),
+          () => Effect.succeed()
+        )
+      );
+      if (results === undefined) {
+        return false;
+      }
       const decoded = yield* Schema.decodeUnknownEffect(VisibilityResult)(
         results.at(0)?.result
       ).pipe(
