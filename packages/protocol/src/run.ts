@@ -80,11 +80,38 @@ export const Finding = Schema.Struct({
 export type Finding = typeof Finding.Type;
 
 /**
+ * A rule the engine reported only in part. The vendored engine caps how many
+ * elements it lists per rule — verified against the bundled binary: a page
+ * with 12 unlabelled images reports `nodeCount: 12` and ten nodes — so a
+ * Finding list can be shorter than what the page actually has.
+ *
+ * Recording the shortfall keeps a later Baseline comparison honest. Without
+ * it, a page whose violations grew past the cap and a page that genuinely
+ * improved to the cap produce the same Findings, and the Regression that
+ * matters is the one that stays invisible.
+ */
+export const ElidedFindings = Schema.Struct({
+  /** How many the Run holds Findings for. */
+  reported: Schema.Int,
+  rule: nonEmptyString,
+  severity: FindingSeverity,
+  stepIndex: Schema.Int,
+  /** How many the engine says the page has. */
+  total: Schema.Int,
+});
+export type ElidedFindings = typeof ElidedFindings.Type;
+
+/**
  * One executed Step, recorded whether it succeeded or not. `index` is the
  * Step's position in the executed Flow, so a Run reads against its own
  * embedded Flow without a separate lookup.
  */
 export const RunStep = Schema.Struct({
+  /**
+   * Rules whose violations this Step's Findings represent only in part.
+   * Absent when every violation the engine counted is also listed.
+   */
+  elidedFindings: Schema.optional(Schema.Array(ElidedFindings)),
   error: Schema.optional(Schema.String),
   /** Everything an Audit Step found. Absent on Steps that audit nothing. */
   findings: Schema.optional(Schema.Array(Finding)),

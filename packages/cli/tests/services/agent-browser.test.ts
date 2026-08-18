@@ -1171,7 +1171,7 @@ it.effect("audits the page under an explicitly pinned ruleset", () => {
             helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
             id: "image-alt",
             impact: "critical",
-            nodeCount: 3,
+            nodeCount: 2,
             nodes: [
               {
                 failureSummary: "Fix any of the following:\n  No alt attribute",
@@ -1200,7 +1200,8 @@ it.effect("audits the page under an explicitly pinned ruleset", () => {
 
     // The tags travel on stdin, so a Flow can never reach the argv.
     expect(stdin).toEqual([["a11y", "--tags", "wcag2a,wcag2aa", "--json"]]);
-    expect(findings).toEqual([
+    expect(findings.elided).toEqual([]);
+    expect(findings.findings).toEqual([
       {
         helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
         message: "Fix any of the following:\n  No alt attribute",
@@ -1238,7 +1239,10 @@ it.effect("reports no Findings for a page with no violations", () => {
     const agentBrowser = yield* AgentBrowser;
     const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
 
-    expect(yield* agentBrowser.audit(sessionId, ["wcag2a"], 0)).toEqual([]);
+    expect(yield* agentBrowser.audit(sessionId, ["wcag2a"], 0)).toEqual({
+      elided: [],
+      findings: [],
+    });
   }).pipe(Effect.provide(fixture.layer));
 });
 
@@ -1264,5 +1268,53 @@ it.effect("fails when the ruleset selected no rules to run", () => {
 
     // Silence here would audit every page clean forever.
     expect(error.message).toContain("selected no rules");
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reports the violations the engine counted but did not list", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    // How the bundled binary answers a page with more violations of one rule
+    // than it lists: a truthful count beside a capped list. Verified against
+    // it with twelve unlabelled images.
+    stdout: () =>
+      auditResponse(
+        { inapplicable: 40, incomplete: 0, passes: 6, violations: 1 },
+        [
+          {
+            help: "Images must have alternative text",
+            id: "image-alt",
+            impact: "critical",
+            nodeCount: 12,
+            nodes: Array.from({ length: 10 }, (_unused, index) => ({
+              target: [`img[src$="i${index}.png"]`],
+            })),
+          },
+        ]
+      ),
+  });
+
+  return Effect.gen(function* cappedNodes() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const { elided, findings } = yield* agentBrowser.audit(
+      sessionId,
+      ["wcag2a"],
+      1
+    );
+
+    expect(findings).toHaveLength(10);
+    // Silence here would let a page that grew past the cap and a page that
+    // improved down to it read as the same page.
+    expect(elided).toEqual([
+      {
+        reported: 10,
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 1,
+        total: 12,
+      },
+    ]);
   }).pipe(Effect.provide(fixture.layer));
 });

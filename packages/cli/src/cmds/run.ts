@@ -140,11 +140,26 @@ export const runCommand = Command.make(
       (total, step) => total + (step.findings?.length ?? 0),
       0
     );
+    // The engine lists at most a fixed number of elements per rule while
+    // counting them all, so the Findings can be fewer than the page has.
+    const elided = run.steps.reduce(
+      (total, step) =>
+        total +
+        (step.elidedFindings ?? []).reduce(
+          (missing, rule) => missing + (rule.total - rule.reported),
+          0
+        ),
+      0
+    );
     if (findings > 0) {
       // Reported, never fatal: every real site has pre-existing violations, so
       // failing on their count makes the check red on day one (ADR 0009).
       yield* Console.log(
-        `${findings} accessibility ${findings === 1 ? "Finding" : "Findings"}.`
+        `${findings} accessibility ${findings === 1 ? "Finding" : "Findings"}${
+          elided === 0
+            ? ""
+            : `, and ${elided} more the accessibility engine counted but did not list`
+        }.`
       );
     }
 

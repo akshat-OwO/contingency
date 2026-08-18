@@ -1,5 +1,6 @@
 import type {
   BrowserRpcError,
+  ElidedFindings,
   Finding,
   Flow,
   PreStep,
@@ -44,6 +45,8 @@ const makeFixture = (options?: {
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
   /** Wall-clock a navigation takes, for exercising the Run's own ceiling. */
   readonly navigationDelay?: Duration.Duration;
+  /** Rules the engine counted more violations for than it listed. */
+  readonly elided?: readonly Omit<ElidedFindings, "stepIndex">[];
   /** Findings the accessibility engine reports. Defaults to a clean page. */
   readonly findings?: readonly Omit<Finding, "stepIndex">[];
   /** Selectors the page shows. Anything else is absent, as the browser reports it. */
@@ -70,12 +73,16 @@ const makeFixture = (options?: {
   const stub: Partial<AgentBrowser> = {
     audit: (_session, tags, stepIndex) =>
       record("audit", tags).pipe(
-        Effect.as(
-          (options?.findings ?? []).map((finding) => ({
+        Effect.as({
+          elided: (options?.elided ?? []).map((rule) => ({
+            ...rule,
+            stepIndex,
+          })),
+          findings: (options?.findings ?? []).map((finding) => ({
             ...finding,
             stepIndex,
-          }))
-        )
+          })),
+        })
       ),
     clickSelector: (_session, selector) => record("click", [selector]),
     close: (session) => record("close", [session]),
@@ -1370,5 +1377,47 @@ it.effect("redacts a secret the engine built into a Finding", () => {
     expect(persisted.steps[1]?.findings?.[0]?.target).toBe(
       'a[href="/n?t={{PASSWORD}}"]'
     );
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records what the engine counted but did not list", () => {
+  const fixture = makeFixture({
+    elided: [
+      { reported: 10, rule: "image-alt", severity: "critical", total: 12 },
+    ],
+    findings: [violation],
+  });
+
+  return Effect.gen(function* persistElided() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([auditStep]), {
+      outputDirectory: "/runs",
+    });
+
+    // A Baseline comparison that cannot see the shortfall reads a page whose
+    // violations grew past the cap and one that improved down to it alike.
+    expect(writtenRun(fixture.written).steps[0]?.elidedFindings).toEqual([
+      {
+        reported: 10,
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 0,
+        total: 12,
+      },
+    ]);
+    expect(result.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records nothing elided when the engine listed every one", () => {
+  const fixture = makeFixture({ findings: [violation] });
+
+  return Effect.gen(function* noElision() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(flow([auditStep]), { outputDirectory: "/runs" });
+
+    expect(
+      writtenRun(fixture.written).steps[0]?.elidedFindings
+    ).toBeUndefined();
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });

@@ -32,6 +32,7 @@ import {
 } from "effect";
 
 import { AgentBrowser, isElementNotFound } from "./agent-browser";
+import type { AuditResult } from "./agent-browser";
 import type { VariableResolution } from "./variables";
 import { redactSecrets, substituteVariables } from "./variables";
 
@@ -259,7 +260,7 @@ export const classifyStepFailure = (
 };
 
 /** One shared empty result, for every Step that finds nothing. */
-const NO_FINDINGS: readonly Finding[] = [];
+const NO_FINDINGS: AuditResult = { elided: [], findings: [] };
 
 interface StepExecution {
   readonly browser: AgentBrowser;
@@ -576,10 +577,13 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
               // Findings never change an outcome: every real site has
               // pre-existing violations, and a Run that failed on their count
               // would be red on day one and switched off by the second.
-              ...(outcome.success.length === 0
+              ...(outcome.success.elided.length === 0
+                ? {}
+                : { elidedFindings: outcome.success.elided }),
+              ...(outcome.success.findings.length === 0
                 ? {}
                 : {
-                    findings: outcome.success.map((finding) =>
+                    findings: outcome.success.findings.map((finding) =>
                       redactFinding(finding, variables)
                     ),
                   }),

@@ -27,6 +27,7 @@ import type {
   BrowserStreamEvent,
   BrowserStreamId as BrowserStreamIdType,
   BrowserTab,
+  ElidedFindings,
   Finding,
   SessionId,
   StorageKind,
@@ -178,7 +179,7 @@ export interface AgentBrowser {
     sessionId: SessionId,
     tags: readonly string[],
     stepIndex: number
-  ) => Effect.Effect<readonly Finding[], BrowserRpcErrorType>;
+  ) => Effect.Effect<AuditResult, BrowserRpcErrorType>;
   /**
    * The HTTP status of the top frame's own navigation, or `undefined` when the
    * page did not come from the network. A navigation that reaches a server
@@ -391,6 +392,12 @@ const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
 const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
 
+/** What one Audit Step found, and what the engine did not list in full. */
+export interface AuditResult {
+  readonly elided: readonly ElidedFindings[];
+  readonly findings: readonly Finding[];
+}
+
 /** A target path: selectors, nested once per frame or shadow-root hop. */
 type AuditTargetPath = string | readonly AuditTargetPath[];
 
@@ -424,6 +431,8 @@ const AuditReport = Schema.Struct({
       helpUrl: Schema.optional(Schema.String),
       id: Schema.String,
       impact: FindingSeverity,
+      /** What the page has. `nodes` lists at most the engine's own cap. */
+      nodeCount: Schema.Int,
       nodes: Schema.Array(
         Schema.Struct({
           failureSummary: Schema.optional(Schema.String),
@@ -1522,21 +1531,40 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           )
         );
       }
-      return report.violations.flatMap((violation) =>
-        violation.nodes.map(
-          (node) =>
-            ({
-              ...(violation.helpUrl === undefined
-                ? {}
-                : { helpUrl: violation.helpUrl }),
-              message: node.failureSummary ?? violation.help,
-              rule: violation.id,
-              severity: violation.impact,
-              stepIndex,
-              target: renderAuditTarget(node.target),
-            }) satisfies Finding
-        )
-      );
+      return {
+        // The engine lists at most a fixed number of elements per rule while
+        // counting them all, so a Finding list can be shorter than the page.
+        // Saying so keeps a later Baseline comparison from reading a page that
+        // grew past the cap and one that improved down to it as the same page.
+        elided: report.violations.flatMap((violation) =>
+          violation.nodeCount <= violation.nodes.length
+            ? []
+            : [
+                {
+                  reported: violation.nodes.length,
+                  rule: violation.id,
+                  severity: violation.impact,
+                  stepIndex,
+                  total: violation.nodeCount,
+                } satisfies ElidedFindings,
+              ]
+        ),
+        findings: report.violations.flatMap((violation) =>
+          violation.nodes.map(
+            (node) =>
+              ({
+                ...(violation.helpUrl === undefined
+                  ? {}
+                  : { helpUrl: violation.helpUrl }),
+                message: node.failureSummary ?? violation.help,
+                rule: violation.id,
+                severity: violation.impact,
+                stepIndex,
+                target: renderAuditTarget(node.target),
+              }) satisfies Finding
+          )
+        ),
+      } satisfies AuditResult;
     });
 
     const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
