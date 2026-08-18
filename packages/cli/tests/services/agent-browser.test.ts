@@ -1069,74 +1069,50 @@ it.effect("fails when visibility could not be established at all", () => {
   }).pipe(Effect.provide(fixture.layer));
 });
 
-it.effect("reads the status of the document the page is actually on", () => {
+it.effect("reads the status of the top frame's own navigation", () => {
   const fixture = makeFixture({
     markerExists: true,
     stdout: () =>
-      JSON.stringify([
-        { error: null, result: { url: "https://shop.test/" }, success: true },
-        {
-          error: null,
-          result: {
-            requests: [
-              { status: 200, url: "https://shop.test/" },
-              // An iframe on a page that loaded fine. `--type document` covers
-              // every frame, so position alone would call this a site error.
-              { status: 404, url: "https://ads.test/banner" },
-            ],
-          },
-          success: true,
-        },
-      ]),
+      JSON.stringify([{ error: null, result: { result: 503 }, success: true }]),
   });
 
-  return Effect.gen(function* readMainDocumentStatus() {
+  return Effect.gen(function* readNavigationStatus() {
     const agentBrowser = yield* AgentBrowser;
     const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
 
     const status = yield* agentBrowser.documentStatus(sessionId);
     const { stdin } = yield* lastBatchCommand(fixture);
 
-    expect(status).toBe(200);
-    // Both in one batch: the page must not navigate in between.
+    expect(status).toBe(503);
+    // A frame's navigation timing describes that frame's own navigation, so no
+    // iframe can contribute to it however that iframe was requested.
     expect(stdin).toEqual([
-      ["get", "url"],
-      ["network", "requests", "--type", "document"],
+      [
+        "eval",
+        'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0',
+      ],
     ]);
   }).pipe(Effect.provide(fixture.layer));
 });
 
-it.effect("reads the last navigation when a URL was visited twice", () => {
-  const fixture = makeFixture({
-    markerExists: true,
-    stdout: () =>
-      JSON.stringify([
-        {
-          error: null,
-          result: { url: "https://shop.test/#cart" },
-          success: true,
-        },
-        {
-          error: null,
-          result: {
-            requests: [
-              { status: 200, url: "https://shop.test/" },
-              { status: 503, url: "https://shop.test/" },
-            ],
-          },
-          success: true,
-        },
-      ]),
-  });
+it.effect(
+  "reports no status for a page that did not come from the network",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: () =>
+        JSON.stringify([{ error: null, result: { result: 0 }, success: true }]),
+    });
 
-  return Effect.gen(function* readLatestNavigation() {
-    const agentBrowser = yield* AgentBrowser;
-    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+    return Effect.gen(function* readBlankNavigation() {
+      const agentBrowser = yield* AgentBrowser;
+      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
 
-    // A fragment does not make it a different document.
-    expect(yield* agentBrowser.documentStatus(sessionId)).toBe(503);
-  }).pipe(Effect.provide(fixture.layer));
-});
+      // `0` is not a status the site answered with.
+      expect(yield* agentBrowser.documentStatus(sessionId)).toBeUndefined();
+    }).pipe(Effect.provide(fixture.layer));
+  }
+);
 
 it.effect("fails the command with the batch entry's own message", () => {
   const fixture = makeFixture({

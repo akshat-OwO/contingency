@@ -166,9 +166,10 @@ export interface AgentBrowser {
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
-   * The HTTP status of the most recently loaded main document, or `undefined`
-   * when the page did not come from the network. A navigation that reaches a
-   * server error still navigates, so this is the only way to see it.
+   * The HTTP status of the top frame's own navigation, or `undefined` when the
+   * page did not come from the network. A navigation that reaches a server
+   * error still navigates, so this is the only way to see it. An iframe's
+   * response is never reported here, however that iframe was requested.
    */
   readonly documentStatus: (
     sessionId: SessionId
@@ -374,22 +375,20 @@ const BatchResults = Schema.Array(
 
 const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
-const BatchUrlResult = Schema.Struct({ url: Schema.String });
+const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
 
-const DocumentRequests = Schema.Struct({
-  requests: Schema.Array(
-    Schema.Struct({
-      status: Schema.optional(Schema.NullOr(Schema.Number)),
-      url: Schema.String,
-    })
-  ),
-});
-
-/** Compare navigations by document, so a fragment does not make two URLs differ. */
-const withoutFragment = (url: string): string => {
-  const hash = url.indexOf("#");
-  return hash === -1 ? url : url.slice(0, hash);
-};
+/**
+ * The status of the navigation that produced the document this runs in.
+ * `PerformanceNavigationTiming` exists only for a frame's own navigation, so
+ * evaluating it in the top frame cannot pick up an iframe's response however
+ * that iframe was requested — including from the page's own URL.
+ *
+ * Verified against the bundled binary: a page served 200 with a 404 iframe
+ * reports 200, a top-level 404 reports 404, and a page that did not come from
+ * the network reports 0.
+ */
+const NAVIGATION_STATUS =
+  'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0';
 
 /**
  * How agent-browser reports a selector matching nothing. Verified against the
@@ -1421,33 +1420,22 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
       function* documentStatus(sessionId: SessionId) {
-        // Both in one batch: the page must not navigate between reading where
-        // it is and reading how it got there.
         const results = yield* runBatch(sessionId, [
-          ["get", "url"],
-          ["network", "requests", "--type", "document"],
+          ["eval", NAVIGATION_STATUS],
         ]);
-        const decoded = yield* Schema.decodeUnknownEffect(
-          Schema.Tuple([BatchUrlResult, DocumentRequests])
-        )([results.at(0)?.result, results.at(1)?.result]).pipe(
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedNumber)(
+          results.at(0)?.result
+        ).pipe(
           Effect.mapError(() =>
             browserError(
               "agent_browser_failed",
-              "agent-browser did not report the document request."
+              "agent-browser did not report the navigation status."
             )
           )
         );
-        const [{ url }, { requests }] = decoded;
-
-        // `--type document` covers every frame's document, so an iframe that
-        // 404s appears here alongside a top-level page that loaded fine. Only
-        // the request the page is actually on describes the main frame.
-        const current = withoutFragment(url);
-        return (
-          requests.findLast(
-            (request) => withoutFragment(request.url) === current
-          )?.status ?? undefined
-        );
+        // `0` is how the timing API reports a document that did not come from
+        // the network, which is not a status the site answered with.
+        return decoded.result === 0 ? undefined : decoded.result;
       }
     );
 
