@@ -29,7 +29,7 @@ import {
   Semaphore,
 } from "effect";
 
-import { AgentBrowser } from "./agent-browser";
+import { AgentBrowser, isElementNotFound } from "./agent-browser";
 import type { VariableResolution } from "./variables";
 import { redactSecrets, substituteVariables } from "./variables";
 
@@ -45,6 +45,12 @@ const RUN_VIEWPORT = {
 } as const;
 
 export class RunnerError extends Data.TaggedError("RunnerError")<{
+  /**
+   * Who the failure belongs to, when the Runner knows. Only the Runner can
+   * say: by the time a failure is a message, "no selector resolved" and "the
+   * session died" read alike.
+   */
+  readonly kind?: RunFailure["kind"];
   readonly message: string;
 }> {}
 
@@ -228,28 +234,26 @@ const HTTP_ERROR_STATUS = 400;
  */
 const NAVIGATION_FAILED = "Navigation failed:";
 
-/** Marks a failure the Runner itself raised on the site's behalf. */
-const SITE_ERROR_PREFIX = "The site under test failed:";
-
 /**
- * Who a failed Step belongs to. A navigation that did not complete, or a
- * document served as an error, is the site's; anything else on a Step that
- * addresses an element is the Flow's, because the element it named is not there.
+ * Who a failed Step belongs to.
  *
- * A Step that is neither leaves the failure unattributed rather than guessing.
+ * A navigation that did not complete is the site's. Selector exhaustion is the
+ * Flow's, and only the Runner can say that one: by the time a failure is a
+ * message, "no selector resolved" and "the session died" read alike, which is
+ * why the attribution travels on the error rather than being re-derived here.
+ *
+ * Everything else is left unattributed. A dead session, a browser-process
+ * failure, or a click that landed wrong establishes nothing about whose fault
+ * it is, and a guess routes it to someone who cannot act on it.
  */
 export const classifyStepFailure = (
-  step: FlowStep,
+  attributed: RunFailure["kind"],
   message: string
 ): RunFailure["kind"] => {
-  if (
-    step.type === "navigate" ||
-    message.startsWith(NAVIGATION_FAILED) ||
-    message.startsWith(SITE_ERROR_PREFIX)
-  ) {
-    return "siteError";
+  if (attributed !== undefined) {
+    return attributed;
   }
-  return step.type === "customStep" ? undefined : "flowError";
+  return message.startsWith(NAVIGATION_FAILED) ? "siteError" : undefined;
 };
 
 interface StepExecution {
@@ -283,7 +287,8 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     const status = probed._tag === "Success" ? probed.success : undefined;
     if (status !== undefined && status >= HTTP_ERROR_STATUS) {
       return yield* new RunnerError({
-        message: `${SITE_ERROR_PREFIX} the server answered this navigation with HTTP ${status}.`,
+        kind: "siteError",
+        message: `The site under test failed: the server answered this navigation with HTTP ${status}.`,
       });
     }
     return;
@@ -300,6 +305,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   const candidates = selectorCandidates(step.selectors);
   if (candidates.length === 0) {
     return yield* new RunnerError({
+      kind: "flowError",
       message: `No selector on this ${step.type} Step can be resolved by the browser. Chained shadow-root selectors are not supported yet.`,
     });
   }
@@ -339,10 +345,19 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     if (outcome.failure.code === "input_already_dispatched") {
       return yield* new RunnerError({ message: outcome.failure.message });
     }
+    // Only "the element is not there" is evidence about the selector. A dead
+    // session or a browser-process failure says nothing about it, and treating
+    // it as a miss would blame the Flow author for someone else's problem.
+    if (!isElementNotFound(outcome.failure.message)) {
+      return yield* new RunnerError({ message: outcome.failure.message });
+    }
     lastMessage = outcome.failure.message;
   }
 
+  // Every alternative the Recorder offered was tried and none resolved: the
+  // element the Flow named is not on the page any more.
   return yield* new RunnerError({
+    kind: "flowError",
     message: `Could not resolve a selector for this ${step.type} Step (tried ${candidates.length}): ${lastMessage}`,
   });
 });
@@ -527,7 +542,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           // A browser message can echo a value typed into a field, so it is
           // redacted before it reaches the Run.
           const message = redactSecrets(outcome.failure.message, variables);
-          const kind = classifyStepFailure(step, message);
+          const kind = classifyStepFailure(outcome.failure.kind, message);
 
           steps.push({ ...base, error: message, outcome: "failed" });
           failure = {

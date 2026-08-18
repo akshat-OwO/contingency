@@ -374,18 +374,33 @@ const BatchResults = Schema.Array(
 
 const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
+const BatchUrlResult = Schema.Struct({ url: Schema.String });
+
 const DocumentRequests = Schema.Struct({
   requests: Schema.Array(
-    Schema.Struct({ status: Schema.optional(Schema.NullOr(Schema.Number)) })
+    Schema.Struct({
+      status: Schema.optional(Schema.NullOr(Schema.Number)),
+      url: Schema.String,
+    })
   ),
 });
+
+/** Compare navigations by document, so a fragment does not make two URLs differ. */
+const withoutFragment = (url: string): string => {
+  const hash = url.indexOf("#");
+  return hash === -1 ? url : url.slice(0, hash);
+};
 
 /**
  * How agent-browser reports a selector matching nothing. Verified against the
  * bundled binary for CSS and XPath selectors alike; a `text=` selector resolves
- * to `visible: false` instead and never reaches this path.
+ * to `visible: false` instead and never reaches the visibility path.
  */
-const ELEMENT_NOT_FOUND = "Element not found:";
+export const ELEMENT_NOT_FOUND = "Element not found:";
+
+/** Whether a failure says the element was absent rather than unreachable. */
+export const isElementNotFound = (message: string): boolean =>
+  message.startsWith(ELEMENT_NOT_FOUND);
 
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
@@ -1406,12 +1421,15 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
       function* documentStatus(sessionId: SessionId) {
+        // Both in one batch: the page must not navigate between reading where
+        // it is and reading how it got there.
         const results = yield* runBatch(sessionId, [
+          ["get", "url"],
           ["network", "requests", "--type", "document"],
         ]);
-        const decoded = yield* Schema.decodeUnknownEffect(DocumentRequests)(
-          results.at(0)?.result
-        ).pipe(
+        const decoded = yield* Schema.decodeUnknownEffect(
+          Schema.Tuple([BatchUrlResult, DocumentRequests])
+        )([results.at(0)?.result, results.at(1)?.result]).pipe(
           Effect.mapError(() =>
             browserError(
               "agent_browser_failed",
@@ -1419,9 +1437,17 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
             )
           )
         );
-        // The main document is the last one requested: a Flow navigates
-        // forwards, and each navigation appends its own document entry.
-        return decoded.requests.at(-1)?.status ?? undefined;
+        const [{ url }, { requests }] = decoded;
+
+        // `--type document` covers every frame's document, so an iframe that
+        // 404s appears here alongside a top-level page that loaded fine. Only
+        // the request the page is actually on describes the main frame.
+        const current = withoutFragment(url);
+        return (
+          requests.findLast(
+            (request) => withoutFragment(request.url) === current
+          )?.status ?? undefined
+        );
       }
     );
 

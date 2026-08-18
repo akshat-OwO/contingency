@@ -258,7 +258,7 @@ it.effect("tries each alternative selector before failing the Step", () => {
   const fixture = makeFixture({
     failOn: ({ args, command }) =>
       command === "click" && args[0] !== "#stable"
-        ? "Selector did not resolve"
+        ? "Element not found: #stale"
         : undefined,
   });
 
@@ -726,6 +726,29 @@ it.effect("classifies a selector that never resolves as a flowError", () => {
     // Unresolvable across every attempt: the Flow has gone stale.
     expect(result.run.attempts).toHaveLength(3);
     expect(result.run.failure?.kind).toBe("flowError");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("leaves an unrelated browser failure unattributed", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "click" ? "Session is not running" : undefined,
+  });
+
+  return Effect.gen(function* leaveUnattributed() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 0 }
+    );
+
+    // A dead session establishes nothing about whose fault it is. Calling it a
+    // flowError would route it to the Flow author, who cannot act on it.
+    expect(result.run.outcome).toBe("failed");
+    expect(result.run.failure?.kind).toBeUndefined();
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 

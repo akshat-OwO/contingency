@@ -1069,39 +1069,74 @@ it.effect("fails when visibility could not be established at all", () => {
   }).pipe(Effect.provide(fixture.layer));
 });
 
-it.effect(
-  "reads the main document's status from the last document request",
-  () => {
-    const fixture = makeFixture({
-      markerExists: true,
-      stdout: () =>
-        JSON.stringify([
-          {
-            error: null,
-            result: {
-              requests: [
-                { status: 200, url: "https://shop.test/" },
-                { status: 503, url: "https://shop.test/checkout" },
-              ],
-            },
-            success: true,
+it.effect("reads the status of the document the page is actually on", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        { error: null, result: { url: "https://shop.test/" }, success: true },
+        {
+          error: null,
+          result: {
+            requests: [
+              { status: 200, url: "https://shop.test/" },
+              // An iframe on a page that loaded fine. `--type document` covers
+              // every frame, so position alone would call this a site error.
+              { status: 404, url: "https://ads.test/banner" },
+            ],
           },
-        ]),
-    });
+          success: true,
+        },
+      ]),
+  });
 
-    return Effect.gen(function* readDocumentStatus() {
-      const agentBrowser = yield* AgentBrowser;
-      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+  return Effect.gen(function* readMainDocumentStatus() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
 
-      // A Flow navigates forwards, so the document it is on is the last one.
-      const status = yield* agentBrowser.documentStatus(sessionId);
-      const { stdin } = yield* lastBatchCommand(fixture);
+    const status = yield* agentBrowser.documentStatus(sessionId);
+    const { stdin } = yield* lastBatchCommand(fixture);
 
-      expect(status).toBe(503);
-      expect(stdin).toEqual([["network", "requests", "--type", "document"]]);
-    }).pipe(Effect.provide(fixture.layer));
-  }
-);
+    expect(status).toBe(200);
+    // Both in one batch: the page must not navigate in between.
+    expect(stdin).toEqual([
+      ["get", "url"],
+      ["network", "requests", "--type", "document"],
+    ]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reads the last navigation when a URL was visited twice", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error: null,
+          result: { url: "https://shop.test/#cart" },
+          success: true,
+        },
+        {
+          error: null,
+          result: {
+            requests: [
+              { status: 200, url: "https://shop.test/" },
+              { status: 503, url: "https://shop.test/" },
+            ],
+          },
+          success: true,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* readLatestNavigation() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    // A fragment does not make it a different document.
+    expect(yield* agentBrowser.documentStatus(sessionId)).toBe(503);
+  }).pipe(Effect.provide(fixture.layer));
+});
 
 it.effect("fails the command with the batch entry's own message", () => {
   const fixture = makeFixture({
