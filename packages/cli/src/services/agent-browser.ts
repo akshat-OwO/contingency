@@ -165,6 +165,14 @@ export interface AgentBrowser {
     sessionId: SessionId,
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * The HTTP status of the most recently loaded main document, or `undefined`
+   * when the page did not come from the network. A navigation that reaches a
+   * server error still navigates, so this is the only way to see it.
+   */
+  readonly documentStatus: (
+    sessionId: SessionId
+  ) => Effect.Effect<number | undefined, BrowserRpcErrorType>;
   readonly cdpUrl: (
     sessionId: SessionId
   ) => Effect.Effect<string, BrowserRpcErrorType>;
@@ -365,6 +373,12 @@ const BatchResults = Schema.Array(
 );
 
 const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
+
+const DocumentRequests = Schema.Struct({
+  requests: Schema.Array(
+    Schema.Struct({ status: Schema.optional(Schema.NullOr(Schema.Number)) })
+  ),
+});
 
 /**
  * How agent-browser reports a selector matching nothing. Verified against the
@@ -1390,6 +1404,27 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       return decoded.visible;
     });
 
+    const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
+      function* documentStatus(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["network", "requests", "--type", "document"],
+        ]);
+        const decoded = yield* Schema.decodeUnknownEffect(DocumentRequests)(
+          results.at(0)?.result
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report the document request."
+            )
+          )
+        );
+        // The main document is the last one requested: a Flow navigates
+        // forwards, and each navigation appends its own document entry.
+        return decoded.requests.at(-1)?.status ?? undefined;
+      }
+    );
+
     const goto = Effect.fn("AgentBrowser.goto")(function* goto(
       sessionId: SessionId,
       url: string
@@ -1713,6 +1748,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       create,
       currentUrl,
       deleteStorage,
+      documentStatus,
       fillSelector,
       getNetworkRequest,
       getNetworkRequests,

@@ -1069,6 +1069,40 @@ it.effect("fails when visibility could not be established at all", () => {
   }).pipe(Effect.provide(fixture.layer));
 });
 
+it.effect(
+  "reads the main document's status from the last document request",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: () =>
+        JSON.stringify([
+          {
+            error: null,
+            result: {
+              requests: [
+                { status: 200, url: "https://shop.test/" },
+                { status: 503, url: "https://shop.test/checkout" },
+              ],
+            },
+            success: true,
+          },
+        ]),
+    });
+
+    return Effect.gen(function* readDocumentStatus() {
+      const agentBrowser = yield* AgentBrowser;
+      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+      // A Flow navigates forwards, so the document it is on is the last one.
+      const status = yield* agentBrowser.documentStatus(sessionId);
+      const { stdin } = yield* lastBatchCommand(fixture);
+
+      expect(status).toBe(503);
+      expect(stdin).toEqual([["network", "requests", "--type", "document"]]);
+    }).pipe(Effect.provide(fixture.layer));
+  }
+);
+
 it.effect("fails the command with the batch entry's own message", () => {
   const fixture = makeFixture({
     exitCode: 1,

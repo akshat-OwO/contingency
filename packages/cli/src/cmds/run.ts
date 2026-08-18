@@ -1,11 +1,21 @@
 import path from "node:path";
 
-import { Console, Data, Effect, FileSystem, Option, Runtime } from "effect";
+import {
+  Console,
+  Data,
+  Duration,
+  Effect,
+  FileSystem,
+  Option,
+  Runtime,
+} from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
 
 import { AgentBrowser } from "../services/agent-browser";
 import {
   decodeFlowDocument,
+  DEFAULT_RETRY,
+  DEFAULT_TIMEOUT,
   flowRunsDirectory,
   Runner,
   RunnerError,
@@ -35,14 +45,32 @@ export const runCommand = Command.make(
       ),
       Flag.optional
     ),
+    retry: Flag.integer("retry").pipe(
+      Flag.withDescription(
+        "Extra attempts a failing Flow gets, each in a fresh browser session. 0 disables retrying, which a Flow with real side effects needs."
+      ),
+      Flag.withDefault(DEFAULT_RETRY)
+    ),
     secret: Flag.string("secret").pipe(
       Flag.withDescription(
         "Supply a Variable as NAME=value, or as NAME to read it from CONTINGENCY_SECRET_NAME. Repeatable."
       ),
       Flag.atLeast(0)
     ),
+    timeout: Flag.integer("timeout").pipe(
+      Flag.withDescription(
+        "Wall-clock ceiling for the whole Run in seconds, retries included."
+      ),
+      Flag.withDefault(Duration.toSeconds(DEFAULT_TIMEOUT))
+    ),
   },
-  Effect.fnUntraced(function* runFlow({ flowPath, output, secret }) {
+  Effect.fnUntraced(function* runFlow({
+    flowPath,
+    output,
+    retry,
+    secret,
+    timeout,
+  }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const runner = yield* Runner;
     const agentBrowser = yield* AgentBrowser;
@@ -76,8 +104,7 @@ export const runCommand = Command.make(
             message: `Value for Variable ${variable.name}`,
           })
         ).pipe(Effect.orDie),
-      // `--retry` arrives with retry itself; the documented default is 3.
-      retriesEnabled: true,
+      retriesEnabled: retry > 0,
       secrets: secret,
     }).pipe(Effect.tapError((failure) => Console.error(failure.message)));
 
@@ -96,8 +123,18 @@ export const runCommand = Command.make(
 
     const { directory, run } = yield* runner.run(flow, {
       outputDirectory,
+      retry,
+      timeout: Duration.seconds(timeout),
       variables: resolution,
     });
+
+    if (run.attempts.length > 1) {
+      // Silent retry is how a Flow that fails 40% of the time reports green for
+      // a month, so a Run that needed more than one attempt says so.
+      yield* Console.warn(
+        `Warning: this Run needed ${run.attempts.length} attempts.`
+      );
+    }
 
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);
     yield* Console.log(directory);

@@ -123,6 +123,7 @@ const agentBrowserStub: AgentBrowser = {
     Effect.sync(() => {
       storageCalls.delete.push(payload.kind);
     }),
+  documentStatus: unused,
   fillSelector: unused,
   getNetworkRequest: unused,
   getNetworkRequests: unused,

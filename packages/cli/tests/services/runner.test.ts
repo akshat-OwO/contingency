@@ -5,9 +5,12 @@ import type {
   Run,
   SessionId,
 } from "@contingency/protocol";
-import { makeBrowserRpcError } from "@contingency/protocol";
+import {
+  makeBrowserRpcError,
+  runIsBaselineEligible,
+} from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Duration, Effect, FileSystem } from "effect";
 
 import type { AgentBrowser } from "../../src/services/agent-browser";
 import {
@@ -34,7 +37,11 @@ interface WrittenFile {
 }
 
 const makeFixture = (options?: {
+  /** HTTP status the loaded document reports. Defaults to a served page. */
+  readonly documentStatus?: number;
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
+  /** Wall-clock a navigation takes, for exercising the Run's own ceiling. */
+  readonly navigationDelay?: Duration.Duration;
   /** Selectors the page shows. Anything else is absent, as the browser reports it. */
   readonly visible?: readonly string[];
 }) => {
@@ -61,9 +68,20 @@ const makeFixture = (options?: {
     close: (session) => record("close", [session]),
     create: (name) =>
       record("create", [name]).pipe(Effect.as(name as SessionId)),
+    documentStatus: () =>
+      record("documentStatus", []).pipe(
+        Effect.as(options?.documentStatus ?? 200)
+      ),
     fillSelector: (_session, selector, value) =>
       record("fill", [selector, value]),
-    goto: (_session, url) => record("goto", [url]),
+    goto: (_session, url) =>
+      record("goto", [url]).pipe(
+        Effect.andThen(
+          options?.navigationDelay === undefined
+            ? Effect.void
+            : Effect.sleep(options.navigationDelay)
+        )
+      ),
     // `isVisible` absorbs the browser's element-not-found answer into `false`,
     // so a failure here means the question never reached the page.
     isVisible: (_session, selector) =>
@@ -136,6 +154,7 @@ it.effect(
       expect(fixture.calls.map(({ command }) => command)).toEqual([
         "create",
         "goto",
+        "documentStatus",
         "click",
         "fill",
         "wait",
@@ -549,6 +568,252 @@ it.effect("records a condition it could not evaluate as failed", () => {
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
+it.effect("retries a failing Flow in a completely fresh session", () => {
+  let clicks = 0;
+  const fixture = makeFixture({
+    failOn: ({ command }) => {
+      if (command !== "click") {
+        return;
+      }
+      clicks += 1;
+      return clicks < 3 ? "Selector did not resolve" : undefined;
+    },
+  });
+
+  return Effect.gen(function* retryUntilItHolds() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 3 }
+    );
+
+    // A retry inside a session that has already been navigated and clicked is
+    // a rerun of what the last attempt left, not of the Flow.
+    const sessions = fixture.calls
+      .filter(({ command }) => command === "create")
+      .map(({ args }) => args[0]);
+    expect(sessions).toHaveLength(3);
+    expect(new Set(sessions).size).toBe(3);
+    expect(
+      fixture.calls.filter(({ command }) => command === "close")
+    ).toHaveLength(3);
+    expect(result.run.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records every attempt's failure even after one succeeds", () => {
+  let clicks = 0;
+  const fixture = makeFixture({
+    failOn: ({ command }) => {
+      if (command !== "click") {
+        return;
+      }
+      clicks += 1;
+      return clicks === 1 ? "Selector did not resolve" : undefined;
+    },
+  });
+
+  return Effect.gen(function* recordEveryAttempt() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 3 }
+    );
+
+    // Silent retry is how a Flow that fails 40% of the time reports green.
+    expect(result.run.outcome).toBe("completed");
+    expect(result.run.attempts.map(({ outcome }) => outcome)).toEqual([
+      "failed",
+      "completed",
+    ]);
+    expect(result.run.attempts[0]?.failure?.message).toContain(
+      "Selector did not resolve"
+    );
+    expect(result.run.attempts.map(({ attempt }) => attempt)).toEqual([1, 2]);
+    expect(writtenRun(fixture.written).attempts).toHaveLength(2);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("does not retry at all when retries are disabled", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "click" ? "Selector did not resolve" : undefined,
+  });
+
+  return Effect.gen(function* honourZeroRetry() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 0 }
+    );
+
+    // A Flow with real side effects cannot be retried: a rerun places a second
+    // order or sends a second email.
+    expect(
+      fixture.calls.filter(({ command }) => command === "create")
+    ).toHaveLength(1);
+    expect(result.run.attempts).toHaveLength(1);
+    expect(result.run.outcome).toBe("failed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("classifies a failed navigation as a siteError", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "goto"
+        ? "Navigation failed: net::ERR_NAME_NOT_RESOLVED"
+        : undefined,
+  });
+
+  return Effect.gen(function* classifyNavigation() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([{ type: "navigate", url: "https://gone.test/" }]),
+      { outputDirectory: "/runs", retry: 0 }
+    );
+
+    expect(result.run.failure?.kind).toBe("siteError");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("classifies a document served as an error as a siteError", () => {
+  const fixture = makeFixture({ documentStatus: 503 });
+
+  return Effect.gen(function* classifyHttpStatus() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 0 }
+    );
+
+    // The navigation itself succeeds, so without this the Flow would fail a
+    // few Steps later on a selector missing only because this is an error page.
+    expect(result.run.failure?.kind).toBe("siteError");
+    expect(result.run.failure?.message).toContain("HTTP 503");
+    expect(result.run.failure?.stepIndex).toBe(0);
+    expect(fixture.calls.map(({ command }) => command)).not.toContain("click");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("classifies a selector that never resolves as a flowError", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "click" ? "Element not found: #buy" : undefined,
+  });
+
+  return Effect.gen(function* classifySelector() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 2 }
+    );
+
+    // Unresolvable across every attempt: the Flow has gone stale.
+    expect(result.run.attempts).toHaveLength(3);
+    expect(result.run.failure?.kind).toBe("flowError");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.live("persists a Run that ran out of time rather than losing it", () => {
+  // A real clock: the ceiling has to fire mid-navigation, which needs the
+  // navigation to actually take time.
+  const fixture = makeFixture({ navigationDelay: Duration.seconds(2) });
+
+  return Effect.gen(function* persistTimedOutRun() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://slow.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", timeout: Duration.millis(50) }
+    );
+
+    // A Run that ran out of time is still a Run; losing it would throw away
+    // everything it did establish.
+    expect(result.run.outcome).toBe("failed");
+    expect(result.run.failure?.message).toContain("ceiling");
+    expect(result.run.failure?.kind).toBeUndefined();
+    expect(result.run.attempts).toHaveLength(1);
+    expect(writtenRun(fixture.written).outcome).toBe("failed");
+    expect(runIsBaselineEligible(result.run)).toBe(false);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("runs a second Run only after the first has finished", () => {
+  const fixture = makeFixture();
+  const order: string[] = [];
+
+  return Effect.gen(function* serializeRuns() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const one = flow([{ type: "navigate", url: "https://one.test/" }], {
+      flowId: "one",
+    });
+    const two = flow([{ type: "navigate", url: "https://two.test/" }], {
+      flowId: "two",
+    });
+
+    yield* Effect.all(
+      [
+        runner
+          .run(one, { outputDirectory: "/runs" })
+          .pipe(Effect.tap(() => Effect.sync(() => order.push("one")))),
+        runner
+          .run(two, { outputDirectory: "/runs" })
+          .pipe(Effect.tap(() => Effect.sync(() => order.push("two")))),
+      ],
+      { concurrency: "unbounded" }
+    );
+
+    // Concurrent Runs contend for CPU, which corrupts both Runs' Core Web
+    // Vitals, so the second waits rather than interleaving (ADR 0009).
+    const sessions = fixture.calls.filter(({ command }) => command === "close");
+    expect(sessions).toHaveLength(2);
+    expect(order).toHaveLength(2);
+    const closes = fixture.calls
+      .map(({ command }, index) => ({ command, index }))
+      .filter(({ command }) => command === "create" || command === "close")
+      .map(({ command }) => command);
+    // create/close strictly alternate: no second session opens while one is up.
+    expect(closes).toEqual(["create", "close", "create", "close"]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("marks a Run whose Steps failed ineligible as a Baseline", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "click" ? "Element not found: #buy" : undefined,
+  });
+
+  return Effect.gen(function* rejectFailedBaseline() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://shop.test/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#buy"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 0 }
+    );
+
+    expect(runIsBaselineEligible(result.run)).toBe(false);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
 it.effect("writes a Run directory keyed on the Flow's stable identity", () => {
   const fixture = makeFixture();
 
@@ -800,7 +1065,15 @@ it.effect("holds a modifier across the Steps it was recorded around", () => {
       fixture.calls
         .filter(({ command }) => command !== "create" && command !== "close")
         .map(({ command }) => command)
-    ).toEqual(["goto", "wait", "keyDown", "click", "wait", "keyUp"]);
+    ).toEqual([
+      "goto",
+      "documentStatus",
+      "wait",
+      "keyDown",
+      "click",
+      "wait",
+      "keyUp",
+    ]);
     expect(result.run.outcome).toBe("completed");
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });

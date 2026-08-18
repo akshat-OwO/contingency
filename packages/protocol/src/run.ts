@@ -58,15 +58,45 @@ export const RunStep = Schema.Struct({
 export type RunStep = typeof RunStep.Type;
 
 /**
- * Why a Run did not complete. Failure classification (`siteError` against
- * `flowError`) arrives with retry, so this carries only the message and the
- * Step that produced it for now.
+ * Who a failure belongs to. `siteError` means the site under test is broken —
+ * a navigation that did not complete, or a document the server answered with
+ * an error status — which is the signal Contingency exists to catch.
+ * `flowError` means the Flow has gone stale and needs re-authoring, typically a
+ * selector that no longer resolves.
+ *
+ * They route to different people, so collapsing them into one channel makes
+ * that channel ignorable once Alerts exist.
+ */
+export const RunFailureKind = Schema.Literals(["siteError", "flowError"]);
+export type RunFailureKind = typeof RunFailureKind.Type;
+
+/**
+ * Why a Run did not complete. `kind` is absent when the failure belongs to
+ * neither party — a Run that exceeded its own wall-clock ceiling has no single
+ * failing Step to attribute, and guessing would route it to the wrong person.
  */
 export const RunFailure = Schema.Struct({
+  kind: Schema.optional(RunFailureKind),
   message: nonEmptyString,
   stepIndex: Schema.optional(Schema.Int),
 });
 export type RunFailure = typeof RunFailure.Type;
+
+/**
+ * One attempt at executing the Flow. Every attempt is recorded, including the
+ * failures that preceded a later attempt's success: silent retry is how a Flow
+ * that fails 40% of the time reports green for a month.
+ */
+export const RunAttempt = Schema.Struct({
+  /** 1-based, so `attempt: 1` is the first try rather than the first retry. */
+  attempt: Schema.Int,
+  failure: Schema.optional(RunFailure),
+  finishedAt: Instant,
+  outcome: RunOutcome,
+  startedAt: Instant,
+  steps: Schema.Array(RunStep),
+});
+export type RunAttempt = typeof RunAttempt.Type;
 
 /**
  * One execution of a Flow. Self-contained: it embeds the Flow it executed plus
@@ -75,6 +105,11 @@ export type RunFailure = typeof RunFailure.Type;
  * that the Flow changed underneath it (ADR 0009).
  */
 export const Run = Schema.Struct({
+  /**
+   * Every attempt, in order. A Run that completed on its first try has one
+   * entry; {@link Run.steps} always mirrors the last attempt's.
+   */
+  attempts: Schema.Array(RunAttempt).check(Schema.isMinLength(1)),
   failure: Schema.optional(RunFailure),
   finishedAt: Instant,
   flow: Flow,

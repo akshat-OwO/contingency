@@ -11,6 +11,8 @@ import type {
   FlowStep,
   PreStep,
   Run,
+  RunAttempt,
+  RunFailure,
   RunPreStep,
   RunStep,
   Selector,
@@ -19,6 +21,7 @@ import type {
 import {
   Context,
   Data,
+  Duration,
   Effect,
   FileSystem,
   Layer,
@@ -48,9 +51,25 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
 export interface RunnerRunOptions {
   /** Directory holding one subdirectory per Flow. Defaults to the state dir. */
   readonly outputDirectory: string;
+  /**
+   * How many extra attempts a failing Flow gets. `0` disables retrying, which a
+   * Flow with real side effects needs: a rerun places a second order.
+   */
+  readonly retry?: number | undefined;
+  /** Wall-clock ceiling for the whole Run, retries included. */
+  readonly timeout?: Duration.Duration | undefined;
   /** Values for the Flow's Variables, resolved by preflight before this runs. */
   readonly variables?: VariableResolution | undefined;
 }
+
+/** Retries a Run gets when the caller does not say. */
+export const DEFAULT_RETRY = 3;
+
+/**
+ * Wall-clock ceiling for a whole Run. Per-Step timeouts do not bound a long
+ * Flow under retry, so the Run carries its own.
+ */
+export const DEFAULT_TIMEOUT = Duration.minutes(5);
 
 const NO_VARIABLES: VariableResolution = {
   secretNames: new Set(),
@@ -200,6 +219,39 @@ export const selectorCandidates = (selectors: Selector): readonly string[] => {
 
 const nowIso = Effect.sync(() => new Date());
 
+/** The first status a site is answering with rather than serving a page. */
+const HTTP_ERROR_STATUS = 400;
+
+/**
+ * agent-browser's own wording for a navigation that did not complete, verified
+ * against the bundled binary: `Navigation failed: net::ERR_NAME_NOT_RESOLVED`.
+ */
+const NAVIGATION_FAILED = "Navigation failed:";
+
+/** Marks a failure the Runner itself raised on the site's behalf. */
+const SITE_ERROR_PREFIX = "The site under test failed:";
+
+/**
+ * Who a failed Step belongs to. A navigation that did not complete, or a
+ * document served as an error, is the site's; anything else on a Step that
+ * addresses an element is the Flow's, because the element it named is not there.
+ *
+ * A Step that is neither leaves the failure unattributed rather than guessing.
+ */
+export const classifyStepFailure = (
+  step: FlowStep,
+  message: string
+): RunFailure["kind"] => {
+  if (
+    step.type === "navigate" ||
+    message.startsWith(NAVIGATION_FAILED) ||
+    message.startsWith(SITE_ERROR_PREFIX)
+  ) {
+    return "siteError";
+  }
+  return step.type === "customStep" ? undefined : "flowError";
+};
+
 interface StepExecution {
   readonly browser: AgentBrowser;
   readonly sessionId: SessionId;
@@ -221,6 +273,19 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   }
   if (step.type === "navigate") {
     yield* browser.goto(sessionId, resolve(step.url));
+    // A server error still navigates, so the Step would otherwise pass and the
+    // Flow would fail several Steps later on a selector that is missing only
+    // because the page is an error page. That misreads a broken site as a
+    // stale Flow, which is exactly the confusion classification exists to end.
+    // A browser that cannot report the status is not evidence of a bad one:
+    // the navigation itself already succeeded.
+    const probed = yield* Effect.result(browser.documentStatus(sessionId));
+    const status = probed._tag === "Success" ? probed.success : undefined;
+    if (status !== undefined && status >= HTTP_ERROR_STATUS) {
+      return yield* new RunnerError({
+        message: `${SITE_ERROR_PREFIX} the server answered this navigation with HTTP ${status}.`,
+      });
+    }
     return;
   }
 
@@ -394,6 +459,91 @@ const preStepsFor = (
   return [...flowLevel, ...stepLevel];
 };
 
+interface AttemptResult {
+  readonly failure: RunFailure | undefined;
+}
+
+/**
+ * Replay the whole Flow once in a session of its own. A failed Step aborts the
+ * attempt rather than continuing against a page state the Flow never described
+ * (ADR 0009).
+ */
+const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
+  browser: AgentBrowser,
+  flow: Flow,
+  sessionId: SessionId,
+  variables: VariableResolution,
+  /** Caller-owned, so the Steps done so far survive an interrupted attempt. */
+  steps: RunStep[]
+) {
+  let failure: RunFailure | undefined;
+
+  yield* Effect.acquireUseRelease(
+    browser.create(sessionId, RUN_VIEWPORT).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RunnerError({
+            message: `Could not open a browser session: ${cause.message}`,
+          })
+      )
+    ),
+    (opened) =>
+      Effect.gen(function* replayFlow() {
+        const execution = { browser, sessionId: opened, variables };
+        for (const [index, step] of flow.steps.entries()) {
+          const stepStartedAt = yield* nowIso;
+
+          const preSteps: RunPreStep[] = [];
+          for (const [preStep, scope] of preStepsFor(flow, step, index)) {
+            preSteps.push(yield* evaluatePreStep(execution, preStep, scope));
+          }
+
+          const outcome = yield* Effect.result(
+            executeStep(execution, step).pipe(
+              Effect.mapError((cause) =>
+                cause instanceof RunnerError
+                  ? cause
+                  : new RunnerError({ message: cause.message })
+              )
+            )
+          );
+          const stepFinishedAt = yield* nowIso;
+          const base = {
+            finishedAt: stepFinishedAt.toISOString(),
+            index,
+            ...(preSteps.length === 0 ? {} : { preSteps }),
+            startedAt: stepStartedAt.toISOString(),
+            type: step.type,
+            ...(step.type === "customStep" || step.contingency?.id === undefined
+              ? {}
+              : { stepId: step.contingency.id }),
+          };
+
+          if (outcome._tag === "Success") {
+            steps.push({ ...base, outcome: "completed" });
+            continue;
+          }
+
+          // A browser message can echo a value typed into a field, so it is
+          // redacted before it reaches the Run.
+          const message = redactSecrets(outcome.failure.message, variables);
+          const kind = classifyStepFailure(step, message);
+
+          steps.push({ ...base, error: message, outcome: "failed" });
+          failure = {
+            ...(kind === undefined ? {} : { kind }),
+            message,
+            stepIndex: index,
+          };
+          return;
+        }
+      }),
+    (opened) => browser.close(opened).pipe(Effect.ignore)
+  );
+
+  return { failure } satisfies AttemptResult;
+});
+
 export const makeRunnerService = (browser: AgentBrowser) =>
   Effect.gen(function* buildRunner() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -401,105 +551,133 @@ export const makeRunnerService = (browser: AgentBrowser) =>
     // corrupt each other's measurements (ADR 0009).
     const runPermit = Semaphore.makeUnsafe(1);
 
+    const persist = Effect.fn("Runner.persist")(function* persist(
+      record: Run,
+      outputDirectory: string,
+      startedAt: Date
+    ) {
+      const directory = path.join(
+        outputDirectory,
+        flowDirectorySegment(record.flowId),
+        runDirectoryName(startedAt, record.runId)
+      );
+      yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new RunnerError({
+              message: `Could not create the Run directory: ${errorMessage(cause)}`,
+            })
+        )
+      );
+      yield* fileSystem
+        .writeFileString(
+          path.join(directory, "run.json"),
+          `${JSON.stringify(record, null, 2)}\n`
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new RunnerError({
+                message: `Could not write the Run: ${errorMessage(cause)}`,
+              })
+          )
+        );
+      return { directory, run: record } satisfies RunResult;
+    });
+
     const run = (flow: Flow, options: RunnerRunOptions) =>
       runPermit.withPermit(
         Effect.gen(function* executeRun() {
           const variables = options.variables ?? NO_VARIABLES;
+          const retry = Math.max(0, Math.trunc(options.retry ?? DEFAULT_RETRY));
           const runId = randomUUID();
           const flowHash = hashFlow(flow);
           const flowId = flowIdentity(flow, flowHash);
           const startedAt = yield* nowIso;
 
-          const sessionId = yield* Schema.decodeUnknownEffect(SessionIdSchema)(
-            `run-${runId.slice(0, 8)}`
-          ).pipe(
-            Effect.mapError(
-              (cause) =>
-                new RunnerError({
-                  message: `Invalid Run session: ${errorMessage(cause)}`,
-                })
-            )
-          );
+          const attempts: RunAttempt[] = [];
+          let inFlight:
+            | { attempt: number; startedAt: Date; steps: RunStep[] }
+            | undefined;
 
-          const steps: RunStep[] = [];
-          let failure: Run["failure"];
+          const replay = Effect.gen(function* replayUntilItHolds() {
+            for (let index = 0; index <= retry; index += 1) {
+              const attemptStartedAt = yield* nowIso;
+              const steps: RunStep[] = [];
+              inFlight = {
+                attempt: index + 1,
+                startedAt: attemptStartedAt,
+                steps,
+              };
+              // A fresh session every time: a retry inside a session that has
+              // already been navigated, cookied, and clicked is not a rerun of
+              // the Flow, it is a rerun of whatever the last attempt left.
+              const sessionId = yield* Schema.decodeUnknownEffect(
+                SessionIdSchema
+              )(`run-${runId.slice(0, 8)}-${index + 1}`).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new RunnerError({
+                      message: `Invalid Run session: ${errorMessage(cause)}`,
+                    })
+                )
+              );
 
-          yield* Effect.acquireUseRelease(
-            browser.create(sessionId, RUN_VIEWPORT).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new RunnerError({
-                    message: `Could not open a browser session: ${cause.message}`,
-                  })
-              )
-            ),
-            (opened) =>
-              Effect.gen(function* replayFlow() {
-                const execution = {
-                  browser,
-                  sessionId: opened,
-                  variables,
-                };
-                for (const [index, step] of flow.steps.entries()) {
-                  const stepStartedAt = yield* nowIso;
+              const result = yield* attemptRun(
+                browser,
+                flow,
+                sessionId,
+                variables,
+                steps
+              );
+              const attemptFinishedAt = yield* nowIso;
+              inFlight = undefined;
+              attempts.push({
+                attempt: index + 1,
+                ...(result.failure === undefined
+                  ? {}
+                  : { failure: result.failure }),
+                finishedAt: attemptFinishedAt.toISOString(),
+                outcome: result.failure === undefined ? "completed" : "failed",
+                startedAt: attemptStartedAt.toISOString(),
+                steps,
+              });
 
-                  const preSteps: RunPreStep[] = [];
-                  for (const [preStep, scope] of preStepsFor(
-                    flow,
-                    step,
-                    index
-                  )) {
-                    preSteps.push(
-                      yield* evaluatePreStep(execution, preStep, scope)
-                    );
-                  }
+              if (result.failure === undefined) {
+                return;
+              }
+            }
+          });
 
-                  const outcome = yield* Effect.result(
-                    executeStep(execution, step).pipe(
-                      Effect.mapError((cause) =>
-                        cause instanceof RunnerError
-                          ? cause
-                          : new RunnerError({ message: cause.message })
-                      )
-                    )
-                  );
-                  const stepFinishedAt = yield* nowIso;
-                  const base = {
-                    finishedAt: stepFinishedAt.toISOString(),
-                    index,
-                    ...(preSteps.length === 0 ? {} : { preSteps }),
-                    startedAt: stepStartedAt.toISOString(),
-                    type: step.type,
-                    ...(step.type === "customStep" ||
-                    step.contingency?.id === undefined
-                      ? {}
-                      : { stepId: step.contingency.id }),
-                  };
-
-                  if (outcome._tag === "Success") {
-                    steps.push({ ...base, outcome: "completed" });
-                    continue;
-                  }
-
-                  // A browser message can echo a value typed into a field, so
-                  // it is redacted before it reaches the Run.
-                  const message = redactSecrets(
-                    outcome.failure.message,
-                    variables
-                  );
-
-                  // A failed Step aborts the Run rather than continuing against
-                  // a page state the Flow never described (ADR 0009).
-                  steps.push({ ...base, error: message, outcome: "failed" });
-                  failure = { message, stepIndex: index };
-                  return;
-                }
-              }),
-            (opened) => browser.close(opened).pipe(Effect.ignore)
+          // The ceiling covers replay only. A Run that ran out of time is still
+          // a Run, and losing it would throw away everything it did establish.
+          const timedOut = yield* replay.pipe(
+            Effect.timeoutOption(options.timeout ?? DEFAULT_TIMEOUT),
+            Effect.map((finished) => finished._tag === "None")
           );
 
           const finishedAt = yield* nowIso;
+          const timeoutFailure: RunFailure = {
+            message: `The Run exceeded its ${Duration.format(options.timeout ?? DEFAULT_TIMEOUT)} ceiling during attempt ${inFlight?.attempt ?? attempts.length} of ${retry + 1}.`,
+          };
+          if (timedOut) {
+            // The interrupted attempt is still an attempt, and the Steps it did
+            // complete are the record of how far the Flow got.
+            attempts.push({
+              attempt: inFlight?.attempt ?? attempts.length + 1,
+              failure: timeoutFailure,
+              finishedAt: finishedAt.toISOString(),
+              outcome: "failed",
+              startedAt: (inFlight?.startedAt ?? finishedAt).toISOString(),
+              steps: inFlight?.steps ?? [],
+            });
+          }
+
+          const last = attempts.at(-1);
+          const failure = timedOut ? timeoutFailure : last?.failure;
+
           const record: Run = {
+            attempts,
             ...(failure === undefined ? {} : { failure }),
             finishedAt: finishedAt.toISOString(),
             flow,
@@ -508,37 +686,10 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             outcome: failure === undefined ? "completed" : "failed",
             runId,
             startedAt: startedAt.toISOString(),
-            steps,
+            steps: last?.steps ?? [],
           };
 
-          const directory = path.join(
-            options.outputDirectory,
-            flowDirectorySegment(flowId),
-            runDirectoryName(startedAt, runId)
-          );
-          yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
-            Effect.mapError(
-              (cause) =>
-                new RunnerError({
-                  message: `Could not create the Run directory: ${errorMessage(cause)}`,
-                })
-            )
-          );
-          yield* fileSystem
-            .writeFileString(
-              path.join(directory, "run.json"),
-              `${JSON.stringify(record, null, 2)}\n`
-            )
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new RunnerError({
-                    message: `Could not write the Run: ${errorMessage(cause)}`,
-                  })
-              )
-            );
-
-          return { directory, run: record };
+          return yield* persist(record, options.outputDirectory, startedAt);
         })
       );
 
