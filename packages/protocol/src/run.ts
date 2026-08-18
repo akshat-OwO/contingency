@@ -40,12 +40,54 @@ export const RunPreStep = Schema.Struct({
 export type RunPreStep = typeof RunPreStep.Type;
 
 /**
+ * How bad a Finding is. These are the accessibility engine's own four impact
+ * levels, verbatim. A Contingency-specific scale would mean a mapping table to
+ * defend forever, and a second one the day a second Audit kind arrives.
+ */
+export const FindingSeverity = Schema.Literals([
+  "minor",
+  "moderate",
+  "serious",
+  "critical",
+]);
+export type FindingSeverity = typeof FindingSeverity.Type;
+
+/**
+ * One accessibility violation, at one element, found by one Audit Step.
+ *
+ * A Finding never influences a Run's outcome or the CLI's exit code. Every
+ * real site has pre-existing violations, and failing a build on their count
+ * makes it red on day one, after which the check gets switched off. What
+ * should break a build is a Regression, which is separate work.
+ */
+export const Finding = Schema.Struct({
+  /** The engine's fix guidance for this rule. */
+  helpUrl: Schema.optional(nonEmptyString),
+  message: nonEmptyString,
+  /** The engine's rule id, e.g. `image-alt`. */
+  rule: nonEmptyString,
+  severity: FindingSeverity,
+  /** Position of the Audit Step that produced it, in executed Flow order. */
+  stepIndex: Schema.Int,
+  /**
+   * How to find the element. Rendered rather than structured, because the one
+   * thing anyone does with a target is look for the element it names: hops
+   * across a frame boundary are joined with ` >>> ` and into a shadow root
+   * with ` >> `, matching how the browser tooling writes piercing selectors.
+   */
+  target: nonEmptyString,
+});
+export type Finding = typeof Finding.Type;
+
+/**
  * One executed Step, recorded whether it succeeded or not. `index` is the
  * Step's position in the executed Flow, so a Run reads against its own
  * embedded Flow without a separate lookup.
  */
 export const RunStep = Schema.Struct({
   error: Schema.optional(Schema.String),
+  /** Everything an Audit Step found. Absent on Steps that audit nothing. */
+  findings: Schema.optional(Schema.Array(Finding)),
   finishedAt: Instant,
   index: Schema.Int,
   outcome: RunStepOutcome,

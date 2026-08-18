@@ -1135,3 +1135,134 @@ it.effect("fails the command with the batch entry's own message", () => {
     expect(error.message).toBe("Element not found: #gone");
   }).pipe(Effect.provide(fixture.layer));
 });
+
+/** An engine response, shaped as the bundled binary really answers `a11y --json`. */
+const auditResponse = (
+  counts: {
+    inapplicable: number;
+    incomplete: number;
+    passes: number;
+    violations: number;
+  },
+  violations: readonly unknown[]
+) =>
+  JSON.stringify([
+    {
+      error: null,
+      result: { axeVersion: "4.12.1", counts, violations },
+      success: true,
+    },
+  ]);
+
+it.effect("audits the page under an explicitly pinned ruleset", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      auditResponse(
+        {
+          inapplicable: 49,
+          incomplete: 1,
+          passes: 8,
+          violations: 1,
+        },
+        [
+          {
+            help: "Images must have alternative text",
+            helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+            id: "image-alt",
+            impact: "critical",
+            nodeCount: 3,
+            nodes: [
+              {
+                failureSummary: "Fix any of the following:\n  No alt attribute",
+                html: "<img>",
+                target: ["img"],
+              },
+              // A frame hop, and a shadow-root hop nested inside one.
+              { html: "<img>", target: ["iframe", ["#host", "img"]] },
+            ],
+            tags: ["cat.text-alternatives", "wcag2a", "wcag111"],
+          },
+        ]
+      ),
+  });
+
+  return Effect.gen(function* auditPage() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const findings = yield* agentBrowser.audit(
+      sessionId,
+      ["wcag2a", "wcag2aa"],
+      2
+    );
+    const { stdin } = yield* lastBatchCommand(fixture);
+
+    // The tags travel on stdin, so a Flow can never reach the argv.
+    expect(stdin).toEqual([["a11y", "--tags", "wcag2a,wcag2aa", "--json"]]);
+    expect(findings).toEqual([
+      {
+        helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+        message: "Fix any of the following:\n  No alt attribute",
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 2,
+        target: "img",
+      },
+      {
+        helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+        // No per-node summary: the rule's own help is the next best thing.
+        message: "Images must have alternative text",
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 2,
+        // Crossing a frame and entering a shadow root are found in entirely
+        // different ways, so they are not flattened together.
+        target: "iframe >>> #host >> img",
+      },
+    ]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reports no Findings for a page with no violations", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      auditResponse(
+        { inapplicable: 60, incomplete: 0, passes: 3, violations: 0 },
+        []
+      ),
+  });
+
+  return Effect.gen(function* cleanPage() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    expect(yield* agentBrowser.audit(sessionId, ["wcag2a"], 0)).toEqual([]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails when the ruleset selected no rules to run", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    // How the engine answers a tag it does not recognise: not an error, just
+    // nothing evaluated. Verified against the bundled binary.
+    stdout: () =>
+      auditResponse(
+        { inapplicable: 0, incomplete: 0, passes: 0, violations: 0 },
+        []
+      ),
+  });
+
+  return Effect.gen(function* emptyRuleset() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(
+      agentBrowser.audit(sessionId, ["wcag2a", "wacg2aa"], 0)
+    );
+
+    // Silence here would audit every page clean forever.
+    expect(error.message).toContain("selected no rules");
+  }).pipe(Effect.provide(fixture.layer));
+});

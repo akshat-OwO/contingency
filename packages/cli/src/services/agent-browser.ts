@@ -8,6 +8,7 @@ import {
   BrowserRequestId,
   BrowserTabId,
   filterCookiesForOriginHost,
+  FindingSeverity,
   sortCookiesByIdentity,
   httpOriginFromUrl,
   isBrowserRpcError,
@@ -26,6 +27,7 @@ import type {
   BrowserStreamEvent,
   BrowserStreamId as BrowserStreamIdType,
   BrowserTab,
+  Finding,
   SessionId,
   StorageKind,
   UserAgentProfileId,
@@ -165,6 +167,18 @@ export interface AgentBrowser {
     sessionId: SessionId,
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Run the vendored accessibility engine over the whole page, under the given
+   * rule tags. Covers the frame tree and open shadow roots, and needs no
+   * network request, so it works under a strict page CSP.
+   *
+   * `stepIndex` names the Audit Step every returned Finding came from.
+   */
+  readonly audit: (
+    sessionId: SessionId,
+    tags: readonly string[],
+    stepIndex: number
+  ) => Effect.Effect<readonly Finding[], BrowserRpcErrorType>;
   /**
    * The HTTP status of the top frame's own navigation, or `undefined` when the
    * page did not come from the network. A navigation that reaches a server
@@ -377,6 +391,49 @@ const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
 const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
 
+/** A target path: selectors, nested once per frame or shadow-root hop. */
+type AuditTargetPath = string | readonly AuditTargetPath[];
+
+/**
+ * One target the accessibility engine reports. A plain string is a selector in
+ * the current document; nesting means a hop, into a frame or a shadow root.
+ */
+const AuditTarget = Schema.Union([
+  Schema.String,
+  Schema.Array(
+    Schema.suspend((): Schema.Codec<AuditTargetPath> => AuditTarget)
+  ),
+]);
+
+/**
+ * The shape of an `a11y --json` response, narrowed to what a Finding needs.
+ * The engine reports far more (passes, incomplete, inapplicable, per-rule
+ * tags); decoding only the used fields keeps an engine upgrade that adds a
+ * field from failing every Audit.
+ */
+const AuditReport = Schema.Struct({
+  counts: Schema.Struct({
+    inapplicable: Schema.Number,
+    incomplete: Schema.Number,
+    passes: Schema.Number,
+    violations: Schema.Number,
+  }),
+  violations: Schema.Array(
+    Schema.Struct({
+      help: Schema.String,
+      helpUrl: Schema.optional(Schema.String),
+      id: Schema.String,
+      impact: FindingSeverity,
+      nodes: Schema.Array(
+        Schema.Struct({
+          failureSummary: Schema.optional(Schema.String),
+          target: Schema.Array(AuditTarget),
+        })
+      ),
+    })
+  ),
+});
+
 /**
  * The status of the navigation that produced the document this runs in.
  * `PerformanceNavigationTiming` exists only for a frame's own navigation, so
@@ -389,6 +446,19 @@ const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
  */
 const NAVIGATION_STATUS =
   'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0';
+
+/**
+ * Render an engine target path as one selector anyone can act on.
+ *
+ * The outer array crosses frames and a nested one enters a shadow root, so the
+ * two get different joins rather than being flattened together: `iframe >>> a`
+ * and `#host >> a` are found in entirely different ways.
+ */
+const renderAuditHop = (hop: AuditTargetPath): string =>
+  typeof hop === "string" ? hop : hop.map(renderAuditHop).join(" >> ");
+
+const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
+  target.map(renderAuditHop).join(" >>> ");
 
 /**
  * How agent-browser reports a selector matching nothing. Verified against the
@@ -1418,6 +1488,57 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       return decoded.visible;
     });
 
+    const audit = Effect.fn("AgentBrowser.audit")(function* audit(
+      sessionId: SessionId,
+      tags: readonly string[],
+      stepIndex: number
+    ) {
+      const results = yield* runBatch(sessionId, [
+        ["a11y", "--tags", tags.join(","), "--json"],
+      ]);
+      const report = yield* Schema.decodeUnknownEffect(AuditReport)(
+        results.at(0)?.result
+      ).pipe(
+        Effect.mapError((cause) =>
+          browserError(
+            "agent_browser_failed",
+            `agent-browser did not report an accessibility audit: ${errorMessage(cause)}`
+          )
+        )
+      );
+      // An unrecognised tag is not an error to the engine: it simply selects no
+      // rules, and every page audits clean. That reads as a passing Audit
+      // forever, so the one case where nothing at all ran is a failure.
+      const evaluated =
+        report.counts.inapplicable +
+        report.counts.incomplete +
+        report.counts.passes +
+        report.counts.violations;
+      if (evaluated === 0) {
+        return yield* Effect.fail(
+          browserError(
+            "agent_browser_failed",
+            `The accessibility ruleset selected no rules to run: ${tags.join(", ")}.`
+          )
+        );
+      }
+      return report.violations.flatMap((violation) =>
+        violation.nodes.map(
+          (node) =>
+            ({
+              ...(violation.helpUrl === undefined
+                ? {}
+                : { helpUrl: violation.helpUrl }),
+              message: node.failureSummary ?? violation.help,
+              rule: violation.id,
+              severity: violation.impact,
+              stepIndex,
+              target: renderAuditTarget(node.target),
+            }) satisfies Finding
+        )
+      );
+    });
+
     const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
       function* documentStatus(sessionId: SessionId) {
         const results = yield* runBatch(sessionId, [
@@ -1754,6 +1875,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     return AgentBrowser.of({
       acknowledgeFrame,
       attach,
+      audit,
       cdpUrl,
       clearStorage,
       clickSelector,

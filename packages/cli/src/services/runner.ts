@@ -2,11 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  accessibilityRuleTags,
   Flow as FlowSchema,
   SessionId as SessionIdSchema,
 } from "@contingency/protocol";
 import type {
   BrowserRpcErrorType,
+  Finding,
   Flow,
   FlowStep,
   PreStep,
@@ -256,24 +258,33 @@ export const classifyStepFailure = (
   return message.startsWith(NAVIGATION_FAILED) ? "siteError" : undefined;
 };
 
+/** One shared empty result, for every Step that finds nothing. */
+const NO_FINDINGS: readonly Finding[] = [];
+
 interface StepExecution {
   readonly browser: AgentBrowser;
   readonly sessionId: SessionId;
   readonly variables: VariableResolution;
 }
 
-/** Replay one Step. Fails with a message naming what could not be done. */
+/**
+ * Replay one Step, returning whatever it found. Fails with a message naming
+ * what could not be done. Only an Audit Step finds anything; every other Step
+ * returns none.
+ */
 const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   { browser, sessionId, variables }: StepExecution,
-  step: FlowStep
+  step: FlowStep,
+  index: number
 ) {
   const resolve = (value: string): string =>
     substituteVariables(value, variables.values);
 
   if (step.type === "customStep") {
-    // Audits arrive in their own ticket; until then a Flow's Audit Steps are
-    // recorded as executed without producing Findings.
-    return;
+    // An Audit runs where its author put it, which is the whole reason Audits
+    // are ordered Steps rather than a crawl: the page behind a login and four
+    // interactions is reachable no other way (ADR 0005).
+    return yield* browser.audit(sessionId, accessibilityRuleTags, index);
   }
   if (step.type === "navigate") {
     yield* browser.goto(sessionId, resolve(step.url));
@@ -291,7 +302,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
         message: `The site under test failed: the server answered this navigation with HTTP ${status}.`,
       });
     }
-    return;
+    return NO_FINDINGS;
   }
 
   if (step.frame !== undefined && step.frame.length > 0) {
@@ -338,7 +349,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   for (const selector of candidates) {
     const outcome = yield* Effect.result(attempt(selector));
     if (outcome._tag === "Success") {
-      return;
+      return NO_FINDINGS;
     }
     // A candidate that already reached the page is not an unresolved selector:
     // trying the next one would act on the page a second time.
@@ -420,7 +431,8 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
   function* evaluatePreStep(
     execution: StepExecution,
     preStep: PreStep,
-    scope: RunPreStep["scope"]
+    scope: RunPreStep["scope"],
+    index: number
   ) {
     const base = { preStepId: preStep.id, scope } as const;
     const condition = yield* conditionHolds(execution, preStep.when);
@@ -434,7 +446,12 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
     if (!condition) {
       return { ...base, outcome: "skipped" } satisfies RunPreStep;
     }
-    const outcome = yield* Effect.result(executeStep(execution, preStep.step));
+    // The index of the Step this Pre-step clears the way for. A Pre-step's
+    // action is a click, change, or key Step, so nothing attributes Findings
+    // to it today; if one ever could, this is the Step they belong to.
+    const outcome = yield* Effect.result(
+      executeStep(execution, preStep.step, index)
+    );
     if (outcome._tag === "Success") {
       return { ...base, outcome: "completed" } satisfies RunPreStep;
     }
@@ -479,6 +496,23 @@ interface AttemptResult {
 }
 
 /**
+ * A Finding describes an element on the page, and the engine builds its target
+ * from whatever attribute makes that element unique. Verified against the
+ * bundled binary: two otherwise-alike links are reported as
+ * `a[href="/next?token=..."]`, so a Variable interpolated into a URL reaches
+ * the target verbatim. Both fields the engine renders from the page go through
+ * the same redaction a failure message does.
+ */
+const redactFinding = (
+  finding: Finding,
+  variables: VariableResolution
+): Finding => ({
+  ...finding,
+  message: redactSecrets(finding.message, variables),
+  target: redactSecrets(finding.target, variables),
+});
+
+/**
  * Replay the whole Flow once in a session of its own. A failed Step aborts the
  * attempt rather than continuing against a page state the Flow never described
  * (ADR 0009).
@@ -510,11 +544,13 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
 
           const preSteps: RunPreStep[] = [];
           for (const [preStep, scope] of preStepsFor(flow, step, index)) {
-            preSteps.push(yield* evaluatePreStep(execution, preStep, scope));
+            preSteps.push(
+              yield* evaluatePreStep(execution, preStep, scope, index)
+            );
           }
 
           const outcome = yield* Effect.result(
-            executeStep(execution, step).pipe(
+            executeStep(execution, step, index).pipe(
               Effect.mapError((cause) =>
                 cause instanceof RunnerError
                   ? cause
@@ -535,7 +571,20 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           };
 
           if (outcome._tag === "Success") {
-            steps.push({ ...base, outcome: "completed" });
+            steps.push({
+              ...base,
+              // Findings never change an outcome: every real site has
+              // pre-existing violations, and a Run that failed on their count
+              // would be red on day one and switched off by the second.
+              ...(outcome.success.length === 0
+                ? {}
+                : {
+                    findings: outcome.success.map((finding) =>
+                      redactFinding(finding, variables)
+                    ),
+                  }),
+              outcome: "completed",
+            });
             continue;
           }
 

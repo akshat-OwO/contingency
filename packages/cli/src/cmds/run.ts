@@ -136,6 +136,18 @@ export const runCommand = Command.make(
       );
     }
 
+    const findings = run.steps.reduce(
+      (total, step) => total + (step.findings?.length ?? 0),
+      0
+    );
+    if (findings > 0) {
+      // Reported, never fatal: every real site has pre-existing violations, so
+      // failing on their count makes the check red on day one (ADR 0009).
+      yield* Console.log(
+        `${findings} accessibility ${findings === 1 ? "Finding" : "Findings"}.`
+      );
+    }
+
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);
     yield* Console.log(directory);
 
