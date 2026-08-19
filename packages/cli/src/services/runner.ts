@@ -1,14 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
+import { arch, cpus, loadavg, platform, totalmem } from "node:os";
 import path from "node:path";
 
 import {
   accessibilityRuleTags,
   Flow as FlowSchema,
+  stepNavigates,
   SessionId as SessionIdSchema,
 } from "@contingency/protocol";
 import type {
   BrowserRpcErrorType,
   Finding,
+  RunEnvironment,
   Flow,
   FlowStep,
   PreStep,
@@ -257,6 +260,75 @@ export const classifyStepFailure = (
     return attributed;
   }
   return message.startsWith(NAVIGATION_FAILED) ? "siteError" : undefined;
+};
+
+/**
+ * Whether this Step asked to be measured. The toggle is only meaningful on a
+ * Step that navigates, which the Flow schema already enforces, so a Step
+ * without it is never measured (ADR 0008).
+ */
+const measuresPerformance = (step: FlowStep): boolean =>
+  step.type !== "customStep" &&
+  step.contingency?.performance === true &&
+  stepNavigates(step);
+
+/**
+ * Attach Core Web Vitals to the Step that navigated, reading the page at the
+ * last moment the Run is on it — just before navigating away, or when the
+ * attempt ends.
+ *
+ * Sampling the instant the navigation finishes would be wrong in two ways that
+ * both understate the page. Layout shifts and larger paints keep arriving
+ * after load, so CLS and LCP would be whatever had happened so far — verified
+ * against the bundled binary, a shift 250ms in is missed entirely. And INP
+ * would be structurally unmeasurable: a page nobody has interacted with yet
+ * has no interaction to report, so every Run would record it as absent.
+ *
+ * A measurement that cannot be taken does not fail the Step. The Flow did its
+ * work — the navigation happened and the page is there — and failing the Run
+ * over a metric read would report a broken site on the strength of our own
+ * inability to observe it. The absence is visible: the Flow says the Step was
+ * toggled and the Run carries no vitals for it, which the CLI reports.
+ */
+const measurePending = Effect.fn("Runner.measurePending")(
+  function* measurePending(
+    { browser, sessionId }: StepExecution,
+    steps: RunStep[],
+    pending: number | undefined
+  ) {
+    if (pending === undefined) {
+      return;
+    }
+    const recorded = steps[pending];
+    if (recorded === undefined) {
+      return;
+    }
+    const collected = yield* Effect.result(browser.collectVitals(sessionId));
+    if (collected._tag === "Failure") {
+      return;
+    }
+    steps[pending] = { ...recorded, vitals: collected.success };
+  }
+);
+
+/**
+ * The machine this Run measures on. Core Web Vitals are unthrottled, so a
+ * Baseline recorded on a laptop and compared against a busy CI runner reads as
+ * a Regression caused entirely by hardware (ADR 0008). A Run that did not
+ * record this cannot be rescued into comparability later.
+ */
+const describeEnvironment = (): RunEnvironment => {
+  const processors = cpus();
+  return {
+    architecture: arch(),
+    cpuCount: processors.length,
+    // A machine with no reportable CPU model is still a machine class, and an
+    // empty string would fail the schema rather than describe it.
+    cpuModel: processors.at(0)?.model ?? "unknown",
+    loadAverage: loadavg().at(0) ?? 0,
+    memoryBytes: totalmem(),
+    platform: platform(),
+  };
 };
 
 /** One shared empty result, for every Step that finds nothing. */
@@ -540,6 +612,8 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
     (opened) =>
       Effect.gen(function* replayFlow() {
         const execution = { browser, sessionId: opened, variables };
+        /** Index in `steps` of a Step whose page has not been measured yet. */
+        let pending: number | undefined;
         for (const [index, step] of flow.steps.entries()) {
           const stepStartedAt = yield* nowIso;
 
@@ -548,6 +622,14 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             preSteps.push(
               yield* evaluatePreStep(execution, preStep, scope, index)
             );
+          }
+
+          // Leaving this page ends what there is to measure on it, so a Step
+          // still awaiting measurement is read now — after Pre-steps, whose
+          // clicks are interactions on this page like any other.
+          if (stepNavigates(step)) {
+            yield* measurePending(execution, steps, pending);
+            pending = undefined;
           }
 
           const outcome = yield* Effect.result(
@@ -572,6 +654,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           };
 
           if (outcome._tag === "Success") {
+            if (measuresPerformance(step)) {
+              pending = steps.length;
+            }
             steps.push({
               ...base,
               // Findings never change an outcome: every real site has
@@ -603,8 +688,13 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             message,
             stepIndex: index,
           };
+          // The navigation that was measured still happened, and a Flow that
+          // fails at Step 9 should not lose the metrics from Step 2.
+          yield* measurePending(execution, steps, pending);
           return;
         }
+
+        yield* measurePending(execution, steps, pending);
       }),
     (opened) => browser.close(opened).pipe(Effect.ignore)
   );
@@ -662,6 +752,9 @@ export const makeRunnerService = (browser: AgentBrowser) =>
           const flowHash = hashFlow(flow);
           const flowId = flowIdentity(flow, flowHash);
           const startedAt = yield* nowIso;
+          // Read once, at the start: load average taken after a slow Run would
+          // describe the Run's own effect on the machine, not the machine.
+          const environment = describeEnvironment();
 
           const attempts: RunAttempt[] = [];
           let inFlight:
@@ -746,6 +839,7 @@ export const makeRunnerService = (browser: AgentBrowser) =>
 
           const record: Run = {
             attempts,
+            environment,
             ...(failure === undefined ? {} : { failure }),
             finishedAt: finishedAt.toISOString(),
             flow,

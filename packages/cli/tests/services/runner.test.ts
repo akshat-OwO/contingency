@@ -1,5 +1,6 @@
 import type {
   BrowserRpcError,
+  CoreWebVitals,
   ElidedFindings,
   Finding,
   Flow,
@@ -45,6 +46,8 @@ const makeFixture = (options?: {
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
   /** Wall-clock a navigation takes, for exercising the Run's own ceiling. */
   readonly navigationDelay?: Duration.Duration;
+  /** Core Web Vitals the page reports, when a Step asks to be measured. */
+  readonly vitals?: CoreWebVitals | "unmeasurable";
   /** Rules the engine counted more violations for than it listed. */
   readonly elided?: readonly Omit<ElidedFindings, "stepIndex">[];
   /** Findings the accessibility engine reports. Defaults to a clean page. */
@@ -86,6 +89,19 @@ const makeFixture = (options?: {
       ),
     clickSelector: (_session, selector) => record("click", [selector]),
     close: (session) => record("close", [session]),
+    collectVitals: () =>
+      record("collectVitals", []).pipe(
+        Effect.andThen(
+          options?.vitals === undefined || options.vitals === "unmeasurable"
+            ? Effect.fail(
+                makeBrowserRpcError(
+                  "agent_browser_failed",
+                  "The page did not answer."
+                )
+              )
+            : Effect.succeed(options.vitals)
+        )
+      ),
     create: (name) =>
       record("create", [name]).pipe(Effect.as(name as SessionId)),
     documentStatus: () =>
@@ -1419,5 +1435,173 @@ it.effect("records nothing elided when the engine listed every one", () => {
     expect(
       writtenRun(fixture.written).steps[0]?.elidedFindings
     ).toBeUndefined();
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+const measured = {
+  cls: 0.05,
+  fcp: 120,
+  inp: 152,
+  lcp: 340,
+  ttfb: 12,
+} as const;
+
+const navigateAndMeasure = {
+  contingency: { id: "load", performance: true },
+  type: "navigate",
+  url: "https://example.com/",
+} as const;
+
+it.effect("measures a navigate Step carrying the performance toggle", () => {
+  const fixture = makeFixture({ vitals: measured });
+
+  return Effect.gen(function* measureNavigation() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([navigateAndMeasure]), {
+      outputDirectory: "/runs",
+    });
+
+    expect(result.steps[0]?.vitals).toEqual(measured);
+    expect(writtenRun(fixture.written).steps[0]?.vitals).toEqual(measured);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("measures a click that carries an asserted navigation", () => {
+  const fixture = makeFixture({ vitals: measured });
+
+  return Effect.gen(function* measureClickNavigation() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        {
+          assertedEvents: [
+            { title: "Next", type: "navigation", url: "https://example.com/n" },
+          ],
+          contingency: { id: "through", performance: true },
+          offsetX: 1,
+          offsetY: 2,
+          selectors: [["#go"]],
+          type: "click",
+        },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    // A load reached by clicking through a funnel is measured exactly like an
+    // explicit navigation, or funnels go uncovered.
+    expect(result.steps[0]?.vitals).toBeUndefined();
+    expect(result.steps[1]?.vitals).toEqual(measured);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("leaves a Step without the toggle unmeasured", () => {
+  const fixture = makeFixture({ vitals: measured });
+
+  return Effect.gen(function* untoggled() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#go"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(result.steps.every((step) => step.vitals === undefined)).toBe(true);
+    // Not measured at all, rather than measured and discarded.
+    expect(
+      fixture.calls.some(({ command }) => command === "collectVitals")
+    ).toBe(false);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("completes the Run when a measurement cannot be taken", () => {
+  const fixture = makeFixture({ vitals: "unmeasurable" });
+
+  return Effect.gen(function* unmeasurable() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([navigateAndMeasure]), {
+      outputDirectory: "/runs",
+      retry: 0,
+    });
+
+    // The navigation happened and the page is there. Failing the Run over a
+    // metric read would report a broken site on our own inability to observe.
+    expect(result.outcome).toBe("completed");
+    expect(result.steps[0]?.outcome).toBe("completed");
+    expect(result.steps[0]?.vitals).toBeUndefined();
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records the machine the Run was measured on", () => {
+  const fixture = makeFixture({ vitals: measured });
+
+  return Effect.gen(function* recordEnvironment() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([navigateAndMeasure]), {
+      outputDirectory: "/runs",
+    });
+
+    // Unthrottled numbers describe the host as much as the site, so a later
+    // comparison needs to see that two Runs came from different machines.
+    const { environment } = writtenRun(fixture.written);
+    expect(environment.cpuCount).toBeGreaterThan(0);
+    expect(environment.memoryBytes).toBeGreaterThan(0);
+    expect(environment.cpuModel).not.toBe("");
+    expect(environment.platform).toBe(process.platform);
+    expect(environment.architecture).toBe(process.arch);
+    expect(result.environment).toEqual(environment);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect(
+  "measures the page just before the Run navigates away from it",
+  () => {
+    const fixture = makeFixture({ vitals: measured });
+
+    return Effect.gen(function* measureBeforeLeaving() {
+      const runner = yield* makeRunnerService(fixture.browser);
+      yield* runner.run(
+        flow([
+          navigateAndMeasure,
+          { offsetX: 1, offsetY: 2, selectors: [["#go"]], type: "click" },
+          { type: "navigate", url: "https://example.com/next" },
+        ]),
+        { outputDirectory: "/runs" }
+      );
+
+      // CLS and LCP keep accruing after load, and the click is an interaction
+      // this page should get credit for, so the read comes last — but it has to
+      // come before the navigation that ends the page.
+      const order = fixture.calls
+        .map(({ command }) => command)
+        .filter((command) => command === "goto" || command === "collectVitals");
+      expect(order).toEqual(["goto", "collectVitals", "goto"]);
+    }).pipe(Effect.provide(fixture.fileSystemLayer));
+  }
+);
+
+it.effect("keeps metrics from a Step the Run later failed after", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "click" ? "Element not found: #gone" : undefined,
+    vitals: measured,
+  });
+
+  return Effect.gen(function* measureBeforeFailure() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([
+        navigateAndMeasure,
+        { offsetX: 1, offsetY: 2, selectors: [["#gone"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 0 }
+    );
+
+    // The navigation that was measured still happened. A Flow that fails at
+    // Step 9 should not lose the metrics from Step 2.
+    expect(result.outcome).toBe("failed");
+    expect(result.steps[0]?.vitals).toEqual(measured);
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });

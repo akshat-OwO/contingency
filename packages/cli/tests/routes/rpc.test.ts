@@ -118,6 +118,7 @@ const agentBrowserStub: AgentBrowser = {
   clickSelector: unused,
   close: unused,
   closeTab: unused,
+  collectVitals: unused,
   create: unused,
   currentUrl: unused,
   deleteStorage: (_sessionId, _tabId, payload) =>

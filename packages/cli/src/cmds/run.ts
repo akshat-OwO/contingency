@@ -163,6 +163,26 @@ export const runCommand = Command.make(
       );
     }
 
+    // A Step the Flow asked to measure that carries no vitals was not
+    // measured. Saying so beats a Run that silently reports performance for
+    // some navigations and not others.
+    const unmeasured = run.steps.filter((step) => {
+      // Keyed on the Step's own recorded index rather than its position here,
+      // which are the same only while no Step is ever left out.
+      const source = run.flow.steps[step.index];
+      return (
+        source?.type !== "customStep" &&
+        source?.contingency?.performance === true &&
+        step.outcome === "completed" &&
+        step.vitals === undefined
+      );
+    }).length;
+    if (unmeasured > 0) {
+      yield* Console.warn(
+        `Warning: ${unmeasured} ${unmeasured === 1 ? "Step" : "Steps"} asked for Core Web Vitals but could not be measured.`
+      );
+    }
+
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);
     yield* Console.log(directory);
 
