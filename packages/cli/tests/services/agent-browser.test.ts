@@ -1360,7 +1360,7 @@ it.effect("reads Core Web Vitals without navigating", () => {
     // `navigate` to `reload` and in-page state is destroyed.
     const [command] = stdin as readonly (readonly string[])[];
     expect(command?.[0]).toBe("eval");
-    expect(command?.[1]).toContain("PerformanceObserver");
+    expect(command?.[1]).toContain("__contingencyVitals");
     expect(JSON.stringify(stdin)).not.toContain('"vitals"');
   }).pipe(Effect.provide(fixture.layer));
 });

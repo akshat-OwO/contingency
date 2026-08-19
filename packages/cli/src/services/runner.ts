@@ -599,9 +599,12 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   steps: RunStep[]
 ) {
   let failure: RunFailure | undefined;
+  const measures = flow.steps.some(measuresPerformance);
 
   yield* Effect.acquireUseRelease(
-    browser.create(sessionId, RUN_VIEWPORT).pipe(
+    // Interactions cannot be read back after the fact, so a Run that might
+    // measure anything has to record from the first navigation onwards.
+    browser.create(sessionId, RUN_VIEWPORT, { recordVitals: measures }).pipe(
       Effect.mapError(
         (cause) =>
           new RunnerError({

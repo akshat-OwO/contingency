@@ -66,6 +66,7 @@ import { dispatchKey, dispatchModifiedClick, isModifierKey } from "./cdp-input";
 import { navigateWithUserAgentOverride } from "./cdp-user-agent";
 import { stateDirectory } from "./state-directory";
 import { VITALS_COLLECTOR } from "./vitals-collector";
+import { VITALS_RECORDER } from "./vitals-recorder";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -204,7 +205,15 @@ export interface AgentBrowser {
   ) => Effect.Effect<string, BrowserRpcErrorType>;
   readonly create: (
     name: string,
-    viewport: Viewport
+    viewport: Viewport,
+    options?: {
+      /**
+       * Record Core Web Vitals from the start of every page this session
+       * loads. Interactions are not reliably replayable after the fact, so a
+       * session that did not arm this cannot be measured later.
+       */
+      readonly recordVitals?: boolean;
+    }
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly init: () => Effect.Effect<void, AgentBrowserInitError>;
   readonly currentUrl: (
@@ -872,6 +881,27 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       "--json",
     ];
 
+    const writeVitalsRecorder = Effect.fn("AgentBrowser.writeVitalsRecorder")(
+      function* writeVitalsRecorder() {
+        const target = path.join(
+          stateDirectory(runtime.operatingSystem),
+          "vitals-recorder.js"
+        );
+        return yield* fileSystem
+          .makeDirectory(path.dirname(target), { recursive: true })
+          .pipe(
+            Effect.andThen(fileSystem.writeFileString(target, VITALS_RECORDER)),
+            Effect.as(target),
+            Effect.mapError(() =>
+              browserError(
+                "agent_browser_failed",
+                "Could not write the Core Web Vitals recorder."
+              )
+            )
+          );
+      }
+    );
+
     const init = Effect.fn("AgentBrowser.init")(function* init() {
       const contingencyStateDirectory = stateDirectory(runtime.operatingSystem);
       const installMarkerPath = path.join(
@@ -967,7 +997,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     const create = Effect.fn("AgentBrowser.create")(function* create(
       name: string,
-      viewport: Viewport
+      viewport: Viewport,
+      options?: { readonly recordVitals?: boolean }
     ) {
       const sessionId = yield* normalizeSessionId(name);
       yield* init().pipe(
@@ -975,7 +1006,20 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           browserError("agent_browser_failed", errorMessage(cause))
         )
       );
-      yield* run(sessionArgs(sessionId, ["open"]));
+      // The recorder has to be registered before the first navigation, and the
+      // browser takes it as a file rather than inline source.
+      const initScript =
+        options?.recordVitals === true
+          ? yield* writeVitalsRecorder()
+          : undefined;
+      yield* run(
+        sessionArgs(
+          sessionId,
+          initScript === undefined
+            ? ["open"]
+            : ["--init-script", initScript, "open"]
+        )
+      );
       yield* Ref.set(ownsSessions, true);
       sessionProfiles.set(sessionId, "default");
       yield* setViewport(sessionId, viewport);
