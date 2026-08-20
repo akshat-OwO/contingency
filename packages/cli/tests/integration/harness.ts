@@ -35,6 +35,9 @@ export const IntegrationLive = RunnerLive.pipe(
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
 
+/** A path the fixture server accepts and never responds to. */
+export const NEVER_ANSWERED = "/never-answered.bin";
+
 const NOT_FOUND = 404;
 const OK = 200;
 
@@ -71,7 +74,14 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
       const created = createServer((request, response) => {
         const url = request.url ?? "/";
         requests.push(url);
-        const page = pages.get(new URL(url, "http://fixtures").pathname);
+        const { pathname } = new URL(url, "http://fixtures");
+        // Answered by nothing at all, so a Run that asks for it waits: the
+        // only way to test what an interrupted Run leaves behind is to have
+        // one still running when the signal arrives.
+        if (pathname === NEVER_ANSWERED) {
+          return;
+        }
+        const page = pages.get(pathname);
         if (page === undefined) {
           response.writeHead(NOT_FOUND).end();
           return;

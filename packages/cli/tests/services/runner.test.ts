@@ -46,6 +46,8 @@ const makeFixture = (options?: {
   /** HTTP status the loaded document reports. Defaults to a served page. */
   readonly documentStatus?: number;
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
+  /** A page that never settles, so only interruption ends the Run. */
+  readonly neverSettles?: boolean;
   /** Wall-clock a navigation takes, for exercising the Run's own ceiling. */
   readonly navigationDelay?: Duration.Duration;
   /** Why the recorder produced no file, when it did not produce one. */
@@ -121,6 +123,9 @@ const makeFixture = (options?: {
       ),
     documentStatus: () =>
       record("documentStatus", []).pipe(
+        Effect.andThen(
+          options?.neverSettles === true ? Effect.never : Effect.void
+        ),
         Effect.as(options?.documentStatus ?? 200)
       ),
     fillSelector: (_session, selector, value) =>
@@ -1681,8 +1686,14 @@ it.effect("does not wait on a click the Recorder said stays put", () => {
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
-it.effect("flushes the recording when the Run is interrupted", () => {
-  const fixture = makeFixture({ navigationDelay: Duration.seconds(30) });
+// What a Ctrl-C ultimately does to the Runner, once the signal has travelled
+// through the process. That whole path is covered by the integration suite,
+// which sends a real SIGINT to a real CLI; this covers only the Runner's end
+// of it, cheaply and deterministically.
+it.effect("stops the recording when the Run's fiber is interrupted", () => {
+  // Never finishes, so the Run cannot complete and interruption is the only
+  // way out. A Run that merely took a while would pass this test by finishing.
+  const fixture = makeFixture({ neverSettles: true });
 
   return Effect.gen(function* interruptedCapture() {
     const runner = yield* makeRunnerService(fixture.browser);
@@ -1701,6 +1712,8 @@ it.effect("flushes the recording when the Run is interrupted", () => {
     // An unflushed recording is a lost recording, and the Runs whose video
     // matters most are exactly the ones that never reach a tidy end.
     expect(fixture.calls.map(({ command }) => command)).toContain("stopVideo");
+    // Interrupted, not finished: a Run that completed would prove nothing.
+    expect(running.pollUnsafe()?._tag).toBe("Failure");
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
 
