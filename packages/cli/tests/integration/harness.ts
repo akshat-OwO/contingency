@@ -100,7 +100,12 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
       // `null` rather than nothing: the formatter rewrites an explicit
       // `undefined` here into a zero-argument call that does not typecheck.
       Effect.callback<null>((resume) => {
-        // Waiting for the close to finish, so a finished test leaves no
+        // Sockets first: `close` waits for open requests to finish, and this
+        // server answers one of them deliberately never. Without this a test
+        // that leaves that request in flight hangs teardown until the suite
+        // times out, which is a confusing way to report any failure.
+        created.closeAllConnections();
+        // Then wait for the close itself, so a finished test leaves no
         // listening socket behind for the next one to trip over.
         created.close(() => {
           resume(Effect.succeed(null));

@@ -5,6 +5,7 @@ import path from "node:path";
 import type { RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem } from "effect";
+import type { Scope } from "effect/Scope";
 
 import { fixtureServer, IntegrationLive, NEVER_ANSWERED } from "./harness";
 
@@ -16,25 +17,40 @@ const READY_POLL = Duration.millis(250);
 /** How long the interrupted Run gets to flush before the test gives up. */
 const EXIT_TIMEOUT = Duration.seconds(90);
 
+/**
+ * The CLI as a user runs it, owned by the test's scope.
+ *
+ * Scope-owned because every way this test can go wrong leaves a browser
+ * driving itself otherwise: a readiness assertion that fails, an exit that
+ * never comes. A leaked CLI outlives the worker that spawned it.
+ */
 const start = (
   flowPath: string,
   outputDirectory: string
-): Effect.Effect<ChildProcess> =>
-  Effect.sync(() =>
-    spawn(
-      process.execPath,
-      [
-        path.join(import.meta.dirname, "..", "..", "src", "index.ts"),
-        "run",
-        flowPath,
-        "--output",
-        outputDirectory,
-        "--video",
-        "--retry",
-        "0",
-      ],
-      { stdio: "ignore" }
-    )
+): Effect.Effect<ChildProcess, never, Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() =>
+      spawn(
+        process.execPath,
+        [
+          path.join(import.meta.dirname, "..", "..", "src", "index.ts"),
+          "run",
+          flowPath,
+          "--output",
+          outputDirectory,
+          "--video",
+          "--retry",
+          "0",
+        ],
+        { stdio: "ignore" }
+      )
+    ),
+    (child) =>
+      Effect.sync(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
+      })
   );
 
 /**
