@@ -1,33 +1,27 @@
+import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import path from "node:path";
 
 import type { RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Duration, Effect, FileSystem } from "effect";
 
-import { fixtureServer, IntegrationLive } from "./harness";
+import { fixtureServer, IntegrationLive, NEVER_ANSWERED } from "./harness";
 
-/** Long enough for the browser to open the page and start recording. */
-const BEFORE_SIGNAL_MS = 8000;
+/** Bounds failure only; readiness is waited for, never assumed. */
+const READY_TIMEOUT = Duration.seconds(60);
 
-/** The Run waits on a request nothing answers, so this only bounds failure. */
-const AFTER_SIGNAL_MS = 90_000;
+const READY_POLL = Duration.millis(250);
 
-/**
- * The CLI as a user runs it, interrupted the way a Ctrl-C or a cancelled CI
- * job interrupts it.
- *
- * Interrupting the Effect fiber directly is not the same test: it invokes the
- * finalizers by hand, while a signal has to travel through the process first.
- */
-const runUntilInterrupted = (
+/** How long the interrupted Run gets to flush before the test gives up. */
+const EXIT_TIMEOUT = Duration.seconds(90);
+
+const start = (
   flowPath: string,
   outputDirectory: string
-  // `null` rather than nothing: an explicit `undefined` here is rewritten by
-  // the formatter into a call that does not typecheck.
-): Effect.Effect<null> =>
-  Effect.callback<null>((resume) => {
-    const child = spawn(
+): Effect.Effect<ChildProcess> =>
+  Effect.sync(() =>
+    spawn(
       process.execPath,
       [
         path.join(import.meta.dirname, "..", "..", "src", "index.ts"),
@@ -40,16 +34,32 @@ const runUntilInterrupted = (
         "0",
       ],
       { stdio: "ignore" }
-    );
-    const signal = setTimeout(() => {
-      child.kill("SIGINT");
-    }, BEFORE_SIGNAL_MS);
-    const giveUp = setTimeout(() => {
-      child.kill("SIGKILL");
-    }, AFTER_SIGNAL_MS);
+    )
+  );
+
+/**
+ * Poll until something is observably true, reporting whether it ever became
+ * true. A test that quietly gave up waiting and carried on would fail later
+ * for a reason that has nothing to do with what it is checking.
+ */
+const waitUntil = (ready: () => boolean): Effect.Effect<boolean> =>
+  Effect.gen(function* poll() {
+    for (;;) {
+      if (ready()) {
+        return true;
+      }
+      yield* Effect.sleep(READY_POLL);
+    }
+  }).pipe(
+    Effect.timeoutOption(READY_TIMEOUT),
+    Effect.map((arrived) => arrived._tag === "Some")
+  );
+
+const waitForExit = (child: ChildProcess): Effect.Effect<null> =>
+  // `null` rather than nothing: the formatter rewrites an explicit `undefined`
+  // here into a call that does not typecheck.
+  Effect.callback<null>((resume) => {
     child.on("exit", () => {
-      clearTimeout(signal);
-      clearTimeout(giveUp);
       resume(Effect.succeed(null));
     });
   });
@@ -74,11 +84,24 @@ it.live("leaves a flushed recording when a Run is interrupted", () =>
       })
     );
 
-    yield* runUntilInterrupted(flowPath, path.join(directory, "runs"));
+    const runs = path.join(directory, "runs");
+    const child = yield* start(flowPath, runs);
+
+    // Wait for the Run to be observably where the test needs it, rather than
+    // for a duration that happens to be long enough on this machine. The
+    // request for the page's never-answered resource can only arrive after the
+    // browser launched, the recording started, and the second navigation
+    // began, which is precisely the state a Ctrl-C has to survive.
+    const reached = yield* waitUntil(() =>
+      fixtures.requests.includes(NEVER_ANSWERED)
+    );
+    expect(reached).toBe(true);
+
+    child.kill("SIGINT");
+    yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
 
     // An unflushed recording is a lost recording, and the Runs whose video
     // matters most are exactly the ones that never reach a tidy end.
-    const runs = path.join(directory, "runs");
     const [flowDirectory] = yield* fileSystem.readDirectory(runs);
     const [runDirectory] = yield* fileSystem.readDirectory(
       path.join(runs, flowDirectory ?? "")
