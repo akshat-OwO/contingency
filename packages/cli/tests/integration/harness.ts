@@ -52,6 +52,13 @@ export const canRecordVideo = (): boolean =>
     .split(path.delimiter)
     .some((directory) => existsSync(path.join(directory, "ffmpeg")));
 
+/**
+ * What the fixture page requests once a Step has typed into it. Waiting for
+ * this proves the Run is past its opening navigation and working through
+ * Steps, which request arrival and an empty recording file do not.
+ */
+export const STEP_BEACON = "/step-beacon";
+
 /** A path the fixture server accepts and never responds to. */
 export const NEVER_ANSWERED = "/never-answered.bin";
 

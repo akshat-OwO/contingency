@@ -8,7 +8,12 @@ import { expect, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem } from "effect";
 import type { Scope } from "effect/Scope";
 
-import { canRecordVideo, fixtureServer, IntegrationLive } from "./harness";
+import {
+  canRecordVideo,
+  fixtureServer,
+  IntegrationLive,
+  STEP_BEACON,
+} from "./harness";
 
 /** Bounds failure only; readiness is waited for, never assumed. */
 const READY_TIMEOUT = Duration.seconds(60);
@@ -151,13 +156,14 @@ it.live.skipIf(!canRecordVideo())(
       // for a duration that happens to be long enough on this machine. A
       // recording on disk means the browser launched, the page loaded, and
       // capture began — which is the state a Ctrl-C has to survive.
-      const reached = yield* waitUntil(
-        () =>
-          // The page was served, so the recorder opened it and the Run is
-          // working through its Steps. The recording file alone is not enough:
-          // it is created empty when capture starts and only filled on flush.
-          fixtures.requests.includes("/checkout.html") &&
-          recordingOf(runs) !== undefined
+      const reached = yield* waitUntil(() =>
+        // The page beacons when a Step types into it, which cannot happen
+        // until the recorder's own opening navigation has returned. Request
+        // arrival and the recording file are both true earlier than that — the
+        // file is created empty when capture starts — so a signal sent on
+        // either can land mid-navigation, where the flush is deliberately
+        // abandoned and this test would fail without a regression.
+        fixtures.requests.includes(STEP_BEACON)
       );
       expect(reached).toBe(true);
 

@@ -23,5 +23,13 @@
         <button id="submit" type="submit">Place order</button>
       </form>
     </main>
+    <script>
+      // Beacons once the page is being typed into. A test that needs the Run
+      // to be past its opening navigation can wait for this: it cannot fire
+      // until the page has loaded and a Step has acted on it.
+      document.getElementById("details").addEventListener("input", () => {
+        fetch("/step-beacon").catch(() => {});
+      });
+    </script>
   </body>
 </html>
