@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import type { RunVideoManifest } from "@contingency/protocol";
@@ -7,17 +8,18 @@ import { expect, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem } from "effect";
 import type { Scope } from "effect/Scope";
 
-import {
-  canRecordVideo,
-  fixtureServer,
-  IntegrationLive,
-  NEVER_ANSWERED,
-} from "./harness";
+import { canRecordVideo, fixtureServer, IntegrationLive } from "./harness";
 
 /** Bounds failure only; readiness is waited for, never assumed. */
 const READY_TIMEOUT = Duration.seconds(60);
 
 const READY_POLL = Duration.millis(250);
+
+/**
+ * What a Ctrl-C is allowed to take. Generous next to the fifth of a second it
+ * costs now, and far short of the half-minute it cost before.
+ */
+const INTERRUPT_BUDGET = Duration.seconds(20);
 
 /** How long the interrupted Run gets to flush before the test gives up. */
 const EXIT_TIMEOUT = Duration.seconds(90);
@@ -76,6 +78,30 @@ const waitUntil = (ready: () => boolean): Effect.Effect<boolean> =>
     Effect.map((arrived) => arrived._tag === "Some")
   );
 
+const readdirSafe = (directory: string): readonly string[] => {
+  try {
+    return readdirSync(directory);
+  } catch {
+    return [];
+  }
+};
+
+/** The recording this Run has begun writing, once there is one. */
+const recordingOf = (runs: string): string | undefined => {
+  const [flowDirectory] = readdirSafe(runs);
+  if (flowDirectory === undefined) {
+    return;
+  }
+  const [runDirectory] = readdirSafe(path.join(runs, flowDirectory));
+  if (runDirectory === undefined) {
+    return;
+  }
+  const artifacts = path.join(runs, flowDirectory, runDirectory);
+  return existsSync(path.join(artifacts, "attempt-1.webm"))
+    ? artifacts
+    : undefined;
+};
+
 const waitForExit = (child: ChildProcess): Effect.Effect<null> =>
   // `null` rather than nothing: the formatter rewrites an explicit `undefined`
   // here into a call that does not typecheck.
@@ -111,40 +137,51 @@ it.live.skipIf(!canRecordVideo())(
       const child = yield* start(flowPath, runs);
 
       // Wait for the Run to be observably where the test needs it, rather than
-      // for a duration that happens to be long enough on this machine. The
-      // request for the page's never-answered resource can only arrive after the
-      // browser launched, the recording started, and the second navigation
-      // began, which is precisely the state a Ctrl-C has to survive.
-      const reached = yield* waitUntil(() =>
-        fixtures.requests.includes(NEVER_ANSWERED)
+      // for a duration that happens to be long enough on this machine. A
+      // recording on disk means the browser launched, the page loaded, and
+      // capture began — which is the state a Ctrl-C has to survive.
+      const reached = yield* waitUntil(
+        () =>
+          // The page was served, so the recorder opened it and the Run is
+          // working through its Steps. The recording file alone is not enough:
+          // it is created empty when capture starts and only filled on flush.
+          fixtures.requests.includes("/checkout.html") &&
+          recordingOf(runs) !== undefined
       );
       expect(reached).toBe(true);
 
+      const signalledAt = Date.now();
       child.kill("SIGINT");
       yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+      const tookMs = Date.now() - signalledAt;
 
-      // An unflushed recording is a lost recording, and the Runs whose video
-      // matters most are exactly the ones that never reach a tidy end.
-      const [flowDirectory] = yield* fileSystem.readDirectory(runs);
-      const [runDirectory] = yield* fileSystem.readDirectory(
-        path.join(runs, flowDirectory ?? "")
-      );
-      const artifacts = path.join(
-        runs,
-        flowDirectory ?? "",
-        runDirectory ?? ""
-      );
+      // Ctrl-C has to feel like Ctrl-C. A Run is torn down uninterruptibly, so
+      // anything slow in teardown is time the terminal spends ignoring the
+      // user: closing a browser with a navigation still in flight took 27
+      // seconds until the load was stopped first.
+      expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
 
-      const recording = yield* fileSystem.readFile(
-        path.join(artifacts, "attempt-1.webm")
-      );
-      expect(recording.length).toBeGreaterThan(1024);
-
-      // And a recording nobody can attribute to a Run is very nearly a lost one.
+      // A recording nobody can attribute to a Run is very nearly a lost one,
+      // so the manifest is written on every exit path and always accounts for
+      // the attempt — either with a file or with the reason there is none.
+      const artifacts = recordingOf(runs) ?? "";
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
-      expect(manifest.segments[0]?.recorded).toBe(true);
+
+      const [segment] = manifest.segments;
+      if (segment?.recorded === true) {
+        const recording = yield* fileSystem.readFile(
+          path.join(artifacts, "attempt-1.webm")
+        );
+        expect(recording.length).toBeGreaterThan(1024);
+      } else {
+        // The browser tool runs one command at a time per session, so a flush
+        // requested while a command is in flight waits for that command's own
+        // timeout. Rather than hold the terminal for half a minute, the Run
+        // gives up on the file and says so.
+        expect(segment?.error).toBeDefined();
+      }
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

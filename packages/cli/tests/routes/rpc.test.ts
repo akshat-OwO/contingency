@@ -155,6 +155,7 @@ const agentBrowserStub: AgentBrowser = {
   setUserAgent: unused,
   setViewport: unused,
   startVideo: unused,
+  stopLoading: unused,
   stopVideo: unused,
   stream: () => Stream.empty,
   switchTab: unused,

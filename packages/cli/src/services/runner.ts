@@ -25,6 +25,7 @@ import type {
   Selector,
   SessionId,
 } from "@contingency/protocol";
+import type { Option, Result } from "effect";
 import {
   Context,
   Data,
@@ -364,6 +365,26 @@ const NO_FINDINGS: AuditResult = { elided: [], findings: [] };
  * click that never navigates pays the whole cost.
  */
 const NAVIGATION_TIMEOUT = Duration.seconds(10);
+
+/**
+ * How long to wait for a browser session to close before carrying on without
+ * it. Generous next to the tenth of a second an idle close takes, and far
+ * short of the half-minute a busy one can.
+ */
+const CLOSE_TIMEOUT = Duration.seconds(3);
+
+/**
+ * How long to spend asking the page to stop loading. It is queued behind the
+ * navigation it is cancelling, so it is not instant either.
+ */
+const STOP_LOADING_TIMEOUT = Duration.seconds(2);
+
+/**
+ * How long to spend flushing a recording before giving up on it. A terminal
+ * that ignores Ctrl-C for half a minute is worse than a Run that says why its
+ * video is missing.
+ */
+const FLUSH_TIMEOUT = Duration.seconds(5);
 
 /** How often to ask whether the navigation has happened yet. */
 const NAVIGATION_POLL = Duration.millis(100);
@@ -708,6 +729,22 @@ const reportable = (message: string): string => {
  * failure gets watched rather than inferred; a Run that worked did not stop
  * working because nobody filmed it.
  */
+/**
+ * Why a recording has no file, from the outcome of asking for it. Absent when
+ * the recorder flushed one.
+ */
+const flushFailure = (
+  stopped: Result.Result<Option.Option<string | undefined>, BrowserRpcErrorType>
+): string | undefined => {
+  if (stopped._tag === "Failure") {
+    return stopped.failure.message;
+  }
+  if (stopped.success._tag === "None") {
+    return `The recorder did not answer within ${Duration.toSeconds(FLUSH_TIMEOUT)}s, which happens when a command is still in flight.`;
+  }
+  return stopped.success.value;
+};
+
 const captureToVideo =
   (
     browser: AgentBrowser,
@@ -749,13 +786,21 @@ const captureToVideo =
         if (started._tag === "Failure") {
           return Effect.void;
         }
+        // Bounded as a whole, because this runs uninterruptibly: whatever it
+        // costs is exactly how long Ctrl-C appears to do nothing. The browser
+        // tool runs one command at a time per session, so flushing a recording
+        // queues behind a navigation still in flight and waits for that
+        // navigation's own timeout — verified against the bundled binary at 26
+        // seconds, against 0.1 on an idle page. Nothing we can send jumps that
+        // queue, so the remaining choice is whether to wait for it.
         return browser.stopVideo(sessionId).pipe(
+          Effect.timeoutOption(FLUSH_TIMEOUT),
           Effect.result,
           Effect.map((stopped) => {
-            const error =
-              stopped._tag === "Failure"
-                ? stopped.failure.message
-                : stopped.success;
+            // Timing out is reported as its own reason rather than as a
+            // recording that exists: an interrupted Run that could not
+            // flush should say so, not leave a file to be looked for.
+            const error = flushFailure(stopped);
             return segments.push({
               attempt,
               ...(error === undefined ? {} : { error: reportable(error) }),
@@ -904,7 +949,24 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           yield* measurePending(execution, steps, pending);
         })
       ),
-    (opened) => browser.close(opened).pipe(Effect.ignore)
+    (opened) =>
+      // A Run is torn down uninterruptibly: Effect finalizes a cancelled Run
+      // before it lets go, so anything slow here is exactly how long Ctrl-C
+      // appears to do nothing. Closing a browser waits for a navigation still
+      // in flight — verified against the bundled binary at 27 seconds, against
+      // 0.1 on an idle page — so the load is stopped first, and both are
+      // bounded anyway. By this point every Step is already recorded.
+      browser
+        .stopLoading(opened)
+        .pipe(
+          Effect.timeoutOption(STOP_LOADING_TIMEOUT),
+          Effect.ignore,
+          Effect.andThen(
+            browser
+              .close(opened)
+              .pipe(Effect.timeoutOption(CLOSE_TIMEOUT), Effect.ignore)
+          )
+        )
   );
 
   return { failure } satisfies AttemptResult;

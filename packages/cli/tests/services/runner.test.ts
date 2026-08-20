@@ -147,6 +147,7 @@ const makeFixture = (options?: {
     keyDown: (_session, key) => record("keyDown", [key]),
     keyUp: (_session, key) => record("keyUp", [key]),
     startVideo: (_session, file) => record("startVideo", [file]),
+    stopLoading: () => record("stopLoading", []),
     stopVideo: () =>
       record("stopVideo", []).pipe(Effect.as(options?.videoError)),
     typeSelector: (_session, selector, value) =>
@@ -218,6 +219,9 @@ it.effect(
         "fill",
         "wait",
         "keyDown",
+        // The page is told to stop loading before the session closes: a close
+        // that waits on a navigation still in flight takes 27 seconds.
+        "stopLoading",
         "close",
       ]);
       const [created] = fixture.calls;
@@ -1145,7 +1149,12 @@ it.effect("holds a modifier across the Steps it was recorded around", () => {
     // while it is held, and it comes back up.
     expect(
       fixture.calls
-        .filter(({ command }) => command !== "create" && command !== "close")
+        .filter(
+          ({ command }) =>
+            command !== "create" &&
+            command !== "close" &&
+            command !== "stopLoading"
+        )
         .map(({ command }) => command)
     ).toEqual([
       "goto",
@@ -1297,7 +1306,9 @@ it.effect("runs an Audit at its own position in Flow order", () => {
     );
 
     expect(
-      fixture.calls.map(({ command }) => command).filter((c) => c !== "close")
+      fixture.calls
+        .map(({ command }) => command)
+        .filter((c) => c !== "close" && c !== "stopLoading")
     ).toEqual(["create", "goto", "documentStatus", "audit", "click", "audit"]);
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
