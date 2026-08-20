@@ -125,9 +125,20 @@ it.live.skipIf(!canRecordVideo())(
       yield* fileSystem.writeFileString(
         flowPath,
         JSON.stringify({
+          // Long enough to still be working when the signal arrives, on a
+          // page that loaded normally. Interrupting mid-navigation is a
+          // different case: the browser tool runs one command at a time per
+          // session, so a flush requested then waits for that navigation's own
+          // timeout and the Run gives up on the file instead of holding the
+          // terminal. That limitation is recorded in ADR 0010; what this test
+          // protects is the Run a user actually interrupts.
           steps: [
             { type: "navigate", url: fixtures.url("checkout.html") },
-            { type: "navigate", url: fixtures.url("slow.html") },
+            ...Array.from({ length: 3000 }, (_unused, index) => ({
+              selectors: [["#name"]],
+              type: "change",
+              value: `Ada ${index}`,
+            })),
           ],
           title: "Interrupted",
         })
@@ -161,27 +172,22 @@ it.live.skipIf(!canRecordVideo())(
       // seconds until the load was stopped first.
       expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
 
-      // A recording nobody can attribute to a Run is very nearly a lost one,
-      // so the manifest is written on every exit path and always accounts for
-      // the attempt — either with a file or with the reason there is none.
+      // An unflushed recording is a lost recording, and the Runs whose video
+      // matters most are exactly the ones that never reach a tidy end. This is
+      // asserted unconditionally: a test that also accepts a missing file
+      // stops protecting the behaviour it is named after.
       const artifacts = recordingOf(runs) ?? "";
+      const recording = yield* fileSystem.readFile(
+        path.join(artifacts, "attempt-1.webm")
+      );
+      expect(recording.length).toBeGreaterThan(1024);
+
+      // And a recording nobody can attribute to a Run is very nearly a lost
+      // one, so the manifest is written on every exit path too.
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
-
-      const [segment] = manifest.segments;
-      if (segment?.recorded === true) {
-        const recording = yield* fileSystem.readFile(
-          path.join(artifacts, "attempt-1.webm")
-        );
-        expect(recording.length).toBeGreaterThan(1024);
-      } else {
-        // The browser tool runs one command at a time per session, so a flush
-        // requested while a command is in flight waits for that command's own
-        // timeout. Rather than hold the terminal for half a minute, the Run
-        // gives up on the file and says so.
-        expect(segment?.error).toBeDefined();
-      }
+      expect(manifest.segments[0]?.recorded).toBe(true);
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
