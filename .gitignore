@@ -36,3 +36,7 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Calibration experiment output (issue #25): machine-specific numbers, reported
+# on the ticket rather than committed
+packages/cli/tests/calibration/results.json

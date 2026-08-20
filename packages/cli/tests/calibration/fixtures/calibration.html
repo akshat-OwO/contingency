@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Video overhead calibration</title>
+    <style>
+      body {
+        font:
+          16px system-ui,
+          sans-serif;
+        margin: 0;
+      }
+      /* Laid out large and above the fold, so the image is the largest thing
+         the browser paints and therefore decides LCP. */
+      #hero {
+        display: block;
+        height: 500px;
+        width: 1100px;
+      }
+      main {
+        margin: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!--
+        The LCP element, and the only subresource: the experiment's server
+        answers it after a fixed delay, so the largest paint lands mid-load the
+        way a real hero image does. The delay is server-side, so both
+        conditions of the experiment wait for it identically and only what the
+        browser does with the waiting differs.
+      -->
+      <img id="hero" alt="" src="/hero.png" width="1100" height="500" />
+      <h1>Video overhead calibration</h1>
+      <!--
+        The INP interaction: ~120ms of synchronous work per click, well above
+        the event API's 16ms reporting floor and identical on every run, so a
+        difference between conditions is the machine, not the page. The Flow
+        clicks this exactly once.
+      -->
+      <button id="block" type="button">Block the main thread</button>
+    </main>
+    <script>
+      document.getElementById("block").addEventListener("click", () => {
+        const until = performance.now() + 120;
+        while (performance.now() < until) {}
+      });
+    </script>
+  </body>
+</html>
