@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout</title>
+  </head>
+  <body>
+    <main>
+      <h1>Checkout</h1>
+      <!--
+        Deliberately awkward to select: the email field carries no id, so a
+        Flow has to resolve it the way the Recorder would have written it.
+      -->
+      <form id="details" action="/confirmed.html" method="get">
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" />
+
+        <label>
+          Email
+          <input name="email" type="email" placeholder="you@example.com" />
+        </label>
+
+        <button id="submit" type="submit">Place order</button>
+      </form>
+    </main>
+  </body>
+</html>
