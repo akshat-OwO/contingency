@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -34,6 +35,22 @@ export const IntegrationLive = RunnerLive.pipe(
 );
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
+
+/**
+ * Whether this machine can produce a recording at all.
+ *
+ * The browser tool encodes captures with `ffmpeg`, which it expects to find on
+ * the PATH and does not bundle. Verified against the bundled binary: without
+ * it `record start` still reports success and `record stop` fails, so a
+ * machine without `ffmpeg` produces no file and the Run says why.
+ *
+ * Tests that assert a recording exists are skipped there rather than failed:
+ * the absence is the environment's, not the code's.
+ */
+export const canRecordVideo = (): boolean =>
+  (process.env["PATH"] ?? "")
+    .split(path.delimiter)
+    .some((directory) => existsSync(path.join(directory, "ffmpeg")));
 
 /** A path the fixture server accepts and never responds to. */
 export const NEVER_ANSWERED = "/never-answered.bin";

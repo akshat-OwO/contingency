@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { Run, RunVideoManifest } from "@contingency/protocol";
 import {
   Console,
   Data,
@@ -34,6 +35,39 @@ class RunDidNotComplete extends Data.TaggedError("RunDidNotComplete")<{
   readonly [Runtime.errorReported] = false;
   readonly [Runtime.errorExitCode] = 1;
 }
+
+/**
+ * How to say that a captured Run produced no recording, when it produced none.
+ *
+ * The browser tool encodes captures with `ffmpeg` and does not bundle it, so a
+ * machine without it records nothing. Whatever the reason, asking for video
+ * and silently getting none sends someone hunting for a file.
+ */
+const videoWarning = Effect.fn("run.videoWarning")(function* videoWarning(
+  run: Run,
+  directory: string
+) {
+  if (!run.video) {
+    return;
+  }
+  const fileSystem = yield* FileSystem.FileSystem;
+  const read = yield* Effect.result(
+    fileSystem.readFileString(path.join(directory, "video.json"))
+  );
+  if (read._tag === "Failure") {
+    return;
+  }
+  const manifest = JSON.parse(read.success) as RunVideoManifest;
+  const missing = manifest.segments
+    .filter(({ recorded }) => !recorded)
+    .map(
+      ({ attempt, error }) =>
+        `attempt ${attempt} (${error ?? "no reason given"})`
+    );
+  return missing.length === 0
+    ? undefined
+    : `Warning: video was requested but ${missing.length} ${missing.length === 1 ? "attempt" : "attempts"} produced no recording: ${missing.join("; ")}`;
+});
 
 export const runCommand = Command.make(
   "run",
@@ -201,6 +235,11 @@ export const runCommand = Command.make(
       yield* Console.warn(
         `Warning: ${unmeasured} ${unmeasured === 1 ? "Step" : "Steps"} asked for Core Web Vitals but could not be measured.`
       );
+    }
+
+    const unrecorded = yield* videoWarning(run, directory);
+    if (unrecorded !== undefined) {
+      yield* Console.warn(unrecorded);
     }
 
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);

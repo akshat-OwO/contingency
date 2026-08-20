@@ -4,7 +4,13 @@ import type { RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
-import { fixtureServer, flow, IntegrationLive, runFlow } from "./harness";
+import {
+  canRecordVideo,
+  fixtureServer,
+  flow,
+  IntegrationLive,
+  runFlow,
+} from "./harness";
 
 /** The EBML magic every WebM file starts with. */
 const EBML = "1a45dfa3";
@@ -18,7 +24,7 @@ const leadingHex = (data: Uint8Array, length: number): string =>
     (data[index] ?? 0).toString(16).padStart(2, "0")
   ).join("");
 
-it.live("captures a Run to a playable WebM", () =>
+it.live.skipIf(!canRecordVideo())("captures a Run to a playable WebM", () =>
   Effect.gen(function* captureRun() {
     const fileSystem = yield* FileSystem.FileSystem;
     const fixtures = yield* fixtureServer;

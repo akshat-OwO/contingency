@@ -7,7 +7,12 @@ import { expect, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem } from "effect";
 import type { Scope } from "effect/Scope";
 
-import { fixtureServer, IntegrationLive, NEVER_ANSWERED } from "./harness";
+import {
+  canRecordVideo,
+  fixtureServer,
+  IntegrationLive,
+  NEVER_ANSWERED,
+} from "./harness";
 
 /** Bounds failure only; readiness is waited for, never assumed. */
 const READY_TIMEOUT = Duration.seconds(60);
@@ -80,60 +85,66 @@ const waitForExit = (child: ChildProcess): Effect.Effect<null> =>
     });
   });
 
-it.live("leaves a flushed recording when a Run is interrupted", () =>
-  Effect.gen(function* interruptedRun() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const fixtures = yield* fixtureServer;
-    const directory = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-interrupt-",
-    });
+it.live.skipIf(!canRecordVideo())(
+  "leaves a flushed recording when a Run is interrupted",
+  () =>
+    Effect.gen(function* interruptedRun() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fixtures = yield* fixtureServer;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-interrupt-",
+      });
 
-    const flowPath = path.join(directory, "flow.json");
-    yield* fileSystem.writeFileString(
-      flowPath,
-      JSON.stringify({
-        steps: [
-          { type: "navigate", url: fixtures.url("checkout.html") },
-          { type: "navigate", url: fixtures.url("slow.html") },
-        ],
-        title: "Interrupted",
-      })
-    );
+      const flowPath = path.join(directory, "flow.json");
+      yield* fileSystem.writeFileString(
+        flowPath,
+        JSON.stringify({
+          steps: [
+            { type: "navigate", url: fixtures.url("checkout.html") },
+            { type: "navigate", url: fixtures.url("slow.html") },
+          ],
+          title: "Interrupted",
+        })
+      );
 
-    const runs = path.join(directory, "runs");
-    const child = yield* start(flowPath, runs);
+      const runs = path.join(directory, "runs");
+      const child = yield* start(flowPath, runs);
 
-    // Wait for the Run to be observably where the test needs it, rather than
-    // for a duration that happens to be long enough on this machine. The
-    // request for the page's never-answered resource can only arrive after the
-    // browser launched, the recording started, and the second navigation
-    // began, which is precisely the state a Ctrl-C has to survive.
-    const reached = yield* waitUntil(() =>
-      fixtures.requests.includes(NEVER_ANSWERED)
-    );
-    expect(reached).toBe(true);
+      // Wait for the Run to be observably where the test needs it, rather than
+      // for a duration that happens to be long enough on this machine. The
+      // request for the page's never-answered resource can only arrive after the
+      // browser launched, the recording started, and the second navigation
+      // began, which is precisely the state a Ctrl-C has to survive.
+      const reached = yield* waitUntil(() =>
+        fixtures.requests.includes(NEVER_ANSWERED)
+      );
+      expect(reached).toBe(true);
 
-    child.kill("SIGINT");
-    yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+      child.kill("SIGINT");
+      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
 
-    // An unflushed recording is a lost recording, and the Runs whose video
-    // matters most are exactly the ones that never reach a tidy end.
-    const [flowDirectory] = yield* fileSystem.readDirectory(runs);
-    const [runDirectory] = yield* fileSystem.readDirectory(
-      path.join(runs, flowDirectory ?? "")
-    );
-    const artifacts = path.join(runs, flowDirectory ?? "", runDirectory ?? "");
+      // An unflushed recording is a lost recording, and the Runs whose video
+      // matters most are exactly the ones that never reach a tidy end.
+      const [flowDirectory] = yield* fileSystem.readDirectory(runs);
+      const [runDirectory] = yield* fileSystem.readDirectory(
+        path.join(runs, flowDirectory ?? "")
+      );
+      const artifacts = path.join(
+        runs,
+        flowDirectory ?? "",
+        runDirectory ?? ""
+      );
 
-    const recording = yield* fileSystem.readFile(
-      path.join(artifacts, "attempt-1.webm")
-    );
-    expect(recording.length).toBeGreaterThan(1024);
+      const recording = yield* fileSystem.readFile(
+        path.join(artifacts, "attempt-1.webm")
+      );
+      expect(recording.length).toBeGreaterThan(1024);
 
-    // And a recording nobody can attribute to a Run is very nearly a lost one.
-    const manifest = JSON.parse(
-      yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
-    ) as RunVideoManifest;
-    expect(manifest.segments).toHaveLength(1);
-    expect(manifest.segments[0]?.recorded).toBe(true);
-  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+      // And a recording nobody can attribute to a Run is very nearly a lost one.
+      const manifest = JSON.parse(
+        yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
+      ) as RunVideoManifest;
+      expect(manifest.segments).toHaveLength(1);
+      expect(manifest.segments[0]?.recorded).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
