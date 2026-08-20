@@ -172,6 +172,13 @@ export interface AgentBrowser {
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
+   * An opaque identity for the document currently loaded, so a caller can tell
+   * whether a navigation has happened yet.
+   */
+  readonly documentIdentity: (
+    sessionId: SessionId
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  /**
    * Core Web Vitals for the navigation the page already performed. Reads the
    * existing performance timeline, so it neither navigates nor disturbs the
    * page — unlike the browser tool's own `vitals` command, which reloads.
@@ -486,6 +493,15 @@ const AuditReport = Schema.Struct({
  * reports 200, a top-level 404 reports 404, and a page that did not come from
  * the network reports 0.
  */
+/**
+ * Enough to tell one document from another without touching the page: the time
+ * origin is set per document, and the href covers a same-document route change
+ * that keeps it. `readyState` distinguishes a document still arriving from one
+ * that has settled.
+ */
+const DOCUMENT_IDENTITY =
+  'performance.timeOrigin + "|" + location.href + "|" + document.readyState';
+
 const NAVIGATION_STATUS =
   'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0';
 
@@ -1669,6 +1685,25 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    const documentIdentity = Effect.fn("AgentBrowser.documentIdentity")(
+      function* documentIdentity(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["eval", DOCUMENT_IDENTITY],
+        ]);
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedString)(
+          results.at(0)?.result
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report which document is loaded."
+            )
+          )
+        );
+        return decoded.result;
+      }
+    );
+
     const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
       function* documentStatus(sessionId: SessionId) {
         const results = yield* runBatch(sessionId, [
@@ -2015,6 +2050,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       create,
       currentUrl,
       deleteStorage,
+      documentIdentity,
       documentStatus,
       fillSelector,
       getNetworkRequest,

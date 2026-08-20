@@ -56,6 +56,7 @@ const makeFixture = (options?: {
   readonly visible?: readonly string[];
 }) => {
   const calls: BrowserCall[] = [];
+  let documentIdentityCalls = 0;
   const written: WrittenFile[] = [];
   const directories: string[] = [];
 
@@ -104,6 +105,16 @@ const makeFixture = (options?: {
       ),
     create: (name) =>
       record("create", [name]).pipe(Effect.as(name as SessionId)),
+    // Two different documents, so a click that navigates is seen to navigate.
+    documentIdentity: () =>
+      record("documentIdentity", []).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            documentIdentityCalls += 1;
+            return `${documentIdentityCalls}|https://example.com/|complete`;
+          })
+        )
+      ),
     documentStatus: () =>
       record("documentStatus", []).pipe(
         Effect.as(options?.documentStatus ?? 200)
@@ -1603,5 +1614,62 @@ it.effect("keeps metrics from a Step the Run later failed after", () => {
     // Step 9 should not lose the metrics from Step 2.
     expect(result.outcome).toBe("failed");
     expect(result.steps[0]?.vitals).toEqual(measured);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("waits for a click the Recorder said navigates", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* waitForNavigation() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        {
+          assertedEvents: [
+            {
+              title: "Confirmed",
+              type: "navigation",
+              url: "https://example.com/done",
+            },
+          ],
+          offsetX: 1,
+          offsetY: 1,
+          selectors: [["#submit"]],
+          type: "click",
+        },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(result.outcome).toBe("completed");
+    // A click returns once dispatched, so without this the Run closed its
+    // browser while the navigation was still in flight and the page was
+    // never loaded — with every Step still reporting success.
+    const order = fixture.calls
+      .map(({ command }) => command)
+      .filter(
+        (command) => command === "click" || command === "documentIdentity"
+      );
+    expect(order).toEqual(["documentIdentity", "click", "documentIdentity"]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("does not wait on a click the Recorder said stays put", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* noWait() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#open"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(
+      fixture.calls.some(({ command }) => command === "documentIdentity")
+    ).toBe(false);
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
