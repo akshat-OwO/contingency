@@ -12,6 +12,8 @@ import type {
   BrowserRpcErrorType,
   Finding,
   RunEnvironment,
+  RunVideoManifest,
+  RunVideoSegment,
   Flow,
   FlowStep,
   PreStep,
@@ -61,6 +63,12 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
 }> {}
 
 export interface RunnerRunOptions {
+  /**
+   * Capture the Run's browser session to video. Overrides the Flow's own
+   * `video` flag when set, so a Flow that never asked for capture can still be
+   * watched once, and one that always asks can be silenced for a fast Run.
+   */
+  readonly video?: boolean;
   /** Directory holding one subdirectory per Flow. Defaults to the state dir. */
   readonly outputDirectory: string;
   /**
@@ -179,6 +187,22 @@ export const runDirectoryName = (startedAt: Date, runId: string): string => {
   const stamp = startedAt.toISOString().replaceAll(/[-:]/gu, "").slice(0, 15);
   return `${stamp}-${runId.slice(0, 8)}`;
 };
+
+/**
+ * Where a Run's artifacts live. Computed rather than discovered, so a
+ * recording can be written into it before the Run that describes it exists.
+ */
+export const runDirectory = (
+  outputDirectory: string,
+  flowId: string,
+  startedAt: Date,
+  runId: string
+): string =>
+  path.join(
+    outputDirectory,
+    flowDirectorySegment(flowId),
+    runDirectoryName(startedAt, runId)
+  );
 
 const translateSelector = (selector: string): string | undefined => {
   if (selector.startsWith("xpath/")) {
@@ -399,7 +423,14 @@ const awaitNavigation = Effect.fn("Runner.awaitNavigation")(
 const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   { browser, sessionId, variables }: StepExecution,
   step: FlowStep,
-  index: number
+  index: number,
+  /**
+   * The recorder already opened this Step's URL. It performs the Flow's own
+   * first navigation when a Run is being captured, because starting a capture
+   * on a blank page and navigating afterwards records nothing at all more
+   * often than not.
+   */
+  alreadyOpen = false
 ) {
   const resolve = (value: string): string =>
     substituteVariables(value, variables.values);
@@ -411,7 +442,9 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     return yield* browser.audit(sessionId, accessibilityRuleTags, index);
   }
   if (step.type === "navigate") {
-    yield* browser.goto(sessionId, resolve(step.url));
+    if (!alreadyOpen) {
+      yield* browser.goto(sessionId, resolve(step.url));
+    }
     // A server error still navigates, so the Step would otherwise pass and the
     // Flow would fail several Steps later on a selector that is missing only
     // because the page is an error page. That misreads a broken site as a
@@ -651,6 +684,91 @@ const redactFinding = (
 });
 
 /**
+ * The last line a failing tool wrote, which is the line that says what went
+ * wrong. A recorder failure arrives with several kilobytes of encoder banner
+ * ahead of it, and a manifest full of build flags helps nobody.
+ */
+const reportable = (message: string): string => {
+  const lines = message
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  return lines.at(-1) ?? message;
+};
+
+/**
+ * Run `replay` with the session captured to video, flushing on every exit path.
+ *
+ * The finalizer is the whole point. An unflushed recording is a lost
+ * recording, and the Runs whose video matters most — a failed Step, a Run that
+ * exceeded its ceiling, a cancelled CI job, a Ctrl-C — are exactly the ones
+ * that never reach a tidy end (ADR 0010).
+ *
+ * Neither starting nor stopping a capture can fail the Run. Video is how a
+ * failure gets watched rather than inferred; a Run that worked did not stop
+ * working because nobody filmed it.
+ */
+const captureToVideo =
+  (
+    browser: AgentBrowser,
+    sessionId: SessionId,
+    video:
+      | {
+          readonly file: string;
+          readonly openAt: string | undefined;
+          readonly segments: RunVideoSegment[];
+        }
+      | undefined,
+    attempt: number
+  ) =>
+  <A, E, R>(
+    /** Told whether the recorder opened the Flow's first page itself. */
+    replay: (opened: boolean) => Effect.Effect<A, E, R>
+  ): Effect.Effect<A, E, R> => {
+    if (video === undefined) {
+      return replay(false);
+    }
+    const { file, segments } = video;
+    const name = path.basename(file);
+    return Effect.acquireUseRelease(
+      Effect.result(browser.startVideo(sessionId, file, video.openAt)),
+      (started) =>
+        started._tag === "Failure"
+          ? Effect.sync(() => {
+              segments.push({
+                attempt,
+                error: reportable(started.failure.message),
+                file: name,
+                recorded: false,
+              });
+              // The capture never began, so the page is still blank and the
+              // Flow performs its own first navigation as usual.
+            }).pipe(Effect.andThen(replay(false)))
+          : replay(video.openAt !== undefined),
+      (started) => {
+        if (started._tag === "Failure") {
+          return Effect.void;
+        }
+        return browser.stopVideo(sessionId).pipe(
+          Effect.result,
+          Effect.map((stopped) => {
+            const error =
+              stopped._tag === "Failure"
+                ? stopped.failure.message
+                : stopped.success;
+            return segments.push({
+              attempt,
+              ...(error === undefined ? {} : { error: reportable(error) }),
+              file: name,
+              recorded: error === undefined,
+            });
+          })
+        );
+      }
+    );
+  };
+
+/**
  * Replay the whole Flow once in a session of its own. A failed Step aborts the
  * attempt rather than continuing against a page state the Flow never described
  * (ADR 0009).
@@ -661,7 +779,16 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   sessionId: SessionId,
   variables: VariableResolution,
   /** Caller-owned, so the Steps done so far survive an interrupted attempt. */
-  steps: RunStep[]
+  steps: RunStep[],
+  /** Where this attempt's recording goes, when the Run is being captured. */
+  video:
+    | {
+        readonly file: string;
+        readonly openAt: string | undefined;
+        readonly segments: RunVideoSegment[];
+      }
+    | undefined,
+  attempt: number
 ) {
   let failure: RunFailure | undefined;
   const measures = flow.steps.some(measuresPerformance);
@@ -678,92 +805,105 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       )
     ),
     (opened) =>
-      Effect.gen(function* replayFlow() {
-        const execution = { browser, sessionId: opened, variables };
-        /** Index in `steps` of a Step whose page has not been measured yet. */
-        let pending: number | undefined;
-        for (const [index, step] of flow.steps.entries()) {
-          const stepStartedAt = yield* nowIso;
+      captureToVideo(
+        browser,
+        opened,
+        video,
+        attempt
+      )((recorderOpenedFirstPage) =>
+        Effect.gen(function* replayFlow() {
+          const execution = { browser, sessionId: opened, variables };
+          /** Index in `steps` of a Step whose page has not been measured yet. */
+          let pending: number | undefined;
+          for (const [index, step] of flow.steps.entries()) {
+            const stepStartedAt = yield* nowIso;
 
-          const preSteps: RunPreStep[] = [];
-          for (const [preStep, scope] of preStepsFor(flow, step, index)) {
-            preSteps.push(
-              yield* evaluatePreStep(execution, preStep, scope, index)
-            );
-          }
-
-          // Leaving this page ends what there is to measure on it, so a Step
-          // still awaiting measurement is read now — after Pre-steps, whose
-          // clicks are interactions on this page like any other.
-          if (stepNavigates(step)) {
-            yield* measurePending(execution, steps, pending);
-            pending = undefined;
-          }
-
-          const outcome = yield* Effect.result(
-            executeStep(execution, step, index).pipe(
-              Effect.mapError((cause) =>
-                cause instanceof RunnerError
-                  ? cause
-                  : new RunnerError({ message: cause.message })
-              )
-            )
-          );
-          const stepFinishedAt = yield* nowIso;
-          const base = {
-            finishedAt: stepFinishedAt.toISOString(),
-            index,
-            ...(preSteps.length === 0 ? {} : { preSteps }),
-            startedAt: stepStartedAt.toISOString(),
-            type: step.type,
-            ...(step.type === "customStep" || step.contingency?.id === undefined
-              ? {}
-              : { stepId: step.contingency.id }),
-          };
-
-          if (outcome._tag === "Success") {
-            if (measuresPerformance(step)) {
-              pending = steps.length;
+            const preSteps: RunPreStep[] = [];
+            for (const [preStep, scope] of preStepsFor(flow, step, index)) {
+              preSteps.push(
+                yield* evaluatePreStep(execution, preStep, scope, index)
+              );
             }
-            steps.push({
-              ...base,
-              // Findings never change an outcome: every real site has
-              // pre-existing violations, and a Run that failed on their count
-              // would be red on day one and switched off by the second.
-              ...(outcome.success.elided.length === 0
+
+            // Leaving this page ends what there is to measure on it, so a Step
+            // still awaiting measurement is read now — after Pre-steps, whose
+            // clicks are interactions on this page like any other.
+            if (stepNavigates(step)) {
+              yield* measurePending(execution, steps, pending);
+              pending = undefined;
+            }
+
+            const outcome = yield* Effect.result(
+              executeStep(
+                execution,
+                step,
+                index,
+                index === 0 && recorderOpenedFirstPage
+              ).pipe(
+                Effect.mapError((cause) =>
+                  cause instanceof RunnerError
+                    ? cause
+                    : new RunnerError({ message: cause.message })
+                )
+              )
+            );
+            const stepFinishedAt = yield* nowIso;
+            const base = {
+              finishedAt: stepFinishedAt.toISOString(),
+              index,
+              ...(preSteps.length === 0 ? {} : { preSteps }),
+              startedAt: stepStartedAt.toISOString(),
+              type: step.type,
+              ...(step.type === "customStep" ||
+              step.contingency?.id === undefined
                 ? {}
-                : { elidedFindings: outcome.success.elided }),
-              ...(outcome.success.findings.length === 0
-                ? {}
-                : {
-                    findings: outcome.success.findings.map((finding) =>
-                      redactFinding(finding, variables)
-                    ),
-                  }),
-              outcome: "completed",
-            });
-            continue;
+                : { stepId: step.contingency.id }),
+            };
+
+            if (outcome._tag === "Success") {
+              if (measuresPerformance(step)) {
+                pending = steps.length;
+              }
+              steps.push({
+                ...base,
+                // Findings never change an outcome: every real site has
+                // pre-existing violations, and a Run that failed on their count
+                // would be red on day one and switched off by the second.
+                ...(outcome.success.elided.length === 0
+                  ? {}
+                  : { elidedFindings: outcome.success.elided }),
+                ...(outcome.success.findings.length === 0
+                  ? {}
+                  : {
+                      findings: outcome.success.findings.map((finding) =>
+                        redactFinding(finding, variables)
+                      ),
+                    }),
+                outcome: "completed",
+              });
+              continue;
+            }
+
+            // A browser message can echo a value typed into a field, so it is
+            // redacted before it reaches the Run.
+            const message = redactSecrets(outcome.failure.message, variables);
+            const kind = classifyStepFailure(outcome.failure.kind, message);
+
+            steps.push({ ...base, error: message, outcome: "failed" });
+            failure = {
+              ...(kind === undefined ? {} : { kind }),
+              message,
+              stepIndex: index,
+            };
+            // The navigation that was measured still happened, and a Flow that
+            // fails at Step 9 should not lose the metrics from Step 2.
+            yield* measurePending(execution, steps, pending);
+            return;
           }
 
-          // A browser message can echo a value typed into a field, so it is
-          // redacted before it reaches the Run.
-          const message = redactSecrets(outcome.failure.message, variables);
-          const kind = classifyStepFailure(outcome.failure.kind, message);
-
-          steps.push({ ...base, error: message, outcome: "failed" });
-          failure = {
-            ...(kind === undefined ? {} : { kind }),
-            message,
-            stepIndex: index,
-          };
-          // The navigation that was measured still happened, and a Flow that
-          // fails at Step 9 should not lose the metrics from Step 2.
           yield* measurePending(execution, steps, pending);
-          return;
-        }
-
-        yield* measurePending(execution, steps, pending);
-      }),
+        })
+      ),
     (opened) => browser.close(opened).pipe(Effect.ignore)
   );
 
@@ -777,15 +917,87 @@ export const makeRunnerService = (browser: AgentBrowser) =>
     // corrupt each other's measurements (ADR 0009).
     const runPermit = Semaphore.makeUnsafe(1);
 
+    /**
+     * The manifest is written even when every capture failed. Someone looking
+     * for a recording needs to find out why there isn't one, not find nothing.
+     */
+    const writeVideoManifest = Effect.fn("Runner.writeVideoManifest")(
+      function* writeVideoManifest(
+        capture: boolean,
+        directory: string,
+        manifest: RunVideoManifest
+      ) {
+        if (!capture) {
+          return;
+        }
+        yield* fileSystem
+          .writeFileString(
+            path.join(directory, "video.json"),
+            `${JSON.stringify(manifest, null, 2)}\n`
+          )
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new RunnerError({
+                  message: `Could not write the video manifest: ${errorMessage(cause)}`,
+                })
+            )
+          );
+      }
+    );
+
+    /**
+     * Decide whether this Run is captured, and get the directory ready if so.
+     *
+     * The flag overrides the Flow, so a Flow that never asked for video can
+     * still be watched once and one that always asks can be silenced for a
+     * fast Run.
+     */
+    const prepareCapture = Effect.fn("Runner.prepareCapture")(
+      function* prepareCapture(
+        flow: Flow,
+        options: RunnerRunOptions,
+        variables: VariableResolution,
+        directory: string
+      ) {
+        const capture = options.video ?? flow.contingency?.video ?? false;
+        if (capture) {
+          // The recorder writes the file itself, so the directory has to exist
+          // before the first attempt rather than at persist time.
+          yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new RunnerError({
+                  message: `Could not create the Run directory: ${errorMessage(cause)}`,
+                })
+            )
+          );
+        }
+        // The recorder opens the Flow's own first page when it can, because a
+        // capture that starts on a blank page records nothing at all more
+        // often than not. It is the same single navigation either way.
+        const first = flow.steps.at(0);
+        return {
+          capture,
+          openingUrl:
+            capture && first?.type === "navigate"
+              ? substituteVariables(first.url, variables.values)
+              : undefined,
+          segments: [] as RunVideoSegment[],
+        };
+      }
+    );
+
     const persist = Effect.fn("Runner.persist")(function* persist(
       record: Run,
       outputDirectory: string,
       startedAt: Date
     ) {
-      const directory = path.join(
+      const directory = runDirectory(
         outputDirectory,
-        flowDirectorySegment(record.flowId),
-        runDirectoryName(startedAt, record.runId)
+        record.flowId,
+        startedAt,
+        record.runId
       );
       yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
         Effect.mapError(
@@ -824,6 +1036,19 @@ export const makeRunnerService = (browser: AgentBrowser) =>
           // describe the Run's own effect on the machine, not the machine.
           const environment = describeEnvironment();
 
+          const directory = runDirectory(
+            options.outputDirectory,
+            flowId,
+            startedAt,
+            runId
+          );
+          const { capture, openingUrl, segments } = yield* prepareCapture(
+            flow,
+            options,
+            variables,
+            directory
+          );
+
           const attempts: RunAttempt[] = [];
           let inFlight:
             | { attempt: number; startedAt: Date; steps: RunStep[] }
@@ -857,7 +1082,15 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                 flow,
                 sessionId,
                 variables,
-                steps
+                steps,
+                capture
+                  ? {
+                      file: path.join(directory, `attempt-${index + 1}.webm`),
+                      openAt: openingUrl,
+                      segments,
+                    }
+                  : undefined,
+                index + 1
               );
               const attemptFinishedAt = yield* nowIso;
               inFlight = undefined;
@@ -917,7 +1150,17 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             runId,
             startedAt: startedAt.toISOString(),
             steps: last?.steps ?? [],
+            video: capture,
           };
+
+          yield* writeVideoManifest(capture, directory, {
+            // Capture is not suspended while a Step enters a secret, so a
+            // recording of a Flow that declares one may show it in plaintext
+            // (ADR 0010). Said plainly here so an upload adapter can refuse.
+            containsSecrets: variables.secretNames.size > 0,
+            runId,
+            segments,
+          });
 
           return yield* persist(record, options.outputDirectory, startedAt);
         })

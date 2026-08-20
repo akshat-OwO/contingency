@@ -7,6 +7,7 @@ import path from "node:path";
 import type { Flow, Run } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Layer } from "effect";
+import type { Scope } from "effect/Scope";
 
 import { AgentBrowserLive } from "../../src/services/agent-browser";
 import type {
@@ -120,9 +121,9 @@ export const runFlow = (
   target: Flow,
   options?: Partial<RunnerRunOptions>
 ): Effect.Effect<
-  { readonly persisted: Run; readonly run: Run },
+  { readonly directory: string; readonly persisted: Run; readonly run: Run },
   unknown,
-  RunnerService | FileSystem.FileSystem
+  RunnerService | FileSystem.FileSystem | Scope
 > =>
   Effect.gen(function* executeFlow() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -144,5 +145,7 @@ export const runFlow = (
       .readFileString(path.join(directory, "run.json"))
       .pipe(Effect.map((contents) => JSON.parse(contents) as Run));
 
-    return { persisted, run };
-  }).pipe(Effect.scoped);
+    // The temporary output directory belongs to the caller's scope, not this
+    // one: a test that reads the Run's artifacts has to outlive the Run.
+    return { directory, persisted, run };
+  });

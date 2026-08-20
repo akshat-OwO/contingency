@@ -63,6 +63,12 @@ export const runCommand = Command.make(
       ),
       Flag.withDefault(Duration.toSeconds(DEFAULT_TIMEOUT))
     ),
+    video: Flag.boolean("video").pipe(
+      Flag.withDescription(
+        "Capture the Run's browser session to WebM, one file per attempt. Overrides the Flow's own setting. Recordings are not redacted."
+      ),
+      Flag.optional
+    ),
   },
   Effect.fnUntraced(function* runFlow({
     flowPath,
@@ -70,6 +76,7 @@ export const runCommand = Command.make(
     retry,
     secret,
     timeout,
+    video,
   }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const runner = yield* Runner;
@@ -112,6 +119,18 @@ export const runCommand = Command.make(
       yield* Console.warn(`Warning: ${warning}`);
     }
 
+    const capture = Option.isSome(video)
+      ? video.value
+      : (flow.contingency?.video ?? false);
+    if (capture && (flow.contingency?.variables ?? []).some((v) => v.secret)) {
+      // Capture is deliberately not suspended while a Step enters a secret, so
+      // the recording shows in plaintext what run.json redacts (ADR 0010).
+      // Accepted, but never silent.
+      yield* Console.warn(
+        "Warning: this Flow declares secret Variables and video is on. The recording will show their values in plaintext, unlike the Run."
+      );
+    }
+
     yield* agentBrowser.init().pipe(
       Effect.mapError(
         (cause) =>
@@ -126,6 +145,7 @@ export const runCommand = Command.make(
       retry,
       timeout: Duration.seconds(timeout),
       variables: resolution,
+      video: capture,
     });
 
     if (run.attempts.length > 1) {

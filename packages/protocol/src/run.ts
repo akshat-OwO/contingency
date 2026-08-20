@@ -221,6 +221,41 @@ export const RunAttempt = Schema.Struct({
 export type RunAttempt = typeof RunAttempt.Type;
 
 /**
+ * One attempt's recording. `file` is relative to the Run's own directory, so a
+ * Run stays portable when it is copied somewhere else.
+ *
+ * A capture that produced no file is still recorded, with the reason. Video is
+ * an observation aid, so a capture that failed never fails the Run — but a
+ * silently absent file would leave someone hunting for a recording that was
+ * never written.
+ */
+export const RunVideoSegment = Schema.Struct({
+  attempt: Schema.Int,
+  error: Schema.optional(nonEmptyString),
+  file: nonEmptyString,
+  recorded: Schema.Boolean,
+});
+export type RunVideoSegment = typeof RunVideoSegment.Type;
+
+/**
+ * What was captured for a Run, written beside it.
+ *
+ * Capture is deliberately not suspended while a Step enters a secret value, so
+ * a recording contains credentials in plaintext that `run.json` redacts
+ * (ADR 0010). {@link RunVideoManifest.containsSecrets} says so explicitly, so a
+ * future upload adapter refuses by default rather than shipping credentials to
+ * object storage.
+ */
+export const RunVideoManifest = Schema.Struct({
+  /** The Flow declared a secret Variable, so the capture may show one. */
+  containsSecrets: Schema.Boolean,
+  runId: nonEmptyString,
+  /** One per attempt: the attempt worth watching is usually the failed one. */
+  segments: Schema.Array(RunVideoSegment),
+});
+export type RunVideoManifest = typeof RunVideoManifest.Type;
+
+/**
  * One execution of a Flow. Self-contained: it embeds the Flow it executed plus
  * that Flow's content hash, so a Run stays interpretable when it travels
  * without its Flow file, and so a later Baseline comparison can cheaply detect
@@ -247,6 +282,14 @@ export const Run = Schema.Struct({
   runId: nonEmptyString,
   startedAt: Instant,
   steps: Schema.Array(RunStep),
+  /**
+   * Whether this Run was captured to video. Capture costs the machine under
+   * measurement, inflating LCP and INP, so a recorded Run may not be
+   * comparable to an unrecorded Baseline (ADR 0010). True whenever capture was
+   * running, including when a file later failed to flush — the overhead was
+   * paid either way.
+   */
+  video: Schema.Boolean,
 });
 export type Run = typeof Run.Type;
 

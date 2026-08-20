@@ -172,6 +172,33 @@ export interface AgentBrowser {
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
+   * Begin capturing this session to a WebM file.
+   *
+   * Must be called before the session's first navigation. Verified against the
+   * bundled binary: starting a capture builds a fresh browser context, which
+   * drops `localStorage` — so starting mid-Run logs out any Flow whose session
+   * lives there, and re-navigates the page besides.
+   */
+  readonly startVideo: (
+    sessionId: SessionId,
+    file: string,
+    /**
+     * The page to open as capture begins. Verified against the bundled binary:
+     * starting on a blank page and navigating afterwards records nothing at
+     * all about three times in five, while letting the recorder open the page
+     * itself recorded five times in five. It performs the Flow's own first
+     * navigation, so there is still exactly one.
+     */
+    url?: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Flush the capture to disk, reporting why if it did not. Video is an
+   * observation aid, so a capture that failed is never the Run's failure.
+   */
+  readonly stopVideo: (
+    sessionId: SessionId
+  ) => Effect.Effect<string | undefined, BrowserRpcErrorType>;
+  /**
    * An opaque identity for the document currently loaded, so a caller can tell
    * whether a navigation has happened yet.
    */
@@ -1685,6 +1712,42 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    /**
+     * How the browser says there was nothing to stop. Verified against the
+     * bundled binary, which answers `{"success": false}` rather than failing.
+     */
+    const NO_RECORDING = "No recording in progress";
+
+    const startVideo = Effect.fn("AgentBrowser.startVideo")(
+      function* startVideo(sessionId: SessionId, file: string, url?: string) {
+        const normalized =
+          url === undefined ? undefined : yield* normalizeUrl(url);
+        yield* runBatch(sessionId, [
+          normalized === undefined
+            ? ["record", "start", file]
+            : ["record", "start", file, normalized],
+        ]);
+      }
+    );
+
+    const stopVideo = Effect.fn("AgentBrowser.stopVideo")(function* stopVideo(
+      sessionId: SessionId
+    ) {
+      const outcome = yield* Effect.result(
+        runBatch(sessionId, [["record", "stop"]])
+      );
+      if (outcome._tag === "Success") {
+        return;
+      }
+      // Nothing to flush, and a capture that produced no frames at all, are
+      // both reported here rather than raised: neither says the Run failed.
+      // Verified against the bundled binary, which intermittently ends a
+      // capture with `No frames captured`.
+      return outcome.failure.message.includes(NO_RECORDING)
+        ? NO_RECORDING
+        : outcome.failure.message;
+    });
+
     const documentIdentity = Effect.fn("AgentBrowser.documentIdentity")(
       function* documentIdentity(sessionId: SessionId) {
         const results = yield* runBatch(sessionId, [
@@ -2070,6 +2133,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       setStorage,
       setUserAgent,
       setViewport,
+      startVideo,
+      stopVideo,
       stream,
       switchTab,
       typeSelector,
