@@ -84,7 +84,7 @@ class CalibrationError extends Data.TaggedError("CalibrationError")<{
 }> {}
 
 /**
- * The bytes served as the page's marker image: a real but small PNG.
+ * The bytes served as the page's marker image: a real 64×36 PNG.
  *
  * Deliberately too small to be the LCP element. An image large enough to win
  * LCP made the metric depend on the condition rather than measure it: a
@@ -94,11 +94,9 @@ class CalibrationError extends Data.TaggedError("CalibrationError")<{
  * image exists to prove the Run really fetched the page, nothing more.
  */
 const HERO_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAIAAACwpMoFAAAAoklEQVR42u3RAQ0AAAjDsE" +
-    "tFAlKQjA9oMgVrqkeHiwWABViABViABViAAQuwAAuwAAuwAAMWYAEWYAEWYAEWYMACLMAC" +
-    "LMACLMCABViABViABViAAQuwAAuwAAuwAAswYAEWYAEWYAEWYMACLMACLMACLMCAXQAswA" +
-    "IswAIswAIMWIAFWIAFWIAFGLAAC7AAC7AAC7AAAxZgARZgARZgAf7VAtcMXIT1zF4jAAAA" +
-    "AElFTkSuQmCC",
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAkCAIAAAC2bqvFAAAAOklEQVR42u3PQQkAAAgEsI" +
+    "tqBKMY2Qw+hcEKLNXzWgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEbhYCnWC1Lio5IQAA" +
+    "AABJRU5ErkJggg==",
   "base64"
 );
 
@@ -285,7 +283,15 @@ const runOnce = Effect.fn("calibration.runOnce")(function* runOnce(
     excluded = `video was requested but cannot be counted on: ${observed.videoFailure}`;
   } else if (!heroFetched) {
     excluded =
-      "the hero image was never requested, so this Run measured a warm cache rather than the page";
+      "the marker image was never requested, so this Run measured a warm cache rather than the page";
+  } else if (observed.vitals?.lcp === undefined) {
+    // A headless browser paints only when it has reason to, and an uncaptured
+    // Run sometimes never gives it one: the page reports no paint and no
+    // interaction, only the metrics that need neither. Counting those Runs by
+    // quietly shrinking one condition's sample would compare the Runs that
+    // happened to paint against every Run of the other condition.
+    excluded =
+      "the page reported no paint, so this Run has no LCP or INP to compare";
   }
 
   const { environment, run, videoBytes, vitals } = observed;
