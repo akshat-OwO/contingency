@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { Run, RunVideoManifest } from "@contingency/protocol";
 import {
   Console,
   Data,
@@ -35,6 +36,39 @@ class RunDidNotComplete extends Data.TaggedError("RunDidNotComplete")<{
   readonly [Runtime.errorExitCode] = 1;
 }
 
+/**
+ * How to say that a captured Run produced no recording, when it produced none.
+ *
+ * The browser tool encodes captures with `ffmpeg` and does not bundle it, so a
+ * machine without it records nothing. Whatever the reason, asking for video
+ * and silently getting none sends someone hunting for a file.
+ */
+const videoWarning = Effect.fn("run.videoWarning")(function* videoWarning(
+  run: Run,
+  directory: string
+) {
+  if (!run.video) {
+    return;
+  }
+  const fileSystem = yield* FileSystem.FileSystem;
+  const read = yield* Effect.result(
+    fileSystem.readFileString(path.join(directory, "video.json"))
+  );
+  if (read._tag === "Failure") {
+    return;
+  }
+  const manifest = JSON.parse(read.success) as RunVideoManifest;
+  const missing = manifest.segments
+    .filter(({ recorded }) => !recorded)
+    .map(
+      ({ attempt, error }) =>
+        `attempt ${attempt} (${error ?? "no reason given"})`
+    );
+  return missing.length === 0
+    ? undefined
+    : `Warning: video was requested but ${missing.length} ${missing.length === 1 ? "attempt" : "attempts"} produced no recording: ${missing.join("; ")}`;
+});
+
 export const runCommand = Command.make(
   "run",
   {
@@ -63,6 +97,12 @@ export const runCommand = Command.make(
       ),
       Flag.withDefault(Duration.toSeconds(DEFAULT_TIMEOUT))
     ),
+    video: Flag.boolean("video").pipe(
+      Flag.withDescription(
+        "Capture the Run's browser session to WebM, one file per attempt. Overrides the Flow's own setting. Recordings are not redacted."
+      ),
+      Flag.optional
+    ),
   },
   Effect.fnUntraced(function* runFlow({
     flowPath,
@@ -70,6 +110,7 @@ export const runCommand = Command.make(
     retry,
     secret,
     timeout,
+    video,
   }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const runner = yield* Runner;
@@ -112,6 +153,18 @@ export const runCommand = Command.make(
       yield* Console.warn(`Warning: ${warning}`);
     }
 
+    const capture = Option.isSome(video)
+      ? video.value
+      : (flow.contingency?.video ?? false);
+    if (capture && (flow.contingency?.variables ?? []).some((v) => v.secret)) {
+      // Capture is deliberately not suspended while a Step enters a secret, so
+      // the recording shows in plaintext what run.json redacts (ADR 0010).
+      // Accepted, but never silent.
+      yield* Console.warn(
+        "Warning: this Flow declares secret Variables and video is on. The recording will show their values in plaintext, unlike the Run."
+      );
+    }
+
     yield* agentBrowser.init().pipe(
       Effect.mapError(
         (cause) =>
@@ -126,6 +179,7 @@ export const runCommand = Command.make(
       retry,
       timeout: Duration.seconds(timeout),
       variables: resolution,
+      video: capture,
     });
 
     if (run.attempts.length > 1) {
@@ -181,6 +235,11 @@ export const runCommand = Command.make(
       yield* Console.warn(
         `Warning: ${unmeasured} ${unmeasured === 1 ? "Step" : "Steps"} asked for Core Web Vitals but could not be measured.`
       );
+    }
+
+    const unrecorded = yield* videoWarning(run, directory);
+    if (unrecorded !== undefined) {
+      yield* Console.warn(unrecorded);
     }
 
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);

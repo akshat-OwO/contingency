@@ -6,6 +6,7 @@ import type {
   Flow,
   PreStep,
   Run,
+  RunVideoManifest,
   SessionId,
 } from "@contingency/protocol";
 import {
@@ -14,7 +15,8 @@ import {
   runIsBaselineEligible,
 } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Duration, Effect, FileSystem } from "effect";
+import { Duration, Effect, Fiber, FileSystem } from "effect";
+import { TestClock } from "effect/testing";
 
 import type { AgentBrowser } from "../../src/services/agent-browser";
 import {
@@ -44,8 +46,12 @@ const makeFixture = (options?: {
   /** HTTP status the loaded document reports. Defaults to a served page. */
   readonly documentStatus?: number;
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
+  /** A page that never settles, so only interruption ends the Run. */
+  readonly neverSettles?: boolean;
   /** Wall-clock a navigation takes, for exercising the Run's own ceiling. */
   readonly navigationDelay?: Duration.Duration;
+  /** Why the recorder produced no file, when it did not produce one. */
+  readonly videoError?: string;
   /** Core Web Vitals the page reports, when a Step asks to be measured. */
   readonly vitals?: CoreWebVitals | "unmeasurable";
   /** Rules the engine counted more violations for than it listed. */
@@ -117,6 +123,9 @@ const makeFixture = (options?: {
       ),
     documentStatus: () =>
       record("documentStatus", []).pipe(
+        Effect.andThen(
+          options?.neverSettles === true ? Effect.never : Effect.void
+        ),
         Effect.as(options?.documentStatus ?? 200)
       ),
     fillSelector: (_session, selector, value) =>
@@ -137,6 +146,10 @@ const makeFixture = (options?: {
       ),
     keyDown: (_session, key) => record("keyDown", [key]),
     keyUp: (_session, key) => record("keyUp", [key]),
+    startVideo: (_session, file) => record("startVideo", [file]),
+    stopLoading: () => record("stopLoading", []),
+    stopVideo: () =>
+      record("stopVideo", []).pipe(Effect.as(options?.videoError)),
     typeSelector: (_session, selector, value) =>
       record("type", [selector, value]),
     waitForSelector: (_session, selector) => record("wait", [selector]),
@@ -206,6 +219,9 @@ it.effect(
         "fill",
         "wait",
         "keyDown",
+        // The page is told to stop loading before the session closes: a close
+        // that waits on a navigation still in flight takes 27 seconds.
+        "stopLoading",
         "close",
       ]);
       const [created] = fixture.calls;
@@ -1133,7 +1149,12 @@ it.effect("holds a modifier across the Steps it was recorded around", () => {
     // while it is held, and it comes back up.
     expect(
       fixture.calls
-        .filter(({ command }) => command !== "create" && command !== "close")
+        .filter(
+          ({ command }) =>
+            command !== "create" &&
+            command !== "close" &&
+            command !== "stopLoading"
+        )
         .map(({ command }) => command)
     ).toEqual([
       "goto",
@@ -1285,7 +1306,9 @@ it.effect("runs an Audit at its own position in Flow order", () => {
     );
 
     expect(
-      fixture.calls.map(({ command }) => command).filter((c) => c !== "close")
+      fixture.calls
+        .map(({ command }) => command)
+        .filter((c) => c !== "close" && c !== "stopLoading")
     ).toEqual(["create", "goto", "documentStatus", "audit", "click", "audit"]);
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
@@ -1671,5 +1694,166 @@ it.effect("does not wait on a click the Recorder said stays put", () => {
     expect(
       fixture.calls.some(({ command }) => command === "documentIdentity")
     ).toBe(false);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+// What a Ctrl-C ultimately does to the Runner, once the signal has travelled
+// through the process. That whole path is covered by the integration suite,
+// which sends a real SIGINT to a real CLI; this covers only the Runner's end
+// of it, cheaply and deterministically.
+it.effect("stops the recording when the Run's fiber is interrupted", () => {
+  // Never finishes, so the Run cannot complete and interruption is the only
+  // way out. A Run that merely took a while would pass this test by finishing.
+  const fixture = makeFixture({ neverSettles: true });
+
+  return Effect.gen(function* interruptedCapture() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const running = yield* Effect.forkChild(
+      runner.run(flow([{ type: "navigate", url: "https://example.com/" }]), {
+        outputDirectory: "/runs",
+        video: true,
+      })
+    );
+
+    // Let the attempt reach its navigation, then cut it short the way a
+    // cancelled CI job or a Ctrl-C does.
+    yield* TestClock.adjust(Duration.seconds(1));
+    yield* Fiber.interrupt(running);
+
+    // An unflushed recording is a lost recording, and the Runs whose video
+    // matters most are exactly the ones that never reach a tidy end.
+    expect(fixture.calls.map(({ command }) => command)).toContain("stopVideo");
+    // Interrupted, not finished: a Run that completed would prove nothing.
+    expect(running.pollUnsafe()?._tag).toBe("Failure");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("gives every attempt of a retried Run its own recording", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "click" ? "Element not found: #gone" : undefined,
+  });
+
+  return Effect.gen(function* perAttemptFiles() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        { offsetX: 1, offsetY: 2, selectors: [["#gone"]], type: "click" },
+      ]),
+      { outputDirectory: "/runs", retry: 2, video: true }
+    );
+
+    expect(result.attempts).toHaveLength(3);
+    // The attempt worth watching is usually the one that failed, so they do
+    // not overwrite each other.
+    const files = fixture.calls
+      .filter(({ command }) => command === "startVideo")
+      .map(({ args }) => (args[0] ?? "").split("/").at(-1));
+    expect(files).toEqual([
+      "attempt-1.webm",
+      "attempt-2.webm",
+      "attempt-3.webm",
+    ]);
+
+    const manifest = JSON.parse(
+      fixture.written.find(({ path: target }) => target.endsWith("video.json"))
+        ?.contents ?? "{}"
+    ) as RunVideoManifest;
+    expect(manifest.segments.map(({ attempt }) => attempt)).toEqual([1, 2, 3]);
+    expect(result.video).toBe(true);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records why an attempt produced no recording", () => {
+  const fixture = makeFixture({ videoError: "No frames captured" });
+
+  return Effect.gen(function* failedCapture() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([{ type: "navigate", url: "https://example.com/" }]),
+      { outputDirectory: "/runs", video: true }
+    );
+
+    // The Run did its work; nobody filmed it. Those are different things.
+    expect(result.outcome).toBe("completed");
+    const manifest = JSON.parse(
+      fixture.written.find(({ path: target }) => target.endsWith("video.json"))
+        ?.contents ?? "{}"
+    ) as RunVideoManifest;
+    // Someone looking for the recording needs to find out why there isn't
+    // one, rather than find nothing at all.
+    expect(manifest.segments[0]).toEqual({
+      attempt: 1,
+      error: "No frames captured",
+      file: "attempt-1.webm",
+      recorded: false,
+    });
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("says a capture of a Flow with secrets may show them", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* secretsInCapture() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(
+      flow([{ type: "navigate", url: "https://example.com/" }], {
+        variables: [{ name: "PASSWORD", runtime: false, secret: true }],
+      }),
+      {
+        outputDirectory: "/runs",
+        variables: {
+          secretNames: new Set(["PASSWORD"]),
+          values: new Map([["PASSWORD", "hunter2"]]),
+        },
+        video: true,
+      }
+    );
+
+    const manifest = JSON.parse(
+      fixture.written.find(({ path: target }) => target.endsWith("video.json"))
+        ?.contents ?? "{}"
+    ) as RunVideoManifest;
+    // Capture is not suspended while a Step types a secret (ADR 0010), so an
+    // upload adapter has to be able to refuse this file by default.
+    expect(manifest.containsSecrets).toBe(true);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("captures nothing when neither the Flow nor the flag asks", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* noCapture() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([{ type: "navigate", url: "https://example.com/" }]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(result.video).toBe(false);
+    expect(fixture.calls.some(({ command }) => command === "startVideo")).toBe(
+      false
+    );
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("lets the flag turn off a Flow that asks for video", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* flagOverrides() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([{ type: "navigate", url: "https://example.com/" }], {
+        video: true,
+      }),
+      { outputDirectory: "/runs", video: false }
+    );
+
+    // A Flow that always asks can be silenced for a fast Run.
+    expect(result.video).toBe(false);
+    expect(fixture.calls.some(({ command }) => command === "startVideo")).toBe(
+      false
+    );
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });

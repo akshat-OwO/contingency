@@ -39,6 +39,7 @@ import {
   Console,
   Context,
   Data,
+  Duration,
   Effect,
   FileSystem,
   Layer,
@@ -170,6 +171,45 @@ export interface AgentBrowser {
   readonly goto: (
     sessionId: SessionId,
     url: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Begin capturing this session to a WebM file.
+   *
+   * Must be called before the session's first navigation. Verified against the
+   * bundled binary: starting a capture builds a fresh browser context, which
+   * drops `localStorage` — so starting mid-Run logs out any Flow whose session
+   * lives there, and re-navigates the page besides.
+   */
+  readonly startVideo: (
+    sessionId: SessionId,
+    file: string,
+    /**
+     * The page to open as capture begins. Verified against the bundled binary:
+     * starting on a blank page and navigating afterwards records nothing at
+     * all about three times in five, while letting the recorder open the page
+     * itself recorded five times in five. It performs the Flow's own first
+     * navigation, so there is still exactly one.
+     */
+    url?: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Flush the capture to disk, reporting why if it did not. Video is an
+   * observation aid, so a capture that failed is never the Run's failure.
+   */
+  readonly stopVideo: (
+    sessionId: SessionId
+  ) => Effect.Effect<string | undefined, BrowserRpcErrorType>;
+  /**
+   * Stop whatever the page is still loading.
+   *
+   * Closing a browser waits for a navigation still in flight — verified
+   * against the bundled binary at 27 seconds, against 0.1 idle — and a Run is
+   * torn down uninterruptibly, so that wait is exactly how long Ctrl-C appears
+   * to do nothing. Stopping the load first brings the close back to 0.2s
+   * without abandoning the browser to be cleaned up later.
+   */
+  readonly stopLoading: (
+    sessionId: SessionId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
    * An opaque identity for the document currently loaded, so a caller can tell
@@ -499,6 +539,11 @@ const AuditReport = Schema.Struct({
  * that keeps it. `readyState` distinguishes a document still arriving from one
  * that has settled.
  */
+/**
+ * How long the process spends closing sessions it opened, on the way out.
+ */
+const SHUTDOWN_TIMEOUT = Duration.seconds(5);
+
 const DOCUMENT_IDENTITY =
   'performance.timeOrigin + "|" + location.href + "|" + document.readyState';
 
@@ -1685,6 +1730,48 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    /**
+     * How the browser says there was nothing to stop. Verified against the
+     * bundled binary, which answers `{"success": false}` rather than failing.
+     */
+    const NO_RECORDING = "No recording in progress";
+
+    const startVideo = Effect.fn("AgentBrowser.startVideo")(
+      function* startVideo(sessionId: SessionId, file: string, url?: string) {
+        const normalized =
+          url === undefined ? undefined : yield* normalizeUrl(url);
+        yield* runBatch(sessionId, [
+          normalized === undefined
+            ? ["record", "start", file]
+            : ["record", "start", file, normalized],
+        ]);
+      }
+    );
+
+    const stopVideo = Effect.fn("AgentBrowser.stopVideo")(function* stopVideo(
+      sessionId: SessionId
+    ) {
+      const outcome = yield* Effect.result(
+        runBatch(sessionId, [["record", "stop"]])
+      );
+      if (outcome._tag === "Success") {
+        return;
+      }
+      // Nothing to flush, and a capture that produced no frames at all, are
+      // both reported here rather than raised: neither says the Run failed.
+      // Verified against the bundled binary, which intermittently ends a
+      // capture with `No frames captured`.
+      return outcome.failure.message.includes(NO_RECORDING)
+        ? NO_RECORDING
+        : outcome.failure.message;
+    });
+
+    const stopLoading = Effect.fn("AgentBrowser.stopLoading")(
+      function* stopLoading(sessionId: SessionId) {
+        yield* runBatch(sessionId, [["eval", "window.stop()"]]);
+      }
+    );
+
     const documentIdentity = Effect.fn("AgentBrowser.documentIdentity")(
       function* documentIdentity(sessionId: SessionId) {
         const results = yield* runBatch(sessionId, [
@@ -2026,13 +2113,18 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         tabMetadata.clear();
 
         if (yield* Ref.get(ownsSessions)) {
+          // Bounded: a finalizer runs uninterruptibly, so an unbounded close
+          // here is time a cancelled command spends ignoring Ctrl-C. Closing a
+          // session with work still in flight takes tens of seconds — verified
+          // against the bundled binary — and by this point whatever owned the
+          // session has already closed it deliberately.
           yield* run([
             "--namespace",
             namespace,
             "close",
             "--all",
             "--json",
-          ]).pipe(Effect.ignore);
+          ]).pipe(Effect.timeoutOption(SHUTDOWN_TIMEOUT), Effect.ignore);
         }
       })
     );
@@ -2070,6 +2162,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       setStorage,
       setUserAgent,
       setViewport,
+      startVideo,
+      stopLoading,
+      stopVideo,
       stream,
       switchTab,
       typeSelector,

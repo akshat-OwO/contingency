@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -7,6 +8,7 @@ import path from "node:path";
 import type { Flow, Run } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Layer } from "effect";
+import type { Scope } from "effect/Scope";
 
 import { AgentBrowserLive } from "../../src/services/agent-browser";
 import type {
@@ -33,6 +35,32 @@ export const IntegrationLive = RunnerLive.pipe(
 );
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
+
+/**
+ * Whether this machine can produce a recording at all.
+ *
+ * The browser tool encodes captures with `ffmpeg`, which it expects to find on
+ * the PATH and does not bundle. Verified against the bundled binary: without
+ * it `record start` still reports success and `record stop` fails, so a
+ * machine without `ffmpeg` produces no file and the Run says why.
+ *
+ * Tests that assert a recording exists are skipped there rather than failed:
+ * the absence is the environment's, not the code's.
+ */
+export const canRecordVideo = (): boolean =>
+  (process.env["PATH"] ?? "")
+    .split(path.delimiter)
+    .some((directory) => existsSync(path.join(directory, "ffmpeg")));
+
+/**
+ * What the fixture page requests once a Step has typed into it. Waiting for
+ * this proves the Run is past its opening navigation and working through
+ * Steps, which request arrival and an empty recording file do not.
+ */
+export const STEP_BEACON = "/step-beacon";
+
+/** A path the fixture server accepts and never responds to. */
+export const NEVER_ANSWERED = "/never-answered.bin";
 
 const NOT_FOUND = 404;
 const OK = 200;
@@ -70,7 +98,14 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
       const created = createServer((request, response) => {
         const url = request.url ?? "/";
         requests.push(url);
-        const page = pages.get(new URL(url, "http://fixtures").pathname);
+        const { pathname } = new URL(url, "http://fixtures");
+        // Answered by nothing at all, so a Run that asks for it waits: the
+        // only way to test what an interrupted Run leaves behind is to have
+        // one still running when the signal arrives.
+        if (pathname === NEVER_ANSWERED) {
+          return;
+        }
+        const page = pages.get(pathname);
         if (page === undefined) {
           response.writeHead(NOT_FOUND).end();
           return;
@@ -89,7 +124,12 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
       // `null` rather than nothing: the formatter rewrites an explicit
       // `undefined` here into a zero-argument call that does not typecheck.
       Effect.callback<null>((resume) => {
-        // Waiting for the close to finish, so a finished test leaves no
+        // Sockets first: `close` waits for open requests to finish, and this
+        // server answers one of them deliberately never. Without this a test
+        // that leaves that request in flight hangs teardown until the suite
+        // times out, which is a confusing way to report any failure.
+        created.closeAllConnections();
+        // Then wait for the close itself, so a finished test leaves no
         // listening socket behind for the next one to trip over.
         created.close(() => {
           resume(Effect.succeed(null));
@@ -120,9 +160,9 @@ export const runFlow = (
   target: Flow,
   options?: Partial<RunnerRunOptions>
 ): Effect.Effect<
-  { readonly persisted: Run; readonly run: Run },
+  { readonly directory: string; readonly persisted: Run; readonly run: Run },
   unknown,
-  RunnerService | FileSystem.FileSystem
+  RunnerService | FileSystem.FileSystem | Scope
 > =>
   Effect.gen(function* executeFlow() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -144,5 +184,7 @@ export const runFlow = (
       .readFileString(path.join(directory, "run.json"))
       .pipe(Effect.map((contents) => JSON.parse(contents) as Run));
 
-    return { persisted, run };
-  }).pipe(Effect.scoped);
+    // The temporary output directory belongs to the caller's scope, not this
+    // one: a test that reads the Run's artifacts has to outlive the Run.
+    return { directory, persisted, run };
+  });

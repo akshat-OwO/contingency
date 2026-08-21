@@ -4,8 +4,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     fileParallelism: false,
-    hookTimeout: 120_000,
+    hookTimeout: 180_000,
     include: ["tests/integration/**/*.test.ts"],
-    testTimeout: 120_000,
+    testTimeout: 180_000,
   },
 });
