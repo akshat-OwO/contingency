@@ -75,3 +75,36 @@ it.live.skipIf(!canRecordVideo())("captures a Run to a playable WebM", () =>
     expect(leadingHex(bytes, 4)).toBe(EBML);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
+
+it.live.skipIf(!canRecordVideo())(
+  "still measures Core Web Vitals while capturing the Run to video",
+  () =>
+    Effect.gen(function* vitalsUnderCapture() {
+      const fixtures = yield* fixtureServer;
+
+      // Capture and measurement have to hold at once: a recording context is
+      // a fresh browser context that inherits nothing from the session that
+      // opened it, so a Run that filmed itself used to collect no vitals at
+      // all — silently, because nothing about the Run failed.
+      const { persisted } = yield* runFlow(
+        flow([
+          {
+            contingency: { id: "open", performance: true },
+            type: "navigate",
+            url: fixtures.url("checkout.html"),
+          },
+          { selectors: [["#name"]], type: "change", value: "Ada Lovelace" },
+        ]),
+        { video: true }
+      );
+
+      expect(persisted.outcome).toBe("completed");
+      const measured = persisted.steps.find(
+        (step) => step.vitals !== undefined
+      );
+      // The opening navigation is the Run's own, performed after the capture
+      // began, so it is measured like any other — including its LCP, which a
+      // fresh context that never re-armed the recorder could not report.
+      expect(measured?.vitals?.lcp).toBeGreaterThan(0);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);

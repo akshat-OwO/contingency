@@ -108,6 +108,7 @@ const resetStorageCalls = () => {
 
 const agentBrowserStub: AgentBrowser = {
   acknowledgeFrame: unused,
+  armVitalsRecorder: unused,
   attach: unused,
   audit: unused,
   cdpUrl: unused,

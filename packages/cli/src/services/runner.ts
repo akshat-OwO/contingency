@@ -446,10 +446,9 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   step: FlowStep,
   index: number,
   /**
-   * The recorder already opened this Step's URL. It performs the Flow's own
-   * first navigation when a Run is being captured, because starting a capture
-   * on a blank page and navigating afterwards records nothing at all more
-   * often than not.
+   * The recorder already opened this Step's URL: it performs the Flow's own
+   * first navigation when a Run is captured, because a capture that starts on
+   * a blank page and navigates afterwards records nothing more often than not.
    */
   alreadyOpen = false
 ) {
@@ -718,7 +717,8 @@ const reportable = (message: string): string => {
 };
 
 /**
- * Run `replay` with the session captured to video, flushing on every exit path.
+ * Run `replay` with the session captured to video, flushing on every exit
+ * path.
  *
  * The finalizer is the whole point. An unflushed recording is a lost
  * recording, and the Runs whose video matters most — a failed Step, a Run that
@@ -909,6 +909,15 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
               if (measuresPerformance(step)) {
                 pending = steps.length;
               }
+              if (video !== undefined && measures && stepNavigates(step)) {
+                // A capture runs the Flow in a fresh browser context that no
+                // init script can reach, so the vitals recorder is registered
+                // by evaluating it into the page this Step just arrived at —
+                // before any later Step interacts with it. A page that was
+                // never armed reports no vitals rather than wrong ones, and
+                // the attempt's failure path arms nothing.
+                yield* Effect.result(browser.armVitalsRecorder(opened));
+              }
               steps.push({
                 ...base,
                 // Findings never change an outcome: every real site has
@@ -1035,9 +1044,10 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             )
           );
         }
-        // The recorder opens the Flow's own first page when it can, because a
-        // capture that starts on a blank page records nothing at all more
-        // often than not. It is the same single navigation either way.
+        // The recorder opens the Flow's own first page when it can: a capture
+        // that starts on a blank page and navigates afterwards records nothing
+        // more often than not. It is the same single navigation either way,
+        // and the Runner arms its vitals recorder into that page afterwards.
         const first = flow.steps.at(0);
         return {
           capture,

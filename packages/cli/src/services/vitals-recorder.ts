@@ -12,6 +12,12 @@
  * The browser tool registers this before the first navigation and re-runs it on
  * every navigation after, so each document records its own metrics from the
  * start and no page is ever measured by asking it to do something again.
+ *
+ * The opening guard makes arming idempotent: a Run captured to video registers
+ * this by evaluating it into each page it arrives at, because no init script
+ * can reach a recording context (see {@link VITALS_COLLECTOR}'s sibling
+ * arming path in the browser service). Re-running without the guard would
+ * replace the state mid-page and lose every interaction already observed.
  */
 
 /** Where the page keeps what it has recorded, for the reader to collect. */
@@ -24,7 +30,7 @@ export const VITALS_GLOBAL = "__contingencyVitals";
 const EVENT_DURATION_THRESHOLD_MS = 16;
 
 /** Registered as a page init script, so it runs before any page script. */
-export const VITALS_RECORDER = `(() => {
+export const VITALS_RECORDER = `window[${JSON.stringify(VITALS_GLOBAL)}] || (() => {
   const state = { firstInput: null, interactions: {}, lcp: null, shifts: [] };
   window[${JSON.stringify(VITALS_GLOBAL)}] = state;
   const observe = (type, handler, options) => {
