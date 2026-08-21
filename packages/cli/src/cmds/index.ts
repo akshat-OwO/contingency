@@ -2,6 +2,7 @@ import { Console, Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 
 import { AgentBrowser } from "../services/agent-browser";
+import { runCommand } from "./run";
 import { webCommand } from "./web";
 
 const rootCommand = Command.make("contingency", {}, () =>
@@ -13,4 +14,6 @@ const rootCommand = Command.make("contingency", {}, () =>
   })
 );
 
-export const commands = rootCommand.pipe(Command.withSubcommands([webCommand]));
+export const commands = rootCommand.pipe(
+  Command.withSubcommands([runCommand, webCommand])
+);

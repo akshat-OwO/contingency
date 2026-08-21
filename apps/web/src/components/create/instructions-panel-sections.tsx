@@ -28,12 +28,10 @@ import {
 
 const stepLabel = (
   step: RecordedStep["step"] | PreStep["step"],
-  secretVariable?: string
+  variable?: string
 ): string => {
   if (step.type === "customStep") {
-    return step.parameters.kind === "accessibility"
-      ? "Accessibility Audit"
-      : "Performance Audit";
+    return "Accessibility Audit";
   }
   if (step.type === "navigate") {
     try {
@@ -43,9 +41,9 @@ const stepLabel = (
     }
   }
   if (step.type === "change") {
-    return secretVariable === undefined
+    return variable === undefined
       ? "Change form value"
-      : `Enter {{${secretVariable}}}`;
+      : `Enter {{${variable}}}`;
   }
   if (step.type === "click") {
     return "Click element";
@@ -83,16 +81,11 @@ const downloadFlow = (recording: RecordingSnapshot): void => {
 interface StepCardProps {
   readonly controller: RecordingAuthoringController;
   readonly index: number;
-  readonly secretVariables: readonly string[];
+  readonly variables: readonly string[];
   readonly step: RecordedStep;
 }
 
-const StepCard = ({
-  controller,
-  index,
-  secretVariables,
-  step,
-}: StepCardProps) => {
+const StepCard = ({ controller, index, variables, step }: StepCardProps) => {
   const { busy, recording } = controller;
   if (recording === null) {
     return null;
@@ -110,7 +103,7 @@ const StepCard = ({
         </Badge>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
-            {stepLabel(step.step, step.secretVariable)}
+            {stepLabel(step.step, step.variable)}
           </p>
           <p
             className="text-muted-foreground truncate text-xs"
@@ -161,27 +154,27 @@ const StepCard = ({
             Add Pre-step
           </Button>
         )}
-        {step.step.type === "change" && step.secretVariable === undefined ? (
+        {step.step.type === "change" && step.variable === undefined ? (
           <Button
             disabled={busy || frozen}
-            onClick={() => controller.bindSecret(step.id, "SECRET")}
+            onClick={() => controller.bindVariable(step.id, "SECRET")}
             size="xs"
             variant="outline"
           >
             Mark secret
           </Button>
         ) : null}
-        {step.step.type === "change" && step.secretVariable !== undefined ? (
+        {step.step.type === "change" && step.variable !== undefined ? (
           <select
-            aria-label={`Secret Variable for Step ${index + 1}`}
+            aria-label={`Variable for Step ${index + 1}`}
             className="bg-background h-7 rounded-md border px-2 text-xs"
             disabled={busy || frozen}
             onChange={(event) =>
-              controller.bindSecret(step.id, event.target.value)
+              controller.bindVariable(step.id, event.target.value)
             }
-            value={step.secretVariable}
+            value={step.variable}
           >
-            {secretVariables.map((name) => (
+            {variables.map((name) => (
               <option key={name} value={name}>
                 {name}
               </option>
@@ -294,22 +287,22 @@ export const RecordingSetup = ({
   );
 };
 
-export const SecretVariablesSection = ({
+export const VariablesSection = ({
   controller,
 }: {
   readonly controller: RecordingAuthoringController;
 }) => {
   const { busy, recording } = controller;
-  const variables = recording?.flow.contingency?.secretVariables ?? [];
+  const variables = recording?.flow.contingency?.variables ?? [];
   if (recording === null || variables.length === 0) {
     return null;
   }
   const frozen =
     recording.phase === "finished" || recording.phase === "incomplete";
   return (
-    <section aria-labelledby="secret-variables-heading" className="space-y-2">
-      <h3 className="text-sm font-medium" id="secret-variables-heading">
-        Secret Variables
+    <section aria-labelledby="variables-heading" className="space-y-2">
+      <h3 className="text-sm font-medium" id="variables-heading">
+        Variables
       </h3>
       {variables.map(({ name }) => (
         <Input
@@ -319,7 +312,7 @@ export const SecretVariablesSection = ({
           key={name}
           onBlur={(event) => {
             if (event.target.value !== name) {
-              controller.renameSecret(name, event.target.value);
+              controller.renameVariable(name, event.target.value);
             }
           }}
         />
@@ -406,8 +399,8 @@ export const RecordedStepsSection = ({
   readonly controller: RecordingAuthoringController;
 }) => {
   const { recording } = controller;
-  const secretVariables =
-    recording?.flow.contingency?.secretVariables?.map(({ name }) => name) ?? [];
+  const variables =
+    recording?.flow.contingency?.variables?.map(({ name }) => name) ?? [];
   return (
     <section aria-labelledby="recorded-steps-heading" className="space-y-3">
       <div className="flex items-center justify-between gap-3">
@@ -438,7 +431,7 @@ export const RecordedStepsSection = ({
               controller={controller}
               index={index}
               key={step.id}
-              secretVariables={secretVariables}
+              variables={variables}
               step={step}
             />
           ))}
@@ -479,14 +472,6 @@ export const AuthoringActions = ({
         variant="outline"
       >
         Add accessibility Audit
-      </Button>
-      <Button
-        disabled={captureBusy}
-        onClick={() => controller.addAudit("performance")}
-        size="sm"
-        variant="outline"
-      >
-        Add performance Audit
       </Button>
       <Button
         disabled={busy || !recording.undoAvailable}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Order confirmed</title>
+  </head>
+  <body>
+    <main>
+      <h1 id="confirmation">Order confirmed</h1>
+      <p id="ordered-by"></p>
+    </main>
+    <script>
+      // Echo what the form carried, so a test can prove the fill reached the
+      // page rather than merely that a Step reported success.
+      const params = new URLSearchParams(window.location.search);
+      document.getElementById("ordered-by").textContent =
+        (params.get("name") ?? "") + " <" + (params.get("email") ?? "") + ">";
+    </script>
+  </body>
+</html>

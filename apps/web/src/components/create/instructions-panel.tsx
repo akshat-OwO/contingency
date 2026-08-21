@@ -5,7 +5,7 @@ import {
   RecordedStepsSection,
   RecordingControls,
   RecordingSetup,
-  SecretVariablesSection,
+  VariablesSection,
 } from "@/components/create/instructions-panel-sections";
 import { useRecordingAuthoring } from "@/components/create/recording-authoring-controller";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,7 +21,7 @@ const InstructionsPanel = () => {
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-5 p-4">
           <RecordingSetup controller={controller} />
-          <SecretVariablesSection controller={controller} />
+          <VariablesSection controller={controller} />
           <FlowPreStepsSection controller={controller} />
           <RecordedStepsSection controller={controller} />
           <AuthoringActions controller={controller} />

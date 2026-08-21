@@ -917,3 +917,469 @@ it.effect(
     ).pipe(Effect.provide(fixture.layer));
   }
 );
+
+/**
+ * The last spawned command, narrowed, with the JSON it was handed on stdin.
+ */
+const lastBatchCommand = (fixture: TestFixture) =>
+  Effect.gen(function* readLastBatchCommand() {
+    const command = fixture.commands.at(-1);
+    if (command?._tag !== "StandardCommand") {
+      return yield* Effect.die(
+        new Error("Expected agent-browser to run as a standard command")
+      );
+    }
+    const options: { readonly stdin?: unknown } = command.options;
+    const source =
+      options.stdin !== null &&
+      typeof options.stdin === "object" &&
+      "stream" in options.stdin
+        ? (options.stdin as { readonly stream: unknown }).stream
+        : options.stdin;
+    if (source === undefined || typeof source === "string") {
+      return yield* Effect.die(
+        new Error("Expected the command to carry a stdin stream")
+      );
+    }
+    const chunks = yield* Stream.runCollect(
+      source as Stream.Stream<Uint8Array>
+    );
+    const text = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+    return {
+      args: command.args,
+      stdin: JSON.parse(text.toString("utf-8")) as unknown,
+    };
+  });
+
+it.effect(
+  "sends Flow-controlled operands on stdin rather than in the argument vector",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: () => JSON.stringify([{ error: null, success: true }]),
+    });
+
+    return Effect.gen(function* keepOperandsOffArgv() {
+      const agentBrowser = yield* AgentBrowser;
+      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+      const secret = "hunter2-should-never-reach-argv";
+
+      yield* agentBrowser.fillSelector(sessionId, "#password", secret);
+      const { args, stdin } = yield* lastBatchCommand(fixture);
+
+      // `ps` exposes the argument vector to every local user, so neither the
+      // resolved value nor the selector may appear there.
+      expect(args.join(" ")).not.toContain(secret);
+      expect(args).not.toContain("#password");
+      expect(args).toContain("batch");
+      expect(stdin).toEqual([["fill", "#password", secret]]);
+    }).pipe(Effect.provide(fixture.layer));
+  }
+);
+
+it.effect("passes a dash-prefixed selector as an operand, not a flag", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () => JSON.stringify([{ error: null, success: true }]),
+  });
+
+  return Effect.gen(function* refuseFlagSmuggling() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    // A Flow is a file the Runner did not write, so a selector can be crafted
+    // to look like an option. `--profile` would otherwise reuse the operator's
+    // real Chrome profile, with their live authenticated sessions.
+    yield* agentBrowser.clickSelector(sessionId, "--profile");
+    const { args, stdin } = yield* lastBatchCommand(fixture);
+
+    expect(args).not.toContain("--profile");
+    expect(stdin).toEqual([["click", "--profile"]]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reads visibility from the batch entry's own result", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error: null,
+          result: { origin: "https://shop.test/", visible: true },
+          success: true,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* readVisibility() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const visible = yield* agentBrowser.isVisible(sessionId, "#banner");
+    const { args, stdin } = yield* lastBatchCommand(fixture);
+
+    expect(visible).toBe(true);
+    expect(args).not.toContain("#banner");
+    expect(stdin).toEqual([["is", "visible", "#banner"]]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reads an element that is not there as not visible", () => {
+  const fixture = makeFixture({
+    exitCode: 1,
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error:
+            "Element not found: #banner. Verify the selector, role, or name is correct.",
+          success: false,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* absentIsNotVisible() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    // The browser answers this question by failing. It is still an answer, and
+    // it is the only failure here that is one.
+    expect(yield* agentBrowser.isVisible(sessionId, "#banner")).toBe(false);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails when visibility could not be established at all", () => {
+  const fixture = makeFixture({
+    exitCode: 1,
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([{ error: "Session is not running", success: false }]),
+  });
+
+  return Effect.gen(function* unanswerableVisibility() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(
+      agentBrowser.isVisible(sessionId, "#banner")
+    );
+
+    // Not `false`: a browser that cannot answer is not evidence of absence.
+    expect(error.message).toBe("Session is not running");
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reads the status of the top frame's own navigation", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([{ error: null, result: { result: 503 }, success: true }]),
+  });
+
+  return Effect.gen(function* readNavigationStatus() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const status = yield* agentBrowser.documentStatus(sessionId);
+    const { stdin } = yield* lastBatchCommand(fixture);
+
+    expect(status).toBe(503);
+    // A frame's navigation timing describes that frame's own navigation, so no
+    // iframe can contribute to it however that iframe was requested.
+    expect(stdin).toEqual([
+      [
+        "eval",
+        'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0',
+      ],
+    ]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect(
+  "reports no status for a page that did not come from the network",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: () =>
+        JSON.stringify([{ error: null, result: { result: 0 }, success: true }]),
+    });
+
+    return Effect.gen(function* readBlankNavigation() {
+      const agentBrowser = yield* AgentBrowser;
+      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+      // `0` is not a status the site answered with.
+      expect(yield* agentBrowser.documentStatus(sessionId)).toBeUndefined();
+    }).pipe(Effect.provide(fixture.layer));
+  }
+);
+
+it.effect("fails the command with the batch entry's own message", () => {
+  const fixture = makeFixture({
+    exitCode: 1,
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([{ error: "Element not found: #gone", success: false }]),
+  });
+
+  return Effect.gen(function* surfaceBatchFailure() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(
+      agentBrowser.clickSelector(sessionId, "#gone")
+    );
+
+    // The reason, not the JSON array wrapping it: a Step failure is read by a
+    // developer and is copied into the Run.
+    expect(error.message).toBe("Element not found: #gone");
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+/** An engine response, shaped as the bundled binary really answers `a11y --json`. */
+const auditResponse = (
+  counts: {
+    inapplicable: number;
+    incomplete: number;
+    passes: number;
+    violations: number;
+  },
+  violations: readonly unknown[]
+) =>
+  JSON.stringify([
+    {
+      error: null,
+      result: { axeVersion: "4.12.1", counts, violations },
+      success: true,
+    },
+  ]);
+
+it.effect("audits the page under an explicitly pinned ruleset", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      auditResponse(
+        {
+          inapplicable: 49,
+          incomplete: 1,
+          passes: 8,
+          violations: 1,
+        },
+        [
+          {
+            help: "Images must have alternative text",
+            helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+            id: "image-alt",
+            impact: "critical",
+            nodeCount: 2,
+            nodes: [
+              {
+                failureSummary: "Fix any of the following:\n  No alt attribute",
+                html: "<img>",
+                target: ["img"],
+              },
+              // A frame hop, and a shadow-root hop nested inside one.
+              { html: "<img>", target: ["iframe", ["#host", "img"]] },
+            ],
+            tags: ["cat.text-alternatives", "wcag2a", "wcag111"],
+          },
+        ]
+      ),
+  });
+
+  return Effect.gen(function* auditPage() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const findings = yield* agentBrowser.audit(
+      sessionId,
+      ["wcag2a", "wcag2aa"],
+      2
+    );
+    const { stdin } = yield* lastBatchCommand(fixture);
+
+    // The tags travel on stdin, so a Flow can never reach the argv.
+    expect(stdin).toEqual([["a11y", "--tags", "wcag2a,wcag2aa", "--json"]]);
+    expect(findings.elided).toEqual([]);
+    expect(findings.findings).toEqual([
+      {
+        helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+        message: "Fix any of the following:\n  No alt attribute",
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 2,
+        target: "img",
+      },
+      {
+        helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+        // No per-node summary: the rule's own help is the next best thing.
+        message: "Images must have alternative text",
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 2,
+        // Crossing a frame and entering a shadow root are found in entirely
+        // different ways, so they are not flattened together.
+        target: "iframe >>> #host >> img",
+      },
+    ]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reports no Findings for a page with no violations", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      auditResponse(
+        { inapplicable: 60, incomplete: 0, passes: 3, violations: 0 },
+        []
+      ),
+  });
+
+  return Effect.gen(function* cleanPage() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    expect(yield* agentBrowser.audit(sessionId, ["wcag2a"], 0)).toEqual({
+      elided: [],
+      findings: [],
+    });
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails when the ruleset selected no rules to run", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    // How the engine answers a tag it does not recognise: not an error, just
+    // nothing evaluated. Verified against the bundled binary.
+    stdout: () =>
+      auditResponse(
+        { inapplicable: 0, incomplete: 0, passes: 0, violations: 0 },
+        []
+      ),
+  });
+
+  return Effect.gen(function* emptyRuleset() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(
+      agentBrowser.audit(sessionId, ["wcag2a", "wacg2aa"], 0)
+    );
+
+    // Silence here would audit every page clean forever.
+    expect(error.message).toContain("selected no rules");
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reports the violations the engine counted but did not list", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    // How the bundled binary answers a page with more violations of one rule
+    // than it lists: a truthful count beside a capped list. Verified against
+    // it with twelve unlabelled images.
+    stdout: () =>
+      auditResponse(
+        { inapplicable: 40, incomplete: 0, passes: 6, violations: 1 },
+        [
+          {
+            help: "Images must have alternative text",
+            id: "image-alt",
+            impact: "critical",
+            nodeCount: 12,
+            nodes: Array.from({ length: 10 }, (_unused, index) => ({
+              target: [`img[src$="i${index}.png"]`],
+            })),
+          },
+        ]
+      ),
+  });
+
+  return Effect.gen(function* cappedNodes() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const { elided, findings } = yield* agentBrowser.audit(
+      sessionId,
+      ["wcag2a"],
+      1
+    );
+
+    expect(findings).toHaveLength(10);
+    // Silence here would let a page that grew past the cap and a page that
+    // improved down to it read as the same page.
+    expect(elided).toEqual([
+      {
+        reported: 10,
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 1,
+        total: 12,
+      },
+    ]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reads Core Web Vitals without navigating", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error: null,
+          result: {
+            result: JSON.stringify({
+              cls: 0.0004442767006065858,
+              fcp: 64,
+              inp: null,
+              lcp: 64,
+              ttfb: 1.0999999642372131,
+            }),
+          },
+          success: true,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* readVitals() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const vitals = yield* agentBrowser.collectVitals(sessionId);
+    const { stdin } = yield* lastBatchCommand(fixture);
+
+    // A page nobody interacted with produces no INP, which is not zero: a
+    // perfectly responsive page and an unmeasured one must not read alike.
+    expect(vitals).toEqual({
+      cls: 0.0004442767006065858,
+      fcp: 64,
+      lcp: 64,
+      ttfb: 1.0999999642372131,
+    });
+    // The browser tool's own `vitals` command reloads the page, so it is not
+    // used. Verified against the bundled binary: `navigationType` goes from
+    // `navigate` to `reload` and in-page state is destroyed.
+    const [command] = stdin as readonly (readonly string[])[];
+    expect(command?.[0]).toBe("eval");
+    expect(command?.[1]).toContain("__contingencyVitals");
+    expect(JSON.stringify(stdin)).not.toContain('"vitals"');
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails when the page did not answer with measurements", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        { error: null, result: { result: "not json" }, success: true },
+      ]),
+  });
+
+  return Effect.gen(function* unusableVitals() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(agentBrowser.collectVitals(sessionId));
+
+    expect(error.message).toContain("Core Web Vitals");
+  }).pipe(Effect.provide(fixture.layer));
+});

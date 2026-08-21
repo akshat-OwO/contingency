@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { arch, homedir, platform } from "node:os";
+import { arch, platform } from "node:os";
 import path from "node:path";
 
 import {
@@ -8,11 +8,13 @@ import {
   BrowserRequestId,
   BrowserTabId,
   filterCookiesForOriginHost,
+  FindingSeverity,
   sortCookiesByIdentity,
   httpOriginFromUrl,
   isBrowserRpcError,
   makeBrowserRpcError,
   SessionId as SessionIdSchema,
+  sessionPrefixes,
   userAgentProfiles,
 } from "@contingency/protocol";
 import type {
@@ -25,6 +27,9 @@ import type {
   BrowserStreamEvent,
   BrowserStreamId as BrowserStreamIdType,
   BrowserTab,
+  CoreWebVitals,
+  ElidedFindings,
+  Finding,
   SessionId,
   StorageKind,
   UserAgentProfileId,
@@ -34,6 +39,7 @@ import {
   Console,
   Context,
   Data,
+  Duration,
   Effect,
   FileSystem,
   Layer,
@@ -57,7 +63,11 @@ import {
   webStorageGetArgs,
   webStorageSetArgs,
 } from "./browser-storage";
+import { dispatchKey, dispatchModifiedClick, isModifierKey } from "./cdp-input";
 import { navigateWithUserAgentOverride } from "./cdp-user-agent";
+import { stateDirectory } from "./state-directory";
+import { VITALS_COLLECTOR } from "./vitals-collector";
+import { VITALS_RECORDER } from "./vitals-recorder";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -73,6 +83,20 @@ const AGENT_BROWSER_ASSETS_DIRECTORY = getAgentBrowserAssetsDirectory();
 const INSTALL_MARKER = `agent-browser-${agentBrowserPackage.version}.installed`;
 // Match the protocol's maximum viewport so agent-browser never downsamples a frame.
 const MAX_STREAM_DIMENSION = "10000";
+
+/**
+ * Process ids of browser-tool commands that have been spawned and have not
+ * settled yet.
+ *
+ * This lives outside Effect on purpose. A command whose answer depends on the
+ * browser finishing something — a recording flush queued behind a navigation,
+ * say — can outlast every Effect-level bound, because the process itself is
+ * the thing being waited on. When the user interrupts such a Run, graceful
+ * unwinding may never get anywhere, and this set is what the CLI's
+ * last-resort exit path (see `src/index.ts`) force-kills so Ctrl-C always
+ * wins eventually.
+ */
+export const inFlightBrowserCommands = new Set<number>();
 
 class AgentBrowserSetupError extends Data.TaggedError(
   "AgentBrowserSetupError"
@@ -113,12 +137,159 @@ export interface AgentBrowser {
   readonly close: (
     sessionId: SessionId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Click the element a selector resolves to. Used to replay a Flow. */
+  readonly clickSelector: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Clear a field and set its value in one command. */
+  readonly fillSelector: (
+    sessionId: SessionId,
+    selector: string,
+    value: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Type into a field with real keystrokes, leaving existing text in place. */
+  readonly typeSelector: (
+    sessionId: SessionId,
+    selector: string,
+    value: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Press a key down and leave it down. A modifier held this way applies to
+   * every later key and click in the session until it is released.
+   */
+  readonly keyDown: (
+    sessionId: SessionId,
+    key: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Release a key pressed with {@link keyDown}. */
+  readonly keyUp: (
+    sessionId: SessionId,
+    key: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Whether a selector resolves to a visible element. A selector matching
+   * nothing is `false`; the browser reports that case as an error, which this
+   * absorbs. A failure here means visibility could not be established at all.
+   */
+  readonly isVisible: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<boolean, BrowserRpcErrorType>;
+  /** Wait for a selector to resolve, failing when it does not. */
+  readonly waitForSelector: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Navigate to a URL in an already-open session. */
+  readonly goto: (
+    sessionId: SessionId,
+    url: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Begin capturing this session to a WebM file.
+   *
+   * Must be called before the session's first navigation. Verified against the
+   * bundled binary: starting a capture builds a fresh browser context, which
+   * drops `localStorage` — so starting mid-Run logs out any Flow whose session
+   * lives there, and re-navigates the page besides.
+   *
+   * That fresh context does not inherit the session's init scripts either, so
+   * a caller recording Core Web Vitals re-arms its recorder on each page it
+   * arrives at ({@link armVitalsRecorder}): a captured Run that measured
+   * nothing would report exactly the numbers it existed to compare
+   * (ADR 0008).
+   */
+  readonly startVideo: (
+    sessionId: SessionId,
+    file: string,
+    url?: string
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Flush the capture to disk, reporting why if it did not. Video is an
+   * observation aid, so a capture that failed is never the Run's failure.
+   */
+  readonly stopVideo: (
+    sessionId: SessionId
+  ) => Effect.Effect<string | undefined, BrowserRpcErrorType>;
+  /**
+   * Stop whatever the page is still loading.
+   *
+   * Closing a browser waits for a navigation still in flight — verified
+   * against the bundled binary at 27 seconds, against 0.1 idle — and a Run is
+   * torn down uninterruptibly, so that wait is exactly how long Ctrl-C appears
+   * to do nothing. Stopping the load first brings the close back to 0.2s
+   * without abandoning the browser to be cleaned up later.
+   */
+  readonly stopLoading: (
+    sessionId: SessionId
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * An opaque identity for the document currently loaded, so a caller can tell
+   * whether a navigation has happened yet.
+   */
+  readonly documentIdentity: (
+    sessionId: SessionId
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  /**
+   * Core Web Vitals for the navigation the page already performed. Reads the
+   * existing performance timeline, so it neither navigates nor disturbs the
+   * page — unlike the browser tool's own `vitals` command, which reloads.
+   */
+  readonly collectVitals: (
+    sessionId: SessionId
+  ) => Effect.Effect<CoreWebVitals, BrowserRpcErrorType>;
+  /**
+   * Register the Core Web Vitals recorder in the page currently loaded.
+   *
+   * The init script a session opens with covers its first browser context.
+   * A capture starts a fresh context that nothing reaches — verified against
+   * the bundled binary: the `--init-script` flag on `record start` and on
+   * later commands does not register there, the `AGENT_BROWSER_INIT_SCRIPTS`
+   * environment variable covers only the opening context, and there is no
+   * `addinitscript` command. A Run captured to video therefore arms its
+   * recorder here, after each navigation, which loses nothing: paint, shift,
+   * and navigation entries replay through `buffered: true`, and interactions
+   * only ever follow the Runner's own Steps.
+   */
+  readonly armVitalsRecorder: (
+    sessionId: SessionId
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Run the vendored accessibility engine over the whole page, under the given
+   * rule tags. Covers the frame tree and open shadow roots, and needs no
+   * network request, so it works under a strict page CSP.
+   *
+   * `stepIndex` names the Audit Step every returned Finding came from.
+   */
+  readonly audit: (
+    sessionId: SessionId,
+    tags: readonly string[],
+    stepIndex: number
+  ) => Effect.Effect<AuditResult, BrowserRpcErrorType>;
+  /**
+   * The HTTP status of the top frame's own navigation, or `undefined` when the
+   * page did not come from the network. A navigation that reaches a server
+   * error still navigates, so this is the only way to see it. An iframe's
+   * response is never reported here, however that iframe was requested.
+   */
+  readonly documentStatus: (
+    sessionId: SessionId
+  ) => Effect.Effect<number | undefined, BrowserRpcErrorType>;
   readonly cdpUrl: (
     sessionId: SessionId
   ) => Effect.Effect<string, BrowserRpcErrorType>;
   readonly create: (
     name: string,
-    viewport: Viewport
+    viewport: Viewport,
+    options?: {
+      /**
+       * Record Core Web Vitals from the start of every page this session
+       * loads. Interactions are not reliably replayable after the fact, so a
+       * session that did not arm this cannot be measured later.
+       */
+      readonly recordVitals?: boolean;
+    }
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly init: () => Effect.Effect<void, AgentBrowserInitError>;
   readonly currentUrl: (
@@ -277,27 +448,6 @@ const getAgentBrowserExecutable = Effect.fn("getAgentBrowserExecutable")(
   }
 );
 
-const getStateDirectory = (operatingSystem: NodeJS.Platform): string => {
-  const configuredStateDirectory = process.env.CONTINGENCY_STATE_DIR?.trim();
-  if (configuredStateDirectory) {
-    return configuredStateDirectory;
-  }
-
-  if (operatingSystem === "win32") {
-    const localApplicationData = process.env.LOCALAPPDATA?.trim();
-    return path.join(
-      localApplicationData || path.join(homedir(), "AppData", "Local"),
-      "contingency"
-    );
-  }
-
-  const xdgStateHome = process.env.XDG_STATE_HOME?.trim();
-  return path.join(
-    xdgStateHome || path.join(homedir(), ".local", "state"),
-    "contingency"
-  );
-};
-
 const AgentBrowserJsonResult = <Data extends Schema.Top>(data: Data) =>
   Schema.Struct({ data, success: Schema.Literal(true) });
 
@@ -324,6 +474,145 @@ const CurrentUrlResult = AgentBrowserJsonResult(
 const CurrentTitleResult = AgentBrowserJsonResult(
   Schema.Struct({ title: Schema.String })
 );
+
+const BatchResults = Schema.Array(
+  Schema.Struct({
+    error: Schema.optional(Schema.NullOr(Schema.String)),
+    result: Schema.optional(Schema.Unknown),
+    success: Schema.Boolean,
+  })
+);
+
+const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
+
+const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
+
+const EvaluatedString = Schema.Struct({ result: Schema.String });
+
+/**
+ * What the collector resolves with. `null` is the page saying it produced no
+ * such measurement, which is not the same as zero.
+ */
+const CollectedVitals = Schema.Struct({
+  cls: Schema.Number,
+  fcp: Schema.NullOr(Schema.Number),
+  inp: Schema.NullOr(Schema.Number),
+  lcp: Schema.NullOr(Schema.Number),
+  ttfb: Schema.NullOr(Schema.Number),
+});
+
+/** What one Audit Step found, and what the engine did not list in full. */
+export interface AuditResult {
+  readonly elided: readonly ElidedFindings[];
+  readonly findings: readonly Finding[];
+}
+
+/** A target path: selectors, nested once per frame or shadow-root hop. */
+type AuditTargetPath = string | readonly AuditTargetPath[];
+
+/**
+ * One target the accessibility engine reports. A plain string is a selector in
+ * the current document; nesting means a hop, into a frame or a shadow root.
+ */
+const AuditTarget = Schema.Union([
+  Schema.String,
+  Schema.Array(
+    Schema.suspend((): Schema.Codec<AuditTargetPath> => AuditTarget)
+  ),
+]);
+
+/**
+ * The shape of an `a11y --json` response, narrowed to what a Finding needs.
+ * The engine reports far more (passes, incomplete, inapplicable, per-rule
+ * tags); decoding only the used fields keeps an engine upgrade that adds a
+ * field from failing every Audit.
+ */
+const AuditReport = Schema.Struct({
+  counts: Schema.Struct({
+    inapplicable: Schema.Number,
+    incomplete: Schema.Number,
+    passes: Schema.Number,
+    violations: Schema.Number,
+  }),
+  violations: Schema.Array(
+    Schema.Struct({
+      help: Schema.String,
+      helpUrl: Schema.optional(Schema.String),
+      id: Schema.String,
+      impact: FindingSeverity,
+      /** What the page has. `nodes` lists at most the engine's own cap. */
+      nodeCount: Schema.Int,
+      nodes: Schema.Array(
+        Schema.Struct({
+          failureSummary: Schema.optional(Schema.String),
+          target: Schema.Array(AuditTarget),
+        })
+      ),
+    })
+  ),
+});
+
+/**
+ * The status of the navigation that produced the document this runs in.
+ * `PerformanceNavigationTiming` exists only for a frame's own navigation, so
+ * evaluating it in the top frame cannot pick up an iframe's response however
+ * that iframe was requested — including from the page's own URL.
+ *
+ * Verified against the bundled binary: a page served 200 with a 404 iframe
+ * reports 200, a top-level 404 reports 404, and a page that did not come from
+ * the network reports 0.
+ */
+/**
+ * Enough to tell one document from another without touching the page: the time
+ * origin is set per document, and the href covers a same-document route change
+ * that keeps it. `readyState` distinguishes a document still arriving from one
+ * that has settled.
+ */
+/**
+ * How long the process spends closing sessions it opened, on the way out.
+ */
+const SHUTDOWN_TIMEOUT = Duration.seconds(5);
+
+/**
+ * How long a capture is given to attach before the session navigates away
+ * from the blank page it started on. Verified against the bundled binary: a
+ * navigation issued immediately after `record start` left the encoder with
+ * nothing in five tries out of five, while one issued after a second produced
+ * a recording every time. The race is with the navigation, not with anything
+ * else sent alongside it: the same settle flushes recordings on sessions that
+ * register no init script at all.
+ */
+const VIDEO_ATTACH_SETTLE = Duration.seconds(1);
+
+const DOCUMENT_IDENTITY =
+  'performance.timeOrigin + "|" + location.href + "|" + document.readyState';
+
+const NAVIGATION_STATUS =
+  'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0';
+
+/**
+ * Render an engine target path as one selector anyone can act on.
+ *
+ * The outer array crosses frames and a nested one enters a shadow root, so the
+ * two get different joins rather than being flattened together: `iframe >>> a`
+ * and `#host >> a` are found in entirely different ways.
+ */
+const renderAuditHop = (hop: AuditTargetPath): string =>
+  typeof hop === "string" ? hop : hop.map(renderAuditHop).join(" >> ");
+
+const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
+  target.map(renderAuditHop).join(" >>> ");
+
+/**
+ * How agent-browser reports a selector matching nothing. Verified against the
+ * bundled binary for CSS and XPath selectors alike; a `text=` selector resolves
+ * to `visible: false` instead and never reaches the visibility path.
+ */
+export const ELEMENT_NOT_FOUND = "Element not found:";
+
+/** Whether a failure says the element was absent rather than unreachable. */
+export const isElementNotFound = (message: string): boolean =>
+  message.startsWith(ELEMENT_NOT_FOUND);
 
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
@@ -423,6 +712,35 @@ const relayedStreamMessageTypes = new Set([
   "url",
 ]);
 
+/**
+ * `--json` failures carry the human-readable reason in an `error` field —
+ * either on the envelope, or on the failed entry of a `batch` result array.
+ * Surfacing the whole envelope instead puts a JSON blob in front of a
+ * developer who only needs the sentence inside it.
+ */
+const agentBrowserFailureMessage = (stdout: string): string => {
+  const trimmed = stdout.trim();
+  if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+    return trimmed;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const entries = Array.isArray(parsed) ? parsed : [parsed];
+    for (const entry of entries) {
+      const error =
+        typeof entry === "object" && entry !== null && "error" in entry
+          ? (entry as { readonly error: unknown }).error
+          : undefined;
+      if (typeof error === "string" && error.length > 0) {
+        return error;
+      }
+    }
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
+};
+
 const errorMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
@@ -452,7 +770,9 @@ const normalizeUrl = (value: string) =>
 
 const normalizeSessionId = (name: string) => {
   const trimmed = name.trim();
-  const candidate = trimmed.startsWith("create-")
+  // An unprefixed name is a Create View session; the Runner passes `run-`
+  // explicitly so its sessions stay distinguishable from authoring ones.
+  const candidate = sessionPrefixes.some((prefix) => trimmed.startsWith(prefix))
     ? trimmed
     : `create-${trimmed}`;
 
@@ -496,6 +816,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       { readonly socket: WebSocket; readonly streamId: BrowserStreamIdType }
     >();
     const activeTabIds = new Map<SessionId, BrowserTabId>();
+    // Keys a Flow pressed down and has not released. CDP does not remember a
+    // held modifier between synthesized events, so every later event has to
+    // carry the mask itself.
+    const heldKeys = new Map<SessionId, Set<string>>();
     const streamActiveTabIds = new Map<SessionId, BrowserTabId>();
     const tabMetadata = new Map<
       SessionId,
@@ -508,7 +832,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
     });
 
     const run = Effect.fn("AgentBrowser.run")(function* run(
-      args: readonly string[]
+      args: readonly string[],
+      stdin?: string
     ) {
       const binaryPath = yield* executablePath.pipe(
         Effect.mapError((cause) =>
@@ -524,12 +849,20 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         },
         extendEnv: true,
         stderr: "pipe",
+        ...(stdin === undefined
+          ? {}
+          : {
+              stdin: Stream.make(new TextEncoder().encode(stdin)),
+            }),
         stdout: "pipe",
       });
 
+      let commandPid: number | undefined;
       const result = yield* Effect.scoped(
         Effect.gen(function* executeAgentBrowser() {
           const handle = yield* spawner.spawn(command);
+          commandPid = handle.pid;
+          inFlightBrowserCommands.add(commandPid);
           const [stdout, stderr, exitCode] = yield* Effect.all(
             [
               Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -539,7 +872,15 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
             { concurrency: "unbounded" }
           );
           return { exitCode: Number(exitCode), stderr, stdout };
-        })
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (commandPid !== undefined) {
+                inFlightBrowserCommands.delete(commandPid);
+              }
+            })
+          )
+        )
       ).pipe(
         Effect.mapError((cause) =>
           browserError("agent_browser_failed", errorMessage(cause))
@@ -551,7 +892,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           browserError(
             "agent_browser_failed",
             result.stderr.trim() ||
-              result.stdout.trim() ||
+              agentBrowserFailureMessage(result.stdout) ||
               `agent-browser exited with code ${result.exitCode}`
           )
         );
@@ -583,6 +924,66 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       );
     });
 
+    /**
+     * Run commands whose operands come from a Flow.
+     *
+     * `batch` reads a JSON array of pre-split argument arrays from stdin,
+     * which keeps two problems out of the argument vector at once. A resolved
+     * Variable never appears in argv, where `ps` would expose it to every
+     * local user — the reason `--secret NAME` exists at all. And an operand is
+     * not re-parsed as an option, so a Flow cannot smuggle a flag through a
+     * selector: `["click", "--headed"]` is reported as `Element not found:
+     * --headed` rather than switching the browser out of headless mode.
+     */
+    const runBatch = Effect.fn("AgentBrowser.runBatch")(function* runBatch(
+      sessionId: SessionId,
+      commands: readonly (readonly string[])[]
+    ) {
+      const output = yield* run(
+        [
+          "--namespace",
+          namespace,
+          "--session",
+          sessionId,
+          "batch",
+          "--bail",
+          "--json",
+        ],
+        JSON.stringify(commands)
+      );
+
+      const results = yield* Schema.decodeUnknownEffect(BatchResults)(
+        yield* Effect.try({
+          catch: (cause) =>
+            browserError(
+              "agent_browser_failed",
+              `Unable to parse agent-browser output: ${errorMessage(cause)}`
+            ),
+          try: () => JSON.parse(output) as unknown,
+        })
+      ).pipe(
+        Effect.mapError((cause) =>
+          browserError(
+            "agent_browser_failed",
+            `Unexpected agent-browser response: ${errorMessage(cause)}`
+          )
+        )
+      );
+
+      // `--bail` stops at the first failure, so the failed entry is the last.
+      const failed = results.find(({ success }) => !success);
+      if (failed !== undefined) {
+        return yield* Effect.fail(
+          browserError(
+            "agent_browser_failed",
+            failed.error ?? "agent-browser batch command failed."
+          )
+        );
+      }
+
+      return results;
+    });
+
     const sessionArgs = (sessionId: SessionId, args: readonly string[]) => [
       "--namespace",
       namespace,
@@ -592,9 +993,33 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       "--json",
     ];
 
+    const writeVitalsRecorder = Effect.fn("AgentBrowser.writeVitalsRecorder")(
+      function* writeVitalsRecorder() {
+        const target = path.join(
+          stateDirectory(runtime.operatingSystem),
+          "vitals-recorder.js"
+        );
+        return yield* fileSystem
+          .makeDirectory(path.dirname(target), { recursive: true })
+          .pipe(
+            Effect.andThen(fileSystem.writeFileString(target, VITALS_RECORDER)),
+            Effect.as(target),
+            Effect.mapError(() =>
+              browserError(
+                "agent_browser_failed",
+                "Could not write the Core Web Vitals recorder."
+              )
+            )
+          );
+      }
+    );
+
     const init = Effect.fn("AgentBrowser.init")(function* init() {
-      const stateDirectory = getStateDirectory(runtime.operatingSystem);
-      const installMarkerPath = path.join(stateDirectory, INSTALL_MARKER);
+      const contingencyStateDirectory = stateDirectory(runtime.operatingSystem);
+      const installMarkerPath = path.join(
+        contingencyStateDirectory,
+        INSTALL_MARKER
+      );
 
       if (yield* fileSystem.exists(installMarkerPath)) {
         return;
@@ -640,7 +1065,9 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         );
       }
 
-      yield* fileSystem.makeDirectory(stateDirectory, { recursive: true });
+      yield* fileSystem.makeDirectory(contingencyStateDirectory, {
+        recursive: true,
+      });
       yield* fileSystem.writeFileString(
         installMarkerPath,
         `${agentBrowserPackage.version}\n`
@@ -682,7 +1109,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     const create = Effect.fn("AgentBrowser.create")(function* create(
       name: string,
-      viewport: Viewport
+      viewport: Viewport,
+      options?: { readonly recordVitals?: boolean }
     ) {
       const sessionId = yield* normalizeSessionId(name);
       yield* init().pipe(
@@ -690,7 +1118,20 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           browserError("agent_browser_failed", errorMessage(cause))
         )
       );
-      yield* run(sessionArgs(sessionId, ["open"]));
+      // The recorder has to be registered before the first navigation, and the
+      // browser takes it as a file rather than inline source.
+      const initScript =
+        options?.recordVitals === true
+          ? yield* writeVitalsRecorder()
+          : undefined;
+      yield* run(
+        sessionArgs(
+          sessionId,
+          initScript === undefined
+            ? ["open"]
+            : ["--init-script", initScript, "open"]
+        )
+      );
       yield* Ref.set(ownsSessions, true);
       sessionProfiles.set(sessionId, "default");
       yield* setViewport(sessionId, viewport);
@@ -1109,6 +1550,340 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    // Selector-level replay commands. The Create canvas drives the browser
+    // with coordinates and key events; a Flow addresses elements by selector,
+    // so the Runner needs these instead.
+    const heldFor = (sessionId: SessionId): readonly string[] => [
+      ...(heldKeys.get(sessionId) ?? []),
+    ];
+
+    const clickSelector = Effect.fn("AgentBrowser.clickSelector")(
+      function* clickSelector(sessionId: SessionId, selector: string) {
+        const held = heldFor(sessionId);
+        if (held.length === 0) {
+          yield* runBatch(sessionId, [["click", selector]]);
+          return;
+        }
+
+        // The tool's own click dispatches without modifiers, which would drop
+        // a Shift the Flow is holding. This path re-establishes the
+        // covering-element guarantee the tool would have given.
+        yield* dispatchModifiedClick({
+          cdpUrl: yield* cdpUrl(sessionId),
+          held,
+          requestedTabId: activeTabIds.get(sessionId),
+          selector,
+        });
+      }
+    );
+
+    const fillSelector = Effect.fn("AgentBrowser.fillSelector")(
+      function* fillSelector(
+        sessionId: SessionId,
+        selector: string,
+        value: string
+      ) {
+        yield* runBatch(sessionId, [["fill", selector, value]]);
+      }
+    );
+
+    const typeSelector = Effect.fn("AgentBrowser.typeSelector")(
+      function* typeSelector(
+        sessionId: SessionId,
+        selector: string,
+        value: string
+      ) {
+        yield* runBatch(sessionId, [["type", selector, value]]);
+      }
+    );
+
+    const dispatchHalfKeystroke = (
+      sessionId: SessionId,
+      key: string,
+      type: "keyDown" | "keyUp"
+    ) =>
+      Effect.gen(function* sendHalfKeystroke() {
+        const held = heldKeys.get(sessionId) ?? new Set<string>();
+        heldKeys.set(sessionId, held);
+
+        if (isModifierKey(key)) {
+          // Tracked, never dispatched. A modifier left physically down makes
+          // Chrome emit thousands of keydown events per second until it is
+          // released, which floods the page for the whole time a Flow holds
+          // it. Every event dispatched meanwhile carries the mask instead, so
+          // the page still reads `event.shiftKey` correctly.
+          if (type === "keyDown") {
+            held.add(key);
+          } else {
+            held.delete(key);
+          }
+          return;
+        }
+
+        yield* dispatchKey({
+          cdpUrl: yield* cdpUrl(sessionId),
+          held: [...held],
+          key,
+          requestedTabId: activeTabIds.get(sessionId),
+          type,
+        });
+      });
+
+    const keyDown = Effect.fn("AgentBrowser.keyDown")(
+      (sessionId: SessionId, key: string) =>
+        dispatchHalfKeystroke(sessionId, key, "keyDown")
+    );
+
+    const keyUp = Effect.fn("AgentBrowser.keyUp")(
+      (sessionId: SessionId, key: string) =>
+        dispatchHalfKeystroke(sessionId, key, "keyUp")
+    );
+
+    const waitForSelector = Effect.fn("AgentBrowser.waitForSelector")(
+      function* waitForSelector(sessionId: SessionId, selector: string) {
+        yield* runBatch(sessionId, [["wait", selector]]);
+      }
+    );
+
+    const isVisible = Effect.fn("AgentBrowser.isVisible")(function* isVisible(
+      sessionId: SessionId,
+      selector: string
+    ) {
+      const results = yield* runBatch(sessionId, [
+        ["is", "visible", selector],
+      ]).pipe(
+        // The browser answers "is it visible" for an element that is not there
+        // by failing rather than reporting `false`. That is still an answer,
+        // and it is the only failure here that is one: everything else means
+        // the question could not be put to the page at all.
+        Effect.catchIf(
+          ({ message }) => message.startsWith(ELEMENT_NOT_FOUND),
+          () => Effect.succeed(null)
+        )
+      );
+      if (results === null) {
+        return false;
+      }
+      const decoded = yield* Schema.decodeUnknownEffect(VisibilityResult)(
+        results.at(0)?.result
+      ).pipe(
+        Effect.mapError(() =>
+          browserError(
+            "agent_browser_failed",
+            `agent-browser did not report visibility for ${selector}.`
+          )
+        )
+      );
+      return decoded.visible;
+    });
+
+    const audit = Effect.fn("AgentBrowser.audit")(function* audit(
+      sessionId: SessionId,
+      tags: readonly string[],
+      stepIndex: number
+    ) {
+      const results = yield* runBatch(sessionId, [
+        ["a11y", "--tags", tags.join(","), "--json"],
+      ]);
+      const report = yield* Schema.decodeUnknownEffect(AuditReport)(
+        results.at(0)?.result
+      ).pipe(
+        Effect.mapError((cause) =>
+          browserError(
+            "agent_browser_failed",
+            `agent-browser did not report an accessibility audit: ${errorMessage(cause)}`
+          )
+        )
+      );
+      // An unrecognised tag is not an error to the engine: it simply selects no
+      // rules, and every page audits clean. That reads as a passing Audit
+      // forever, so the one case where nothing at all ran is a failure.
+      const evaluated =
+        report.counts.inapplicable +
+        report.counts.incomplete +
+        report.counts.passes +
+        report.counts.violations;
+      if (evaluated === 0) {
+        return yield* Effect.fail(
+          browserError(
+            "agent_browser_failed",
+            `The accessibility ruleset selected no rules to run: ${tags.join(", ")}.`
+          )
+        );
+      }
+      return {
+        // The engine lists at most a fixed number of elements per rule while
+        // counting them all, so a Finding list can be shorter than the page.
+        // Saying so keeps a later Baseline comparison from reading a page that
+        // grew past the cap and one that improved down to it as the same page.
+        elided: report.violations.flatMap((violation) =>
+          violation.nodeCount <= violation.nodes.length
+            ? []
+            : [
+                {
+                  reported: violation.nodes.length,
+                  rule: violation.id,
+                  severity: violation.impact,
+                  stepIndex,
+                  total: violation.nodeCount,
+                } satisfies ElidedFindings,
+              ]
+        ),
+        findings: report.violations.flatMap((violation) =>
+          violation.nodes.map(
+            (node) =>
+              ({
+                ...(violation.helpUrl === undefined
+                  ? {}
+                  : { helpUrl: violation.helpUrl }),
+                message: node.failureSummary ?? violation.help,
+                rule: violation.id,
+                severity: violation.impact,
+                stepIndex,
+                target: renderAuditTarget(node.target),
+              }) satisfies Finding
+          )
+        ),
+      } satisfies AuditResult;
+    });
+
+    const collectVitals = Effect.fn("AgentBrowser.collectVitals")(
+      function* collectVitals(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["eval", VITALS_COLLECTOR],
+        ]);
+        // The page resolves with JSON, which `eval` hands back as a string.
+        const raw = results.at(0)?.result;
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedString)(
+          raw
+        ).pipe(
+          Effect.flatMap(({ result }) =>
+            Effect.try({
+              catch: () => new Error("unparsable"),
+              try: () => JSON.parse(result) as unknown,
+            })
+          ),
+          Effect.flatMap(Schema.decodeUnknownEffect(CollectedVitals)),
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report Core Web Vitals for this navigation."
+            )
+          )
+        );
+        return {
+          cls: decoded.cls,
+          ...(decoded.fcp === null ? {} : { fcp: decoded.fcp }),
+          ...(decoded.inp === null ? {} : { inp: decoded.inp }),
+          ...(decoded.lcp === null ? {} : { lcp: decoded.lcp }),
+          ...(decoded.ttfb === null ? {} : { ttfb: decoded.ttfb }),
+        } satisfies CoreWebVitals;
+      }
+    );
+
+    const armVitalsRecorder = Effect.fn("AgentBrowser.armVitalsRecorder")(
+      function* armVitalsRecorder(sessionId: SessionId) {
+        yield* runBatch(sessionId, [["eval", VITALS_RECORDER]]);
+      }
+    );
+
+    /**
+     * How the browser says there was nothing to stop. Verified against the
+     * bundled binary, which answers `{"success": false}` rather than failing.
+     */
+    const NO_RECORDING = "No recording in progress";
+
+    const startVideo = Effect.fn("AgentBrowser.startVideo")(
+      function* startVideo(sessionId: SessionId, file: string, url?: string) {
+        const normalized =
+          url === undefined ? undefined : yield* normalizeUrl(url);
+        yield* runBatch(sessionId, [
+          normalized === undefined
+            ? ["record", "start", file]
+            : ["record", "start", file, normalized],
+        ]);
+        if (normalized !== undefined) {
+          return;
+        }
+        yield* Effect.sleep(VIDEO_ATTACH_SETTLE);
+      }
+    );
+
+    const stopVideo = Effect.fn("AgentBrowser.stopVideo")(function* stopVideo(
+      sessionId: SessionId
+    ) {
+      const outcome = yield* Effect.result(
+        runBatch(sessionId, [["record", "stop"]])
+      );
+      if (outcome._tag === "Success") {
+        return;
+      }
+      // Nothing to flush, and a capture that produced no frames at all, are
+      // both reported here rather than raised: neither says the Run failed.
+      // Verified against the bundled binary, which intermittently ends a
+      // capture with `No frames captured`.
+      return outcome.failure.message.includes(NO_RECORDING)
+        ? NO_RECORDING
+        : outcome.failure.message;
+    });
+
+    const stopLoading = Effect.fn("AgentBrowser.stopLoading")(
+      function* stopLoading(sessionId: SessionId) {
+        yield* runBatch(sessionId, [["eval", "window.stop()"]]);
+      }
+    );
+
+    const documentIdentity = Effect.fn("AgentBrowser.documentIdentity")(
+      function* documentIdentity(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["eval", DOCUMENT_IDENTITY],
+        ]);
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedString)(
+          results.at(0)?.result
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report which document is loaded."
+            )
+          )
+        );
+        return decoded.result;
+      }
+    );
+
+    const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
+      function* documentStatus(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["eval", NAVIGATION_STATUS],
+        ]);
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedNumber)(
+          results.at(0)?.result
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report the navigation status."
+            )
+          )
+        );
+        // `0` is how the timing API reports a document that did not come from
+        // the network, which is not a status the site answered with.
+        return decoded.result === 0 ? undefined : decoded.result;
+      }
+    );
+
+    const goto = Effect.fn("AgentBrowser.goto")(function* goto(
+      sessionId: SessionId,
+      url: string
+    ) {
+      // `normalizeUrl` already refuses anything but http and https; the URL
+      // still travels on stdin, since a Flow may interpolate a Variable into
+      // it and query strings carry credentials more often than they should.
+      const normalized = yield* normalizeUrl(url);
+      yield* runBatch(sessionId, [["open", normalized]]);
+    });
+
     const navigate = Effect.fn("AgentBrowser.navigate")(function* navigate(
       sessionId: SessionId,
       action: "back" | "forward" | "reload"
@@ -1129,6 +1904,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       activeTabIds.delete(sessionId);
       streamActiveTabIds.delete(sessionId);
       tabMetadata.delete(sessionId);
+      heldKeys.delete(sessionId);
       yield* run(sessionArgs(sessionId, ["close"]));
     });
 
@@ -1398,32 +2174,48 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         tabMetadata.clear();
 
         if (yield* Ref.get(ownsSessions)) {
+          // Bounded: a finalizer runs uninterruptibly, so an unbounded close
+          // here is time a cancelled command spends ignoring Ctrl-C. Closing a
+          // session with work still in flight takes tens of seconds — verified
+          // against the bundled binary — and by this point whatever owned the
+          // session has already closed it deliberately.
           yield* run([
             "--namespace",
             namespace,
             "close",
             "--all",
             "--json",
-          ]).pipe(Effect.ignore);
+          ]).pipe(Effect.timeoutOption(SHUTDOWN_TIMEOUT), Effect.ignore);
         }
       })
     );
 
     return AgentBrowser.of({
       acknowledgeFrame,
+      armVitalsRecorder,
       attach,
+      audit,
       cdpUrl,
       clearStorage,
+      clickSelector,
       close,
       closeTab,
+      collectVitals,
       create,
       currentUrl,
       deleteStorage,
+      documentIdentity,
+      documentStatus,
+      fillSelector,
       getNetworkRequest,
       getNetworkRequests,
       getStorage,
       getTabs,
+      goto,
       init,
+      isVisible,
+      keyDown,
+      keyUp,
       list,
       navigate,
       newTab,
@@ -1432,8 +2224,13 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       setStorage,
       setUserAgent,
       setViewport,
+      startVideo,
+      stopLoading,
+      stopVideo,
       stream,
       switchTab,
+      typeSelector,
+      waitForSelector,
     });
   });
 

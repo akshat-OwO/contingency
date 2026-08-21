@@ -356,13 +356,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         }),
       "recording.audit.add": ({ data }) =>
         recording.addAudit(data.audit).pipe(Effect.map(toRecordingResult)),
-      "recording.step.secret.bind": ({ data }) =>
+      "recording.step.variable.bind": ({ data }) =>
         recording
-          .bindSecret(data.stepId, data.name)
+          .bindVariable(data.stepId, data.name)
           .pipe(Effect.map(toRecordingResult)),
-      "recording.secret.rename": ({ data }) =>
+      "recording.variable.rename": ({ data }) =>
         recording
-          .renameSecret(data.from, data.name)
+          .renameVariable(data.from, data.name)
           .pipe(Effect.map(toRecordingResult)),
       "recording.step.delete": ({ data }) =>
         recording.deleteStep(data.stepId).pipe(Effect.map(toRecordingResult)),

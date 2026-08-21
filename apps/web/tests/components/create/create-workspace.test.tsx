@@ -22,8 +22,8 @@ const stream = vi.hoisted(() => ({
 }));
 
 const rpc = vi.hoisted(() => ({
-  bindSecret: vi.fn(),
-  bindSecretResult: null as RecordingSnapshot | null,
+  bindVariable: vi.fn(),
+  bindVariableResult: null as RecordingSnapshot | null,
   condition: vi.fn(),
   conditionResult: null as RecordingSnapshot | null,
   deleteStep: vi.fn(),
@@ -31,8 +31,8 @@ const rpc = vi.hoisted(() => ({
   discard: vi.fn(),
   preStep: vi.fn(),
   preStepResult: null as RecordingSnapshot | null,
-  renameSecret: vi.fn(),
-  renameSecretResult: null as RecordingSnapshot | null,
+  renameVariable: vi.fn(),
+  renameVariableResult: null as RecordingSnapshot | null,
   undoDelete: vi.fn(),
   undoDeleteResult: null as RecordingSnapshot | null,
 }));
@@ -174,13 +174,13 @@ vi.mock("@/lib/rpc", () => {
     ),
     recordingRecoverMutation: mutation("active"),
     recordingResumeMutation: mutation("active"),
-    recordingSecretBindMutation: controlledMutation(
-      rpc.bindSecret,
-      () => rpc.bindSecretResult
+    recordingVariableBindMutation: controlledMutation(
+      rpc.bindVariable,
+      () => rpc.bindVariableResult
     ),
-    recordingSecretRenameMutation: controlledMutation(
-      rpc.renameSecret,
-      () => rpc.renameSecretResult
+    recordingVariableRenameMutation: controlledMutation(
+      rpc.renameVariable,
+      () => rpc.renameVariableResult
     ),
     recordingStartMutation: mutation("active"),
     recordingStepDeleteMutation: controlledMutation(
@@ -223,11 +223,11 @@ const renderRecording = (recording: RecordingSnapshot) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  rpc.bindSecretResult = null;
+  rpc.bindVariableResult = null;
   rpc.conditionResult = null;
   rpc.deleteStepResult = null;
   rpc.preStepResult = null;
-  rpc.renameSecretResult = null;
+  rpc.renameVariableResult = null;
   rpc.undoDeleteResult = null;
   stream.recording = null;
   stream.run.mockReturnValue(Effect.never);
@@ -404,9 +404,10 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
   expect(
     screen.getByRole("button", { name: "Add accessibility Audit" })
   ).toBeEnabled();
+  // Performance is not an Audit kind; it is a toggle on a navigating Step.
   expect(
-    screen.getByRole("button", { name: "Add performance Audit" })
-  ).toBeEnabled();
+    screen.queryByRole("button", { name: "Add performance Audit" })
+  ).toBeNull();
 });
 
 test("surfaces a terminal Recording stream failure", async () => {
@@ -533,44 +534,47 @@ test("arms explicit Flow Pre-step capture and condition picking", async () => {
   expect(rpc.condition).toHaveBeenCalledOnce();
 });
 
-test("renames and rebinds Secret Variables", async () => {
+test("renames and rebinds Variables", async () => {
   const user = userEvent.setup();
   const active = makeSnapshot("active");
   const changeStep = {
     id: "email-change",
     preSteps: [],
-    secretVariable: "ACCOUNT",
     step: {
       selectors: ["aria/Email"],
       type: "change" as const,
       value: "{{ACCOUNT}}",
     },
+    variable: "ACCOUNT",
   };
   const recording: RecordingSnapshot = {
     ...active,
     flow: {
       ...active.flow,
       contingency: {
-        secretVariables: [{ name: "ACCOUNT" }, { name: "LOGIN" }],
+        variables: [
+          { name: "ACCOUNT", runtime: true, secret: true },
+          { name: "LOGIN", runtime: true, secret: true },
+        ],
       },
       steps: [...active.flow.steps, changeStep.step],
     },
     recordedSteps: [...active.recordedSteps, changeStep],
   };
-  rpc.bindSecretResult = recording;
-  rpc.renameSecretResult = recording;
+  rpc.bindVariableResult = recording;
+  rpc.renameVariableResult = recording;
   renderRecording(recording);
 
   await user.selectOptions(
-    screen.getByRole("combobox", { name: "Secret Variable for Step 3" }),
+    screen.getByRole("combobox", { name: "Variable for Step 3" }),
     "LOGIN"
   );
-  expect(rpc.bindSecret).toHaveBeenCalledOnce();
+  expect(rpc.bindVariable).toHaveBeenCalledOnce();
   const rename = screen.getByRole("textbox", { name: "Rename ACCOUNT" });
   await user.clear(rename);
   await user.type(rename, "CUSTOMER_EMAIL");
   await user.tab();
-  expect(rpc.renameSecret).toHaveBeenCalledOnce();
+  expect(rpc.renameVariable).toHaveBeenCalledOnce();
 });
 
 test("confirms discarding an authored finished Flow before replacement", async () => {

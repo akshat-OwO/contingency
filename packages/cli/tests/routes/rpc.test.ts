@@ -74,7 +74,7 @@ const recordingService = (
   addAudit: unused,
   armPreStep: unused,
   armPreStepCondition: unused,
-  bindSecret: unused,
+  bindVariable: unused,
   cancelCaptureMode: unused,
   deleteStep: unused,
   discard: unused,
@@ -84,7 +84,7 @@ const recordingService = (
   pause: unused,
   recordNavigation: unused,
   recover: unused,
-  renameSecret: unused,
+  renameVariable: unused,
   resume: unused,
   start: unused,
   stream: () => Stream.empty,
@@ -108,20 +108,27 @@ const resetStorageCalls = () => {
 
 const agentBrowserStub: AgentBrowser = {
   acknowledgeFrame: unused,
+  armVitalsRecorder: unused,
   attach: unused,
+  audit: unused,
   cdpUrl: unused,
   clearStorage: (_sessionId, _tabId, kind) =>
     Effect.sync(() => {
       storageCalls.clear.push(kind);
     }),
+  clickSelector: unused,
   close: unused,
   closeTab: unused,
+  collectVitals: unused,
   create: unused,
   currentUrl: unused,
   deleteStorage: (_sessionId, _tabId, payload) =>
     Effect.sync(() => {
       storageCalls.delete.push(payload.kind);
     }),
+  documentIdentity: unused,
+  documentStatus: unused,
+  fillSelector: unused,
   getNetworkRequest: unused,
   getNetworkRequests: unused,
   getStorage: (_sessionId, requestedTabId, kind) =>
@@ -132,7 +139,11 @@ const agentBrowserStub: AgentBrowser = {
         : { entries: { flag: "on" }, kind, tabId: requestedTabId };
     }),
   getTabs: unused,
+  goto: unused,
   init: unused,
+  isVisible: unused,
+  keyDown: unused,
+  keyUp: unused,
   list: unused,
   navigate: unused,
   newTab: unused,
@@ -144,8 +155,13 @@ const agentBrowserStub: AgentBrowser = {
     }),
   setUserAgent: unused,
   setViewport: unused,
+  startVideo: unused,
+  stopLoading: unused,
+  stopVideo: unused,
   stream: () => Stream.empty,
   switchTab: unused,
+  typeSelector: unused,
+  waitForSelector: unused,
 };
 
 const withHandlers = (snapshot: RecordingSnapshot | null) =>

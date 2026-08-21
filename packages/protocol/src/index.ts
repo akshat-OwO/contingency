@@ -15,8 +15,15 @@ import {
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./flow.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./run.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./storage.ts";
-export { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+export {
+  BrowserTabId,
+  SessionId,
+  sessionPrefixes,
+} from "./browser-identifiers.ts";
+export type { SessionPrefix } from "./browser-identifiers.ts";
 
 export {
   BrowserRpcError,
@@ -491,8 +498,8 @@ export const BrandId = Schema.Literals([
   "recording.step.delete",
   "recording.step.undo",
   "recording.audit.add",
-  "recording.step.secret.bind",
-  "recording.secret.rename",
+  "recording.step.variable.bind",
+  "recording.variable.rename",
   "recording.pre-step.arm",
   "recording.pre-step.condition.arm",
   "recording.capture.cancel",
@@ -673,11 +680,14 @@ export const RecordingStepUndo = request("recording.step.undo", {});
 export const RecordingAuditAdd = request("recording.audit.add", {
   audit: AuditKind,
 });
-export const RecordingStepSecretBind = request("recording.step.secret.bind", {
-  name: Schema.String,
-  stepId: Schema.String,
-});
-export const RecordingSecretRename = request("recording.secret.rename", {
+export const RecordingStepVariableBind = request(
+  "recording.step.variable.bind",
+  {
+    name: Schema.String,
+    stepId: Schema.String,
+  }
+);
+export const RecordingVariableRename = request("recording.variable.rename", {
   from: Schema.String,
   name: Schema.String,
 });
@@ -869,14 +879,14 @@ const RecordingAuditAddRpc = Rpc.make("recording.audit.add", {
   payload: RecordingAuditAdd,
   success: RecordingResult,
 });
-const RecordingStepSecretBindRpc = Rpc.make("recording.step.secret.bind", {
+const RecordingStepVariableBindRpc = Rpc.make("recording.step.variable.bind", {
   error: BrowserRpcError,
-  payload: RecordingStepSecretBind,
+  payload: RecordingStepVariableBind,
   success: RecordingResult,
 });
-const RecordingSecretRenameRpc = Rpc.make("recording.secret.rename", {
+const RecordingVariableRenameRpc = Rpc.make("recording.variable.rename", {
   error: BrowserRpcError,
-  payload: RecordingSecretRename,
+  payload: RecordingVariableRename,
   success: RecordingResult,
 });
 const RecordingPreStepArmRpc = Rpc.make("recording.pre-step.arm", {
@@ -937,8 +947,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingStepDeleteRpc,
   RecordingStepUndoRpc,
   RecordingAuditAddRpc,
-  RecordingStepSecretBindRpc,
-  RecordingSecretRenameRpc,
+  RecordingStepVariableBindRpc,
+  RecordingVariableRenameRpc,
   RecordingPreStepArmRpc,
   RecordingPreStepConditionArmRpc,
   RecordingCaptureCancelRpc,

@@ -1,6 +1,14 @@
 import { Schema } from "effect";
 
-const sessionIdPattern = /^create-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+/**
+ * `create-` sessions author a Recording in Create View. `run-` sessions execute
+ * a Flow in the Runner: headless, non-streaming, no recorder sidecar. The
+ * prefix keeps the two distinguishable wherever a session name is read.
+ */
+export const sessionPrefixes = ["create-", "run-"] as const;
+export type SessionPrefix = (typeof sessionPrefixes)[number];
+
+const sessionIdPattern = /^(?:create|run)-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 
 export const SessionId = Schema.String.check(
   Schema.isPattern(sessionIdPattern)
