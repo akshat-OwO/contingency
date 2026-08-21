@@ -240,15 +240,19 @@ const runOnce = Effect.fn("calibration.runOnce")(function* runOnce(
       const segment = manifest.segments.at(0);
       if (segment === undefined) {
         videoFailure = "the video manifest records no attempt at all";
-      } else {
+      } else if (segment.recorded) {
+        // Only a segment the manifest says was recorded has a file to size. A
+        // capture that failed is described rather than written, so measuring
+        // it first would abort the experiment on the very outcome the
+        // manifest exists to report.
         videoBytes = Number(
           (yield* fileSystem.stat(path.join(directory, segment.file))).size
         );
-        if (!segment.recorded) {
-          videoFailure = segment.error ?? "the recorder reported no recording";
-        } else if (videoBytes === 0) {
+        if (videoBytes === 0) {
           videoFailure = "the recording was written empty";
         }
+      } else {
+        videoFailure = segment.error ?? "the recorder reported no recording";
       }
     }
 
@@ -329,16 +333,46 @@ interface MetricStats {
   readonly max: number;
 }
 
-const metricStats = (
+/**
+ * The pairs where both conditions reported this metric.
+ *
+ * Missingness is not evenly spread: an uncaptured Run often reports no paint
+ * at all, while a captured Run always does, because a capture forces the
+ * browser to produce frames. Taking whatever each condition happened to report
+ * would subtract the median of ten captured Runs from the median of the three
+ * uncaptured ones that painted — two different populations, and a difference
+ * that says more about which Runs survived than about what capture costs.
+ */
+const matchedPairs = (
   samples: readonly Sample[],
-  condition: Condition,
   metric: Metric
+): readonly { readonly plain: number; readonly video: number }[] => {
+  const byPair = new Map<number, Partial<Record<Condition, number>>>();
+  for (const sample of samples) {
+    if (sample.excluded !== undefined || sample.pair === 0) {
+      continue;
+    }
+    const value = sample[metric];
+    if (value === undefined) {
+      continue;
+    }
+    const entry = byPair.get(sample.pair) ?? {};
+    entry[sample.condition] = value;
+    byPair.set(sample.pair, entry);
+  }
+  return [...byPair.values()].flatMap((entry) =>
+    entry.plain === undefined || entry.video === undefined
+      ? []
+      : [{ plain: entry.plain, video: entry.video }]
+  );
+};
+
+const metricStats = (
+  pairs: readonly { readonly plain: number; readonly video: number }[],
+  condition: Condition
 ): MetricStats | undefined => {
-  const values = samples
-    .filter((sample) => sample.condition === condition)
-    .filter((sample) => sample.excluded === undefined)
-    .map((sample) => sample[metric])
-    .filter((value): value is number => value !== undefined)
+  const values = pairs
+    .map((pair) => pair[condition])
     .toSorted((left, right) => left - right);
   if (values.length === 0) {
     return undefined;
@@ -361,16 +395,17 @@ const reportMetric = (
   samples: readonly Sample[],
   metric: "lcp" | "inp"
 ): Effect.Effect<void> => {
-  const video = metricStats(samples, "video", metric);
-  const plain = metricStats(samples, "plain", metric);
+  const pairs = matchedPairs(samples, metric);
+  const video = metricStats(pairs, "video");
+  const plain = metricStats(pairs, "plain");
   const label = metric === "lcp" ? "LCP" : "INP";
+  const reported = samples.filter(
+    (sample) => sample.excluded === undefined && sample[metric] !== undefined
+  ).length;
 
   const line = (name: Condition, stats: MetricStats | undefined): string => {
     if (stats === undefined) {
-      const completed = samples.filter(
-        (sample) => sample.condition === name && sample.excluded === undefined
-      ).length;
-      return `  ${name.padEnd(5)} none of ${completed} valid Runs reported ${label}`;
+      return `  ${name.padEnd(5)} no pair reported ${label} in both conditions`;
     }
     return `  ${name.padEnd(5)} n=${String(stats.n).padEnd(2)} median ${milliseconds(
       stats.median
@@ -380,7 +415,9 @@ const reportMetric = (
   };
 
   return Effect.gen(function* report() {
-    yield* Console.log(`${label} (ms)`);
+    yield* Console.log(
+      `${label} (ms) — ${pairs.length} matched pair${pairs.length === 1 ? "" : "s"}, from ${reported} Runs that reported it`
+    );
     yield* Console.log(line("video", video));
     yield* Console.log(line("plain", plain));
     if (video !== undefined && plain !== undefined) {
@@ -449,18 +486,18 @@ const summarize = Effect.fn("calibration.summarize")(function* summarize(
   const results: Results = {
     conditions: {
       plain: {
-        cls: metricStats(samples, "plain", "cls"),
-        fcp: metricStats(samples, "plain", "fcp"),
-        inp: metricStats(samples, "plain", "inp"),
-        lcp: metricStats(samples, "plain", "lcp"),
-        ttfb: metricStats(samples, "plain", "ttfb"),
+        cls: metricStats(matchedPairs(samples, "cls"), "plain"),
+        fcp: metricStats(matchedPairs(samples, "fcp"), "plain"),
+        inp: metricStats(matchedPairs(samples, "inp"), "plain"),
+        lcp: metricStats(matchedPairs(samples, "lcp"), "plain"),
+        ttfb: metricStats(matchedPairs(samples, "ttfb"), "plain"),
       },
       video: {
-        cls: metricStats(samples, "video", "cls"),
-        fcp: metricStats(samples, "video", "fcp"),
-        inp: metricStats(samples, "video", "inp"),
-        lcp: metricStats(samples, "video", "lcp"),
-        ttfb: metricStats(samples, "video", "ttfb"),
+        cls: metricStats(matchedPairs(samples, "cls"), "video"),
+        fcp: metricStats(matchedPairs(samples, "fcp"), "video"),
+        inp: metricStats(matchedPairs(samples, "inp"), "video"),
+        lcp: metricStats(matchedPairs(samples, "lcp"), "video"),
+        ttfb: metricStats(matchedPairs(samples, "ttfb"), "video"),
       },
     },
     environment,
