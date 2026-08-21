@@ -9,7 +9,9 @@ import type {
   BrowserRpcErrorType,
   Flow,
   FlowStep,
+  PreStep,
   Run,
+  RunPreStep,
   RunStep,
   Selector,
   SessionId,
@@ -280,6 +282,118 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   });
 });
 
+/**
+ * Whether a Pre-step's condition holds — `true`, `false`, or a reason it could
+ * not be established at all.
+ *
+ * The third case is kept separate on purpose. An unanswerable condition — a
+ * dead session, an unusable response, or a condition offering no selector the
+ * browser can resolve — is not evidence that the interference was absent, and
+ * recording it as `skipped` would claim evidence the Run does not have.
+ *
+ * A visible candidate settles the condition on its own; `false` requires every
+ * candidate to have answered.
+ */
+const conditionHolds = Effect.fn("Runner.conditionHolds")(
+  function* conditionHolds(
+    { browser, sessionId }: StepExecution,
+    when: PreStep["when"]
+  ) {
+    const candidates = selectorCandidates(when.selectors);
+    if (candidates.length === 0) {
+      return {
+        reason:
+          "No selector on this Pre-step's condition can be resolved by the browser. Chained shadow-root selectors are not supported yet.",
+      };
+    }
+    let unanswered = "";
+    for (const selector of candidates) {
+      const outcome = yield* Effect.result(
+        browser.isVisible(sessionId, selector)
+      );
+      if (outcome._tag === "Failure") {
+        unanswered = outcome.failure.message;
+        continue;
+      }
+      if (outcome.success) {
+        return true;
+      }
+    }
+    // One candidate answering "not visible" does not settle the condition while
+    // another went unanswered: alternatives can match different elements, so the
+    // interference may be the one described by the candidate that failed.
+    return unanswered === ""
+      ? false
+      : {
+          reason: `Could not evaluate this Pre-step's condition (tried ${candidates.length}): ${unanswered}`,
+        };
+  }
+);
+
+/**
+ * Evaluate one Pre-step and report what happened. Best-effort by design: a
+ * Pre-step never fails the Run. If the interference it clears genuinely blocked
+ * the journey, the real Step fails on its own and is reported as itself
+ * (ADR 0009).
+ */
+const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
+  function* evaluatePreStep(
+    execution: StepExecution,
+    preStep: PreStep,
+    scope: RunPreStep["scope"]
+  ) {
+    const base = { preStepId: preStep.id, scope } as const;
+    const condition = yield* conditionHolds(execution, preStep.when);
+    if (typeof condition === "object") {
+      return {
+        ...base,
+        error: condition.reason,
+        outcome: "failed",
+      } satisfies RunPreStep;
+    }
+    if (!condition) {
+      return { ...base, outcome: "skipped" } satisfies RunPreStep;
+    }
+    const outcome = yield* Effect.result(executeStep(execution, preStep.step));
+    if (outcome._tag === "Success") {
+      return { ...base, outcome: "completed" } satisfies RunPreStep;
+    }
+    return {
+      ...base,
+      // A Pre-step can carry a Variable too, and a browser message can echo the
+      // value it typed, so the message is redacted before it reaches the Run.
+      error: redactSecrets(outcome.failure.message, execution.variables),
+      outcome: "failed",
+    } satisfies RunPreStep;
+  }
+);
+
+/**
+ * The Pre-steps to evaluate before one Step, in evaluation order. Flow-level
+ * Pre-steps clear interference that can appear anywhere, so they run before
+ * every Step — including Audit Steps (ADR 0005) — except the first.
+ *
+ * The exemption is positional rather than a test for a navigate Step. A Run
+ * opens a fresh session on a blank page, so before the first Step there is no
+ * page for a condition to be evaluated against, whatever that Step's type is.
+ */
+const preStepsFor = (
+  flow: Flow,
+  step: FlowStep,
+  index: number
+): readonly (readonly [PreStep, RunPreStep["scope"]])[] => {
+  if (index === 0) {
+    return [];
+  }
+  const flowLevel = (flow.contingency?.preSteps ?? []).map(
+    (preStep) => [preStep, "flow"] as const
+  );
+  const stepLevel = (
+    step.type === "customStep" ? [] : (step.contingency?.preSteps ?? [])
+  ).map((preStep) => [preStep, "step"] as const);
+  return [...flowLevel, ...stepLevel];
+};
+
 export const makeRunnerService = (browser: AgentBrowser) =>
   Effect.gen(function* buildRunner() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -321,13 +435,27 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             ),
             (opened) =>
               Effect.gen(function* replayFlow() {
+                const execution = {
+                  browser,
+                  sessionId: opened,
+                  variables,
+                };
                 for (const [index, step] of flow.steps.entries()) {
                   const stepStartedAt = yield* nowIso;
+
+                  const preSteps: RunPreStep[] = [];
+                  for (const [preStep, scope] of preStepsFor(
+                    flow,
+                    step,
+                    index
+                  )) {
+                    preSteps.push(
+                      yield* evaluatePreStep(execution, preStep, scope)
+                    );
+                  }
+
                   const outcome = yield* Effect.result(
-                    executeStep(
-                      { browser, sessionId: opened, variables },
-                      step
-                    ).pipe(
+                    executeStep(execution, step).pipe(
                       Effect.mapError((cause) =>
                         cause instanceof RunnerError
                           ? cause
@@ -339,6 +467,7 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                   const base = {
                     finishedAt: stepFinishedAt.toISOString(),
                     index,
+                    ...(preSteps.length === 0 ? {} : { preSteps }),
                     startedAt: stepStartedAt.toISOString(),
                     type: step.type,
                     ...(step.type === "customStep" ||

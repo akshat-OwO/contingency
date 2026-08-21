@@ -146,6 +146,15 @@ export interface AgentBrowser {
     sessionId: SessionId,
     key: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Whether a selector resolves to a visible element. A selector matching
+   * nothing is `false`; the browser reports that case as an error, which this
+   * absorbs. A failure here means visibility could not be established at all.
+   */
+  readonly isVisible: (
+    sessionId: SessionId,
+    selector: string
+  ) => Effect.Effect<boolean, BrowserRpcErrorType>;
   /** Wait for a selector to resolve, failing when it does not. */
   readonly waitForSelector: (
     sessionId: SessionId,
@@ -354,6 +363,15 @@ const BatchResults = Schema.Array(
     success: Schema.Boolean,
   })
 );
+
+const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
+
+/**
+ * How agent-browser reports a selector matching nothing. Verified against the
+ * bundled binary for CSS and XPath selectors alike; a `text=` selector resolves
+ * to `visible: false` instead and never reaches this path.
+ */
+const ELEMENT_NOT_FOUND = "Element not found:";
 
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
@@ -1340,6 +1358,38 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    const isVisible = Effect.fn("AgentBrowser.isVisible")(function* isVisible(
+      sessionId: SessionId,
+      selector: string
+    ) {
+      const results = yield* runBatch(sessionId, [
+        ["is", "visible", selector],
+      ]).pipe(
+        // The browser answers "is it visible" for an element that is not there
+        // by failing rather than reporting `false`. That is still an answer,
+        // and it is the only failure here that is one: everything else means
+        // the question could not be put to the page at all.
+        Effect.catchIf(
+          ({ message }) => message.startsWith(ELEMENT_NOT_FOUND),
+          () => Effect.succeed(null)
+        )
+      );
+      if (results === null) {
+        return false;
+      }
+      const decoded = yield* Schema.decodeUnknownEffect(VisibilityResult)(
+        results.at(0)?.result
+      ).pipe(
+        Effect.mapError(() =>
+          browserError(
+            "agent_browser_failed",
+            `agent-browser did not report visibility for ${selector}.`
+          )
+        )
+      );
+      return decoded.visible;
+    });
+
     const goto = Effect.fn("AgentBrowser.goto")(function* goto(
       sessionId: SessionId,
       url: string
@@ -1670,6 +1720,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       getTabs,
       goto,
       init,
+      isVisible,
       keyDown,
       keyUp,
       list,

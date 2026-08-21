@@ -998,6 +998,77 @@ it.effect("passes a dash-prefixed selector as an operand, not a flag", () => {
   }).pipe(Effect.provide(fixture.layer));
 });
 
+it.effect("reads visibility from the batch entry's own result", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error: null,
+          result: { origin: "https://shop.test/", visible: true },
+          success: true,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* readVisibility() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const visible = yield* agentBrowser.isVisible(sessionId, "#banner");
+    const { args, stdin } = yield* lastBatchCommand(fixture);
+
+    expect(visible).toBe(true);
+    expect(args).not.toContain("#banner");
+    expect(stdin).toEqual([["is", "visible", "#banner"]]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("reads an element that is not there as not visible", () => {
+  const fixture = makeFixture({
+    exitCode: 1,
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error:
+            "Element not found: #banner. Verify the selector, role, or name is correct.",
+          success: false,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* absentIsNotVisible() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    // The browser answers this question by failing. It is still an answer, and
+    // it is the only failure here that is one.
+    expect(yield* agentBrowser.isVisible(sessionId, "#banner")).toBe(false);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails when visibility could not be established at all", () => {
+  const fixture = makeFixture({
+    exitCode: 1,
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([{ error: "Session is not running", success: false }]),
+  });
+
+  return Effect.gen(function* unanswerableVisibility() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(
+      agentBrowser.isVisible(sessionId, "#banner")
+    );
+
+    // Not `false`: a browser that cannot answer is not evidence of absence.
+    expect(error.message).toBe("Session is not running");
+  }).pipe(Effect.provide(fixture.layer));
+});
+
 it.effect("fails the command with the batch entry's own message", () => {
   const fixture = makeFixture({
     exitCode: 1,
