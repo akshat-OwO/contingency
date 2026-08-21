@@ -1,11 +1,14 @@
 import type {
   BrowserRpcError,
+  ElidedFindings,
+  Finding,
   Flow,
   PreStep,
   Run,
   SessionId,
 } from "@contingency/protocol";
 import {
+  accessibilityRuleTags,
   makeBrowserRpcError,
   runIsBaselineEligible,
 } from "@contingency/protocol";
@@ -42,6 +45,10 @@ const makeFixture = (options?: {
   readonly failOn?: (call: BrowserCall) => string | BrowserRpcError | undefined;
   /** Wall-clock a navigation takes, for exercising the Run's own ceiling. */
   readonly navigationDelay?: Duration.Duration;
+  /** Rules the engine counted more violations for than it listed. */
+  readonly elided?: readonly Omit<ElidedFindings, "stepIndex">[];
+  /** Findings the accessibility engine reports. Defaults to a clean page. */
+  readonly findings?: readonly Omit<Finding, "stepIndex">[];
   /** Selectors the page shows. Anything else is absent, as the browser reports it. */
   readonly visible?: readonly string[];
 }) => {
@@ -64,6 +71,19 @@ const makeFixture = (options?: {
   };
 
   const stub: Partial<AgentBrowser> = {
+    audit: (_session, tags, stepIndex) =>
+      record("audit", tags).pipe(
+        Effect.as({
+          elided: (options?.elided ?? []).map((rule) => ({
+            ...rule,
+            stepIndex,
+          })),
+          findings: (options?.findings ?? []).map((finding) => ({
+            ...finding,
+            stepIndex,
+          })),
+        })
+      ),
     clickSelector: (_session, selector) => record("click", [selector]),
     close: (session) => record("close", [session]),
     create: (name) =>
@@ -1207,3 +1227,197 @@ it.effect(
     }).pipe(Effect.provide(fixture.fileSystemLayer));
   }
 );
+
+const auditStep = {
+  name: "contingency.audit",
+  parameters: { kind: "accessibility" },
+  type: "customStep",
+} as const;
+
+const violation = {
+  helpUrl: "https://dequeuniversity.com/rules/axe/4.12/image-alt",
+  message: "Element does not have an alt attribute",
+  rule: "image-alt",
+  severity: "critical",
+  target: 'iframe >>> #host >> img[src="y.png"]',
+} as const;
+
+it.effect("runs an Audit at its own position in Flow order", () => {
+  const fixture = makeFixture({ findings: [violation] });
+
+  return Effect.gen(function* auditInOrder() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(
+      flow([
+        { type: "navigate", url: "https://example.com/" },
+        auditStep,
+        { offsetX: 1, offsetY: 2, selectors: [["#next"]], type: "click" },
+        auditStep,
+      ]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(
+      fixture.calls.map(({ command }) => command).filter((c) => c !== "close")
+    ).toEqual(["create", "goto", "documentStatus", "audit", "click", "audit"]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("pins the ruleset rather than taking the engine default", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* pinnedTags() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(flow([auditStep]), {
+      outputDirectory: "/runs",
+    });
+
+    const audit = fixture.calls.find(({ command }) => command === "audit");
+    expect(audit?.args).toEqual([...accessibilityRuleTags]);
+    expect(audit?.args.length).toBeGreaterThan(0);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records Findings on the Audit Step that produced them", () => {
+  const fixture = makeFixture({ findings: [violation] });
+
+  return Effect.gen(function* persistFindings() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(
+      flow([{ type: "navigate", url: "https://example.com/" }, auditStep]),
+      { outputDirectory: "/runs" }
+    );
+
+    expect(result.outcome).toBe("completed");
+    expect(result.steps[0]?.findings).toBeUndefined();
+    expect(result.steps[1]?.findings).toEqual([{ ...violation, stepIndex: 1 }]);
+    // A Run travels without the process that produced it, so the Findings have
+    // to be on disk, not just in the returned value.
+    expect(writtenRun(fixture.written).steps[1]?.findings).toEqual([
+      { ...violation, stepIndex: 1 },
+    ]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("completes a Run that found violations", () => {
+  const fixture = makeFixture({
+    findings: [violation, { ...violation, severity: "minor" }],
+  });
+
+  return Effect.gen(function* findingsNeverFail() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([auditStep]), {
+      outputDirectory: "/runs",
+    });
+
+    // Findings are reported, never fatal: a Run that failed on their count
+    // would be red on day one and switched off by the second.
+    expect(result.outcome).toBe("completed");
+    expect(result.failure).toBeUndefined();
+    expect(runIsBaselineEligible(result)).toBe(true);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("fails the Audit Step when the audit could not run", () => {
+  const fixture = makeFixture({
+    failOn: ({ command }) =>
+      command === "audit" ? "The session is gone." : undefined,
+  });
+
+  return Effect.gen(function* auditFailure() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([auditStep]), {
+      outputDirectory: "/runs",
+      retry: 0,
+    });
+
+    expect(result.outcome).toBe("failed");
+    // An audit that could not run establishes nothing about whose fault it is.
+    expect(result.failure?.kind).toBeUndefined();
+    expect(result.failure?.stepIndex).toBe(0);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("redacts a secret the engine built into a Finding", () => {
+  const fixture = makeFixture({
+    findings: [
+      {
+        message: 'Fix any of the following: a[href="/n?t=hunter2"] has no name',
+        rule: "link-name",
+        severity: "serious",
+        // The engine identifies an element by whatever attribute makes it
+        // unique, so a Variable interpolated into a URL reaches the target
+        // verbatim. Verified against the bundled binary.
+        target: 'a[href="/n?t=hunter2"]',
+      },
+    ],
+  });
+
+  return Effect.gen(function* redactFindings() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(
+      flow(
+        [
+          { selectors: [["#pw"]], type: "change", value: "{{PASSWORD}}" },
+          auditStep,
+        ],
+        { variables: [{ name: "PASSWORD", runtime: false, secret: true }] }
+      ),
+      {
+        outputDirectory: "/runs",
+        variables: {
+          secretNames: new Set(["PASSWORD"]),
+          values: new Map([["PASSWORD", "hunter2"]]),
+        },
+      }
+    );
+
+    const persisted = writtenRun(fixture.written);
+    expect(JSON.stringify(persisted)).not.toContain("hunter2");
+    expect(persisted.steps[1]?.findings?.[0]?.target).toBe(
+      'a[href="/n?t={{PASSWORD}}"]'
+    );
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records what the engine counted but did not list", () => {
+  const fixture = makeFixture({
+    elided: [
+      { reported: 10, rule: "image-alt", severity: "critical", total: 12 },
+    ],
+    findings: [violation],
+  });
+
+  return Effect.gen(function* persistElided() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const { run: result } = yield* runner.run(flow([auditStep]), {
+      outputDirectory: "/runs",
+    });
+
+    // A Baseline comparison that cannot see the shortfall reads a page whose
+    // violations grew past the cap and one that improved down to it alike.
+    expect(writtenRun(fixture.written).steps[0]?.elidedFindings).toEqual([
+      {
+        reported: 10,
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 0,
+        total: 12,
+      },
+    ]);
+    expect(result.outcome).toBe("completed");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("records nothing elided when the engine listed every one", () => {
+  const fixture = makeFixture({ findings: [violation] });
+
+  return Effect.gen(function* noElision() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(flow([auditStep]), { outputDirectory: "/runs" });
+
+    expect(
+      writtenRun(fixture.written).steps[0]?.elidedFindings
+    ).toBeUndefined();
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});

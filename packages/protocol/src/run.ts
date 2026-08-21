@@ -40,12 +40,81 @@ export const RunPreStep = Schema.Struct({
 export type RunPreStep = typeof RunPreStep.Type;
 
 /**
+ * How bad a Finding is. These are the accessibility engine's own four impact
+ * levels, verbatim. A Contingency-specific scale would mean a mapping table to
+ * defend forever, and a second one the day a second Audit kind arrives.
+ */
+export const FindingSeverity = Schema.Literals([
+  "minor",
+  "moderate",
+  "serious",
+  "critical",
+]);
+export type FindingSeverity = typeof FindingSeverity.Type;
+
+/**
+ * One accessibility violation, at one element, found by one Audit Step.
+ *
+ * A Finding never influences a Run's outcome or the CLI's exit code. Every
+ * real site has pre-existing violations, and failing a build on their count
+ * makes it red on day one, after which the check gets switched off. What
+ * should break a build is a Regression, which is separate work.
+ */
+export const Finding = Schema.Struct({
+  /** The engine's fix guidance for this rule. */
+  helpUrl: Schema.optional(nonEmptyString),
+  message: nonEmptyString,
+  /** The engine's rule id, e.g. `image-alt`. */
+  rule: nonEmptyString,
+  severity: FindingSeverity,
+  /** Position of the Audit Step that produced it, in executed Flow order. */
+  stepIndex: Schema.Int,
+  /**
+   * How to find the element. Rendered rather than structured, because the one
+   * thing anyone does with a target is look for the element it names: hops
+   * across a frame boundary are joined with ` >>> ` and into a shadow root
+   * with ` >> `, matching how the browser tooling writes piercing selectors.
+   */
+  target: nonEmptyString,
+});
+export type Finding = typeof Finding.Type;
+
+/**
+ * A rule the engine reported only in part. The vendored engine caps how many
+ * elements it lists per rule — verified against the bundled binary: a page
+ * with 12 unlabelled images reports `nodeCount: 12` and ten nodes — so a
+ * Finding list can be shorter than what the page actually has.
+ *
+ * Recording the shortfall keeps a later Baseline comparison honest. Without
+ * it, a page whose violations grew past the cap and a page that genuinely
+ * improved to the cap produce the same Findings, and the Regression that
+ * matters is the one that stays invisible.
+ */
+export const ElidedFindings = Schema.Struct({
+  /** How many the Run holds Findings for. */
+  reported: Schema.Int,
+  rule: nonEmptyString,
+  severity: FindingSeverity,
+  stepIndex: Schema.Int,
+  /** How many the engine says the page has. */
+  total: Schema.Int,
+});
+export type ElidedFindings = typeof ElidedFindings.Type;
+
+/**
  * One executed Step, recorded whether it succeeded or not. `index` is the
  * Step's position in the executed Flow, so a Run reads against its own
  * embedded Flow without a separate lookup.
  */
 export const RunStep = Schema.Struct({
+  /**
+   * Rules whose violations this Step's Findings represent only in part.
+   * Absent when every violation the engine counted is also listed.
+   */
+  elidedFindings: Schema.optional(Schema.Array(ElidedFindings)),
   error: Schema.optional(Schema.String),
+  /** Everything an Audit Step found. Absent on Steps that audit nothing. */
+  findings: Schema.optional(Schema.Array(Finding)),
   finishedAt: Instant,
   index: Schema.Int,
   outcome: RunStepOutcome,

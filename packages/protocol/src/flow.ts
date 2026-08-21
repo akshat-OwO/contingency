@@ -72,6 +72,26 @@ export type ChromeStep = typeof ChromeStep.Type;
 export const AuditKind = Schema.Literal("accessibility");
 export type AuditKind = typeof AuditKind.Type;
 
+/**
+ * The rule tags an accessibility Audit runs, pinned rather than left at the
+ * engine's default. An engine upgrade otherwise introduces new rules silently,
+ * and on the day of the upgrade every one of them looks like a Regression.
+ *
+ * WCAG 2.0 through 2.2, levels A and AA: the conformance target nearly every
+ * accessibility policy actually names. Best-practice rules are deliberately
+ * excluded — they are opinions, and they move between engine releases.
+ *
+ * `wcag21a` is absent because the engine has no rules under it, verified
+ * against the bundled binary: a tag selecting nothing is indistinguishable
+ * from a misspelled one, and both audit every page clean.
+ */
+export const accessibilityRuleTags = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21aa",
+  "wcag22aa",
+] as const;
+
 export const AuditStep = Schema.Struct({
   name: Schema.Literal("contingency.audit"),
   parameters: Schema.Struct({ kind: AuditKind }),

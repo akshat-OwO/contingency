@@ -109,6 +109,7 @@ const resetStorageCalls = () => {
 const agentBrowserStub: AgentBrowser = {
   acknowledgeFrame: unused,
   attach: unused,
+  audit: unused,
   cdpUrl: unused,
   clearStorage: (_sessionId, _tabId, kind) =>
     Effect.sync(() => {
