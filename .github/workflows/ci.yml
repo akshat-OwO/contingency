@@ -49,9 +49,16 @@ jobs:
 
       - run: nub ci
 
-      # ffmpeg is what the browser encodes a capture with; it is not bundled.
-      # Without it the video assertions skip themselves, and a skipped test
-      # proves nothing about the feature it names.
+      # ffmpeg is what the browser encodes a capture with; it is not bundled,
+      # and the ubuntu-24.04 runner image no longer ships it. Without it the
+      # video assertions skip themselves, and a skipped test proves nothing
+      # about the feature it names — so install it, then fail loudly if it is
+      # still missing rather than letting the suite pass on skips.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Check ffmpeg is present
         run: ffmpeg -version
 
