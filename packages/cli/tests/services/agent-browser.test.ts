@@ -1318,3 +1318,68 @@ it.effect("reports the violations the engine counted but did not list", () => {
     ]);
   }).pipe(Effect.provide(fixture.layer));
 });
+
+it.effect("reads Core Web Vitals without navigating", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        {
+          error: null,
+          result: {
+            result: JSON.stringify({
+              cls: 0.0004442767006065858,
+              fcp: 64,
+              inp: null,
+              lcp: 64,
+              ttfb: 1.0999999642372131,
+            }),
+          },
+          success: true,
+        },
+      ]),
+  });
+
+  return Effect.gen(function* readVitals() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const vitals = yield* agentBrowser.collectVitals(sessionId);
+    const { stdin } = yield* lastBatchCommand(fixture);
+
+    // A page nobody interacted with produces no INP, which is not zero: a
+    // perfectly responsive page and an unmeasured one must not read alike.
+    expect(vitals).toEqual({
+      cls: 0.0004442767006065858,
+      fcp: 64,
+      lcp: 64,
+      ttfb: 1.0999999642372131,
+    });
+    // The browser tool's own `vitals` command reloads the page, so it is not
+    // used. Verified against the bundled binary: `navigationType` goes from
+    // `navigate` to `reload` and in-page state is destroyed.
+    const [command] = stdin as readonly (readonly string[])[];
+    expect(command?.[0]).toBe("eval");
+    expect(command?.[1]).toContain("__contingencyVitals");
+    expect(JSON.stringify(stdin)).not.toContain('"vitals"');
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect("fails when the page did not answer with measurements", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([
+        { error: null, result: { result: "not json" }, success: true },
+      ]),
+  });
+
+  return Effect.gen(function* unusableVitals() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const error = yield* Effect.flip(agentBrowser.collectVitals(sessionId));
+
+    expect(error.message).toContain("Core Web Vitals");
+  }).pipe(Effect.provide(fixture.layer));
+});

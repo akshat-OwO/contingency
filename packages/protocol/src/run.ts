@@ -80,6 +80,54 @@ export const Finding = Schema.Struct({
 export type Finding = typeof Finding.Type;
 
 /**
+ * Core Web Vitals for one navigation, in milliseconds except {@link
+ * CoreWebVitals.cls}, which is a unitless score.
+ *
+ * Every metric but CLS is optional, and absence means the page produced no
+ * such measurement rather than zero. A page interacted with before it settles
+ * reports no LCP, a navigation nobody interacted with reports no INP, and a
+ * document that did not come from the network reports no TTFB. Recording those
+ * as `0` would make the fastest possible page indistinguishable from an
+ * unmeasured one.
+ *
+ * Numbers are unthrottled, so they describe the host machine as much as the
+ * site (ADR 0008) — see {@link RunEnvironment}.
+ */
+export const CoreWebVitals = Schema.Struct({
+  /** Cumulative Layout Shift: the worst session window, not the total. */
+  cls: Schema.Number,
+  fcp: Schema.optional(Schema.Number),
+  inp: Schema.optional(Schema.Number),
+  lcp: Schema.optional(Schema.Number),
+  ttfb: Schema.optional(Schema.Number),
+});
+export type CoreWebVitals = typeof CoreWebVitals.Type;
+
+/**
+ * The machine a Run was measured on. Core Web Vitals are collected
+ * unthrottled, so a Baseline recorded on a laptop and compared against a busy
+ * CI runner reads as a Regression caused entirely by hardware (ADR 0008).
+ *
+ * This is what a later comparison needs to notice that two Runs are not
+ * comparable. Deciding what to do about it belongs with Regressions; a Run
+ * that does not record it cannot be rescued later, which is why it is here.
+ */
+export const RunEnvironment = Schema.Struct({
+  architecture: nonEmptyString,
+  cpuCount: Schema.Int,
+  cpuModel: nonEmptyString,
+  /**
+   * System load at the moment the Run started, averaged over one minute. Two
+   * Runs on identical hardware are still not comparable if one shared its
+   * machine with a build; `0` on a platform that does not report it.
+   */
+  loadAverage: Schema.Number,
+  memoryBytes: Schema.Int,
+  platform: nonEmptyString,
+});
+export type RunEnvironment = typeof RunEnvironment.Type;
+
+/**
  * A rule the engine reported only in part. The vendored engine caps how many
  * elements it lists per rule — verified against the bundled binary: a page
  * with 12 unlabelled images reports `nodeCount: 12` and ten nodes — so a
@@ -123,6 +171,11 @@ export const RunStep = Schema.Struct({
   startedAt: Instant,
   stepId: Schema.optional(Schema.String),
   type: nonEmptyString,
+  /**
+   * Core Web Vitals for the navigation this Step performed. Present only on a
+   * Step carrying the performance toggle (ADR 0008).
+   */
+  vitals: Schema.optional(CoreWebVitals),
 });
 export type RunStep = typeof RunStep.Type;
 
@@ -179,6 +232,8 @@ export const Run = Schema.Struct({
    * entry; {@link Run.steps} always mirrors the last attempt's.
    */
   attempts: Schema.Array(RunAttempt).check(Schema.isMinLength(1)),
+  /** The machine that produced this Run's measurements. */
+  environment: RunEnvironment,
   failure: Schema.optional(RunFailure),
   finishedAt: Instant,
   flow: Flow,

@@ -27,6 +27,7 @@ import type {
   BrowserStreamEvent,
   BrowserStreamId as BrowserStreamIdType,
   BrowserTab,
+  CoreWebVitals,
   ElidedFindings,
   Finding,
   SessionId,
@@ -64,6 +65,8 @@ import {
 import { dispatchKey, dispatchModifiedClick, isModifierKey } from "./cdp-input";
 import { navigateWithUserAgentOverride } from "./cdp-user-agent";
 import { stateDirectory } from "./state-directory";
+import { VITALS_COLLECTOR } from "./vitals-collector";
+import { VITALS_RECORDER } from "./vitals-recorder";
 
 const getAgentBrowserAssetsDirectory = (): string => {
   const moduleDirectory = import.meta.dirname;
@@ -169,6 +172,14 @@ export interface AgentBrowser {
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
+   * Core Web Vitals for the navigation the page already performed. Reads the
+   * existing performance timeline, so it neither navigates nor disturbs the
+   * page — unlike the browser tool's own `vitals` command, which reloads.
+   */
+  readonly collectVitals: (
+    sessionId: SessionId
+  ) => Effect.Effect<CoreWebVitals, BrowserRpcErrorType>;
+  /**
    * Run the vendored accessibility engine over the whole page, under the given
    * rule tags. Covers the frame tree and open shadow roots, and needs no
    * network request, so it works under a strict page CSP.
@@ -194,7 +205,15 @@ export interface AgentBrowser {
   ) => Effect.Effect<string, BrowserRpcErrorType>;
   readonly create: (
     name: string,
-    viewport: Viewport
+    viewport: Viewport,
+    options?: {
+      /**
+       * Record Core Web Vitals from the start of every page this session
+       * loads. Interactions are not reliably replayable after the fact, so a
+       * session that did not arm this cannot be measured later.
+       */
+      readonly recordVitals?: boolean;
+    }
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly init: () => Effect.Effect<void, AgentBrowserInitError>;
   readonly currentUrl: (
@@ -391,6 +410,20 @@ const BatchResults = Schema.Array(
 const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
 const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
+
+const EvaluatedString = Schema.Struct({ result: Schema.String });
+
+/**
+ * What the collector resolves with. `null` is the page saying it produced no
+ * such measurement, which is not the same as zero.
+ */
+const CollectedVitals = Schema.Struct({
+  cls: Schema.Number,
+  fcp: Schema.NullOr(Schema.Number),
+  inp: Schema.NullOr(Schema.Number),
+  lcp: Schema.NullOr(Schema.Number),
+  ttfb: Schema.NullOr(Schema.Number),
+});
 
 /** What one Audit Step found, and what the engine did not list in full. */
 export interface AuditResult {
@@ -848,6 +881,27 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       "--json",
     ];
 
+    const writeVitalsRecorder = Effect.fn("AgentBrowser.writeVitalsRecorder")(
+      function* writeVitalsRecorder() {
+        const target = path.join(
+          stateDirectory(runtime.operatingSystem),
+          "vitals-recorder.js"
+        );
+        return yield* fileSystem
+          .makeDirectory(path.dirname(target), { recursive: true })
+          .pipe(
+            Effect.andThen(fileSystem.writeFileString(target, VITALS_RECORDER)),
+            Effect.as(target),
+            Effect.mapError(() =>
+              browserError(
+                "agent_browser_failed",
+                "Could not write the Core Web Vitals recorder."
+              )
+            )
+          );
+      }
+    );
+
     const init = Effect.fn("AgentBrowser.init")(function* init() {
       const contingencyStateDirectory = stateDirectory(runtime.operatingSystem);
       const installMarkerPath = path.join(
@@ -943,7 +997,8 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     const create = Effect.fn("AgentBrowser.create")(function* create(
       name: string,
-      viewport: Viewport
+      viewport: Viewport,
+      options?: { readonly recordVitals?: boolean }
     ) {
       const sessionId = yield* normalizeSessionId(name);
       yield* init().pipe(
@@ -951,7 +1006,20 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
           browserError("agent_browser_failed", errorMessage(cause))
         )
       );
-      yield* run(sessionArgs(sessionId, ["open"]));
+      // The recorder has to be registered before the first navigation, and the
+      // browser takes it as a file rather than inline source.
+      const initScript =
+        options?.recordVitals === true
+          ? yield* writeVitalsRecorder()
+          : undefined;
+      yield* run(
+        sessionArgs(
+          sessionId,
+          initScript === undefined
+            ? ["open"]
+            : ["--init-script", initScript, "open"]
+        )
+      );
       yield* Ref.set(ownsSessions, true);
       sessionProfiles.set(sessionId, "default");
       yield* setViewport(sessionId, viewport);
@@ -1567,6 +1635,40 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       } satisfies AuditResult;
     });
 
+    const collectVitals = Effect.fn("AgentBrowser.collectVitals")(
+      function* collectVitals(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["eval", VITALS_COLLECTOR],
+        ]);
+        // The page resolves with JSON, which `eval` hands back as a string.
+        const raw = results.at(0)?.result;
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedString)(
+          raw
+        ).pipe(
+          Effect.flatMap(({ result }) =>
+            Effect.try({
+              catch: () => new Error("unparsable"),
+              try: () => JSON.parse(result) as unknown,
+            })
+          ),
+          Effect.flatMap(Schema.decodeUnknownEffect(CollectedVitals)),
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report Core Web Vitals for this navigation."
+            )
+          )
+        );
+        return {
+          cls: decoded.cls,
+          ...(decoded.fcp === null ? {} : { fcp: decoded.fcp }),
+          ...(decoded.inp === null ? {} : { inp: decoded.inp }),
+          ...(decoded.lcp === null ? {} : { lcp: decoded.lcp }),
+          ...(decoded.ttfb === null ? {} : { ttfb: decoded.ttfb }),
+        } satisfies CoreWebVitals;
+      }
+    );
+
     const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
       function* documentStatus(sessionId: SessionId) {
         const results = yield* runBatch(sessionId, [
@@ -1909,6 +2011,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       clickSelector,
       close,
       closeTab,
+      collectVitals,
       create,
       currentUrl,
       deleteStorage,
