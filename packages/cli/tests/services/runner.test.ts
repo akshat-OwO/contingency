@@ -81,6 +81,7 @@ const makeFixture = (options?: {
   };
 
   const stub: Partial<AgentBrowser> = {
+    armVitalsRecorder: () => record("armVitals", []),
     audit: (_session, tags, stepIndex) =>
       record("audit", tags).pipe(
         Effect.as({
@@ -1615,6 +1616,54 @@ it.effect(
     }).pipe(Effect.provide(fixture.fileSystemLayer));
   }
 );
+
+it.effect("arms the vitals recorder on every page of a captured Run", () => {
+  const fixture = makeFixture({ vitals: measured });
+
+  return Effect.gen(function* armUnderCapture() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(
+      flow([
+        navigateAndMeasure,
+        { offsetX: 1, offsetY: 2, selectors: [["#go"]], type: "click" },
+        { type: "navigate", url: "https://example.com/next" },
+      ]),
+      { outputDirectory: "/runs", video: true }
+    );
+
+    // A capture replays the Flow in a fresh browser context that no init
+    // script can reach, so the recorder is registered by evaluating it into
+    // each page the Run arrives at — including the opening page, which the
+    // recorder navigated to rather than the Runner, and the navigate Step
+    // after the click, but not the click itself, which stays on its page.
+    const order = fixture.calls
+      .map(({ command }) => command)
+      .filter(
+        (command) =>
+          command === "goto" ||
+          command === "armVitals" ||
+          command === "startVideo"
+      );
+    expect(order).toEqual(["startVideo", "armVitals", "goto", "armVitals"]);
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("arms nothing when the Run is not captured", () => {
+  const fixture = makeFixture({ vitals: measured });
+
+  return Effect.gen(function* armOnlyUnderCapture() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(flow([navigateAndMeasure]), {
+      outputDirectory: "/runs",
+    });
+
+    // An uncaptured Run's pages are covered by the init script the session
+    // opened with, so evaluating a recorder into them would be redundant.
+    expect(fixture.calls.some(({ command }) => command === "armVitals")).toBe(
+      false
+    );
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
 
 it.effect("keeps metrics from a Step the Run later failed after", () => {
   const fixture = makeFixture({

@@ -179,17 +179,16 @@ export interface AgentBrowser {
    * bundled binary: starting a capture builds a fresh browser context, which
    * drops `localStorage` — so starting mid-Run logs out any Flow whose session
    * lives there, and re-navigates the page besides.
+   *
+   * That fresh context does not inherit the session's init scripts either, so
+   * a caller recording Core Web Vitals re-arms its recorder on each page it
+   * arrives at ({@link armVitalsRecorder}): a captured Run that measured
+   * nothing would report exactly the numbers it existed to compare
+   * (ADR 0008).
    */
   readonly startVideo: (
     sessionId: SessionId,
     file: string,
-    /**
-     * The page to open as capture begins. Verified against the bundled binary:
-     * starting on a blank page and navigating afterwards records nothing at
-     * all about three times in five, while letting the recorder open the page
-     * itself recorded five times in five. It performs the Flow's own first
-     * navigation, so there is still exactly one.
-     */
     url?: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
@@ -226,6 +225,22 @@ export interface AgentBrowser {
   readonly collectVitals: (
     sessionId: SessionId
   ) => Effect.Effect<CoreWebVitals, BrowserRpcErrorType>;
+  /**
+   * Register the Core Web Vitals recorder in the page currently loaded.
+   *
+   * The init script a session opens with covers its first browser context.
+   * A capture starts a fresh context that nothing reaches — verified against
+   * the bundled binary: the `--init-script` flag on `record start` and on
+   * later commands does not register there, the `AGENT_BROWSER_INIT_SCRIPTS`
+   * environment variable covers only the opening context, and there is no
+   * `addinitscript` command. A Run captured to video therefore arms its
+   * recorder here, after each navigation, which loses nothing: paint, shift,
+   * and navigation entries replay through `buffered: true`, and interactions
+   * only ever follow the Runner's own Steps.
+   */
+  readonly armVitalsRecorder: (
+    sessionId: SessionId
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
    * Run the vendored accessibility engine over the whole page, under the given
    * rule tags. Covers the frame tree and open shadow roots, and needs no
@@ -543,6 +558,17 @@ const AuditReport = Schema.Struct({
  * How long the process spends closing sessions it opened, on the way out.
  */
 const SHUTDOWN_TIMEOUT = Duration.seconds(5);
+
+/**
+ * How long a capture is given to attach before the session navigates away
+ * from the blank page it started on. Verified against the bundled binary: a
+ * navigation issued immediately after `record start` left the encoder with
+ * nothing in five tries out of five, while one issued after a second produced
+ * a recording every time. The race is with the navigation, not with anything
+ * else sent alongside it: the same settle flushes recordings on sessions that
+ * register no init script at all.
+ */
+const VIDEO_ATTACH_SETTLE = Duration.seconds(1);
 
 const DOCUMENT_IDENTITY =
   'performance.timeOrigin + "|" + location.href + "|" + document.readyState';
@@ -1730,6 +1756,12 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       }
     );
 
+    const armVitalsRecorder = Effect.fn("AgentBrowser.armVitalsRecorder")(
+      function* armVitalsRecorder(sessionId: SessionId) {
+        yield* runBatch(sessionId, [["eval", VITALS_RECORDER]]);
+      }
+    );
+
     /**
      * How the browser says there was nothing to stop. Verified against the
      * bundled binary, which answers `{"success": false}` rather than failing.
@@ -1745,6 +1777,10 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
             ? ["record", "start", file]
             : ["record", "start", file, normalized],
         ]);
+        if (normalized !== undefined) {
+          return;
+        }
+        yield* Effect.sleep(VIDEO_ATTACH_SETTLE);
       }
     );
 
@@ -2131,6 +2167,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
 
     return AgentBrowser.of({
       acknowledgeFrame,
+      armVitalsRecorder,
       attach,
       audit,
       cdpUrl,
