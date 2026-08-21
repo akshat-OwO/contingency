@@ -114,6 +114,7 @@ const agentBrowserStub: AgentBrowser = {
     Effect.sync(() => {
       storageCalls.clear.push(kind);
     }),
+  clickSelector: unused,
   close: unused,
   closeTab: unused,
   create: unused,
@@ -122,6 +123,7 @@ const agentBrowserStub: AgentBrowser = {
     Effect.sync(() => {
       storageCalls.delete.push(payload.kind);
     }),
+  fillSelector: unused,
   getNetworkRequest: unused,
   getNetworkRequests: unused,
   getStorage: (_sessionId, requestedTabId, kind) =>
@@ -132,7 +134,10 @@ const agentBrowserStub: AgentBrowser = {
         : { entries: { flag: "on" }, kind, tabId: requestedTabId };
     }),
   getTabs: unused,
+  goto: unused,
   init: unused,
+  keyDown: unused,
+  keyUp: unused,
   list: unused,
   navigate: unused,
   newTab: unused,
@@ -146,6 +151,8 @@ const agentBrowserStub: AgentBrowser = {
   setViewport: unused,
   stream: () => Stream.empty,
   switchTab: unused,
+  typeSelector: unused,
+  waitForSelector: unused,
 };
 
 const withHandlers = (snapshot: RecordingSnapshot | null) =>

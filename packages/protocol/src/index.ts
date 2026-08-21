@@ -15,8 +15,15 @@ import {
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./flow.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./run.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./storage.ts";
-export { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+export {
+  BrowserTabId,
+  SessionId,
+  sessionPrefixes,
+} from "./browser-identifiers.ts";
+export type { SessionPrefix } from "./browser-identifiers.ts";
 
 export {
   BrowserRpcError,

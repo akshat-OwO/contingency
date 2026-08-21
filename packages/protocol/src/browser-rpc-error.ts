@@ -6,6 +6,9 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "invalid_url",
     "session_not_found",
     "agent_browser_failed",
+    // The page already received the input before the failure was detected, so
+    // the attempt is not repeatable: a second selector would click twice.
+    "input_already_dispatched",
     "stream_failed",
     "recording_conflict",
     "recording_invalid",
