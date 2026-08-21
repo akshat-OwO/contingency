@@ -1,0 +1,58 @@
+# The gate. Lint, formatting, types, and tests, on every PR and every push to
+# main. Nothing else in this repo runs the test suites: the other checks
+# (React Doctor, GitGuardian, Macroscope) read the diff, not the code running.
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+# One run per PR (or branch, on push). A superseded commit's run is cancelled
+# rather than left to finish against code nobody will merge.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality, types, and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Installs Nub, provisions the Node in .node-version, and caches the store.
+      - uses: nubjs/setup-nub@v0
+
+      - run: nub ci
+
+      # One Turbo invocation, so a failure in any task still lets the others
+      # report. `test` depends on `^build`, which builds the web bundle into
+      # the CLI's dist — the same artifact a release ships.
+      - run: nub exec turbo run quality check-types test
+
+  integration:
+    name: Integration (real browser)
+    runs-on: ubuntu-latest
+    # The suite launches the bundled browser per test file and downloads it on
+    # first run, so it is slower than everything above by an order of magnitude.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nubjs/setup-nub@v0
+
+      - run: nub ci
+
+      # ffmpeg is what the browser encodes a capture with; it is not bundled.
+      # Without it the video assertions skip themselves, and a skipped test
+      # proves nothing about the feature it names.
+      - name: Check ffmpeg is present
+        run: ffmpeg -version
+
+      - run: nub exec turbo run test:integration
