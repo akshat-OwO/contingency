@@ -184,3 +184,93 @@ test("an Audit Step admits only the accessibility kind", () => {
   expect(Result.isSuccess(decode(auditFlow("accessibility")))).toBe(true);
   expect(Result.isSuccess(decode(auditFlow("performance")))).toBe(false);
 });
+
+test("a pre-rename Flow keeps its Variable declaration and Step binding", () => {
+  // The exact shape `main` exported before secretVariables was renamed to
+  // variables: a declaration at Flow level and a binding on the change Step.
+  const result = decode({
+    contingency: { secretVariables: [{ name: "PASSWORD" }] },
+    steps: [
+      navigateStep,
+      {
+        contingency: { id: "password", secretVariable: "PASSWORD" },
+        selectors: [["#password"]],
+        type: "change",
+        value: "{{PASSWORD}}",
+      },
+    ],
+    title: "Legacy login",
+  });
+
+  if (Result.isFailure(result)) {
+    throw new Error("Expected the legacy Flow to decode");
+  }
+  expect(result.success.contingency?.variables).toEqual([
+    { name: "PASSWORD", runtime: true, secret: true },
+  ]);
+  const [, change] = result.success.steps;
+  if (change === undefined || change.type === "customStep") {
+    throw new Error("Expected Step 2 to be a browser Step");
+  }
+  expect(change.contingency?.variable).toBe("PASSWORD");
+});
+
+test("a migrated legacy Variable is secret and runtime", () => {
+  // A legacy Variable was a credential the recorder never stored, so running
+  // the migrated Flow must redact it and prompt for it rather than fail
+  // preflight on a Flow that could never carry its own value.
+  const result = decode({
+    contingency: { secretVariables: [{ name: "TOKEN" }] },
+    steps: [navigateStep],
+    title: "Legacy",
+  });
+
+  if (Result.isFailure(result)) {
+    throw new Error("Expected the legacy Flow to decode");
+  }
+  expect(result.success.contingency?.variables).toEqual([
+    { name: "TOKEN", runtime: true, secret: true },
+  ]);
+});
+
+test("a current-format Variable wins over a legacy one of the same name", () => {
+  const result = decode({
+    contingency: {
+      secretVariables: [{ name: "TOKEN" }],
+      variables: [{ name: "TOKEN", runtime: false, secret: false }],
+    },
+    steps: [navigateStep],
+    title: "Both",
+  });
+
+  if (Result.isFailure(result)) {
+    throw new Error("Expected the Flow to decode");
+  }
+  expect(result.success.contingency?.variables).toEqual([
+    { name: "TOKEN", runtime: false, secret: false },
+  ]);
+});
+
+test("encoding a migrated Flow emits only the current format", () => {
+  const encode = Schema.encodeSync(Flow);
+  const result = decode({
+    contingency: { secretVariables: [{ name: "PASSWORD" }] },
+    steps: [
+      {
+        contingency: { id: "password", secretVariable: "PASSWORD" },
+        selectors: [["#password"]],
+        type: "change",
+        value: "{{PASSWORD}}",
+      },
+    ],
+    title: "Legacy login",
+  });
+
+  if (Result.isFailure(result)) {
+    throw new Error("Expected the legacy Flow to decode");
+  }
+  const encoded = encode(result.success) as Record<string, unknown>;
+  // Neither the Flow-level declaration nor the Step binding survives in the
+  // old spelling: re-encoding a migrated Flow emits only current fields.
+  expect(JSON.stringify(encoded)).not.toContain("secretVariable");
+});

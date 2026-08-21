@@ -1055,7 +1055,6 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             capture && first?.type === "navigate"
               ? substituteVariables(first.url, variables.values)
               : undefined,
-          segments: [] as RunVideoSegment[],
         };
       }
     );
@@ -1118,7 +1117,13 @@ export const makeRunnerService = (browser: AgentBrowser) =>
               startedAt,
               runId
             );
-            const { capture, openingUrl, segments } = yield* prepareCapture(
+            // The segment list exists before capture is prepared, and the
+            // manifest finalizer is registered before capture begins: a Run
+            // that dies while the recording is still starting — Ctrl-C during
+            // the recorder's own opening navigation, say — must still leave
+            // the manifest accounting for the recording it never produced.
+            const segments: RunVideoSegment[] = [];
+            const { capture, openingUrl } = yield* prepareCapture(
               flow,
               options,
               variables,
@@ -1137,8 +1142,6 @@ export const makeRunnerService = (browser: AgentBrowser) =>
               runId,
               segments,
             }).pipe(Effect.ignore);
-            // Registered before the first attempt, so an interrupted Run leaves
-            // a manifest describing the recording it did produce.
             yield* Effect.addFinalizer(() => manifest);
 
             const attempts: RunAttempt[] = [];

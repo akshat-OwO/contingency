@@ -84,6 +84,20 @@ const INSTALL_MARKER = `agent-browser-${agentBrowserPackage.version}.installed`;
 // Match the protocol's maximum viewport so agent-browser never downsamples a frame.
 const MAX_STREAM_DIMENSION = "10000";
 
+/**
+ * Process ids of browser-tool commands that have been spawned and have not
+ * settled yet.
+ *
+ * This lives outside Effect on purpose. A command whose answer depends on the
+ * browser finishing something — a recording flush queued behind a navigation,
+ * say — can outlast every Effect-level bound, because the process itself is
+ * the thing being waited on. When the user interrupts such a Run, graceful
+ * unwinding may never get anywhere, and this set is what the CLI's
+ * last-resort exit path (see `src/index.ts`) force-kills so Ctrl-C always
+ * wins eventually.
+ */
+export const inFlightBrowserCommands = new Set<number>();
+
 class AgentBrowserSetupError extends Data.TaggedError(
   "AgentBrowserSetupError"
 )<{
@@ -843,9 +857,12 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
         stdout: "pipe",
       });
 
+      let commandPid: number | undefined;
       const result = yield* Effect.scoped(
         Effect.gen(function* executeAgentBrowser() {
           const handle = yield* spawner.spawn(command);
+          commandPid = handle.pid;
+          inFlightBrowserCommands.add(commandPid);
           const [stdout, stderr, exitCode] = yield* Effect.all(
             [
               Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -855,7 +872,15 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
             { concurrency: "unbounded" }
           );
           return { exitCode: Number(exitCode), stderr, stdout };
-        })
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (commandPid !== undefined) {
+                inFlightBrowserCommands.delete(commandPid);
+              }
+            })
+          )
+        )
       ).pipe(
         Effect.mapError((cause) =>
           browserError("agent_browser_failed", errorMessage(cause))

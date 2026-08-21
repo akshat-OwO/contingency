@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, SchemaGetter } from "effect";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 
@@ -122,7 +122,105 @@ export const Variable = Schema.Struct({
 });
 export type Variable = typeof Variable.Type;
 
-const StepExtension = Schema.Struct({
+/**
+ * A Variable as Flows exported before the rename declared it: a bare name,
+ * always secret, never anything else. Kept as a distinct schema so the
+ * migration reads against exactly what old exports contained and nothing more.
+ */
+const LegacySecretVariable = Schema.Struct({ name: nonEmptyString });
+
+/**
+ * Fold pre-rename `secretVariables` into the current declaration list. A
+ * legacy Variable was a credential the recorder never stored, so it migrates
+ * as both `secret` (redact it from artifacts) and `runtime` (prompt for it at
+ * Run time rather than failing preflight on a Flow that could never carry its
+ * own value). Names already declared in the new format win, so a Flow edited
+ * after the rename keeps its explicit choices.
+ */
+const withLegacySecretVariables = (
+  variables: readonly Variable[] | undefined,
+  legacy: readonly { readonly name: string }[] | undefined
+): readonly Variable[] | undefined => {
+  if (legacy === undefined || legacy.length === 0) {
+    return variables;
+  }
+  const declared = new Set((variables ?? []).map(({ name }) => name));
+  const migrated = legacy
+    .filter(({ name }) => !declared.has(name))
+    .map(({ name }) => ({ name, runtime: true, secret: true }));
+  const merged = [...(variables ?? []), ...migrated];
+  return merged.length === 0 ? undefined : merged;
+};
+
+const FlowContingency = Schema.Struct({
+  /**
+   * Stable identity for the Flow, independent of its user-editable title,
+   * so Run history survives a rename. Optional, because a plain Chrome
+   * DevTools Recorder export carries no Contingency fields (ADR 0001).
+   */
+  flowId: Schema.optional(nonEmptyString),
+  preSteps: Schema.optional(Schema.Array(PreStep)),
+  variables: Schema.optional(Schema.Array(Variable)),
+  /** Capture Runs of this Flow to video. Not a {@link RecordingSnapshot}. */
+  video: Schema.optional(Schema.Boolean),
+});
+type FlowContingency = typeof FlowContingency.Type;
+
+/**
+ * What a persisted Flow may literally contain: the current fields plus the
+ * pre-rename spellings. Decoding migrates the old ones instead of dropping
+ * them — a silent strip would turn an imported login Flow into one that types
+ * nothing where its password goes.
+ */
+const FlowContingencyWithLegacyFields = Schema.Struct({
+  ...FlowContingency.fields,
+  secretVariables: Schema.optional(Schema.Array(LegacySecretVariable)),
+});
+type FlowContingencyWithLegacy = typeof FlowContingencyWithLegacyFields.Type;
+
+const FlowContingencyWithLegacy = FlowContingencyWithLegacyFields.pipe(
+  Schema.decodeTo(FlowContingency, {
+    decode: SchemaGetter.transform(
+      ({
+        flowId,
+        preSteps,
+        secretVariables,
+        variables,
+        video,
+      }: FlowContingencyWithLegacy): FlowContingency => {
+        const merged = withLegacySecretVariables(variables, secretVariables);
+        return {
+          ...(flowId === undefined ? {} : { flowId }),
+          ...(preSteps === undefined ? {} : { preSteps }),
+          ...(merged === undefined ? {} : { variables: merged }),
+          ...(video === undefined ? {} : { video }),
+        };
+      }
+    ),
+    encode: SchemaGetter.transform(
+      (contingency: FlowContingency) => contingency
+    ),
+  })
+);
+
+/**
+ * Where a decoded Variable binding comes from: the current spelling wins, and
+ * the pre-rename `secretVariable` fills in only when no current one exists.
+ */
+const variableBinding = (
+  variable: string | undefined,
+  secretVariable: string | undefined
+): { variable?: string } => {
+  if (variable !== undefined) {
+    return { variable };
+  }
+  if (secretVariable === undefined) {
+    return {};
+  }
+  return { variable: secretVariable };
+};
+
+const StepExtensionFields = Schema.Struct({
   id: nonEmptyString,
   /**
    * Collect Core Web Vitals at this Step's navigation. Only meaningful on a
@@ -132,6 +230,40 @@ const StepExtension = Schema.Struct({
   preSteps: Schema.optional(Schema.Array(PreStep)),
   variable: Schema.optional(nonEmptyString),
 });
+type StepExtensionFields = typeof StepExtensionFields.Type;
+
+/**
+ * The Step extension as persisted Flows may spell it, including the pre-rename
+ * `secretVariable` binding. Decoding renames it; where both spellings appear,
+ * the current one wins.
+ */
+const StepExtensionWithLegacyFields = Schema.Struct({
+  ...StepExtensionFields.fields,
+  secretVariable: Schema.optional(nonEmptyString),
+});
+type StepExtensionWithLegacy = typeof StepExtensionWithLegacyFields.Type;
+
+const StepExtension = StepExtensionWithLegacyFields.pipe(
+  Schema.decodeTo(StepExtensionFields, {
+    decode: SchemaGetter.transform(
+      ({
+        id,
+        performance,
+        preSteps,
+        secretVariable,
+        variable,
+      }: StepExtensionWithLegacy): StepExtensionFields => ({
+        ...variableBinding(variable, secretVariable),
+        ...(performance === undefined ? {} : { performance }),
+        ...(preSteps === undefined ? {} : { preSteps }),
+        id,
+      })
+    ),
+    encode: SchemaGetter.transform(
+      (extension: StepExtensionFields) => extension
+    ),
+  })
+);
 
 const extendStep = <S extends Schema.Struct.Fields>(fields: S) =>
   Schema.Struct({
@@ -192,20 +324,7 @@ const performanceOnlyOnNavigatingSteps = Schema.makeFilter<readonly FlowStep[]>(
 );
 
 export const Flow = Schema.Struct({
-  contingency: Schema.optional(
-    Schema.Struct({
-      /**
-       * Stable identity for the Flow, independent of its user-editable title,
-       * so Run history survives a rename. Optional, because a plain Chrome
-       * DevTools Recorder export carries no Contingency fields (ADR 0001).
-       */
-      flowId: Schema.optional(nonEmptyString),
-      preSteps: Schema.optional(Schema.Array(PreStep)),
-      variables: Schema.optional(Schema.Array(Variable)),
-      /** Capture Runs of this Flow to video. Not a {@link RecordingSnapshot}. */
-      video: Schema.optional(Schema.Boolean),
-    })
-  ),
+  contingency: Schema.optional(FlowContingencyWithLegacy),
   selectorAttribute: Schema.optional(Schema.String),
   steps: Schema.Array(FlowStep).check(
     Schema.isMinLength(1),
@@ -232,12 +351,40 @@ export const RecordingCaptureMode = Schema.Literals([
 ]);
 export type RecordingCaptureMode = typeof RecordingCaptureMode.Type;
 
-export const RecordedStep = Schema.Struct({
+const RecordedStepFields = Schema.Struct({
   id: nonEmptyString,
   preSteps: Schema.Array(PreStep),
   step: Schema.Union([ChromeStep, AuditStep]),
   variable: Schema.optional(nonEmptyString),
 });
+type RecordedStepFields = typeof RecordedStepFields.Type;
+
+const RecordedStepWithLegacyFields = Schema.Struct({
+  ...RecordedStepFields.fields,
+  secretVariable: Schema.optional(nonEmptyString),
+});
+type RecordedStepWithLegacy = typeof RecordedStepWithLegacyFields.Type;
+
+/** {@link RecordedStep}, accepting the pre-rename `secretVariable` spelling. */
+export const RecordedStep = RecordedStepWithLegacyFields.pipe(
+  Schema.decodeTo(RecordedStepFields, {
+    decode: SchemaGetter.transform(
+      ({
+        id,
+        preSteps,
+        secretVariable,
+        step,
+        variable,
+      }: RecordedStepWithLegacy): RecordedStepFields => ({
+        ...variableBinding(variable, secretVariable),
+        id,
+        preSteps,
+        step,
+      })
+    ),
+    encode: SchemaGetter.transform((recorded: RecordedStepFields) => recorded),
+  })
+);
 export type RecordedStep = typeof RecordedStep.Type;
 
 export const hasAuthoredBrowserStep = (

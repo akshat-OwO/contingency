@@ -12,6 +12,7 @@ import {
   canRecordVideo,
   fixtureServer,
   IntegrationLive,
+  NEVER_ANSWERED,
   STEP_BEACON,
 } from "./harness";
 
@@ -28,6 +29,13 @@ const INTERRUPT_BUDGET = Duration.seconds(20);
 
 /** How long the interrupted Run gets to flush before the test gives up. */
 const EXIT_TIMEOUT = Duration.seconds(90);
+
+/**
+ * How long after the first Ctrl-C the reflexive second one lands. Comfortably
+ * inside the handler's 500ms window, and while the flush a single press would
+ * have completed is still running.
+ */
+const REFLEX_GAP = Duration.millis(100);
 
 /**
  * The CLI as a user runs it, owned by the test's scope.
@@ -116,27 +124,26 @@ const waitForExit = (child: ChildProcess): Effect.Effect<null> =>
     });
   });
 
-it.live.skipIf(!canRecordVideo())(
-  "leaves a flushed recording when a Run is interrupted",
-  () =>
-    Effect.gen(function* interruptedRun() {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const fixtures = yield* fixtureServer;
-      const directory = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-interrupt-",
-      });
-
-      const flowPath = path.join(directory, "flow.json");
-      yield* fileSystem.writeFileString(
+/**
+ * A Flow that is still working long after its page has loaded normally.
+ *
+ * Interrupting mid-navigation is a different case: the browser tool runs one
+ * command at a time per session, so a flush requested then waits for that
+ * navigation's own timeout and the Run gives up on the file instead of holding
+ * the terminal. That limitation is recorded in ADR 0010; what these tests
+ * protect is the Run a user actually interrupts.
+ */
+const writeLongRunningFlow = (
+  directory: string,
+  fixtures: { readonly url: (file: string) => string }
+): Effect.Effect<string, never, FileSystem.FileSystem> =>
+  Effect.gen(function* writeFlow() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const flowPath = path.join(directory, "flow.json");
+    yield* fileSystem
+      .writeFileString(
         flowPath,
         JSON.stringify({
-          // Long enough to still be working when the signal arrives, on a
-          // page that loaded normally. Interrupting mid-navigation is a
-          // different case: the browser tool runs one command at a time per
-          // session, so a flush requested then waits for that navigation's own
-          // timeout and the Run gives up on the file instead of holding the
-          // terminal. That limitation is recorded in ADR 0010; what this test
-          // protects is the Run a user actually interrupts.
           steps: [
             { type: "navigate", url: fixtures.url("checkout.html") },
             ...Array.from({ length: 3000 }, (_unused, index) => ({
@@ -147,8 +154,22 @@ it.live.skipIf(!canRecordVideo())(
           ],
           title: "Interrupted",
         })
-      );
+      )
+      .pipe(Effect.orDie);
+    return flowPath;
+  });
 
+it.live.skipIf(!canRecordVideo())(
+  "leaves a flushed recording when a Run is interrupted",
+  () =>
+    Effect.gen(function* interruptedRun() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fixtures = yield* fixtureServer;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-interrupt-",
+      });
+
+      const flowPath = yield* writeLongRunningFlow(directory, fixtures);
       const runs = path.join(directory, "runs");
       const child = yield* start(flowPath, runs);
 
@@ -195,5 +216,125 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+/**
+ * The reflex window is the one branch of the signal handler no other test
+ * reaches: every interrupt test sends exactly one SIGINT, so reverting to
+ * counter semantics — or inverting the window comparison — would pass the
+ * whole suite while costing a real user the recording.
+ */
+it.live.skipIf(!canRecordVideo())(
+  "keeps the flushed recording when the second Ctrl-C is a reflex",
+  () =>
+    Effect.gen(function* doubleTappedRun() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fixtures = yield* fixtureServer;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-double-tap-",
+      });
+
+      const flowPath = yield* writeLongRunningFlow(directory, fixtures);
+      const runs = path.join(directory, "runs");
+      const child = yield* start(flowPath, runs);
+
+      const reached = yield* waitUntil(() =>
+        fixtures.requests.includes(STEP_BEACON)
+      );
+      expect(reached).toBe(true);
+
+      const signalledAt = Date.now();
+      child.kill("SIGINT");
+      // Inside the handler's reflex window, and while the flush that a single
+      // press would have completed is still running. A user pressing twice out
+      // of habit is not asking to lose the recording.
+      yield* Effect.sleep(REFLEX_GAP);
+      child.kill("SIGINT");
+      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+
+      // Swallowing the second press must not cost promptness either: the first
+      // signal's shutdown carries on under its own bounds.
+      expect(Date.now() - signalledAt).toBeLessThan(
+        Duration.toMillis(INTERRUPT_BUDGET)
+      );
+
+      const artifacts = recordingOf(runs) ?? "";
+      const recording = yield* fileSystem.readFile(
+        path.join(artifacts, "attempt-1.webm")
+      );
+      expect(recording.length).toBeGreaterThan(1024);
+
+      const manifest = JSON.parse(
+        yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
+      ) as RunVideoManifest;
+      expect(manifest.segments).toHaveLength(1);
+      expect(manifest.segments[0]?.recorded).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live.skipIf(!canRecordVideo())(
+  "exits promptly and accounts for the recording when interrupted mid-navigation",
+  () =>
+    Effect.gen(function* interruptedNavigation() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fixtures = yield* fixtureServer;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-interrupt-navigation-",
+      });
+
+      const flowPath = path.join(directory, "flow.json");
+      yield* fileSystem.writeFileString(
+        flowPath,
+        JSON.stringify({
+          // A navigation that never answers, so the signal lands while the
+          // browser is still working on it — the case where a flush queued
+          // behind that navigation cannot be honoured, and where the Run used
+          // to hang indefinitely instead of exiting.
+          steps: [
+            {
+              type: "navigate",
+              url: `${fixtures.origin}${NEVER_ANSWERED}`,
+            },
+          ],
+          title: "Interrupted navigation",
+        })
+      );
+
+      const runs = path.join(directory, "runs");
+      const child = yield* start(flowPath, runs);
+
+      // Capture begins before the recorder performs the Flow's opening
+      // navigation, and a request the fixture server has received but never
+      // answers is proof that navigation is still in flight — exactly where
+      // the signal has to land.
+      const reached = yield* waitUntil(() =>
+        fixtures.requests.includes(NEVER_ANSWERED)
+      );
+      expect(reached).toBe(true);
+
+      const signalledAt = Date.now();
+      child.kill("SIGINT");
+      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+      const tookMs = Date.now() - signalledAt;
+
+      // Ctrl-C has to feel like Ctrl-C even when the browser will never
+      // finish what it is doing: the force-exit backstop bounds this.
+      expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
+
+      // The recording could not be flushed — the flush queues behind the
+      // navigation the signal interrupted — so no watchable file may be left
+      // behind. Even the manifest cannot be written here: teardown's own
+      // browser commands queue behind the same jammed navigation, which is
+      // why the loss is warned about up front and accepted in ADR 0010.
+      // `recordingOf` answers with a directory only when the recording is
+      // there, so its absence is the whole assertion.
+      const artifacts = recordingOf(runs);
+      if (artifacts !== undefined) {
+        const bytes = yield* fileSystem.readFile(
+          path.join(artifacts, "attempt-1.webm")
+        );
+        expect(bytes.length).toBeLessThan(1024);
+      }
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
