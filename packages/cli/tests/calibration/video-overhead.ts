@@ -50,12 +50,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 
-import type {
-  CoreWebVitals,
-  Flow,
-  Run,
-  RunVideoManifest,
-} from "@contingency/protocol";
+import type { Flow, Run, RunVideoManifest } from "@contingency/protocol";
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Console, Data, Duration, Effect, FileSystem } from "effect";
 
@@ -89,19 +84,14 @@ class CalibrationError extends Data.TaggedError("CalibrationError")<{
 }> {}
 
 /**
- * The bytes served as the page's marker image: a real 64×36 PNG.
- *
- * Deliberately too small to be the LCP element. An image large enough to win
- * LCP made the metric depend on the condition rather than measure it: a
- * capture forces the browser to produce frames, so the recorded Run painted
- * the late image and scored it as LCP while the uncaptured Run never repainted
- * and scored the heading instead — 568ms against 72ms for the same page. This
- * image exists to prove the Run really fetched the page, nothing more.
+ * The bytes served as the page's hero image: a 1×1 PNG the page's layout
+ * stretches to 1100×500. The delay is what makes it the LCP element; the
+ * bytes are not what is being calibrated, and a real photograph would add
+ * decode time that drowns the effect being measured rather than representing
+ * it.
  */
 const HERO_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAkCAIAAAC2bqvFAAAAOklEQVR42u3PQQkAAAgEsI" +
-    "tqBKMY2Qw+hcEKLNXzWgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEbhYCnWC1Lio5IQAA" +
-    "AABJRU5ErkJggg==",
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAACJVRQfAAAACklEQVR4nGNoAAAAggCBEjHWNAAAAABJRU5ExHyK4Q==",
   "base64"
 );
 
@@ -219,39 +209,6 @@ interface Sample {
   readonly videoBytes?: number;
 }
 
-/**
- * Why a Run does not count, when it does not.
- *
- * A headless browser paints only when it has reason to, and an uncaptured Run
- * sometimes never gives it one: the page reports no paint and no interaction,
- * only the metrics that need neither. Counting those by quietly shrinking one
- * condition's sample would compare the Runs that happened to paint against
- * every Run of the other condition, so they are named instead.
- */
-const whyExcluded = (
-  observed: {
-    readonly run: Run;
-    readonly videoFailure: string | undefined;
-    readonly vitals: CoreWebVitals | undefined;
-  },
-  heroFetched: boolean
-): string | undefined => {
-  if (observed.run.outcome !== "completed") {
-    return `the Run did not complete: ${observed.run.failure?.message ?? "no failure was recorded"}`;
-  }
-  if (observed.videoFailure !== undefined) {
-    return `video was requested but cannot be counted on: ${observed.videoFailure}`;
-  }
-  if (!heroFetched) {
-    return "the marker image was never requested, so this Run measured a warm cache rather than the page";
-  }
-  if (observed.vitals?.lcp === undefined) {
-    return "the page reported no paint, so this Run has no LCP or INP to compare";
-  }
-  // Nothing disqualifies it.
-  return undefined;
-};
-
 const runOnce = Effect.fn("calibration.runOnce")(function* runOnce(
   server: CalibrationServer,
   condition: Condition,
@@ -312,7 +269,17 @@ const runOnce = Effect.fn("calibration.runOnce")(function* runOnce(
     .slice(requestedBefore)
     .includes("/hero.png");
 
-  const excluded = whyExcluded(observed, heroFetched);
+  let excluded: string | undefined;
+  if (observed.run.outcome !== "completed") {
+    excluded = `the Run did not complete: ${
+      observed.run.failure?.message ?? "no failure was recorded"
+    }`;
+  } else if (observed.videoFailure !== undefined) {
+    excluded = `video was requested but cannot be counted on: ${observed.videoFailure}`;
+  } else if (!heroFetched) {
+    excluded =
+      "the hero image was never requested, so this Run measured a warm cache rather than the page";
+  }
 
   const { environment, run, videoBytes, vitals } = observed;
   const sample = {

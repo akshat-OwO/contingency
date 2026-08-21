@@ -15,8 +15,8 @@
          not a capture is forcing the browser to produce frames. */
       #hero {
         display: block;
-        height: 36px;
-        width: 64px;
+        height: 90px;
+        width: 160px;
       }
       /* The LCP element: laid out large, above the fold, and in the markup, so
          it is the largest contentful paint on the page's very first frame. */
@@ -47,7 +47,7 @@
         Small on purpose — an image big enough to win LCP made the metric
         depend on whether a capture was forcing frames.
       -->
-      <img id="hero" alt="" src="/hero.png" width="64" height="36" />
+      <img id="hero" alt="" src="/hero.png" width="160" height="90" />
       <!--
         The INP interaction: ~120ms of synchronous work per click, well above
         the event API's 16ms reporting floor and identical on every run, so a
