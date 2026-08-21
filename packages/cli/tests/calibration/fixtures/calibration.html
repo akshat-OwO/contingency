@@ -10,12 +10,20 @@
           sans-serif;
         margin: 0;
       }
-      /* Laid out large and above the fold, so the image is the largest thing
-         the browser paints and therefore decides LCP. */
+      /* Small on purpose. The largest paint must be the heading below, which
+         is present in the markup and therefore paints identically whether or
+         not a capture is forcing the browser to produce frames. */
       #hero {
         display: block;
-        height: 500px;
-        width: 1100px;
+        height: 90px;
+        width: 160px;
+      }
+      /* The LCP element: laid out large, above the fold, and in the markup, so
+         it is the largest contentful paint on the page's very first frame. */
+      #headline {
+        font-size: 96px;
+        line-height: 1.1;
+        margin: 0 0 24px;
       }
       main {
         margin: 16px;
@@ -25,14 +33,21 @@
   <body>
     <main>
       <!--
-        The LCP element, and the only subresource: the experiment's server
-        answers it after a fixed delay, so the largest paint lands mid-load the
-        way a real hero image does. The delay is server-side, so both
-        conditions of the experiment wait for it identically and only what the
-        browser does with the waiting differs.
+        The only subresource. The delay is server-side, so both conditions
+        wait for it identically.
       -->
-      <img id="hero" alt="" src="/hero.png" width="1100" height="500" />
-      <h1>Video overhead calibration</h1>
+      <!--
+        The LCP element. Text in the markup, so both conditions paint it on the
+        first frame and the metric compares like with like.
+      -->
+      <h1 id="headline">Video overhead calibration</h1>
+      <!--
+        The marker: the experiment's server answers it after a fixed delay, so
+        a Run that fetched it really loaded this page rather than a warm cache.
+        Small on purpose — an image big enough to win LCP made the metric
+        depend on whether a capture was forcing frames.
+      -->
+      <img id="hero" alt="" src="/hero.png" width="160" height="90" />
       <!--
         The INP interaction: ~120ms of synchronous work per click, well above
         the event API's 16ms reporting floor and identical on every run, so a

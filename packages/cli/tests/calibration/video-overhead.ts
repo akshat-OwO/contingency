@@ -84,14 +84,21 @@ class CalibrationError extends Data.TaggedError("CalibrationError")<{
 }> {}
 
 /**
- * The bytes served as the page's hero image: a 1×1 PNG the page's layout
- * stretches to 1100×500. The delay is what makes it the LCP element; the
- * bytes are not what is being calibrated, and a real photograph would add
- * decode time that drowns the effect being measured rather than representing
- * it.
+ * The bytes served as the page's marker image: a real but small PNG.
+ *
+ * Deliberately too small to be the LCP element. An image large enough to win
+ * LCP made the metric depend on the condition rather than measure it: a
+ * capture forces the browser to produce frames, so the recorded Run painted
+ * the late image and scored it as LCP while the uncaptured Run never repainted
+ * and scored the heading instead — 568ms against 72ms for the same page. This
+ * image exists to prove the Run really fetched the page, nothing more.
  */
 const HERO_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAACJVRQfAAAACklEQVR4nGNoAAAAggCBEjHWNAAAAABJRU5ExHyK4Q==",
+  "iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAIAAACwpMoFAAAAoklEQVR42u3RAQ0AAAjDsE" +
+    "tFAlKQjA9oMgVrqkeHiwWABViABViABViAAQuwAAuwAAuwAAMWYAEWYAEWYAEWYMACLMAC" +
+    "LMACLMCABViABViABViAAQuwAAuwAAuwAAswYAEWYAEWYAEWYMACLMACLMACLMCAXQAswA" +
+    "IswAIswAIMWIAFWIAFWIAFGLAAC7AAC7AAC7AAAxZgARZgARZgAf7VAtcMXIT1zF4jAAAA" +
+    "AElFTkSuQmCC",
   "base64"
 );
 
