@@ -46,6 +46,19 @@ const FORCE_KILL_AFTER_MS = 6000;
 /** How long the killed command gets to unwind before exiting outright. */
 const HARD_EXIT_AFTER_MS = 25_000;
 
+/**
+ * How soon after the first signal a second one is read as a reflex rather than
+ * as insistence.
+ *
+ * Ctrl-C is often pressed twice out of habit, and a graceful flush that is
+ * going to succeed pins at roughly a fifth of a second — so a double-tap
+ * inside that window would exit immediately and lose a recording that a single
+ * press would have kept. Past this window the user is answering a shutdown
+ * that visibly did not finish, which is exactly when the escape hatch should
+ * work.
+ */
+const INSIST_AFTER_MS = 500;
+
 const kill = (pids: Iterable<number>): void => {
   for (const pid of pids) {
     try {
@@ -56,14 +69,22 @@ const kill = (pids: Iterable<number>): void => {
   }
 };
 
-let signalsReceived = 0;
+let firstSignalAt: number | undefined;
 const onSignal = (): void => {
-  signalsReceived += 1;
-  if (signalsReceived > 1) {
-    // A second Ctrl-C means the user insists. No more waiting.
+  // Monotonic, so a clock adjustment mid-shutdown cannot widen or collapse the
+  // reflex window.
+  const now = performance.now();
+  if (firstSignalAt !== undefined) {
+    if (now - firstSignalAt < INSIST_AFTER_MS) {
+      // A reflexive double-tap, not an instruction. Let the graceful shutdown
+      // already under way finish; a later press still exits.
+      return;
+    }
+    // The user insists. No more waiting.
     kill(inFlightBrowserCommands);
     process.exit(130);
   }
+  firstSignalAt = now;
   // Only the commands already in flight are candidates for a force-kill.
   // Teardown itself issues browser commands — the recording flush, the load
   // stop, the close — and those carry legitimate Effect-level bounds that a

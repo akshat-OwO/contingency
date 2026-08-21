@@ -253,11 +253,10 @@ it.live.skipIf(!canRecordVideo())(
       // behind. Even the manifest cannot be written here: teardown's own
       // browser commands queue behind the same jammed navigation, which is
       // why the loss is warned about up front and accepted in ADR 0010.
+      // `recordingOf` answers with a directory only when the recording is
+      // there, so its absence is the whole assertion.
       const artifacts = recordingOf(runs);
-      if (
-        artifacts !== undefined &&
-        existsSync(path.join(artifacts, "attempt-1.webm"))
-      ) {
+      if (artifacts !== undefined) {
         const bytes = yield* fileSystem.readFile(
           path.join(artifacts, "attempt-1.webm")
         );
