@@ -11,6 +11,7 @@ import { Effect, FileSystem } from "effect";
 import type { AgentBrowser } from "../../src/services/agent-browser";
 import {
   flowDirectorySegment,
+  flowRunsDirectory,
   flowIdentity,
   hashFlow,
   makeRunnerService,
@@ -327,6 +328,83 @@ const withReversedKeys = (value: unknown): unknown => {
       .map(([key, entry]) => [key, withReversedKeys(entry)])
   );
 };
+
+it.effect("keeps secret values out of the persisted Run", () => {
+  const fixture = makeFixture({
+    // The browser echoes the value it was given, as a real one does.
+    failOn: ({ args, command }) =>
+      command === "fill" ? `Could not fill with ${args[1]}` : undefined,
+  });
+
+  return Effect.gen(function* redactSecretsFromRun() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    const result = yield* runner.run(
+      flow(
+        [
+          { type: "navigate", url: "https://example.com/login" },
+          { selectors: [["#password"]], type: "change", value: "{{PASSWORD}}" },
+        ],
+        {
+          flowId: "login",
+          variables: [{ name: "PASSWORD", runtime: false, secret: true }],
+        }
+      ),
+      {
+        outputDirectory: "/runs",
+        variables: {
+          secretNames: new Set(["PASSWORD"]),
+          values: new Map([["PASSWORD", "hunter2"]]),
+        },
+      }
+    );
+
+    // The browser was given the real value...
+    expect(fixture.calls.some(({ args }) => args.includes("hunter2"))).toBe(
+      true
+    );
+
+    // ...but nothing written to disk contains it, including the failure
+    // message the browser produced while holding it.
+    const serialized = JSON.stringify(writtenRun(fixture.written));
+    expect(serialized).not.toContain("hunter2");
+    expect(serialized).toContain("{{PASSWORD}}");
+    expect(result.run.failure?.message).toContain("{{PASSWORD}}");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it.effect("substitutes a Variable into a navigate URL", () => {
+  const fixture = makeFixture();
+
+  return Effect.gen(function* substituteIntoUrl() {
+    const runner = yield* makeRunnerService(fixture.browser);
+    yield* runner.run(
+      flow([{ type: "navigate", url: "https://{{HOST}}/login" }]),
+      {
+        outputDirectory: "/runs",
+        variables: {
+          secretNames: new Set(),
+          values: new Map([["HOST", "staging.example.com"]]),
+        },
+      }
+    );
+
+    expect(
+      fixture.calls.find(({ command }) => command === "goto")?.args[0]
+    ).toBe("https://staging.example.com/login");
+  }).pipe(Effect.provide(fixture.fileSystemLayer));
+});
+
+it("files every Run of a Flow in the directory preflight probes", () => {
+  // Preflight and persistence must agree on the path, or preflight checks
+  // somewhere the Run never writes.
+  const executed = flow([{ type: "navigate", url: "https://example.com/" }], {
+    flowId: "checkout-flow",
+  });
+
+  expect(flowRunsDirectory("/runs", executed)).toBe(
+    `/runs/${flowDirectorySegment("checkout-flow")}`
+  );
+});
 
 it("hashes a Flow independently of key order", () => {
   // Two Flows that differ only in key order are the same Flow, so a Run's
