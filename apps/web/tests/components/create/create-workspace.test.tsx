@@ -404,9 +404,10 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
   expect(
     screen.getByRole("button", { name: "Add accessibility Audit" })
   ).toBeEnabled();
+  // Performance is not an Audit kind; it is a toggle on a navigating Step.
   expect(
-    screen.getByRole("button", { name: "Add performance Audit" })
-  ).toBeEnabled();
+    screen.queryByRole("button", { name: "Add performance Audit" })
+  ).toBeNull();
 });
 
 test("surfaces a terminal Recording stream failure", async () => {

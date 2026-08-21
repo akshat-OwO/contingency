@@ -104,6 +104,7 @@ interface DeletedStep {
 interface RecordingState {
   readonly captureMode: RecordingCaptureMode;
   readonly deletedStep: DeletedStep | undefined;
+  readonly flowId: string;
   readonly flowPreSteps: readonly PreStep[];
   readonly incompleteReason: string | undefined;
   readonly initialUrl: string;
@@ -383,27 +384,26 @@ const toFlowStep = (recorded: RecordedStep): Flow["steps"][number] => {
 };
 
 const toFlow = (state: RecordingState): Flow => ({
-  ...(state.flowPreSteps.length === 0 && state.variables.length === 0
-    ? {}
-    : {
-        contingency: {
-          ...(state.flowPreSteps.length === 0
-            ? {}
-            : { preSteps: state.flowPreSteps }),
-          ...(state.variables.length === 0
-            ? {}
-            : {
-                // Create View only authors withheld sensitive values, so every
-                // Variable it declares is both redacted from a Run and
-                // promptable when the Runner has no value for it.
-                variables: state.variables.map((name) => ({
-                  name,
-                  runtime: true,
-                  secret: true,
-                })),
-              }),
-        },
-      }),
+  // Always emitted, because a Flow keys its Run history on this rather than on
+  // the user-editable title, which would orphan that history on a rename.
+  contingency: {
+    flowId: state.flowId,
+    ...(state.flowPreSteps.length === 0
+      ? {}
+      : { preSteps: state.flowPreSteps }),
+    ...(state.variables.length === 0
+      ? {}
+      : {
+          // Create View only authors withheld sensitive values, so every
+          // Variable it declares is both redacted from a Run and promptable
+          // when the Runner has no value for it.
+          variables: state.variables.map((name) => ({
+            name,
+            runtime: true,
+            secret: true,
+          })),
+        }),
+  },
   selectorAttribute: "data-testid",
   steps: state.steps.map(toFlowStep),
   title: state.title,
@@ -1290,6 +1290,7 @@ export const makeRecordingService = (
             const state: RecordingState = {
               captureMode: "ordinary",
               deletedStep: undefined,
+              flowId: randomUUID(),
               flowPreSteps: [],
               incompleteReason: undefined,
               initialUrl: sanitized.url,

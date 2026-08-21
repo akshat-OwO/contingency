@@ -64,7 +64,12 @@ export const ChromeStep = Schema.Union([
 ]);
 export type ChromeStep = typeof ChromeStep.Type;
 
-export const AuditKind = Schema.Literals(["accessibility", "performance"]);
+/**
+ * Audit means accessibility only. Performance is not an Audit: it is a toggle
+ * on a navigating Step, measured by the Runner at that navigation
+ * ([ADR 0008](../../../docs/adr/0008-performance-is-a-navigation-step-toggle.md)).
+ */
+export const AuditKind = Schema.Literal("accessibility");
 export type AuditKind = typeof AuditKind.Type;
 
 export const AuditStep = Schema.Struct({
@@ -99,6 +104,11 @@ export type Variable = typeof Variable.Type;
 
 const StepExtension = Schema.Struct({
   id: nonEmptyString,
+  /**
+   * Collect Core Web Vitals at this Step's navigation. Only meaningful on a
+   * Step that navigates, and rejected by {@link Flow} anywhere else.
+   */
+  performance: Schema.optional(Schema.Boolean),
   preSteps: Schema.optional(Schema.Array(PreStep)),
   variable: Schema.optional(nonEmptyString),
 });
@@ -118,15 +128,69 @@ export const FlowStep = Schema.Union([
 ]);
 export type FlowStep = typeof FlowStep.Type;
 
+/**
+ * A Step navigates when it is a `navigate` Step, or a `click` Step carrying an
+ * asserted navigation event. Only these can be measured for Core Web Vitals.
+ */
+export const stepNavigates = (step: FlowStep): boolean => {
+  if (step.type === "navigate") {
+    return true;
+  }
+  return (
+    step.type === "click" &&
+    (step.assertedEvents?.some(({ type }) => type === "navigation") ?? false)
+  );
+};
+
+// `performance` on a Step that cannot navigate is malformed wherever it is
+// read, so the schema rejects it rather than silently ignoring it (ADR 0008).
+const performanceOnlyOnNavigatingSteps = Schema.makeFilter<readonly FlowStep[]>(
+  (steps) =>
+    steps.flatMap((step, index) => {
+      if (
+        step.type === "customStep" ||
+        step.contingency?.performance !== true
+      ) {
+        return [];
+      }
+      if (stepNavigates(step)) {
+        return [];
+      }
+      const label =
+        step.contingency?.id === undefined
+          ? `Step ${index + 1} (${step.type})`
+          : `Step ${index + 1} (${step.type}, id ${step.contingency.id})`;
+      return [
+        {
+          issue:
+            `${label} cannot navigate, so it cannot measure performance. ` +
+            "Set contingency.performance only on a navigate Step, or on a click Step with an asserted navigation event.",
+          path: [index, "contingency", "performance"],
+        },
+      ];
+    })
+);
+
 export const Flow = Schema.Struct({
   contingency: Schema.optional(
     Schema.Struct({
+      /**
+       * Stable identity for the Flow, independent of its user-editable title,
+       * so Run history survives a rename. Optional, because a plain Chrome
+       * DevTools Recorder export carries no Contingency fields (ADR 0001).
+       */
+      flowId: Schema.optional(nonEmptyString),
       preSteps: Schema.optional(Schema.Array(PreStep)),
       variables: Schema.optional(Schema.Array(Variable)),
+      /** Capture Runs of this Flow to video. Not a {@link RecordingSnapshot}. */
+      video: Schema.optional(Schema.Boolean),
     })
   ),
   selectorAttribute: Schema.optional(Schema.String),
-  steps: Schema.Array(FlowStep).check(Schema.isMinLength(1)),
+  steps: Schema.Array(FlowStep).check(
+    Schema.isMinLength(1),
+    performanceOnlyOnNavigatingSteps
+  ),
   timeout: Schema.optional(Schema.Finite),
   title: nonEmptyString,
 });
