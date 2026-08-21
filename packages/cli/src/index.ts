@@ -70,7 +70,10 @@ const onSignal = (): void => {
   // blanket kill would cut short.
   const stale = new Set(inFlightBrowserCommands);
   const forceKill = setTimeout(() => {
-    kill(stale);
+    // Intersect with what is still in flight now: a command that settled in
+    // the meantime has been removed from the registry, and signalling its
+    // former pid could hit a process the OS handed that number to since.
+    kill([...stale].filter((pid) => inFlightBrowserCommands.has(pid)));
   }, FORCE_KILL_AFTER_MS);
   forceKill.unref();
   const hardExit = setTimeout(() => {
