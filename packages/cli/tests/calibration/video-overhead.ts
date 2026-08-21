@@ -420,16 +420,25 @@ const reportMetric = (
     );
     yield* Console.log(line("video", video));
     yield* Console.log(line("plain", plain));
-    if (video !== undefined && plain !== undefined) {
-      const difference = video.median - plain.median;
+    // The effect estimate is the median of the per-pair differences, not the
+    // difference of the two medians. A paired design is discarded by the
+    // second: the median of the differences and the difference of the medians
+    // are not the same number, and on these samples they disagree by a third.
+    const deltas = pairs
+      .map((pair) => pair.video - pair.plain)
+      .toSorted((left, right) => left - right);
+    if (deltas.length > 0 && plain !== undefined) {
+      const median = quantile(deltas, 0.5);
       const percent =
         plain.median === 0
           ? ""
-          : ` (${Math.round((difference / plain.median) * 100)}%)`;
+          : ` (${Math.round((median / plain.median) * 100)}%)`;
       yield* Console.log(
-        `  video − plain on medians: ${
-          difference >= 0 ? "+" : ""
-        }${milliseconds(difference)}${percent}`
+        `  per-pair difference: median ${median >= 0 ? "+" : ""}${milliseconds(
+          median
+        )}${percent}  IQR ${milliseconds(quantile(deltas, 0.25))}–${milliseconds(
+          quantile(deltas, 0.75)
+        )}`
       );
     }
     yield* Console.log("");
