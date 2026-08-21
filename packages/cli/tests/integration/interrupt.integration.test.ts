@@ -12,6 +12,7 @@ import {
   canRecordVideo,
   fixtureServer,
   IntegrationLive,
+  NEVER_ANSWERED,
   STEP_BEACON,
 } from "./harness";
 
@@ -195,5 +196,72 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live.skipIf(!canRecordVideo())(
+  "exits promptly and accounts for the recording when interrupted mid-navigation",
+  () =>
+    Effect.gen(function* interruptedNavigation() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fixtures = yield* fixtureServer;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-interrupt-navigation-",
+      });
+
+      const flowPath = path.join(directory, "flow.json");
+      yield* fileSystem.writeFileString(
+        flowPath,
+        JSON.stringify({
+          // A navigation that never answers, so the signal lands while the
+          // browser is still working on it — the case where a flush queued
+          // behind that navigation cannot be honoured, and where the Run used
+          // to hang indefinitely instead of exiting.
+          steps: [
+            {
+              type: "navigate",
+              url: `${fixtures.origin}${NEVER_ANSWERED}`,
+            },
+          ],
+          title: "Interrupted navigation",
+        })
+      );
+
+      const runs = path.join(directory, "runs");
+      const child = yield* start(flowPath, runs);
+
+      // Capture begins before the recorder performs the Flow's opening
+      // navigation, and a request the fixture server has received but never
+      // answers is proof that navigation is still in flight — exactly where
+      // the signal has to land.
+      const reached = yield* waitUntil(() =>
+        fixtures.requests.includes(NEVER_ANSWERED)
+      );
+      expect(reached).toBe(true);
+
+      const signalledAt = Date.now();
+      child.kill("SIGINT");
+      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+      const tookMs = Date.now() - signalledAt;
+
+      // Ctrl-C has to feel like Ctrl-C even when the browser will never
+      // finish what it is doing: the force-exit backstop bounds this.
+      expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
+
+      // The recording could not be flushed — the flush queues behind the
+      // navigation the signal interrupted — so no watchable file may be left
+      // behind. Even the manifest cannot be written here: teardown's own
+      // browser commands queue behind the same jammed navigation, which is
+      // why the loss is warned about up front and accepted in ADR 0010.
+      const artifacts = recordingOf(runs);
+      if (
+        artifacts !== undefined &&
+        existsSync(path.join(artifacts, "attempt-1.webm"))
+      ) {
+        const bytes = yield* fileSystem.readFile(
+          path.join(artifacts, "attempt-1.webm")
+        );
+        expect(bytes.length).toBeLessThan(1024);
+      }
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

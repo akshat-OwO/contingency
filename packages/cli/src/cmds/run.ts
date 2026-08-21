@@ -164,6 +164,16 @@ export const runCommand = Command.make(
         "Warning: this Flow declares secret Variables and video is on. The recording will show their values in plaintext, unlike the Run."
       );
     }
+    if (capture) {
+      // The browser runs one command at a time per session, so a recording
+      // flush queues behind whatever the browser is still doing. Interrupting
+      // while a navigation is in flight can therefore lose the recording
+      // (ADR 0010). Said here, because at Ctrl-C time it is too late to say
+      // anything.
+      yield* Console.warn(
+        "Warning: video is on. Interrupting the Run while a navigation is in flight may lose the recording."
+      );
+    }
 
     yield* agentBrowser.init().pipe(
       Effect.mapError(
