@@ -165,6 +165,15 @@ export interface AgentBrowser {
     sessionId: SessionId,
     url: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * The HTTP status of the top frame's own navigation, or `undefined` when the
+   * page did not come from the network. A navigation that reaches a server
+   * error still navigates, so this is the only way to see it. An iframe's
+   * response is never reported here, however that iframe was requested.
+   */
+  readonly documentStatus: (
+    sessionId: SessionId
+  ) => Effect.Effect<number | undefined, BrowserRpcErrorType>;
   readonly cdpUrl: (
     sessionId: SessionId
   ) => Effect.Effect<string, BrowserRpcErrorType>;
@@ -366,12 +375,31 @@ const BatchResults = Schema.Array(
 
 const VisibilityResult = Schema.Struct({ visible: Schema.Boolean });
 
+const EvaluatedNumber = Schema.Struct({ result: Schema.Number });
+
+/**
+ * The status of the navigation that produced the document this runs in.
+ * `PerformanceNavigationTiming` exists only for a frame's own navigation, so
+ * evaluating it in the top frame cannot pick up an iframe's response however
+ * that iframe was requested — including from the page's own URL.
+ *
+ * Verified against the bundled binary: a page served 200 with a 404 iframe
+ * reports 200, a top-level 404 reports 404, and a page that did not come from
+ * the network reports 0.
+ */
+const NAVIGATION_STATUS =
+  'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0';
+
 /**
  * How agent-browser reports a selector matching nothing. Verified against the
  * bundled binary for CSS and XPath selectors alike; a `text=` selector resolves
- * to `visible: false` instead and never reaches this path.
+ * to `visible: false` instead and never reaches the visibility path.
  */
-const ELEMENT_NOT_FOUND = "Element not found:";
+export const ELEMENT_NOT_FOUND = "Element not found:";
+
+/** Whether a failure says the element was absent rather than unreachable. */
+export const isElementNotFound = (message: string): boolean =>
+  message.startsWith(ELEMENT_NOT_FOUND);
 
 const CdpUrlResult = AgentBrowserJsonResult(
   Schema.Struct({ cdpUrl: Schema.String })
@@ -1390,6 +1418,27 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       return decoded.visible;
     });
 
+    const documentStatus = Effect.fn("AgentBrowser.documentStatus")(
+      function* documentStatus(sessionId: SessionId) {
+        const results = yield* runBatch(sessionId, [
+          ["eval", NAVIGATION_STATUS],
+        ]);
+        const decoded = yield* Schema.decodeUnknownEffect(EvaluatedNumber)(
+          results.at(0)?.result
+        ).pipe(
+          Effect.mapError(() =>
+            browserError(
+              "agent_browser_failed",
+              "agent-browser did not report the navigation status."
+            )
+          )
+        );
+        // `0` is how the timing API reports a document that did not come from
+        // the network, which is not a status the site answered with.
+        return decoded.result === 0 ? undefined : decoded.result;
+      }
+    );
+
     const goto = Effect.fn("AgentBrowser.goto")(function* goto(
       sessionId: SessionId,
       url: string
@@ -1713,6 +1762,7 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
       create,
       currentUrl,
       deleteStorage,
+      documentStatus,
       fillSelector,
       getNetworkRequest,
       getNetworkRequests,

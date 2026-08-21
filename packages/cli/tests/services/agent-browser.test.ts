@@ -1069,6 +1069,51 @@ it.effect("fails when visibility could not be established at all", () => {
   }).pipe(Effect.provide(fixture.layer));
 });
 
+it.effect("reads the status of the top frame's own navigation", () => {
+  const fixture = makeFixture({
+    markerExists: true,
+    stdout: () =>
+      JSON.stringify([{ error: null, result: { result: 503 }, success: true }]),
+  });
+
+  return Effect.gen(function* readNavigationStatus() {
+    const agentBrowser = yield* AgentBrowser;
+    const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+    const status = yield* agentBrowser.documentStatus(sessionId);
+    const { stdin } = yield* lastBatchCommand(fixture);
+
+    expect(status).toBe(503);
+    // A frame's navigation timing describes that frame's own navigation, so no
+    // iframe can contribute to it however that iframe was requested.
+    expect(stdin).toEqual([
+      [
+        "eval",
+        'performance.getEntriesByType("navigation")[0]?.responseStatus ?? 0',
+      ],
+    ]);
+  }).pipe(Effect.provide(fixture.layer));
+});
+
+it.effect(
+  "reports no status for a page that did not come from the network",
+  () => {
+    const fixture = makeFixture({
+      markerExists: true,
+      stdout: () =>
+        JSON.stringify([{ error: null, result: { result: 0 }, success: true }]),
+    });
+
+    return Effect.gen(function* readBlankNavigation() {
+      const agentBrowser = yield* AgentBrowser;
+      const sessionId = Schema.decodeUnknownSync(SessionId)("run-abc123");
+
+      // `0` is not a status the site answered with.
+      expect(yield* agentBrowser.documentStatus(sessionId)).toBeUndefined();
+    }).pipe(Effect.provide(fixture.layer));
+  }
+);
+
 it.effect("fails the command with the batch entry's own message", () => {
   const fixture = makeFixture({
     exitCode: 1,
