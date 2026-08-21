@@ -334,11 +334,62 @@ const describeEnvironment = (): RunEnvironment => {
 /** One shared empty result, for every Step that finds nothing. */
 const NO_FINDINGS: AuditResult = { elided: [], findings: [] };
 
+/**
+ * How long to give a click-induced navigation before carrying on regardless.
+ * Generous, because the wait ends the moment the document changes; only a
+ * click that never navigates pays the whole cost.
+ */
+const NAVIGATION_TIMEOUT = Duration.seconds(10);
+
+/** How often to ask whether the navigation has happened yet. */
+const NAVIGATION_POLL = Duration.millis(100);
+
 interface StepExecution {
   readonly browser: AgentBrowser;
   readonly sessionId: SessionId;
   readonly variables: VariableResolution;
 }
+
+/**
+ * Wait for a click that the Recorder said navigates to actually navigate.
+ *
+ * A click returns as soon as it has been dispatched, so nothing otherwise
+ * separates "the navigation is in flight" from "it finished". A Flow whose
+ * last Step is such a click closed its browser before the request left it —
+ * the Step reported success and the page was never loaded at all.
+ *
+ * Timing out here is not a failure. The click landed, which is what the Step
+ * claimed; what did not happen is a navigation the site was supposed to
+ * perform, and the Steps that follow will say so in terms the reader can act
+ * on. A page that only ever changed within one document is also not a failure:
+ * the href moving is enough.
+ */
+const awaitNavigation = Effect.fn("Runner.awaitNavigation")(
+  function* awaitNavigation(
+    { browser, sessionId }: StepExecution,
+    before: string
+  ) {
+    const deadline = Duration.toMillis(NAVIGATION_TIMEOUT);
+    const interval = Duration.toMillis(NAVIGATION_POLL);
+    for (let waited = 0; waited < deadline; waited += interval) {
+      const identity = yield* Effect.result(
+        browser.documentIdentity(sessionId)
+      );
+      // A browser that cannot answer is mid-navigation as often as it is
+      // broken, and the Steps that follow will fail plainly if it is broken.
+      if (
+        identity._tag === "Success" &&
+        identity.success !== before &&
+        identity.success.endsWith("complete")
+      ) {
+        return;
+      }
+      // Asked before waiting, so a navigation that has already landed costs
+      // nothing.
+      yield* Effect.sleep(NAVIGATION_POLL);
+    }
+  }
+);
 
 /**
  * Replay one Step, returning whatever it found. Fails with a message naming
@@ -416,12 +467,26 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
       );
   };
 
+  // A click the Recorder said navigates has to be waited for, and the document
+  // it is leaving has to be identified before it goes.
+  const navigates = step.type === "click" && stepNavigates(step);
+  const before = navigates
+    ? yield* Effect.result(browser.documentIdentity(sessionId)).pipe(
+        Effect.map((identity) =>
+          identity._tag === "Success" ? identity.success : undefined
+        )
+      )
+    : undefined;
+
   // Selectors are alternatives, not a sequence: the first that resolves wins,
   // and only the exhaustion of every one of them is a Step failure.
   let lastMessage = "";
   for (const selector of candidates) {
     const outcome = yield* Effect.result(attempt(selector));
     if (outcome._tag === "Success") {
+      if (before !== undefined) {
+        yield* awaitNavigation({ browser, sessionId, variables }, before);
+      }
       return NO_FINDINGS;
     }
     // A candidate that already reached the page is not an unresolved selector:

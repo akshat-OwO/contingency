@@ -18,7 +18,8 @@
     "check-types": "tsc --noEmit",
     "dev": "nub watch src/index.ts web --no-browser",
     "prepack": "nub run build",
-    "test": "nub run build && vitest run"
+    "test": "nub run build && vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@contingency/protocol": "workspace:*",
