@@ -34,13 +34,13 @@ import {
 
 const FILE_PART_PATTERN = /[^a-z0-9]+/gu;
 const SENSITIVE_QUERY_PARAMETER = /(?:token|key|secret|code|password)/iu;
-const SECRET_REFERENCE_PATTERN = /\{\{(?<name>[A-Z][A-Z0-9_]*)\}\}/gu;
+const VARIABLE_REFERENCE_PATTERN = /\{\{(?<name>[A-Z][A-Z0-9_]*)\}\}/gu;
 
 export type CapturedAction =
   | ClickStep
   | KeyStep
   | NavigateStep
-  | (ChangeStep & { readonly secretVariable?: string | undefined });
+  | (ChangeStep & { readonly variable?: string | undefined });
 
 export type RecorderCaptureEvent =
   | CapturedAction
@@ -61,22 +61,22 @@ function toCapturedStep(action: CapturedAction): ChromeStep {
   if (action.type !== "change") {
     return action;
   }
-  const { secretVariable: _secretVariable, ...step } = action;
+  const { variable: _variable, ...step } = action;
   return step;
 }
 
 const capturedRecordedStep = (
   action: CapturedAction,
-  secretVariable: string | undefined
+  variable: string | undefined
 ): RecordedStep => {
   const step = toCapturedStep(action);
   return {
     id: randomUUID(),
     preSteps: [],
-    ...(secretVariable === undefined ? {} : { secretVariable }),
+    ...(variable === undefined ? {} : { variable }),
     step:
-      step.type === "change" && secretVariable !== undefined
-        ? { ...step, value: `{{${secretVariable}}}` }
+      step.type === "change" && variable !== undefined
+        ? { ...step, value: `{{${variable}}}` }
         : step,
   };
 };
@@ -110,7 +110,7 @@ interface RecordingState {
   readonly phase: RecordingPhase;
   readonly pendingNavigation: boolean;
   readonly revision: number;
-  readonly secretVariables: readonly string[];
+  readonly variables: readonly string[];
   readonly sessionId: SessionId;
   readonly steps: readonly RecordedStep[];
   readonly stopCapture: Effect.Effect<void>;
@@ -131,7 +131,7 @@ export interface RecordingService {
   readonly addAudit: (
     audit: AuditKind
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
-  readonly bindSecret: (
+  readonly bindVariable: (
     stepId: string,
     name: string
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
@@ -168,7 +168,7 @@ export interface RecordingService {
     currentUrl: string
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly resume: () => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
-  readonly renameSecret: (
+  readonly renameVariable: (
     from: string,
     name: string
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
@@ -201,7 +201,7 @@ const normalizePart = (value: string): string =>
     .replaceAll(FILE_PART_PATTERN, "-")
     .replaceAll(/^-|-$/gu, "");
 
-const normalizeSecretName = (value: string): string =>
+const normalizeVariableName = (value: string): string =>
   value
     .trim()
     .toUpperCase()
@@ -209,11 +209,11 @@ const normalizeSecretName = (value: string): string =>
     .replaceAll(/^_+|_+$/gu, "");
 
 interface SanitizedUrl {
-  readonly secretVariables: readonly string[];
+  readonly variables: readonly string[];
   readonly url: string;
 }
 
-const uniqueSecretName = (
+const uniqueVariableName = (
   candidate: string,
   existing: readonly string[]
 ): string => {
@@ -232,7 +232,7 @@ const uniqueSecretName = (
   return `${base}_${suffix}`;
 };
 
-const replaceSecretReference = (
+const replaceVariableReference = (
   value: string,
   from: string,
   name: string
@@ -244,7 +244,7 @@ const replaceSecretReference = (
       encodeURIComponent(`{{${name}}}`)
     );
 
-const renameStepSecret = (
+const renameStepVariable = (
   recorded: RecordedStep,
   from: string,
   name: string
@@ -255,7 +255,7 @@ const renameStepSecret = (
   }
   const assertedEvents = step.assertedEvents?.map((event) => ({
     ...event,
-    url: replaceSecretReference(event.url, from, name),
+    url: replaceVariableReference(event.url, from, name),
   }));
   let renamedStep: ChromeStep = {
     ...step,
@@ -265,23 +265,23 @@ const renameStepSecret = (
     renamedStep = {
       ...step,
       ...(assertedEvents === undefined ? {} : { assertedEvents }),
-      value: replaceSecretReference(step.value, from, name),
+      value: replaceVariableReference(step.value, from, name),
     };
   } else if (step.type === "navigate") {
     renamedStep = {
       ...step,
       ...(assertedEvents === undefined ? {} : { assertedEvents }),
-      url: replaceSecretReference(step.url, from, name),
+      url: replaceVariableReference(step.url, from, name),
     };
   }
   return {
     ...recorded,
-    ...(recorded.secretVariable === from ? { secretVariable: name } : {}),
+    ...(recorded.variable === from ? { variable: name } : {}),
     step: renamedStep,
   };
 };
 
-const renamePreStepSecret = (
+const renamePreStepVariable = (
   preStep: PreStep,
   from: string,
   name: string
@@ -291,12 +291,12 @@ const renamePreStepSecret = (
     preStep.step.type === "change"
       ? {
           ...preStep.step,
-          value: replaceSecretReference(preStep.step.value, from, name),
+          value: replaceVariableReference(preStep.step.value, from, name),
         }
       : preStep.step,
 });
 
-const assignedSecretName = (
+const assignedVariableName = (
   candidate: string | undefined,
   previous: RecordedStep | undefined,
   replacesPrevious: boolean,
@@ -305,15 +305,15 @@ const assignedSecretName = (
   if (candidate === undefined) {
     return undefined;
   }
-  if (replacesPrevious && previous?.secretVariable !== undefined) {
-    return previous.secretVariable;
+  if (replacesPrevious && previous?.variable !== undefined) {
+    return previous.variable;
   }
-  return uniqueSecretName(candidate, existing);
+  return uniqueVariableName(candidate, existing);
 };
 
 const sanitizeUrl = (
   value: string,
-  existingSecrets: readonly string[]
+  existingVariables: readonly string[]
 ): Effect.Effect<SanitizedUrl, BrowserRpcErrorType> =>
   Effect.try({
     catch: () =>
@@ -327,7 +327,7 @@ const sanitizeUrl = (
         throw new Error("URL credentials are not supported");
       }
       url.hash = "";
-      const secretVariables = [...existingSecrets];
+      const variables = [...existingVariables];
       for (const [name, parameterValue] of url.searchParams) {
         if (
           parameterValue.length === 0 ||
@@ -335,11 +335,11 @@ const sanitizeUrl = (
         ) {
           continue;
         }
-        const secretName = uniqueSecretName(name, secretVariables);
-        secretVariables.push(secretName);
-        url.searchParams.set(name, `{{${secretName}}}`);
+        const variableName = uniqueVariableName(name, variables);
+        variables.push(variableName);
+        url.searchParams.set(name, `{{${variableName}}}`);
       }
-      return { secretVariables, url: url.href };
+      return { url: url.href, variables };
     },
   });
 
@@ -363,7 +363,7 @@ const toFlowStep = (recorded: RecordedStep): Flow["steps"][number] => {
     return recorded.step;
   }
   const hasExtensions =
-    recorded.preSteps.length > 0 || recorded.secretVariable !== undefined;
+    recorded.preSteps.length > 0 || recorded.variable !== undefined;
   if (!hasExtensions) {
     return recorded.step;
   }
@@ -375,26 +375,31 @@ const toFlowStep = (recorded: RecordedStep): Flow["steps"][number] => {
       ...(recorded.preSteps.length === 0
         ? {}
         : { preSteps: recorded.preSteps }),
-      ...(recorded.secretVariable === undefined
+      ...(recorded.variable === undefined
         ? {}
-        : { secretVariable: recorded.secretVariable }),
+        : { variable: recorded.variable }),
     },
   };
 };
 
 const toFlow = (state: RecordingState): Flow => ({
-  ...(state.flowPreSteps.length === 0 && state.secretVariables.length === 0
+  ...(state.flowPreSteps.length === 0 && state.variables.length === 0
     ? {}
     : {
         contingency: {
           ...(state.flowPreSteps.length === 0
             ? {}
             : { preSteps: state.flowPreSteps }),
-          ...(state.secretVariables.length === 0
+          ...(state.variables.length === 0
             ? {}
             : {
-                secretVariables: state.secretVariables.map((name) => ({
+                // Create View only authors withheld sensitive values, so every
+                // Variable it declares is both redacted from a Run and
+                // promptable when the Runner has no value for it.
+                variables: state.variables.map((name) => ({
                   name,
+                  runtime: true,
+                  secret: true,
                 })),
               }),
         },
@@ -404,13 +409,13 @@ const toFlow = (state: RecordingState): Flow => ({
   title: state.title,
 });
 
-const referencedSecretVariables = (
+const referencedVariables = (
   state: Pick<RecordingState, "flowPreSteps" | "initialUrl" | "steps">
 ): readonly string[] => {
   const references = new Set<string>();
   const addReferences = (value: unknown) => {
     const serialized = JSON.stringify(value);
-    for (const match of serialized.matchAll(SECRET_REFERENCE_PATTERN)) {
+    for (const match of serialized.matchAll(VARIABLE_REFERENCE_PATTERN)) {
       const { name } = match.groups ?? {};
       if (name !== undefined) {
         references.add(name);
@@ -565,10 +570,7 @@ export const makeRecordingService = (
             },
           ] as const;
         }
-        const sanitized = yield* sanitizeUrl(
-          event.url,
-          mutable.secretVariables
-        );
+        const sanitized = yield* sanitizeUrl(event.url, mutable.variables);
         const last = mutable.steps.findLast(
           ({ step }) => step.type !== "customStep"
         );
@@ -610,8 +612,8 @@ export const makeRecordingService = (
               ...mutable,
               pendingNavigation: true,
               revision: mutable.revision + 1,
-              secretVariables: sanitized.secretVariables,
               steps,
+              variables: sanitized.variables,
             },
           ] as const;
         }
@@ -631,8 +633,8 @@ export const makeRecordingService = (
             ...mutable,
             pendingNavigation: false,
             revision: mutable.revision + 1,
-            secretVariables: sanitized.secretVariables,
             steps: [...mutable.steps, navigation],
+            variables: sanitized.variables,
           },
         ] as const;
       });
@@ -715,21 +717,21 @@ export const makeRecordingService = (
             return [undefined, mutable] as const;
           }
 
-          const secretVariable =
-            action.type === "change" ? action.secretVariable : undefined;
+          const variable =
+            action.type === "change" ? action.variable : undefined;
           const lastRecorded = mutable.steps.at(-1);
           const replacesLastChange =
             action.type === "change" &&
             lastRecorded?.step.type === "change" &&
             JSON.stringify(lastRecorded.step.selectors) ===
               JSON.stringify(action.selectors);
-          const assignedSecretVariable = assignedSecretName(
-            secretVariable,
+          const assignedVariable = assignedVariableName(
+            variable,
             lastRecorded,
             replacesLastChange,
-            mutable.secretVariables
+            mutable.variables
           );
-          const recorded = capturedRecordedStep(action, assignedSecretVariable);
+          const recorded = capturedRecordedStep(action, assignedVariable);
 
           if (mutable.captureMode === "ordinary") {
             const steps = replacesLastChange
@@ -737,9 +739,9 @@ export const makeRecordingService = (
                   existing.id === lastRecorded.id
                     ? {
                         ...existing,
-                        ...(recorded.secretVariable === undefined
-                          ? { secretVariable: undefined }
-                          : { secretVariable: recorded.secretVariable }),
+                        ...(recorded.variable === undefined
+                          ? { variable: undefined }
+                          : { variable: recorded.variable }),
                         step: recorded.step,
                       }
                     : existing
@@ -750,17 +752,17 @@ export const makeRecordingService = (
               deletedStep: undefined,
               pendingNavigation: false,
               revision: mutable.revision + 1,
-              secretVariables:
-                assignedSecretVariable === undefined
-                  ? mutable.secretVariables
-                  : [...mutable.secretVariables, assignedSecretVariable],
               steps,
+              variables:
+                assignedVariable === undefined
+                  ? mutable.variables
+                  : [...mutable.variables, assignedVariable],
             };
             return [
               undefined,
               {
                 ...next,
-                secretVariables: referencedSecretVariables(next),
+                variables: referencedVariables(next),
               },
             ] as const;
           }
@@ -782,11 +784,10 @@ export const makeRecordingService = (
           const preStep: PreStep = {
             id: randomUUID(),
             step:
-              preStepAction.type === "change" &&
-              assignedSecretVariable !== undefined
+              preStepAction.type === "change" && assignedVariable !== undefined
                 ? {
                     ...preStepAction,
-                    value: `{{${assignedSecretVariable}}}`,
+                    value: `{{${assignedVariable}}}`,
                   }
                 : preStepAction,
             when: { selectors: action.selectors, type: "selectorVisible" },
@@ -797,16 +798,16 @@ export const makeRecordingService = (
               captureMode: "ordinary" as const,
               flowPreSteps: [...mutable.flowPreSteps, preStep],
               revision: mutable.revision + 1,
-              secretVariables:
-                assignedSecretVariable === undefined
-                  ? mutable.secretVariables
-                  : [...mutable.secretVariables, assignedSecretVariable],
               targetPreStepIndex: undefined,
               targetStepId: undefined,
+              variables:
+                assignedVariable === undefined
+                  ? mutable.variables
+                  : [...mutable.variables, assignedVariable],
             };
             const next = {
               ...nextBase,
-              secretVariables: referencedSecretVariables(nextBase),
+              variables: referencedVariables(nextBase),
             };
             return [undefined, next] as const;
           }
@@ -824,17 +825,17 @@ export const makeRecordingService = (
             ...mutable,
             captureMode: "ordinary" as const,
             revision: mutable.revision + 1,
-            secretVariables:
-              assignedSecretVariable === undefined
-                ? mutable.secretVariables
-                : [...mutable.secretVariables, assignedSecretVariable],
             steps: nextSteps,
             targetPreStepIndex: undefined,
             targetStepId: undefined,
+            variables:
+              assignedVariable === undefined
+                ? mutable.variables
+                : [...mutable.variables, assignedVariable],
           };
           const next = {
             ...nextBase,
-            secretVariables: referencedSecretVariables(nextBase),
+            variables: referencedVariables(nextBase),
           };
           return [undefined, next] as const;
         })
@@ -925,16 +926,16 @@ export const makeRecordingService = (
             return [toSnapshot(next), next] as const;
           })
         ),
-      bindSecret: (stepId, requestedName) =>
+      bindVariable: (stepId, requestedName) =>
         mutate((state) =>
-          Effect.gen(function* bindStepSecret() {
+          Effect.gen(function* bindStepVariable() {
             const mutable = yield* requireMutable(state);
-            const name = normalizeSecretName(requestedName);
+            const name = normalizeVariableName(requestedName);
             if (name.length === 0) {
               return yield* Effect.fail(
                 recordingError(
                   "recording_invalid",
-                  "A Secret Variable name is required."
+                  "A Variable name is required."
                 )
               );
             }
@@ -946,15 +947,15 @@ export const makeRecordingService = (
               found = true;
               return {
                 ...recorded,
-                secretVariable: name,
                 step: { ...recorded.step, value: `{{${name}}}` },
+                variable: name,
               };
             });
             if (!found) {
               return yield* Effect.fail(
                 recordingError(
                   "recording_invalid",
-                  "Only recorded form changes can use a Secret Variable."
+                  "Only recorded form changes can use a Variable."
                 )
               );
             }
@@ -965,7 +966,7 @@ export const makeRecordingService = (
             };
             const next = {
               ...nextBase,
-              secretVariables: referencedSecretVariables(nextBase),
+              variables: referencedVariables(nextBase),
             };
             return [toSnapshot(next), next] as const;
           })
@@ -1066,7 +1067,7 @@ export const makeRecordingService = (
             };
             const next = {
               ...nextBase,
-              secretVariables: referencedSecretVariables(nextBase),
+              variables: referencedVariables(nextBase),
             };
             return [toSnapshot(next), next] as const;
           })
@@ -1162,10 +1163,7 @@ export const makeRecordingService = (
                 )
               );
             }
-            const sanitized = yield* sanitizeUrl(
-              currentUrl,
-              current.secretVariables
-            );
+            const sanitized = yield* sanitizeUrl(currentUrl, current.variables);
             const stopCapture = yield* capture.start({
               onEvent: captureAction,
               onFailure: fail,
@@ -1185,11 +1183,11 @@ export const makeRecordingService = (
               pendingNavigation: false,
               phase: "active" as const,
               revision: current.revision + 1,
-              secretVariables: sanitized.secretVariables,
               steps: [...current.steps, checkpoint],
               stopCapture,
               targetPreStepIndex: undefined,
               targetStepId: undefined,
+              variables: sanitized.variables,
             };
             yield* setState(next);
             return toSnapshot(next);
@@ -1212,44 +1210,44 @@ export const makeRecordingService = (
             return [toSnapshot(next), next] as const;
           })
         ),
-      renameSecret: (from, requestedName) =>
+      renameVariable: (from, requestedName) =>
         mutate((state) =>
-          Effect.gen(function* renameSecretVariable() {
+          Effect.gen(function* renameFlowVariable() {
             const mutable = yield* requireMutable(state);
-            const name = normalizeSecretName(requestedName);
+            const name = normalizeVariableName(requestedName);
             if (
               name.length === 0 ||
-              !mutable.secretVariables.includes(from) ||
-              (name !== from && mutable.secretVariables.includes(name))
+              !mutable.variables.includes(from) ||
+              (name !== from && mutable.variables.includes(name))
             ) {
               return yield* Effect.fail(
                 recordingError(
                   "recording_invalid",
-                  "Choose a unique Secret Variable name."
+                  "Choose a unique Variable name."
                 )
               );
             }
             const nextBase = {
               ...mutable,
               flowPreSteps: mutable.flowPreSteps.map((preStep) =>
-                renamePreStepSecret(preStep, from, name)
+                renamePreStepVariable(preStep, from, name)
               ),
-              initialUrl: replaceSecretReference(
+              initialUrl: replaceVariableReference(
                 mutable.initialUrl,
                 from,
                 name
               ),
               revision: mutable.revision + 1,
               steps: mutable.steps.map((recorded) => ({
-                ...renameStepSecret(recorded, from, name),
+                ...renameStepVariable(recorded, from, name),
                 preSteps: recorded.preSteps.map((preStep) =>
-                  renamePreStepSecret(preStep, from, name)
+                  renamePreStepVariable(preStep, from, name)
                 ),
               })),
             };
             const next = {
               ...nextBase,
-              secretVariables: referencedSecretVariables(nextBase),
+              variables: referencedVariables(nextBase),
             };
             return [toSnapshot(next), next] as const;
           })
@@ -1298,7 +1296,6 @@ export const makeRecordingService = (
               pendingNavigation: false,
               phase: "active",
               revision: 0,
-              secretVariables: sanitized.secretVariables,
               sessionId: input.sessionId,
               steps: [initialStep],
               stopCapture,
@@ -1306,6 +1303,7 @@ export const makeRecordingService = (
               targetPreStepIndex: undefined,
               targetStepId: undefined,
               title: input.title.trim(),
+              variables: sanitized.variables,
             };
             yield* setState(state);
             return toSnapshot(state);
@@ -1332,7 +1330,7 @@ export const makeRecordingService = (
             };
             const next = {
               ...nextBase,
-              secretVariables: referencedSecretVariables(nextBase),
+              variables: referencedVariables(nextBase),
             };
             return [toSnapshot(next), next] as const;
           })

@@ -119,11 +119,11 @@ export const recordingStepUndoMutation = ContingencyRpcClient.mutation(
 export const recordingAuditMutation = ContingencyRpcClient.mutation(
   "recording.audit.add"
 );
-export const recordingSecretBindMutation = ContingencyRpcClient.mutation(
-  "recording.step.secret.bind"
+export const recordingVariableBindMutation = ContingencyRpcClient.mutation(
+  "recording.step.variable.bind"
 );
-export const recordingSecretRenameMutation = ContingencyRpcClient.mutation(
-  "recording.secret.rename"
+export const recordingVariableRenameMutation = ContingencyRpcClient.mutation(
+  "recording.variable.rename"
 );
 export const recordingPreStepMutation = ContingencyRpcClient.mutation(
   "recording.pre-step.arm"
