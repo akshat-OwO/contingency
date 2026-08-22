@@ -1,31 +1,33 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readdir, rename, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { arch, cpus, loadavg, platform, totalmem } from "node:os";
 import path from "node:path";
 
 import {
   accessibilityRuleTags,
+  FindingSeverity,
   Flow as FlowSchema,
   stepNavigates,
-  SessionId as SessionIdSchema,
 } from "@contingency/protocol";
 import type {
-  BrowserRpcErrorType,
+  AuthoredStep,
+  Condition,
+  CoreWebVitals,
+  ElidedFindings,
   Finding,
-  RunEnvironment,
-  RunVideoManifest,
-  RunVideoSegment,
   Flow,
-  FlowStep,
+  LocatorDescriptor,
   PreStep,
   Run,
   RunAttempt,
+  RunEnvironment,
   RunFailure,
   RunPreStep,
   RunStep,
-  Selector,
-  SessionId,
+  RunVideoManifest,
+  RunVideoSegment,
 } from "@contingency/protocol";
-import type { Option, Result } from "effect";
 import {
   Context,
   Data,
@@ -36,16 +38,16 @@ import {
   Schema,
   Semaphore,
 } from "effect";
+import { chromium, errors } from "playwright-core";
+import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 
-import { AgentBrowser, isElementNotFound } from "./agent-browser";
-import type { AuditResult } from "./agent-browser";
-import type { VariableResolution } from "./variables";
-import { redactSecrets, substituteVariables } from "./variables";
+import type { VariableResolution } from "./variables.ts";
+import { redactSecrets, substituteVariables } from "./variables.ts";
+import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
 
 /**
  * Run sessions replay a Flow, so they open at the Flow's own viewport rather
- * than a canvas-sized one. Headless is the browser's default; a Run never
- * enables streaming and never starts the recorder sidecar.
+ * than a canvas-sized one.
  */
 const RUN_VIEWPORT = {
   deviceScaleFactor: 1,
@@ -53,22 +55,32 @@ const RUN_VIEWPORT = {
   width: 1280,
 } as const;
 
+/**
+ * How long one Step may act before failing, set explicitly rather than left at
+ * Playwright's thirty-second default. A few inherited defaults under retry
+ * would consume the whole Run ceiling and report a ceiling breach instead of
+ * naming the Step that hung (ADR 0021).
+ */
+const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
+
+/** How long one navigation may take, for the same reason (ADR 0021). */
+const DEFAULT_NAVIGATION_TIMEOUT_MS = 20_000;
+
+/** How often a bounded wait re-reads its condition while waiting it out. */
+const WAIT_POLL_MS = 100;
+
 export class RunnerError extends Data.TaggedError("RunnerError")<{
   /**
    * Who the failure belongs to, when the Runner knows. Only the Runner can
-   * say: by the time a failure is a message, "no selector resolved" and "the
-   * session died" read alike.
+   * say: by the time a failure is a message, "no locator resolved" and "the
+   * browser died" read alike.
    */
   readonly kind?: RunFailure["kind"];
   readonly message: string;
 }> {}
 
 export interface RunnerRunOptions {
-  /**
-   * Capture the Run's browser session to video. Overrides the Flow's own
-   * `video` flag when set, so a Flow that never asked for capture can still be
-   * watched once, and one that always asks can be silenced for a fast Run.
-   */
+  /** Capture the Run's browser session to video. */
   readonly video?: boolean;
   /** Directory holding one subdirectory per Flow. Defaults to the state dir. */
   readonly outputDirectory: string;
@@ -137,11 +149,11 @@ export const hashFlow = (flow: Flow): string =>
 
 /**
  * A Flow's Run history is keyed on its stable identity. A Flow that declares
- * none — a plain Chrome Recorder export — falls back to its content hash,
- * which is stable and, unlike the title, not user-editable.
+ * none falls back to its content hash, which is stable and, unlike the title,
+ * not user-editable.
  */
 export const flowIdentity = (flow: Flow, flowHash: string): string =>
-  flow.contingency?.flowId ?? `sha256-${flowHash.slice(0, 16)}`;
+  flow.flowId ?? `sha256-${flowHash.slice(0, 16)}`;
 
 /**
  * A Flow's identity comes from a file the Runner did not write, so it can hold
@@ -154,9 +166,8 @@ export const flowIdentity = (flow: Flow, flowHash: string): string =>
  * alike, either of which would merge two Flows' histories into one directory.
  *
  * The readable part keeps no dots, so a key is always one stem ending in
- * `-<hash>`. Windows reserves device names such as `CON` and `LPT1` both bare
- * and with any extension, so `CON.txt` would otherwise keep a reserved stem
- * and fail to create after the Run had already executed.
+ * `-<hash>`; Windows reserves device names such as `CON` both bare and with
+ * any extension, and a stem that cannot end before a dot never matches one.
  */
 export const flowDirectorySegment = (flowId: string): string => {
   const digest = createHash("sha256").update(flowId).digest("hex").slice(0, 16);
@@ -190,8 +201,8 @@ export const runDirectoryName = (startedAt: Date, runId: string): string => {
 };
 
 /**
- * Where a Run's artifacts live. Computed rather than discovered, so a
- * recording can be written into it before the Run that describes it exists.
+ * Where a Run's artifacts live. Computed rather than discovered, so a recording
+ * can be written into it before the Run that describes it exists.
  */
 export const runDirectory = (
   outputDirectory: string,
@@ -205,77 +216,28 @@ export const runDirectory = (
     runDirectoryName(startedAt, runId)
   );
 
-const translateSelector = (selector: string): string | undefined => {
-  if (selector.startsWith("xpath/")) {
-    return selector.slice("xpath/".length);
-  }
-  if (selector.startsWith("pierce/")) {
-    // A `pierce/` selector is a single CSS selector the browser resolves
-    // through open shadow roots on its own.
-    return selector.slice("pierce/".length);
-  }
-  if (selector.startsWith("text/")) {
-    return `text=${selector.slice("text/".length)}`;
-  }
-  if (selector.startsWith("aria/")) {
-    // No accessible-name selector engine is exposed, and guessing a role would
-    // resolve the wrong element. Other candidates cover this Step.
-    return undefined;
-  }
-  return selector;
-};
-
-/**
- * A Chrome Recorder Step carries several alternative selectors in priority
- * order. Most are a single selector; some are a **chain** that walks into a
- * shadow root, one element per hop.
- *
- * A chain is dropped rather than flattened to its last hop. The browser tool
- * resolves a selector against the current document, so a flattened chain does
- * not fail — it silently matches a same-named element elsewhere in the page
- * and acts on the wrong one. Verified against a fixture whose top-level decoy
- * and shadow child share an id: the flattened selector clicked the decoy.
- * A Step that offers only chains is unsupported and fails loudly.
- */
-export const selectorCandidates = (selectors: Selector): readonly string[] => {
-  const candidates: string[] = [];
-  for (const entry of selectors) {
-    const chain = typeof entry === "string" ? [entry] : [...entry];
-    if (chain.length !== 1) {
-      continue;
-    }
-    const [target] = chain;
-    const translated =
-      target === undefined ? undefined : translateSelector(target);
-    if (translated !== undefined && !candidates.includes(translated)) {
-      candidates.push(translated);
-    }
-  }
-  return candidates;
-};
-
 const nowIso = Effect.sync(() => new Date());
 
 /** The first status a site is answering with rather than serving a page. */
 const HTTP_ERROR_STATUS = 400;
 
 /**
- * agent-browser's own wording for a navigation that did not complete, verified
- * against the bundled binary: `Navigation failed: net::ERR_NAME_NOT_RESOLVED`.
+ * How Chromium reports a navigation that did not complete:
+ * `net::ERR_NAME_NOT_RESOLVED at https://…`.
  */
-const NAVIGATION_FAILED = "Navigation failed:";
+const NAVIGATION_FAILED = "net::";
 
 /**
  * Who a failed Step belongs to.
  *
- * A navigation that did not complete is the site's. Selector exhaustion is the
+ * A navigation that did not complete is the site's. Locator exhaustion is the
  * Flow's, and only the Runner can say that one: by the time a failure is a
- * message, "no selector resolved" and "the session died" read alike, which is
+ * message, "no locator resolved" and "the browser died" read alike, which is
  * why the attribution travels on the error rather than being re-derived here.
  *
- * Everything else is left unattributed. A dead session, a browser-process
- * failure, or a click that landed wrong establishes nothing about whose fault
- * it is, and a guess routes it to someone who cannot act on it.
+ * Everything else is left unattributed. A browser-process failure or a click
+ * that landed wrong establishes nothing about whose fault it is, and a guess
+ * routes it to someone who cannot act on it.
  */
 export const classifyStepFailure = (
   attributed: RunFailure["kind"],
@@ -292,32 +254,821 @@ export const classifyStepFailure = (
  * Step that navigates, which the Flow schema already enforces, so a Step
  * without it is never measured (ADR 0008).
  */
-const measuresPerformance = (step: FlowStep): boolean =>
-  step.type !== "customStep" &&
-  step.contingency?.performance === true &&
-  stepNavigates(step);
+const measuresPerformance = (step: AuthoredStep): boolean =>
+  step.performance === true && stepNavigates(step);
+
+/** The Page a Step names, absent on Steps that carry none. */
+const pageIndexOf = (step: AuthoredStep): number | undefined =>
+  "page" in step ? step.page : undefined;
+
+// ---------------------------------------------------------------------------
+// Driving Playwright
+// ---------------------------------------------------------------------------
+
+interface ReplayExecution {
+  /**
+   * Every Page this attempt acts on, indexed by the order it opened. Popups
+   * and new tabs append themselves as they appear, so an index the Flow was
+   * authored against stays stable even when the popup carries a per-run nonce.
+   */
+  readonly pages: Page[];
+  readonly variables: VariableResolution;
+  /**
+   * The Page whose navigation is still awaiting measurement — where Core Web
+   * Vitals are read when {@link measurePending} runs.
+   */
+  measuredPage: Page | undefined;
+}
+
+/** One attempt's browser resources, owned by the attempt's scope. */
+interface AttemptSession {
+  readonly context: BrowserContext;
+  readonly execution: ReplayExecution;
+}
+
+/** The URL forms a Flow may navigate to; anything else is refused. */
+const normalizeUrl = (value: string): Effect.Effect<string, RunnerError> =>
+  Effect.try({
+    catch: () => new RunnerError({ message: `Invalid URL: ${value}` }),
+    try: () => {
+      const trimmed = value.trim();
+      const url = new URL(
+        /^[A-Za-z][A-Za-z\d+.-]*:/u.test(trimmed)
+          ? trimmed
+          : `https://${trimmed}`
+      );
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error("Only HTTP and HTTPS URLs are supported");
+      }
+      return url.href;
+    },
+  });
+
+/** How a descriptor reads in a failure message: words before raw paths. */
+const describeLocator = (descriptor: LocatorDescriptor): string => {
+  switch (descriptor.kind) {
+    case "role": {
+      return `role ${descriptor.role} named "${descriptor.name}"`;
+    }
+    case "label": {
+      return `label "${descriptor.label}"`;
+    }
+    case "placeholder": {
+      return `placeholder "${descriptor.placeholder}"`;
+    }
+    case "text": {
+      return `text "${descriptor.text}"`;
+    }
+    case "css": {
+      return `CSS ${descriptor.selector}`;
+    }
+    case "xpath": {
+      return `XPath ${descriptor.expression}`;
+    }
+    default: {
+      throw new Error("Unknown locator descriptor.");
+    }
+  }
+};
+
+const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator => {
+  switch (descriptor.kind) {
+    case "role": {
+      // The schema accepts any role name the ARIA vocabulary might grow;
+      // Playwright narrows to the roles it knows today.
+      return page.getByRole(descriptor.role as never, {
+        name: descriptor.name,
+      });
+    }
+    case "label": {
+      return page.getByLabel(descriptor.label);
+    }
+    case "placeholder": {
+      return page.getByPlaceholder(descriptor.placeholder);
+    }
+    case "text": {
+      return page.getByText(descriptor.text);
+    }
+    case "css": {
+      return page.locator(descriptor.selector);
+    }
+    case "xpath": {
+      return page.locator(`xpath=${descriptor.expression}`);
+    }
+    default: {
+      throw new Error("Unknown locator descriptor.");
+    }
+  }
+};
 
 /**
- * Attach Core Web Vitals to the Step that navigated, reading the page at the
+ * Whether one candidate's failure is evidence about the candidate itself —
+ * it matched nothing in time, or matched more than one element — rather than
+ * about the browser. Only that kind justifies trying the next alternative;
+ * anything else means the question could not be put to the page at all.
+ */
+const isCandidateMiss = (cause: unknown): boolean => {
+  if (cause instanceof errors.TimeoutError) {
+    return true;
+  }
+  return (
+    cause instanceof Error && cause.message.includes("strict mode violation")
+  );
+};
+
+/** Compile a Flow-authored URL pattern, refusing what will not parse. */
+const compilePattern = (pattern: string): Effect.Effect<RegExp, RunnerError> =>
+  Effect.try({
+    catch: () =>
+      new RunnerError({
+        kind: "flowError",
+        message: `"${pattern}" in this condition is not a usable regular expression.`,
+      }),
+    try: () => new RegExp(pattern, "u"),
+  });
+
+/**
+ * The Page a Step acts on, by the order it opened. Omitting the index means
+ * the first Page. An index beyond what has opened is waited out briefly — a
+ * click resolves slightly before the popup it triggered registers — but a
+ * Page that never appears fails the Step rather than hanging.
+ */
+const pageFor = Effect.fn("Runner.pageFor")(function* pageFor(
+  execution: ReplayExecution,
+  pageIndex: number | undefined,
+  timeoutMs: number
+) {
+  const index = pageIndex ?? 0;
+  const deadline = Date.now() + Math.max(timeoutMs, 1000);
+  for (;;) {
+    const page = execution.pages[index];
+    if (page !== undefined) {
+      if (!page.isClosed()) {
+        return page;
+      }
+      break;
+    }
+    if (Date.now() >= deadline) {
+      break;
+    }
+    yield* Effect.sleep(WAIT_POLL_MS);
+  }
+  return yield* new RunnerError({
+    kind: "flowError",
+    message: `Page ${index} of this Flow never opened, or has already closed.`,
+  });
+});
+
+/**
+ * Act through a Step's ordered target, first match wins. The alternatives are
+ * candidates, not a sequence: the first that resolves wins, and only the
+ * exhaustion of all of them fails the Step — naming every strategy tried, so
+ * a stale ladder is visible at a glance.
+ */
+const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
+  page: Page,
+  target: readonly LocatorDescriptor[],
+  perform: (locator: Locator) => Promise<unknown>
+) {
+  const tried: string[] = [];
+  let lastMessage = "";
+  for (const descriptor of target) {
+    const outcome = yield* Effect.result(
+      Effect.tryPromise({
+        catch: (cause: unknown) => cause,
+        try: () => perform(locatorFor(page, descriptor)),
+      })
+    );
+    if (outcome._tag === "Success") {
+      return;
+    }
+    // A candidate that already reached the page is not an unresolved locator:
+    // trying the next one would act on the page a second time.
+    if (!isCandidateMiss(outcome.failure)) {
+      return yield* new RunnerError({ message: errorMessage(outcome.failure) });
+    }
+    tried.push(describeLocator(descriptor));
+    lastMessage = errorMessage(outcome.failure);
+  }
+  return yield* new RunnerError({
+    kind: "flowError",
+    message: `Could not resolve this Step's target (tried ${tried.length}): ${tried.join("; ")}. Last reason: ${lastMessage}`,
+  });
+});
+
+/**
+ * What the collector resolves with. `null` is the page saying it produced no
+ * such measurement, which is not the same as zero.
+ */
+const CollectedVitals = Schema.Struct({
+  cls: Schema.Number,
+  fcp: Schema.NullOr(Schema.Number),
+  inp: Schema.NullOr(Schema.Number),
+  lcp: Schema.NullOr(Schema.Number),
+  ttfb: Schema.NullOr(Schema.Number),
+});
+
+/**
+ * Read Core Web Vitals off the page the last navigating Step landed on, at the
  * last moment the Run is on it — just before navigating away, or when the
- * attempt ends.
+ * attempt ends. Sampling earlier would understate CLS and LCP, whose entries
+ * keep arriving after load, and INP is structurally unmeasurable before any
+ * interaction happened.
  *
- * Sampling the instant the navigation finishes would be wrong in two ways that
- * both understate the page. Layout shifts and larger paints keep arriving
- * after load, so CLS and LCP would be whatever had happened so far — verified
- * against the bundled binary, a shift 250ms in is missed entirely. And INP
- * would be structurally unmeasurable: a page nobody has interacted with yet
- * has no interaction to report, so every Run would record it as absent.
+ * A measurement that cannot be taken does not fail the Step: failing the Run
+ * over a metric read reports a broken site on the strength of our own inability
+ * to observe it. {@link measurePending} absorbs this failure, and the absence
+ * stays visible because the Flow toggled the Step and the Run carries no
+ * vitals for it.
+ */
+const collectVitals = Effect.fn("Runner.collectVitals")(function* collectVitals(
+  execution: ReplayExecution
+) {
+  const page =
+    execution.measuredPage ??
+    (yield* pageFor(execution, undefined, DEFAULT_ACTION_TIMEOUT_MS));
+  const raw = yield* Effect.tryPromise({
+    catch: () => new Error("The page could not answer."),
+    try: () => page.evaluate(VITALS_COLLECTOR),
+  });
+  if (typeof raw !== "object" || raw === null) {
+    return yield* new RunnerError({
+      message: "The page did not report Core Web Vitals.",
+    });
+  }
+  const decoded = yield* Schema.decodeUnknownEffect(CollectedVitals)(raw).pipe(
+    Effect.mapError(() => new Error("unparsable"))
+  );
+  return {
+    cls: decoded.cls,
+    ...(decoded.fcp === null ? {} : { fcp: decoded.fcp }),
+    ...(decoded.inp === null ? {} : { inp: decoded.inp }),
+    ...(decoded.lcp === null ? {} : { lcp: decoded.lcp }),
+    ...(decoded.ttfb === null ? {} : { ttfb: decoded.ttfb }),
+  } satisfies CoreWebVitals;
+});
+
+// ---------------------------------------------------------------------------
+// Accessibility Audits
+// ---------------------------------------------------------------------------
+
+/** What one Audit Step found, and what the engine did not list in full. */
+export interface AuditResult {
+  readonly elided: readonly ElidedFindings[];
+  readonly findings: readonly Finding[];
+}
+
+/** One shared empty result, for every Step that finds nothing. */
+const NO_FINDINGS: AuditResult = { elided: [], findings: [] };
+
+/** A target path: selectors, nested once per frame or shadow-root hop. */
+type AuditTargetPath = string | readonly AuditTargetPath[];
+
+/**
+ * One target the accessibility engine reports. A plain string is a selector in
+ * the current document; nesting means a hop, into a frame or a shadow root.
+ */
+const AuditTarget = Schema.Union([
+  Schema.String,
+  Schema.Array(
+    Schema.suspend((): Schema.Codec<AuditTargetPath> => AuditTarget)
+  ),
+]);
+
+/**
+ * The shape of an axe report, narrowed to what a Finding needs. Decoding only
+ * the used fields keeps an engine upgrade that adds a field from failing
+ * every Audit.
+ */
+const AuditReport = Schema.Struct({
+  counts: Schema.Struct({
+    inapplicable: Schema.Number,
+    incomplete: Schema.Number,
+    passes: Schema.Number,
+    violations: Schema.Number,
+  }),
+  violations: Schema.Array(
+    Schema.Struct({
+      help: Schema.String,
+      helpUrl: Schema.optional(Schema.String),
+      id: Schema.String,
+      impact: FindingSeverity,
+      nodeCount: Schema.Int,
+      nodes: Schema.Array(
+        Schema.Struct({
+          failureSummary: Schema.optional(Schema.String),
+          target: Schema.Array(AuditTarget),
+        })
+      ),
+    })
+  ),
+});
+
+let axeScriptPath: string | undefined;
+
+/** Contingency pins the engine version in its manifest, not the site's. */
+const resolveAxeScript = (): string => {
+  if (axeScriptPath === undefined) {
+    axeScriptPath = createRequire(import.meta.url).resolve(
+      "axe-core/axe.min.js"
+    );
+  }
+  return axeScriptPath;
+};
+
+/**
+ * Render an engine target path as one selector anyone can act on.
  *
- * A measurement that cannot be taken does not fail the Step. The Flow did its
- * work — the navigation happened and the page is there — and failing the Run
- * over a metric read would report a broken site on the strength of our own
- * inability to observe it. The absence is visible: the Flow says the Step was
- * toggled and the Run carries no vitals for it, which the CLI reports.
+ * The outer array crosses frames and a nested one enters a shadow root, so
+ * the two get different joins rather than being flattened together:
+ * `iframe >>> a` and `#host >> a` are found in entirely different ways.
+ */
+const renderAuditHop = (hop: AuditTargetPath): string =>
+  typeof hop === "string" ? hop : hop.map(renderAuditHop).join(" >> ");
+
+const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
+  target.map(renderAuditHop).join(" >>> ");
+
+/** The pieces of axe's raw result this reads, narrowed from its public shape. */
+interface AxeRawResults {
+  readonly inapplicable: readonly unknown[];
+  readonly incomplete: readonly unknown[];
+  readonly passes: readonly unknown[];
+  readonly violations: readonly {
+    readonly help: string;
+    readonly helpUrl?: string | null;
+    readonly id: string;
+    readonly impact: FindingSeverity | null;
+    readonly nodes: readonly {
+      readonly failureSummary?: string | null;
+      readonly target: AuditTargetPath[];
+    }[];
+  }[];
+}
+
+/** The report shape as it crosses back over `page.evaluate`. */
+interface AxeReportLike {
+  readonly counts: AxeRawCounts;
+  readonly violations: {
+    readonly help: string;
+    readonly helpUrl?: string;
+    readonly id: string;
+    readonly impact: FindingSeverity;
+    readonly nodeCount: number;
+    readonly nodes: {
+      readonly failureSummary?: string;
+      readonly target: AuditTargetPath[];
+    }[];
+  }[];
+}
+interface AxeRawCounts {
+  readonly inapplicable: number;
+  readonly incomplete: number;
+  readonly passes: number;
+  readonly violations: number;
+}
+
+/**
+ * Run the pinned accessibility engine over the whole page, under the given
+ * rule tags. Covers the frame tree and open shadow roots, and needs no
+ * network request, so it works under a strict page CSP.
+ *
+ * An unrecognised tag selects no rules silently, and every page then audits
+ * clean forever — so the one case where nothing ran is a failure.
+ *
+ * `stepIndex` names the Audit Step every returned Finding came from.
+ */
+const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
+  page: Page,
+  tags: readonly string[],
+  stepIndex: number
+) {
+  yield* Effect.tryPromise({
+    catch: (cause) =>
+      new RunnerError({
+        message: `Could not load the accessibility engine: ${errorMessage(cause)}`,
+      }),
+    try: () => page.addScriptTag({ path: resolveAxeScript() }),
+  });
+  const report = yield* Schema.decodeUnknownEffect(AuditReport)(
+    yield* Effect.tryPromise({
+      catch: (cause) =>
+        new RunnerError({
+          message: `The accessibility engine did not answer: ${errorMessage(cause)}`,
+        }),
+      try: (): Promise<AxeReportLike> =>
+        page.evaluate(
+          (ruleTags: string[]) => {
+            // Addressed off `globalThis` rather than `window`/`document`
+            // directly, so this file needs no DOM library to typecheck.
+            const scope = globalThis as unknown as {
+              axe?: {
+                run: (
+                  context: unknown,
+                  options: unknown
+                ) => Promise<AxeRawResults>;
+              };
+              document: unknown;
+            };
+            if (scope.axe === undefined) {
+              throw new Error("The accessibility engine did not register.");
+            }
+            return scope.axe
+              .run(scope.document, {
+                runOnly: { type: "tags", values: ruleTags },
+              })
+              .then((raw) => ({
+                counts: {
+                  inapplicable: raw.inapplicable.length,
+                  incomplete: raw.incomplete.length,
+                  passes: raw.passes.length,
+                  violations: raw.violations.length,
+                },
+                // The pinned WCAG rules always carry an impact rating; the
+                // fallback exists so a rule that somehow does not still reports
+                // rather than failing the whole Audit on decode.
+                violations: raw.violations.map((violation) => ({
+                  help: violation.help,
+                  ...(violation.helpUrl ? { helpUrl: violation.helpUrl } : {}),
+                  id: violation.id,
+                  impact: violation.impact ?? ("minor" as const),
+                  nodeCount: violation.nodes.length,
+                  nodes: violation.nodes.map((node) => ({
+                    ...(node.failureSummary
+                      ? { failureSummary: node.failureSummary }
+                      : {}),
+                    target: node.target,
+                  })),
+                })),
+              }));
+          },
+          [...tags]
+        ),
+    })
+  ).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof RunnerError
+        ? cause
+        : new RunnerError({
+            message: `The accessibility engine answered in a shape we do not read: ${errorMessage(cause)}`,
+          })
+    )
+  );
+
+  const evaluated =
+    report.counts.inapplicable +
+    report.counts.incomplete +
+    report.counts.passes +
+    report.counts.violations;
+  if (evaluated === 0) {
+    return yield* new RunnerError({
+      message: `The accessibility ruleset selected no rules to run: ${tags.join(", ")}.`,
+    });
+  }
+
+  return {
+    elided: report.violations.flatMap((violation) =>
+      violation.nodeCount <= violation.nodes.length
+        ? []
+        : [
+            {
+              reported: violation.nodes.length,
+              rule: violation.id,
+              severity: violation.impact,
+              stepIndex,
+              total: violation.nodeCount,
+            } satisfies ElidedFindings,
+          ]
+    ),
+    findings: report.violations.flatMap((violation) =>
+      violation.nodes.map((node) => ({
+        ...(violation.helpUrl === undefined
+          ? {}
+          : { helpUrl: violation.helpUrl }),
+        message: node.failureSummary ?? violation.help,
+        rule: violation.id,
+        severity: violation.impact,
+        stepIndex,
+        target: renderAuditTarget(node.target),
+      }))
+    ),
+  } satisfies AuditResult;
+});
+
+// ---------------------------------------------------------------------------
+// Conditions
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a condition holds — `true`, `false`, or a reason it could not be
+ * established at all.
+ *
+ * The third case is kept separate on purpose. An unanswerable condition is not
+ * evidence that the interference was absent, and recording it as `skipped`
+ * would claim evidence the Run does not have (ADR 0009).
+ *
+ * A visible candidate settles a visibility condition on its own; `false`
+ * requires every candidate to have answered.
+ */
+type ConditionOutcome = boolean | { readonly reason: string };
+
+const conditionHolds = Effect.fn("Runner.conditionHolds")(
+  function* conditionHolds<C extends Condition>(
+    execution: ReplayExecution,
+    when: C,
+    pageIndex: number | undefined
+  ) {
+    const located = yield* Effect.result(
+      pageFor(execution, pageIndex, DEFAULT_ACTION_TIMEOUT_MS)
+    );
+    if (located._tag === "Failure") {
+      return { reason: located.failure.message } satisfies ConditionOutcome;
+    }
+    const page = located.success;
+
+    if (when.type === "urlMatches") {
+      const pattern = yield* compilePattern(when.pattern);
+      return pattern.test(page.url()) satisfies ConditionOutcome;
+    }
+
+    let unanswered = "";
+    for (const descriptor of when.target) {
+      const outcome = yield* Effect.result(
+        Effect.tryPromise({
+          catch: (cause: unknown) => cause,
+          try: () => locatorFor(page, descriptor).isVisible(),
+        })
+      );
+      if (outcome._tag === "Failure") {
+        unanswered = errorMessage(outcome.failure);
+        continue;
+      }
+      if (when.type === "selectorVisible") {
+        if (outcome.success) {
+          return true satisfies ConditionOutcome;
+        }
+      } else if (outcome.success) {
+        // selectorHidden: the interference the Pre-step clears is present.
+        return false satisfies ConditionOutcome;
+      }
+    }
+    // One candidate answering does not settle the condition while another went
+    // unanswered: alternatives can match different elements.
+    if (unanswered !== "") {
+      return {
+        reason: `Could not evaluate this condition: ${unanswered}`,
+      } satisfies ConditionOutcome;
+    }
+    return (when.type !== "selectorVisible") satisfies ConditionOutcome;
+  }
+);
+
+/**
+ * Wait until a `waitFor` Step's condition holds, bounded by the Step's own
+ * timeout. Timing out fails the Step: unlike a Pre-step's condition, waiting
+ * is what this Step exists to do.
+ */
+const waitUntilCondition = Effect.fn("Runner.waitUntilCondition")(
+  function* waitUntilCondition(page: Page, when: Condition, timeoutMs: number) {
+    if (when.type === "urlMatches") {
+      const pattern = yield* compilePattern(when.pattern);
+      const outcome = yield* Effect.result(
+        Effect.tryPromise({
+          catch: (cause: unknown) => cause,
+          try: () => page.waitForURL(pattern, { timeout: timeoutMs }),
+        })
+      );
+      if (outcome._tag === "Failure") {
+        return yield* new RunnerError({
+          kind: "flowError",
+          message: `This waitFor Step timed out after ${timeoutMs}ms waiting for a URL matching "${when.pattern}".`,
+        });
+      }
+      return;
+    }
+
+    if (when.type === "selectorVisible") {
+      const tried: string[] = [];
+      let lastMessage = "";
+      for (const descriptor of when.target) {
+        const outcome = yield* Effect.result(
+          Effect.tryPromise({
+            catch: (cause: unknown) => cause,
+            try: () =>
+              locatorFor(page, descriptor).waitFor({
+                state: "visible",
+                timeout: timeoutMs,
+              }),
+          })
+        );
+        if (outcome._tag === "Success") {
+          return;
+        }
+        if (!isCandidateMiss(outcome.failure)) {
+          return yield* new RunnerError({
+            message: errorMessage(outcome.failure),
+          });
+        }
+        tried.push(describeLocator(descriptor));
+        lastMessage = errorMessage(outcome.failure);
+      }
+      return yield* new RunnerError({
+        kind: "flowError",
+        message: `This waitFor Step timed out after ${timeoutMs}ms waiting for a visible target (tried ${tried.length}): ${tried.join("; ")}. Last reason: ${lastMessage}`,
+      });
+    }
+
+    // selectorHidden: poll until nothing the target names is visible.
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      let anyVisible = false;
+      let unanswered = "";
+      for (const descriptor of when.target) {
+        const outcome = yield* Effect.result(
+          Effect.tryPromise({
+            catch: (cause: unknown) => cause,
+            try: () => locatorFor(page, descriptor).isVisible(),
+          })
+        );
+        if (outcome._tag === "Failure") {
+          unanswered = errorMessage(outcome.failure);
+          continue;
+        }
+        if (outcome.success) {
+          anyVisible = true;
+          break;
+        }
+      }
+      // An unanswered candidate keeps the wait unsettled rather than
+      // satisfied: alternatives can name different elements, so the
+      // interference may be the one that could not be read.
+      if (!anyVisible && unanswered === "") {
+        return;
+      }
+      if (Date.now() >= deadline) {
+        return yield* new RunnerError({
+          kind: "flowError",
+          message: `This waitFor Step timed out after ${timeoutMs}ms waiting for its target to hide.${
+            unanswered === "" ? "" : ` Last reason: ${unanswered}`
+          }`,
+        });
+      }
+      yield* Effect.sleep(WAIT_POLL_MS);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Steps
+// ---------------------------------------------------------------------------
+
+/**
+ * Replay one Step, returning whatever it found. Only an Audit Step finds
+ * anything; every other Step returns none.
+ */
+const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
+  execution: ReplayExecution,
+  step: AuthoredStep,
+  index: number
+) {
+  const resolve = (value: string): string =>
+    substituteVariables(value, execution.variables.values);
+
+  if (step.type === "audit") {
+    // An Audit runs where its author put it, which is the whole reason Audits
+    // are ordered Steps rather than a crawl: the page behind a login and four
+    // interactions is reachable no other way (ADR 0005). The Flow names no
+    // Page for an Audit, so it reads wherever the Flow currently is.
+    const current = execution.pages.at(-1);
+    if (current === undefined) {
+      return yield* new RunnerError({
+        message: "There is no page for this Audit to read.",
+      });
+    }
+    return yield* runAudit(current, accessibilityRuleTags, index);
+  }
+
+  const actionTimeoutMs =
+    step.timeout === undefined ? DEFAULT_ACTION_TIMEOUT_MS : step.timeout;
+  const navigationTimeoutMs =
+    step.timeout === undefined ? DEFAULT_NAVIGATION_TIMEOUT_MS : step.timeout;
+
+  if (step.type === "navigate") {
+    const url = yield* normalizeUrl(resolve(step.url));
+    const page = yield* pageFor(execution, step.page, navigationTimeoutMs);
+    const response = yield* Effect.tryPromise({
+      catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+      try: () =>
+        page.goto(url, {
+          timeout: navigationTimeoutMs,
+          waitUntil: "load",
+        }),
+    });
+    // A server error still navigates, so the Step would otherwise pass and
+    // the Flow would fail several Steps later on a locator that is missing
+    // only because the page is an error page. That misreads a broken site as
+    // a stale Flow, which is exactly the confusion classification exists to
+    // end.
+    const status = response?.status();
+    execution.measuredPage = page;
+    if (status !== undefined && status >= HTTP_ERROR_STATUS) {
+      return yield* new RunnerError({
+        kind: "siteError",
+        message: `The site under test failed: the server answered this navigation with HTTP ${status}.`,
+      });
+    }
+    return NO_FINDINGS;
+  }
+
+  const page = yield* pageFor(execution, step.page, actionTimeoutMs);
+
+  switch (step.type) {
+    case "click": {
+      yield* throughLadder(page, step.target, (locator) =>
+        locator.click({
+          button: step.button ?? "left",
+          timeout: actionTimeoutMs,
+        })
+      );
+      return NO_FINDINGS;
+    }
+    case "change": {
+      yield* throughLadder(page, step.target, (locator) =>
+        locator.fill(resolve(step.value), { timeout: actionTimeoutMs })
+      );
+      return NO_FINDINGS;
+    }
+    case "hover": {
+      yield* throughLadder(page, step.target, (locator) =>
+        locator.hover({ timeout: actionTimeoutMs })
+      );
+      return NO_FINDINGS;
+    }
+    case "selectOption": {
+      yield* throughLadder(page, step.target, (locator) =>
+        locator.selectOption([...step.values], { timeout: actionTimeoutMs })
+      );
+      return NO_FINDINGS;
+    }
+    case "keyDown":
+    case "keyUp": {
+      // A target focuses first, so a keystroke typed into a field lands there.
+      // Playwright remembers a held modifier across later events itself, so a
+      // keyDown Step covers everything dispatched until its keyUp pair.
+      if (step.target !== undefined) {
+        yield* throughLadder(page, step.target, (locator) =>
+          locator.focus({ timeout: actionTimeoutMs })
+        );
+      }
+      yield* Effect.tryPromise({
+        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+        try: () =>
+          step.type === "keyDown"
+            ? page.keyboard.down(step.key)
+            : page.keyboard.up(step.key),
+      });
+      return NO_FINDINGS;
+    }
+    case "press": {
+      const pressed =
+        step.target === undefined
+          ? Effect.tryPromise({
+              catch: (cause) =>
+                new RunnerError({ message: errorMessage(cause) }),
+              try: () => page.keyboard.press(step.key),
+            })
+          : throughLadder(page, step.target, (locator) =>
+              locator.press(step.key, { timeout: actionTimeoutMs })
+            );
+      yield* pressed;
+      return NO_FINDINGS;
+    }
+    case "scroll": {
+      yield* Effect.tryPromise({
+        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+        try: () => page.mouse.wheel(step.deltaX ?? 0, step.deltaY ?? 0),
+      });
+      return NO_FINDINGS;
+    }
+    case "waitFor": {
+      yield* waitUntilCondition(page, step.condition, actionTimeoutMs);
+      return NO_FINDINGS;
+    }
+    default: {
+      throw new Error("Unknown Step kind.");
+    }
+  }
+});
+
+/**
+ * Attach Core Web Vitals to the Step that navigated, reading its page at the
+ * last moment the Run is on it. A measurement that cannot be taken does not
+ * fail anything: the Flow toggled the Step, and the absence of vitals in the
+ * persisted Run is visible on its own.
  */
 const measurePending = Effect.fn("Runner.measurePending")(
   function* measurePending(
-    { browser, sessionId }: StepExecution,
+    execution: ReplayExecution,
     steps: RunStep[],
     pending: number | undefined
   ) {
@@ -328,7 +1079,7 @@ const measurePending = Effect.fn("Runner.measurePending")(
     if (recorded === undefined) {
       return;
     }
-    const collected = yield* Effect.result(browser.collectVitals(sessionId));
+    const collected = yield* Effect.result(collectVitals(execution));
     if (collected._tag === "Failure") {
       return;
     }
@@ -339,16 +1090,13 @@ const measurePending = Effect.fn("Runner.measurePending")(
 /**
  * The machine this Run measures on. Core Web Vitals are unthrottled, so a
  * Baseline recorded on a laptop and compared against a busy CI runner reads as
- * a Regression caused entirely by hardware (ADR 0008). A Run that did not
- * record this cannot be rescued into comparability later.
+ * a Regression caused entirely by hardware (ADR 0008).
  */
 const describeEnvironment = (): RunEnvironment => {
   const processors = cpus();
   return {
     architecture: arch(),
     cpuCount: processors.length,
-    // A machine with no reportable CPU model is still a machine class, and an
-    // empty string would fail the schema rather than describe it.
     cpuModel: processors.at(0)?.model ?? "unknown",
     loadAverage: loadavg().at(0) ?? 0,
     memoryBytes: totalmem(),
@@ -356,321 +1104,69 @@ const describeEnvironment = (): RunEnvironment => {
   };
 };
 
-/** One shared empty result, for every Step that finds nothing. */
-const NO_FINDINGS: AuditResult = { elided: [], findings: [] };
-
 /**
- * How long to give a click-induced navigation before carrying on regardless.
- * Generous, because the wait ends the moment the document changes; only a
- * click that never navigates pays the whole cost.
- */
-const NAVIGATION_TIMEOUT = Duration.seconds(10);
-
-/**
- * How long to wait for a browser session to close before carrying on without
- * it. Generous next to the tenth of a second an idle close takes, and far
- * short of the half-minute a busy one can.
- */
-const CLOSE_TIMEOUT = Duration.seconds(3);
-
-/**
- * How long to spend asking the page to stop loading. It is queued behind the
- * navigation it is cancelling, so it is not instant either.
- */
-const STOP_LOADING_TIMEOUT = Duration.seconds(2);
-
-/**
- * How long to spend flushing a recording before giving up on it. A terminal
- * that ignores Ctrl-C for half a minute is worse than a Run that says why its
- * video is missing.
- */
-const FLUSH_TIMEOUT = Duration.seconds(5);
-
-/** How often to ask whether the navigation has happened yet. */
-const NAVIGATION_POLL = Duration.millis(100);
-
-interface StepExecution {
-  readonly browser: AgentBrowser;
-  readonly sessionId: SessionId;
-  readonly variables: VariableResolution;
-}
-
-/**
- * Wait for a click that the Recorder said navigates to actually navigate.
- *
- * A click returns as soon as it has been dispatched, so nothing otherwise
- * separates "the navigation is in flight" from "it finished". A Flow whose
- * last Step is such a click closed its browser before the request left it —
- * the Step reported success and the page was never loaded at all.
- *
- * Timing out here is not a failure. The click landed, which is what the Step
- * claimed; what did not happen is a navigation the site was supposed to
- * perform, and the Steps that follow will say so in terms the reader can act
- * on. A page that only ever changed within one document is also not a failure:
- * the href moving is enough.
- */
-const awaitNavigation = Effect.fn("Runner.awaitNavigation")(
-  function* awaitNavigation(
-    { browser, sessionId }: StepExecution,
-    before: string
-  ) {
-    const deadline = Duration.toMillis(NAVIGATION_TIMEOUT);
-    const interval = Duration.toMillis(NAVIGATION_POLL);
-    for (let waited = 0; waited < deadline; waited += interval) {
-      const identity = yield* Effect.result(
-        browser.documentIdentity(sessionId)
-      );
-      // A browser that cannot answer is mid-navigation as often as it is
-      // broken, and the Steps that follow will fail plainly if it is broken.
-      if (
-        identity._tag === "Success" &&
-        identity.success !== before &&
-        identity.success.endsWith("complete")
-      ) {
-        return;
-      }
-      // Asked before waiting, so a navigation that has already landed costs
-      // nothing.
-      yield* Effect.sleep(NAVIGATION_POLL);
-    }
-  }
-);
-
-/**
- * Replay one Step, returning whatever it found. Fails with a message naming
- * what could not be done. Only an Audit Step finds anything; every other Step
- * returns none.
- */
-const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
-  { browser, sessionId, variables }: StepExecution,
-  step: FlowStep,
-  index: number
-) {
-  const resolve = (value: string): string =>
-    substituteVariables(value, variables.values);
-
-  if (step.type === "customStep") {
-    // An Audit runs where its author put it, which is the whole reason Audits
-    // are ordered Steps rather than a crawl: the page behind a login and four
-    // interactions is reachable no other way (ADR 0005).
-    return yield* browser.audit(sessionId, accessibilityRuleTags, index);
-  }
-  if (step.type === "navigate") {
-    yield* browser.goto(sessionId, resolve(step.url));
-    // A server error still navigates, so the Step would otherwise pass and the
-    // Flow would fail several Steps later on a selector that is missing only
-    // because the page is an error page. That misreads a broken site as a
-    // stale Flow, which is exactly the confusion classification exists to end.
-    // A browser that cannot report the status is not evidence of a bad one:
-    // the navigation itself already succeeded.
-    const probed = yield* Effect.result(browser.documentStatus(sessionId));
-    const status = probed._tag === "Success" ? probed.success : undefined;
-    if (status !== undefined && status >= HTTP_ERROR_STATUS) {
-      return yield* new RunnerError({
-        kind: "siteError",
-        message: `The site under test failed: the server answered this navigation with HTTP ${status}.`,
-      });
-    }
-    return NO_FINDINGS;
-  }
-
-  if (step.frame !== undefined && step.frame.length > 0) {
-    // Selectors resolve against the top document only. Acting there would
-    // address a different document than the Flow recorded.
-    return yield* new RunnerError({
-      message: `This ${step.type} Step targets a nested frame, which replay does not support yet.`,
-    });
-  }
-
-  const candidates = selectorCandidates(step.selectors);
-  if (candidates.length === 0) {
-    return yield* new RunnerError({
-      kind: "flowError",
-      message: `No selector on this ${step.type} Step can be resolved by the browser. Chained shadow-root selectors are not supported yet.`,
-    });
-  }
-
-  const attempt = (
-    selector: string
-  ): Effect.Effect<void, BrowserRpcErrorType> => {
-    if (step.type === "click") {
-      return browser.clickSelector(sessionId, selector);
-    }
-    if (step.type === "change") {
-      return browser.fillSelector(sessionId, selector, resolve(step.value));
-    }
-    // Each half of the Recorder's pair is dispatched as itself, so a modifier
-    // stays down across the Steps it was recorded around.
-    return browser
-      .waitForSelector(sessionId, selector)
-      .pipe(
-        Effect.andThen(
-          step.type === "keyDown"
-            ? browser.keyDown(sessionId, step.key)
-            : browser.keyUp(sessionId, step.key)
-        )
-      );
-  };
-
-  // A click the Recorder said navigates has to be waited for, and the document
-  // it is leaving has to be identified before it goes.
-  const navigates = step.type === "click" && stepNavigates(step);
-  const before = navigates
-    ? yield* Effect.result(browser.documentIdentity(sessionId)).pipe(
-        Effect.map((identity) =>
-          identity._tag === "Success" ? identity.success : undefined
-        )
-      )
-    : undefined;
-
-  // Selectors are alternatives, not a sequence: the first that resolves wins,
-  // and only the exhaustion of every one of them is a Step failure.
-  let lastMessage = "";
-  for (const selector of candidates) {
-    const outcome = yield* Effect.result(attempt(selector));
-    if (outcome._tag === "Success") {
-      if (before !== undefined) {
-        yield* awaitNavigation({ browser, sessionId, variables }, before);
-      }
-      return NO_FINDINGS;
-    }
-    // A candidate that already reached the page is not an unresolved selector:
-    // trying the next one would act on the page a second time.
-    if (outcome.failure.code === "input_already_dispatched") {
-      return yield* new RunnerError({ message: outcome.failure.message });
-    }
-    // Only "the element is not there" is evidence about the selector. A dead
-    // session or a browser-process failure says nothing about it, and treating
-    // it as a miss would blame the Flow author for someone else's problem.
-    if (!isElementNotFound(outcome.failure.message)) {
-      return yield* new RunnerError({ message: outcome.failure.message });
-    }
-    lastMessage = outcome.failure.message;
-  }
-
-  // Every alternative the Recorder offered was tried and none resolved: the
-  // element the Flow named is not on the page any more.
-  return yield* new RunnerError({
-    kind: "flowError",
-    message: `Could not resolve a selector for this ${step.type} Step (tried ${candidates.length}): ${lastMessage}`,
-  });
-});
-
-/**
- * Whether a Pre-step's condition holds — `true`, `false`, or a reason it could
- * not be established at all.
- *
- * The third case is kept separate on purpose. An unanswerable condition — a
- * dead session, an unusable response, or a condition offering no selector the
- * browser can resolve — is not evidence that the interference was absent, and
- * recording it as `skipped` would claim evidence the Run does not have.
- *
- * A visible candidate settles the condition on its own; `false` requires every
- * candidate to have answered.
- */
-const conditionHolds = Effect.fn("Runner.conditionHolds")(
-  function* conditionHolds(
-    { browser, sessionId }: StepExecution,
-    when: PreStep["when"]
-  ) {
-    const candidates = selectorCandidates(when.selectors);
-    if (candidates.length === 0) {
-      return {
-        reason:
-          "No selector on this Pre-step's condition can be resolved by the browser. Chained shadow-root selectors are not supported yet.",
-      };
-    }
-    let unanswered = "";
-    for (const selector of candidates) {
-      const outcome = yield* Effect.result(
-        browser.isVisible(sessionId, selector)
-      );
-      if (outcome._tag === "Failure") {
-        unanswered = outcome.failure.message;
-        continue;
-      }
-      if (outcome.success) {
-        return true;
-      }
-    }
-    // One candidate answering "not visible" does not settle the condition while
-    // another went unanswered: alternatives can match different elements, so the
-    // interference may be the one described by the candidate that failed.
-    return unanswered === ""
-      ? false
-      : {
-          reason: `Could not evaluate this Pre-step's condition (tried ${candidates.length}): ${unanswered}`,
-        };
-  }
-);
-
-/**
- * Evaluate one Pre-step and report what happened. Best-effort by design: a
- * Pre-step never fails the Run. If the interference it clears genuinely blocked
- * the journey, the real Step fails on its own and is reported as itself
- * (ADR 0009).
+ * Whether a Pre-step's condition holds. An unanswerable condition stays
+ * distinct from a false one, so a skipped Pre-step never claims evidence the
+ * Run does not have.
  */
 const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
   function* evaluatePreStep(
-    execution: StepExecution,
+    execution: ReplayExecution,
     preStep: PreStep,
     scope: RunPreStep["scope"],
-    index: number
+    /** The Step this Pre-step clears the way for, if its action ever fails. */
+    index: number,
+    protectedPage: number | undefined
   ) {
     const base = { preStepId: preStep.id, scope } as const;
-    const condition = yield* conditionHolds(execution, preStep.when);
+    const condition = yield* conditionHolds(
+      execution,
+      preStep.when,
+      protectedPage
+    );
     if (typeof condition === "object") {
-      return {
-        ...base,
-        error: condition.reason,
-        outcome: "failed",
-      } satisfies RunPreStep;
+      return { ...base, error: condition.reason, outcome: "failed" } as const;
     }
     if (!condition) {
-      return { ...base, outcome: "skipped" } satisfies RunPreStep;
+      return { ...base, outcome: "skipped" } as const;
     }
-    // The index of the Step this Pre-step clears the way for. A Pre-step's
-    // action is a click, change, or key Step, so nothing attributes Findings
-    // to it today; if one ever could, this is the Step they belong to.
     const outcome = yield* Effect.result(
       executeStep(execution, preStep.step, index)
     );
     if (outcome._tag === "Success") {
-      return { ...base, outcome: "completed" } satisfies RunPreStep;
+      return { ...base, outcome: "completed" } as const;
     }
     return {
       ...base,
-      // A Pre-step can carry a Variable too, and a browser message can echo the
+      // A Pre-step can carry a Variable too, and a failure message can echo the
       // value it typed, so the message is redacted before it reaches the Run.
       error: redactSecrets(outcome.failure.message, execution.variables),
       outcome: "failed",
-    } satisfies RunPreStep;
+    } as const;
   }
 );
 
 /**
  * The Pre-steps to evaluate before one Step, in evaluation order. Flow-level
  * Pre-steps clear interference that can appear anywhere, so they run before
- * every Step — including Audit Steps (ADR 0005) — except the first.
- *
- * The exemption is positional rather than a test for a navigate Step. A Run
- * opens a fresh session on a blank page, so before the first Step there is no
- * page for a condition to be evaluated against, whatever that Step's type is.
+ * every Step — including Audit Steps (ADR 0005) — except the first: a Run
+ * opens on a blank page, so there is nothing for a condition to read before
+ * the Flow's own opening navigation.
  */
 const preStepsFor = (
   flow: Flow,
-  step: FlowStep,
+  step: AuthoredStep,
   index: number
 ): readonly (readonly [PreStep, RunPreStep["scope"]])[] => {
   if (index === 0) {
     return [];
   }
-  const flowLevel = (flow.contingency?.preSteps ?? []).map(
+  const flowLevel = (flow.preSteps ?? []).map(
     (preStep) => [preStep, "flow"] as const
   );
-  const stepLevel = (
-    step.type === "customStep" ? [] : (step.contingency?.preSteps ?? [])
-  ).map((preStep) => [preStep, "step"] as const);
+  const stepLevel = (step.preSteps ?? []).map(
+    (preStep) => [preStep, "step"] as const
+  );
   return [...flowLevel, ...stepLevel];
 };
 
@@ -679,27 +1175,49 @@ interface AttemptResult {
 }
 
 /**
- * A Finding describes an element on the page, and the engine builds its target
- * from whatever attribute makes that element unique. Verified against the
- * bundled binary: two otherwise-alike links are reported as
- * `a[href="/next?token=..."]`, so a Variable interpolated into a URL reaches
- * the target verbatim. Both fields the engine renders from the page go through
- * the same redaction a failure message does.
+ * Fold the Run's ceiling outcome into its attempts. A Run that ran out of time
+ * is still a Run: the interrupted attempt is recorded from however far it got,
+ * and the ceiling breach — which belongs to no single Step — becomes the Run's
+ * own unattributed failure.
  */
-const redactFinding = (
-  finding: Finding,
-  variables: VariableResolution
-): Finding => ({
+const accountForCeiling = (
+  attempts: RunAttempt[],
+  timedOut: boolean,
+  ceiling: Duration.Duration,
+  finishedAt: Date,
+  inFlight: { attempt: number; startedAt: Date; steps: RunStep[] } | undefined,
+  retry: number
+): RunFailure | undefined => {
+  const timeoutFailure: RunFailure = {
+    message: `The Run exceeded its ${Duration.format(ceiling)} ceiling during attempt ${inFlight?.attempt ?? attempts.length} of ${retry + 1}.`,
+  };
+  if (timedOut) {
+    attempts.push({
+      attempt: inFlight?.attempt ?? attempts.length + 1,
+      failure: timeoutFailure,
+      finishedAt: finishedAt.toISOString(),
+      outcome: "failed",
+      startedAt: (inFlight?.startedAt ?? finishedAt).toISOString(),
+      steps: inFlight?.steps ?? [],
+    });
+    return timeoutFailure;
+  }
+  return attempts.at(-1)?.failure;
+};
+
+/**
+ * A Finding describes an element on the page, and the engine builds its target
+ * from whatever attribute makes that element unique. Both fields the engine
+ * renders from the page go through the same redaction a failure message does,
+ * because a Variable interpolated into a URL reaches the target verbatim.
+ */
+const redactFinding = (finding: Finding, variables: VariableResolution) => ({
   ...finding,
   message: redactSecrets(finding.message, variables),
   target: redactSecrets(finding.target, variables),
 });
 
-/**
- * The last line a failing tool wrote, which is the line that says what went
- * wrong. A recorder failure arrives with several kilobytes of encoder banner
- * ahead of it, and a manifest full of build flags helps nobody.
- */
+/** The last line a failing tool wrote, which says what went wrong. */
 const reportable = (message: string): string => {
   const lines = message
     .split("\n")
@@ -709,113 +1227,61 @@ const reportable = (message: string): string => {
 };
 
 /**
- * Run `replay` with the session captured to video, flushing on every exit
- * path.
+ * Move Playwright's recording into place once the context has closed — the
+ * moment it flushes — and account for the outcome either way.
  *
- * The finalizer is the whole point. An unflushed recording is a lost
- * recording, and the Runs whose video matters most — a failed Step, a Run that
- * exceeded its ceiling, a cancelled CI job, a Ctrl-C — are exactly the ones
- * that never reach a tidy end (ADR 0010).
- *
- * Neither starting nor stopping a capture can fail the Run. Video is how a
- * failure gets watched rather than inferred; a Run that worked did not stop
- * working because nobody filmed it.
+ * Video is how a failure gets watched rather than inferred, so neither the
+ * rename nor a missing file can fail the attempt; the manifest records what
+ * happened instead.
  */
-/**
- * Why a recording has no file, from the outcome of asking for it. Absent when
- * the recorder flushed one.
- */
-const flushFailure = (
-  stopped: Result.Result<Option.Option<string | undefined>, BrowserRpcErrorType>
-): string | undefined => {
-  if (stopped._tag === "Failure") {
-    return stopped.failure.message;
-  }
-  if (stopped.success._tag === "None") {
-    return `The recorder did not answer within ${Duration.toSeconds(FLUSH_TIMEOUT)}s, which happens when a command is still in flight.`;
-  }
-  return stopped.success.value;
-};
-
-const captureToVideo =
-  (
-    browser: AgentBrowser,
-    sessionId: SessionId,
-    video:
-      | {
-          readonly file: string;
-          readonly segments: RunVideoSegment[];
-        }
-      | undefined,
-    attempt: number
-  ) =>
-  <A, E, R>(replay: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => {
-    if (video === undefined) {
-      return replay;
-    }
-    const { file, segments } = video;
-    const name = path.basename(file);
-    return Effect.acquireUseRelease(
-      Effect.result(browser.startVideo(sessionId, file)),
-      (started) =>
-        started._tag === "Failure"
-          ? Effect.sync(() => {
-              segments.push({
-                attempt,
-                error: reportable(started.failure.message),
-                file: name,
-                recorded: false,
-              });
-              // The capture never began, so the page is still blank and the
-              // Flow performs its own first navigation as usual.
-            }).pipe(Effect.andThen(replay))
-          : replay,
-      (started) => {
-        if (started._tag === "Failure") {
-          return Effect.void;
-        }
-        // Bounded as a whole, because this runs uninterruptibly: whatever it
-        // costs is exactly how long Ctrl-C appears to do nothing. The browser
-        // tool runs one command at a time per session, so flushing a recording
-        // queues behind a navigation still in flight and waits for that
-        // navigation's own timeout — verified against the bundled binary at 26
-        // seconds, against 0.1 on an idle page. Nothing we can send jumps that
-        // queue, so the remaining choice is whether to wait for it.
-        return browser.stopVideo(sessionId).pipe(
-          Effect.timeoutOption(FLUSH_TIMEOUT),
-          Effect.result,
-          Effect.map((stopped) => {
-            // Timing out is reported as its own reason rather than as a
-            // recording that exists: an interrupted Run that could not
-            // flush should say so, not leave a file to be looked for.
-            const error = flushFailure(stopped);
-            return segments.push({
-              attempt,
-              ...(error === undefined ? {} : { error: reportable(error) }),
-              file: name,
-              recorded: error === undefined,
-            });
-          })
-        );
+const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
+  staging: string,
+  finalPath: string,
+  segments: RunVideoSegment[],
+  attempt: number
+) {
+  const produced = yield* Effect.result(
+    Effect.promise(async () => {
+      const entries = await readdir(staging);
+      const recording = entries.find((entry) => entry.endsWith(".webm"));
+      if (recording === undefined) {
+        return false;
       }
-    );
-  };
+      await rename(path.join(staging, recording), finalPath);
+      return true;
+    })
+  );
+  let error: string | undefined;
+  if (produced._tag === "Failure") {
+    error = reportable(errorMessage(produced.failure));
+  } else if (!produced.success) {
+    error = "The browser wrote no recording.";
+  }
+  segments.push({
+    attempt,
+    ...(error === undefined ? {} : { error }),
+    file: path.basename(finalPath),
+    recorded: produced._tag === "Success" && produced.success,
+  });
+  yield* Effect.ignore(
+    Effect.promise(() => rm(staging, { force: true, recursive: true }))
+  );
+});
 
 /**
- * Replay the whole Flow once in a session of its own. A failed Step aborts the
- * attempt rather than continuing against a page state the Flow never described
- * (ADR 0009).
+ * Replay the whole Flow once in a browser context of its own. A failed Step
+ * aborts the attempt rather than continuing against a page state the Flow
+ * never described (ADR 0009). Closing the context flushes its recording.
  */
 const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
-  browser: AgentBrowser,
+  browser: Browser,
   flow: Flow,
-  sessionId: SessionId,
   variables: VariableResolution,
   /** Caller-owned, so the Steps done so far survive an interrupted attempt. */
   steps: RunStep[],
-  /** Where this attempt's recording goes, when the Run is being captured. */
-  video:
+  capture:
     | {
+        readonly staging: string;
         readonly file: string;
         readonly segments: RunVideoSegment[];
       }
@@ -826,144 +1292,172 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   const measures = flow.steps.some(measuresPerformance);
 
   yield* Effect.acquireUseRelease(
-    // Interactions cannot be read back after the fact, so a Run that might
-    // measure anything has to record from the first navigation onwards.
-    browser.create(sessionId, RUN_VIEWPORT, { recordVitals: measures }).pipe(
-      Effect.mapError(
-        (cause) =>
+    Effect.gen(function* openContext() {
+      const context = yield* Effect.tryPromise({
+        catch: (cause) =>
           new RunnerError({
-            message: `Could not open a browser session: ${cause.message}`,
-          })
-      )
-    ),
-    (opened) =>
-      captureToVideo(
-        browser,
-        opened,
-        video,
-        attempt
-      )(
-        Effect.gen(function* replayFlow() {
-          const execution = { browser, sessionId: opened, variables };
-          /** Index in `steps` of a Step whose page has not been measured yet. */
-          let pending: number | undefined;
-          for (const [index, step] of flow.steps.entries()) {
-            const stepStartedAt = yield* nowIso;
+            message: `Could not open a browser context: ${errorMessage(cause)}`,
+          }),
+        try: () =>
+          browser.newContext({
+            deviceScaleFactor: RUN_VIEWPORT.deviceScaleFactor,
+            viewport: {
+              height: RUN_VIEWPORT.height,
+              width: RUN_VIEWPORT.width,
+            },
+            ...(capture === undefined
+              ? {}
+              : {
+                  recordVideo: {
+                    dir: capture.staging,
+                    size: {
+                      height: RUN_VIEWPORT.height,
+                      width: RUN_VIEWPORT.width,
+                    },
+                  },
+                }),
+          }),
+      });
+      // Interactions cannot be read back after the fact, so a Run that might
+      // measure anything records from the first navigation onwards — on every
+      // Page this context opens, popups included.
+      if (measures) {
+        yield* Effect.tryPromise({
+          catch: () => new RunnerError({ message: "unused" }),
+          try: () => context.addInitScript(VITALS_RECORDER),
+        }).pipe(Effect.ignore);
+      }
+      const page = yield* Effect.tryPromise({
+        catch: (cause) =>
+          new RunnerError({
+            message: `Could not open a page: ${errorMessage(cause)}`,
+          }),
+        try: () => context.newPage(),
+      });
+      const execution: ReplayExecution = {
+        measuredPage: undefined,
+        pages: [page],
+        variables,
+      };
+      // Popups and new tabs join the Page registry in the order they opened,
+      // which is exactly the identity a Step names.
+      context.on("page", (opened) => {
+        execution.pages.push(opened);
+      });
+      return { context, execution } satisfies AttemptSession;
+    }),
+    ({ execution }) =>
+      Effect.gen(function* replayFlow() {
+        /**
+         * Index in `steps` of a Step whose page has not been measured yet.
+         */
+        let pending: number | undefined;
+        for (const [index, step] of flow.steps.entries()) {
+          const stepStartedAt = yield* nowIso;
 
-            const preSteps: RunPreStep[] = [];
-            for (const [preStep, scope] of preStepsFor(flow, step, index)) {
-              preSteps.push(
-                yield* evaluatePreStep(execution, preStep, scope, index)
-              );
-            }
-
-            // Leaving this page ends what there is to measure on it, so a Step
-            // still awaiting measurement is read now — after Pre-steps, whose
-            // clicks are interactions on this page like any other.
-            if (stepNavigates(step)) {
-              yield* measurePending(execution, steps, pending);
-              pending = undefined;
-            }
-
-            const outcome = yield* Effect.result(
-              executeStep(execution, step, index).pipe(
-                Effect.mapError((cause) =>
-                  cause instanceof RunnerError
-                    ? cause
-                    : new RunnerError({ message: cause.message })
-                )
+          const preSteps: RunPreStep[] = [];
+          for (const [preStep, scope] of preStepsFor(flow, step, index)) {
+            preSteps.push(
+              yield* evaluatePreStep(
+                execution,
+                preStep,
+                scope,
+                index,
+                pageIndexOf(step)
               )
             );
-            const stepFinishedAt = yield* nowIso;
-            const base = {
-              finishedAt: stepFinishedAt.toISOString(),
-              index,
-              ...(preSteps.length === 0 ? {} : { preSteps }),
-              startedAt: stepStartedAt.toISOString(),
-              type: step.type,
-              ...(step.type === "customStep" ||
-              step.contingency?.id === undefined
-                ? {}
-                : { stepId: step.contingency.id }),
-            };
-
-            if (outcome._tag === "Success") {
-              if (measuresPerformance(step)) {
-                pending = steps.length;
-              }
-              if (video !== undefined && measures && stepNavigates(step)) {
-                // A capture runs the Flow in a fresh browser context that no
-                // init script can reach, so the vitals recorder is registered
-                // by evaluating it into the page this Step just arrived at —
-                // before any later Step interacts with it. A page that was
-                // never armed reports no vitals rather than wrong ones, and
-                // the attempt's failure path arms nothing.
-                yield* Effect.result(browser.armVitalsRecorder(opened));
-              }
-              steps.push({
-                ...base,
-                // Findings never change an outcome: every real site has
-                // pre-existing violations, and a Run that failed on their count
-                // would be red on day one and switched off by the second.
-                ...(outcome.success.elided.length === 0
-                  ? {}
-                  : { elidedFindings: outcome.success.elided }),
-                ...(outcome.success.findings.length === 0
-                  ? {}
-                  : {
-                      findings: outcome.success.findings.map((finding) =>
-                        redactFinding(finding, variables)
-                      ),
-                    }),
-                outcome: "completed",
-              });
-              continue;
-            }
-
-            // A browser message can echo a value typed into a field, so it is
-            // redacted before it reaches the Run.
-            const message = redactSecrets(outcome.failure.message, variables);
-            const kind = classifyStepFailure(outcome.failure.kind, message);
-
-            steps.push({ ...base, error: message, outcome: "failed" });
-            failure = {
-              ...(kind === undefined ? {} : { kind }),
-              message,
-              stepIndex: index,
-            };
-            // The navigation that was measured still happened, and a Flow that
-            // fails at Step 9 should not lose the metrics from Step 2.
-            yield* measurePending(execution, steps, pending);
-            return;
           }
 
+          // Leaving this page ends what there is to measure on it, so a Step
+          // still awaiting measurement is read now — after Pre-steps, whose
+          // actions are interactions on this page like any other.
+          if (stepNavigates(step)) {
+            yield* measurePending(execution, steps, pending);
+            pending = undefined;
+          }
+
+          const outcome = yield* Effect.result(
+            executeStep(execution, step, index)
+          );
+          const stepFinishedAt = yield* nowIso;
+          const base = {
+            finishedAt: stepFinishedAt.toISOString(),
+            index,
+            ...(preSteps.length === 0 ? {} : { preSteps }),
+            startedAt: stepStartedAt.toISOString(),
+            type: step.type,
+            ...(step.id === undefined ? {} : { stepId: step.id }),
+          };
+
+          if (outcome._tag === "Success") {
+            if (measuresPerformance(step)) {
+              pending = steps.length;
+            }
+            steps.push({
+              ...base,
+              ...(outcome.success.findings.length === 0
+                ? {}
+                : {
+                    findings: outcome.success.findings.map((finding) =>
+                      redactFinding(finding, variables)
+                    ),
+                  }),
+              ...(outcome.success.elided.length === 0
+                ? {}
+                : {
+                    elidedFindings: outcome.success.elided.map((rule) => ({
+                      ...rule,
+                      stepIndex: index,
+                    })),
+                  }),
+              outcome: "completed",
+            } satisfies RunStep);
+            continue;
+          }
+
+          // A browser message can echo a value typed into a field, so it is
+          // redacted before it reaches the Run.
+          const message = redactSecrets(outcome.failure.message, variables);
+          const kind = classifyStepFailure(outcome.failure.kind, message);
+
+          steps.push({ ...base, error: message, outcome: "failed" });
+          failure = {
+            ...(kind === undefined ? {} : { kind }),
+            message,
+            stepIndex: index,
+          };
+          // The navigation that was measured still happened, and a Flow that
+          // fails at Step 9 should not lose the metrics from Step 2.
           yield* measurePending(execution, steps, pending);
-        })
-      ),
-    (opened) =>
-      // A Run is torn down uninterruptibly: Effect finalizes a cancelled Run
-      // before it lets go, so anything slow here is exactly how long Ctrl-C
-      // appears to do nothing. Closing a browser waits for a navigation still
-      // in flight — verified against the bundled binary at 27 seconds, against
-      // 0.1 on an idle page — so the load is stopped first, and both are
-      // bounded anyway. By this point every Step is already recorded.
-      browser
-        .stopLoading(opened)
-        .pipe(
-          Effect.timeoutOption(STOP_LOADING_TIMEOUT),
-          Effect.ignore,
-          Effect.andThen(
-            browser
-              .close(opened)
-              .pipe(Effect.timeoutOption(CLOSE_TIMEOUT), Effect.ignore)
-          )
-        )
+          return;
+        }
+
+        yield* measurePending(execution, steps, pending);
+      }),
+    ({ context }) =>
+      // A Run is torn down uninterruptibly: closing the context is what
+      // flushes an in-progress recording, including when the interruption was
+      // a Ctrl-C rather than a finished Flow.
+      Effect.gen(function* teardownAttempt() {
+        yield* Effect.tryPromise({
+          catch: () => new RunnerError({ message: "close failed" }),
+          try: () => context.close(),
+        }).pipe(Effect.ignore);
+        if (capture !== undefined) {
+          yield* saveRecording(
+            capture.staging,
+            capture.file,
+            capture.segments,
+            attempt
+          );
+        }
+      })
   );
 
   return { failure } satisfies AttemptResult;
 });
 
-export const makeRunnerService = (browser: AgentBrowser) =>
+export const makeRunnerService = () =>
   Effect.gen(function* buildRunner() {
     const fileSystem = yield* FileSystem.FileSystem;
     // One Run at a time per process: concurrent Runs contend for CPU and
@@ -996,36 +1490,6 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                 })
             )
           );
-      }
-    );
-
-    /**
-     * Decide whether this Run is captured, and get the directory ready if so.
-     *
-     * The flag overrides the Flow, so a Flow that never asked for video can
-     * still be watched once and one that always asks can be silenced for a
-     * fast Run.
-     */
-    const prepareCapture = Effect.fn("Runner.prepareCapture")(
-      function* prepareCapture(
-        flow: Flow,
-        options: RunnerRunOptions,
-        directory: string
-      ) {
-        const capture = options.video ?? flow.contingency?.video ?? false;
-        if (capture) {
-          // The recorder writes the file itself, so the directory has to exist
-          // before the first attempt rather than at persist time.
-          yield* fileSystem.makeDirectory(directory, { recursive: true }).pipe(
-            Effect.mapError(
-              (cause) =>
-                new RunnerError({
-                  message: `Could not create the Run directory: ${errorMessage(cause)}`,
-                })
-            )
-          );
-        }
-        return { capture };
       }
     );
 
@@ -1077,9 +1541,14 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             const flowHash = hashFlow(flow);
             const flowId = flowIdentity(flow, flowHash);
             const startedAt = yield* nowIso;
-            // Read once, at the start: load average taken after a slow Run would
-            // describe the Run's own effect on the machine, not the machine.
             const environment = describeEnvironment();
+            // Read once, before anything runs: a ceiling declared by the Flow
+            // stands unless the invocation overrides it.
+            const ceiling =
+              options.timeout ??
+              (flow.timeout === undefined
+                ? DEFAULT_TIMEOUT
+                : Duration.millis(flow.timeout));
 
             const directory = runDirectory(
               options.outputDirectory,
@@ -1087,17 +1556,27 @@ export const makeRunnerService = (browser: AgentBrowser) =>
               startedAt,
               runId
             );
-            // The segment list exists before capture is prepared, and the
-            // manifest finalizer is registered before capture begins: a Run
-            // that dies while the recording is still starting must still leave
-            // the manifest accounting for the recording it never produced.
-            const segments: RunVideoSegment[] = [];
-            const { capture } = yield* prepareCapture(flow, options, directory);
+
             /**
-             * Written on every exit path, interruption included. A recording
-             * flushes when a Run is cut short, and a recording nobody can
-             * attribute to a Run is very nearly a lost one.
+             * The staging directories exist before capture begins, and the
+             * manifest finalizer is registered first: a Run that dies while a
+             * recording is still being made must still leave the manifest
+             * accounting for what it produced.
              */
+            const capture = options.video === true;
+            if (capture) {
+              yield* fileSystem
+                .makeDirectory(directory, { recursive: true })
+                .pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new RunnerError({
+                        message: `Could not create the Run directory: ${errorMessage(cause)}`,
+                      })
+                  )
+                );
+            }
+            const segments: RunVideoSegment[] = [];
             const manifest = writeVideoManifest(capture, directory, {
               // Capture is not suspended while a Step enters a secret, so a
               // recording of a Flow that declares one may show it in plaintext
@@ -1114,6 +1593,34 @@ export const makeRunnerService = (browser: AgentBrowser) =>
               | undefined;
 
             const replay = Effect.gen(function* replayUntilItHolds() {
+              // One Chromium process per Run, closed when it ends; each
+              // attempt replays in a context of its own. Runs are
+              // deliberately Chromium-only (ADR 0016).
+              const browser = yield* Effect.acquireRelease(
+                Effect.tryPromise({
+                  catch: (cause) =>
+                    new RunnerError({
+                      message: `Could not start Chromium: ${errorMessage(cause)}`,
+                    }),
+                  // Playwright installs process-wide SIGINT/SIGTERM/SIGHUP
+                  // handlers of its own by default, which would force-exit the
+                  // CLI mid-teardown instead of letting the unwind flush a
+                  // recording. Signals belong to the CLI's runtime alone.
+                  try: () =>
+                    chromium.launch({
+                      handleSIGHUP: false,
+                      handleSIGINT: false,
+                      handleSIGTERM: false,
+                      headless: true,
+                    }),
+                }),
+                (launched) =>
+                  Effect.tryPromise({
+                    catch: () =>
+                      new RunnerError({ message: "Chromium did not close." }),
+                    try: () => launched.close(),
+                  }).pipe(Effect.ignore)
+              );
               for (let index = 0; index <= retry; index += 1) {
                 const attemptStartedAt = yield* nowIso;
                 const steps: RunStep[] = [];
@@ -1122,30 +1629,22 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                   startedAt: attemptStartedAt,
                   steps,
                 };
-                // A fresh session every time: a retry inside a session that has
+                // A fresh context every time: a retry inside a context that has
                 // already been navigated, cookied, and clicked is not a rerun of
                 // the Flow, it is a rerun of whatever the last attempt left.
-                const sessionId = yield* Schema.decodeUnknownEffect(
-                  SessionIdSchema
-                )(`run-${runId.slice(0, 8)}-${index + 1}`).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new RunnerError({
-                        message: `Invalid Run session: ${errorMessage(cause)}`,
-                      })
-                  )
-                );
-
                 const result = yield* attemptRun(
                   browser,
                   flow,
-                  sessionId,
                   variables,
                   steps,
                   capture
                     ? {
                         file: path.join(directory, `attempt-${index + 1}.webm`),
                         segments,
+                        staging: path.join(
+                          directory,
+                          `.attempt-${index + 1}-staging`
+                        ),
                       }
                     : undefined,
                   index + 1
@@ -1173,29 +1672,21 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             // The ceiling covers replay only. A Run that ran out of time is still
             // a Run, and losing it would throw away everything it did establish.
             const timedOut = yield* replay.pipe(
-              Effect.timeoutOption(options.timeout ?? DEFAULT_TIMEOUT),
+              Effect.timeoutOption(ceiling),
               Effect.map((finished) => finished._tag === "None")
             );
 
             const finishedAt = yield* nowIso;
-            const timeoutFailure: RunFailure = {
-              message: `The Run exceeded its ${Duration.format(options.timeout ?? DEFAULT_TIMEOUT)} ceiling during attempt ${inFlight?.attempt ?? attempts.length} of ${retry + 1}.`,
-            };
-            if (timedOut) {
-              // The interrupted attempt is still an attempt, and the Steps it did
-              // complete are the record of how far the Flow got.
-              attempts.push({
-                attempt: inFlight?.attempt ?? attempts.length + 1,
-                failure: timeoutFailure,
-                finishedAt: finishedAt.toISOString(),
-                outcome: "failed",
-                startedAt: (inFlight?.startedAt ?? finishedAt).toISOString(),
-                steps: inFlight?.steps ?? [],
-              });
-            }
+            const failure = accountForCeiling(
+              attempts,
+              timedOut,
+              ceiling,
+              finishedAt,
+              inFlight,
+              retry
+            );
 
             const last = attempts.at(-1);
-            const failure = timedOut ? timeoutFailure : last?.failure;
 
             const record: Run = {
               attempts,
@@ -1223,14 +1714,8 @@ export const makeRunnerService = (browser: AgentBrowser) =>
 export const RunnerLive: Layer.Layer<
   RunnerService,
   never,
-  AgentBrowser | FileSystem.FileSystem
-> = Layer.effect(
-  Runner,
-  Effect.gen(function* buildRunnerLive() {
-    const browser = yield* AgentBrowser;
-    return yield* makeRunnerService(browser);
-  })
-);
+  FileSystem.FileSystem
+> = Layer.effect(Runner, makeRunnerService());
 
 /** Decode a Flow file, failing with a message a developer can act on. */
 export const decodeFlowDocument = Effect.fn("Runner.decodeFlowDocument")(

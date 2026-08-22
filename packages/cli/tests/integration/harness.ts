@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -10,7 +9,6 @@ import { NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Layer } from "effect";
 import type { Scope } from "effect/Scope";
 
-import { AgentBrowserLive } from "../../src/services/agent-browser";
 import type {
   RunnerRunOptions,
   RunnerService,
@@ -18,50 +16,22 @@ import type {
 import { Runner, RunnerLive } from "../../src/services/runner";
 
 /**
- * The real Runner, driving the real bundled browser.
+ * The real Runner, driving a real Chromium in process.
  *
  * Tests here run with `it.live`. A real browser runs on the real clock, and a
  * Runner that waits for anything — a navigation, a metric — waits forever
  * against a test clock.
  *
- * Everything else in this suite substitutes the browser, which is why it can
- * never falsify the risks that actually bite: whether a Flow's selectors
- * resolve against real DOM, and whether the browser's own commands answer in a
- * shape we can read. Here nothing is stubbed.
+ * Nothing here is stubbed. Every other suite substitutes the browser or its
+ * inputs, and so can never falsify the risks that actually bite: whether a
+ * Flow's locators resolve against real DOM, and whether the browser answers
+ * in a shape the Runner can read.
  */
 export const IntegrationLive = RunnerLive.pipe(
-  Layer.provide(AgentBrowserLive),
   Layer.provideMerge(NodeServices.layer)
 );
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
-
-const pathHas = (binary: string): boolean =>
-  (process.env["PATH"] ?? "")
-    .split(path.delimiter)
-    .some((directory) => existsSync(path.join(directory, binary)));
-
-/**
- * Whether this machine can produce a recording at all.
- *
- * The browser tool encodes captures with `ffmpeg`, which it expects to find on
- * the PATH and does not bundle. Verified against the bundled binary: without
- * it `record start` still reports success and `record stop` fails, so a
- * machine without `ffmpeg` produces no file and the Run says why.
- *
- * Tests that assert a recording exists are skipped there rather than failed:
- * the absence is the environment's, not the code's.
- */
-export const canRecordVideo = (): boolean => pathHas("ffmpeg");
-
-/**
- * Whether a recording can also be decoded. Decoding a WebM to assert what it
- * contains needs `ffprobe`, which ships with `ffmpeg` in standard installs
- * but is a separate binary: a machine can have either without the other, and
- * tests that decode are skipped unless both are present.
- */
-export const canDecodeVideo = (): boolean =>
-  canRecordVideo() && pathHas("ffprobe");
 
 /**
  * What the fixture page requests once a Step has typed into it. Waiting for

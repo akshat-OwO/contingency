@@ -23,12 +23,19 @@
     <script>
       const menu = document.getElementById("menu");
       const trigger = document.getElementById("menu-trigger");
+      const nav = document.querySelector("nav");
       // mouseenter/mouseleave rather than CSS :hover, so programmatic hover
       // — what a Step performs — opens it exactly as a real pointer does.
       trigger.addEventListener("mouseenter", () => {
         menu.hidden = false;
       });
-      trigger.addEventListener("mouseleave", () => {
+      trigger.addEventListener("mouseleave", (event) => {
+        // Moving from the trigger into the menu keeps it open: the pointer
+        // is on its way to an item, which is how a real menu behaves and
+        // how a Flow that hovers and then clicks stays coherent.
+        if (event.relatedTarget && nav.contains(event.relatedTarget)) {
+          return;
+        }
         menu.hidden = true;
       });
     </script>

@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
@@ -9,7 +10,6 @@ import { Duration, Effect, FileSystem } from "effect";
 import type { Scope } from "effect/Scope";
 
 import {
-  canRecordVideo,
   fixtureServer,
   IntegrationLive,
   NEVER_ANSWERED,
@@ -62,7 +62,7 @@ const start = (
           "--retry",
           "0",
         ],
-        { stdio: "ignore" }
+        { stdio: ["ignore", "inherit", "inherit"] }
       )
     ),
     (child) =>
@@ -115,14 +115,23 @@ const recordingOf = (runs: string): string | undefined => {
     : undefined;
 };
 
-const waitForExit = (child: ChildProcess): Effect.Effect<null> =>
-  // `null` rather than nothing: the formatter rewrites an explicit `undefined`
-  // here into a call that does not typecheck.
-  Effect.callback<null>((resume) => {
-    child.on("exit", () => {
-      resume(Effect.succeed(null));
-    });
-  });
+/**
+ * Attach an exit listener now and hand back an Effect that resolves when it
+ * fires.
+ *
+ * Two steps rather than one because Effects are lazy: a helper that attached
+ * its listener only when yielded would miss an exit that lands before the
+ * yield — and this Run can be gone well under a hundred milliseconds after
+ * the signal.
+ */
+const armExitWaiter = (
+  child: ChildProcess
+): {
+  readonly exited: Promise<null>;
+} => ({
+  // `once` attaches immediately, at call time — which is the whole point.
+  exited: once(child, "exit").then(() => null),
+});
 
 /**
  * A Flow that is still working long after its page has loaded normally.
@@ -147,7 +156,7 @@ const writeLongRunningFlow = (
           steps: [
             { type: "navigate", url: fixtures.url("checkout.html") },
             ...Array.from({ length: 3000 }, (_unused, index) => ({
-              selectors: [["#name"]],
+              target: [{ kind: "css", selector: "#name" }],
               type: "change",
               value: `Ada ${index}`,
             })),
@@ -159,76 +168,66 @@ const writeLongRunningFlow = (
     return flowPath;
   });
 
-/**
- * The bundled recorder polls screenshots and can wedge its finalize across a
- * mid-recording navigation, making `record stop` miss the Run's five-second
- * flush ceiling (ADR 0010). The recording is lost to that upstream defect,
- * not to the shutdown path under test, so these tests retry: every attempt
- * still asserts strictly.
- */
-const WEDGE_RETRIES = 2;
+it.live("leaves a flushed recording when a Run is interrupted", () =>
+  Effect.gen(function* interruptedRun() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const fixtures = yield* fixtureServer;
+    const directory = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-interrupt-",
+    });
 
-it.live.skipIf(!canRecordVideo())(
-  "leaves a flushed recording when a Run is interrupted",
-  () =>
-    Effect.gen(function* interruptedRun() {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const fixtures = yield* fixtureServer;
-      const directory = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-interrupt-",
-      });
+    const flowPath = yield* writeLongRunningFlow(directory, fixtures);
+    const runs = path.join(directory, "runs");
+    const child = yield* start(flowPath, runs);
 
-      const flowPath = yield* writeLongRunningFlow(directory, fixtures);
-      const runs = path.join(directory, "runs");
-      const child = yield* start(flowPath, runs);
+    // Wait for the Run to be observably where the test needs it, rather than
+    // for a duration that happens to be long enough on this machine. A
+    // recording on disk means the browser launched, the page loaded, and
+    // capture began — which is the state a Ctrl-C has to survive.
+    const reached = yield* waitUntil(() =>
+      // The page beacons when a Step types into it, which cannot happen
+      // until the Flow's own opening navigation has returned. Request
+      // arrival and the recording file are both true earlier than that —
+      // the file is created empty when capture starts — so a signal sent on
+      // either can land mid-navigation, where the flush is deliberately
+      // abandoned and this test would fail without a regression.
+      fixtures.requests.includes(STEP_BEACON)
+    );
+    expect(reached).toBe(true);
 
-      // Wait for the Run to be observably where the test needs it, rather than
-      // for a duration that happens to be long enough on this machine. A
-      // recording on disk means the browser launched, the page loaded, and
-      // capture began — which is the state a Ctrl-C has to survive.
-      const reached = yield* waitUntil(() =>
-        // The page beacons when a Step types into it, which cannot happen
-        // until the Flow's own opening navigation has returned. Request
-        // arrival and the recording file are both true earlier than that —
-        // the file is created empty when capture starts — so a signal sent on
-        // either can land mid-navigation, where the flush is deliberately
-        // abandoned and this test would fail without a regression.
-        fixtures.requests.includes(STEP_BEACON)
-      );
-      expect(reached).toBe(true);
+    const signalledAt = Date.now();
+    const { exited } = armExitWaiter(child);
+    child.kill("SIGINT");
+    yield* Effect.tryPromise({
+      catch: () => new Error("unreachable"),
+      try: () => exited,
+    }).pipe(Effect.timeout(EXIT_TIMEOUT));
+    const tookMs = Date.now() - signalledAt;
 
-      const signalledAt = Date.now();
-      child.kill("SIGINT");
-      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
-      const tookMs = Date.now() - signalledAt;
+    // Ctrl-C has to feel like Ctrl-C. A Run is torn down uninterruptibly, so
+    // anything slow in teardown is time the terminal spends ignoring the
+    // user: closing a browser with a navigation still in flight took 27
+    // seconds until the load was stopped first.
+    expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
 
-      // Ctrl-C has to feel like Ctrl-C. A Run is torn down uninterruptibly, so
-      // anything slow in teardown is time the terminal spends ignoring the
-      // user: closing a browser with a navigation still in flight took 27
-      // seconds until the load was stopped first.
-      expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
+    // An unflushed recording is a lost recording, and the Runs whose video
+    // matters most are exactly the ones that never reach a tidy end. This is
+    // asserted unconditionally: a test that also accepts a missing file
+    // stops protecting the behaviour it is named after.
+    const artifacts = recordingOf(runs) ?? "";
+    const recording = yield* fileSystem.readFile(
+      path.join(artifacts, "attempt-1.webm")
+    );
+    expect(recording.length).toBeGreaterThan(1024);
 
-      // An unflushed recording is a lost recording, and the Runs whose video
-      // matters most are exactly the ones that never reach a tidy end. This is
-      // asserted unconditionally: a test that also accepts a missing file
-      // stops protecting the behaviour it is named after.
-      const artifacts = recordingOf(runs) ?? "";
-      const recording = yield* fileSystem.readFile(
-        path.join(artifacts, "attempt-1.webm")
-      );
-      expect(recording.length).toBeGreaterThan(1024);
-
-      // And a recording nobody can attribute to a Run is very nearly a lost
-      // one, so the manifest is written on every exit path too.
-      const manifest = JSON.parse(
-        yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
-      ) as RunVideoManifest;
-      expect(manifest.segments).toHaveLength(1);
-      expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)),
-  {
-    retry: WEDGE_RETRIES,
-  }
+    // And a recording nobody can attribute to a Run is very nearly a lost
+    // one, so the manifest is written on every exit path too.
+    const manifest = JSON.parse(
+      yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
+    ) as RunVideoManifest;
+    expect(manifest.segments).toHaveLength(1);
+    expect(manifest.segments[0]?.recorded).toBe(true);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
 /**
@@ -237,58 +236,57 @@ it.live.skipIf(!canRecordVideo())(
  * counter semantics — or inverting the window comparison — would pass the
  * whole suite while costing a real user the recording.
  */
-it.live.skipIf(!canRecordVideo())(
-  "keeps the flushed recording when the second Ctrl-C is a reflex",
-  () =>
-    Effect.gen(function* doubleTappedRun() {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const fixtures = yield* fixtureServer;
-      const directory = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-double-tap-",
-      });
+it.live("keeps the flushed recording when the second Ctrl-C is a reflex", () =>
+  Effect.gen(function* doubleTappedRun() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const fixtures = yield* fixtureServer;
+    const directory = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-double-tap-",
+    });
 
-      const flowPath = yield* writeLongRunningFlow(directory, fixtures);
-      const runs = path.join(directory, "runs");
-      const child = yield* start(flowPath, runs);
+    const flowPath = yield* writeLongRunningFlow(directory, fixtures);
+    const runs = path.join(directory, "runs");
+    const child = yield* start(flowPath, runs);
 
-      const reached = yield* waitUntil(() =>
-        fixtures.requests.includes(STEP_BEACON)
-      );
-      expect(reached).toBe(true);
+    const reached = yield* waitUntil(() =>
+      fixtures.requests.includes(STEP_BEACON)
+    );
+    expect(reached).toBe(true);
 
-      const signalledAt = Date.now();
-      child.kill("SIGINT");
-      // Inside the handler's reflex window, and while the flush that a single
-      // press would have completed is still running. A user pressing twice out
-      // of habit is not asking to lose the recording.
-      yield* Effect.sleep(REFLEX_GAP);
-      child.kill("SIGINT");
-      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+    const signalledAt = Date.now();
+    const { exited } = armExitWaiter(child);
+    child.kill("SIGINT");
+    // Inside the guard's reflex window, and while the flush that a single
+    // press would have completed is still running. A user pressing twice out
+    // of habit is not asking to lose the recording.
+    yield* Effect.sleep(REFLEX_GAP);
+    child.kill("SIGINT");
+    yield* Effect.tryPromise({
+      catch: () => new Error("unreachable"),
+      try: () => exited,
+    }).pipe(Effect.timeout(EXIT_TIMEOUT));
 
-      // Swallowing the second press must not cost promptness either: the first
-      // signal's shutdown carries on under its own bounds.
-      expect(Date.now() - signalledAt).toBeLessThan(
-        Duration.toMillis(INTERRUPT_BUDGET)
-      );
+    // Swallowing the second press must not cost promptness either: the first
+    // signal's shutdown carries on under its own bounds.
+    expect(Date.now() - signalledAt).toBeLessThan(
+      Duration.toMillis(INTERRUPT_BUDGET)
+    );
 
-      const artifacts = recordingOf(runs) ?? "";
-      const recording = yield* fileSystem.readFile(
-        path.join(artifacts, "attempt-1.webm")
-      );
-      expect(recording.length).toBeGreaterThan(1024);
+    const artifacts = recordingOf(runs) ?? "";
+    const recording = yield* fileSystem.readFile(
+      path.join(artifacts, "attempt-1.webm")
+    );
+    expect(recording.length).toBeGreaterThan(1024);
 
-      const manifest = JSON.parse(
-        yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
-      ) as RunVideoManifest;
-      expect(manifest.segments).toHaveLength(1);
-      expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)),
-  {
-    retry: WEDGE_RETRIES,
-  }
+    const manifest = JSON.parse(
+      yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
+    ) as RunVideoManifest;
+    expect(manifest.segments).toHaveLength(1);
+    expect(manifest.segments[0]?.recorded).toBe(true);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
-it.live.skipIf(!canRecordVideo())(
+it.live(
   "exits promptly and accounts for the recording when interrupted mid-navigation",
   () =>
     Effect.gen(function* interruptedNavigation() {
@@ -329,27 +327,32 @@ it.live.skipIf(!canRecordVideo())(
       expect(reached).toBe(true);
 
       const signalledAt = Date.now();
+      const { exited } = armExitWaiter(child);
       child.kill("SIGINT");
-      yield* waitForExit(child).pipe(Effect.timeout(EXIT_TIMEOUT));
+      yield* Effect.tryPromise({
+        catch: () => new Error("unreachable"),
+        try: () => exited,
+      }).pipe(Effect.timeout(EXIT_TIMEOUT));
       const tookMs = Date.now() - signalledAt;
 
       // Ctrl-C has to feel like Ctrl-C even when the browser will never
-      // finish what it is doing: the force-exit backstop bounds this.
+      // finish what it is doing. Closing the browser context aborts the
+      // navigation instead of waiting for it, so nothing queues.
       expect(tookMs).toBeLessThan(Duration.toMillis(INTERRUPT_BUDGET));
 
-      // The recording could not be flushed — the flush queues behind the
-      // navigation the signal interrupted — so no watchable file may be left
-      // behind. Even the manifest cannot be written here: teardown's own
-      // browser commands queue behind the same jammed navigation, which is
-      // why the loss is warned about up front and accepted in ADR 0010.
-      // `recordingOf` answers with a directory only when the recording is
-      // there, so its absence is the whole assertion.
-      const artifacts = recordingOf(runs);
-      if (artifacts !== undefined) {
-        const bytes = yield* fileSystem.readFile(
-          path.join(artifacts, "attempt-1.webm")
-        );
-        expect(bytes.length).toBeLessThan(1024);
-      }
+      // The interrupted navigation does not cost the recording either:
+      // flushing happens when the context closes, whatever its pages were
+      // doing, and the manifest accounts for it on every exit path.
+      const artifacts = recordingOf(runs) ?? "";
+      const bytes = yield* fileSystem.readFile(
+        path.join(artifacts, "attempt-1.webm")
+      );
+      expect(bytes.length).toBeGreaterThan(1024);
+
+      const manifest = JSON.parse(
+        yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
+      ) as RunVideoManifest;
+      expect(manifest.segments).toHaveLength(1);
+      expect(manifest.segments[0]?.recorded).toBe(true);
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

@@ -25,7 +25,8 @@ it.live("records an uncaptured headless Run's vitals honestly", () =>
     const { persisted } = yield* runFlow(
       flow([
         {
-          contingency: { id: "open", performance: true },
+          id: "open",
+          performance: true,
           type: "navigate",
           url: fixtures.url("checkout.html"),
         },

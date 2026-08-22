@@ -39,9 +39,9 @@ const noSubdirectoryFileSystem = FileSystem.layerNoop({
 
 const flowWith = (variables: readonly Variable[]): Flow =>
   ({
-    contingency: { variables },
     steps: [{ type: "navigate", url: "https://example.com/" }],
     title: "Sign in",
+    variables,
   }) as Flow;
 
 const neverPrompt = () => Effect.die(new Error("Prompted unexpectedly"));

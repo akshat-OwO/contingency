@@ -5,7 +5,6 @@
     "contingency": "./dist/index.js"
   },
   "files": [
-    "assets",
     "dist",
     "README.md"
   ],
@@ -24,8 +23,10 @@
   "dependencies": {
     "@contingency/protocol": "workspace:*",
     "@effect/platform-node": "^4.0.0-beta.106",
+    "axe-core": "^4.13.0",
     "effect": "^4.0.0-beta.106",
-    "open": "^11.0.0"
+    "open": "^11.0.0",
+    "playwright-core": "^1.62.1"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect",
