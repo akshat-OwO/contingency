@@ -349,6 +349,11 @@ test("strictness lives in the schema, not the call site", () => {
       })
     )
   ).toBe(false);
+  // The annotation propagates tree-wide: this document is structurally valid
+  // at every level but the Step, so only propagation rejects it.
+  expect(
+    Result.isSuccess(bareDecode(flowWith([{ foo: 1, target, type: "click" }])))
+  ).toBe(false);
 });
 
 test("old selector arrays, frame indices, string targets, and variable folds are rejected", () => {
