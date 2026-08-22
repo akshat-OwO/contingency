@@ -5,6 +5,10 @@ import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
+/** Stable identity for a Flow, independent of its user-editable title. */
+export const FlowId = nonEmptyString.pipe(Schema.brand("@contingency/FlowId"));
+export type FlowId = typeof FlowId.Type;
+
 // ---------------------------------------------------------------------------
 // Locators
 // ---------------------------------------------------------------------------
@@ -170,9 +174,14 @@ export const ChangeStep = Schema.Struct({
 });
 export type ChangeStep = typeof ChangeStep.Type;
 
+/**
+ * Half of a pressed key. Carries a target when the keystroke belongs to an
+ * element — typing into a field — and none for Page-level keyboard events.
+ */
 export const KeyStep = Schema.Struct({
   ...actionFields,
   key: nonEmptyString,
+  target: Schema.optional(Target),
   type: Schema.Literals(["keyDown", "keyUp"]),
 });
 export type KeyStep = typeof KeyStep.Type;
@@ -456,7 +465,7 @@ export const Flow = Schema.Struct({
    * Stable identity for the Flow, independent of its user-editable title, so
    * Run history survives a rename.
    */
-  flowId: Schema.optional(nonEmptyString),
+  flowId: Schema.optional(FlowId),
   gate: Schema.optional(Gate),
   /** Pre-steps that run before every Step after the initial navigation. */
   preSteps: Schema.optional(Schema.Array(PreStep)),
@@ -464,7 +473,11 @@ export const Flow = Schema.Struct({
     Schema.isMinLength(1),
     performanceOnlyOnNavigatingSteps
   ),
-  /** The Run's wall-clock ceiling, in the Runner's units. */
+  /**
+   * The Run's wall-clock ceiling. Per-Step timeouts are set on the Steps
+   * themselves, not inherited from this ([ADR
+   * 0021](../../../docs/adr/0021-timeouts-are-set-not-inherited.md)).
+   */
   timeout: Schema.optional(Schema.Finite),
   title: nonEmptyString,
   variables: Schema.optional(Schema.Array(Variable)),

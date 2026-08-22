@@ -21,6 +21,29 @@ const target = [
   { kind: "css", selector: "#add-to-cart" },
 ];
 
+const flowWith = (
+  steps: readonly unknown[],
+  extra?: Record<string, unknown>
+) => ({
+  ...extra,
+  steps,
+  title: "Checkout",
+});
+
+const assertDecodes = (input: unknown) => {
+  const result = decode(input);
+  if (Result.isFailure(result)) {
+    throw new Error(
+      `Expected the Flow to decode: ${formatIssue(result.failure.issue)}`
+    );
+  }
+  return result.success;
+};
+
+const assertRejects = (input: unknown) => {
+  expect(Result.isSuccess(decode(input))).toBe(false);
+};
+
 const failureMessage = (input: unknown): string => {
   const result = decode(input);
   if (Result.isSuccess(result)) {
@@ -30,31 +53,23 @@ const failureMessage = (input: unknown): string => {
 };
 
 test("a minimal native Flow decodes", () => {
-  const result = decode({ steps: [navigateStep], title: "Checkout" });
+  const flow = assertDecodes({ steps: [navigateStep], title: "Checkout" });
 
-  if (Result.isFailure(result)) {
-    throw new Error("Expected the Flow to decode");
-  }
-  expect(result.success.title).toBe("Checkout");
-  expect(result.success.steps).toHaveLength(1);
+  expect(flow.title).toBe("Checkout");
+  expect(flow.steps).toHaveLength(1);
 });
 
 test("a Flow carries a stable identity distinct from its title", () => {
-  const result = decode({
-    flowId: "b6f1c9f0-checkout",
-    steps: [navigateStep],
-    title: "Checkout",
-  });
+  const flow = assertDecodes(
+    flowWith([navigateStep], { flowId: "b6f1c9f0-checkout" })
+  );
 
-  if (Result.isFailure(result)) {
-    throw new Error("Expected the Flow to decode");
-  }
-  expect(result.success.flowId).toBe("b6f1c9f0-checkout");
+  expect(flow.flowId).toBe("b6f1c9f0-checkout");
 });
 
 test("every browser action Step decodes", () => {
-  const result = decode({
-    steps: [
+  const flow = assertDecodes(
+    flowWith([
       { page: 1, type: "navigate", url: "https://example.com/" },
       { button: "right", target, timeout: 5000, type: "click" },
       { target, type: "change", value: "2" },
@@ -70,16 +85,10 @@ test("every browser action Step decodes", () => {
         timeout: 2000,
         type: "waitFor",
       },
-    ],
-    title: "Checkout",
-  });
+    ])
+  );
 
-  if (Result.isFailure(result)) {
-    throw new Error(
-      `Expected the Flow to decode: ${formatIssue(result.failure.issue)}`
-    );
-  }
-  expect(result.success.steps.map(({ type }) => type)).toEqual([
+  expect(flow.steps.map(({ type }) => type)).toEqual([
     "navigate",
     "click",
     "change",
@@ -94,6 +103,17 @@ test("every browser action Step decodes", () => {
   ]);
 });
 
+test("a keystroke carries a target when it belongs to an element", () => {
+  // Typing into a field: element-scoped.
+  assertDecodes(flowWith([{ key: "x", target, type: "keyDown" }]));
+  // A Page-level shortcut: no Page syntax beyond the keystroke itself.
+  assertDecodes(flowWith([{ key: "Escape", type: "press" }]));
+
+  expect(() =>
+    assertDecodes(flowWith([{ key: "", type: "keyDown" }]))
+  ).toThrow();
+});
+
 test("a target keeps its ordered alternatives in order", () => {
   const orderedTarget = [
     { kind: "role", name: "Buy", role: "link" },
@@ -103,15 +123,11 @@ test("a target keeps its ordered alternatives in order", () => {
     { kind: "css", selector: ".buy-button" },
     { expression: "//button[2]", kind: "xpath" },
   ];
-  const result = decode({
-    steps: [{ target: orderedTarget, type: "click" }],
-    title: "Checkout",
-  });
+  const flow = assertDecodes(
+    flowWith([{ target: orderedTarget, type: "click" }])
+  );
 
-  if (Result.isFailure(result)) {
-    throw new Error("Expected the Flow to decode");
-  }
-  const [step] = result.success.steps;
+  const [step] = flow.steps;
   if (step === undefined || !("target" in step) || step.target === undefined) {
     throw new Error("Expected Step 1 to carry a target");
   }
@@ -119,215 +135,137 @@ test("a target keeps its ordered alternatives in order", () => {
 });
 
 test("a target rejects an empty ladder and an unknown descriptor kind", () => {
-  expect(
-    Result.isSuccess(
-      decode({ steps: [{ target: [], type: "click" }], title: "Checkout" })
-    )
-  ).toBe(false);
+  assertRejects(flowWith([{ target: [], type: "click" }]));
   // There is deliberately no test-id kind (ADR 0011).
-  expect(
-    Result.isSuccess(
-      decode({
-        steps: [
-          { target: [{ "data-testid": "buy", kind: "testId" }], type: "click" },
-        ],
-        title: "Checkout",
-      })
-    )
-  ).toBe(false);
+  assertRejects(
+    flowWith([
+      { target: [{ "data-testid": "buy", kind: "testId" }], type: "click" },
+    ])
+  );
 });
 
 test("an absent Page means the first Page, and a named Page is by open order", () => {
   // A single-Page Flow carries no Page syntax at all.
-  expect(
-    Result.isSuccess(
-      decode({ steps: [{ target, type: "click" }], title: "Checkout" })
-    )
-  ).toBe(true);
+  assertDecodes(flowWith([{ target, type: "click" }]));
 
   // A negative Page order names no Page that can exist.
-  expect(
-    Result.isSuccess(
-      decode({
-        steps: [{ page: -1, type: "navigate", url: "https://example.com/" }],
-        title: "Checkout",
-      })
-    )
-  ).toBe(false);
+  assertRejects(
+    flowWith([{ page: -1, type: "navigate", url: "https://example.com/" }])
+  );
 });
 
 test("a Flow declares its Emulation", () => {
-  const result = decode({
-    emulation: {
-      colorScheme: "dark",
-      geolocation: { accuracy: 25, latitude: 52.52, longitude: 13.405 },
-      locale: "de-DE",
-      permissions: [
-        { origin: "https://example.com", permission: "geolocation" },
-        { permission: "camera" },
-      ],
-      timezoneId: "Europe/Berlin",
-      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_1 like Mac OS X)",
-      viewport: { deviceScaleFactor: 2, height: 720, width: 1280 },
-    },
-    steps: [navigateStep],
-    title: "Checkout",
-  });
-
-  if (Result.isFailure(result)) {
-    throw new Error("Expected the Flow to decode");
-  }
-  expect(result.success.emulation?.permissions).toEqual([
+  const permissions = [
     { origin: "https://example.com", permission: "geolocation" },
     { permission: "camera" },
-  ]);
+  ];
+  const flow = assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        colorScheme: "dark",
+        geolocation: { accuracy: 25, latitude: 52.52, longitude: 13.405 },
+        locale: "de-DE",
+        permissions,
+        timezoneId: "Europe/Berlin",
+        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_1 like Mac OS X)",
+        viewport: { deviceScaleFactor: 2, height: 720, width: 1280 },
+      },
+    })
+  );
+  expect(flow.emulation?.permissions).toEqual(permissions);
 
   // A partial Emulation declares only what the Flow needs.
-  expect(
-    Result.isSuccess(
-      decode({
-        emulation: {
-          viewport: { deviceScaleFactor: 1, height: 800, width: 1200 },
-        },
-        steps: [navigateStep],
-        title: "Checkout",
-      })
-    )
-  ).toBe(true);
+  assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        viewport: { deviceScaleFactor: 1, height: 800, width: 1200 },
+      },
+    })
+  );
   // An unknown colour scheme is not emulation.
-  expect(
-    Result.isSuccess(
-      decode({
-        emulation: { colorScheme: "sepia" },
-        steps: [navigateStep],
-        title: "Checkout",
-      })
-    )
-  ).toBe(false);
+  assertRejects(
+    flowWith([navigateStep], { emulation: { colorScheme: "sepia" } })
+  );
   // An empty permission list grants nothing and says nothing.
-  expect(
-    Result.isSuccess(
-      decode({
-        emulation: { permissions: [] },
-        steps: [navigateStep],
-        title: "Checkout",
-      })
-    )
-  ).toBe(false);
+  assertRejects(flowWith([navigateStep], { emulation: { permissions: [] } }));
 });
 
 test("a Flow declares a Gate as accessibility rule ids", () => {
-  const result = decode({
-    gate: ["image-alt", "label"],
-    steps: [navigateStep],
-    title: "Checkout",
-  });
+  const flow = assertDecodes(
+    flowWith([navigateStep], { gate: ["image-alt", "label"] })
+  );
 
-  if (Result.isFailure(result)) {
-    throw new Error("Expected the Flow to decode");
-  }
-  expect(result.success.gate).toEqual(["image-alt", "label"]);
+  expect(flow.gate).toEqual(["image-alt", "label"]);
   // A Gate that names no rule holds nothing to nothing.
-  expect(
-    Result.isSuccess(decode({ gate: [], steps: [navigateStep], title: "C" }))
-  ).toBe(false);
+  assertRejects(flowWith([navigateStep], { gate: [] }));
 });
 
 test("Pre-step conditions accept visible, hidden, and URL matches", () => {
-  const result = decode({
-    preSteps: [
-      {
-        id: "dismiss-banner",
-        step: {
-          target: [{ kind: "css", selector: "#cookie-banner button" }],
-          type: "click",
+  const bannerTarget = [{ kind: "css", selector: "#cookie-banner" }];
+  const flow = assertDecodes(
+    flowWith([navigateStep], {
+      preSteps: [
+        {
+          id: "dismiss-banner",
+          step: {
+            target: [{ kind: "css", selector: "#cookie-banner button" }],
+            type: "click",
+          },
+          when: { target: bannerTarget, type: "selectorVisible" },
         },
-        when: {
-          target: [{ kind: "css", selector: "#cookie-banner" }],
-          type: "selectorVisible",
+        {
+          id: "wait-banner-gone",
+          step: { key: "Escape", target: bannerTarget, type: "press" },
+          when: { target: bannerTarget, type: "selectorHidden" },
         },
-      },
-      {
-        id: "wait-banner-gone",
-        step: {
-          key: "Escape",
-          target: [{ kind: "css", selector: "#cookie-banner" }],
-          type: "press",
+        {
+          id: "checkout-only",
+          step: { key: "Escape", type: "press" },
+          when: { pattern: "/checkout$", type: "urlMatches" },
         },
-        when: {
-          target: [{ kind: "css", selector: "#cookie-banner" }],
-          type: "selectorHidden",
-        },
-      },
-      {
-        id: "checkout-only",
-        step: { key: "Escape", type: "press" },
-        when: { pattern: "/checkout$", type: "urlMatches" },
-      },
-    ],
-    steps: [navigateStep],
-    title: "Checkout",
-  });
+      ],
+    })
+  );
 
-  if (Result.isFailure(result)) {
-    throw new Error(
-      `Expected the Flow to decode: ${formatIssue(result.failure.issue)}`
-    );
-  }
-  expect(result.success.preSteps?.map(({ when }) => when.type)).toEqual([
+  expect(flow.preSteps?.map(({ when }) => when.type)).toEqual([
     "selectorVisible",
     "selectorHidden",
     "urlMatches",
   ]);
 
   // A condition that is none of the named types is not a condition.
-  expect(
-    Result.isSuccess(
-      decode({
-        preSteps: [
-          {
-            id: "x",
-            step: { key: "Escape", type: "press" },
-            when: { text: "banner gone", type: "textContent" },
-          },
-        ],
-        steps: [navigateStep],
-        title: "Checkout",
-      })
-    )
-  ).toBe(false);
+  assertRejects(
+    flowWith([navigateStep], {
+      preSteps: [
+        {
+          id: "x",
+          step: { key: "Escape", type: "press" },
+          when: { text: "banner gone", type: "textContent" },
+        },
+      ],
+    })
+  );
 });
 
 test("a Pre-step cannot navigate or wait", () => {
-  const preStep = (step: Record<string, unknown>) =>
-    decode({
+  const preStepFlow = (step: Record<string, unknown>) =>
+    flowWith([navigateStep], {
       preSteps: [
         { id: "clear", step, when: { pattern: "/", type: "urlMatches" } },
       ],
-      steps: [navigateStep],
-      title: "Checkout",
     });
 
-  expect(
-    Result.isSuccess(preStep({ type: "navigate", url: "https://example.com/" }))
-  ).toBe(false);
-  expect(
-    Result.isSuccess(
-      preStep({
-        condition: { pattern: "/cart$", type: "urlMatches" },
-        type: "waitFor",
-      })
-    )
-  ).toBe(false);
+  assertRejects(preStepFlow({ type: "navigate", url: "https://example.com/" }));
+  assertRejects(
+    preStepFlow({
+      condition: { pattern: "/cart$", type: "urlMatches" },
+      type: "waitFor",
+    })
+  );
 });
 
 test("a navigate Step accepts the performance toggle", () => {
-  const result = decode({
-    steps: [{ ...navigateStep, performance: true }],
-    title: "Checkout",
-  });
-
-  expect(Result.isSuccess(result)).toBe(true);
+  assertDecodes(flowWith([{ ...navigateStep, performance: true }]));
 });
 
 test("a non-navigating Step rejects the performance toggle", () => {
@@ -344,42 +282,30 @@ test("a non-navigating Step rejects the performance toggle", () => {
   expect(message).toContain("two");
 
   // performance: false on a non-navigating Step is not a rejection.
-  expect(
-    Result.isSuccess(
-      decode({
-        steps: [navigateStep, { performance: false, target, type: "click" }],
-        title: "Checkout",
-      })
-    )
-  ).toBe(true);
+  assertDecodes(
+    flowWith([navigateStep, { performance: false, target, type: "click" }])
+  );
 });
 
 test("an Audit Step admits only the accessibility kind and carries authored fields", () => {
-  const auditFlow = (kind: string) => ({
-    steps: [navigateStep, { id: "audit-1", kind, type: "audit" }],
-    title: "Checkout",
-  });
+  const auditFlow = (kind: string) =>
+    flowWith([navigateStep, { id: "audit-1", kind, type: "audit" }]);
 
-  expect(Result.isSuccess(decode(auditFlow("accessibility")))).toBe(true);
-  expect(Result.isSuccess(decode(auditFlow("performance")))).toBe(false);
+  assertDecodes(auditFlow("accessibility"));
+  assertRejects(auditFlow("performance"));
 
   // An Audit cannot measure performance: it navigates nothing.
-  expect(
-    Result.isSuccess(
-      decode({
-        steps: [
-          navigateStep,
-          {
-            id: "audit-1",
-            kind: "accessibility",
-            performance: true,
-            type: "audit",
-          },
-        ],
-        title: "Checkout",
-      })
-    )
-  ).toBe(false);
+  assertRejects(
+    flowWith([
+      navigateStep,
+      {
+        id: "audit-1",
+        kind: "accessibility",
+        performance: true,
+        type: "audit",
+      },
+    ])
+  );
 });
 
 test("a Chrome DevTools Recorder export is rejected, not migrated", () => {
@@ -471,7 +397,7 @@ test("a video flag has nowhere to live any more", () => {
 
 test("encoding a Flow emits only the current format", () => {
   const encode = Schema.encodeSync(Flow);
-  const result = decode({
+  const flow = assertDecodes({
     emulation: { colorScheme: "dark" },
     gate: ["image-alt"],
     preSteps: [
@@ -495,10 +421,7 @@ test("encoding a Flow emits only the current format", () => {
     variables: [{ name: "TARGET_URL", runtime: false, secret: true }],
   });
 
-  if (Result.isFailure(result)) {
-    throw new Error("Expected the Flow to decode");
-  }
-  const encoded = JSON.stringify(encode(result.success));
+  const encoded = JSON.stringify(encode(flow));
   expect(encoded).not.toContain("contingency");
   expect(encoded).not.toContain("secretVariable");
   expect(encoded).not.toContain('"video"');
