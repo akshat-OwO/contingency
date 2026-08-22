@@ -10,6 +10,7 @@ import {
   BrowserStorageSnapshot,
   StorageKind,
 } from "./storage.ts";
+import { Viewport } from "./viewport.ts";
 
 // The protocol package intentionally exposes one public contract surface.
 // oxlint-disable-next-line oxc/no-barrel-file
@@ -47,14 +48,7 @@ export const BrowserStreamId = Schema.String.check(Schema.isMinLength(1)).pipe(
 );
 export type BrowserStreamId = typeof BrowserStreamId.Type;
 
-export const Viewport = Schema.Struct({
-  deviceScaleFactor: Schema.Finite.check(
-    Schema.isBetween({ maximum: 4, minimum: 0.25 })
-  ),
-  height: Schema.Int.check(Schema.isBetween({ maximum: 10_000, minimum: 1 })),
-  width: Schema.Int.check(Schema.isBetween({ maximum: 10_000, minimum: 1 })),
-});
-export type Viewport = typeof Viewport.Type;
+export { Viewport } from "./viewport.ts";
 
 export const UserAgentProfileId = Schema.Literals([
   "default",

@@ -1,74 +1,272 @@
-import { Schema, SchemaGetter } from "effect";
+import { Schema } from "effect";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
-export const Selector = Schema.Array(
-  Schema.Union([nonEmptyString, Schema.Array(nonEmptyString)])
-).check(Schema.isMinLength(1));
-export type Selector = typeof Selector.Type;
+// ---------------------------------------------------------------------------
+// Locators
+// ---------------------------------------------------------------------------
 
-export const AssertedNavigation = Schema.Struct({
-  title: Schema.optional(Schema.String),
-  type: Schema.Literal("navigation"),
-  url: nonEmptyString,
+/**
+ * One way to find a Step's element ([ADR
+ * 0011](../../../docs/adr/0011-flow-is-a-native-format.md)).
+ */
+export const RoleLocator = Schema.Struct({
+  kind: Schema.Literal("role"),
+  /** The element's accessible name, e.g. `Add to cart`. */
+  name: nonEmptyString,
+  /** The element's ARIA role, e.g. `button`. */
+  role: nonEmptyString,
 });
-export type AssertedNavigation = typeof AssertedNavigation.Type;
+export type RoleLocator = typeof RoleLocator.Type;
 
-const selectorTargetFields = {
-  assertedEvents: Schema.optional(Schema.Array(AssertedNavigation)),
-  frame: Schema.optional(Schema.Array(Schema.Int)),
-  selectors: Selector,
-  target: Schema.optional(Schema.String),
-  timeout: Schema.optional(Schema.Finite),
+export const LabelLocator = Schema.Struct({
+  kind: Schema.Literal("label"),
+  label: nonEmptyString,
+});
+export type LabelLocator = typeof LabelLocator.Type;
+
+export const PlaceholderLocator = Schema.Struct({
+  kind: Schema.Literal("placeholder"),
+  placeholder: nonEmptyString,
+});
+export type PlaceholderLocator = typeof PlaceholderLocator.Type;
+
+export const TextLocator = Schema.Struct({
+  kind: Schema.Literal("text"),
+  text: nonEmptyString,
+});
+export type TextLocator = typeof TextLocator.Type;
+
+export const CssLocator = Schema.Struct({
+  kind: Schema.Literal("css"),
+  selector: nonEmptyString,
+});
+export type CssLocator = typeof CssLocator.Type;
+
+export const XpathLocator = Schema.Struct({
+  expression: nonEmptyString,
+  kind: Schema.Literal("xpath"),
+});
+export type XpathLocator = typeof XpathLocator.Type;
+
+/**
+ * One way to find a Step's element. A Step names its target through an
+ * {@link Target} of these descriptors, resolved first-match-wins, so a Flow
+ * survives a site changing one of them.
+ *
+ * The recorded ladder is role and accessible name, then label, then
+ * placeholder, then text, then CSS, then XPath: the most meaningful strategy
+ * for accessibility work leads, the positional one that breaks first is last.
+ * There is deliberately no test-id kind — Contingency audits sites it does not
+ * own, so test IDs are usually absent.
+ */
+export const LocatorDescriptor = Schema.Union([
+  RoleLocator,
+  LabelLocator,
+  PlaceholderLocator,
+  TextLocator,
+  CssLocator,
+  XpathLocator,
+]);
+export type LocatorDescriptor = typeof LocatorDescriptor.Type;
+
+/**
+ * The ordered alternatives a Step tries when finding its element, resolved
+ * first-match-wins. Every Step that acts on an element carries at least one.
+ *
+ * A target here is authored. [docs/future/agent-flow.md](../../../docs/future/agent-flow.md)
+ * reserves room for a Step whose concrete action path is derived per
+ * environment instead; nothing in this model assumes that case exists yet, and
+ * nothing is built for it.
+ */
+export const Target = Schema.Array(LocatorDescriptor).check(
+  Schema.isMinLength(1)
+);
+export type Target = typeof Target.Type;
+
+// ---------------------------------------------------------------------------
+// Pages and conditions
+// ---------------------------------------------------------------------------
+
+/**
+ * Which Page a Step acts on, by the order it opened. Absent means the first
+ * Page, so a single-Page Flow carries no Page syntax.
+ */
+export const PageIndex = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+export type PageIndex = typeof PageIndex.Type;
+
+/**
+ * Why a Pre-step or `waitFor` Step acts: a closed set of named conditions
+ * ([ADR 0022](../../../docs/adr/0022-pre-step-conditions-gain-hidden-and-url.md)),
+ * not an expression language. An unanswerable condition stays distinct from a
+ * false one ([ADR 0009](../../../docs/adr/0009-run-execution-semantics.md)).
+ */
+export const ConditionSelectorVisible = Schema.Struct({
+  target: Target,
+  type: Schema.Literal("selectorVisible"),
+});
+
+export const ConditionSelectorHidden = Schema.Struct({
+  target: Target,
+  type: Schema.Literal("selectorHidden"),
+});
+
+/** A URL pattern the current Page must match, e.g. `/cart$`. */
+export const ConditionUrlMatches = Schema.Struct({
+  pattern: nonEmptyString,
+  type: Schema.Literal("urlMatches"),
+});
+
+export const Condition = Schema.Union([
+  ConditionSelectorVisible,
+  ConditionSelectorHidden,
+  ConditionUrlMatches,
+]);
+export type Condition = typeof Condition.Type;
+
+// ---------------------------------------------------------------------------
+// Steps
+// ---------------------------------------------------------------------------
+
+const pageField = Schema.optional(PageIndex);
+const timeoutField = Schema.optional(Schema.Finite);
+
+/**
+ * Per-Step timeouts are set explicitly rather than inherited from the Run's
+ * wall-clock ceiling ([ADR
+ * 0021](../../../docs/adr/0021-timeouts-are-set-not-inherited.md)).
+ */
+const actionFields = {
+  page: pageField,
+  timeout: timeoutField,
 };
 
 export const NavigateStep = Schema.Struct({
-  assertedEvents: Schema.optional(Schema.Array(AssertedNavigation)),
-  timeout: Schema.optional(Schema.Finite),
+  ...actionFields,
   type: Schema.Literal("navigate"),
   url: nonEmptyString,
 });
 export type NavigateStep = typeof NavigateStep.Type;
 
+const targetedFields = {
+  ...actionFields,
+  target: Target,
+};
+
 export const ClickStep = Schema.Struct({
-  ...selectorTargetFields,
-  button: Schema.optional(Schema.String),
-  duration: Schema.optional(Schema.Finite),
-  offsetX: Schema.Finite,
-  offsetY: Schema.Finite,
+  ...targetedFields,
+  button: Schema.optional(Schema.Literals(["left", "middle", "right"])),
   type: Schema.Literal("click"),
 });
 export type ClickStep = typeof ClickStep.Type;
 
 export const ChangeStep = Schema.Struct({
-  ...selectorTargetFields,
+  ...targetedFields,
   type: Schema.Literal("change"),
   value: Schema.String,
 });
 export type ChangeStep = typeof ChangeStep.Type;
 
 export const KeyStep = Schema.Struct({
-  ...selectorTargetFields,
+  ...actionFields,
   key: nonEmptyString,
   type: Schema.Literals(["keyDown", "keyUp"]),
 });
 export type KeyStep = typeof KeyStep.Type;
 
-export const ChromeStep = Schema.Union([
+/**
+ * A single keystroke: one Step rather than a keyDown and keyUp pair. Carries a
+ * target when the keystroke belongs to an element, and none for Page-level
+ * shortcuts.
+ */
+export const PressStep = Schema.Struct({
+  ...actionFields,
+  key: nonEmptyString,
+  target: Schema.optional(Target),
+  type: Schema.Literal("press"),
+});
+export type PressStep = typeof PressStep.Type;
+
+export const HoverStep = Schema.Struct({
+  ...targetedFields,
+  type: Schema.Literal("hover"),
+});
+export type HoverStep = typeof HoverStep.Type;
+
+/**
+ * One scroll per resting position, never a log of wheel ticks. Deltas are
+ * absent-meaning-zero rather than required, so a Flow can express a plain
+ * scroll to top.
+ */
+export const ScrollStep = Schema.Struct({
+  ...actionFields,
+  deltaX: Schema.optional(Schema.Finite),
+  deltaY: Schema.optional(Schema.Finite),
+  type: Schema.Literal("scroll"),
+});
+export type ScrollStep = typeof ScrollStep.Type;
+
+export const SelectOptionStep = Schema.Struct({
+  ...targetedFields,
+  type: Schema.Literal("selectOption"),
+  values: Schema.Array(nonEmptyString).check(Schema.isMinLength(1)),
+});
+export type SelectOptionStep = typeof SelectOptionStep.Type;
+
+/**
+ * Waits until its condition holds — the same condition machinery a Pre-step
+ * uses ([ADR 0022](../../../docs/adr/0022-pre-step-conditions-gain-hidden-and-url.md))
+ * — so a Flow can wait out a spinner before an Audit runs.
+ */
+export const WaitForStep = Schema.Struct({
+  ...actionFields,
+  condition: Condition,
+  type: Schema.Literal("waitFor"),
+});
+export type WaitForStep = typeof WaitForStep.Type;
+
+/**
+ * A browser action as recorded or authored, without the fields authoring adds
+ * ({@link AuthoredStep}). A Recording captures these; a Flow persists their
+ * authored form.
+ */
+export const BrowserActionStep = Schema.Union([
   NavigateStep,
   ClickStep,
   ChangeStep,
   KeyStep,
+  PressStep,
+  HoverStep,
+  ScrollStep,
+  SelectOptionStep,
+  WaitForStep,
 ]);
-export type ChromeStep = typeof ChromeStep.Type;
+export type BrowserActionStep = typeof BrowserActionStep.Type;
 
 /**
- * Audit means accessibility only. Performance is not an Audit: it is a toggle
- * on a navigating Step, measured by the Runner at that navigation
- * ([ADR 0008](../../../docs/adr/0008-performance-is-a-navigation-step-toggle.md)).
+ * What a Pre-step may act with: anything that clears interference — ads,
+ * popups, cross-sells. A Pre-step does not navigate, and waiting is what its
+ * own condition is for.
  */
+const preStepActionSchemas = [
+  ClickStep,
+  ChangeStep,
+  KeyStep,
+  PressStep,
+  HoverStep,
+  SelectOptionStep,
+];
+
+export const PreStep = Schema.Struct({
+  id: nonEmptyString,
+  step: Schema.Union(preStepActionSchemas),
+  when: Condition,
+});
+export type PreStep = typeof PreStep.Type;
+
 export const AuditKind = Schema.Literal("accessibility");
 export type AuditKind = typeof AuditKind.Type;
 
@@ -81,9 +279,9 @@ export type AuditKind = typeof AuditKind.Type;
  * accessibility policy actually names. Best-practice rules are deliberately
  * excluded — they are opinions, and they move between engine releases.
  *
- * `wcag21a` is absent because the engine has no rules under it, verified
- * against the bundled binary: a tag selecting nothing is indistinguishable
- * from a misspelled one, and both audit every page clean.
+ * `wcag21a` is absent because the engine has no rules under it: a tag
+ * selecting nothing is indistinguishable from a misspelled one, and both audit
+ * every page clean.
  */
 export const accessibilityRuleTags = [
   "wcag2a",
@@ -92,22 +290,17 @@ export const accessibilityRuleTags = [
   "wcag22aa",
 ] as const;
 
+/**
+ * An accessibility Audit as an ordered Step ([ADR
+ * 0005](../../../docs/adr/0005-audits-are-ordered-custom-steps.md)). Running
+ * it produces Findings at this point in the Flow. Performance is not an
+ * Audit: it is the `performance` toggle on a navigating Step.
+ */
 export const AuditStep = Schema.Struct({
-  name: Schema.Literal("contingency.audit"),
-  parameters: Schema.Struct({ kind: AuditKind }),
-  type: Schema.Literal("customStep"),
+  kind: AuditKind,
+  type: Schema.Literal("audit"),
 });
 export type AuditStep = typeof AuditStep.Type;
-
-export const PreStep = Schema.Struct({
-  id: nonEmptyString,
-  step: Schema.Union([ClickStep, ChangeStep, KeyStep]),
-  when: Schema.Struct({
-    selectors: Selector,
-    type: Schema.Literal("selectorVisible"),
-  }),
-});
-export type PreStep = typeof PreStep.Type;
 
 /**
  * A named value a Flow declares but does not contain. `secret` redacts the
@@ -122,218 +315,165 @@ export const Variable = Schema.Struct({
 });
 export type Variable = typeof Variable.Type;
 
-/**
- * A Variable as Flows exported before the rename declared it: a bare name,
- * always secret, never anything else. Kept as a distinct schema so the
- * migration reads against exactly what old exports contained and nothing more.
- */
-const LegacySecretVariable = Schema.Struct({ name: nonEmptyString });
+// ---------------------------------------------------------------------------
+// Authored Steps and the Flow document
+// ---------------------------------------------------------------------------
 
 /**
- * Fold pre-rename `secretVariables` into the current declaration list. A
- * legacy Variable was a credential the recorder never stored, so it migrates
- * as both `secret` (redact it from artifacts) and `runtime` (prompt for it at
- * Run time rather than failing preflight on a Flow that could never carry its
- * own value). Names already declared in the new format win, so a Flow edited
- * after the rename keeps its explicit choices.
+ * The fields authoring adds to a recorded action: identity, the Core Web
+ * Vitals toggle, Pre-steps, and a Variable binding. There is no `contingency`
+ * extension wrapper any more — the Flow is Contingency's own document ([ADR
+ * 0011](../../../docs/adr/0011-flow-is-a-native-format.md)), so these are
+ * ordinary fields.
  */
-const withLegacySecretVariables = (
-  variables: readonly Variable[] | undefined,
-  legacy: readonly { readonly name: string }[] | undefined
-): readonly Variable[] | undefined => {
-  if (legacy === undefined || legacy.length === 0) {
-    return variables;
-  }
-  const declared = new Set((variables ?? []).map(({ name }) => name));
-  const migrated = legacy
-    .filter(({ name }) => !declared.has(name))
-    .map(({ name }) => ({ name, runtime: true, secret: true }));
-  const merged = [...(variables ?? []), ...migrated];
-  return merged.length === 0 ? undefined : merged;
-};
-
-const FlowContingency = Schema.Struct({
-  /**
-   * Stable identity for the Flow, independent of its user-editable title,
-   * so Run history survives a rename. Optional, because a plain Chrome
-   * DevTools Recorder export carries no Contingency fields (ADR 0001).
-   */
-  flowId: Schema.optional(nonEmptyString),
-  preSteps: Schema.optional(Schema.Array(PreStep)),
-  variables: Schema.optional(Schema.Array(Variable)),
-  /** Capture Runs of this Flow to video. Not a {@link RecordingSnapshot}. */
-  video: Schema.optional(Schema.Boolean),
-});
-type FlowContingency = typeof FlowContingency.Type;
-
-/**
- * What a persisted Flow may literally contain: the current fields plus the
- * pre-rename spellings. Decoding migrates the old ones instead of dropping
- * them — a silent strip would turn an imported login Flow into one that types
- * nothing where its password goes.
- */
-const FlowContingencyWithLegacyFields = Schema.Struct({
-  ...FlowContingency.fields,
-  secretVariables: Schema.optional(Schema.Array(LegacySecretVariable)),
-});
-type FlowContingencyWithLegacy = typeof FlowContingencyWithLegacyFields.Type;
-
-const FlowContingencyWithLegacy = FlowContingencyWithLegacyFields.pipe(
-  Schema.decodeTo(FlowContingency, {
-    decode: SchemaGetter.transform(
-      ({
-        flowId,
-        preSteps,
-        secretVariables,
-        variables,
-        video,
-      }: FlowContingencyWithLegacy): FlowContingency => {
-        const merged = withLegacySecretVariables(variables, secretVariables);
-        return {
-          ...(flowId === undefined ? {} : { flowId }),
-          ...(preSteps === undefined ? {} : { preSteps }),
-          ...(merged === undefined ? {} : { variables: merged }),
-          ...(video === undefined ? {} : { video }),
-        };
-      }
-    ),
-    encode: SchemaGetter.transform(
-      (contingency: FlowContingency) => contingency
-    ),
-  })
-);
-
-/**
- * Where a decoded Variable binding comes from: the current spelling wins, and
- * the pre-rename `secretVariable` fills in only when no current one exists.
- */
-const variableBinding = (
-  variable: string | undefined,
-  secretVariable: string | undefined
-): { variable?: string } => {
-  if (variable !== undefined) {
-    return { variable };
-  }
-  if (secretVariable === undefined) {
-    return {};
-  }
-  return { variable: secretVariable };
-};
-
-const StepExtensionFields = Schema.Struct({
-  id: nonEmptyString,
+const authoredFields = {
+  id: Schema.optional(nonEmptyString),
   /**
    * Collect Core Web Vitals at this Step's navigation. Only meaningful on a
-   * Step that navigates, and rejected by {@link Flow} anywhere else.
+   * Step that navigates, and rejected by {@link Flow} anywhere else ([ADR
+   * 0008](../../../docs/adr/0008-performance-is-a-navigation-step-toggle.md)).
    */
   performance: Schema.optional(Schema.Boolean),
   preSteps: Schema.optional(Schema.Array(PreStep)),
   variable: Schema.optional(nonEmptyString),
-});
-type StepExtensionFields = typeof StepExtensionFields.Type;
+} as const;
+
+const authoredActionSchemas = [
+  ...preStepActionSchemas,
+  NavigateStep,
+  ScrollStep,
+  WaitForStep,
+].map(({ fields }) => Schema.Struct({ ...fields, ...authoredFields }));
 
 /**
- * The Step extension as persisted Flows may spell it, including the pre-rename
- * `secretVariable` binding. Decoding renames it; where both spellings appear,
- * the current one wins.
+ * One ordered unit in a Flow: a browser action or an Audit Step, each carrying
+ * the authored fields.
  */
-const StepExtensionWithLegacyFields = Schema.Struct({
-  ...StepExtensionFields.fields,
-  secretVariable: Schema.optional(nonEmptyString),
-});
-type StepExtensionWithLegacy = typeof StepExtensionWithLegacyFields.Type;
-
-const StepExtension = StepExtensionWithLegacyFields.pipe(
-  Schema.decodeTo(StepExtensionFields, {
-    decode: SchemaGetter.transform(
-      ({
-        id,
-        performance,
-        preSteps,
-        secretVariable,
-        variable,
-      }: StepExtensionWithLegacy): StepExtensionFields => ({
-        ...variableBinding(variable, secretVariable),
-        ...(performance === undefined ? {} : { performance }),
-        ...(preSteps === undefined ? {} : { preSteps }),
-        id,
-      })
-    ),
-    encode: SchemaGetter.transform(
-      (extension: StepExtensionFields) => extension
-    ),
-  })
-);
-
-const extendStep = <S extends Schema.Struct.Fields>(fields: S) =>
-  Schema.Struct({
-    ...fields,
-    contingency: Schema.optional(StepExtension),
-  });
-
-export const FlowStep = Schema.Union([
-  extendStep(NavigateStep.fields),
-  extendStep(ClickStep.fields),
-  extendStep(ChangeStep.fields),
-  extendStep(KeyStep.fields),
-  AuditStep,
+export const AuthoredStep = Schema.Union([
+  ...authoredActionSchemas,
+  Schema.Struct({ ...AuditStep.fields, ...authoredFields }),
 ]);
-export type FlowStep = typeof FlowStep.Type;
+export type AuthoredStep = typeof AuthoredStep.Type;
 
 /**
- * A Step navigates when it is a `navigate` Step, or a `click` Step carrying an
- * asserted navigation event. Only these can be measured for Core Web Vitals.
+ * A Step navigates when it is a `navigate` Step — the only Step whose
+ * navigation is declared rather than incidental, and the only one Core Web
+ * Vitals measurement can anchor on.
  */
-export const stepNavigates = (step: FlowStep): boolean => {
-  if (step.type === "navigate") {
-    return true;
-  }
-  return (
-    step.type === "click" &&
-    (step.assertedEvents?.some(({ type }) => type === "navigation") ?? false)
-  );
-};
+export const stepNavigates = (step: AuthoredStep): boolean =>
+  step.type === "navigate";
 
 // `performance` on a Step that cannot navigate is malformed wherever it is
 // read, so the schema rejects it rather than silently ignoring it (ADR 0008).
-const performanceOnlyOnNavigatingSteps = Schema.makeFilter<readonly FlowStep[]>(
-  (steps) =>
-    steps.flatMap((step, index) => {
-      if (
-        step.type === "customStep" ||
-        step.contingency?.performance !== true
-      ) {
-        return [];
-      }
-      if (stepNavigates(step)) {
-        return [];
-      }
-      const label =
-        step.contingency?.id === undefined
-          ? `Step ${index + 1} (${step.type})`
-          : `Step ${index + 1} (${step.type}, id ${step.contingency.id})`;
-      return [
-        {
-          issue:
-            `${label} cannot navigate, so it cannot measure performance. ` +
-            "Set contingency.performance only on a navigate Step, or on a click Step with an asserted navigation event.",
-          path: [index, "contingency", "performance"],
-        },
-      ];
-    })
+const performanceOnlyOnNavigatingSteps = Schema.makeFilter<
+  readonly AuthoredStep[]
+>((steps) =>
+  steps.flatMap((step, index) => {
+    if (step.performance !== true || stepNavigates(step)) {
+      return [];
+    }
+    const label =
+      step.id === undefined
+        ? `Step ${index + 1} (${step.type})`
+        : `Step ${index + 1} (${step.type}, id ${step.id})`;
+    return [
+      {
+        issue:
+          `${label} cannot navigate, so it cannot measure performance. ` +
+          "Set performance only on a navigate Step.",
+        path: [index, "performance"],
+      },
+    ];
+  })
 );
 
+/**
+ * Where a website permission grant applies. Absent `origin` means the grant
+ * is context-wide — the v1 shape — while the key leaves room for per-origin
+ * grants without a later breaking change ([ADR
+ * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+export const PermissionGrant = Schema.Struct({
+  origin: Schema.optional(nonEmptyString),
+  /** The engine's permission name, e.g. `geolocation`. */
+  permission: nonEmptyString,
+});
+export type PermissionGrant = typeof PermissionGrant.Type;
+
+export const Geolocation = Schema.Struct({
+  accuracy: Schema.optional(Schema.Finite),
+  latitude: Schema.Finite,
+  longitude: Schema.Finite,
+});
+export type Geolocation = typeof Geolocation.Type;
+
+/**
+ * The device and environment characteristics a Flow declares and every Run
+ * reproduces ([ADR 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ * Emulated geolocation is the location a site receives when it asks for the
+ * current position. Fields the Flow does not declare stay at their defaults;
+ * `offline` and extra HTTP headers are deferred.
+ */
+export const Emulation = Schema.Struct({
+  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
+  geolocation: Schema.optional(Geolocation),
+  locale: Schema.optional(nonEmptyString),
+  permissions: Schema.optional(
+    Schema.Array(PermissionGrant).check(Schema.isMinLength(1))
+  ),
+  timezoneId: Schema.optional(nonEmptyString),
+  userAgent: Schema.optional(nonEmptyString),
+  viewport: Schema.optional(Viewport),
+});
+export type Emulation = typeof Emulation.Type;
+
+/**
+ * The accessibility rule ids a Run must produce no Finding against. Breaching
+ * a Gate makes the CLI exit non-zero without failing the Run ([ADR
+ * 0018](../../../docs/adr/0018-a-gate-fails-the-exit-code-not-the-run.md)):
+ * the site missed the bar, the Run executed fine, so a breaching Run stays
+ * eligible as a Baseline.
+ */
+export const Gate = Schema.Array(nonEmptyString).check(Schema.isMinLength(1));
+export type Gate = typeof Gate.Type;
+
+/**
+ * Contingency's primary durable artifact: a native JSON document declaring
+ * ordered Steps, conditional Pre-steps, Variables, Emulation, and a Gate
+ * ([ADR 0011](../../../docs/adr/0011-flow-is-a-native-format.md)). Chrome
+ * DevTools Recorder compatibility and import are dropped entirely; there are
+ * no legacy field folds and no migration. Documents carrying old selector
+ * arrays, frame indices, asserted events, targets-as-strings, or a video flag
+ * are rejected, not migrated.
+ *
+ * Decode Flows with `{ onExcessProperty: "error" }`: an unknown field means a
+ * document from another era, and ignoring it would silently drop whatever the
+ * author meant.
+ */
 export const Flow = Schema.Struct({
-  contingency: Schema.optional(FlowContingencyWithLegacy),
-  selectorAttribute: Schema.optional(Schema.String),
-  steps: Schema.Array(FlowStep).check(
+  emulation: Schema.optional(Emulation),
+  /**
+   * Stable identity for the Flow, independent of its user-editable title, so
+   * Run history survives a rename.
+   */
+  flowId: Schema.optional(nonEmptyString),
+  gate: Schema.optional(Gate),
+  /** Pre-steps that run before every Step after the initial navigation. */
+  preSteps: Schema.optional(Schema.Array(PreStep)),
+  steps: Schema.Array(AuthoredStep).check(
     Schema.isMinLength(1),
     performanceOnlyOnNavigatingSteps
   ),
+  /** The Run's wall-clock ceiling, in the Runner's units. */
   timeout: Schema.optional(Schema.Finite),
   title: nonEmptyString,
+  variables: Schema.optional(Schema.Array(Variable)),
 });
 export type Flow = typeof Flow.Type;
+
+// ---------------------------------------------------------------------------
+// Recording
+// ---------------------------------------------------------------------------
 
 export const RecordingPhase = Schema.Literals([
   "active",
@@ -351,48 +491,18 @@ export const RecordingCaptureMode = Schema.Literals([
 ]);
 export type RecordingCaptureMode = typeof RecordingCaptureMode.Type;
 
-const RecordedStepFields = Schema.Struct({
+export const RecordedStep = Schema.Struct({
   id: nonEmptyString,
   preSteps: Schema.Array(PreStep),
-  step: Schema.Union([ChromeStep, AuditStep]),
+  step: Schema.Union([BrowserActionStep, AuditStep]),
   variable: Schema.optional(nonEmptyString),
 });
-type RecordedStepFields = typeof RecordedStepFields.Type;
-
-const RecordedStepWithLegacyFields = Schema.Struct({
-  ...RecordedStepFields.fields,
-  secretVariable: Schema.optional(nonEmptyString),
-});
-type RecordedStepWithLegacy = typeof RecordedStepWithLegacyFields.Type;
-
-/** {@link RecordedStep}, accepting the pre-rename `secretVariable` spelling. */
-export const RecordedStep = RecordedStepWithLegacyFields.pipe(
-  Schema.decodeTo(RecordedStepFields, {
-    decode: SchemaGetter.transform(
-      ({
-        id,
-        preSteps,
-        secretVariable,
-        step,
-        variable,
-      }: RecordedStepWithLegacy): RecordedStepFields => ({
-        ...variableBinding(variable, secretVariable),
-        id,
-        preSteps,
-        step,
-      })
-    ),
-    encode: SchemaGetter.transform((recorded: RecordedStepFields) => recorded),
-  })
-);
 export type RecordedStep = typeof RecordedStep.Type;
 
 export const hasAuthoredBrowserStep = (
   recordedSteps: readonly RecordedStep[]
 ): boolean =>
-  recordedSteps.some(
-    ({ step }, index) => index > 0 && step.type !== "customStep"
-  );
+  recordedSteps.some(({ step }, index) => index > 0 && step.type !== "audit");
 
 export const RecordingSnapshot = Schema.Struct({
   captureMode: RecordingCaptureMode,

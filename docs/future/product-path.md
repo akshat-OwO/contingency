@@ -6,20 +6,19 @@ This doc is the build sequence implied by the domain model — not a sprint plan
 
 ## 1. Flow schema
 
-- Adopt Chrome DevTools Recorder JSON as the base document.
-- Define Contingency extension fields:
-  - Flow-level default **Pre-steps** (Step-shaped actions + explicit `when` condition).
-  - Per-**Step** Pre-steps (override/add).
-  - Ordered accessibility and performance **Audits** as Chrome custom Steps.
+- A native Contingency document — not Chrome DevTools Recorder JSON ([ADR 0011](../adr/0011-flow-is-a-native-format.md)). No import, no converter, no backward compatibility.
+- **Steps**: navigate, click, change, keyDown/keyUp, press, hover, scroll, selectOption, waitFor, plus ordered accessibility Audits. An assertion Step is deferred deliberately.
+- Each Step's target is an ordered array of structured locator descriptors (role + accessible name → label → placeholder → text → CSS → XPath), resolved first-match-wins.
+- Flow-level declarations: default **Pre-steps**, per-**Step** Pre-steps, **Variables**, **Emulation** ([ADR 0013](../adr/0013-emulation-belongs-to-the-flow.md)), and a **Gate** ([ADR 0018](../adr/0018-a-gate-fails-the-exit-code-not-the-run.md)).
+- Pre-step conditions are a closed set: `selectorVisible`, `selectorHidden`, `urlMatches` ([ADR 0022](../adr/0022-pre-step-conditions-gain-hidden-and-url.md)).
 - Pre-steps: no nested Pre-steps, no Audits on Pre-steps.
-- Plain Chrome exports remain valid Flows (extensions absent).
 
 ## 2. Create View: Recording → Flow
 
 - Wire “Start recording” to a **Recording** session (not a Run).
-- Capture canvas/browser interactions as Chrome-shaped **Steps** (same spirit as Chrome’s recorder).
+- Capture canvas/browser interactions as native **Steps**: hover by explicit author gesture, scroll coalesced per resting position, popups and new tabs recorded as further Pages.
 - Let the author add ordered Audit Steps and edit Flow/Step Pre-steps for ads, popups, cross-sells.
-- Export/save the result as a Flow JSON file; accept paste/import of Chrome Recorder JSON.
+- Export/save the result as a Flow JSON file.
 
 Depends on: live browser streaming (done), Flow schema.
 
