@@ -225,9 +225,10 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)), {
-      retry: WEDGE_RETRIES,
-    }
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)),
+  {
+    retry: WEDGE_RETRIES,
+  }
 );
 
 /**
@@ -281,9 +282,10 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)), {
-      retry: WEDGE_RETRIES,
-    }
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)),
+  {
+    retry: WEDGE_RETRIES,
+  }
 );
 
 it.live.skipIf(!canRecordVideo())(

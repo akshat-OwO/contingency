@@ -36,6 +36,11 @@ export const IntegrationLive = RunnerLive.pipe(
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
 
+const pathHas = (binary: string): boolean =>
+  (process.env["PATH"] ?? "")
+    .split(path.delimiter)
+    .some((directory) => existsSync(path.join(directory, binary)));
+
 /**
  * Whether this machine can produce a recording at all.
  *
@@ -47,8 +52,7 @@ const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
  * Tests that assert a recording exists are skipped there rather than failed:
  * the absence is the environment's, not the code's.
  */
-export const canRecordVideo = (): boolean =>
-  pathHas("ffmpeg");
+export const canRecordVideo = (): boolean => pathHas("ffmpeg");
 
 /**
  * Whether a recording can also be decoded. Decoding a WebM to assert what it
@@ -58,11 +62,6 @@ export const canRecordVideo = (): boolean =>
  */
 export const canDecodeVideo = (): boolean =>
   canRecordVideo() && pathHas("ffprobe");
-
-const pathHas = (binary: string): boolean =>
-  (process.env["PATH"] ?? "")
-    .split(path.delimiter)
-    .some((directory) => existsSync(path.join(directory, binary)));
 
 /**
  * What the fixture page requests once a Step has typed into it. Waiting for
