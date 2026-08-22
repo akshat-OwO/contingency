@@ -334,7 +334,21 @@ test("a Chrome DevTools Recorder export is rejected, not migrated", () => {
 
   // Rejected, not migrated: the document carries fields the native format
   // has never heard of and Steps that name no target it understands.
-  expect(failureMessage(chromeExport)).toBeTruthy();
+  expect(failureMessage(chromeExport)).toContain("assertedEvents");
+});
+
+test("strictness lives in the schema, not the call site", () => {
+  // A bare decode — no options — still refuses a document from another era.
+  const bareDecode = Schema.decodeUnknownResult(Flow);
+  expect(
+    Result.isSuccess(
+      bareDecode({
+        contingency: { video: true },
+        steps: [navigateStep],
+        title: "Checkout",
+      })
+    )
+  ).toBe(false);
 });
 
 test("old selector arrays, frame indices, string targets, and variable folds are rejected", () => {

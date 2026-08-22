@@ -344,23 +344,71 @@ const authoredFields = {
    */
   performance: Schema.optional(Schema.Boolean),
   preSteps: Schema.optional(Schema.Array(PreStep)),
+  /**
+   * A Variable binding: the named Variable's value substitutes `{{NAME}}` in
+   * this Step's fields at Run time. Meaningful where a Step supplies input —
+   * a change Step's value, most commonly.
+   */
   variable: Schema.optional(nonEmptyString),
 } as const;
 
-const authoredActionSchemas = [
-  ...preStepActionSchemas,
-  NavigateStep,
-  ScrollStep,
-  WaitForStep,
-].map(({ fields }) => Schema.Struct({ ...fields, ...authoredFields }));
+const AuthoredNavigateStep = Schema.Struct({
+  ...NavigateStep.fields,
+  ...authoredFields,
+});
+const AuthoredClickStep = Schema.Struct({
+  ...ClickStep.fields,
+  ...authoredFields,
+});
+const AuthoredChangeStep = Schema.Struct({
+  ...ChangeStep.fields,
+  ...authoredFields,
+});
+const AuthoredKeyStep = Schema.Struct({
+  ...KeyStep.fields,
+  ...authoredFields,
+});
+const AuthoredPressStep = Schema.Struct({
+  ...PressStep.fields,
+  ...authoredFields,
+});
+const AuthoredHoverStep = Schema.Struct({
+  ...HoverStep.fields,
+  ...authoredFields,
+});
+const AuthoredScrollStep = Schema.Struct({
+  ...ScrollStep.fields,
+  ...authoredFields,
+});
+const AuthoredSelectOptionStep = Schema.Struct({
+  ...SelectOptionStep.fields,
+  ...authoredFields,
+});
+const AuthoredWaitForStep = Schema.Struct({
+  ...WaitForStep.fields,
+  ...authoredFields,
+});
+const AuthoredAuditStep = Schema.Struct({
+  ...AuditStep.fields,
+  ...authoredFields,
+});
 
 /**
  * One ordered unit in a Flow: a browser action or an Audit Step, each carrying
- * the authored fields.
+ * the authored fields. Members are the authored forms of the exported action
+ * schemas, so decode errors and tooling name them.
  */
 export const AuthoredStep = Schema.Union([
-  ...authoredActionSchemas,
-  Schema.Struct({ ...AuditStep.fields, ...authoredFields }),
+  AuthoredNavigateStep,
+  AuthoredClickStep,
+  AuthoredChangeStep,
+  AuthoredKeyStep,
+  AuthoredPressStep,
+  AuthoredHoverStep,
+  AuthoredScrollStep,
+  AuthoredSelectOptionStep,
+  AuthoredWaitForStep,
+  AuthoredAuditStep,
 ]);
 export type AuthoredStep = typeof AuthoredStep.Type;
 
@@ -455,9 +503,9 @@ export type Gate = typeof Gate.Type;
  * arrays, frame indices, asserted events, targets-as-strings, or a video flag
  * are rejected, not migrated.
  *
- * Decode Flows with `{ onExcessProperty: "error" }`: an unknown field means a
- * document from another era, and ignoring it would silently drop whatever the
- * author meant.
+ * Strictness lives here, not at the call site: unknown fields are a decode
+ * error, because a document from another era must be rejected rather than
+ * silently stripped of whatever the author meant.
  */
 export const Flow = Schema.Struct({
   emulation: Schema.optional(Emulation),
@@ -481,6 +529,9 @@ export const Flow = Schema.Struct({
   timeout: Schema.optional(Schema.Finite),
   title: nonEmptyString,
   variables: Schema.optional(Schema.Array(Variable)),
+}).annotate({
+  identifier: "Flow",
+  parseOptions: { onExcessProperty: "error" },
 });
 export type Flow = typeof Flow.Type;
 
@@ -530,6 +581,9 @@ export const RecordingSnapshot = Schema.Struct({
   tabId: BrowserTabId,
   targetStepId: Schema.optional(Schema.String),
   undoAvailable: Schema.Boolean,
+}).annotate({
+  identifier: "RecordingSnapshot",
+  parseOptions: { onExcessProperty: "error" },
 });
 export type RecordingSnapshot = typeof RecordingSnapshot.Type;
 
