@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hover</title>
+  </head>
+  <body>
+    <main>
+      <h1>Hover</h1>
+      <!--
+        The menu exists in the DOM but stays hidden until the trigger is
+        genuinely hovered: an Audit over the resting page reports it absent,
+        so only a Flow that hovers first can reach it.
+      -->
+      <nav>
+        <button id="menu-trigger" type="button">Products</button>
+        <ul id="menu" hidden>
+          <li><a href="/confirmed.html">Anvils</a></li>
+          <li><a href="/confirmed.html">Bellows</a></li>
+        </ul>
+      </nav>
+    </main>
+    <script>
+      const menu = document.getElementById("menu");
+      const trigger = document.getElementById("menu-trigger");
+      // mouseenter/mouseleave rather than CSS :hover, so programmatic hover
+      // — what a Step performs — opens it exactly as a real pointer does.
+      trigger.addEventListener("mouseenter", () => {
+        menu.hidden = false;
+      });
+      trigger.addEventListener("mouseleave", () => {
+        menu.hidden = true;
+      });
+    </script>
+  </body>
+</html>

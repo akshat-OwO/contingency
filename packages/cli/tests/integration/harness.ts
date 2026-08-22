@@ -70,6 +70,12 @@ export const canDecodeVideo = (): boolean =>
  */
 export const STEP_BEACON = "/step-beacon";
 
+/** What the lazy fixture requests once its below-the-fold content loads. */
+export const LAZY_LOADED_BEACON = "/lazy-loaded-beacon";
+
+/** What the busy fixture requests on every tick after load, forever. */
+export const BUSY_TICK_BEACON = "/busy-tick-beacon";
+
 /** A path the fixture server accepts and never responds to. */
 export const NEVER_ANSWERED = "/never-answered.bin";
 

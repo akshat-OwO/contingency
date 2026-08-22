@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Popup</title>
+  </head>
+  <body>
+    <main>
+      <h1>Popup</h1>
+      <!--
+        Opens a second tab from a user action. A future Recording has to
+        follow it rather than fail on it, and a test proves it followed by
+        acting on the target page's own content.
+      -->
+      <button id="open-popup" type="button">Open checkout tab</button>
+    </main>
+    <script>
+      const trigger = document.getElementById("open-popup");
+      trigger.addEventListener("click", () => {
+        window.open("/popup-target.html", "_blank");
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lazy</title>
+    <style>
+      .spacer {
+        height: 300vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Lazy</h1>
+      <div class="spacer"></div>
+      <!--
+        Below the fold, hidden until the sentinel approaches the viewport.
+        An Audit that never scrolls sees an empty section; a Run that does
+        scroll sees the items, and the beacon request is the server-side
+        evidence the load actually happened.
+      -->
+      <section id="catalogue">
+        <h2>Catalogue</h2>
+        <ul id="items" hidden></ul>
+      </section>
+      <div id="sentinel"></div>
+    </main>
+    <script>
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) {
+            return;
+          }
+          observer.disconnect();
+          const items = document.getElementById("items");
+          for (const name of ["Anvil", "Bellows", "Chisel"]) {
+            const item = document.createElement("li");
+            item.textContent = name;
+            items.append(item);
+          }
+          items.hidden = false;
+          fetch("/lazy-loaded-beacon").catch(() => {});
+        },
+        // A small rootMargin so a viewport merely scrolled toward the
+        // sentinel — not onto it — still counts as reaching the content.
+        { rootMargin: "200px" }
+      );
+      observer.observe(document.getElementById("sentinel"));
+    </script>
+  </body>
+</html>
