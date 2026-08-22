@@ -159,6 +159,15 @@ const writeLongRunningFlow = (
     return flowPath;
   });
 
+/**
+ * The bundled recorder polls screenshots and can wedge its finalize across a
+ * mid-recording navigation, making `record stop` miss the Run's five-second
+ * flush ceiling (ADR 0010). The recording is lost to that upstream defect,
+ * not to the shutdown path under test, so these tests retry: every attempt
+ * still asserts strictly.
+ */
+const WEDGE_RETRIES = 2;
+
 it.live.skipIf(!canRecordVideo())(
   "leaves a flushed recording when a Run is interrupted",
   () =>
@@ -216,7 +225,9 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)), {
+      retry: WEDGE_RETRIES,
+    }
 );
 
 /**
@@ -270,7 +281,9 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)), {
+      retry: WEDGE_RETRIES,
+    }
 );
 
 it.live.skipIf(!canRecordVideo())(

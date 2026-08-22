@@ -48,9 +48,21 @@ const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
  * the absence is the environment's, not the code's.
  */
 export const canRecordVideo = (): boolean =>
+  pathHas("ffmpeg");
+
+/**
+ * Whether a recording can also be decoded. Decoding a WebM to assert what it
+ * contains needs `ffprobe`, which ships with `ffmpeg` in standard installs
+ * but is a separate binary: a machine can have either without the other, and
+ * tests that decode are skipped unless both are present.
+ */
+export const canDecodeVideo = (): boolean =>
+  canRecordVideo() && pathHas("ffprobe");
+
+const pathHas = (binary: string): boolean =>
   (process.env["PATH"] ?? "")
     .split(path.delimiter)
-    .some((directory) => existsSync(path.join(directory, "ffmpeg")));
+    .some((directory) => existsSync(path.join(directory, binary)));
 
 /**
  * What the fixture page requests once a Step has typed into it. Waiting for
