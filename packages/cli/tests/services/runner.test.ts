@@ -147,7 +147,9 @@ const makeFixture = (options?: {
       ),
     keyDown: (_session, key) => record("keyDown", [key]),
     keyUp: (_session, key) => record("keyUp", [key]),
-    startVideo: (_session, file) => record("startVideo", [file]),
+    // Rest args, so an argument the Runner drops or adds — a URL handed to
+    // the capture, say — shows up here instead of vanishing.
+    startVideo: (_session, ...args) => record("startVideo", args),
     stopLoading: () => record("stopLoading", []),
     stopVideo: () =>
       record("stopVideo", []).pipe(Effect.as(options?.videoError)),
@@ -1634,8 +1636,8 @@ it.effect("arms the vitals recorder on every page of a captured Run", () => {
     // A capture replays the Flow in a fresh browser context that no init
     // script can reach, so the recorder is registered by evaluating it into
     // each page the Run arrives at — including the opening page, which the
-    // recorder navigated to rather than the Runner, and the navigate Step
-    // after the click, but not the click itself, which stays on its page.
+    // Flow's own first navigation opens, and the navigate Step after the
+    // click, but not the click itself, which stays on its page.
     const order = fixture.calls
       .map(({ command }) => command)
       .filter(
@@ -1644,9 +1646,45 @@ it.effect("arms the vitals recorder on every page of a captured Run", () => {
           command === "armVitals" ||
           command === "startVideo"
       );
-    expect(order).toEqual(["startVideo", "armVitals", "goto", "armVitals"]);
+    expect(order).toEqual([
+      "startVideo",
+      "goto",
+      "armVitals",
+      "goto",
+      "armVitals",
+    ]);
   }).pipe(Effect.provide(fixture.fileSystemLayer));
 });
+
+it.effect(
+  "starts every capture on a blank page and lets the Flow open its own first page",
+  () => {
+    const fixture = makeFixture();
+
+    return Effect.gen(function* captureNeverNavigates() {
+      const runner = yield* makeRunnerService(fixture.browser);
+      const { run: result } = yield* runner.run(
+        flow([{ type: "navigate", url: "https://example.com/login" }]),
+        { outputDirectory: "/runs", video: true }
+      );
+
+      // The capture is handed no URL at all: handing it one races the attach,
+      // and the load lands before any frame is recorded. The first navigation
+      // is the Flow's own Step, so `run.json` reports its true duration.
+      expect(
+        fixture.calls.find(({ command }) => command === "startVideo")?.args
+      ).toHaveLength(1);
+      const order = fixture.calls
+        .map(({ command }) => command)
+        .filter((command) => command === "startVideo" || command === "goto");
+      expect(order).toEqual(["startVideo", "goto"]);
+      expect(
+        fixture.calls.find(({ command }) => command === "goto")?.args[0]
+      ).toBe("https://example.com/login");
+      expect(result.outcome).toBe("completed");
+    }).pipe(Effect.provide(fixture.fileSystemLayer));
+  }
+);
 
 it.effect("arms nothing when the Run is not captured", () => {
   const fixture = makeFixture({ vitals: measured });

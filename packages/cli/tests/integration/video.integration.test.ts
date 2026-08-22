@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import type { RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
@@ -11,6 +13,8 @@ import {
   IntegrationLive,
   runFlow,
 } from "./harness";
+
+const ffprobe = promisify(execFile);
 
 /** The EBML magic every WebM file starts with. */
 const EBML = "1a45dfa3";
@@ -73,6 +77,29 @@ it.live.skipIf(!canRecordVideo())("captures a Run to a playable WebM", () =>
     );
     expect(bytes.length).toBeGreaterThan(1024);
     expect(leadingHex(bytes, 4)).toBe(EBML);
+
+    // Containing the load, not just the end state: size and magic both pass
+    // on a hollow recording — a capture that navigated first recorded only
+    // ~0.3s of typed-out final state and every guard above still held. The
+    // recording must span the whole Run instead. The floor sits well above
+    // what a hollow recording reaches and well below what even a contended
+    // machine produces for this Run, so encoder timing cannot flake it.
+    const recordingPath = path.join(directory, segment?.file ?? "");
+    const probed = yield* Effect.tryPromise({
+      catch: (cause) => new Error(`ffprobe failed: ${String(cause)}`),
+      try: () =>
+        ffprobe("ffprobe", [
+          "-v",
+          "error",
+          "-show_entries",
+          "format=duration",
+          "-of",
+          "csv=p=0",
+          recordingPath,
+        ]),
+    });
+    const durationSeconds = Number(String(probed.stdout).trim());
+    expect(durationSeconds).toBeGreaterThan(0.5);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
