@@ -69,6 +69,13 @@ const DEFAULT_NAVIGATION_TIMEOUT_MS = 20_000;
 /** How often a bounded wait re-reads its condition while waiting it out. */
 const WAIT_POLL_MS = 100;
 
+/**
+ * The shortest wait for a Page a Step names. A popup the previous Step opened
+ * normally registers long before its Step acts; this floor only keeps a
+ * zero-ish Step timeout from turning that race into a guaranteed failure.
+ */
+const MINIMUM_PAGE_WAIT_MS = 1000;
+
 export class RunnerError extends Data.TaggedError("RunnerError")<{
   /**
    * Who the failure belongs to, when the Runner knows. Only the Runner can
@@ -399,7 +406,7 @@ const pageFor = Effect.fn("Runner.pageFor")(function* pageFor(
   timeoutMs: number
 ) {
   const index = pageIndex ?? 0;
-  const deadline = Date.now() + Math.max(timeoutMs, 1000);
+  const deadline = Date.now() + Math.max(timeoutMs, MINIMUM_PAGE_WAIT_MS);
   for (;;) {
     const page = execution.pages[index];
     if (page !== undefined) {
@@ -848,34 +855,18 @@ const waitUntilCondition = Effect.fn("Runner.waitUntilCondition")(
     }
 
     if (when.type === "selectorVisible") {
-      const tried: string[] = [];
-      let lastMessage = "";
-      for (const descriptor of when.target) {
-        const outcome = yield* Effect.result(
-          Effect.tryPromise({
-            catch: (cause: unknown) => cause,
-            try: () =>
-              locatorFor(page, descriptor).waitFor({
-                state: "visible",
-                timeout: timeoutMs,
-              }),
-          })
-        );
-        if (outcome._tag === "Success") {
-          return;
-        }
-        if (!isCandidateMiss(outcome.failure)) {
-          return yield* new RunnerError({
-            message: errorMessage(outcome.failure),
-          });
-        }
-        tried.push(describeLocator(descriptor));
-        lastMessage = errorMessage(outcome.failure);
-      }
-      return yield* new RunnerError({
-        kind: "flowError",
-        message: `This waitFor Step timed out after ${timeoutMs}ms waiting for a visible target (tried ${tried.length}): ${tried.join("; ")}. Last reason: ${lastMessage}`,
-      });
+      yield* throughLadder(page, when.target, (locator) =>
+        locator.waitFor({ state: "visible", timeout: timeoutMs })
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new RunnerError({
+              kind: cause instanceof RunnerError ? cause.kind : undefined,
+              message: `This waitFor Step timed out after ${timeoutMs}ms waiting for a visible target. ${cause.message}`,
+            })
+        )
+      );
+      return;
     }
 
     // selectorHidden: poll until nothing the target names is visible.
@@ -1323,7 +1314,10 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       // Page this context opens, popups included.
       if (measures) {
         yield* Effect.tryPromise({
-          catch: () => new RunnerError({ message: "unused" }),
+          catch: (cause) =>
+            new RunnerError({
+              message: `Could not arm Core Web Vitals recording: ${errorMessage(cause)}`,
+            }),
           try: () => context.addInitScript(VITALS_RECORDER),
         }).pipe(Effect.ignore);
       }
@@ -1440,7 +1434,10 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       // a Ctrl-C rather than a finished Flow.
       Effect.gen(function* teardownAttempt() {
         yield* Effect.tryPromise({
-          catch: () => new RunnerError({ message: "close failed" }),
+          catch: (cause) =>
+            new RunnerError({
+              message: `Could not close the browser context: ${errorMessage(cause)}`,
+            }),
           try: () => context.close(),
         }).pipe(Effect.ignore);
         if (capture !== undefined) {

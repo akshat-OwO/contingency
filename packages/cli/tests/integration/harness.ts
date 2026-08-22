@@ -12,8 +12,8 @@ import type { Scope } from "effect/Scope";
 import type {
   RunnerRunOptions,
   RunnerService,
-} from "../../src/services/runner";
-import { Runner, RunnerLive } from "../../src/services/runner";
+} from "../../src/services/runner.ts";
+import { Runner, RunnerLive } from "../../src/services/runner.ts";
 
 /**
  * The real Runner, driving a real Chromium in process.
