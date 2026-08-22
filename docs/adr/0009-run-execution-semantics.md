@@ -24,7 +24,9 @@ One directory per Run under the state directory, keyed by a stable `flowId` rath
 
 Failed Runs are ineligible as a Baseline.
 
-Findings never affect the exit code: `0` means the Run completed, `1` means it did not. Every site has pre-existing accessibility violations, so failing a build on Finding count makes the build red on day one and the check gets disabled. The thing that should break a build is a Regression.
+Findings never affect the exit code by default: `0` means the Run completed, `1` means it did not. Every site has pre-existing accessibility violations, so failing a build on Finding count makes the build red on day one and the check gets disabled. The thing that should break a build is a Regression.
+
+> Amended by [ADR 0018](./0018-a-gate-fails-the-exit-code-not-the-run.md). A Flow may opt into a **Gate** naming specific rule ids, and a breach exits `2`. The Run's outcome stays `completed`, so outcome and exit code are no longer one value and a policy-breaching Run remains Baseline-eligible.
 
 ## Consequences
 

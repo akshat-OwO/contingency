@@ -1,0 +1,11 @@
+# Emulation belongs to the Flow
+
+Browser emulation — viewport, user agent, geolocation, website permissions, locale, timezone, and color scheme — is a field on the Flow, applied identically by Create View and by every Run. [Issue #4](https://github.com/akshat-OwO/contingency/issues/4) had scoped geolocation as a Create View control held in process memory, which lets an author _build_ a location-dependent Flow that then cannot be _run_: a headless CI Run would execute it from wherever the CI machine appears to be. Since the CLI is the sole Runner ([ADR 0002](./0002-cli-is-the-sole-runner.md)), emulation belongs to the artifact the Runner reads.
+
+## Consequences
+
+- **Emulated location is the location.** A site that asks for the current position through the geolocation API receives the emulated coordinates, because the permission is genuinely granted rather than merely overridden.
+- **v1 fields**: `viewport`, `userAgent`, `geolocation`, `permissions`, `locale`, `timezoneId`, `colorScheme`. Locale and timezone accompany geolocation because a site that geolocates to Berlin and renders US date formats is a bad emulation. `colorScheme` earns its place because accessibility Audits differ under dark mode. `offline` and `extraHTTPHeaders` are deferred; headers overlap with Variables and secrets.
+- **Permissions are context-wide in v1**, with origin as an optional key in the schema so per-origin grants — which Playwright supports natively — are not a later breaking change. There is no migration safety net ([ADR 0011](./0011-flow-is-a-native-format.md)), so the cheap shape is worth taking now.
+- **Issue #4 is rewritten, not implemented.** Roughly a third of its thirty user stories existed only to narrate `agent-browser` limitations — that emulation does not grant permission, that an override survives until the session closes, that a Disable control would be misleading, that "disabled" means Contingency never applied anything. Every one of those constraints disappears. [PR #5](https://github.com/akshat-OwO/contingency/pull/5) stays open as a reference for the UI shape and is not merged.
+- **A user-agent change no longer risks losing other emulation.** Under `agent-browser` the user agent was launch configuration with a relaunch risk; in Playwright it is a context option, so the full emulation state is rebuilt in one place.

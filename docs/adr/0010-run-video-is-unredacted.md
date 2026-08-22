@@ -1,5 +1,7 @@
 # Run video is captured unredacted
 
+> Amended by [ADR 0014](./0014-artifacts-are-run-properties.md). The stance below — artifacts are unredacted, treat them as credentials — holds and now extends to traces. The operational consequences describing live WebM capture no longer apply: video is derived from the trace.
+
 A Run may be captured to video (`Flow.contingency.video`, or `--video`), using the browser's session-scoped WebM recording. Capture is **not** suspended while a Step enters a secret value. Video therefore contains secrets in plaintext — a 2FA code, an API key, or any credential typed into a field that is not `type="password"` is rendered on screen and written to the file — while `run.json` redacts those same values.
 
 This is accepted rather than solved, because the alternatives were worse for now: masking a target's bounding box relies on a selector that may be stale, and a mis-computed box leaks the credential anyway. Segmenting capture around secret-bearing Steps remains available later; it is cheap, since a fill Step is sub-second.

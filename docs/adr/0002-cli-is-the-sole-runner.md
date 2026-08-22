@@ -1,5 +1,7 @@
 # CLI owns the sole Runner
 
+> Amended by [ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md): the Runner and Create View now share one browser stack, which the last consequence below left open.
+
 Executing a Flow into a **Run** happens only in the Contingency CLI Runner. The Audit View (headed) and headless CLI invocations are adapters over that engine; the web UI does not embed a second player that must be kept in sync. Create View's live browser session is for authoring (Recording), not for producing Runs.
 
 ## Consequences

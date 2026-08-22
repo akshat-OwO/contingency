@@ -1,5 +1,7 @@
 # Incomplete Recordings recover from capture-connection checkpoints
 
+> Amended by [ADR 0019](./0019-recording-follows-pages.md): an additional tab or popup is no longer an integrity failure. Every other terminal failure below stands.
+
 An incomplete Recording remains blocked from Finish and download. Reload & Resume is available only when capture stopped because the recorder connection or sidecar was lost, and the pinned browser session and tab still exist. Recovery switches back to the pinned tab, reloads it, restarts the CLI-owned capture sidecar, and appends a navigation checkpoint before returning the Recording to active; actions performed after capture integrity was lost are never retained.
 
 Integrity failures stay terminal. Those include an unsupported additional tab or popup, navigation while paused, a closed pinned session, an unaddressable selector, event-limit or sequence overflow, and malformed page-derived recorder data.

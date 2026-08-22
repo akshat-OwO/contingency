@@ -1,5 +1,7 @@
 # CLI owns a CDP recorder sidecar
 
+> Superseded by [ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md). The recorder's design survives; the transport beneath it does not.
+
 Create View recordings are captured by a CLI-owned CDP sidecar that connects through the browser endpoint exposed by `agent-browser`. The sidecar injects bundled recorder code into restricted isolated worlds across browser frames and emits validated semantic actions; CDP is never exposed to the web UI. This revises the earlier assumption that all CDP access stays inside `agent-browser`, because its public event stream cannot reliably supply the selectors, frame context, or navigation events required for Chrome Recorder–compatible Steps.
 
 ## Consequences
