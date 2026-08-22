@@ -194,6 +194,12 @@ export interface AgentBrowser {
    * drops `localStorage` — so starting mid-Run logs out any Flow whose session
    * lives there, and re-navigates the page besides.
    *
+   * The session starts on a blank page and stays there until its caller
+   * navigates: handing a URL to the capture's own navigation races it, and a
+   * navigation issued before the recorder attaches produces a hollow recording
+   * of the end state only. That is why this waits out the attach settle before
+   * returning — every caller navigates afterwards, on camera.
+   *
    * That fresh context does not inherit the session's init scripts either, so
    * a caller recording Core Web Vitals re-arms its recorder on each page it
    * arrives at ({@link armVitalsRecorder}): a captured Run that measured
@@ -202,8 +208,7 @@ export interface AgentBrowser {
    */
   readonly startVideo: (
     sessionId: SessionId,
-    file: string,
-    url?: string
+    file: string
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   /**
    * Flush the capture to disk, reporting why if it did not. Video is an
@@ -580,7 +585,10 @@ const SHUTDOWN_TIMEOUT = Duration.seconds(5);
  * nothing in five tries out of five, while one issued after a second produced
  * a recording every time. The race is with the navigation, not with anything
  * else sent alongside it: the same settle flushes recordings on sessions that
- * register no init script at all.
+ * register no init script at all. Skipping the settle costs more than frames:
+ * under CPU contention the closing flush then waits out an internal timeout
+ * of its own, observed at thirty seconds, and a Run's bounded five-second
+ * flush gives up on the file instead.
  */
 const VIDEO_ATTACH_SETTLE = Duration.seconds(1);
 
@@ -1793,18 +1801,25 @@ const makeAgentBrowser = (runtime: AgentBrowserRuntime) =>
      */
     const NO_RECORDING = "No recording in progress";
 
+    /**
+     * Gives the blank page something to render. A page with no content paints
+     * nothing, and a recording whose encoder sits idle while the Flow's first
+     * navigation runs is one whose flush can stall out on the encoder's own
+     * internal timeout — observed at thirty seconds against the fifth of a
+     * second a fed encoder takes. One painted word costs nothing and is
+     * overwritten by the Flow's first navigation.
+     */
+    const PRIME_RECORDING_FRAME =
+      'document.body.textContent = "Contingency is recording."';
+
     const startVideo = Effect.fn("AgentBrowser.startVideo")(
-      function* startVideo(sessionId: SessionId, file: string, url?: string) {
-        const normalized =
-          url === undefined ? undefined : yield* normalizeUrl(url);
-        yield* runBatch(sessionId, [
-          normalized === undefined
-            ? ["record", "start", file]
-            : ["record", "start", file, normalized],
-        ]);
-        if (normalized !== undefined) {
-          return;
-        }
+      function* startVideo(sessionId: SessionId, file: string) {
+        yield* runBatch(sessionId, [["record", "start", file]]);
+        // The session stays on its blank page until the caller navigates, so
+        // the recorder has time to attach before any frame worth keeping.
+        yield* Effect.result(
+          runBatch(sessionId, [["eval", PRIME_RECORDING_FRAME]])
+        );
         yield* Effect.sleep(VIDEO_ATTACH_SETTLE);
       }
     );

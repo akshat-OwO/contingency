@@ -159,6 +159,15 @@ const writeLongRunningFlow = (
     return flowPath;
   });
 
+/**
+ * The bundled recorder polls screenshots and can wedge its finalize across a
+ * mid-recording navigation, making `record stop` miss the Run's five-second
+ * flush ceiling (ADR 0010). The recording is lost to that upstream defect,
+ * not to the shutdown path under test, so these tests retry: every attempt
+ * still asserts strictly.
+ */
+const WEDGE_RETRIES = 2;
+
 it.live.skipIf(!canRecordVideo())(
   "leaves a flushed recording when a Run is interrupted",
   () =>
@@ -179,9 +188,9 @@ it.live.skipIf(!canRecordVideo())(
       // capture began — which is the state a Ctrl-C has to survive.
       const reached = yield* waitUntil(() =>
         // The page beacons when a Step types into it, which cannot happen
-        // until the recorder's own opening navigation has returned. Request
-        // arrival and the recording file are both true earlier than that — the
-        // file is created empty when capture starts — so a signal sent on
+        // until the Flow's own opening navigation has returned. Request
+        // arrival and the recording file are both true earlier than that —
+        // the file is created empty when capture starts — so a signal sent on
         // either can land mid-navigation, where the flush is deliberately
         // abandoned and this test would fail without a regression.
         fixtures.requests.includes(STEP_BEACON)
@@ -216,7 +225,10 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)),
+  {
+    retry: WEDGE_RETRIES,
+  }
 );
 
 /**
@@ -270,7 +282,10 @@ it.live.skipIf(!canRecordVideo())(
       ) as RunVideoManifest;
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
-    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive)),
+  {
+    retry: WEDGE_RETRIES,
+  }
 );
 
 it.live.skipIf(!canRecordVideo())(
@@ -304,10 +319,10 @@ it.live.skipIf(!canRecordVideo())(
       const runs = path.join(directory, "runs");
       const child = yield* start(flowPath, runs);
 
-      // Capture begins before the recorder performs the Flow's opening
-      // navigation, and a request the fixture server has received but never
-      // answers is proof that navigation is still in flight — exactly where
-      // the signal has to land.
+      // Capture begins before the Flow performs its opening navigation, and a
+      // request the fixture server has received but never answers is proof
+      // that navigation is still in flight — exactly where the signal has to
+      // land.
       const reached = yield* waitUntil(() =>
         fixtures.requests.includes(NEVER_ANSWERED)
       );

@@ -444,13 +444,7 @@ const awaitNavigation = Effect.fn("Runner.awaitNavigation")(
 const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
   { browser, sessionId, variables }: StepExecution,
   step: FlowStep,
-  index: number,
-  /**
-   * The recorder already opened this Step's URL: it performs the Flow's own
-   * first navigation when a Run is captured, because a capture that starts on
-   * a blank page and navigates afterwards records nothing more often than not.
-   */
-  alreadyOpen = false
+  index: number
 ) {
   const resolve = (value: string): string =>
     substituteVariables(value, variables.values);
@@ -462,9 +456,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     return yield* browser.audit(sessionId, accessibilityRuleTags, index);
   }
   if (step.type === "navigate") {
-    if (!alreadyOpen) {
-      yield* browser.goto(sessionId, resolve(step.url));
-    }
+    yield* browser.goto(sessionId, resolve(step.url));
     // A server error still navigates, so the Step would otherwise pass and the
     // Flow would fail several Steps later on a selector that is missing only
     // because the page is an error page. That misreads a broken site as a
@@ -752,23 +744,19 @@ const captureToVideo =
     video:
       | {
           readonly file: string;
-          readonly openAt: string | undefined;
           readonly segments: RunVideoSegment[];
         }
       | undefined,
     attempt: number
   ) =>
-  <A, E, R>(
-    /** Told whether the recorder opened the Flow's first page itself. */
-    replay: (opened: boolean) => Effect.Effect<A, E, R>
-  ): Effect.Effect<A, E, R> => {
+  <A, E, R>(replay: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => {
     if (video === undefined) {
-      return replay(false);
+      return replay;
     }
     const { file, segments } = video;
     const name = path.basename(file);
     return Effect.acquireUseRelease(
-      Effect.result(browser.startVideo(sessionId, file, video.openAt)),
+      Effect.result(browser.startVideo(sessionId, file)),
       (started) =>
         started._tag === "Failure"
           ? Effect.sync(() => {
@@ -780,8 +768,8 @@ const captureToVideo =
               });
               // The capture never began, so the page is still blank and the
               // Flow performs its own first navigation as usual.
-            }).pipe(Effect.andThen(replay(false)))
-          : replay(video.openAt !== undefined),
+            }).pipe(Effect.andThen(replay))
+          : replay,
       (started) => {
         if (started._tag === "Failure") {
           return Effect.void;
@@ -829,7 +817,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   video:
     | {
         readonly file: string;
-        readonly openAt: string | undefined;
         readonly segments: RunVideoSegment[];
       }
     | undefined,
@@ -855,7 +842,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         opened,
         video,
         attempt
-      )((recorderOpenedFirstPage) =>
+      )(
         Effect.gen(function* replayFlow() {
           const execution = { browser, sessionId: opened, variables };
           /** Index in `steps` of a Step whose page has not been measured yet. */
@@ -879,12 +866,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             }
 
             const outcome = yield* Effect.result(
-              executeStep(
-                execution,
-                step,
-                index,
-                index === 0 && recorderOpenedFirstPage
-              ).pipe(
+              executeStep(execution, step, index).pipe(
                 Effect.mapError((cause) =>
                   cause instanceof RunnerError
                     ? cause
@@ -1028,7 +1010,6 @@ export const makeRunnerService = (browser: AgentBrowser) =>
       function* prepareCapture(
         flow: Flow,
         options: RunnerRunOptions,
-        variables: VariableResolution,
         directory: string
       ) {
         const capture = options.video ?? flow.contingency?.video ?? false;
@@ -1044,18 +1025,7 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             )
           );
         }
-        // The recorder opens the Flow's own first page when it can: a capture
-        // that starts on a blank page and navigates afterwards records nothing
-        // more often than not. It is the same single navigation either way,
-        // and the Runner arms its vitals recorder into that page afterwards.
-        const first = flow.steps.at(0);
-        return {
-          capture,
-          openingUrl:
-            capture && first?.type === "navigate"
-              ? substituteVariables(first.url, variables.values)
-              : undefined,
-        };
+        return { capture };
       }
     );
 
@@ -1119,16 +1089,10 @@ export const makeRunnerService = (browser: AgentBrowser) =>
             );
             // The segment list exists before capture is prepared, and the
             // manifest finalizer is registered before capture begins: a Run
-            // that dies while the recording is still starting — Ctrl-C during
-            // the recorder's own opening navigation, say — must still leave
+            // that dies while the recording is still starting must still leave
             // the manifest accounting for the recording it never produced.
             const segments: RunVideoSegment[] = [];
-            const { capture, openingUrl } = yield* prepareCapture(
-              flow,
-              options,
-              variables,
-              directory
-            );
+            const { capture } = yield* prepareCapture(flow, options, directory);
             /**
              * Written on every exit path, interruption included. A recording
              * flushes when a Run is cut short, and a recording nobody can
@@ -1181,7 +1145,6 @@ export const makeRunnerService = (browser: AgentBrowser) =>
                   capture
                     ? {
                         file: path.join(directory, `attempt-${index + 1}.webm`),
-                        openAt: openingUrl,
                         segments,
                       }
                     : undefined,
