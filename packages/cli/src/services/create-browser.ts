@@ -11,7 +11,7 @@ import type {
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
+import { Effect, Exit, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import { chromium } from "playwright-core";
 import type { Browser } from "playwright-core";
 
@@ -213,29 +213,33 @@ const makeService = (
   ) {
     const browser = yield* getBrowser;
     const normalizedUrl = yield* validateBrowserUrl(url);
-    const sessionId =
-      requestedSessionId ?? (yield* create(`create-${randomUUID()}`, viewport));
-    const session = yield* requireSession(sessionId);
-    return yield* Effect.gen(function* finishOpeningSession() {
-      yield* setViewport(sessionId, viewport);
-      const userAgent = resolveUserAgent(userAgentProfile, browser.version());
-      const state = yield* Ref.modify(session.state, (current) => [
-        { ...current, userAgent },
-        { ...current, userAgent },
-      ]);
-      yield* Effect.forEach(state.pageIds.keys(), (page) =>
-        applyUserAgent(session, page, userAgent)
-      );
-      yield* tryBrowser("Could not open the URL", () =>
-        state.activePage.goto(normalizedUrl)
-      );
-      return { sessionId, url: state.activePage.url() };
-    }).pipe(
-      Effect.tapError(() =>
-        requestedSessionId === undefined
-          ? closeSession(sessionId).pipe(Effect.ignore)
-          : Effect.void
-      )
+    const finishOpen = (sessionId: SessionId) =>
+      Effect.gen(function* finishOpeningSession() {
+        const session = yield* requireSession(sessionId);
+        yield* setViewport(sessionId, viewport);
+        const userAgent = resolveUserAgent(userAgentProfile, browser.version());
+        const state = yield* Ref.modify(session.state, (current) => [
+          { ...current, userAgent },
+          { ...current, userAgent },
+        ]);
+        yield* Effect.forEach(state.pageIds.keys(), (page) =>
+          applyUserAgent(session, page, userAgent)
+        );
+        yield* tryBrowser("Could not open the URL", () =>
+          state.activePage.goto(normalizedUrl)
+        );
+        return { sessionId, url: state.activePage.url() };
+      });
+    if (requestedSessionId !== undefined) {
+      return yield* finishOpen(requestedSessionId);
+    }
+    return yield* Effect.acquireUseRelease(
+      create(`create-${randomUUID()}`, viewport),
+      finishOpen,
+      (sessionId, exit) =>
+        Exit.isSuccess(exit)
+          ? Effect.void
+          : closeSession(sessionId).pipe(Effect.ignore)
     );
   });
 

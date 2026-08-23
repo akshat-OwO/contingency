@@ -1,17 +1,31 @@
 import { BrowserStreamId, BrowserTabId } from "@contingency/protocol";
+import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Layer, Stream } from "effect";
 
 import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
+import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
   height: 480,
   width: 640,
 } as const;
+
+const CreateBrowserIntegrationLive = Layer.merge(
+  CreateBrowserLive,
+  NodeServices.layer
+);
+
+const waitUntil = (ready: () => boolean) =>
+  Effect.gen(function* waitForCondition() {
+    while (!ready()) {
+      yield* Effect.sleep("10 millis");
+    }
+  }).pipe(Effect.timeout("10 seconds"));
 
 it.live(
   "opens, streams, stores state, changes emulation, and closes a Create View session",
@@ -176,6 +190,45 @@ it.live("rolls back only implicitly created sessions when opening fails", () =>
     );
     expect(yield* browser.list()).toEqual([existingSessionId]);
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserLive))
+);
+
+it.live("rolls back interrupted implicit opens only", () =>
+  Effect.gen(function* interruptedOpenCleanup() {
+    const browser = yield* CreateBrowser;
+    const fixtures = yield* fixtureServer;
+    const existingSessionId = yield* browser.create(
+      "create-interrupted-existing",
+      viewport
+    );
+    const neverAnsweredUrl = `${fixtures.origin}${NEVER_ANSWERED}`;
+
+    const implicitOpen = yield* Effect.forkChild(
+      browser.open(undefined, neverAnsweredUrl, viewport, "chrome-windows")
+    );
+    yield* waitUntil(
+      () =>
+        fixtures.requests.filter((request) => request === NEVER_ANSWERED)
+          .length === 1
+    );
+    yield* Fiber.interrupt(implicitOpen);
+    expect(yield* browser.list()).toEqual([existingSessionId]);
+
+    const existingOpen = yield* Effect.forkChild(
+      browser.open(
+        existingSessionId,
+        neverAnsweredUrl,
+        viewport,
+        "chrome-windows"
+      )
+    );
+    yield* waitUntil(
+      () =>
+        fixtures.requests.filter((request) => request === NEVER_ANSWERED)
+          .length === 2
+    );
+    yield* Fiber.interrupt(existingOpen);
+    expect(yield* browser.list()).toEqual([existingSessionId]);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
 
 it.live("applies an opened profile to every tab in an existing session", () =>
