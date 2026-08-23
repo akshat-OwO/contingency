@@ -55,4 +55,16 @@ jobs:
       - name: Install Chromium
         run: nub exec --cwd packages/cli playwright-core install chromium
 
+      # The video integration test decodes the WebM it captured with ffprobe;
+      # without it the test skips itself, and a skipped test proves nothing
+      # about the feature it names. The runner no longer encodes with ffmpeg,
+      # but the probe stays a hard prerequisite of this job.
+      - name: Install ffmpeg (ffprobe for the video assertions)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Check ffprobe is present
+        run: ffprobe -version
+
       - run: nub exec turbo run test:integration

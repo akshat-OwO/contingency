@@ -1,5 +1,7 @@
+import path from "node:path";
+
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 import {
   fixtureServer,
@@ -83,11 +85,15 @@ it.live("types through keyDown, change, and press", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
-it.live("acts on a popup as the next Page of the Flow", () =>
+// Capture records per Page, so a Flow that opens a popup must still leave
+// exactly one watchable recording — the opening Page's — rather than an
+// arbitrary one of the files Playwright wrote.
+it.live("acts on a popup as the next Page of the Flow, captured to video", () =>
   Effect.gen(function* replayAcrossPages() {
     const fixtures = yield* fixtureServer;
+    const fileSystem = yield* FileSystem.FileSystem;
 
-    const { run } = yield* runFlow(
+    const { directory, persisted, run } = yield* runFlow(
       flow([
         { type: "navigate", url: fixtures.url("popup.html") },
         { target: [{ kind: "css", selector: "#open-popup" }], type: "click" },
@@ -100,7 +106,8 @@ it.live("acts on a popup as the next Page of the Flow", () =>
           ],
           type: "hover",
         },
-      ])
+      ]),
+      { video: true }
     );
 
     expect(run.outcome).toBe("completed");
@@ -109,5 +116,13 @@ it.live("acts on a popup as the next Page of the Flow", () =>
       "completed",
       "completed",
     ]);
+    expect(persisted.video).toBe(true);
+
+    // The recording kept is the opening Page's — present and watchable, not
+    // whichever of the per-Page files the encoder happened to list first.
+    const recording = yield* fileSystem.readFile(
+      path.join(directory, "attempt-1.webm")
+    );
+    expect(recording.length).toBeGreaterThan(1024);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

@@ -38,9 +38,10 @@ class RunDidNotComplete extends Data.TaggedError("RunDidNotComplete")<{
 /**
  * How to say that a captured Run produced no recording, when it produced none.
  *
- * The browser tool encodes captures with `ffmpeg` and does not bundle it, so a
- * machine without it records nothing. Whatever the reason, asking for video
- * and silently getting none sends someone hunting for a file.
+ * Playwright flushes the capture when the browser closes, and a capture that
+ * never began — or was cut off mid-encode — leaves nothing behind. Whatever
+ * the reason, asking for video and silently getting none sends someone
+ * hunting for a file.
  */
 const videoWarning = Effect.fn("run.videoWarning")(function* videoWarning(
   run: Run,

@@ -12,7 +12,7 @@ From `packages/cli`:
 nub tests/calibration/video-overhead.ts [pairs]
 ```
 
-`pairs` defaults to 10 — ten Runs per condition — and takes a few minutes. `ffmpeg` must be on the `PATH`, because the browser tool encodes recordings with it; without it the video condition would claim to measure the cost of recording while recording nothing, so the experiment refuses to run.
+`pairs` defaults to 10 — ten Runs per condition — and takes a few minutes. A Playwright Chromium install (`npx playwright-core install chromium`) is required; without a browser the video condition would claim to measure the cost of recording while recording nothing, so the experiment refuses to run.
 
 The summary prints to stdout and every Run's numbers are written to `results.json` beside this file (gitignored: the numbers describe the machine that produced them, so they are reported on the ticket instead of committed).
 
@@ -21,7 +21,7 @@ The summary prints to stdout and every Run's numbers are written to `results.jso
 - Serves `fixtures/calibration.html` over real HTTP. The page is fixed: a hero image the server answers after 120ms, so LCP lands mid-load the way a real hero image does, and a button whose click handler blocks the main thread for 120ms, so INP sits well above its 16ms reporting floor.
 - Discards one Run of each condition first: those Runs pay one-time costs — browser install, daemon start, cold page cache — that no counted Run pays.
 - Interleaves the two conditions in pairs, alternating which condition of each pair goes first, so a machine that warms, cools, or busies itself during the experiment does so to both conditions equally.
-- Runs every Run through the real Runner against the real bundled browser (the integration suite's `IntegrationLive` layer), because what matters is what `--video` costs a real Run, not what it costs a mock.
+- Runs every Run through the real Runner (the integration suite's `IntegrationLive` layer), because what matters is what `--video` costs a real Run, not what it costs a mock.
 - Counts a Run only when it completed, the hero image was actually fetched (a warm-cache Run measured a different page load), and — for the video condition — a recording really was written.
 
 ## What it reports

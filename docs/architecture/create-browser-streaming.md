@@ -1,6 +1,8 @@
-# Create View: browser streaming (current)
+# Create View: browser streaming (historical)
 
-This describes what exists today for the Create View live browser. Domain language lives in [`CONTEXT.md`](../../CONTEXT.md). Canvas, screencast, CDP, and agent-browser are runtime concerns — not glossary terms.
+> **Superseded.** [ADR 0012](../adr/0012-playwright-is-the-in-process-browser-runtime.md) replaces the bundled `agent-browser` binary and its CDP sidecars with in-process Playwright, and that work deleted everything this document describes in its present-tense sections. The text below is kept as a record of the design it superseded; the Create View rebuild on Playwright (#51–#53) will document its own streaming design.
+
+Historical context: this described what existed for the Create View live browser before the Playwright migration. Domain language lives in [`CONTEXT.md`](../../CONTEXT.md). Canvas, screencast, CDP, and agent-browser were runtime concerns — not glossary terms.
 
 ## Status
 

@@ -93,13 +93,20 @@ const describeLocator = (descriptor: LocatorDescriptor): string => {
   }
 };
 
-const targetLabel = (target: readonly LocatorDescriptor[]): string =>
-  target.map(describeLocator).join(" → ");
+/**
+ * The ladder is ordered alternatives, not a path, so the card names the
+ * leading descriptor — the strategy most likely to still resolve.
+ */
+const targetLabel = (target: readonly LocatorDescriptor[]): string => {
+  const [lead] = target;
+  return lead === undefined ? "" : describeLocator(lead);
+};
 
 const selectorLabel = (recorded: RecordedStep): string | undefined => {
   const { step } = recorded;
   if (step.type === "audit") {
-    return "Contingency custom Step";
+    // The card's title already says what an Audit is.
+    return undefined;
   }
   if (step.type === "navigate") {
     return step.url;

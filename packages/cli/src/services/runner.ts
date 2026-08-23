@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, rename, rm } from "node:fs/promises";
+import { rename, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { arch, cpus, loadavg, platform, totalmem } from "node:os";
 import path from "node:path";
@@ -291,6 +291,12 @@ interface ReplayExecution {
 interface AttemptSession {
   readonly context: BrowserContext;
   readonly execution: ReplayExecution;
+  /**
+   * The opening Page's recording, resolved by Playwright when the context
+   * closes. Popups get recordings of their own, which are discarded with the
+   * staging directory.
+   */
+  readonly videoArtifact: Promise<string> | undefined;
 }
 
 /** The URL forms a Flow may navigate to; anything else is refused. */
@@ -637,8 +643,10 @@ interface AxeRawCounts {
 
 /**
  * Run the pinned accessibility engine over the whole page, under the given
- * rule tags. Covers the frame tree and open shadow roots, and needs no
- * network request, so it works under a strict page CSP.
+ * rule tags. Covers the frame tree and open shadow roots, and fetches
+ * nothing from the network. The script is injected as an inline element, so
+ * a page whose CSP forbids inline scripts fails this Step loudly rather
+ * than auditing a page it could not read.
  *
  * An unrecognised tag selects no rules silently, and every page then audits
  * clean forever — so the one case where nothing ran is a failure.
@@ -1218,14 +1226,20 @@ const reportable = (message: string): string => {
 };
 
 /**
- * Move Playwright's recording into place once the context has closed — the
- * moment it flushes — and account for the outcome either way.
+ * Move the first Page's recording into place once the context has closed —
+ * the moment it flushes — and account for the outcome either way.
+
+ * Playwright records one video per Page, so a Flow that opened popups leaves
+ * several files in staging; the one kept is the opening Page's, which is the
+ * Page the Flow is about.
  *
  * Video is how a failure gets watched rather than inferred, so neither the
  * rename nor a missing file can fail the attempt; the manifest records what
  * happened instead.
  */
 const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
+  /** Resolves to the recorded file once the context has closed. */
+  recorded: Promise<string> | undefined,
   staging: string,
   finalPath: string,
   segments: RunVideoSegment[],
@@ -1233,12 +1247,10 @@ const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
 ) {
   const produced = yield* Effect.result(
     Effect.promise(async () => {
-      const entries = await readdir(staging);
-      const recording = entries.find((entry) => entry.endsWith(".webm"));
-      if (recording === undefined) {
+      if (recorded === undefined) {
         return false;
       }
-      await rename(path.join(staging, recording), finalPath);
+      await rename(await recorded, finalPath);
       return true;
     })
   );
@@ -1313,6 +1325,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       // measure anything records from the first navigation onwards — on every
       // Page this context opens, popups included.
       if (measures) {
+        // Arming cannot fail the attempt: the Run still executes, and a
+        // context that never armed reports no vitals at all — which the CLI's
+        // unmeasured-Steps warning makes visible.
         yield* Effect.tryPromise({
           catch: (cause) =>
             new RunnerError({
@@ -1338,7 +1353,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       context.on("page", (opened) => {
         execution.pages.push(opened);
       });
-      return { context, execution } satisfies AttemptSession;
+      const videoArtifact =
+        capture === undefined ? undefined : (page.video()?.path() ?? undefined);
+      return { context, execution, videoArtifact } satisfies AttemptSession;
     }),
     ({ execution }) =>
       Effect.gen(function* replayFlow() {
@@ -1428,7 +1445,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
 
         yield* measurePending(execution, steps, pending);
       }),
-    ({ context }) =>
+    ({ context, videoArtifact }) =>
       // A Run is torn down uninterruptibly: closing the context is what
       // flushes an in-progress recording, including when the interruption was
       // a Ctrl-C rather than a finished Flow.
@@ -1442,6 +1459,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         }).pipe(Effect.ignore);
         if (capture !== undefined) {
           yield* saveRecording(
+            videoArtifact,
             capture.staging,
             capture.file,
             capture.segments,

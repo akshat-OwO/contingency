@@ -185,9 +185,6 @@ importers:
       effect:
         specifier: ^4.0.0-beta.106
         version: 4.0.0-beta.106
-      open:
-        specifier: ^11.0.0
-        version: 11.0.0
       playwright-core:
         specifier: ^1.62.1
         version: 1.62.1
