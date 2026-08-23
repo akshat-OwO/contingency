@@ -87,6 +87,9 @@ const describeLocator = (descriptor: LocatorDescriptor): string => {
     case "xpath": {
       return descriptor.expression;
     }
+    default: {
+      throw new Error("Unknown locator descriptor.");
+    }
   }
 };
 
