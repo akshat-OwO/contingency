@@ -6,11 +6,17 @@ import { Command } from "effect/unstable/cli";
 
 import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index.ts";
+import { CreateBrowserLive } from "./services/create-browser.ts";
+import { RecordingStateLive } from "./services/recording-state.ts";
 import { RunnerLive } from "./services/runner.ts";
+import { UiInterfaceLive } from "./services/ui-interface.ts";
 
-const servicesLayer = Layer.mergeAll(RunnerLive).pipe(
-  Layer.provideMerge(NodeServices.layer)
-);
+const servicesLayer = Layer.mergeAll(
+  CreateBrowserLive,
+  RecordingStateLive,
+  RunnerLive,
+  UiInterfaceLive
+).pipe(Layer.provideMerge(NodeServices.layer));
 
 /**
  * How soon after the first signal a second one is read as a reflex rather

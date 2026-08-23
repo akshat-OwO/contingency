@@ -1,8 +1,6 @@
-# Create View: browser streaming (historical)
+# Create View browser streaming
 
-> **Superseded.** [ADR 0012](../adr/0012-playwright-is-the-in-process-browser-runtime.md) replaces the bundled `agent-browser` binary and its CDP sidecars with in-process Playwright, and that work deleted everything this document describes in its present-tense sections. The text below is kept as a record of the design it superseded; the Create View rebuild on Playwright (#51–#53) will document its own streaming design.
-
-Historical context: this described what existed for the Create View live browser before the Playwright migration. Domain language lives in [`CONTEXT.md`](../../CONTEXT.md). Canvas, screencast, CDP, and agent-browser were runtime concerns — not glossary terms.
+Create View drives Chromium through Playwright in the CLI process. Domain language lives in [`CONTEXT.md`](../../CONTEXT.md). [ADR 0012](../adr/0012-playwright-is-the-in-process-browser-runtime.md) records why Playwright replaced the bundled browser binary.
 
 ## Status
 
@@ -11,13 +9,13 @@ Historical context: this described what existed for the Create View live browser
 | Live browser session, tabs, viewport, user-agent | Built |
 | Screencast frames to a canvas + pointer/keyboard input | Built |
 | Console / Network / Storage DevTools panels | Built |
-| Recording → Flow (Steps, Pre-steps, Audit Steps, Variables) | Built |
-| Audit View / Runner / Runs | Not built (Audit route is a placeholder) |
+| Recording to Flow | Pending Playwright recorder work in #52 |
+| Audit View / Runner / Runs | Built |
 
 ## Packages
 
 - **`apps/web`** — Create View UI (`CreateWorkspace`, `BrowserWorkspace`), Effect Atom RPC client over `/ws`.
-- **`packages/cli`** — `contingency web` HTTP server, Effect RPC handlers, `AgentBrowser` adapter, bundled `agent-browser` binaries.
+- **`packages/cli`** — `contingency web` HTTP server, Effect RPC handlers, and the Playwright-backed `CreateBrowser` service.
 - **`packages/protocol`** — Shared Effect Schema + `ContingencyRpcs` for browser session/stream/input.
 
 ## Runtime path
@@ -29,12 +27,11 @@ Create View (canvas)
 CLI HTTP server  ──/ws──  ContingencyRpcs
     │
     ▼
-AgentBrowser service
-    │  CLI subprocess + local stream WebSocket
-    ▼
-agent-browser  ──CDP──  Chrome for Testing
+CreateBrowser service  ──Playwright──  Chromium
     │
-    └── screencast frames / status / url / console / tabs
+    └── Playwright CDP session for screencast and raw canvas input
+            │
+            └── frames / status / url / console / tabs
             │
             ▼
         BrowserStreamEvent (RPC stream)
@@ -43,9 +40,7 @@ agent-browser  ──CDP──  Chrome for Testing
         Canvas blit + DevTools state in web UI
 ```
 
-Contingency does not expose CDP to the web app. Browser streaming and input stay behind `agent-browser`; during a Recording, a CLI-owned CDP sidecar injects the recorder into restricted isolated worlds and relays only validated semantic actions. See [ADR 0004](../adr/0004-cli-owned-cdp-recorder-sidecar.md).
-
-The injected recorder also renders an authoring-only hover inspector inside each instrumented frame. It shows a blue target outline with bounded tag, ARIA, and geometry metadata. The inspector does not emit hover data into the Recording or Flow and is removed when capture stops.
+Playwright has no public live-screencast API, so `CreateBrowser` opens a Playwright CDP session and calls Chrome's `Page.startScreencast`. CDP never crosses the RPC boundary. The web app receives only the existing `BrowserStreamEvent` contract and sends the existing `BrowserInput` and frame acknowledgement messages.
 
 ## Session model
 
@@ -56,8 +51,15 @@ The injected recorder also renders an authoring-only hover inspector inside each
 ## Input and backpressure
 
 1. User events on the canvas become `BrowserInput` (`input_mouse` | `input_keyboard`).
-2. Web sends `browser.input.send`; CLI calls `AgentBrowser.sendInput`.
-3. Frames arrive on `browser.stream.subscribe`; the UI acknowledges with `browser.frame.ack` so the stream can apply backpressure.
+2. Web sends `browser.input.send`; the CLI dispatches it through the active Page's Playwright CDP session.
+3. Chrome emits one JPEG frame with a protocol session id. The CLI assigns the public stream id and sequence number, then publishes the unchanged frame event.
+4. Web acknowledges with `browser.frame.ack`. The CLI resolves that public sequence back to Chrome's private session id and sends `Page.screencastFrameAck`.
+
+## Session state
+
+Each Create View session owns one Playwright browser context. Tabs are Pages within that context, so cookies and origin storage survive tab changes. Viewport changes update every Page in place. User-agent changes use `Network.setUserAgentOverride` on the existing Pages and future Pages inherit the override. Neither operation replaces the context, so changing the user agent cannot discard cookies, `localStorage`, or `sessionStorage`.
+
+Storage reads and writes use Playwright's context cookie APIs and Page evaluation for web storage. The RPC layer keeps mutations live-only and locks them only for the session pinned by an unfinished Recording.
 
 ## How to run locally
 
@@ -70,5 +72,5 @@ Production builds can serve the SPA from the CLI (`serveWebUi`). Dev typically u
 
 ## Intentionally out of scope here
 
-- Runner execution of Pre-steps and Audit Steps, plus Findings — see [`../future/product-path.md`](../future/product-path.md).
-- agent-browser features not yet wrapped (DOM snapshot, axe audit, video `record`, `state save/load`, `--restore`) — available in the bundled binary, unused by Contingency's protocol today. Storage DevTools does not wrap `state save/load` or `--restore`.
+- Recorder injection and captured Step construction are handled by #52.
+- Trace capture and Run video belong to the Runner, not Create View sessions.

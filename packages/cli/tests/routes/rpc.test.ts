@@ -1,0 +1,146 @@
+import {
+  BrowserTabId,
+  ContingencyRpcs,
+  SessionId,
+  STORAGE_LOCKED_MESSAGE,
+} from "@contingency/protocol";
+import type { RecordingSnapshot } from "@contingency/protocol";
+import { expect, it } from "@effect/vitest";
+import { Effect, Layer, Stream } from "effect";
+import { RpcTest } from "effect/unstable/rpc";
+
+import {
+  browserInputIsReadOnly,
+  RpcHandlersLive,
+  storageMutationIsLocked,
+} from "../../src/routes/rpc.ts";
+import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import {
+  RecordingState,
+  RecordingStateLive,
+} from "../../src/services/recording-state.ts";
+import type { RecordingStateService } from "../../src/services/recording-state.ts";
+
+const sessionId = SessionId.make("create-authoring");
+const otherSessionId = SessionId.make("create-other");
+const tabId = BrowserTabId.make("page-1");
+
+it("keeps Storage mutation locked to the unfinished Recording's session", () => {
+  for (const phase of ["active", "paused", "incomplete"] as const) {
+    expect(storageMutationIsLocked({ phase, sessionId }, sessionId)).toBe(true);
+    expect(storageMutationIsLocked({ phase, sessionId }, otherSessionId)).toBe(
+      false
+    );
+  }
+  expect(
+    storageMutationIsLocked({ phase: "finished", sessionId }, sessionId)
+  ).toBe(false);
+  expect(storageMutationIsLocked(null, sessionId)).toBe(false);
+  expect(STORAGE_LOCKED_MESSAGE).toBe(
+    "Storage is locked while the Recording is in progress."
+  );
+});
+
+it("keeps the canvas read-only for paused or incomplete capture", () => {
+  expect(
+    browserInputIsReadOnly(
+      { captureMode: "ordinary", phase: "paused", sessionId },
+      sessionId
+    )
+  ).toBe(true);
+  expect(
+    browserInputIsReadOnly(
+      { captureMode: "conditionPicker", phase: "paused", sessionId },
+      sessionId
+    )
+  ).toBe(false);
+  expect(
+    browserInputIsReadOnly(
+      { captureMode: "ordinary", phase: "incomplete", sessionId },
+      sessionId
+    )
+  ).toBe(true);
+});
+
+const activeRecording: RecordingSnapshot = {
+  captureMode: "ordinary",
+  flow: {
+    steps: [{ type: "navigate", url: "https://example.com/" }],
+    title: "Authoring",
+  },
+  initialUrl: "https://example.com/",
+  phase: "active",
+  recordedSteps: [
+    {
+      id: "initial",
+      preSteps: [],
+      step: { type: "navigate", url: "https://example.com/" },
+    },
+  ],
+  revision: 1,
+  sessionId,
+  tabId,
+  undoAvailable: false,
+};
+
+const recordingState: RecordingStateService = {
+  changes: () => Stream.never,
+  get: () => Effect.succeed(activeRecording),
+  set: () => Effect.void,
+};
+
+it("keeps the Recording update stream connected", async () => {
+  const fiber = Effect.runFork(
+    Effect.gen(function* keepRecordingStreamConnected() {
+      const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+        flatten: true,
+      });
+      yield* client("recording.stream.subscribe", {
+        data: {},
+        type: "recording.stream.subscribe",
+      }).pipe(Stream.runForEach(() => Effect.void));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        RpcHandlersLive.pipe(
+          Layer.provide(CreateBrowserLive),
+          Layer.provide(RecordingStateLive)
+        )
+      )
+    )
+  );
+
+  await Effect.runPromise(Effect.sleep("25 millis"));
+  expect(fiber.pollUnsafe()).toBeUndefined();
+  fiber.interruptUnsafe();
+});
+
+it.effect("rejects a Storage mutation before it reaches Playwright", () =>
+  Effect.gen(function* rejectLockedStorageMutation() {
+    const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+      flatten: true,
+    });
+    const error = yield* Effect.flip(
+      client("browser.storage.set", {
+        data: {
+          key: "draft",
+          kind: "local",
+          sessionId,
+          tabId,
+          value: "changed",
+        },
+        type: "browser.storage.set",
+      })
+    );
+    expect(error.code).toBe("recording_conflict");
+    expect(error.message).toBe(STORAGE_LOCKED_MESSAGE);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      RpcHandlersLive.pipe(
+        Layer.provide(CreateBrowserLive),
+        Layer.provide(Layer.succeed(RecordingState, recordingState))
+      )
+    )
+  )
+);
