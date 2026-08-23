@@ -140,8 +140,8 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
     const hasAuthoredContent =
       recording !== null &&
       (recording.recordedSteps.length > 1 ||
-        (recording.flow.contingency?.preSteps?.length ?? 0) > 0 ||
-        (recording.flow.contingency?.variables?.length ?? 0) > 0);
+        (recording.flow.preSteps?.length ?? 0) > 0 ||
+        (recording.flow.variables?.length ?? 0) > 0);
     if (hasAuthoredContent && !confirmDiscard) {
       setUi((current) => ({ ...current, confirmDiscard: true }));
       return;
