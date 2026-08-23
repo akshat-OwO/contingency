@@ -4,12 +4,14 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
 import {
+  canDecodeVideo,
   fixtureServer,
   flow,
   IntegrationLive,
   LAZY_LOADED_BEACON,
+  recordingDurationSeconds,
   runFlow,
-} from "./harness";
+} from "./harness.ts";
 
 /**
  * Every Step kind the native schema added, each proven by something the site
@@ -118,11 +120,18 @@ it.live("acts on a popup as the next Page of the Flow, captured to video", () =>
     ]);
     expect(persisted.video).toBe(true);
 
-    // The recording kept is the opening Page's — present and watchable, not
-    // whichever of the per-Page files the encoder happened to list first.
     const recording = yield* fileSystem.readFile(
       path.join(directory, "attempt-1.webm")
     );
     expect(recording.length).toBeGreaterThan(1024);
+
+    // The fixture waits 1.5s between the click and the popup. A recording of
+    // only the popup cannot contain that gap; the opening Page's must.
+    if (canDecodeVideo()) {
+      const seconds = yield* recordingDurationSeconds(
+        path.join(directory, "attempt-1.webm")
+      );
+      expect(seconds).toBeGreaterThan(1.2);
+    }
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

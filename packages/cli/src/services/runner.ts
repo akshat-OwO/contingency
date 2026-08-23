@@ -1228,7 +1228,7 @@ const reportable = (message: string): string => {
 /**
  * Move the first Page's recording into place once the context has closed —
  * the moment it flushes — and account for the outcome either way.
-
+ *
  * Playwright records one video per Page, so a Flow that opened popups leaves
  * several files in staging; the one kept is the opening Page's, which is the
  * Page the Flow is about.
@@ -1246,12 +1246,15 @@ const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
   attempt: number
 ) {
   const produced = yield* Effect.result(
-    Effect.promise(async () => {
-      if (recorded === undefined) {
-        return false;
-      }
-      await rename(await recorded, finalPath);
-      return true;
+    Effect.tryPromise({
+      catch: (cause) => new Error(errorMessage(cause)),
+      try: async () => {
+        if (recorded === undefined) {
+          return false;
+        }
+        await rename(await recorded, finalPath);
+        return true;
+      },
     })
   );
   let error: string | undefined;
@@ -1328,13 +1331,15 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         // Arming cannot fail the attempt: the Run still executes, and a
         // context that never armed reports no vitals at all — which the CLI's
         // unmeasured-Steps warning makes visible.
-        yield* Effect.tryPromise({
-          catch: (cause) =>
-            new RunnerError({
-              message: `Could not arm Core Web Vitals recording: ${errorMessage(cause)}`,
-            }),
-          try: () => context.addInitScript(VITALS_RECORDER),
-        }).pipe(Effect.ignore);
+        yield* Effect.ignore(
+          Effect.tryPromise({
+            catch: (cause) =>
+              new Error(
+                `Could not arm Core Web Vitals recording: ${errorMessage(cause)}`
+              ),
+            try: () => context.addInitScript(VITALS_RECORDER),
+          })
+        );
       }
       const page = yield* Effect.tryPromise({
         catch: (cause) =>

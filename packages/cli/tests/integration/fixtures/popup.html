@@ -17,7 +17,12 @@
     <script>
       const trigger = document.getElementById("open-popup");
       trigger.addEventListener("click", () => {
-        window.open("/popup-target.html", "_blank");
+        // A deliberate gap between the click and the popup, so a recording
+        // that covers the whole Run is decisively longer than one that only
+        // covers the Pages opened after the click.
+        setTimeout(() => {
+          window.open("/popup-target.html", "_blank");
+        }, 1500);
       });
     </script>
   </body>

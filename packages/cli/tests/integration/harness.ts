@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import type { Flow, Run } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -32,6 +35,38 @@ export const IntegrationLive = RunnerLive.pipe(
 );
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
+
+const ffprobe = promisify(execFile);
+
+/**
+ * Whether recordings on this machine can be decoded. Asserting what a WebM
+ * contains needs `ffprobe`; tests that decode skip where it is missing,
+ * because the absence is the environment's, not the code's.
+ */
+export const canDecodeVideo = (): boolean =>
+  (process.env["PATH"] ?? "")
+    .split(path.delimiter)
+    .some((directory) => existsSync(path.join(directory, "ffprobe")));
+
+/** How many seconds ffprobe reports for a recording. */
+export const recordingDurationSeconds = (
+  file: string
+): Effect.Effect<number, Error> =>
+  Effect.tryPromise({
+    catch: (cause) => new Error(`ffprobe failed: ${String(cause)}`),
+    try: async () => {
+      const probed = await ffprobe("ffprobe", [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "csv=p=0",
+        file,
+      ]);
+      return Number(String(probed.stdout).trim());
+    },
+  });
 
 /**
  * What the fixture page requests once a Step has typed into it. Waiting for
