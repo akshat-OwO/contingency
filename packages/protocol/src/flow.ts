@@ -552,6 +552,7 @@ export const RecordingCaptureMode = Schema.Literals([
   "flowPreStep",
   "stepPreStep",
   "conditionPicker",
+  "hoverPicker",
 ]);
 export type RecordingCaptureMode = typeof RecordingCaptureMode.Type;
 

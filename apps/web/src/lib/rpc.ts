@@ -134,6 +134,9 @@ export const recordingPreStepConditionMutation = ContingencyRpcClient.mutation(
 export const recordingCaptureCancelMutation = ContingencyRpcClient.mutation(
   "recording.capture.cancel"
 );
+export const recordingHoverArmMutation = ContingencyRpcClient.mutation(
+  "recording.hover.arm"
+);
 
 const reconnectSchedule = Schedule.exponential("100 millis").pipe(
   Schedule.jittered,

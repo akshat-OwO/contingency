@@ -159,6 +159,7 @@ vi.mock("@/lib/rpc", () => {
       });
     }),
     recordingFinishMutation: mutation("finished"),
+    recordingHoverArmMutation: mutation("active"),
     recordingPauseMutation: mutation("paused"),
     recordingPreStepMutation: controlledMutation(
       rpc.preStep,

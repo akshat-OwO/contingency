@@ -497,6 +497,7 @@ export const BrandId = Schema.Literals([
   "recording.pre-step.arm",
   "recording.pre-step.condition.arm",
   "recording.capture.cancel",
+  "recording.hover.arm",
   "recording.stream.subscribe",
 ]);
 export type BrandId = typeof BrandId.Type;
@@ -707,6 +708,13 @@ export const RecordingPreStepConditionArm = Schema.Struct({
   type: Schema.Literal("recording.pre-step.condition.arm"),
 });
 export const RecordingCaptureCancel = request("recording.capture.cancel", {});
+/**
+ * Arm hover capture. Hover is captured by explicit author gesture rather than
+ * from mouse movement ([ADR 0019](../../../docs/adr/0019-recording-follows-pages.md)):
+ * every mouse move is a hover, so a dwell heuristic would produce junk Steps
+ * at volume. Armed, the next element the author picks becomes a hover Step.
+ */
+export const RecordingHoverArm = request("recording.hover.arm", {});
 export const RecordingStreamSubscribe = request(
   "recording.stream.subscribe",
   {}
@@ -901,6 +909,11 @@ const RecordingCaptureCancelRpc = Rpc.make("recording.capture.cancel", {
   payload: RecordingCaptureCancel,
   success: RecordingResult,
 });
+const RecordingHoverArmRpc = Rpc.make("recording.hover.arm", {
+  error: BrowserRpcError,
+  payload: RecordingHoverArm,
+  success: RecordingResult,
+});
 const RecordingStreamSubscribeRpc = Rpc.make("recording.stream.subscribe", {
   error: BrowserRpcError,
   payload: RecordingStreamSubscribe,
@@ -946,5 +959,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingPreStepArmRpc,
   RecordingPreStepConditionArmRpc,
   RecordingCaptureCancelRpc,
+  RecordingHoverArmRpc,
   RecordingStreamSubscribeRpc
 ) {}

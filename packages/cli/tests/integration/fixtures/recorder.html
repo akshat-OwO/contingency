@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Recorder</title>
+    <style>
+      .spacer {
+        height: 300vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Recorder</h1>
+      <!--
+        Carries a test id the Recorder must ignore: Contingency audits sites
+        it does not own, so a ladder that reached for one here would be
+        recording something real sites rarely carry.
+      -->
+      <button data-testid="cart" id="cart" type="button">Add to cart</button>
+
+      <form id="details">
+        <label>
+          Email
+          <input name="email" type="email" placeholder="you@example.com" />
+        </label>
+        <label>
+          Colour
+          <select name="colour">
+            <option value="">Choose…</option>
+            <option value="red">Red</option>
+            <option value="blue">Blue</option>
+          </select>
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" />
+        </label>
+      </form>
+
+      <!-- An open shadow root: inside the recording boundary. -->
+      <div id="open-host"></div>
+      <!-- A closed shadow root: outside it, and deliberately so. -->
+      <div id="closed-host"></div>
+
+      <div class="spacer"></div>
+      <p id="bottom">Bottom of the page</p>
+    </main>
+    <script>
+      const open = document
+        .getElementById("open-host")
+        .attachShadow({ mode: "open" });
+      open.innerHTML =
+        '<button id="shadow-button" type="button">Open menu</button>';
+      // A cross-origin frame, when the opening URL asks for one: the frame's
+      // origin differs from this page's, so only an init script installed on
+      // the whole context records what happens inside it.
+      const framedSource = new URLSearchParams(location.search).get("frame");
+      if (framedSource) {
+        const frame = document.createElement("iframe");
+        frame.id = "framed";
+        frame.src = framedSource;
+        document.body.append(frame);
+      }
+      const closed = document
+        .getElementById("closed-host")
+        .attachShadow({ mode: "closed" });
+      closed.innerHTML =
+        '<button id="closed-button" type="button">Closed menu</button>';
+    </script>
+  </body>
+</html>

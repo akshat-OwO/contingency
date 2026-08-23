@@ -17,6 +17,18 @@ import type {
 } from "@contingency/protocol";
 import type { Effect, Stream } from "effect";
 import { Context } from "effect";
+import type { BrowserContext, Page } from "playwright-core";
+
+/**
+ * What the Recorder attaches to: the pinned session's context, the Page the
+ * Recording starts on, and that Page's identity in Create View. A Recording
+ * spans the Pages this context opens and never migrates to another one.
+ */
+export interface RecorderTarget {
+  readonly context: BrowserContext;
+  readonly page: Page;
+  readonly tabId: BrowserTabId;
+}
 
 export type BrowserStorageSetInput =
   | {
@@ -102,6 +114,9 @@ export interface CreateBrowserService {
     { readonly sessionId: SessionId; readonly url: string },
     BrowserRpcErrorType
   >;
+  readonly recorderTarget: (
+    sessionId: SessionId
+  ) => Effect.Effect<RecorderTarget, BrowserRpcErrorType>;
   readonly sendInput: (
     sessionId: SessionId,
     input: BrowserInput
