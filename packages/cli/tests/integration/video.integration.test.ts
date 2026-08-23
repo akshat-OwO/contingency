@@ -1,15 +1,17 @@
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import type { RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
-import { fixtureServer, flow, IntegrationLive, runFlow } from "./harness";
-
-const ffprobe = promisify(execFile);
+import {
+  canDecodeVideo,
+  fixtureServer,
+  flow,
+  IntegrationLive,
+  recordingDurationSeconds,
+  runFlow,
+} from "./harness";
 
 /** The EBML magic every WebM file starts with. */
 const EBML = "1a45dfa3";
@@ -22,16 +24,6 @@ const leadingHex = (data: Uint8Array, length: number): string =>
   Array.from({ length }, (_unused, index) =>
     (data[index] ?? 0).toString(16).padStart(2, "0")
   ).join("");
-
-/**
- * Decoding a WebM to assert what it contains needs `ffprobe`, which is not
- * present everywhere. Tests that decode are skipped there rather than failed:
- * the absence is the environment's, not the code's.
- */
-const canDecodeVideo = (): boolean =>
-  (process.env["PATH"] ?? "")
-    .split(path.delimiter)
-    .some((directory) => existsSync(path.join(directory, "ffprobe")));
 
 it.live.skipIf(!canDecodeVideo())("captures a Run to a playable WebM", () =>
   Effect.gen(function* captureRun() {
@@ -80,20 +72,7 @@ it.live.skipIf(!canDecodeVideo())("captures a Run to a playable WebM", () =>
     // The floor sits well below what even a contended machine produces for
     // this Run, so encoder timing cannot flake it.
     const recordingPath = path.join(directory, segment?.file ?? "");
-    const probed = yield* Effect.tryPromise({
-      catch: (cause) => new Error(`ffprobe failed: ${String(cause)}`),
-      try: () =>
-        ffprobe("ffprobe", [
-          "-v",
-          "error",
-          "-show_entries",
-          "format=duration",
-          "-of",
-          "csv=p=0",
-          recordingPath,
-        ]),
-    });
-    const durationSeconds = Number(String(probed.stdout).trim());
+    const durationSeconds = yield* recordingDurationSeconds(recordingPath);
     expect(durationSeconds).toBeGreaterThan(0.5);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

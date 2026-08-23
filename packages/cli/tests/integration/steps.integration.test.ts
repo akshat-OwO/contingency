@@ -11,7 +11,7 @@ import {
   LAZY_LOADED_BEACON,
   recordingDurationSeconds,
   runFlow,
-} from "./harness.ts";
+} from "./harness";
 
 /**
  * Every Step kind the native schema added, each proven by something the site
