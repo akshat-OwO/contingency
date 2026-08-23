@@ -152,3 +152,62 @@ it.live(
       expect(yield* browser.list()).not.toContain(sessionId);
     }).pipe(Effect.scoped, Effect.provide(CreateBrowserLive))
 );
+
+it.live("rolls back only implicitly created sessions when opening fails", () =>
+  Effect.gen(function* failedOpenCleanup() {
+    const browser = yield* CreateBrowser;
+    const existingSessionId = yield* browser.create(
+      "create-existing",
+      viewport
+    );
+
+    yield* Effect.flip(
+      browser.open(undefined, "http://127.0.0.1:1/", viewport, "chrome-windows")
+    );
+    expect(yield* browser.list()).toEqual([existingSessionId]);
+
+    yield* Effect.flip(
+      browser.open(
+        existingSessionId,
+        "http://127.0.0.1:1/",
+        viewport,
+        "chrome-windows"
+      )
+    );
+    expect(yield* browser.list()).toEqual([existingSessionId]);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserLive))
+);
+
+it.live("applies an opened profile to every tab in an existing session", () =>
+  Effect.gen(function* multiTabUserAgent() {
+    const browser = yield* CreateBrowser;
+    const sessionId = yield* browser.create("create-user-agent", viewport);
+    yield* browser.open(
+      sessionId,
+      "data:text/html,<title></title><script>document.title=navigator.userAgent</script>",
+      viewport,
+      "chrome-windows"
+    );
+    const [firstTab] = yield* browser.getTabs(sessionId);
+    expect(firstTab).toBeDefined();
+
+    yield* browser.newTab(sessionId);
+    yield* browser.open(
+      sessionId,
+      "data:text/html,<title>second</title>",
+      viewport,
+      "safari-iphone"
+    );
+    yield* browser.switchTab(
+      sessionId,
+      BrowserTabId.make(firstTab?.tabId ?? "missing")
+    );
+    yield* browser.navigate(sessionId, "reload");
+    yield* Effect.sleep("100 millis");
+
+    const activeTab = (yield* browser.getTabs(sessionId)).find(
+      ({ active }) => active
+    );
+    expect(activeTab?.title).toContain("iPhone");
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserLive))
+);

@@ -126,6 +126,7 @@ const makeService = (
       const session: CreateSession = {
         context,
         defaultUserAgent,
+        emulationSessions: new WeakMap(),
         events,
         id: decoded,
         screencastLock: yield* Semaphore.make(1),
@@ -188,6 +189,22 @@ const makeService = (
     }
   );
 
+  const closeSession = Effect.fn("CreateBrowser.close")(
+    function* closeBrowserSession(sessionId: SessionId) {
+      const session = yield* requireSession(sessionId);
+      yield* Ref.update(sessions, (current) => {
+        const next = new Map(current);
+        next.delete(sessionId);
+        return next;
+      });
+      yield* stopScreencast(session);
+      yield* tryBrowser("Could not close browser session", () =>
+        session.context.close()
+      );
+      yield* PubSub.shutdown(session.events);
+    }
+  );
+
   const open = Effect.fn("CreateBrowser.open")(function* openUrl(
     requestedSessionId: SessionId | undefined,
     url: string,
@@ -199,17 +216,27 @@ const makeService = (
     const sessionId =
       requestedSessionId ?? (yield* create(`create-${randomUUID()}`, viewport));
     const session = yield* requireSession(sessionId);
-    yield* setViewport(sessionId, viewport);
-    const userAgent = resolveUserAgent(userAgentProfile, browser.version());
-    const state = yield* Ref.modify(session.state, (current) => [
-      { ...current, userAgent },
-      { ...current, userAgent },
-    ]);
-    yield* applyUserAgent(session, state.activePage, userAgent);
-    yield* tryBrowser("Could not open the URL", () =>
-      state.activePage.goto(normalizedUrl)
+    return yield* Effect.gen(function* finishOpeningSession() {
+      yield* setViewport(sessionId, viewport);
+      const userAgent = resolveUserAgent(userAgentProfile, browser.version());
+      const state = yield* Ref.modify(session.state, (current) => [
+        { ...current, userAgent },
+        { ...current, userAgent },
+      ]);
+      yield* Effect.forEach(state.pageIds.keys(), (page) =>
+        applyUserAgent(session, page, userAgent)
+      );
+      yield* tryBrowser("Could not open the URL", () =>
+        state.activePage.goto(normalizedUrl)
+      );
+      return { sessionId, url: state.activePage.url() };
+    }).pipe(
+      Effect.tapError(() =>
+        requestedSessionId === undefined
+          ? closeSession(sessionId).pipe(Effect.ignore)
+          : Effect.void
+      )
     );
-    return { sessionId, url: state.activePage.url() };
   });
 
   const storage = makeCreateBrowserStorage(requireSession);
@@ -221,20 +248,7 @@ const makeService = (
         yield* acknowledgeFrame(session, sequence, streamId);
       }),
     clearStorage: storage.clear,
-    close: (sessionId) =>
-      Effect.gen(function* closeSession() {
-        const session = yield* requireSession(sessionId);
-        yield* Ref.update(sessions, (current) => {
-          const next = new Map(current);
-          next.delete(sessionId);
-          return next;
-        });
-        yield* stopScreencast(session);
-        yield* tryBrowser("Could not close browser session", () =>
-          session.context.close()
-        );
-        yield* PubSub.shutdown(session.events);
-      }),
+    close: closeSession,
     closeTab: (sessionId, tabId) =>
       Effect.gen(function* closeBrowserTab() {
         const session = yield* requireSession(sessionId);

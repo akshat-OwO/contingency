@@ -72,6 +72,7 @@ export interface CreateSessionState {
 export interface CreateSession {
   readonly context: BrowserContext;
   readonly defaultUserAgent: string;
+  readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
   readonly id: SessionId;
   readonly screencastLock: Semaphore.Semaphore;
@@ -250,20 +251,36 @@ export const publishTabs = (session: CreateSession): void => {
   });
 };
 
+const requireEmulationSession = (session: CreateSession, page: Page) =>
+  tryBrowser("Could not connect browser emulation", () => {
+    const existing = session.emulationSessions.get(page);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const created = (async () => {
+      try {
+        return await session.context.newCDPSession(page);
+      } catch (error) {
+        session.emulationSessions.delete(page);
+        throw error;
+      }
+    })();
+    session.emulationSessions.set(page, created);
+    return created;
+  });
+
 export const applyUserAgent = (
   session: CreateSession,
   page: Page,
   userAgent: string | undefined
 ) =>
-  tryBrowser("Could not set the user agent", async () => {
-    const cdp = await session.context.newCDPSession(page);
-    try {
-      await cdp.send("Network.setUserAgentOverride", {
+  Effect.gen(function* setPageUserAgent() {
+    const cdp = yield* requireEmulationSession(session, page);
+    yield* tryBrowser("Could not set the user agent", () =>
+      cdp.send("Network.setUserAgentOverride", {
         userAgent: userAgent ?? session.defaultUserAgent,
-      });
-    } finally {
-      await cdp.detach();
-    }
+      })
+    );
   });
 
 export const applyViewport = (
@@ -271,22 +288,22 @@ export const applyViewport = (
   page: Page,
   viewport: Viewport
 ) =>
-  tryBrowser("Could not set the viewport", async () => {
-    await page.setViewportSize({
-      height: viewport.height,
-      width: viewport.width,
-    });
-    const cdp = await session.context.newCDPSession(page);
-    try {
-      await cdp.send("Emulation.setDeviceMetricsOverride", {
+  Effect.gen(function* setPageViewport() {
+    yield* tryBrowser("Could not set the viewport", () =>
+      page.setViewportSize({
+        height: viewport.height,
+        width: viewport.width,
+      })
+    );
+    const cdp = yield* requireEmulationSession(session, page);
+    yield* tryBrowser("Could not set the viewport", () =>
+      cdp.send("Emulation.setDeviceMetricsOverride", {
         deviceScaleFactor: viewport.deviceScaleFactor,
         height: viewport.height,
         mobile: false,
         width: viewport.width,
-      });
-    } finally {
-      await cdp.detach();
-    }
+      })
+    );
   });
 
 export const emptyStorageSnapshot = (
