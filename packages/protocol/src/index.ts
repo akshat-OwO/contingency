@@ -496,6 +496,7 @@ export const BrandId = Schema.Literals([
   "recording.variable.rename",
   "recording.pre-step.arm",
   "recording.pre-step.condition.arm",
+  "recording.pre-step.condition.url",
   "recording.capture.cancel",
   "recording.hover.arm",
   "recording.stream.subscribe",
@@ -691,6 +692,16 @@ const RecordingPreStepScope = Schema.Union([
   Schema.Struct({ scope: Schema.Literal("flow") }),
   Schema.Struct({ scope: Schema.Literal("step"), stepId }),
 ]);
+/**
+ * The element-pick conditions a Pre-step's `when` can be armed with. Both are
+ * picked by clicking the element in the live browser; only the resulting
+ * condition differs.
+ */
+export const PreStepPickKind = Schema.Literals([
+  "selectorVisible",
+  "selectorHidden",
+]);
+export type PreStepPickKind = typeof PreStepPickKind.Type;
 
 export const RecordingPreStepArm = Schema.Struct({
   data: RecordingPreStepScope,
@@ -698,14 +709,39 @@ export const RecordingPreStepArm = Schema.Struct({
 });
 export const RecordingPreStepConditionArm = Schema.Struct({
   data: Schema.Union([
-    Schema.Struct({ index: Schema.Int, scope: Schema.Literal("flow") }),
     Schema.Struct({
       index: Schema.Int,
+      kind: PreStepPickKind,
+      scope: Schema.Literal("flow"),
+    }),
+    Schema.Struct({
+      index: Schema.Int,
+      kind: PreStepPickKind,
       scope: Schema.Literal("step"),
       stepId,
     }),
   ]),
   type: Schema.Literal("recording.pre-step.condition.arm"),
+});
+/**
+ * Writes a `urlMatches` condition onto a Pre-step directly: there is no
+ * element to pick, so the author supplies the pattern themselves.
+ */
+export const RecordingPreStepConditionUrl = Schema.Struct({
+  data: Schema.Union([
+    Schema.Struct({
+      index: Schema.Int,
+      pattern: Schema.String.check(Schema.isMinLength(1)),
+      scope: Schema.Literal("flow"),
+    }),
+    Schema.Struct({
+      index: Schema.Int,
+      pattern: Schema.String.check(Schema.isMinLength(1)),
+      scope: Schema.Literal("step"),
+      stepId,
+    }),
+  ]),
+  type: Schema.Literal("recording.pre-step.condition.url"),
 });
 export const RecordingCaptureCancel = request("recording.capture.cancel", {});
 /**
@@ -904,6 +940,14 @@ const RecordingPreStepConditionArmRpc = Rpc.make(
     success: RecordingResult,
   }
 );
+const RecordingPreStepConditionUrlRpc = Rpc.make(
+  "recording.pre-step.condition.url",
+  {
+    error: BrowserRpcError,
+    payload: RecordingPreStepConditionUrl,
+    success: RecordingResult,
+  }
+);
 const RecordingCaptureCancelRpc = Rpc.make("recording.capture.cancel", {
   error: BrowserRpcError,
   payload: RecordingCaptureCancel,
@@ -958,6 +1002,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingVariableRenameRpc,
   RecordingPreStepArmRpc,
   RecordingPreStepConditionArmRpc,
+  RecordingPreStepConditionUrlRpc,
   RecordingCaptureCancelRpc,
   RecordingHoverArmRpc,
   RecordingStreamSubscribeRpc

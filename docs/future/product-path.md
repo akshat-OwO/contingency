@@ -51,7 +51,3 @@ Flow schema
     → Baseline / Regression / Alert
     → Handoff API
 ```
-
-## UI copy debt
-
-Create’s instructions panel still says “workflow” / “semantic steps.” When Recording lands, align copy with **Flow**, **Step**, and **Recording** from `CONTEXT.md`.

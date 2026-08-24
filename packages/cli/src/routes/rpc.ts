@@ -273,7 +273,17 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           recording.armPreStepCondition(
             data.scope === "flow"
               ? { index: data.index, type: "flow" }
-              : { index: data.index, stepId: data.stepId, type: "step" }
+              : { index: data.index, stepId: data.stepId, type: "step" },
+            data.kind
+          )
+        ),
+      "recording.pre-step.condition.url": ({ data }) =>
+        recordingResult(
+          recording.setPreStepConditionUrl(
+            data.scope === "flow"
+              ? { index: data.index, type: "flow" }
+              : { index: data.index, stepId: data.stepId, type: "step" },
+            data.pattern
           )
         ),
       "recording.recover": () => recordingResult(recording.recover()),

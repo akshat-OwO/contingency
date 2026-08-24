@@ -6,6 +6,7 @@ import type {
   BrowserTabId,
   Flow,
   PreStep,
+  PreStepPickKind,
   RecordedStep,
   RecordingCaptureMode,
   RecordingPhase,
@@ -50,6 +51,11 @@ export interface RecordingState {
   readonly steps: readonly RecordedStep[];
   readonly stopCapture: Effect.Effect<void>;
   readonly tabId: BrowserTabId;
+  /**
+   * The condition the armed element pick will produce. Absent whenever no
+   * pick is armed; the pick itself consumes it.
+   */
+  readonly targetConditionKind: PreStepPickKind | undefined;
   readonly targetPreStepIndex: number | undefined;
   readonly targetStepId: string | undefined;
   readonly title: string;

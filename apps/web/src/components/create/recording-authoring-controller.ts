@@ -1,4 +1,8 @@
-import type { AuditKind, RecordingSnapshot } from "@contingency/protocol";
+import type {
+  AuditKind,
+  PreStepPickKind,
+  RecordingSnapshot,
+} from "@contingency/protocol";
 import { isBrowserRpcError } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 
@@ -14,6 +18,7 @@ import {
   recordingHoverArmMutation,
   recordingPauseMutation,
   recordingPreStepConditionMutation,
+  recordingPreStepConditionUrlMutation,
   recordingPreStepMutation,
   recordingRecoverMutation,
   recordingResumeMutation,
@@ -36,14 +41,22 @@ interface RecordingResult {
 
 export interface RecordingAuthoringController {
   readonly addAudit: (audit: AuditKind) => void;
-  readonly armFlowCondition: (index: number) => void;
+  /**
+   * The condition the armed element pick will produce, for the capture prompt.
+   */
+  readonly armedConditionKind: PreStepPickKind | undefined;
+  readonly armFlowCondition: (index: number, kind: PreStepPickKind) => void;
   readonly armFlowPreStep: () => void;
   /**
    * Arm hover capture. Hover is captured by explicit gesture rather than from
    * mouse movement, so this is the only way a hover becomes a Step.
    */
   readonly armHover: () => void;
-  readonly armStepCondition: (stepId: string, index: number) => void;
+  readonly armStepCondition: (
+    stepId: string,
+    index: number,
+    kind: PreStepPickKind
+  ) => void;
   readonly armStepPreStep: (stepId: string) => void;
   readonly bindVariable: (stepId: string, name: string) => void;
   readonly busy: boolean;
@@ -59,6 +72,12 @@ export interface RecordingAuthoringController {
   readonly renameVariable: (from: string, name: string) => void;
   readonly resume: () => void;
   readonly saveTitle: () => void;
+  readonly setFlowConditionUrl: (index: number, pattern: string) => void;
+  readonly setStepConditionUrl: (
+    stepId: string,
+    index: number,
+    pattern: string
+  ) => void;
   readonly setTitle: (title: string) => void;
   readonly start: () => void;
   readonly startDisabled: boolean;
@@ -103,6 +122,12 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
   const conditionMutation = useAtomSet(recordingPreStepConditionMutation, {
     mode: "promise",
   });
+  const conditionUrlMutation = useAtomSet(
+    recordingPreStepConditionUrlMutation,
+    {
+      mode: "promise",
+    }
+  );
   const cancelMutation = useAtomSet(recordingCaptureCancelMutation, {
     mode: "promise",
   });
@@ -110,7 +135,7 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
     mode: "promise",
   });
   const { address, recording, selectedSessionId } = workspace;
-  const { busy, confirmDiscard, error, titleDraft } = ui;
+  const { busy, conditionKind, confirmDiscard, error, titleDraft } = ui;
   const title = titleDraft ?? recording?.flow.title ?? "";
 
   const applyRecording = (next: RecordingSnapshot | null) => {
@@ -180,15 +205,17 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
           payload: { data: { audit }, type: "recording.audit.add" },
         })
       ),
-    armFlowCondition: (index) =>
+    armFlowCondition: (index, kind) => {
+      setUi((current) => ({ ...current, conditionKind: kind }));
       invoke(() =>
         conditionMutation({
           payload: {
-            data: { index, scope: "flow" },
+            data: { index, kind, scope: "flow" },
             type: "recording.pre-step.condition.arm",
           },
         })
-      ),
+      );
+    },
     armFlowPreStep: () =>
       invoke(() =>
         preStepMutation({
@@ -204,15 +231,17 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
           payload: { data: {}, type: "recording.hover.arm" },
         })
       ),
-    armStepCondition: (stepId, index) =>
+    armStepCondition: (stepId, index, kind) => {
+      setUi((current) => ({ ...current, conditionKind: kind }));
       invoke(() =>
         conditionMutation({
           payload: {
-            data: { index, scope: "step", stepId },
+            data: { index, kind, scope: "step", stepId },
             type: "recording.pre-step.condition.arm",
           },
         })
-      ),
+      );
+    },
     armStepPreStep: (stepId) =>
       invoke(() =>
         preStepMutation({
@@ -222,6 +251,8 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
           },
         })
       ),
+    armedConditionKind:
+      recording?.captureMode === "conditionPicker" ? conditionKind : undefined,
     bindVariable: (stepId, name) =>
       invoke(() =>
         bindVariableMutation({
@@ -232,12 +263,14 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
         })
       ),
     busy,
-    cancelCapture: () =>
+    cancelCapture: () => {
+      setUi((current) => ({ ...current, conditionKind: undefined }));
       invoke(() =>
         cancelMutation({
           payload: { data: {}, type: "recording.capture.cancel" },
         })
-      ),
+      );
+    },
     confirmDiscard,
     deleteStep: (stepId) =>
       invoke(() =>
@@ -282,6 +315,24 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
         );
       }
     },
+    setFlowConditionUrl: (index, pattern) =>
+      invoke(() =>
+        conditionUrlMutation({
+          payload: {
+            data: { index, pattern, scope: "flow" },
+            type: "recording.pre-step.condition.url",
+          },
+        })
+      ),
+    setStepConditionUrl: (stepId, index, pattern) =>
+      invoke(() =>
+        conditionUrlMutation({
+          payload: {
+            data: { index, pattern, scope: "step", stepId },
+            type: "recording.pre-step.condition.url",
+          },
+        })
+      ),
     setTitle: (nextTitle) =>
       setUi((current) => ({ ...current, titleDraft: nextTitle })),
     start: () => {

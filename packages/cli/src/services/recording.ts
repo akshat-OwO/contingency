@@ -12,6 +12,7 @@ import type {
   BrowserTabId,
   Condition,
   PreStep,
+  PreStepPickKind,
   RecordedStep,
   RecordingSnapshot,
   SessionId,
@@ -119,7 +120,8 @@ export interface RecordingService {
           readonly index: number;
           readonly stepId: string;
           readonly type: "step";
-        }
+        },
+    kind: PreStepPickKind
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly bindVariable: (
     stepId: string,
@@ -142,6 +144,20 @@ export interface RecordingService {
   readonly renameVariable: (
     from: string,
     name: string
+  ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
+  /**
+   * Writes a `urlMatches` condition onto a Pre-step directly. There is no
+   * element to pick, so the author supplies the pattern themselves.
+   */
+  readonly setPreStepConditionUrl: (
+    scope:
+      | { readonly index: number; readonly type: "flow" }
+      | {
+          readonly index: number;
+          readonly stepId: string;
+          readonly type: "step";
+        },
+    pattern: string
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly resume: () => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly start: (
@@ -266,7 +282,10 @@ const pickPreStepCondition = (
     return [undefined, mutable] as const;
   }
   {
-    const when: Condition = { target, type: "selectorVisible" };
+    const when: Condition = {
+      target,
+      type: mutable.targetConditionKind ?? "selectorVisible",
+    };
     const flowPreSteps =
       mutable.targetStepId === undefined
         ? mutable.flowPreSteps.map((existing, index) =>
@@ -291,6 +310,7 @@ const pickPreStepCondition = (
         flowPreSteps,
         revision: mutable.revision + 1,
         steps,
+        targetConditionKind: undefined,
         targetPreStepIndex: undefined,
         targetStepId: undefined,
       },
@@ -418,6 +438,7 @@ export const makeRecordingService = (
           incompleteFailure: failure,
           phase: "incomplete",
           revision: current.revision + 1,
+          targetConditionKind: undefined,
           targetStepId: undefined,
         });
       });
@@ -577,6 +598,7 @@ export const makeRecordingService = (
         const [, next] = advance(mutable, {
           ...placed,
           captureMode: "ordinary",
+          targetConditionKind: undefined,
           targetPreStepIndex: undefined,
           targetStepId: undefined,
           variables,
@@ -786,6 +808,7 @@ export const makeRecordingService = (
               steps: [initialStep],
               stopCapture: handle.stop,
               tabId: handle.tabId,
+              targetConditionKind: undefined,
               targetPreStepIndex: undefined,
               targetStepId: undefined,
               title: input.title.trim(),
@@ -844,6 +867,7 @@ export const makeRecordingService = (
               steps: [...current.steps, checkpoint],
               stopCapture: handle.stop,
               tabId: handle.tabId,
+              targetConditionKind: undefined,
               targetPreStepIndex: undefined,
               targetStepId: undefined,
               variables: sanitized.variables,
@@ -969,6 +993,7 @@ export const makeRecordingService = (
               ...mutable,
               captureMode: "hoverPicker" as const,
               revision: mutable.revision + 1,
+              targetConditionKind: undefined,
               targetPreStepIndex: undefined,
               targetStepId: undefined,
             };
@@ -1004,13 +1029,14 @@ export const makeRecordingService = (
                   ? ("flowPreStep" as const)
                   : ("stepPreStep" as const),
               revision: mutable.revision + 1,
+              targetConditionKind: undefined,
               targetPreStepIndex: undefined,
               targetStepId: scope.type === "step" ? scope.stepId : undefined,
             };
             return [toSnapshot(next), next] as const;
           })
         ),
-      armPreStepCondition: (scope) =>
+      armPreStepCondition: (scope, kind) =>
         mutate((state) =>
           Effect.gen(function* armConditionPicker() {
             const mutable = yield* requireMutable(state);
@@ -1027,10 +1053,62 @@ export const makeRecordingService = (
               ...mutable,
               captureMode: "conditionPicker" as const,
               revision: mutable.revision + 1,
+              targetConditionKind: kind,
               targetPreStepIndex: scope.index,
               targetStepId: scope.type === "step" ? scope.stepId : undefined,
             };
             return [toSnapshot(next), next] as const;
+          })
+        ),
+      setPreStepConditionUrl: (scope, pattern) =>
+        mutate((state) =>
+          Effect.gen(function* setConditionUrl() {
+            const mutable = yield* requireMutable(state);
+            const trimmed = pattern.trim();
+            if (trimmed.length === 0) {
+              return yield* Effect.fail(
+                recordingError(
+                  "recording_invalid",
+                  "A URL pattern is required."
+                )
+              );
+            }
+            const preSteps =
+              scope.type === "flow"
+                ? mutable.flowPreSteps
+                : mutable.steps.find(({ id }) => id === scope.stepId)?.preSteps;
+            if (preSteps?.[scope.index] === undefined) {
+              return yield* Effect.fail(
+                recordingError("recording_invalid", "Pre-step was not found.")
+              );
+            }
+            const when: Condition = {
+              pattern: trimmed,
+              type: "urlMatches",
+            };
+            return advance(mutable, {
+              flowPreSteps:
+                scope.type === "flow"
+                  ? mutable.flowPreSteps.map((existing, index) =>
+                      index === scope.index ? { ...existing, when } : existing
+                    )
+                  : mutable.flowPreSteps,
+              steps:
+                scope.type === "step"
+                  ? mutable.steps.map((existing) =>
+                      existing.id === scope.stepId
+                        ? {
+                            ...existing,
+                            preSteps: existing.preSteps.map((preStep, index) =>
+                              index === scope.index
+                                ? { ...preStep, when }
+                                : preStep
+                            ),
+                          }
+                        : existing
+                    )
+                  : mutable.steps,
+            });
           })
         ),
       cancelCaptureMode: () =>
@@ -1041,6 +1119,7 @@ export const makeRecordingService = (
               ...mutable,
               captureMode: "ordinary" as const,
               revision: mutable.revision + 1,
+              targetConditionKind: undefined,
               targetPreStepIndex: undefined,
               targetStepId: undefined,
             };

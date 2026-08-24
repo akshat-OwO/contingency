@@ -107,6 +107,7 @@ const recordingService: RecordingService = {
   recover: () => outOfScope,
   renameVariable: () => outOfScope,
   resume: () => outOfScope,
+  setPreStepConditionUrl: () => outOfScope,
   start: () => outOfScope,
   undoDelete: () => outOfScope,
   updateTitle: () => outOfScope,
