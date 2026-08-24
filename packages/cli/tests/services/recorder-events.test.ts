@@ -17,7 +17,7 @@ import type {
 const NONCE = "recorder-nonce";
 
 const payload = (event: unknown, sequence: number, documentId = "doc-1") =>
-  JSON.stringify({ documentId, event, nonce: NONCE, sequence });
+  JSON.stringify({ documentId, event, sequence });
 
 const click = {
   button: "left",
@@ -26,10 +26,10 @@ const click = {
 };
 
 const read = (raw: unknown, sequences: RecorderSequences = new Map()) =>
-  readRecorderPayload(raw, sequences, NONCE);
+  readRecorderPayload(NONCE, raw, sequences, NONCE);
 
 const refusalOf = (raw: unknown): string => {
-  const outcome = readRecorderPayload(raw, new Map(), NONCE);
+  const outcome = readRecorderPayload(NONCE, raw, new Map(), NONCE);
   return outcome._tag === "refused" ? outcome.refusal._tag : outcome._tag;
 };
 
@@ -163,21 +163,21 @@ it.live("stops reducing once a captured event has failed", () =>
   })
 );
 
-it("ignores a payload that does not carry this Recording's nonce", () => {
+it("ignores a report that does not present this Recording's nonce", () => {
   // Page code calling the binding it found. Well-formed or not, it is not the
   // recorder speaking: nothing is recorded, and the Recording survives — a
   // site must not be able to forge a Step or destroy a Recording by calling a
   // function it discovered.
-  const forged = JSON.stringify({
-    documentId: "doc-1",
-    event: click,
-    nonce: "guessed",
-    sequence: 1,
-  });
-  expect(read(forged)._tag).toBe("forged");
-  expect(
-    refusalOf(JSON.stringify({ documentId: "d", event: click, sequence: 1 }))
-  ).toBe("forged");
+  const perfect = payload(click, 1);
+  expect(readRecorderPayload("guessed", perfect, new Map(), NONCE)._tag).toBe(
+    "forged"
+  );
+  expect(readRecorderPayload(undefined, perfect, new Map(), NONCE)._tag).toBe(
+    "forged"
+  );
+  // The nonce never travels inside the payload, so intercepting a real
+  // emission and replaying it buys an attacker nothing.
+  expect(perfect).not.toContain(NONCE);
   expect(refusalOf("not recorder data at all")).toBe("forged");
 });
 

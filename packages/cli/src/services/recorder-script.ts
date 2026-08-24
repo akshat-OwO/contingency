@@ -22,17 +22,27 @@
 const RECORDER_SOURCE = String.raw`
 (() => {
   const binding = globalThis.__CONTINGENCY_BINDING__;
-  if (typeof binding !== "function" || globalThis.__contingencyRecorder === binding) {
+  if (
+    typeof binding !== "function" ||
+    globalThis.__contingencyRecorder === "__CONTINGENCY_INSTALL__"
+  ) {
     return;
   }
   // Take the binding out of the page's reach. It stays callable through this
   // closure, which page code cannot read, but it can no longer be found on
   // the global object or enumerated: a site cannot call it to forge a Step.
+  // Nothing below ever stores it on a global again — the install marker is a
+  // string, so the transport is not reachable by walking the page's globals.
   delete globalThis.__CONTINGENCY_BINDING__;
   // A recovered Recording installs a fresh script over the old one's
   // listeners, so the newest binding is the one the page reports to.
-  globalThis.__contingencyRecorderCleanup?.();
-  globalThis.__contingencyRecorder = binding;
+  globalThis.__contingencyRecorderCleanup?.("__CONTINGENCY_NONCE__");
+  globalThis.__contingencyRecorder = "__CONTINGENCY_INSTALL__";
+
+  // Pristine before any page script has run. A site that later replaces
+  // JSON.stringify — or hangs a toJSON off Object.prototype — cannot observe
+  // or rewrite what the recorder reports through these.
+  const stringify = JSON.stringify;
 
   /** One document, one counter: a reload starts a fresh, detectable run. */
   const documentId =
@@ -151,7 +161,7 @@ const RECORDER_SOURCE = String.raw`
     }
     const root = element.getRootNode();
     const associated = root.querySelector?.(
-      "label[for=" + JSON.stringify(id) + "]"
+      "label[for=" + stringify(id) + "]"
     );
     return associated ? collapse(associated.textContent) : "";
   };
@@ -286,17 +296,11 @@ const RECORDER_SOURCE = String.raw`
 
   const emit = (event) => {
     sequence += 1;
-    // The nonce says this came from the recorder rather than from the page.
-    // It lives only in this closure, so a payload without it is not recorder
-    // data at all, however well-formed it looks.
-    binding(
-      JSON.stringify({
-        documentId,
-        event,
-        nonce: "__CONTINGENCY_NONCE__",
-        sequence,
-      })
-    );
+    // The nonce travels as its own argument, never inside the serialized
+    // payload: it says this came from the recorder rather than from the page,
+    // so it must not pass through anything the page can hook. What is
+    // serialized is the page's own data, which the page already has.
+    binding("__CONTINGENCY_NONCE__", stringify({ documentId, event, sequence }));
   };
 
   const unaddressable = () => {
@@ -613,7 +617,12 @@ const RECORDER_SOURCE = String.raw`
   addEventListener("beforeunload", handleBeforeUnload, true);
   addEventListener("scroll", handleScroll, true);
 
-  globalThis.__contingencyRecorderCleanup = () => {
+  // Only the recorder may stop the recorder. Without this the page could call
+  // cleanup and silently end capture, which omits actions rather than failing.
+  globalThis.__contingencyRecorderCleanup = (nonce) => {
+    if (nonce !== "__CONTINGENCY_NONCE__") {
+      return;
+    }
     removeEventListener("mousemove", inspectPointerTarget, true);
     removeEventListener("mouseleave", hideInspector, true);
     removeEventListener("blur", hideInspector, true);
@@ -638,9 +647,12 @@ const RECORDER_SOURCE = String.raw`
 })();
 `;
 
-/** The expression that removes the recorder from a document it is running in. */
-export const RECORDER_CLEANUP_EXPRESSION =
-  "globalThis.__contingencyRecorderCleanup?.()";
+/**
+ * The expression that removes the recorder from a document it is running in.
+ * Carries the Recording's nonce, because cleanup is the recorder's to call.
+ */
+export const recorderCleanupExpression = (nonce: string): string =>
+  `globalThis.__contingencyRecorderCleanup?.(${JSON.stringify(nonce)})`;
 
 /**
  * The recorder source, bound to the page function Playwright exposed for this
@@ -652,9 +664,9 @@ export const RECORDER_CLEANUP_EXPRESSION =
  */
 export const recorderScriptSource = (
   bindingName: string,
-  nonce: string
+  nonce: string,
+  installId: string
 ): string =>
-  RECORDER_SOURCE.replaceAll("__CONTINGENCY_BINDING__", bindingName).replaceAll(
-    "__CONTINGENCY_NONCE__",
-    nonce
-  );
+  RECORDER_SOURCE.replaceAll("__CONTINGENCY_BINDING__", bindingName)
+    .replaceAll("__CONTINGENCY_NONCE__", nonce)
+    .replaceAll("__CONTINGENCY_INSTALL__", installId);

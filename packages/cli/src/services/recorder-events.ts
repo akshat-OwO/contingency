@@ -105,12 +105,6 @@ export const RecorderPayload = Schema.Struct({
       type: Schema.Literal("unsupported"),
     }),
   ]),
-  /**
-   * Proof the payload came from the recorder rather than from the page. The
-   * script holds it in a closure the page cannot read, so a site that finds
-   * the binding still cannot produce a payload this Recording will accept.
-   */
-  nonce: bounded(128),
   sequence: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 export type RecorderPayload = typeof RecorderPayload.Type;
@@ -210,20 +204,21 @@ export const refusalFailure = (refusal: PayloadRefusal): CaptureFailure => {
  */
 export type RecorderSequences = Map<string, number>;
 
-/** Whether a payload at least claims this Recording's nonce. */
-const isRecorderNonce = (parsed: unknown, nonce: string): boolean =>
-  isRecord(parsed) && parsed.nonce === nonce;
-
 /**
- * Read one payload from a page.
+ * Read one report from a page.
  *
- * A payload is the recorder's only if it carries this Recording's nonce;
- * anything else is the page calling a function it found, and is ignored. Past
- * that, it is accepted only if it is within bounds, decodes, and continues its
- * document's sequence exactly — a gap, a repeat, or an overflow is the
- * recorder contradicting itself, which is lost integrity.
+ * A report is the recorder's only if it presents this Recording's nonce, which
+ * arrives as its own argument rather than inside the payload: the credential
+ * must not pass through anything the page can hook, and what is serialized is
+ * the page's own data anyway. Anything else is the page calling a function it
+ * found, and is ignored.
+ *
+ * Past that, a report is accepted only if it is within bounds, decodes, and
+ * continues its document's sequence exactly — a gap, a repeat, or an overflow
+ * is the recorder contradicting itself, which is lost integrity.
  */
 export const readRecorderPayload = (
+  presented: unknown,
   raw: unknown,
   sequences: RecorderSequences,
   nonce: string
@@ -233,6 +228,7 @@ export const readRecorderPayload = (
   // is ignored rather than read as this Recording contradicting itself — the
   // recorder's own emissions are bounded at the source.
   if (
+    presented !== nonce ||
     typeof raw !== "string" ||
     new TextEncoder().encode(raw).byteLength > MAX_BINDING_PAYLOAD_BYTES
   ) {
@@ -242,9 +238,6 @@ export const readRecorderPayload = (
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    return { _tag: "forged" };
-  }
-  if (!isRecorderNonce(parsed, nonce)) {
     return { _tag: "forged" };
   }
   const decoded = Schema.decodeUnknownResult(RecorderPayload)(parsed);

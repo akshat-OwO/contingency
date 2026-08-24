@@ -20,7 +20,7 @@ import type {
   RecorderSequences,
 } from "./recorder-events.ts";
 import {
-  RECORDER_CLEANUP_EXPRESSION,
+  recorderCleanupExpression,
   recorderScriptSource,
 } from "./recorder-script.ts";
 import { makeRecordingService, Recording } from "./recording.ts";
@@ -76,7 +76,12 @@ export const makePlaywrightRecorderCapture = Effect.gen(
       );
       const bindingName = `__contingency_${randomUUID().replaceAll("-", "")}`;
       const nonce = randomUUID();
-      const scriptSource = recorderScriptSource(bindingName, nonce);
+      const scriptSource = recorderScriptSource(
+        bindingName,
+        nonce,
+        randomUUID()
+      );
+      const cleanupExpression = recorderCleanupExpression(nonce);
       const sequences: RecorderSequences = new Map();
       const rateLimit = makeEventRateLimit();
       const ordered = makeOrderedRecorderEventHandler(
@@ -154,11 +159,20 @@ export const makePlaywrightRecorderCapture = Effect.gen(
         try: () =>
           target.context.exposeBinding(
             bindingName,
-            (source: { readonly page: Page }, raw: unknown) => {
+            (
+              source: { readonly page: Page },
+              presented: unknown,
+              raw: unknown
+            ) => {
               if (closing) {
                 return;
               }
-              const outcome = readRecorderPayload(raw, sequences, nonce);
+              const outcome = readRecorderPayload(
+                presented,
+                raw,
+                sequences,
+                nonce
+              );
               if (outcome._tag === "forged") {
                 // Page code calling the binding it found. It reports nothing,
                 // and it does not end the Recording: a site must not be able
@@ -219,8 +233,7 @@ export const makePlaywrightRecorderCapture = Effect.gen(
           // is also what a lost session does.
           yield* Effect.forEach(
             pages.flatMap((page) => page.frames()),
-            (frame) =>
-              tryQuietly(() => frame.evaluate(RECORDER_CLEANUP_EXPRESSION)),
+            (frame) => tryQuietly(() => frame.evaluate(cleanupExpression)),
             { discard: true }
           );
           yield* tryQuietly(() => script.dispose());

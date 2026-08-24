@@ -277,45 +277,98 @@ it.live("cannot be made to record a Step by page code", () =>
     const { page, recording } = yield* openRecording(
       fixtures.url("recorder.html")
     );
+
+    // Hook the page's own serializer before any real action, then act, so the
+    // page sees everything a legitimate emission passes through. This is the
+    // attack: intercept one real report, learn the credential, replay it.
+    yield* Effect.promise(() =>
+      page.evaluate(() => {
+        const seen: string[] = [];
+        (globalThis as unknown as { __seen: string[] }).__seen = seen;
+        const original = JSON.stringify;
+        // oxlint-disable-next-line eslint/no-extend-native
+        JSON.stringify = (...args: readonly unknown[]) => {
+          const output = (original as (...rest: readonly unknown[]) => string)(
+            ...args
+          );
+          seen.push(String(output));
+          return output;
+        };
+        // Records the shape it is handed rather than re-serializing it,
+        // which would recurse back through the hook above. Extending the
+        // native prototype is the attack under test, not a style slip.
+        // oxlint-disable-next-line eslint/no-extend-native
+        Object.defineProperty(Object.prototype, "toJSON", {
+          configurable: true,
+          value(this: object) {
+            seen.push(`toJSON:${Object.keys(this).join("|")}`);
+            return this;
+          },
+          writable: true,
+        });
+      })
+    );
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
     const before = (yield* stepsOf(recording)).length;
 
-    // The threat the untrusted boundary exists for: page-owned JavaScript
-    // hunting for the binding and calling it with a payload that is valid in
-    // every respect a schema can check.
-    const forged = yield* Effect.promise(() =>
+    const attack = yield* Effect.promise(() =>
       page.evaluate(() => {
-        const found = Object.keys(globalThis).filter((key) =>
-          key.startsWith("__contingency_")
+        // Every global the page can see, not a guessed prefix: whatever the
+        // recorder retained must not be callable from here.
+        const globals = Object.keys(globalThis).filter((key) =>
+          key.toLowerCase().includes("contingency")
         );
-        const call = (raw: string) => {
-          for (const key of found) {
-            (globalThis as unknown as Record<string, (data: string) => void>)[
-              key
-            ]?.(raw);
+        const callable = globals.filter(
+          (key) =>
+            typeof (globalThis as unknown as Record<string, unknown>)[key] ===
+            "function"
+        );
+        const forged = JSON.stringify({
+          documentId: "forged-document",
+          event: {
+            button: "left",
+            target: [{ kind: "role", name: "Pay now", role: "button" }],
+            type: "click",
+          },
+          sequence: 1,
+        });
+        const observed = (
+          globalThis as unknown as { readonly __seen: string[] }
+        ).__seen;
+        for (const key of callable) {
+          const fn = (
+            globalThis as unknown as Record<
+              string,
+              (...args: readonly unknown[]) => unknown
+            >
+          )[key];
+          // Try the credential every way the page could have learned it.
+          for (const credential of [undefined, "guessed", ...observed]) {
+            try {
+              fn?.(credential, forged);
+              fn?.(forged);
+            } catch {
+              // A throw is fine; being ignored is the point.
+            }
           }
-        };
-        call(
-          JSON.stringify({
-            documentId: "forged-document",
-            event: {
-              button: "left",
-              target: [{ kind: "role", name: "Pay now", role: "button" }],
-              type: "click",
-            },
-            nonce: "guessed",
-            sequence: 1,
-          })
-        );
-        call("not recorder data at all");
-        return found;
+        }
+        return { callable, globals, observed };
       })
     );
     yield* Effect.sleep("300 millis");
 
-    // The binding is not even reachable: it is taken off the global object
-    // before any page script runs, and a payload without the recorder's own
-    // nonce is ignored regardless.
-    expect(forged).toEqual([]);
+    // The transport is not among the page's globals at all. Cleanup is, by
+    // necessity — the CLI evaluates it in the main world — and is guarded by
+    // the same credential instead, which the next test exercises.
+    expect(attack.callable).toEqual(["__contingencyRecorderCleanup"]);
+    // The page did observe the recorder's real emission for its own click —
+    // that data is the page's own — but no credential passed through the
+    // serializer, so replaying what it saw authorizes nothing.
+    expect(attack.observed.length).toBeGreaterThan(0);
+    for (const observed of attack.observed) {
+      expect(observed).not.toContain("nonce");
+    }
     const snapshot = yield* recording.get();
     // Ignored, not fatal: a site must not be able to destroy an author's
     // Recording by calling a function it discovered.
@@ -327,6 +380,36 @@ it.live("cannot be made to record a Step by page code", () =>
     // simply switch capture off.
     yield* Effect.promise(() => page.click("#cart"));
     yield* Effect.sleep("300 millis");
+    expect((yield* stepsOf(recording)).length).toBe(before + 1);
+  }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
+
+it.live("keeps capture running when page code calls cleanup", () =>
+  Effect.gen(function* refuseForgedCleanup() {
+    const fixtures = yield* fixtureServer;
+    const { page, recording } = yield* openRecording(
+      fixtures.url("recorder.html")
+    );
+    const before = (yield* stepsOf(recording)).length;
+
+    // Stopping the recorder is the recorder's to do. A page that could call
+    // cleanup would silently omit every action after it.
+    yield* Effect.promise(() =>
+      page.evaluate(() => {
+        const cleanup = (
+          globalThis as unknown as {
+            readonly __contingencyRecorderCleanup?: (
+              nonce?: unknown
+            ) => unknown;
+          }
+        ).__contingencyRecorderCleanup;
+        cleanup?.();
+        cleanup?.("guessed");
+      })
+    );
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
+
     expect((yield* stepsOf(recording)).length).toBe(before + 1);
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
