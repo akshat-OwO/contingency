@@ -8,6 +8,7 @@ import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
+import { connectionLost } from "../../src/services/recorder-events.ts";
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { Recording } from "../../src/services/recording.ts";
 import { fixtureServer } from "./harness.ts";
@@ -433,5 +434,124 @@ it.live("records the host of a closed shadow root, never through it", () =>
     const captured = JSON.stringify(snapshotSteps(snapshot).at(-1));
     expect(captured).toContain("closed-host");
     expect(captured).not.toContain("closed-button");
+  }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
+
+/**
+ * A page lying in wait: it installs its own cleanup callback and watches for
+ * the exposed binding to appear, which is what an already-loaded document can
+ * do while capture is attaching to it.
+ */
+const AMBUSH = `(() => {
+  const trap = { credentials: [], retained: [] };
+  globalThis.__trap = trap;
+  globalThis.__contingencyRecorderCleanup = (...args) => {
+    trap.credentials.push(...args.map((value) => String(value)));
+  };
+  const seen = new Set(Object.keys(globalThis));
+  const watch = () => {
+    for (const key of Object.keys(globalThis)) {
+      if (!seen.has(key) && key.startsWith("__contingency_")) {
+        seen.add(key);
+        trap.retained.push(globalThis[key]);
+      }
+    }
+    setTimeout(watch, 1);
+  };
+  watch();
+})();`;
+
+it.live("reveals nothing to a page waiting for capture to attach", () =>
+  Effect.gen(function* ambushAttachment() {
+    const fixtures = yield* fixtureServer;
+    const browser = yield* CreateBrowser;
+    const recording = yield* Recording;
+    const sessionId = yield* browser.create(
+      `create-ambush-${Date.now()}`,
+      viewport
+    );
+    yield* Effect.addFinalizer(() =>
+      browser.close(sessionId).pipe(Effect.ignore)
+    );
+    yield* browser.open(
+      sessionId,
+      fixtures.url("recorder.html"),
+      viewport,
+      "chrome-windows"
+    );
+
+    // The ambush is in place before capture starts, in the document capture
+    // will attach to.
+    const attaching = yield* browser.recorderTarget(sessionId);
+    yield* Effect.promise(() => attaching.page.evaluate(AMBUSH));
+    yield* recording.start({ sessionId, title: "Ambush" });
+    const { page } = yield* browser.recorderTarget(sessionId);
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
+    const before = (yield* stepsOf(recording)).length;
+
+    const forge = () =>
+      Effect.promise(() =>
+        page.evaluate(() => {
+          const trap = (
+            globalThis as unknown as {
+              readonly __trap: {
+                readonly credentials: string[];
+                readonly retained: ((...args: unknown[]) => unknown)[];
+              };
+            }
+          ).__trap;
+          const forged = JSON.stringify({
+            documentId: `forged-${Math.random()}`,
+            event: {
+              button: "left",
+              target: [{ kind: "role", name: "Pay now", role: "button" }],
+              type: "click",
+            },
+            sequence: 1,
+          });
+          for (const binding of trap.retained) {
+            for (const credential of [undefined, ...trap.credentials]) {
+              try {
+                binding(credential, forged);
+                binding(forged);
+              } catch {
+                // Being ignored is the point.
+              }
+            }
+          }
+          return {
+            credentials: trap.credentials,
+            retained: trap.retained.length,
+          };
+        })
+      );
+
+    const attached = yield* forge();
+    yield* Effect.sleep("300 millis");
+    // Retaining the binding is possible in an already-loaded document; being
+    // handed the credential is not, so retention authorizes nothing.
+    expect(attached.credentials).toEqual([]);
+    expect((yield* stepsOf(recording)).length).toBe(before);
+
+    // The same must hold when capture re-attaches to recover a Recording.
+    yield* recording.fail(
+      connectionLost("The browser recorder connection was lost.")
+    );
+    yield* recording.recover();
+    yield* Effect.sleep("300 millis");
+    const recovered = yield* forge();
+    yield* Effect.sleep("300 millis");
+    expect(recovered.credentials).toEqual([]);
+
+    const snapshot = yield* recording.get();
+    expect(snapshot?.phase).toBe("active");
+    expect(JSON.stringify(snapshot)).not.toContain("Pay now");
+
+    // Capture still works after both attachments.
+    const settled = snapshotSteps(snapshot).length;
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
+    expect((yield* stepsOf(recording)).length).toBe(settled + 1);
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );

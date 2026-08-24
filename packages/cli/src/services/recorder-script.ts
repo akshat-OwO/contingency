@@ -34,9 +34,11 @@ const RECORDER_SOURCE = String.raw`
   // Nothing below ever stores it on a global again — the install marker is a
   // string, so the transport is not reachable by walking the page's globals.
   delete globalThis.__CONTINGENCY_BINDING__;
-  // A recovered Recording installs a fresh script over the old one's
-  // listeners, so the newest binding is the one the page reports to.
-  globalThis.__contingencyRecorderCleanup?.("__CONTINGENCY_NONCE__");
+  // Nothing here calls the cleanup already on the page. Whatever sits at that
+  // name in an existing document is page-owned until this script overwrites
+  // it, and handing it this Recording's nonce would give the page the one
+  // secret that makes a report the recorder's. A previous install is torn
+  // down by the CLI with its own nonce before a new one starts.
   globalThis.__contingencyRecorder = "__CONTINGENCY_INSTALL__";
 
   // Pristine before any page script has run. A site that later replaces
@@ -300,7 +302,15 @@ const RECORDER_SOURCE = String.raw`
     // payload: it says this came from the recorder rather than from the page,
     // so it must not pass through anything the page can hook. What is
     // serialized is the page's own data, which the page already has.
-    binding("__CONTINGENCY_NONCE__", stringify({ documentId, event, sequence }));
+    // A binding disposed by a stopped capture must not throw into the page.
+    try {
+      binding(
+        "__CONTINGENCY_NONCE__",
+        stringify({ documentId, event, sequence })
+      );
+    } catch {
+      // Reporting is over; the page is not the place to say so.
+    }
   };
 
   const unaddressable = () => {
