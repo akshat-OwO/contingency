@@ -1,6 +1,6 @@
 # @contingency/cli
 
-The CLI drives Chromium through `playwright-core` in process. On first use, install the browser it runs:
+The CLI drives Chromium through `playwright-core` in process. The browser is not bundled: the first Run or Create session downloads Contingency's pinned Chromium build once, printing progress as it goes. To install it ahead of time instead:
 
 ```
 nubx playwright-core install chromium

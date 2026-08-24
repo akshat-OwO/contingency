@@ -78,6 +78,9 @@ export const STEP_BEACON = "/step-beacon";
 /** What the lazy fixture requests once its below-the-fold content loads. */
 export const LAZY_LOADED_BEACON = "/lazy-loaded-beacon";
 
+/** What the shop fixture requests once its cart is viewed. */
+export const CART_VIEWED_BEACON = "/cart-viewed";
+
 /** What the busy fixture requests on every tick after load, forever. */
 export const BUSY_TICK_BEACON = "/busy-tick-beacon";
 

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Anvil Works</title>
+  </head>
+  <body>
+    <main>
+      <h1>Anvil Works</h1>
+      <!--
+        The shop under test: browsing types here, buying opens the cart in a
+        second Page, and returning to the page leaves evidence the Run can be
+        held to.
+      -->
+      <form>
+        <label for="search">Search the catalogue</label>
+        <input id="search" name="search" type="text" />
+      </form>
+      <button id="add" type="button">Add giant anvil to cart</button>
+      <button id="view-cart" type="button">View cart</button>
+      <output id="cart-count">0 items</output>
+    </main>
+    <script>
+      document.getElementById("add").addEventListener("click", () => {
+        window.open("/cart.html", "_blank");
+      });
+      document.getElementById("view-cart").addEventListener("click", () => {
+        document.getElementById("cart-count").textContent = "1 item";
+        fetch("/cart-viewed").catch(() => {});
+      });
+    </script>
+  </body>
+</html>

@@ -2,9 +2,8 @@ import { homedir, platform } from "node:os";
 import path from "node:path";
 
 /**
- * Where Contingency keeps machine-local state: the browser install marker and
- * Run artifacts. Honours `CONTINGENCY_STATE_DIR`, then the platform
- * convention.
+ * Where Contingency keeps machine-local state: Run artifacts. Honours
+ * `CONTINGENCY_STATE_DIR`, then the platform convention.
  */
 export const stateDirectory = (
   operatingSystem: NodeJS.Platform = platform()
