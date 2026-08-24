@@ -51,6 +51,19 @@ import type { RecordingState } from "./recording-flow.ts";
 
 const ACTION_NAVIGATION_WINDOW_MS = 1000;
 
+/** The same set without one Page, since a navigation settles that Page only. */
+const withoutPage = (
+  pages: ReadonlySet<number>,
+  page: number
+): ReadonlySet<number> => {
+  if (!pages.has(page)) {
+    return pages;
+  }
+  const next = new Set(pages);
+  next.delete(page);
+  return next;
+};
+
 /** The Page a Recording is pinned to: the one it started on. */
 const PINNED_PAGE = 0;
 
@@ -302,8 +315,8 @@ const pickHover = (
       ...mutable,
       captureMode: "ordinary" as const,
       deletedStep: undefined,
-      lastActionAt: Date.now(),
-      pendingNavigation: false,
+      lastActionAt: new Map(mutable.lastActionAt).set(page, Date.now()),
+      pendingNavigation: withoutPage(mutable.pendingNavigation, page),
       revision: mutable.revision + 1,
       steps: [...mutable.steps, hover],
     },
@@ -460,14 +473,18 @@ export const makeRecordingService = (
         // A navigation a Step caused is that Step's consequence, not another
         // Step: replaying the click navigates again by itself.
         const causedByAction =
-          mutable.pendingNavigation ||
-          Date.now() - mutable.lastActionAt <= ACTION_NAVIGATION_WINDOW_MS;
+          mutable.pendingNavigation.has(event.page) ||
+          Date.now() - (mutable.lastActionAt.get(event.page) ?? 0) <=
+            ACTION_NAVIGATION_WINDOW_MS;
         if (causedByAction) {
           return [
             undefined,
             {
               ...mutable,
-              pendingNavigation: false,
+              pendingNavigation: withoutPage(
+                mutable.pendingNavigation,
+                event.page
+              ),
               variables: sanitized.variables,
             },
           ] as const;
@@ -478,7 +495,16 @@ export const makeRecordingService = (
           last.step.url === sanitized.url &&
           (last.step.page ?? 0) === event.page
         ) {
-          return [undefined, { ...mutable, pendingNavigation: false }] as const;
+          return [
+            undefined,
+            {
+              ...mutable,
+              pendingNavigation: withoutPage(
+                mutable.pendingNavigation,
+                event.page
+              ),
+            },
+          ] as const;
         }
         const navigation: RecordedStep = {
           id: randomUUID(),
@@ -493,7 +519,10 @@ export const makeRecordingService = (
           undefined,
           {
             ...mutable,
-            pendingNavigation: false,
+            pendingNavigation: withoutPage(
+              mutable.pendingNavigation,
+              event.page
+            ),
             revision: mutable.revision + 1,
             steps: [...mutable.steps, navigation],
             variables: sanitized.variables,
@@ -566,7 +595,12 @@ export const makeRecordingService = (
           if (event.type === "beforeUnload") {
             return [
               undefined,
-              { ...mutable, pendingNavigation: true },
+              {
+                ...mutable,
+                pendingNavigation: new Set(mutable.pendingNavigation).add(
+                  event.page
+                ),
+              },
             ] as const;
           }
           if (event.type === "navigation") {
@@ -633,8 +667,8 @@ export const makeRecordingService = (
           const next = {
             ...mutable,
             deletedStep: undefined,
-            lastActionAt: Date.now(),
-            pendingNavigation: false,
+            lastActionAt: new Map(mutable.lastActionAt).set(page, Date.now()),
+            pendingNavigation: withoutPage(mutable.pendingNavigation, page),
             revision: mutable.revision + 1,
             steps,
             variables:
@@ -744,8 +778,8 @@ export const makeRecordingService = (
               flowPreSteps: [],
               incompleteFailure: undefined,
               initialUrl: sanitized.url,
-              lastActionAt: 0,
-              pendingNavigation: false,
+              lastActionAt: new Map(),
+              pendingNavigation: new Set(),
               phase: "active",
               revision: 0,
               sessionId: input.sessionId,
@@ -804,7 +838,7 @@ export const makeRecordingService = (
               captureMode: "ordinary",
               deletedStep: undefined,
               incompleteFailure: undefined,
-              pendingNavigation: false,
+              pendingNavigation: new Set(),
               phase: "active",
               revision: current.revision + 1,
               steps: [...current.steps, checkpoint],

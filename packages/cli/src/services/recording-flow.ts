@@ -36,9 +36,15 @@ export interface RecordingState {
   readonly flowPreSteps: readonly PreStep[];
   readonly incompleteFailure: CaptureFailure | undefined;
   readonly initialUrl: string;
-  readonly lastActionAt: number;
+  /**
+   * When each Page last saw an action, and which Pages are leaving. Held per
+   * Page rather than per Recording: a click on one Page explains a navigation
+   * on that Page and on no other, and attributing across Pages would drop an
+   * independent navigation a replay needs.
+   */
+  readonly lastActionAt: ReadonlyMap<number, number>;
   readonly phase: RecordingPhase;
-  readonly pendingNavigation: boolean;
+  readonly pendingNavigation: ReadonlySet<number>;
   readonly revision: number;
   readonly sessionId: SessionId;
   readonly steps: readonly RecordedStep[];
@@ -168,6 +174,7 @@ export const sanitizeUrl = (
       }
       url.hash = "";
       const variables = [...existingVariables];
+      const placeholders: string[] = [];
       for (const [name, parameterValue] of url.searchParams) {
         if (
           parameterValue.length === 0 ||
@@ -177,9 +184,22 @@ export const sanitizeUrl = (
         }
         const variableName = uniqueVariableName(name, variables);
         variables.push(variableName);
+        placeholders.push(variableName);
         url.searchParams.set(name, `{{${variableName}}}`);
       }
-      return { url: url.href, variables };
+      // Serializing percent-encodes the braces, and a reference is only a
+      // reference in its raw form: encoded, neither the Runner's substitution
+      // nor this Flow's own Variable discovery would recognise it, so the
+      // value would replay as literal text and the declaration would vanish
+      // the next time Variables were re-derived.
+      let { href } = url;
+      for (const variableName of placeholders) {
+        href = href.replaceAll(
+          encodeURIComponent(`{{${variableName}}}`),
+          `{{${variableName}}}`
+        );
+      }
+      return { url: href, variables };
     },
   });
 

@@ -271,39 +271,63 @@ it.live("finishes a captured Flow that validates against the schema", () =>
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 
-it.live("ends the Recording when the page itself calls the binding", () =>
+it.live("cannot be made to record a Step by page code", () =>
   Effect.gen(function* refuseForgedRecorderData() {
     const fixtures = yield* fixtureServer;
     const { page, recording } = yield* openRecording(
       fixtures.url("recorder.html")
     );
+    const before = (yield* stepsOf(recording)).length;
 
-    // The binding a page can find and call is the threat the untrusted
-    // boundary exists for: whatever it says must not become a Step, and
-    // saying it at all is lost integrity.
-    yield* Effect.promise(() =>
+    // The threat the untrusted boundary exists for: page-owned JavaScript
+    // hunting for the binding and calling it with a payload that is valid in
+    // every respect a schema can check.
+    const forged = yield* Effect.promise(() =>
       page.evaluate(() => {
-        const name = Object.keys(globalThis).find((key) =>
+        const found = Object.keys(globalThis).filter((key) =>
           key.startsWith("__contingency_")
         );
-        (globalThis as unknown as Record<string, (raw: string) => void>)[
-          name ?? ""
-        ]?.("not recorder data at all");
+        const call = (raw: string) => {
+          for (const key of found) {
+            (globalThis as unknown as Record<string, (data: string) => void>)[
+              key
+            ]?.(raw);
+          }
+        };
+        call(
+          JSON.stringify({
+            documentId: "forged-document",
+            event: {
+              button: "left",
+              target: [{ kind: "role", name: "Pay now", role: "button" }],
+              type: "click",
+            },
+            nonce: "guessed",
+            sequence: 1,
+          })
+        );
+        call("not recorder data at all");
+        return found;
       })
     );
-    yield* waitUntil(
-      () => Effect.runSync(recording.get())?.phase === "incomplete"
-    );
+    yield* Effect.sleep("300 millis");
 
+    // The binding is not even reachable: it is taken off the global object
+    // before any page script runs, and a payload without the recorder's own
+    // nonce is ignored regardless.
+    expect(forged).toEqual([]);
     const snapshot = yield* recording.get();
-    expect(snapshot?.incompleteReason).toBe(
-      "The page sent malformed recorder data."
-    );
-    // Lost integrity, so recovery must refuse it.
-    const error = yield* Effect.flip(recording.recover());
-    expect(error.message).toBe(
-      "This Recording cannot be recovered because capture integrity was lost."
-    );
+    // Ignored, not fatal: a site must not be able to destroy an author's
+    // Recording by calling a function it discovered.
+    expect(snapshot?.phase).toBe("active");
+    expect(snapshotSteps(snapshot)).toHaveLength(before);
+    expect(JSON.stringify(snapshot)).not.toContain("Pay now");
+
+    // And the author's own actions still record, so the boundary did not
+    // simply switch capture off.
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
+    expect((yield* stepsOf(recording)).length).toBe(before + 1);
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 

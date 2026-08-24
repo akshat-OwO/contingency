@@ -14,8 +14,10 @@ import type {
   RecorderSequences,
 } from "../../src/services/recorder-events.ts";
 
+const NONCE = "recorder-nonce";
+
 const payload = (event: unknown, sequence: number, documentId = "doc-1") =>
-  JSON.stringify({ documentId, event, sequence });
+  JSON.stringify({ documentId, event, nonce: NONCE, sequence });
 
 const click = {
   button: "left",
@@ -24,11 +26,11 @@ const click = {
 };
 
 const read = (raw: unknown, sequences: RecorderSequences = new Map()) =>
-  readRecorderPayload(raw, sequences);
+  readRecorderPayload(raw, sequences, NONCE);
 
 const refusalOf = (raw: unknown): string => {
-  const outcome = readRecorderPayload(raw, new Map());
-  return outcome._tag === "refused" ? outcome.refusal._tag : "accepted";
+  const outcome = readRecorderPayload(raw, new Map(), NONCE);
+  return outcome._tag === "refused" ? outcome.refusal._tag : outcome._tag;
 };
 
 it("accepts a recorder event that continues its document's sequence", () => {
@@ -57,9 +59,9 @@ it("counts each document's sequence separately, so a reload is not a gap", () =>
   expect(read(payload(click, 1, "doc-2"), sequences)._tag).toBe("accepted");
 });
 
-it("refuses malformed, non-string, and oversized recorder data", () => {
-  expect(refusalOf("{")).toBe("malformed");
-  expect(refusalOf({ event: click, sequence: 1 })).toBe("malformed");
+it("refuses malformed recorder data, and ignores what is not its own", () => {
+  expect(refusalOf("{")).toBe("forged");
+  expect(refusalOf({ event: click, sequence: 1 })).toBe("forged");
   expect(refusalOf(payload({ type: "teleport" }, 1))).toBe("malformed");
   expect(
     refusalOf(
@@ -72,7 +74,7 @@ it("refuses malformed, non-string, and oversized recorder data", () => {
       )
     )
   ).toBe("malformed");
-  expect(refusalOf("x".repeat(MAX_BINDING_PAYLOAD_BYTES + 1))).toBe("oversize");
+  expect(refusalOf("x".repeat(MAX_BINDING_PAYLOAD_BYTES + 1))).toBe("forged");
 });
 
 it("never accepts a test-id locator descriptor", () => {
@@ -86,10 +88,6 @@ it("treats every refused payload as lost integrity, never recoverable", () => {
   expect(refusalFailure({ _tag: "malformed" })).toEqual({
     kind: "integrityLost",
     message: "The page sent malformed recorder data.",
-  });
-  expect(refusalFailure({ _tag: "oversize" })).toEqual({
-    kind: "integrityLost",
-    message: "The page sent an oversized recorder event.",
   });
   expect(refusalFailure({ _tag: "sequence" })).toEqual({
     kind: "integrityLost",
@@ -164,3 +162,37 @@ it.live("stops reducing once a captured event has failed", () =>
     ]);
   })
 );
+
+it("ignores a payload that does not carry this Recording's nonce", () => {
+  // Page code calling the binding it found. Well-formed or not, it is not the
+  // recorder speaking: nothing is recorded, and the Recording survives — a
+  // site must not be able to forge a Step or destroy a Recording by calling a
+  // function it discovered.
+  const forged = JSON.stringify({
+    documentId: "doc-1",
+    event: click,
+    nonce: "guessed",
+    sequence: 1,
+  });
+  expect(read(forged)._tag).toBe("forged");
+  expect(
+    refusalOf(JSON.stringify({ documentId: "d", event: click, sequence: 1 }))
+  ).toBe("forged");
+  expect(refusalOf("not recorder data at all")).toBe("forged");
+});
+
+it("still refuses the recorder's own contradictions as lost integrity", () => {
+  // Carrying the nonce means this *is* the recorder, so a payload it cannot
+  // honour is integrity lost rather than noise from the page.
+  expect(refusalOf(payload({ type: "teleport" }, 1))).toBe("malformed");
+  expect(
+    refusalOf(
+      JSON.stringify({
+        documentId: "doc-1",
+        event: click,
+        nonce: NONCE,
+        sequence: 9,
+      })
+    )
+  ).toBe("sequence");
+});

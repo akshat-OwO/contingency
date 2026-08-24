@@ -25,6 +25,10 @@ const RECORDER_SOURCE = String.raw`
   if (typeof binding !== "function" || globalThis.__contingencyRecorder === binding) {
     return;
   }
+  // Take the binding out of the page's reach. It stays callable through this
+  // closure, which page code cannot read, but it can no longer be found on
+  // the global object or enumerated: a site cannot call it to forge a Step.
+  delete globalThis.__CONTINGENCY_BINDING__;
   // A recovered Recording installs a fresh script over the old one's
   // listeners, so the newest binding is the one the page reports to.
   globalThis.__contingencyRecorderCleanup?.();
@@ -282,7 +286,17 @@ const RECORDER_SOURCE = String.raw`
 
   const emit = (event) => {
     sequence += 1;
-    binding(JSON.stringify({ documentId, event, sequence }));
+    // The nonce says this came from the recorder rather than from the page.
+    // It lives only in this closure, so a payload without it is not recorder
+    // data at all, however well-formed it looks.
+    binding(
+      JSON.stringify({
+        documentId,
+        event,
+        nonce: "__CONTINGENCY_NONCE__",
+        sequence,
+      })
+    );
   };
 
   const unaddressable = () => {
@@ -630,8 +644,17 @@ export const RECORDER_CLEANUP_EXPRESSION =
 
 /**
  * The recorder source, bound to the page function Playwright exposed for this
- * Recording. The name is per-Recording and unguessable, so a page cannot
- * address the binding by knowing Contingency's source.
+ * Recording and to the nonce that identifies its own reports.
+ *
+ * Both are per-Recording and unguessable. The script hides the binding from
+ * the page on the way in, and the nonce means that even a leaked binding name
+ * cannot be used to forge a Step.
  */
-export const recorderScriptSource = (bindingName: string): string =>
-  RECORDER_SOURCE.replaceAll("__CONTINGENCY_BINDING__", bindingName);
+export const recorderScriptSource = (
+  bindingName: string,
+  nonce: string
+): string =>
+  RECORDER_SOURCE.replaceAll("__CONTINGENCY_BINDING__", bindingName).replaceAll(
+    "__CONTINGENCY_NONCE__",
+    nonce
+  );

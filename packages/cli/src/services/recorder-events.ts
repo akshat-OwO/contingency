@@ -105,6 +105,12 @@ export const RecorderPayload = Schema.Struct({
       type: Schema.Literal("unsupported"),
     }),
   ]),
+  /**
+   * Proof the payload came from the recorder rather than from the page. The
+   * script holds it in a closure the page cannot read, so a site that finds
+   * the binding still cannot produce a payload this Recording will accept.
+   */
+  nonce: bounded(128),
   sequence: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 export type RecorderPayload = typeof RecorderPayload.Type;
@@ -172,11 +178,17 @@ export const integrityLost = (message: string): CaptureFailure => ({
 /** Why a payload was refused, in the words the author will read. */
 export type PayloadRefusal =
   | { readonly _tag: "malformed" }
-  | { readonly _tag: "oversize" }
   | { readonly _tag: "sequence" };
 
 export type PayloadOutcome =
   | { readonly _tag: "accepted"; readonly event: CapturedAction }
+  /**
+   * Not the recorder speaking. Page code calling the binding is the site
+   * behaving, exactly like an untrusted event: it records nothing, and it
+   * does not end the Recording either — a hostile page must not be able to
+   * destroy an author's work by shouting into the binding.
+   */
+  | { readonly _tag: "forged" }
   | { readonly _tag: "refused"; readonly refusal: PayloadRefusal };
 
 /** A refused payload is always lost integrity: the page contradicted itself. */
@@ -184,9 +196,6 @@ export const refusalFailure = (refusal: PayloadRefusal): CaptureFailure => {
   switch (refusal._tag) {
     case "malformed": {
       return integrityLost("The page sent malformed recorder data.");
-    }
-    case "oversize": {
-      return integrityLost("The page sent an oversized recorder event.");
     }
     default: {
       return integrityLost("The page recorder event sequence was interrupted.");
@@ -201,26 +210,42 @@ export const refusalFailure = (refusal: PayloadRefusal): CaptureFailure => {
  */
 export type RecorderSequences = Map<string, number>;
 
+/** Whether a payload at least claims this Recording's nonce. */
+const isRecorderNonce = (parsed: unknown, nonce: string): boolean =>
+  isRecord(parsed) && parsed.nonce === nonce;
+
 /**
- * Read one payload from a page. A payload is accepted only if it is within
- * bounds, decodes, and continues its document's sequence exactly — a gap, a
- * repeat, or an overflow is a lost-integrity failure, not a dropped event.
+ * Read one payload from a page.
+ *
+ * A payload is the recorder's only if it carries this Recording's nonce;
+ * anything else is the page calling a function it found, and is ignored. Past
+ * that, it is accepted only if it is within bounds, decodes, and continues its
+ * document's sequence exactly — a gap, a repeat, or an overflow is the
+ * recorder contradicting itself, which is lost integrity.
  */
 export const readRecorderPayload = (
   raw: unknown,
-  sequences: RecorderSequences
+  sequences: RecorderSequences,
+  nonce: string
 ): PayloadOutcome => {
-  if (typeof raw !== "string") {
-    return { _tag: "refused", refusal: { _tag: "malformed" } };
-  }
-  if (new TextEncoder().encode(raw).byteLength > MAX_BINDING_PAYLOAD_BYTES) {
-    return { _tag: "refused", refusal: { _tag: "oversize" } };
+  // Nothing that cannot be shown to be the recorder's is treated as the
+  // recorder's. An unreadable or oversized payload is the page talking, and
+  // is ignored rather than read as this Recording contradicting itself — the
+  // recorder's own emissions are bounded at the source.
+  if (
+    typeof raw !== "string" ||
+    new TextEncoder().encode(raw).byteLength > MAX_BINDING_PAYLOAD_BYTES
+  ) {
+    return { _tag: "forged" };
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    return { _tag: "refused", refusal: { _tag: "malformed" } };
+    return { _tag: "forged" };
+  }
+  if (!isRecorderNonce(parsed, nonce)) {
+    return { _tag: "forged" };
   }
   const decoded = Schema.decodeUnknownResult(RecorderPayload)(parsed);
   if (decoded._tag === "Failure") {

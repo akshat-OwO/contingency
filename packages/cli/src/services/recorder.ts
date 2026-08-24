@@ -75,7 +75,8 @@ export const makePlaywrightRecorderCapture = Effect.gen(
         options.tabId
       );
       const bindingName = `__contingency_${randomUUID().replaceAll("-", "")}`;
-      const scriptSource = recorderScriptSource(bindingName);
+      const nonce = randomUUID();
+      const scriptSource = recorderScriptSource(bindingName, nonce);
       const sequences: RecorderSequences = new Map();
       const rateLimit = makeEventRateLimit();
       const ordered = makeOrderedRecorderEventHandler(
@@ -157,7 +158,13 @@ export const makePlaywrightRecorderCapture = Effect.gen(
               if (closing) {
                 return;
               }
-              const outcome = readRecorderPayload(raw, sequences);
+              const outcome = readRecorderPayload(raw, sequences, nonce);
+              if (outcome._tag === "forged") {
+                // Page code calling the binding it found. It reports nothing,
+                // and it does not end the Recording: a site must not be able
+                // to destroy an author's work by calling a function.
+                return;
+              }
               if (outcome._tag === "refused") {
                 failCapture(refusalFailure(outcome.refusal));
                 return;

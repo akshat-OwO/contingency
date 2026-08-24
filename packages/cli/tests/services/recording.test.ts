@@ -491,3 +491,81 @@ it.effect("re-pins recovery to the Page the Recording already names", () =>
     expect(capture.pinnedTabId()).toBe(tabId);
   })
 );
+
+it.effect(
+  "keeps a sensitive query Variable replayable across later edits",
+  () =>
+    Effect.gen(function* sensitiveQueryVariable() {
+      const capture = makeCapture(
+        "https://shop.example.com/cart?token=abc123&size=large"
+      );
+      const recording = yield* startRecording(capture);
+      const started = (yield* recording.get()) as RecordingSnapshot;
+
+      // The placeholder has to survive as a reference the Runner can resolve:
+      // percent-encoded braces are text, and replay would send them verbatim.
+      expect(started.initialUrl).toContain("{{TOKEN}}");
+      expect(started.initialUrl).not.toContain("%7B%7B");
+      expect(started.flow.variables).toEqual([
+        { name: "TOKEN", runtime: true, secret: true },
+      ]);
+
+      // A later navigation carrying its own sensitive parameter, and an edit
+      // that re-derives the Flow's Variables, must both keep the declaration.
+      yield* capture.emit({
+        page: 0,
+        type: "navigation",
+        url: "https://shop.example.com/pay?secret=xyz789",
+      });
+      yield* recording.addAudit("accessibility");
+      const later = (yield* recording.get()) as RecordingSnapshot;
+      const names = (later.flow.variables ?? []).map(({ name }) => name);
+      expect(names).toContain("TOKEN");
+      expect(names).toContain("SECRET");
+      expect(JSON.stringify(later.flow)).not.toContain("%7B%7B");
+      expect(JSON.stringify(later.flow)).not.toContain("abc123");
+      expect(JSON.stringify(later.flow)).not.toContain("xyz789");
+    })
+);
+
+it.effect("attributes a navigation to its own Page, not to any Page", () =>
+  Effect.gen(function* perPageAttribution() {
+    const capture = makeCapture();
+    const recording = yield* startRecording(capture);
+    // A click on Page 0 explains a navigation on Page 0, and nothing else.
+    yield* capture.emit({
+      button: "left",
+      page: 0,
+      target: cartButton,
+      type: "click",
+    });
+    yield* capture.emit({
+      page: 1,
+      type: "navigation",
+      url: "https://shop.example.com/independent",
+    });
+    // The same holds for beforeUnload, which is a Page leaving, not a session.
+    yield* capture.emit({ page: 0, type: "beforeUnload" });
+    yield* capture.emit({
+      page: 2,
+      type: "navigation",
+      url: "https://shop.example.com/unrelated",
+    });
+
+    const recorded = steps((yield* recording.get()) as RecordingSnapshot);
+    expect(recorded.map((step) => step.type)).toEqual([
+      "navigate",
+      "click",
+      "navigate",
+      "navigate",
+    ]);
+    expect(recorded[2]).toMatchObject({
+      page: 1,
+      url: "https://shop.example.com/independent",
+    });
+    expect(recorded[3]).toMatchObject({
+      page: 2,
+      url: "https://shop.example.com/unrelated",
+    });
+  })
+);
