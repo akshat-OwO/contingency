@@ -184,8 +184,8 @@ export const runCommand = Command.make(
       (total, step) => total + (step.findings?.length ?? 0),
       0
     );
-    // The engine lists at most a fixed number of elements per rule while
-    // counting them all, so the Findings can be fewer than the page has.
+    // The Runner lists at most ten elements per rule while counting them all,
+    // so the Findings can be fewer than the page has (ADR 0017).
     const elided = run.steps.reduce(
       (total, step) =>
         total +

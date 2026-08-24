@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { arch, cpus, loadavg, platform, totalmem } from "node:os";
 import path from "node:path";
 
+import { AxeBuilder } from "@axe-core/playwright";
 import {
   accessibilityRuleTags,
   FindingSeverity,
@@ -525,14 +525,20 @@ const collectVitals = Effect.fn("Runner.collectVitals")(function* collectVitals(
 // Accessibility Audits
 // ---------------------------------------------------------------------------
 
-/** What one Audit Step found, and what the engine did not list in full. */
+/** What one Audit Step found, what the engine did not list in full, and which engine ran. */
 export interface AuditResult {
+  /** The engine's own version, so the Run can record it (ADR 0017). */
+  readonly axeVersion: string | undefined;
   readonly elided: readonly ElidedFindings[];
   readonly findings: readonly Finding[];
 }
 
 /** One shared empty result, for every Step that finds nothing. */
-const NO_FINDINGS: AuditResult = { elided: [], findings: [] };
+const NO_FINDINGS: AuditResult = {
+  axeVersion: undefined,
+  elided: [],
+  findings: [],
+};
 
 /** A target path: selectors, nested once per frame or shadow-root hop. */
 type AuditTargetPath = string | readonly AuditTargetPath[];
@@ -548,8 +554,7 @@ const AuditTarget = Schema.Union([
   ),
 ]);
 
-/**
- * The shape of an axe report, narrowed to what a Finding needs. Decoding only
+/** The shape of an axe report, narrowed to what a Finding needs. Decoding only
  * the used fields keeps an engine upgrade that adds a field from failing
  * every Audit.
  */
@@ -577,17 +582,14 @@ const AuditReport = Schema.Struct({
   ),
 });
 
-let axeScriptPath: string | undefined;
-
-/** Contingency pins the engine version in its manifest, not the site's. */
-const resolveAxeScript = (): string => {
-  if (axeScriptPath === undefined) {
-    axeScriptPath = createRequire(import.meta.url).resolve(
-      "axe-core/axe.min.js"
-    );
-  }
-  return axeScriptPath;
-};
+/**
+ * How many elements per failing rule are listed as Findings before the rest
+ * are elided. This cap is Contingency's own, chosen and written down (ADR
+ * 0017): ten per rule, matching what the replaced browser tool listed, so a
+ * rule failing on four hundred elements produces ten Findings and one true
+ * count rather than four hundred of each.
+ */
+const AUDIT_NODE_SAMPLE_CAP = 10;
 
 /**
  * Render an engine target path as one selector anyone can act on.
@@ -602,51 +604,14 @@ const renderAuditHop = (hop: AuditTargetPath): string =>
 const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
   target.map(renderAuditHop).join(" >>> ");
 
-/** The pieces of axe's raw result this reads, narrowed from its public shape. */
-interface AxeRawResults {
-  readonly inapplicable: readonly unknown[];
-  readonly incomplete: readonly unknown[];
-  readonly passes: readonly unknown[];
-  readonly violations: readonly {
-    readonly help: string;
-    readonly helpUrl?: string | null;
-    readonly id: string;
-    readonly impact: FindingSeverity | null;
-    readonly nodes: readonly {
-      readonly failureSummary?: string | null;
-      readonly target: AuditTargetPath[];
-    }[];
-  }[];
-}
-
-/** The report shape as it crosses back over `page.evaluate`. */
-interface AxeReportLike {
-  readonly counts: AxeRawCounts;
-  readonly violations: {
-    readonly help: string;
-    readonly helpUrl?: string;
-    readonly id: string;
-    readonly impact: FindingSeverity;
-    readonly nodeCount: number;
-    readonly nodes: {
-      readonly failureSummary?: string;
-      readonly target: AuditTargetPath[];
-    }[];
-  }[];
-}
-interface AxeRawCounts {
-  readonly inapplicable: number;
-  readonly incomplete: number;
-  readonly passes: number;
-  readonly violations: number;
-}
-
 /**
  * Run the pinned accessibility engine over the whole page, under the given
- * rule tags. Covers the frame tree and open shadow roots, and fetches
- * nothing from the network. The script is injected as an inline element, so
- * a page whose CSP forbids inline scripts fails this Step loudly rather
- * than auditing a page it could not read.
+ * rule tags, through its Playwright integration (ADR 0017). The builder
+ * injects the engine into every frame — cross-origin ones included — stitches
+ * targets across frame and shadow-root hops, and fetches nothing from the
+ * network. Contingency pins the engine version in its own manifest, so an
+ * upgrade is a reviewed dependency bump rather than something that arrives
+ * with someone else's binary.
  *
  * An unrecognised tag selects no rules silently, and every page then audits
  * clean forever — so the one case where nothing ran is a failure.
@@ -658,75 +623,40 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
   tags: readonly string[],
   stepIndex: number
 ) {
-  yield* Effect.tryPromise({
+  const raw = yield* Effect.tryPromise({
     catch: (cause) =>
       new RunnerError({
-        message: `Could not load the accessibility engine: ${errorMessage(cause)}`,
+        message: `The accessibility engine did not answer: ${errorMessage(cause)}`,
       }),
-    try: () => page.addScriptTag({ path: resolveAxeScript() }),
+    try: () => new AxeBuilder({ page }).withTags([...tags]).analyze(),
   });
-  const report = yield* Schema.decodeUnknownEffect(AuditReport)(
-    yield* Effect.tryPromise({
-      catch: (cause) =>
+  const report = yield* Schema.decodeUnknownEffect(AuditReport)({
+    counts: {
+      inapplicable: raw.inapplicable.length,
+      incomplete: raw.incomplete.length,
+      passes: raw.passes.length,
+      violations: raw.violations.length,
+    },
+    // The pinned WCAG rules always carry an impact rating; the fallback exists
+    // so a rule that somehow does not still reports rather than failing the
+    // whole Audit on decode.
+    violations: raw.violations.map((violation) => ({
+      help: violation.help,
+      ...(violation.helpUrl ? { helpUrl: violation.helpUrl } : {}),
+      id: violation.id,
+      impact: violation.impact ?? ("minor" as const),
+      nodeCount: violation.nodes.length,
+      nodes: violation.nodes.map((node) => ({
+        ...(node.failureSummary ? { failureSummary: node.failureSummary } : {}),
+        target: node.target,
+      })),
+    })),
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
         new RunnerError({
-          message: `The accessibility engine did not answer: ${errorMessage(cause)}`,
-        }),
-      try: (): Promise<AxeReportLike> =>
-        page.evaluate(
-          (ruleTags: string[]) => {
-            // Addressed off `globalThis` rather than `window`/`document`
-            // directly, so this file needs no DOM library to typecheck.
-            const scope = globalThis as unknown as {
-              axe?: {
-                run: (
-                  context: unknown,
-                  options: unknown
-                ) => Promise<AxeRawResults>;
-              };
-              document: unknown;
-            };
-            if (scope.axe === undefined) {
-              throw new Error("The accessibility engine did not register.");
-            }
-            return scope.axe
-              .run(scope.document, {
-                runOnly: { type: "tags", values: ruleTags },
-              })
-              .then((raw) => ({
-                counts: {
-                  inapplicable: raw.inapplicable.length,
-                  incomplete: raw.incomplete.length,
-                  passes: raw.passes.length,
-                  violations: raw.violations.length,
-                },
-                // The pinned WCAG rules always carry an impact rating; the
-                // fallback exists so a rule that somehow does not still reports
-                // rather than failing the whole Audit on decode.
-                violations: raw.violations.map((violation) => ({
-                  help: violation.help,
-                  ...(violation.helpUrl ? { helpUrl: violation.helpUrl } : {}),
-                  id: violation.id,
-                  impact: violation.impact ?? ("minor" as const),
-                  nodeCount: violation.nodes.length,
-                  nodes: violation.nodes.map((node) => ({
-                    ...(node.failureSummary
-                      ? { failureSummary: node.failureSummary }
-                      : {}),
-                    target: node.target,
-                  })),
-                })),
-              }));
-          },
-          [...tags]
-        ),
-    })
-  ).pipe(
-    Effect.mapError((cause) =>
-      cause instanceof RunnerError
-        ? cause
-        : new RunnerError({
-            message: `The accessibility engine answered in a shape we do not read: ${errorMessage(cause)}`,
-          })
+          message: `The accessibility engine answered in a shape we do not read: ${errorMessage(cause)}`,
+        })
     )
   );
 
@@ -742,12 +672,13 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
   }
 
   return {
+    axeVersion: raw.testEngine.version,
     elided: report.violations.flatMap((violation) =>
-      violation.nodeCount <= violation.nodes.length
+      violation.nodeCount <= AUDIT_NODE_SAMPLE_CAP
         ? []
         : [
             {
-              reported: violation.nodes.length,
+              reported: AUDIT_NODE_SAMPLE_CAP,
               rule: violation.id,
               severity: violation.impact,
               stepIndex,
@@ -756,7 +687,7 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
           ]
     ),
     findings: report.violations.flatMap((violation) =>
-      violation.nodes.map((node) => ({
+      violation.nodes.slice(0, AUDIT_NODE_SAMPLE_CAP).map((node) => ({
         ...(violation.helpUrl === undefined
           ? {}
           : { helpUrl: violation.helpUrl }),
@@ -1170,6 +1101,11 @@ const preStepsFor = (
 };
 
 interface AttemptResult {
+  /**
+   * The accessibility engine's version, when any Step of this attempt audited
+   * anything. Recorded once on the Run's environment (ADR 0017).
+   */
+  readonly axeVersion: string | undefined;
   readonly failure: RunFailure | undefined;
 }
 
@@ -1297,7 +1233,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   let failure: RunFailure | undefined;
   const measures = flow.steps.some(measuresPerformance);
 
-  yield* Effect.acquireUseRelease(
+  const replayed = yield* Effect.acquireUseRelease(
     Effect.gen(function* openContext() {
       const context = yield* Effect.tryPromise({
         catch: (cause) =>
@@ -1368,6 +1304,12 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
          * Index in `steps` of a Step whose page has not been measured yet.
          */
         let pending: number | undefined;
+        /**
+         * The engine version of whichever Audit Step ran, for the Run's
+         * environment. Every Audit in a Run uses the same pinned engine, so
+         * the last one is as true as the first.
+         */
+        let axeVersion: string | undefined;
         for (const [index, step] of flow.steps.entries()) {
           const stepStartedAt = yield* nowIso;
 
@@ -1409,6 +1351,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             if (measuresPerformance(step)) {
               pending = steps.length;
             }
+            axeVersion = outcome.success.axeVersion ?? axeVersion;
             steps.push({
               ...base,
               ...(outcome.success.findings.length === 0
@@ -1449,6 +1392,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         }
 
         yield* measurePending(execution, steps, pending);
+        return axeVersion;
       }),
     ({ context, videoArtifact }) =>
       // A Run is torn down uninterruptibly: closing the context is what
@@ -1474,7 +1418,10 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       })
   );
 
-  return { failure } satisfies AttemptResult;
+  return {
+    axeVersion: replayed,
+    failure,
+  } satisfies AttemptResult;
 });
 
 export const makeRunnerService = () =>
@@ -1611,6 +1558,11 @@ export const makeRunnerService = () =>
             let inFlight:
               | { attempt: number; startedAt: Date; steps: RunStep[] }
               | undefined;
+            /**
+             * The engine version of whichever attempt audited anything. The
+             * version is pinned, so any attempt's answer is the Run's.
+             */
+            let axeVersion: string | undefined;
 
             const replay = Effect.gen(function* replayUntilItHolds() {
               // One Chromium process per Run, closed when it ends; each
@@ -1671,6 +1623,7 @@ export const makeRunnerService = () =>
                 );
                 const attemptFinishedAt = yield* nowIso;
                 inFlight = undefined;
+                axeVersion = result.axeVersion ?? axeVersion;
                 attempts.push({
                   attempt: index + 1,
                   ...(result.failure === undefined
@@ -1710,7 +1663,10 @@ export const makeRunnerService = () =>
 
             const record: Run = {
               attempts,
-              environment,
+              environment: {
+                ...environment,
+                ...(axeVersion === undefined ? {} : { axeVersion }),
+              },
               ...(failure === undefined ? {} : { failure }),
               finishedAt: finishedAt.toISOString(),
               flow,
