@@ -613,6 +613,13 @@ const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
  * upgrade is a reviewed dependency bump rather than something that arrives
  * with someone else's binary.
  *
+ * The wrapper finishes every audit on a utility page of its own, opened on
+ * the Run's context and closed when done. That page joins the Run's Page
+ * registry like any other, so `pages` is snapshotted before the audit and any
+ * entry appended during it that is closed by the time it resolves was the
+ * engine's, not the site's, and is removed again. A popup the audited page
+ * opened stays: it is still open.
+ *
  * An unrecognised tag selects no rules silently, and every page then audits
  * clean forever — so the one case where nothing ran is a failure.
  *
@@ -620,9 +627,12 @@ const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
  */
 const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
   page: Page,
+  /** The Run's live Page registry, in opening order. */
+  pages: Page[],
   tags: readonly string[],
   stepIndex: number
 ) {
+  const knownPages = pages.length;
   const raw = yield* Effect.tryPromise({
     catch: (cause) =>
       new RunnerError({
@@ -630,6 +640,11 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
       }),
     try: () => new AxeBuilder({ page }).withTags([...tags]).analyze(),
   });
+  for (let index = pages.length - 1; index >= knownPages; index -= 1) {
+    if (pages[index]?.isClosed()) {
+      pages.splice(index, 1);
+    }
+  }
   const report = yield* Schema.decodeUnknownEffect(AuditReport)({
     counts: {
       inapplicable: raw.inapplicable.length,
@@ -875,7 +890,12 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
         message: "There is no page for this Audit to read.",
       });
     }
-    return yield* runAudit(current, accessibilityRuleTags, index);
+    return yield* runAudit(
+      current,
+      execution.pages,
+      accessibilityRuleTags,
+      index
+    );
   }
 
   const actionTimeoutMs =

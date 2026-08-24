@@ -44,6 +44,36 @@ it.live("reports every violation an Audit finds", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live("audits twice without the engine's utility page leaking", () =>
+  Effect.gen(function* auditTwice() {
+    const fixtures = yield* fixtureServer;
+
+    // The wrapper finishes each audit on a utility page of its own, which the
+    // Run's Page registry must never absorb: a second Audit reading where the
+    // Flow currently is would otherwise find that page, closed.
+    const { run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("violations.html") },
+        { kind: "accessibility", type: "audit" },
+        { kind: "accessibility", type: "audit" },
+      ])
+    );
+
+    expect(run.outcome).toBe("completed");
+    for (const [position, step] of (run.steps ?? []).entries()) {
+      if (step.type !== "audit") {
+        continue;
+      }
+      expect(step.outcome).toBe("completed");
+      expect(step.error).toBeUndefined();
+      expect((step.findings ?? []).length).toBeGreaterThan(0);
+      expect(
+        step.findings?.every((finding) => finding.stepIndex === position)
+      ).toBe(true);
+    }
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live("audits a clean page without findings", () =>
   Effect.gen(function* cleanAudit() {
     const fixtures = yield* fixtureServer;
