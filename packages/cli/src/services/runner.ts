@@ -1101,11 +1101,6 @@ const preStepsFor = (
 };
 
 interface AttemptResult {
-  /**
-   * The accessibility engine's version, when any Step of this attempt audited
-   * anything. Recorded once on the Run's environment (ADR 0017).
-   */
-  readonly axeVersion: string | undefined;
   readonly failure: RunFailure | undefined;
 }
 
@@ -1211,6 +1206,16 @@ const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
 });
 
 /**
+ * Where an attempt records the accessibility engine's version. Caller-owned
+ * like the Steps, so a version an earlier Audit established survives a later
+ * Step's failure or a ceiling breach: an attempt that audited anything records
+ * its engine, completed or not (ADR 0017).
+ */
+interface AuditEngine {
+  version: string | undefined;
+}
+
+/**
  * Replay the whole Flow once in a browser context of its own. A failed Step
  * aborts the attempt rather than continuing against a page state the Flow
  * never described (ADR 0009). Closing the context flushes its recording.
@@ -1221,6 +1226,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   variables: VariableResolution,
   /** Caller-owned, so the Steps done so far survive an interrupted attempt. */
   steps: RunStep[],
+  engine: AuditEngine,
   capture:
     | {
         readonly staging: string;
@@ -1233,7 +1239,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   let failure: RunFailure | undefined;
   const measures = flow.steps.some(measuresPerformance);
 
-  const replayed = yield* Effect.acquireUseRelease(
+  yield* Effect.acquireUseRelease(
     Effect.gen(function* openContext() {
       const context = yield* Effect.tryPromise({
         catch: (cause) =>
@@ -1304,12 +1310,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
          * Index in `steps` of a Step whose page has not been measured yet.
          */
         let pending: number | undefined;
-        /**
-         * The engine version of whichever Audit Step ran, for the Run's
-         * environment. Every Audit in a Run uses the same pinned engine, so
-         * the last one is as true as the first.
-         */
-        let axeVersion: string | undefined;
         for (const [index, step] of flow.steps.entries()) {
           const stepStartedAt = yield* nowIso;
 
@@ -1351,7 +1351,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             if (measuresPerformance(step)) {
               pending = steps.length;
             }
-            axeVersion = outcome.success.axeVersion ?? axeVersion;
+            engine.version = outcome.success.axeVersion ?? engine.version;
             steps.push({
               ...base,
               ...(outcome.success.findings.length === 0
@@ -1392,7 +1392,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         }
 
         yield* measurePending(execution, steps, pending);
-        return axeVersion;
       }),
     ({ context, videoArtifact }) =>
       // A Run is torn down uninterruptibly: closing the context is what
@@ -1418,10 +1417,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       })
   );
 
-  return {
-    axeVersion: replayed,
-    failure,
-  } satisfies AttemptResult;
+  return { failure } satisfies AttemptResult;
 });
 
 export const makeRunnerService = () =>
@@ -1562,7 +1558,7 @@ export const makeRunnerService = () =>
              * The engine version of whichever attempt audited anything. The
              * version is pinned, so any attempt's answer is the Run's.
              */
-            let axeVersion: string | undefined;
+            const engine: AuditEngine = { version: undefined };
 
             const replay = Effect.gen(function* replayUntilItHolds() {
               // One Chromium process per Run, closed when it ends; each
@@ -1609,6 +1605,7 @@ export const makeRunnerService = () =>
                   flow,
                   variables,
                   steps,
+                  engine,
                   capture
                     ? {
                         file: path.join(directory, `attempt-${index + 1}.webm`),
@@ -1623,7 +1620,6 @@ export const makeRunnerService = () =>
                 );
                 const attemptFinishedAt = yield* nowIso;
                 inFlight = undefined;
-                axeVersion = result.axeVersion ?? axeVersion;
                 attempts.push({
                   attempt: index + 1,
                   ...(result.failure === undefined
@@ -1665,7 +1661,9 @@ export const makeRunnerService = () =>
               attempts,
               environment: {
                 ...environment,
-                ...(axeVersion === undefined ? {} : { axeVersion }),
+                ...(engine.version === undefined
+                  ? {}
+                  : { axeVersion: engine.version }),
               },
               ...(failure === undefined ? {} : { failure }),
               finishedAt: finishedAt.toISOString(),

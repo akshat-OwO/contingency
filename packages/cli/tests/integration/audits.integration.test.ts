@@ -113,6 +113,25 @@ it.live("records the pinned engine version in the Run's environment", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live("records the engine version even when a later Step fails", () =>
+  Effect.gen(function* recordEngineVersionOnFailure() {
+    const fixtures = yield* fixtureServer;
+
+    const { run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("violations.html") },
+        { kind: "accessibility", type: "audit" },
+        // Answered by nothing, so the Run fails after the Audit succeeded.
+        { type: "navigate", url: fixtures.url("never-answered.bin") },
+      ])
+    );
+
+    expect(run.outcome).toBe("failed");
+    // An Audit that ran recorded its engine; the later failure un-does nothing.
+    expect(run.environment.axeVersion).toBe(pinnedAxeVersion());
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live("renders frame and shadow-root hops distinguishably", () =>
   Effect.gen(function* auditFramesAndShadowRoots() {
     const fixtures = yield* fixtureServer;
