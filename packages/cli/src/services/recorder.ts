@@ -5,14 +5,17 @@ import type { Frame, Page } from "playwright-core";
 
 import { CreateBrowser } from "./create-browser-contract.ts";
 import {
+  connectionLost,
   decodeNavigationEvent,
+  integrityLost,
   makeEventRateLimit,
   makeOrderedRecorderEventHandler,
   readRecorderPayload,
   recorderError,
-  refusalMessage,
+  refusalFailure,
 } from "./recorder-events.ts";
 import type {
+  CaptureFailure,
   RecorderCaptureEvent,
   RecorderSequences,
 } from "./recorder-events.ts";
@@ -30,10 +33,15 @@ import type {
 const tryQuietly = (run: () => Promise<unknown>) =>
   Effect.tryPromise({ catch: () => null, try: run }).pipe(Effect.ignore);
 
-const CONNECTION_LOST = "The browser recorder connection was lost.";
+const CONNECTION_LOST = connectionLost(
+  "The browser recorder connection was lost."
+);
 const SESSION_UNREACHABLE = "The recorder could not reach the browser session.";
-const SESSION_CLOSED = "The pinned browser session was closed.";
-const EVENT_LIMIT = "The page exceeded the recorder event limit.";
+const SESSION_CLOSED = integrityLost("The pinned browser session was closed.");
+const PAGE_CLOSED = integrityLost("The pinned Page was closed.");
+const EVENT_LIMIT = integrityLost(
+  "The page exceeded the recorder event limit."
+);
 
 /**
  * Capture through Playwright.
@@ -59,7 +67,13 @@ export const makePlaywrightRecorderCapture = Effect.gen(
     const start = Effect.fn("Recorder.start")(function* startCapture(
       options: RecorderCaptureStartOptions
     ) {
-      const target = yield* browser.recorderTarget(options.sessionId);
+      // Recovery re-pins the Page the Recording already names, so Page 0 stays
+      // Page 0 across a recovery: an index that moved would make Steps
+      // recorded before and after name different Pages for the same tab.
+      const target = yield* browser.recorderTarget(
+        options.sessionId,
+        options.tabId
+      );
       const bindingName = `__contingency_${randomUUID().replaceAll("-", "")}`;
       const scriptSource = recorderScriptSource(bindingName);
       const sequences: RecorderSequences = new Map();
@@ -78,12 +92,12 @@ export const makePlaywrightRecorderCapture = Effect.gen(
       // Page that opens later has an unrecorded first navigation to skip.
       const awaitingFirstNavigation = new WeakSet<Page>();
 
-      const failCapture = (message: string) => {
+      const failCapture = (failure: CaptureFailure) => {
         if (closing) {
           return;
         }
         closing = true;
-        Effect.runFork(options.onFailure(message));
+        Effect.runFork(options.onFailure(failure));
       };
 
       const pageIndex = (page: Page): number => {
@@ -108,14 +122,15 @@ export const makePlaywrightRecorderCapture = Effect.gen(
 
       const watchPage = (page: Page, pinned: boolean) => {
         if (pinned) {
-          // The Page the Recording is pinned to going away is the recorder
-          // connection being lost, not integrity being lost: recovery can
-          // pick the Recording up again on the same session.
-          page.on("close", () => {
-            failCapture(CONNECTION_LOST);
-          });
+          // A crashed Page is the recorder connection being lost: the Page
+          // survives, so recovery re-pins this same Page and its index holds.
           page.on("crash", () => {
             failCapture(CONNECTION_LOST);
+          });
+          // A closed one cannot be re-pinned, and recovering onto a different
+          // Page would renumber every Page the Recording already named.
+          page.on("close", () => {
+            failCapture(PAGE_CLOSED);
           });
         }
         page.on("framenavigated", (frame: Frame) => {
@@ -144,7 +159,7 @@ export const makePlaywrightRecorderCapture = Effect.gen(
               }
               const outcome = readRecorderPayload(raw, sequences);
               if (outcome._tag === "refused") {
-                failCapture(refusalMessage(outcome.refusal));
+                failCapture(refusalFailure(outcome.refusal));
                 return;
               }
               dispatch({

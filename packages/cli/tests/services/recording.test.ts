@@ -3,11 +3,13 @@ import type { AuthoredStep, RecordingSnapshot } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import type { RecorderCaptureEvent } from "../../src/services/recorder-events.ts";
 import {
-  flowDownloadName,
-  makeRecordingService,
-} from "../../src/services/recording.ts";
+  connectionLost,
+  integrityLost,
+} from "../../src/services/recorder-events.ts";
+import type { ReducibleCaptureEvent } from "../../src/services/recorder-events.ts";
+import { flowDownloadName } from "../../src/services/recording-flow.ts";
+import { makeRecordingService } from "../../src/services/recording.ts";
 import type {
   RecorderCapture,
   RecorderCaptureStartOptions,
@@ -71,8 +73,10 @@ const makeCapture = (url = INITIAL_URL) => {
 
   return {
     capture,
-    emit: (event: RecorderCaptureEvent) => started().onEvent(event),
-    fail: (message: string) => started().onFailure(message),
+    emit: (event: ReducibleCaptureEvent) => started().onEvent(event),
+    fail: (failure: Parameters<RecorderCaptureStartOptions["onFailure"]>[0]) =>
+      started().onFailure(failure),
+    pinnedTabId: () => started().tabId,
     sessionId: () => started().sessionId,
     startCount: () => startCount,
     stopCount: () => stopCount,
@@ -124,9 +128,7 @@ it.effect("keeps recording when a popup opens as a further Page", () =>
       type: "click",
     });
     yield* capture.emit({
-      causedByAction: false,
       page: 1,
-      title: "Checkout",
       type: "navigation",
       url: "https://checkout.example.com/",
     });
@@ -251,6 +253,14 @@ it.effect("drops a navigation an action caused, and keeps one it did not", () =>
   Effect.gen(function* reduceNavigations() {
     const capture = makeCapture();
     const recording = yield* startRecording(capture);
+    // No action preceded this one, so it is the author navigating.
+    yield* capture.emit({
+      page: 0,
+      type: "navigation",
+      url: "https://shop.example.com/receipt",
+    });
+    // This one follows a click within the window, so the click already
+    // implies it: replaying the click navigates by itself.
     yield* capture.emit({
       button: "left",
       page: 0,
@@ -258,24 +268,17 @@ it.effect("drops a navigation an action caused, and keeps one it did not", () =>
       type: "click",
     });
     yield* capture.emit({
-      causedByAction: true,
       page: 0,
       type: "navigation",
       url: "https://shop.example.com/checkout",
     });
-    yield* capture.emit({
-      causedByAction: false,
-      page: 0,
-      type: "navigation",
-      url: "https://shop.example.com/receipt",
-    });
     const recorded = steps((yield* recording.get()) as RecordingSnapshot);
     expect(recorded.map((step) => step.type)).toEqual([
       "navigate",
-      "click",
       "navigate",
+      "click",
     ]);
-    expect(recorded.at(-1)).toMatchObject({
+    expect(recorded[1]).toMatchObject({
       url: "https://shop.example.com/receipt",
     });
   })
@@ -286,8 +289,18 @@ it.effect("ends the Recording when the pinned tab navigates while paused", () =>
     const capture = makeCapture();
     const recording = yield* startRecording(capture);
     yield* recording.pause();
+    // A background Page refreshing itself is not the author navigating away
+    // from what they paused on.
     yield* capture.emit({
-      causedByAction: false,
+      page: 1,
+      type: "navigation",
+      url: "https://shop.example.com/background",
+    });
+    expect(((yield* recording.get()) as RecordingSnapshot).phase).toBe(
+      "paused"
+    );
+
+    yield* capture.emit({
       page: 0,
       type: "navigation",
       url: "https://shop.example.com/elsewhere",
@@ -305,11 +318,11 @@ it.effect("ends the Recording when an element cannot be addressed", () =>
   Effect.gen(function* unaddressableElement() {
     const capture = makeCapture();
     const recording = yield* startRecording(capture);
-    yield* capture.emit({
-      page: 0,
-      reason: "An element on the page could not be addressed by any locator.",
-      type: "unsupported",
-    });
+    yield* capture.fail(
+      integrityLost(
+        "An element on the page could not be addressed by any locator."
+      )
+    );
     const snapshot = (yield* recording.get()) as RecordingSnapshot;
     expect(snapshot.phase).toBe("incomplete");
     expect(snapshot.incompleteReason).toBe(
@@ -328,7 +341,9 @@ it.effect("recovers a Recording whose recorder connection was lost", () =>
       target: cartButton,
       type: "click",
     });
-    yield* capture.fail("The browser recorder connection was lost.");
+    yield* capture.fail(
+      connectionLost("The browser recorder connection was lost.")
+    );
     expect(((yield* recording.get()) as RecordingSnapshot).phase).toBe(
       "incomplete"
     );
@@ -348,7 +363,9 @@ it.effect("refuses to recover a Recording that lost capture integrity", () =>
   Effect.gen(function* refuseRecovery() {
     const capture = makeCapture();
     const recording = yield* startRecording(capture);
-    yield* capture.fail("The page sent malformed recorder data.");
+    yield* capture.fail(
+      integrityLost("The page sent malformed recorder data.")
+    );
     const error = yield* Effect.flip(recording.recover());
     expect(error.message).toBe(
       "This Recording cannot be recovered because capture integrity was lost."
@@ -431,5 +448,46 @@ it.effect("authors a Pre-step and its condition from captured actions", () =>
         when: { target: cartButton, type: "selectorVisible" },
       },
     ]);
+  })
+);
+
+it.effect("ignores an untargeted action while a pick is armed", () =>
+  Effect.gen(function* scrollWhilePicking() {
+    const capture = makeCapture();
+    const recording = yield* startRecording(capture);
+    yield* recording.armHover();
+    // Scrolling to reach the element you mean to hover is not a pick, and
+    // must not end the Recording.
+    yield* capture.emit({ deltaY: 400, page: 0, type: "scroll" });
+    yield* capture.emit({ key: "Enter", page: 0, type: "press" });
+    const armed = (yield* recording.get()) as RecordingSnapshot;
+    expect(armed.phase).toBe("active");
+    expect(armed.captureMode).toBe("hoverPicker");
+
+    yield* capture.emit({
+      button: "left",
+      page: 0,
+      target: cartButton,
+      type: "click",
+    });
+    const picked = (yield* recording.get()) as RecordingSnapshot;
+    expect(picked.captureMode).toBe("ordinary");
+    expect(steps(picked).at(-1)).toMatchObject({ type: "hover" });
+  })
+);
+
+it.effect("re-pins recovery to the Page the Recording already names", () =>
+  Effect.gen(function* recoverOnPinnedPage() {
+    const capture = makeCapture();
+    const recording = yield* startRecording(capture);
+    expect(capture.pinnedTabId()).toBeUndefined();
+
+    yield* capture.fail(
+      connectionLost("The browser recorder connection was lost.")
+    );
+    yield* recording.recover();
+    // Page 0 stays Page 0: a re-derived index would make Steps recorded
+    // before and after recovery name different Pages for the same tab.
+    expect(capture.pinnedTabId()).toBe(tabId);
   })
 );

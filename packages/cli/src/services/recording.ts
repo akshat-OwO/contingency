@@ -4,20 +4,15 @@ import {
   FlowId,
   Flow as FlowSchema,
   hasAuthoredBrowserStep,
-  makeBrowserRpcError,
 } from "@contingency/protocol";
 import type {
   AuditKind,
-  AuthoredStep,
   BrowserActionStep,
   BrowserRpcErrorType,
   BrowserTabId,
   Condition,
-  Flow,
   PreStep,
   RecordedStep,
-  RecordingCaptureMode,
-  RecordingPhase,
   RecordingSnapshot,
   SessionId,
   Target,
@@ -32,24 +27,41 @@ import {
   Stream,
 } from "effect";
 
+import { integrityLost } from "./recorder-events.ts";
 import type {
+  CaptureFailure,
   CapturedAction,
   RecorderCaptureEvent,
+  ReducibleCaptureEvent,
 } from "./recorder-events.ts";
+import {
+  advance,
+  recordingError,
+  referencedVariables,
+  renamePreStepVariable,
+  renameStepValue,
+  replaceVariableReference,
+  assignedVariableName,
+  normalizeVariableName,
+  sanitizeUrl,
+  toFlow,
+  toSnapshot,
+} from "./recording-flow.ts";
+import type { RecordingState } from "./recording-flow.ts";
 
-const FILE_PART_PATTERN = /[^a-z0-9]+/gu;
-const SENSITIVE_QUERY_PARAMETER = /(?:token|key|secret|code|password)/iu;
-const VARIABLE_REFERENCE_PATTERN = /\{\{(?<name>[A-Z][A-Z0-9_]*)\}\}/gu;
-
-/** How long after an action a navigation still belongs to that action. */
 const ACTION_NAVIGATION_WINDOW_MS = 1000;
+
+/** The Page a Recording is pinned to: the one it started on. */
+const PINNED_PAGE = 0;
 
 export interface RecorderCaptureStartOptions {
   readonly onEvent: (
-    event: RecorderCaptureEvent
+    event: ReducibleCaptureEvent
   ) => Effect.Effect<void, BrowserRpcErrorType>;
-  readonly onFailure: (message: string) => Effect.Effect<void>;
+  readonly onFailure: (failure: CaptureFailure) => Effect.Effect<void>;
   readonly sessionId: SessionId;
+  /** The Page to pin to, when recovery re-pins the one already recorded. */
+  readonly tabId: BrowserTabId | undefined;
 }
 
 /**
@@ -67,32 +79,6 @@ export interface RecorderCapture {
   readonly start: (
     options: RecorderCaptureStartOptions
   ) => Effect.Effect<RecorderCaptureHandle, BrowserRpcErrorType>;
-}
-
-interface DeletedStep {
-  readonly index: number;
-  readonly step: RecordedStep;
-}
-
-interface RecordingState {
-  readonly captureMode: RecordingCaptureMode;
-  readonly deletedStep: DeletedStep | undefined;
-  readonly flowId: FlowId;
-  readonly flowPreSteps: readonly PreStep[];
-  readonly incompleteReason: string | undefined;
-  readonly initialUrl: string;
-  readonly lastActionAt: number;
-  readonly phase: RecordingPhase;
-  readonly pendingNavigation: boolean;
-  readonly revision: number;
-  readonly sessionId: SessionId;
-  readonly steps: readonly RecordedStep[];
-  readonly stopCapture: Effect.Effect<void>;
-  readonly tabId: BrowserTabId;
-  readonly targetPreStepIndex: number | undefined;
-  readonly targetStepId: string | undefined;
-  readonly title: string;
-  readonly variables: readonly string[];
 }
 
 export interface RecordingStartInput {
@@ -135,7 +121,7 @@ export interface RecordingService {
     stepId: string
   ) => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly discard: () => Effect.Effect<void, BrowserRpcErrorType>;
-  readonly fail: (reason: string) => Effect.Effect<void>;
+  readonly fail: (failure: CaptureFailure) => Effect.Effect<void>;
   readonly finish: () => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
   readonly get: () => Effect.Effect<RecordingSnapshot | null>;
   readonly pause: () => Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>;
@@ -161,230 +147,6 @@ export const Recording = Context.Service<RecordingService>(
   "@contingency/Recording"
 );
 
-const recordingError = (
-  code: BrowserRpcErrorType["code"],
-  message: string
-): BrowserRpcErrorType => makeBrowserRpcError(code, message);
-
-const normalizePart = (value: string): string =>
-  value
-    .trim()
-    .toLocaleLowerCase()
-    .replaceAll(FILE_PART_PATTERN, "-")
-    .replaceAll(/^-|-$/gu, "");
-
-const normalizeVariableName = (value: string): string =>
-  value
-    .trim()
-    .toUpperCase()
-    .replaceAll(/[^A-Z0-9]+/gu, "_")
-    .replaceAll(/^_+|_+$/gu, "");
-
-const uniqueVariableName = (
-  candidate: string,
-  existing: readonly string[]
-): string => {
-  const base = normalizeVariableName(candidate) || "SECRET";
-  if (!existing.includes(base)) {
-    return base;
-  }
-  let suffix = 2;
-  while (existing.includes(`${base}_${suffix}`)) {
-    suffix += 1;
-  }
-  return `${base}_${suffix}`;
-};
-
-const replaceVariableReference = (
-  value: string,
-  from: string,
-  name: string
-): string =>
-  value
-    .replaceAll(`{{${from}}}`, `{{${name}}}`)
-    .replaceAll(
-      encodeURIComponent(`{{${from}}}`),
-      encodeURIComponent(`{{${name}}}`)
-    );
-
-const renameStepValue = (
-  step: RecordedStep["step"],
-  from: string,
-  name: string
-): RecordedStep["step"] => {
-  if (step.type === "change") {
-    return { ...step, value: replaceVariableReference(step.value, from, name) };
-  }
-  if (step.type === "navigate") {
-    return { ...step, url: replaceVariableReference(step.url, from, name) };
-  }
-  return step;
-};
-
-const renamePreStepVariable = (
-  preStep: PreStep,
-  from: string,
-  name: string
-): PreStep => ({
-  ...preStep,
-  step:
-    preStep.step.type === "change"
-      ? {
-          ...preStep.step,
-          value: replaceVariableReference(preStep.step.value, from, name),
-        }
-      : preStep.step,
-});
-
-const assignedVariableName = (
-  candidate: string | undefined,
-  previous: RecordedStep | undefined,
-  replacesPrevious: boolean,
-  existing: readonly string[]
-): string | undefined => {
-  if (candidate === undefined) {
-    return undefined;
-  }
-  if (replacesPrevious && previous?.variable !== undefined) {
-    return previous.variable;
-  }
-  return uniqueVariableName(candidate, existing);
-};
-
-interface SanitizedUrl {
-  readonly url: string;
-  readonly variables: readonly string[];
-}
-
-const sanitizeUrl = (
-  value: string,
-  existingVariables: readonly string[]
-): Effect.Effect<SanitizedUrl, BrowserRpcErrorType> =>
-  Effect.try({
-    catch: () =>
-      recordingError(
-        "recording_invalid",
-        "URLs with embedded credentials are not supported."
-      ),
-    try: () => {
-      const url = new URL(value);
-      if (url.username.length > 0 || url.password.length > 0) {
-        throw new Error("URL credentials are not supported");
-      }
-      url.hash = "";
-      const variables = [...existingVariables];
-      for (const [name, parameterValue] of url.searchParams) {
-        if (
-          parameterValue.length === 0 ||
-          !SENSITIVE_QUERY_PARAMETER.test(name)
-        ) {
-          continue;
-        }
-        const variableName = uniqueVariableName(name, variables);
-        variables.push(variableName);
-        url.searchParams.set(name, `{{${variableName}}}`);
-      }
-      return { url: url.href, variables };
-    },
-  });
-
-export const flowDownloadName = (initialUrl: string, title: string): string => {
-  const url = new URL(initialUrl);
-  const hostname = url.hostname.replace(/^www\./u, "");
-  const hostnameParts = hostname.split(".");
-  const conciseHostname =
-    hostnameParts.length === 2 ? (hostnameParts[0] ?? hostname) : hostname;
-  const host = normalizePart(
-    url.port.length > 0 ? `${conciseHostname}-${url.port}` : conciseHostname
-  );
-  const name = normalizePart(title);
-  return host.length > 0 && name.length > 0
-    ? `${host}-${name}.json`
-    : "contingency-flow.json";
-};
-
-const toAuthoredStep = (recorded: RecordedStep): AuthoredStep => ({
-  ...recorded.step,
-  id: recorded.id,
-  ...(recorded.preSteps.length === 0 ? {} : { preSteps: recorded.preSteps }),
-  ...(recorded.variable === undefined ? {} : { variable: recorded.variable }),
-});
-
-const toFlow = (state: RecordingState): Flow => ({
-  // Always emitted, because a Flow keys its Run history on this rather than on
-  // the user-editable title, which would orphan that history on a rename.
-  flowId: state.flowId,
-  ...(state.flowPreSteps.length === 0 ? {} : { preSteps: state.flowPreSteps }),
-  steps: state.steps.map(toAuthoredStep),
-  title: state.title,
-  ...(state.variables.length === 0
-    ? {}
-    : {
-        // Create View only authors withheld sensitive values, so every
-        // Variable it declares is both redacted from a Run and promptable
-        // when the Runner has no value for it.
-        variables: state.variables.map((name) => ({
-          name,
-          runtime: true,
-          secret: true,
-        })),
-      }),
-});
-
-const referencedVariables = (
-  state: Pick<RecordingState, "flowPreSteps" | "initialUrl" | "steps">
-): readonly string[] => {
-  const references = new Set<string>();
-  const addReferences = (value: unknown) => {
-    for (const match of JSON.stringify(value).matchAll(
-      VARIABLE_REFERENCE_PATTERN
-    )) {
-      const { name } = match.groups ?? {};
-      if (name !== undefined) {
-        references.add(name);
-      }
-    }
-  };
-  addReferences(state.initialUrl);
-  addReferences(state.flowPreSteps);
-  addReferences(state.steps);
-  return [...references];
-};
-
-/**
- * The failures a Recording can come back from: a lost recorder connection and
- * nothing else. Every other terminal reason is lost integrity — a Recording
- * that resumed past one would silently omit actions it failed to capture.
- */
-const recoverableIncompleteReasons = new Set([
-  "The browser recorder connection was lost.",
-  "The recorder could not reach the browser session.",
-]);
-
-const isRecoverableIncompleteReason = (reason: string | undefined): boolean =>
-  reason !== undefined && recoverableIncompleteReasons.has(reason);
-
-const toSnapshot = (state: RecordingState): RecordingSnapshot => ({
-  captureMode: state.captureMode,
-  ...(state.phase === "finished"
-    ? { downloadName: flowDownloadName(state.initialUrl, state.title) }
-    : {}),
-  flow: toFlow(state),
-  ...(state.incompleteReason === undefined
-    ? {}
-    : { incompleteReason: state.incompleteReason }),
-  initialUrl: state.initialUrl,
-  phase: state.phase,
-  recordedSteps: state.steps,
-  revision: state.revision,
-  sessionId: state.sessionId,
-  tabId: state.tabId,
-  ...(state.targetStepId === undefined
-    ? {}
-    : { targetStepId: state.targetStepId }),
-  undoAvailable: state.deletedStep !== undefined,
-});
-
 const requireState = (
   state: RecordingState | null
 ): Effect.Effect<RecordingState, BrowserRpcErrorType> =>
@@ -409,11 +171,6 @@ const requireMutable = (
 /** Where a Step acts, as a Step carries it: the first Page names nothing. */
 const pageField = (page: number): { readonly page?: number } =>
   page === 0 ? {} : { page };
-
-type TargetedAction = Extract<
-  CapturedAction,
-  { readonly target: Target | undefined }
->;
 
 const capturedTarget = (action: CapturedAction): Target | undefined =>
   "target" in action ? action.target : undefined;
@@ -484,6 +241,104 @@ const toPreStepAction = (
     : step;
 
 /** Whether an action replaces the Step before it rather than following it. */
+const pickPreStepCondition = (
+  mutable: RecordingState,
+  target: Target
+): readonly [undefined, RecordingState] => {
+  const targetIndex = mutable.targetPreStepIndex;
+  if (targetIndex === undefined) {
+    // Arming the picker is what sets the index, so this is unreachable — and
+    // if it were reached, staying armed asks again rather than ending a
+    // Recording over an authoring slip.
+    return [undefined, mutable] as const;
+  }
+  {
+    const when: Condition = { target, type: "selectorVisible" };
+    const flowPreSteps =
+      mutable.targetStepId === undefined
+        ? mutable.flowPreSteps.map((existing, index) =>
+            index === targetIndex ? { ...existing, when } : existing
+          )
+        : mutable.flowPreSteps;
+    const steps = mutable.steps.map((existing) =>
+      existing.id === mutable.targetStepId
+        ? {
+            ...existing,
+            preSteps: existing.preSteps.map((preStep, index) =>
+              index === targetIndex ? { ...preStep, when } : preStep
+            ),
+          }
+        : existing
+    );
+    return [
+      undefined,
+      {
+        ...mutable,
+        captureMode: "ordinary" as const,
+        flowPreSteps,
+        revision: mutable.revision + 1,
+        steps,
+        targetPreStepIndex: undefined,
+        targetStepId: undefined,
+      },
+    ] as const;
+  }
+};
+
+/** Hover is the element the author picked while hover capture was armed. */
+const pickHover = (
+  mutable: RecordingState,
+  target: Target,
+  page: number
+): readonly [undefined, RecordingState] => {
+  const hover: RecordedStep = {
+    id: randomUUID(),
+    preSteps: [],
+    step: { ...pageField(page), target, type: "hover" },
+  };
+  return [
+    undefined,
+    {
+      ...mutable,
+      captureMode: "ordinary" as const,
+      deletedStep: undefined,
+      lastActionAt: Date.now(),
+      pendingNavigation: false,
+      revision: mutable.revision + 1,
+      steps: [...mutable.steps, hover],
+    },
+  ] as const;
+};
+
+/**
+ * What an armed picking mode does with the next action.
+ *
+ * `undefined` means this is not a pick to consume — either nothing is armed,
+ * or the armed mode records the action itself as a Pre-step.
+ */
+const reducePick = (
+  mutable: RecordingState,
+  target: Target | undefined,
+  page: number
+): readonly [undefined, RecordingState] | undefined => {
+  if (mutable.captureMode === "ordinary") {
+    return undefined;
+  }
+  if (target === undefined) {
+    // While a pick is armed, an action with no element behind it — a scroll, a
+    // Page-level keystroke — is not the author picking. Ignored, because
+    // scrolling to reach the element you mean to pick must not end the
+    // Recording.
+    return [undefined, mutable] as const;
+  }
+  if (mutable.captureMode === "conditionPicker") {
+    return pickPreStepCondition(mutable, target);
+  }
+  return mutable.captureMode === "hoverPicker"
+    ? pickHover(mutable, target, page)
+    : undefined;
+};
+
 const replacesPreviousStep = (
   previous: RecordedStep | undefined,
   step: BrowserActionStep
@@ -534,7 +389,7 @@ export const makeRecordingService = (
         })
       );
 
-    const failUnlocked = (reason: string) =>
+    const failUnlocked = (failure: CaptureFailure) =>
       Effect.gen(function* failRecording() {
         const current = yield* Ref.get(stateRef);
         if (
@@ -547,14 +402,14 @@ export const makeRecordingService = (
         yield* setState({
           ...current,
           captureMode: "ordinary",
-          incompleteReason: reason,
+          incompleteFailure: failure,
           phase: "incomplete",
           revision: current.revision + 1,
           targetStepId: undefined,
         });
       });
 
-    const fail = (reason: string) =>
+    const fail = (failure: CaptureFailure) =>
       Effect.gen(function* stopAndFailRecording() {
         const stopCapture = yield* transitions.withPermit(
           Effect.gen(function* findCaptureToStop() {
@@ -570,7 +425,7 @@ export const makeRecordingService = (
           return;
         }
         yield* stopCapture;
-        yield* transitions.withPermit(failUnlocked(reason));
+        yield* transitions.withPermit(failUnlocked(failure));
       });
 
     const reduceNavigation = (
@@ -582,13 +437,20 @@ export const makeRecordingService = (
     > =>
       Effect.gen(function* reduceCapturedNavigation() {
         if (mutable.phase === "paused") {
+          // Only the pinned Page. A background Page refreshing itself is not
+          // the author navigating away from what they paused on, and ending
+          // the Recording over it would be a defect, not integrity.
+          if (event.page !== PINNED_PAGE) {
+            return [undefined, mutable] as const;
+          }
           yield* mutable.stopCapture;
           return [
             undefined,
             {
               ...mutable,
-              incompleteReason:
-                "The pinned tab navigated while capture was paused.",
+              incompleteFailure: integrityLost(
+                "The pinned tab navigated while capture was paused."
+              ),
               phase: "incomplete" as const,
               revision: mutable.revision + 1,
             },
@@ -598,11 +460,8 @@ export const makeRecordingService = (
         // A navigation a Step caused is that Step's consequence, not another
         // Step: replaying the click navigates again by itself.
         const causedByAction =
-          event.causedByAction === true ||
-          (event.causedByAction !== false &&
-            (mutable.pendingNavigation ||
-              Date.now() - mutable.lastActionAt <=
-                ACTION_NAVIGATION_WINDOW_MS));
+          mutable.pendingNavigation ||
+          Date.now() - mutable.lastActionAt <= ACTION_NAVIGATION_WINDOW_MS;
         if (causedByAction) {
           return [
             undefined,
@@ -642,102 +501,9 @@ export const makeRecordingService = (
         ] as const;
       });
 
-    const requireCapturedTarget = (
-      action: CapturedAction
-    ): Effect.Effect<Target, BrowserRpcErrorType> => {
-      const target = capturedTarget(action);
-      return target === undefined
-        ? Effect.fail(
-            recordingError(
-              "recording_invalid",
-              "Pick an element on the page for this."
-            )
-          )
-        : Effect.succeed(target);
-    };
-
-    const pickPreStepCondition = (
-      mutable: RecordingState,
-      action: CapturedAction
-    ): Effect.Effect<
-      readonly [undefined, RecordingState],
-      BrowserRpcErrorType
-    > =>
-      Effect.gen(function* selectPreStepCondition() {
-        const targetIndex = mutable.targetPreStepIndex;
-        if (targetIndex === undefined) {
-          return yield* Effect.fail(
-            recordingError(
-              "recording_invalid",
-              "Pick an element for the Pre-step condition."
-            )
-          );
-        }
-        const target = yield* requireCapturedTarget(action);
-        const when: Condition = { target, type: "selectorVisible" };
-        const flowPreSteps =
-          mutable.targetStepId === undefined
-            ? mutable.flowPreSteps.map((existing, index) =>
-                index === targetIndex ? { ...existing, when } : existing
-              )
-            : mutable.flowPreSteps;
-        const steps = mutable.steps.map((existing) =>
-          existing.id === mutable.targetStepId
-            ? {
-                ...existing,
-                preSteps: existing.preSteps.map((preStep, index) =>
-                  index === targetIndex ? { ...preStep, when } : preStep
-                ),
-              }
-            : existing
-        );
-        return [
-          undefined,
-          {
-            ...mutable,
-            captureMode: "ordinary" as const,
-            flowPreSteps,
-            revision: mutable.revision + 1,
-            steps,
-            targetPreStepIndex: undefined,
-            targetStepId: undefined,
-          },
-        ] as const;
-      });
-
-    /** Hover is the element the author picked while hover capture was armed. */
-    const pickHover = (
-      mutable: RecordingState,
-      action: CapturedAction,
-      page: number
-    ): Effect.Effect<
-      readonly [undefined, RecordingState],
-      BrowserRpcErrorType
-    > =>
-      Effect.gen(function* captureHover() {
-        const target = yield* requireCapturedTarget(action);
-        const hover: RecordedStep = {
-          id: randomUUID(),
-          preSteps: [],
-          step: { ...pageField(page), target, type: "hover" },
-        };
-        return [
-          undefined,
-          {
-            ...mutable,
-            captureMode: "ordinary" as const,
-            deletedStep: undefined,
-            lastActionAt: Date.now(),
-            pendingNavigation: false,
-            revision: mutable.revision + 1,
-            steps: [...mutable.steps, hover],
-          },
-        ] as const;
-      });
-
     const capturePreStep = (
       mutable: RecordingState,
-      action: TargetedAction,
+      target: Target,
       step: BrowserActionStep,
       assignedVariable: string | undefined
     ): Effect.Effect<
@@ -754,7 +520,6 @@ export const makeRecordingService = (
             )
           );
         }
-        const target = yield* requireCapturedTarget(action);
         const preStep: PreStep = {
           id: randomUUID(),
           step:
@@ -767,15 +532,10 @@ export const makeRecordingService = (
           assignedVariable === undefined
             ? mutable.variables
             : [...mutable.variables, assignedVariable];
-        const nextBase =
+        const placed =
           mutable.captureMode === "flowPreStep"
-            ? {
-                ...mutable,
-                flowPreSteps: [...mutable.flowPreSteps, preStep],
-                variables,
-              }
+            ? { flowPreSteps: [...mutable.flowPreSteps, preStep] }
             : {
-                ...mutable,
                 steps: mutable.steps.map((recordedStep) =>
                   recordedStep.id === mutable.targetStepId
                     ? {
@@ -784,28 +544,23 @@ export const makeRecordingService = (
                       }
                     : recordedStep
                 ),
-                variables,
               };
-        const next = {
-          ...nextBase,
-          captureMode: "ordinary" as const,
-          revision: mutable.revision + 1,
+        const [, next] = advance(mutable, {
+          ...placed,
+          captureMode: "ordinary",
           targetPreStepIndex: undefined,
           targetStepId: undefined,
-        };
-        return [
-          undefined,
-          { ...next, variables: referencedVariables(next) },
-        ] as const;
+          variables,
+        });
+        return [undefined, next] as const;
       });
 
+    // `unsupported` never arrives here: the ordered handler turns a page
+    // giving up into a failure before any reduction runs.
     const captureAction = (
-      event: RecorderCaptureEvent
-    ): Effect.Effect<void, BrowserRpcErrorType> => {
-      if (event.type === "unsupported") {
-        return fail(event.reason);
-      }
-      return mutate((state) =>
+      event: ReducibleCaptureEvent
+    ): Effect.Effect<void, BrowserRpcErrorType> =>
+      mutate((state) =>
         Effect.gen(function* appendCapturedAction() {
           const mutable = yield* requireMutable(state);
           if (event.type === "beforeUnload") {
@@ -825,11 +580,11 @@ export const makeRecordingService = (
           ) {
             return [undefined, mutable] as const;
           }
-          if (mutable.captureMode === "conditionPicker") {
-            return yield* pickPreStepCondition(mutable, action);
-          }
-          if (mutable.captureMode === "hoverPicker") {
-            return yield* pickHover(mutable, action, page);
+
+          const target = capturedTarget(action);
+          const picked = reducePick(mutable, target, page);
+          if (picked !== undefined) {
+            return picked;
           }
 
           const step = toBrowserStep(action, page);
@@ -846,10 +601,10 @@ export const makeRecordingService = (
             replaces,
             mutable.variables
           );
-          if (mutable.captureMode !== "ordinary") {
+          if (mutable.captureMode !== "ordinary" && target !== undefined) {
             return yield* capturePreStep(
               mutable,
-              action as TargetedAction,
+              target,
               step,
               assignedVariable
             );
@@ -893,7 +648,6 @@ export const makeRecordingService = (
           ] as const;
         })
       ).pipe(Effect.asVoid);
-    };
 
     const finishRecording = (
       state: RecordingState
@@ -946,11 +700,12 @@ export const makeRecordingService = (
         return [{ ...toSnapshot(next), flow }, next] as const;
       });
 
-    const startCapture = (sessionId: SessionId) =>
+    const startCapture = (sessionId: SessionId, tabId?: BrowserTabId) =>
       capture.start({
         onEvent: captureAction,
         onFailure: fail,
         sessionId,
+        tabId,
       });
 
     // Keep the public service operations grouped by authoring concern.
@@ -987,7 +742,7 @@ export const makeRecordingService = (
               deletedStep: undefined,
               flowId: FlowId.make(randomUUID()),
               flowPreSteps: [],
-              incompleteReason: undefined,
+              incompleteFailure: undefined,
               initialUrl: sanitized.url,
               lastActionAt: 0,
               pendingNavigation: false,
@@ -1020,7 +775,7 @@ export const makeRecordingService = (
                 )
               );
             }
-            if (!isRecoverableIncompleteReason(current.incompleteReason)) {
+            if (current.incompleteFailure?.kind !== "connectionLost") {
               return yield* Effect.fail(
                 recordingError(
                   "recording_invalid",
@@ -1031,7 +786,10 @@ export const makeRecordingService = (
             // Capture restarts against the session the Recording is pinned to,
             // and nowhere else: a Recording never migrates to another browser
             // session.
-            const handle = yield* startCapture(current.sessionId);
+            const handle = yield* startCapture(
+              current.sessionId,
+              current.tabId
+            );
             const sanitized = yield* sanitizeUrl(
               handle.url,
               current.variables
@@ -1045,7 +803,7 @@ export const makeRecordingService = (
               ...current,
               captureMode: "ordinary",
               deletedStep: undefined,
-              incompleteReason: undefined,
+              incompleteFailure: undefined,
               pendingNavigation: false,
               phase: "active",
               revision: current.revision + 1,
@@ -1288,16 +1046,7 @@ export const makeRecordingService = (
                 )
               );
             }
-            const nextBase = {
-              ...mutable,
-              revision: mutable.revision + 1,
-              steps,
-            };
-            const next = {
-              ...nextBase,
-              variables: referencedVariables(nextBase),
-            };
-            return [toSnapshot(next), next] as const;
+            return advance(mutable, { steps });
           })
         ),
       renameVariable: (from, requestedName) =>
@@ -1317,8 +1066,7 @@ export const makeRecordingService = (
                 )
               );
             }
-            const nextBase = {
-              ...mutable,
+            return advance(mutable, {
               flowPreSteps: mutable.flowPreSteps.map((preStep) =>
                 renamePreStepVariable(preStep, from, name)
               ),
@@ -1327,7 +1075,6 @@ export const makeRecordingService = (
                 from,
                 name
               ),
-              revision: mutable.revision + 1,
               steps: mutable.steps.map((recorded) => ({
                 ...recorded,
                 ...(recorded.variable === from ? { variable: name } : {}),
@@ -1336,12 +1083,7 @@ export const makeRecordingService = (
                 ),
                 step: renameStepValue(recorded.step, from, name),
               })),
-            };
-            const next = {
-              ...nextBase,
-              variables: referencedVariables(nextBase),
-            };
-            return [toSnapshot(next), next] as const;
+            });
           })
         ),
       deleteStep: (stepId) =>
@@ -1358,17 +1100,10 @@ export const makeRecordingService = (
                 )
               );
             }
-            const nextBase = {
-              ...mutable,
+            return advance(mutable, {
               deletedStep: { index, step },
-              revision: mutable.revision + 1,
               steps: mutable.steps.filter(({ id }) => id !== stepId),
-            };
-            const next = {
-              ...nextBase,
-              variables: referencedVariables(nextBase),
-            };
-            return [toSnapshot(next), next] as const;
+            });
           })
         ),
       undoDelete: () =>
@@ -1383,17 +1118,7 @@ export const makeRecordingService = (
             }
             const steps = [...mutable.steps];
             steps.splice(deleted.index, 0, deleted.step);
-            const nextBase = {
-              ...mutable,
-              deletedStep: undefined,
-              revision: mutable.revision + 1,
-              steps,
-            };
-            const next = {
-              ...nextBase,
-              variables: referencedVariables(nextBase),
-            };
-            return [toSnapshot(next), next] as const;
+            return advance(mutable, { deletedStep: undefined, steps });
           })
         ),
       updateTitle: (title) =>

@@ -334,9 +334,17 @@ const makeService = (
         publishTabs(session);
       }),
     open,
-    recorderTarget: (sessionId) =>
+    recorderTarget: (sessionId, requestedTabId) =>
       Effect.gen(function* resolveRecorderTarget() {
         const session = yield* requireSession(sessionId);
+        if (requestedTabId !== undefined) {
+          const page = yield* requirePage(session, requestedTabId);
+          return {
+            context: session.context,
+            page,
+            tabId: requestedTabId,
+          };
+        }
         const state = readSessionState(session);
         const tabId = state.pageIds.get(state.activePage);
         if (tabId === undefined) {

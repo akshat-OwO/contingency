@@ -114,8 +114,13 @@ export interface CreateBrowserService {
     { readonly sessionId: SessionId; readonly url: string },
     BrowserRpcErrorType
   >;
+  /**
+   * The Page a Recording attaches to: the named tab when recovery re-pins the
+   * one it already names, and the active tab when a Recording starts.
+   */
   readonly recorderTarget: (
-    sessionId: SessionId
+    sessionId: SessionId,
+    tabId?: BrowserTabId
   ) => Effect.Effect<RecorderTarget, BrowserRpcErrorType>;
   readonly sendInput: (
     sessionId: SessionId,

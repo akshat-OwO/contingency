@@ -28,23 +28,31 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-/** What the author is being asked for while capture is armed. */
-const captureModeTitle = (mode: RecordingCaptureMode): string => {
-  if (mode === "conditionPicker") {
-    return "Pick the condition element";
-  }
-  return mode === "hoverPicker"
-    ? "Pick the element to hover"
-    : "Record the next Pre-step";
-};
-
-const captureModeHint = (mode: RecordingCaptureMode): string => {
-  if (mode === "conditionPicker") {
-    return "Click the element whose visibility should enable this Pre-step.";
-  }
-  return mode === "hoverPicker"
-    ? "Click the element the Flow should hover — a menu trigger, most often. The click itself is not recorded."
-    : "Perform one click, form change, or meaningful key action in the browser.";
+/** What the author is being asked for while a capture mode is armed. */
+const capturePrompts: Record<
+  Exclude<RecordingCaptureMode, "ordinary">,
+  { readonly cancel: string; readonly hint: string; readonly title: string }
+> = {
+  conditionPicker: {
+    cancel: "Cancel Pre-step",
+    hint: "Click the element whose visibility should enable this Pre-step.",
+    title: "Pick the condition element",
+  },
+  flowPreStep: {
+    cancel: "Cancel Pre-step",
+    hint: "Perform one click, form change, or meaningful key action in the browser.",
+    title: "Record the next Pre-step",
+  },
+  hoverPicker: {
+    cancel: "Cancel hover",
+    hint: "Click the element the Flow should hover — a menu trigger, most often. The click itself is not recorded.",
+    title: "Pick the element to hover",
+  },
+  stepPreStep: {
+    cancel: "Cancel Pre-step",
+    hint: "Perform one click, form change, or meaningful key action in the browser.",
+    title: "Record the next Pre-step",
+  },
 };
 
 const stepLabel = (
@@ -345,10 +353,10 @@ export const RecordingSetup = ({
       {recording !== null && recording.captureMode !== "ordinary" ? (
         <div className="bg-muted/30 rounded-lg border p-3 text-sm">
           <p className="font-medium">
-            {captureModeTitle(recording.captureMode)}
+            {capturePrompts[recording.captureMode].title}
           </p>
           <p className="text-muted-foreground mt-1 text-xs">
-            {captureModeHint(recording.captureMode)}
+            {capturePrompts[recording.captureMode].hint}
           </p>
           <Button
             className="mt-3"
@@ -357,9 +365,7 @@ export const RecordingSetup = ({
             size="sm"
             variant="outline"
           >
-            {recording.captureMode === "hoverPicker"
-              ? "Cancel hover"
-              : "Cancel Pre-step"}
+            {capturePrompts[recording.captureMode].cancel}
           </Button>
         </div>
       ) : null}

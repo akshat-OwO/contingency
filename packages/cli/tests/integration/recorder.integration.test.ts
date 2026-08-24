@@ -141,6 +141,15 @@ it.live("captures a scroll once, at the position the page came to rest", () =>
     );
     expect(scrolls).toHaveLength(1);
     expect(scrolls[0]).toMatchObject({ type: "scroll" });
+
+    // A container scrolls where the document does not, and that is the case
+    // lazy-loaded content lives in.
+    yield* Effect.promise(() => page.hover("#panel"));
+    yield* Effect.promise(() => page.mouse.wheel(0, 200));
+    yield* Effect.sleep(SCROLL_REST);
+    expect(
+      (yield* stepsOf(recording)).filter((step) => step.type === "scroll")
+    ).toHaveLength(2);
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 
@@ -259,5 +268,63 @@ it.live("finishes a captured Flow that validates against the schema", () =>
     expect(finished.phase).toBe("finished");
     expect(finished.flow.steps[0]).toMatchObject({ type: "navigate" });
     expect(finished.downloadName?.endsWith("-cart.json")).toBe(true);
+  }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
+
+it.live("ends the Recording when the page itself calls the binding", () =>
+  Effect.gen(function* refuseForgedRecorderData() {
+    const fixtures = yield* fixtureServer;
+    const { page, recording } = yield* openRecording(
+      fixtures.url("recorder.html")
+    );
+
+    // The binding a page can find and call is the threat the untrusted
+    // boundary exists for: whatever it says must not become a Step, and
+    // saying it at all is lost integrity.
+    yield* Effect.promise(() =>
+      page.evaluate(() => {
+        const name = Object.keys(globalThis).find((key) =>
+          key.startsWith("__contingency_")
+        );
+        (globalThis as unknown as Record<string, (raw: string) => void>)[
+          name ?? ""
+        ]?.("not recorder data at all");
+      })
+    );
+    yield* waitUntil(
+      () => Effect.runSync(recording.get())?.phase === "incomplete"
+    );
+
+    const snapshot = yield* recording.get();
+    expect(snapshot?.incompleteReason).toBe(
+      "The page sent malformed recorder data."
+    );
+    // Lost integrity, so recovery must refuse it.
+    const error = yield* Effect.flip(recording.recover());
+    expect(error.message).toBe(
+      "This Recording cannot be recovered because capture integrity was lost."
+    );
+  }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
+
+it.live("records the host of a closed shadow root, never through it", () =>
+  Effect.gen(function* closedShadowRoot() {
+    const fixtures = yield* fixtureServer;
+    const { page, recording } = yield* openRecording(
+      fixtures.url("recorder.html")
+    );
+
+    // A closed root cannot be reached by a locator either, so the click
+    // lands on the host — exactly what a real author's pointer does.
+    yield* Effect.promise(() => page.locator("#closed-host").click());
+    yield* Effect.sleep("300 millis");
+
+    // A closed root is outside the recording boundary by design: what the
+    // page shows the outside world is the host, so that is what is recorded.
+    const snapshot = yield* recording.get();
+    expect(snapshot?.phase).toBe("active");
+    const captured = JSON.stringify(snapshotSteps(snapshot).at(-1));
+    expect(captured).toContain("closed-host");
+    expect(captured).not.toContain("closed-button");
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );

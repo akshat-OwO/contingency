@@ -301,20 +301,16 @@ const RECORDER_SOURCE = String.raw`
     return;
   };
 
-  const variableName = (element) => {
-    const raw =
+  // What the field calls itself. The CLI normalises this into a Variable
+  // name and makes it unique, so the page does not guess at either.
+  const variableName = (element) =>
+    (
       element.getAttribute("autocomplete") ||
       element.getAttribute("name") ||
       element.getAttribute("id") ||
       element.getAttribute("type") ||
-      "SECRET";
-    return (
-      raw
-        .toUpperCase()
-        .replace(/[^A-Z0-9]+/gu, "_")
-        .replace(/^_+|_+$/gu, "") || "SECRET"
-    );
-  };
+      "SECRET"
+    ).slice(0, 64);
 
   const isSensitive = (element) => {
     const type = element.getAttribute("type")?.toLowerCase();
@@ -526,18 +522,38 @@ const RECORDER_SOURCE = String.raw`
   // Scroll is captured without being annotated, and coalesced to one Step per
   // resting position: what the author meant is where the page came to rest,
   // not the wheel ticks that took it there.
-  let restingX = 0;
-  let restingY = 0;
+  //
+  // A scroll inside a container counts too — a lazy-loading list or an open
+  // menu is the case that matters — so each scrolled thing keeps its own
+  // resting position. A ScrollStep names no container, and replay scrolls
+  // whatever is under the pointer, so what is recorded is the distance.
+  const scrollPositions = new WeakMap();
   let restTimer;
+  let pendingScrollTarget;
+
+  const scrollPositionOf = (target) =>
+    target === document || target === globalThis
+      ? { x: Math.round(globalThis.scrollX), y: Math.round(globalThis.scrollY) }
+      : { x: Math.round(target.scrollLeft), y: Math.round(target.scrollTop) };
+
+  const scrollKey = (target) =>
+    target === document || target === globalThis
+      ? document.documentElement
+      : target;
 
   const settleScroll = () => {
     restTimer = undefined;
-    const x = Math.round(globalThis.scrollX);
-    const y = Math.round(globalThis.scrollY);
-    const deltaX = x - restingX;
-    const deltaY = y - restingY;
-    restingX = x;
-    restingY = y;
+    const target = pendingScrollTarget;
+    pendingScrollTarget = undefined;
+    if (!target) {
+      return;
+    }
+    const key = scrollKey(target);
+    const position = scrollPositionOf(target);
+    const resting = scrollPositions.get(key) ?? { x: 0, y: 0 };
+    scrollPositions.set(key, position);
+    const deltaX = position.x - resting.x;
+    const deltaY = position.y - resting.y;
     if (deltaX === 0 && deltaY === 0) {
       return;
     }
@@ -552,11 +568,26 @@ const RECORDER_SOURCE = String.raw`
     if (!event.isTrusted) {
       return;
     }
+    const target = event.target ?? document;
+    const key = scrollKey(target);
+    // Where this thing was before the author touched it. Recorded on the way
+    // past, so a page that loads already scrolled — an anchor, a restored
+    // position — does not report that offset as the author's first scroll.
+    if (!scrollPositions.has(key)) {
+      scrollPositions.set(key, scrollPositionOf(target));
+      return;
+    }
+    pendingScrollTarget = target;
     if (restTimer !== undefined) {
       clearTimeout(restTimer);
     }
     restTimer = setTimeout(settleScroll, SCROLL_REST_MS);
   };
+
+  scrollPositions.set(document.documentElement, {
+    x: Math.round(globalThis.scrollX),
+    y: Math.round(globalThis.scrollY),
+  });
 
   addEventListener("mousemove", inspectPointerTarget, true);
   addEventListener("mouseleave", hideInspector, true);

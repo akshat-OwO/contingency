@@ -43,6 +43,15 @@
       <!-- A closed shadow root: outside it, and deliberately so. -->
       <div id="closed-host"></div>
 
+      <!-- A scrollable container: the lazy-loading list case, where the
+           document itself never moves. -->
+      <div
+        id="panel"
+        style="height: 120px; overflow-y: scroll; border: 1px solid"
+      >
+        <div style="height: 900px">Panel contents</div>
+      </div>
+
       <div class="spacer"></div>
       <p id="bottom">Bottom of the page</p>
     </main>

@@ -7,7 +7,7 @@ import {
   makeEventRateLimit,
   makeOrderedRecorderEventHandler,
   readRecorderPayload,
-  refusalMessage,
+  refusalFailure,
 } from "../../src/services/recorder-events.ts";
 import type {
   RecorderCaptureEvent,
@@ -82,16 +82,19 @@ it("never accepts a test-id locator descriptor", () => {
   ).toBe("refused");
 });
 
-it("names each refusal in the words the author reads", () => {
-  expect(refusalMessage({ _tag: "malformed" })).toBe(
-    "The page sent malformed recorder data."
-  );
-  expect(refusalMessage({ _tag: "oversize" })).toBe(
-    "The page sent an oversized recorder event."
-  );
-  expect(refusalMessage({ _tag: "sequence" })).toBe(
-    "The page recorder event sequence was interrupted."
-  );
+it("treats every refused payload as lost integrity, never recoverable", () => {
+  expect(refusalFailure({ _tag: "malformed" })).toEqual({
+    kind: "integrityLost",
+    message: "The page sent malformed recorder data.",
+  });
+  expect(refusalFailure({ _tag: "oversize" })).toEqual({
+    kind: "integrityLost",
+    message: "The page sent an oversized recorder event.",
+  });
+  expect(refusalFailure({ _tag: "sequence" })).toEqual({
+    kind: "integrityLost",
+    message: "The page recorder event sequence was interrupted.",
+  });
 });
 
 it("limits how many events a page may report per second", () => {
@@ -142,9 +145,9 @@ it.live("stops reducing once a captured event has failed", () =>
         Effect.sync(() => {
           seen.push(event.page);
         }),
-      (message) =>
+      (failure) =>
         Effect.sync(() => {
-          failures.push(message);
+          failures.push(failure.message);
         })
     );
     handler.dispatch({

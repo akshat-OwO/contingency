@@ -113,10 +113,6 @@ export type RecorderPayload = typeof RecorderPayload.Type;
 export type CapturedAction = RecorderPayload["event"];
 
 const NavigationCapture = Schema.Struct({
-  causedByAction: Schema.optional(Schema.Boolean),
-  title: Schema.optional(
-    Schema.String.check(Schema.isMaxLength(MAX_URL_LENGTH))
-  ),
   type: Schema.Literal("navigation"),
   url: bounded(MAX_URL_LENGTH),
 });
@@ -148,6 +144,31 @@ export const decodeNavigationEvent = (
     : undefined;
 };
 
+/**
+ * Why capture ended, and whether the Recording can come back from it.
+ *
+ * `connectionLost` is the only recoverable kind: the recorder stopped
+ * reporting, but nothing it already captured is in doubt. Every other kind is
+ * lost integrity, where resuming would silently omit actions ([ADR
+ * 0006](../../../../docs/adr/0006-incomplete-recordings-recover-from-checkpoints.md)).
+ * A kind rather than a message, so recovery never turns on prose that a later
+ * edit can quietly reword.
+ */
+export interface CaptureFailure {
+  readonly kind: "connectionLost" | "integrityLost";
+  readonly message: string;
+}
+
+export const connectionLost = (message: string): CaptureFailure => ({
+  kind: "connectionLost",
+  message,
+});
+
+export const integrityLost = (message: string): CaptureFailure => ({
+  kind: "integrityLost",
+  message,
+});
+
 /** Why a payload was refused, in the words the author will read. */
 export type PayloadRefusal =
   | { readonly _tag: "malformed" }
@@ -158,16 +179,17 @@ export type PayloadOutcome =
   | { readonly _tag: "accepted"; readonly event: CapturedAction }
   | { readonly _tag: "refused"; readonly refusal: PayloadRefusal };
 
-export const refusalMessage = (refusal: PayloadRefusal): string => {
+/** A refused payload is always lost integrity: the page contradicted itself. */
+export const refusalFailure = (refusal: PayloadRefusal): CaptureFailure => {
   switch (refusal._tag) {
     case "malformed": {
-      return "The page sent malformed recorder data.";
+      return integrityLost("The page sent malformed recorder data.");
     }
     case "oversize": {
-      return "The page sent an oversized recorder event.";
+      return integrityLost("The page sent an oversized recorder event.");
     }
     default: {
-      return "The page recorder event sequence was interrupted.";
+      return integrityLost("The page recorder event sequence was interrupted.");
     }
   }
 };
@@ -235,6 +257,12 @@ export const makeEventRateLimit = (
   };
 };
 
+/** What a Recording reduces: everything except the page giving up. */
+export type ReducibleCaptureEvent = Exclude<
+  RecorderCaptureEvent,
+  { readonly type: "unsupported" }
+>;
+
 export interface OrderedRecorderEventHandler {
   readonly close: () => Effect.Effect<void>;
   readonly dispatch: (event: RecorderCaptureEvent) => void;
@@ -251,9 +279,9 @@ export interface OrderedRecorderEventHandler {
  */
 export const makeOrderedRecorderEventHandler = (
   onEvent: (
-    event: RecorderCaptureEvent
+    event: ReducibleCaptureEvent
   ) => Effect.Effect<void, BrowserRpcErrorType>,
-  onFailure: (message: string) => Effect.Effect<void>
+  onFailure: (failure: CaptureFailure) => Effect.Effect<void>
 ): OrderedRecorderEventHandler => {
   let tail = Deferred.makeUnsafe<true>();
   let accepting = true;
@@ -289,7 +317,9 @@ export const makeOrderedRecorderEventHandler = (
           Effect.catch((error) =>
             Effect.sync(() => {
               failed = true;
-              Effect.runFork(onFailure(error.message));
+              // A reduction that failed is the page having reported something
+              // the Recording cannot honour: integrity, not connectivity.
+              Effect.runFork(onFailure(integrityLost(error.message)));
             })
           ),
           Effect.ensuring(Deferred.succeed(completed, true))
