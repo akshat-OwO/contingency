@@ -1147,6 +1147,30 @@ interface AttemptResult {
 }
 
 /**
+ * Whether one stored cookie could survive Playwright's own validation when the
+ * context opens. A snapshot that fails there would fail every later Run of the
+ * Flow at `newContext` — a failed Run never writes a replacement, so the bad
+ * file would brick the Flow until someone deleted it by hand. Rejecting it
+ * here keeps the promise below: an unrestorable snapshot is no snapshot.
+ */
+const isRestorableCookie = (entry: unknown): boolean => {
+  if (typeof entry !== "object" || entry === null) {
+    return false;
+  }
+  return (
+    "name" in entry &&
+    typeof entry.name === "string" &&
+    "value" in entry &&
+    typeof entry.value === "string" &&
+    (("url" in entry && typeof entry.url === "string") ||
+      ("domain" in entry &&
+        typeof entry.domain === "string" &&
+        "path" in entry &&
+        typeof entry.path === "string"))
+  );
+};
+
+/**
  * What a previous Run of this Flow wrote, if it parses as one. A snapshot is a
  * courtesy and not a contract: anything unreadable — absent on a first Run,
  * truncated, written by another era — restores as nothing, and the Run starts
@@ -1163,7 +1187,9 @@ const parseStoredState = (contents: string): BrowserStorageState | null => {
     typeof parsed === "object" &&
     parsed !== null &&
     "cookies" in parsed &&
-    Array.isArray(parsed.cookies)
+    Array.isArray(parsed.cookies) &&
+    parsed.cookies.every(isRestorableCookie) &&
+    (!("origins" in parsed) || Array.isArray(parsed.origins))
   ) {
     return parsed as BrowserStorageState;
   }
@@ -1462,7 +1488,12 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
          */
         let pending: number | undefined;
         /**
-         * The last Page a Step acted on — the one whose settling ends the Run.
+         * The Page the current Step names — the first, when none does —
+         * resolved as each Step begins, so the Run settles where its final
+         * Step acted. A popup that the final Step itself opens is not yet a
+         * named Page of any Step, and is not what settles the Run; a later
+         * Step that names it would be. Deliberate: the bound covers the rest
+         * (ADR 0015).
          */
         let lastActedOn: Page | undefined;
         for (const [index, step] of flow.steps.entries()) {

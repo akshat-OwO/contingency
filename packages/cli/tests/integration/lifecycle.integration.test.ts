@@ -1,8 +1,10 @@
 import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
+import { flowRunsDirectory } from "../../src/services/runner.ts";
 import {
   BUSY_TICK_BEACON,
   CART_STATE_BEACON,
@@ -75,6 +77,48 @@ it.live("a Flow that opts into persisted state carries its cart", () =>
       `${CART_STATE_BEACON}?at-load=0`,
       `${CART_STATE_BEACON}?at-load=1`,
     ]);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+/**
+ * A snapshot Playwright cannot restore must degrade to a fresh context, not
+ * fail the Run at context-open — because a failed Run never writes a
+ * replacement, an unrestorable file would otherwise brick every later Run of
+ * the Flow until someone deleted it by hand.
+ */
+it.live("an unrestorable snapshot starts the next Run fresh, not broken", () =>
+  Effect.gen(function* replayCorruptSnapshot() {
+    const fixtures = yield* fixtureServer;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const shared = yield* fileSystem.makeTempDirectoryScoped({
+      directory: tmpdir(),
+      prefix: "contingency-integration-persisted-",
+    });
+
+    const persistedFlow = {
+      ...addToCart(fixtures.url("stateful.html")),
+      persistedState: true,
+    };
+    yield* runFlow(persistedFlow, { outputDirectory: shared });
+
+    // Parseable JSON with a cookies array — but a cookie entry Playwright's
+    // own validation refuses: no name, no value, no url. The shape a hand
+    // edit or another era could plausibly leave behind.
+    const statePath = path.join(
+      flowRunsDirectory(shared, persistedFlow),
+      "storage-state.json"
+    );
+    yield* fileSystem.writeFileString(
+      statePath,
+      `${JSON.stringify({ cookies: [{ domain: "127.0.0.1" }], origins: [] })}\n`
+    );
+
+    const { run } = yield* runFlow(persistedFlow, { outputDirectory: shared });
+
+    expect(run.outcome).toBe("completed");
+    expect(cartsAtLoad(fixtures.requests).at(-1)).toBe(
+      `${CART_STATE_BEACON}?at-load=0`
+    );
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
