@@ -4,10 +4,12 @@ import { Effect } from "effect";
 
 import {
   BUSY_TICK_BEACON,
+  CART_STATE_BEACON,
   fixtureServer,
   flow,
   IntegrationLive,
   LAZY_LOADED_BEACON,
+  LATE_CONTENT_BEACON,
   runFlow,
   STEP_BEACON,
 } from "./harness";
@@ -22,6 +24,8 @@ const BEACONED_PAGES = [
   ["checkout.html", STEP_BEACON],
   ["lazy.html", LAZY_LOADED_BEACON],
   ["busy.html", BUSY_TICK_BEACON],
+  ["late.html", LATE_CONTENT_BEACON],
+  ["stateful.html", CART_STATE_BEACON],
 ] as const;
 
 /**
@@ -44,6 +48,8 @@ it.live("serves every fixture page a later stack tests against", () =>
       "hover.html",
       "violations.html",
       "busy.html",
+      "late.html",
+      "stateful.html",
     ]) {
       const response = yield* Effect.promise(() => fetch(fixtures.url(page)));
       expect(response.status, page).toBe(200);

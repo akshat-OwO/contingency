@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stateful Cart</title>
+  </head>
+  <body>
+    <main>
+      <h1>Stateful Cart</h1>
+      <!--
+        Keeps its cart in origin storage, so a context that is not fresh
+        inherits the last Run's cart. The count at load travels to the server,
+        which makes what each Run started from observable without reading the
+        page back.
+      -->
+      <output id="count">0</output>
+      <button id="add" type="button">Add anvil to cart</button>
+    </main>
+    <script>
+      let items = Number(localStorage.getItem("cart") ?? "0");
+      const render = () => {
+        document.getElementById("count").textContent = `${items}`;
+      };
+      render();
+      fetch(`/cart-beacon?at-load=${items}`).catch(() => {});
+      document.getElementById("add").addEventListener("click", () => {
+        items += 1;
+        localStorage.setItem("cart", String(items));
+        render();
+      });
+    </script>
+  </body>
+</html>

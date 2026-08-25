@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Late Content</title>
+  </head>
+  <body>
+    <main>
+      <h1>Late Content</h1>
+      <!--
+        Finishes arriving well after its load event: the catalogue section is
+        injected 700ms in, long after a Run that tears down at its final Step
+        has already closed the context. What the server received by the time
+        the context closed is therefore evidence of when the Run ended.
+      -->
+      <section id="catalogue"></section>
+    </main>
+    <script>
+      setTimeout(() => {
+        const section = document.createElement("h2");
+        section.textContent = "The whole catalogue";
+        document.getElementById("catalogue").append(section);
+        fetch("/settled-beacon").catch(() => {});
+      }, 700);
+    </script>
+  </body>
+</html>

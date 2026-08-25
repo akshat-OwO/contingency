@@ -84,6 +84,15 @@ export const CART_VIEWED_BEACON = "/cart-viewed";
 /** What the busy fixture requests on every tick after load, forever. */
 export const BUSY_TICK_BEACON = "/busy-tick-beacon";
 
+/** What the late fixture requests once its content has finished arriving. */
+export const LATE_CONTENT_BEACON = "/settled-beacon";
+
+/**
+ * What the stateful fixture requests at load, carrying the cart count it read
+ * from origin storage: `?at-load=0` means this Run started fresh.
+ */
+export const CART_STATE_BEACON = "/cart-beacon";
+
 /** A path the fixture server accepts and never responds to. */
 export const NEVER_ANSWERED = "/never-answered.bin";
 
