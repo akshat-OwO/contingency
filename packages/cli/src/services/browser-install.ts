@@ -21,9 +21,12 @@ export class ChromiumInstallError extends Data.TaggedError(
 /**
  * The browsers a Run or a Create session needs. A headless launch with no
  * channel resolves to the headless shell build, and the full build backs every
- * other mode, so both are named rather than discovered missing later.
+ * other mode. Playwright's video capture encodes through its own `ffmpeg`
+ * build, so a captured Run needs it even though no command names it — without
+ * it, `--video` fails only on a fresh machine, right after this download has
+ * claimed to finish.
  */
-const BROWSERS = ["chromium", "chromium-headless-shell"] as const;
+const BROWSERS = ["chromium", "chromium-headless-shell", "ffmpeg"] as const;
 
 /** The one-line hint that finishes every install failure. */
 const MANUAL_INSTALL =
@@ -51,6 +54,12 @@ const isInstalled = (name: string): boolean => {
  * run an install command first, the first launch — a Run or a Create session
  * — pays the download once, with progress printed by Playwright's own
  * installer. An existing installation costs a filesystem check per browser.
+ *
+ * The download itself is verified by hand against an empty browser cache
+ * rather than by the suite: every environment the tests run in pre-installs
+ * browsers, so covering it would mean pointing `PLAYWRIGHT_BROWSERS_PATH` at
+ * a scratch directory and paying the full download in CI for a path that
+ * changes rarely and fails loudly when broken.
  */
 export const ensureChromiumInstalled: Effect.Effect<
   void,
@@ -58,6 +67,15 @@ export const ensureChromiumInstalled: Effect.Effect<
 > = Effect.suspend(() => {
   if (BROWSERS.every(isInstalled)) {
     return Effect.void;
+  }
+  // The declaration pins only what is consumed; a playwright-core minor that
+  // reshapes this surface must fail here, loudly, rather than compile clean
+  // and break at runtime inside the installer.
+  if (typeof installBrowsersForNpmInstall !== "function") {
+    return new ChromiumInstallError({
+      cause: undefined,
+      message: `This playwright-core version does not expose the install surface Contingency relies on (lib/coreBundle). ${MANUAL_INSTALL}`,
+    });
   }
   return Console.error(
     "Contingency needs its Chromium build, which is not installed yet. Downloading it now; this happens once."
@@ -71,6 +89,17 @@ export const ensureChromiumInstalled: Effect.Effect<
           }),
         try: () => installBrowsersForNpmInstall([...BROWSERS]),
       })
+    ),
+    // `false` means the installer declined rather than failed — today that is
+    // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`. Saying so beats having announced a
+    // download that silently never ran; the launch after this still fails,
+    // but now the reason is on record.
+    Effect.tap((downloaded) =>
+      downloaded
+        ? Effect.void
+        : Console.error(
+            "The browser download was skipped because PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD is set. Contingency cannot start until its browsers are installed."
+          )
     ),
     Effect.andThen(Effect.void)
   );
