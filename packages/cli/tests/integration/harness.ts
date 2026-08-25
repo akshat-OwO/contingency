@@ -68,6 +68,29 @@ export const recordingDurationSeconds = (
     },
   });
 
+/** How many decoded video frames ffprobe reads from an artifact. */
+export const recordingFrameCount = (
+  file: string
+): Effect.Effect<number, Error> =>
+  Effect.tryPromise({
+    catch: (cause) => new Error(`ffprobe failed: ${String(cause)}`),
+    try: async () => {
+      const probed = await ffprobe("ffprobe", [
+        "-v",
+        "error",
+        "-count_frames",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=nb_read_frames",
+        "-of",
+        "csv=p=0",
+        file,
+      ]);
+      return Number(String(probed.stdout).trim());
+    },
+  });
+
 /**
  * What the fixture page requests once a Step has typed into it. Waiting for
  * this proves the Run is past its opening navigation and working through

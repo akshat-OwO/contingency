@@ -12,4 +12,4 @@ Start Create View with `contingency web`. It serves the production web app from 
 
 Set `CONTINGENCY_STATE_DIR` to override the state directory that holds Run artifacts.
 
-`--video` records a Run to WebM through Playwright's own capture, one file per attempt. Recordings are not redacted: a Flow that declares secret Variables warns when video is on, because the recording shows their values in plaintext while `run.json` does not.
+Every Run keeps a Playwright Trace by default. Pass `--trace false` to discard it. `--video` additionally generates a WebM slideshow from the Trace's per-Step screenshots, including the final settled state. Traces and videos are sensitive. Exact secret values are scrubbed from readable Trace entries where possible, but the scrub is best effort and does not make an artifact safe to share.

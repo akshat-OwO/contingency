@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { rename, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { arch, cpus, loadavg, platform, totalmem } from "node:os";
 import path from "node:path";
 
@@ -25,6 +25,8 @@ import type {
   RunFailure,
   RunPreStep,
   RunStep,
+  RunTraceManifest,
+  RunTraceSegment,
   RunVideoManifest,
   RunVideoSegment,
 } from "@contingency/protocol";
@@ -38,10 +40,17 @@ import {
   Schema,
   Semaphore,
 } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import { chromium, errors } from "playwright-core";
 import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
+import {
+  deriveVideoFromTrace,
+  embedVideoFrames,
+  scrubTraceBestEffort,
+  traceWasWritten,
+} from "./trace-artifacts.ts";
 import type { VariableResolution } from "./variables.ts";
 import { redactSecrets, substituteVariables } from "./variables.ts";
 import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
@@ -79,7 +88,7 @@ const MINIMUM_PAGE_WAIT_MS = 1000;
 
 /**
  * How long a Run waits for its Page to go quiet after the final Step — network
- * idle and a stable DOM — before stopping capture and closing the context
+ * idle and a stable DOM — before stopping the Trace and closing the context
  * (ADR 0015). Bounded, so a Page that never settles cannot stretch a Run
  * indefinitely; applied once, here, and never between Steps, whose timings
  * describe the site rather than the Runner.
@@ -100,7 +109,9 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
 }> {}
 
 export interface RunnerRunOptions {
-  /** Capture the Run's browser session to video. */
+  /** Keep the Run's Playwright Trace. Defaults to true. */
+  readonly trace?: boolean;
+  /** Generate a video from the Trace's per-Step screenshots. */
   readonly video?: boolean;
   /** Directory holding one subdirectory per Flow. Defaults to the state dir. */
   readonly outputDirectory: string;
@@ -221,7 +232,7 @@ export const runDirectoryName = (startedAt: Date, runId: string): string => {
 };
 
 /**
- * Where a Run's artifacts live. Computed rather than discovered, so a recording
+ * Where a Run's artifacts live. Computed rather than discovered, so a Trace
  * can be written into it before the Run that describes it exists.
  */
 export const runDirectory = (
@@ -304,12 +315,16 @@ interface ReplayExecution {
 interface AttemptSession {
   readonly context: BrowserContext;
   readonly execution: ReplayExecution;
-  /**
-   * The opening Page's recording, resolved by Playwright when the context
-   * closes. Popups get recordings of their own, which are discarded with the
-   * staging directory.
-   */
-  readonly videoArtifact: Promise<string> | undefined;
+}
+
+interface ArtifactCapture {
+  readonly keepTrace: boolean;
+  settledFrame: Buffer | undefined;
+  readonly stepFrames: Map<number, Buffer>;
+  readonly traceFile: string;
+  readonly traceSegments: RunTraceSegment[];
+  readonly videoFile: string | undefined;
+  readonly videoSegments: RunVideoSegment[];
 }
 
 /** The cookies and origin storage a context carries, as Playwright reports it. */
@@ -1257,53 +1272,131 @@ const reportable = (message: string): string => {
   return lines.at(-1) ?? message;
 };
 
+const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
+  function* deriveVideoSegment(
+    capture: ArtifactCapture,
+    videoFile: string,
+    steps: readonly RunStep[],
+    attempt: number,
+    traceRecorded: boolean,
+    traceError: string | undefined
+  ) {
+    const stepIndexes = steps.map((step) => step.index);
+    const hasEveryStepFrame = stepIndexes.every((index) =>
+      capture.stepFrames.has(index)
+    );
+    const { settledFrame } = capture;
+    const hasEveryFrame = hasEveryStepFrame && settledFrame !== undefined;
+    const embedded =
+      traceRecorded && hasEveryFrame
+        ? yield* Effect.result(
+            embedVideoFrames(
+              capture.traceFile,
+              capture.stepFrames,
+              settledFrame
+            )
+          )
+        : undefined;
+    const derived =
+      embedded?._tag === "Success"
+        ? yield* Effect.result(
+            deriveVideoFromTrace(capture.traceFile, videoFile, stepIndexes)
+          )
+        : undefined;
+    let videoError: string | undefined;
+    if (!hasEveryStepFrame) {
+      videoError = "The Trace did not capture a frame for every Step.";
+    } else if (settledFrame === undefined) {
+      videoError = "The Trace did not capture the final settled state.";
+    } else if (embedded?._tag === "Failure") {
+      videoError = reportable(errorMessage(embedded.failure));
+    } else if (derived === undefined) {
+      videoError = traceError ?? "The Trace was unavailable.";
+    } else if (derived._tag === "Failure") {
+      videoError = reportable(errorMessage(derived.failure));
+    }
+    return {
+      attempt,
+      ...(videoError === undefined ? {} : { error: videoError }),
+      file: path.basename(videoFile),
+      includesSettledState:
+        derived?._tag === "Success" && derived.success.includesSettledState,
+      recorded: derived?._tag === "Success",
+      steps: derived?._tag === "Success" ? [...derived.success.steps] : [],
+    } satisfies RunVideoSegment;
+  }
+);
+
 /**
- * Move the first Page's recording into place once the context has closed —
- * the moment it flushes — and account for the outcome either way.
- *
- * Playwright records one video per Page, so a Flow that opened popups leaves
- * several files in staging; the one kept is the opening Page's, which is the
- * Page the Flow is about.
- *
- * Video is how a failure gets watched rather than inferred, so neither the
- * rename nor a missing file can fail the attempt; the manifest records what
- * happened instead.
+ * Stop one attempt's Trace, scrub readable secret values, and optionally turn
+ * the trace screenshots into a video. Artifact failures never change the Run
+ * outcome; their manifests record the missing evidence instead.
  */
-const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
-  /** Resolves to the recorded file once the context has closed. */
-  recorded: Promise<string> | undefined,
-  staging: string,
-  finalPath: string,
-  segments: RunVideoSegment[],
+const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
+  context: BrowserContext,
+  capture: ArtifactCapture,
+  variables: VariableResolution,
+  steps: readonly RunStep[],
   attempt: number
 ) {
-  const produced = yield* Effect.result(
+  const stopped = yield* Effect.result(
     Effect.tryPromise({
       catch: (cause) => new Error(errorMessage(cause)),
-      try: async () => {
-        if (recorded === undefined) {
-          return false;
-        }
-        await rename(await recorded, finalPath);
-        return true;
-      },
+      try: () => context.tracing.stop({ path: capture.traceFile }),
     })
   );
-  let error: string | undefined;
-  if (produced._tag === "Failure") {
-    error = reportable(errorMessage(produced.failure));
-  } else if (!produced.success) {
-    error = "The browser wrote no recording.";
+  const checked =
+    stopped._tag === "Failure"
+      ? stopped
+      : yield* Effect.result(
+          Effect.tryPromise({
+            catch: (cause) => new Error(errorMessage(cause)),
+            try: () => traceWasWritten(capture.traceFile),
+          })
+        );
+  const traceRecorded = checked._tag === "Success" && checked.success === true;
+  let traceError: string | undefined;
+  if (checked._tag === "Failure") {
+    traceError = reportable(errorMessage(checked.failure));
+  } else if (!traceRecorded) {
+    traceError = "Playwright wrote no Trace.";
   }
-  segments.push({
-    attempt,
-    ...(error === undefined ? {} : { error }),
-    file: path.basename(finalPath),
-    recorded: produced._tag === "Success" && produced.success,
-  });
-  yield* Effect.ignore(
-    Effect.promise(() => rm(staging, { force: true, recursive: true }))
-  );
+
+  if (traceRecorded) {
+    const secrets = [...variables.secretNames].flatMap((name) => {
+      const value = variables.values.get(name);
+      return value === undefined ? [] : [value];
+    });
+    yield* scrubTraceBestEffort(capture.traceFile, secrets).pipe(Effect.ignore);
+  }
+
+  if (capture.keepTrace) {
+    capture.traceSegments.push({
+      attempt,
+      ...(traceError === undefined ? {} : { error: traceError }),
+      file: path.basename(capture.traceFile),
+      recorded: traceRecorded,
+    });
+  }
+
+  if (capture.videoFile !== undefined) {
+    capture.videoSegments.push(
+      yield* deriveVideoSegment(
+        capture,
+        capture.videoFile,
+        steps,
+        attempt,
+        traceRecorded,
+        traceError
+      )
+    );
+  }
+
+  if (!capture.keepTrace) {
+    yield* Effect.promise(() => rm(capture.traceFile, { force: true })).pipe(
+      Effect.ignore
+    );
+  }
 });
 
 /**
@@ -1372,6 +1465,51 @@ const settlePage = async (page: Page | undefined): Promise<void> => {
   }
 };
 
+/** Capture the committed Page even when a navigation is still pending. */
+const capturePageScreenshot = (
+  page: Page,
+  timeout: number
+): Effect.Effect<Buffer, unknown> =>
+  Effect.tryPromise(() => page.screenshot({ timeout, type: "jpeg" })).pipe(
+    Effect.catchCause(() =>
+      Effect.tryPromise(() => page.context().newCDPSession(page)).pipe(
+        Effect.timeout(Duration.millis(500)),
+        Effect.flatMap((session) =>
+          Effect.tryPromise(() =>
+            session.send("Page.captureScreenshot", { format: "jpeg" })
+          ).pipe(
+            Effect.timeout(Duration.millis(500)),
+            Effect.map((screenshot) => Buffer.from(screenshot.data, "base64")),
+            Effect.ensuring(
+              Effect.tryPromise(() => session.detach()).pipe(
+                Effect.timeout(Duration.millis(250)),
+                Effect.ignore
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+
+const settleAndCapture = Effect.fn("Runner.settleAndCapture")(
+  function* settleAndCapture(
+    page: Page | undefined,
+    capture: ArtifactCapture | undefined
+  ) {
+    yield* Effect.promise(() => settlePage(page));
+    if (
+      capture?.videoFile === undefined ||
+      page === undefined ||
+      page.isClosed()
+    ) {
+      return;
+    }
+    const frame = yield* Effect.result(capturePageScreenshot(page, 1000));
+    capture.settledFrame = frame._tag === "Success" ? frame.success : undefined;
+  }
+);
+
 /**
  * Where an attempt records the accessibility engine's version. Caller-owned
  * like the Steps, so a version an earlier Audit established survives a later
@@ -1385,7 +1523,7 @@ interface AuditEngine {
 /**
  * Replay the whole Flow once in a browser context of its own. A failed Step
  * aborts the attempt rather than continuing against a page state the Flow
- * never described (ADR 0009). Closing the context flushes its recording.
+ * never described (ADR 0009). Teardown flushes its Trace before closing.
  */
 const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   browser: Browser,
@@ -1394,13 +1532,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   /** Caller-owned, so the Steps done so far survive an interrupted attempt. */
   steps: RunStep[],
   engine: AuditEngine,
-  capture:
-    | {
-        readonly staging: string;
-        readonly file: string;
-        readonly segments: RunVideoSegment[];
-      }
-    | undefined,
+  capture: ArtifactCapture | undefined,
   /**
    * Storage state saved by an earlier Run of this Flow, for one that opted
    * into persisted state (ADR 0015). Null — the default — is a fresh context:
@@ -1413,6 +1545,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   const measures = flow.steps.some(measuresPerformance);
   /** Set once every Step has run and the Page has had its chance to settle. */
   let completed = false;
+  let lastActedOn: Page | undefined;
   let savedState: BrowserStorageState | undefined;
 
   /**
@@ -1432,17 +1565,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             height: RUN_VIEWPORT.height,
             width: RUN_VIEWPORT.width,
           },
-          ...(capture === undefined
-            ? {}
-            : {
-                recordVideo: {
-                  dir: capture.staging,
-                  size: {
-                    height: RUN_VIEWPORT.height,
-                    width: RUN_VIEWPORT.width,
-                  },
-                },
-              }),
         }),
     });
 
@@ -1459,6 +1581,21 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         : openContext(restoredState).pipe(
             Effect.catch(() => openContext(null))
           );
+      if (capture !== undefined) {
+        yield* Effect.tryPromise({
+          catch: (cause) =>
+            new RunnerError({
+              message: `Could not start the Trace: ${errorMessage(cause)}`,
+            }),
+          try: () =>
+            context.tracing.start({
+              screenshots: true,
+              snapshots: true,
+              sources: false,
+              title: `Attempt ${attempt}`,
+            }),
+        });
+      }
       // Interactions cannot be read back after the fact, so a Run that might
       // measure anything records from the first navigation onwards — on every
       // Page this context opens, popups included.
@@ -1493,12 +1630,11 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       context.on("page", (opened) => {
         execution.pages.push(opened);
       });
-      const videoArtifact =
-        capture === undefined ? undefined : (page.video()?.path() ?? undefined);
-      return { context, execution, videoArtifact } satisfies AttemptSession;
+      return { context, execution } satisfies AttemptSession;
     }),
     ({ execution }) =>
       Effect.gen(function* replayFlow() {
+        [lastActedOn] = execution.pages;
         /**
          * Index in `steps` of a Step whose page has not been measured yet.
          */
@@ -1511,7 +1647,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
          * Step that names it would be. Deliberate: the bound covers the rest
          * (ADR 0015).
          */
-        let lastActedOn: Page | undefined;
         for (const [index, step] of flow.steps.entries()) {
           const stepStartedAt = yield* nowIso;
 
@@ -1543,6 +1678,17 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             executeStep(execution, step, index)
           );
           const stepFinishedAt = yield* nowIso;
+          const actedOn = lastActedOn;
+          if (capture?.videoFile !== undefined && actedOn !== undefined) {
+            // This action creates an explicit screenshot boundary in the
+            // Trace. Video derivation selects these in executed Step order.
+            const frame = yield* Effect.result(
+              capturePageScreenshot(actedOn, DEFAULT_ACTION_TIMEOUT_MS)
+            );
+            if (frame._tag === "Success") {
+              capture.stepFrames.set(index, frame.success);
+            }
+          }
           const base = {
             finishedAt: stepFinishedAt.toISOString(),
             index,
@@ -1593,21 +1739,20 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           // The navigation that was measured still happened, and a Flow that
           // fails at Step 9 should not lose the metrics from Step 2.
           yield* measurePending(execution, steps, pending);
+          yield* settleAndCapture(lastActedOn, capture);
           return;
         }
 
         yield* measurePending(execution, steps, pending);
 
-        // The Run ends only once its Page has gone quiet (ADR 0015). Capture
-        // is still live through this wait, so what it observes is what the
-        // recording ends on.
-        yield* Effect.promise(() => settlePage(lastActedOn));
+        // The Run ends only once its Page has gone quiet (ADR 0015). The Trace
+        // stays live through this wait, and its final frame records that state.
+        yield* settleAndCapture(lastActedOn, capture);
         completed = true;
       }),
-    ({ context, videoArtifact }) =>
-      // A Run is torn down uninterruptibly: closing the context is what
-      // flushes an in-progress recording, including when the interruption was
-      // a Ctrl-C rather than a finished Flow.
+    ({ context }) =>
+      // A Run is torn down uninterruptibly so Ctrl-C cannot cut off Trace
+      // finalization or context cleanup halfway through.
       Effect.gen(function* teardownAttempt() {
         // Read while the context can still answer. Only a completed attempt
         // contributes: a Run that failed partway must not overwrite the last
@@ -1630,6 +1775,15 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             savedState = state.success;
           }
         }
+        if (capture !== undefined) {
+          if (
+            capture.videoFile !== undefined &&
+            capture.settledFrame === undefined
+          ) {
+            yield* settleAndCapture(lastActedOn, capture);
+          }
+          yield* saveArtifacts(context, capture, variables, steps, attempt);
+        }
         yield* Effect.tryPromise({
           catch: (cause) =>
             new RunnerError({
@@ -1637,15 +1791,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             }),
           try: () => context.close(),
         }).pipe(Effect.ignore);
-        if (capture !== undefined) {
-          yield* saveRecording(
-            videoArtifact,
-            capture.staging,
-            capture.file,
-            capture.segments,
-            attempt
-          );
-        }
       })
   );
 
@@ -1655,13 +1800,14 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
 export const makeRunnerService = () =>
   Effect.gen(function* buildRunner() {
     const fileSystem = yield* FileSystem.FileSystem;
+    const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     // One Run at a time per process: concurrent Runs contend for CPU and
     // corrupt each other's measurements (ADR 0009).
     const runPermit = Semaphore.makeUnsafe(1);
 
     /**
-     * The manifest is written even when every capture failed. Someone looking
-     * for a recording needs to find out why there isn't one, not find nothing.
+     * The manifest is written even when every derivation failed. Someone
+     * looking for a video needs the reason it is absent.
      */
     const writeVideoManifest = Effect.fn("Runner.writeVideoManifest")(
       function* writeVideoManifest(
@@ -1682,6 +1828,31 @@ export const makeRunnerService = () =>
               (cause) =>
                 new RunnerError({
                   message: `Could not write the video manifest: ${errorMessage(cause)}`,
+                })
+            )
+          );
+      }
+    );
+
+    const writeTraceManifest = Effect.fn("Runner.writeTraceManifest")(
+      function* writeTraceManifest(
+        keepTrace: boolean,
+        directory: string,
+        manifest: RunTraceManifest
+      ) {
+        if (!keepTrace) {
+          return;
+        }
+        yield* fileSystem
+          .writeFileString(
+            path.join(directory, "trace.json"),
+            `${JSON.stringify(manifest, null, 2)}\n`
+          )
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new RunnerError({
+                  message: `Could not write the Trace manifest: ${errorMessage(cause)}`,
                 })
             )
           );
@@ -1753,12 +1924,13 @@ export const makeRunnerService = () =>
             );
 
             /**
-             * The staging directories exist before capture begins, and the
-             * manifest finalizer is registered first: a Run that dies while a
-             * recording is still being made must still leave the manifest
-             * accounting for what it produced.
+             * The artifact directory exists before tracing begins, and both
+             * manifest finalizers register before replay. An interrupted Run
+             * still accounts for every artifact it did or did not produce.
              */
-            const capture = options.video === true;
+            const keepTrace = options.trace ?? true;
+            const makeVideo = options.video === true;
+            const capture = keepTrace || makeVideo;
             if (capture) {
               yield* fileSystem
                 .makeDirectory(directory, { recursive: true })
@@ -1771,16 +1943,24 @@ export const makeRunnerService = () =>
                   )
                 );
             }
-            const segments: RunVideoSegment[] = [];
-            const manifest = writeVideoManifest(capture, directory, {
-              // Capture is not suspended while a Step enters a secret, so a
-              // recording of a Flow that declares one may show it in plaintext
-              // (ADR 0010). Said plainly here so an upload adapter can refuse.
+            const traceSegments: RunTraceSegment[] = [];
+            const videoSegments: RunVideoSegment[] = [];
+            const traceManifest = writeTraceManifest(keepTrace, directory, {
+              // Exact values are scrubbed from readable entries where
+              // possible, but DOM snapshots and payloads make completeness
+              // unprovable. This flag remains the upload gate (ADR 0014).
               containsSecrets: variables.secretNames.size > 0,
               runId,
-              segments,
+              scrubbing: "best-effort",
+              segments: traceSegments,
             }).pipe(Effect.ignore);
-            yield* Effect.addFinalizer(() => manifest);
+            const videoManifest = writeVideoManifest(makeVideo, directory, {
+              containsSecrets: variables.secretNames.size > 0,
+              runId,
+              segments: videoSegments,
+            }).pipe(Effect.ignore);
+            yield* Effect.addFinalizer(() => traceManifest);
+            yield* Effect.addFinalizer(() => videoManifest);
 
             const attempts: RunAttempt[] = [];
             let inFlight:
@@ -1826,8 +2006,8 @@ export const makeRunnerService = () =>
                         }),
                       // Playwright installs process-wide SIGINT/SIGTERM/SIGHUP
                       // handlers of its own by default, which would force-exit the
-                      // CLI mid-teardown instead of letting the unwind flush a
-                      // recording. Signals belong to the CLI's runtime alone.
+                      // CLI mid-teardown instead of letting the unwind flush its
+                      // Trace. Signals belong to the CLI's runtime alone.
                       try: () =>
                         chromium.launch({
                           handleSIGHUP: false,
@@ -1864,16 +2044,29 @@ export const makeRunnerService = () =>
                   engine,
                   capture
                     ? {
-                        file: path.join(directory, `attempt-${index + 1}.webm`),
-                        segments,
-                        staging: path.join(
+                        keepTrace,
+                        settledFrame: undefined,
+                        stepFrames: new Map(),
+                        traceFile: path.join(
                           directory,
-                          `.attempt-${index + 1}-staging`
+                          keepTrace
+                            ? `attempt-${index + 1}.trace.zip`
+                            : `.attempt-${index + 1}.trace.zip`
                         ),
+                        traceSegments,
+                        videoFile: makeVideo
+                          ? path.join(directory, `attempt-${index + 1}.webm`)
+                          : undefined,
+                        videoSegments,
                       }
                     : undefined,
                   restoredState,
                   index + 1
+                ).pipe(
+                  Effect.provideService(
+                    ChildProcessSpawner.ChildProcessSpawner,
+                    childProcessSpawner
+                  )
                 );
                 lastSavedState = result.savedState;
                 const attemptFinishedAt = yield* nowIso;
@@ -1947,7 +2140,8 @@ export const makeRunnerService = () =>
               runId,
               startedAt: startedAt.toISOString(),
               steps: last?.steps ?? [],
-              video: capture,
+              trace: keepTrace,
+              video: makeVideo,
             };
 
             return yield* persist(record, options.outputDirectory, startedAt);
@@ -1961,7 +2155,7 @@ export const makeRunnerService = () =>
 export const RunnerLive: Layer.Layer<
   RunnerService,
   never,
-  FileSystem.FileSystem
+  FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner
 > = Layer.effect(Runner, makeRunnerService());
 
 /** Decode a Flow file, failing with a message a developer can act on. */

@@ -36,12 +36,8 @@ class RunDidNotComplete extends Data.TaggedError("RunDidNotComplete")<{
 }
 
 /**
- * How to say that a captured Run produced no recording, when it produced none.
- *
- * Playwright flushes the capture when the browser closes, and a capture that
- * never began — or was cut off mid-encode — leaves nothing behind. Whatever
- * the reason, asking for video and silently getting none sends someone
- * hunting for a file.
+ * How to say that a requested derived video could not be written. Artifact
+ * failure does not change the Run outcome, but it must not pass silently.
  */
 const videoWarning = Effect.fn("run.videoWarning")(function* videoWarning(
   run: Run,
@@ -97,9 +93,15 @@ export const runCommand = Command.make(
       ),
       Flag.withDefault(Duration.toSeconds(DEFAULT_TIMEOUT))
     ),
+    trace: Flag.boolean("trace").pipe(
+      Flag.withDescription(
+        "Keep a Playwright Trace for each attempt. On by default; Traces are sensitive and best-effort scrubbing is not complete."
+      ),
+      Flag.optional
+    ),
     video: Flag.boolean("video").pipe(
       Flag.withDescription(
-        "Capture the Run's browser session to WebM, one file per attempt. Overrides the Flow's own setting. Recordings are not redacted."
+        "Generate a WebM from each attempt's per-Step Trace screenshots. Off by default; videos are sensitive."
       ),
       Flag.optional
     ),
@@ -110,6 +112,7 @@ export const runCommand = Command.make(
     retry,
     secret,
     timeout,
+    trace,
     video,
   }) {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -154,13 +157,14 @@ export const runCommand = Command.make(
 
     // Video is an observation aid, never a Flow property: it reflects how
     // this Run was invoked (ADR 0014).
-    const capture = Option.isSome(video) ? video.value : false;
-    if (capture && (flow.variables ?? []).some((variable) => variable.secret)) {
-      // Capture is deliberately not suspended while a Step enters a secret, so
-      // the recording shows in plaintext what run.json redacts (ADR 0010).
-      // Accepted, but never silent.
+    const keepTrace = Option.isSome(trace) ? trace.value : true;
+    const makeVideo = Option.isSome(video) ? video.value : false;
+    if (
+      (keepTrace || makeVideo) &&
+      (flow.variables ?? []).some((variable) => variable.secret)
+    ) {
       yield* Console.warn(
-        "Warning: this Flow declares secret Variables and video is on. The recording will show their values in plaintext, unlike the Run."
+        "Warning: this Flow declares secret Variables and artifacts are on. Traces and derived videos are sensitive; Trace scrubbing is only best effort."
       );
     }
 
@@ -168,8 +172,9 @@ export const runCommand = Command.make(
       outputDirectory,
       retry,
       timeout: Duration.seconds(timeout),
+      trace: keepTrace,
       variables: resolution,
-      video: capture,
+      video: makeVideo,
     });
 
     if (run.attempts.length > 1) {

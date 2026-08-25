@@ -12,6 +12,7 @@ declare module "playwright-core/lib/coreBundle" {
     readonly registry: {
       readonly findExecutable: (name: string) => {
         readonly directory: string;
+        readonly executablePath: () => string;
       };
     };
   };
