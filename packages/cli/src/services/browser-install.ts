@@ -90,16 +90,17 @@ export const ensureChromiumInstalled: Effect.Effect<
         try: () => installBrowsersForNpmInstall([...BROWSERS]),
       })
     ),
-    // `false` means the installer declined rather than failed — today that is
-    // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`. Saying so beats having announced a
-    // download that silently never ran; the launch after this still fails,
-    // but now the reason is on record.
-    Effect.tap((downloaded) =>
-      downloaded
-        ? Effect.void
-        : Console.error(
+    // Only an explicit `false` is a decline — today that is
+    // `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`; a successful install resolves
+    // `undefined`, not `true`. Saying so beats having announced a download
+    // that silently never ran; the launch after this still fails, but now
+    // the reason is on record.
+    Effect.tap((declined) =>
+      declined === false
+        ? Console.error(
             "The browser download was skipped because PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD is set. Contingency cannot start until its browsers are installed."
           )
+        : Effect.void
     ),
     Effect.andThen(Effect.void)
   );

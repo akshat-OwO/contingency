@@ -7,7 +7,7 @@ declare module "playwright-core/lib/coreBundle" {
   export const registry: {
     readonly installBrowsersForNpmInstall: (
       browsers: readonly string[]
-    ) => Promise<boolean>;
+    ) => Promise<boolean | undefined>;
     readonly browserDirectoryToMarkerFilePath: (directory: string) => string;
     readonly registry: {
       readonly findExecutable: (name: string) => {
