@@ -1415,34 +1415,50 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   let completed = false;
   let savedState: BrowserStorageState | undefined;
 
-  yield* Effect.acquireUseRelease(
-    Effect.gen(function* openContext() {
-      const context = yield* Effect.tryPromise({
-        catch: (cause) =>
-          new RunnerError({
-            message: `Could not open a browser context: ${errorMessage(cause)}`,
-          }),
-        try: () =>
-          browser.newContext({
-            deviceScaleFactor: RUN_VIEWPORT.deviceScaleFactor,
-            ...(restoredState === null ? {} : { storageState: restoredState }),
-            viewport: {
-              height: RUN_VIEWPORT.height,
-              width: RUN_VIEWPORT.width,
-            },
-            ...(capture === undefined
-              ? {}
-              : {
-                  recordVideo: {
-                    dir: capture.staging,
-                    size: {
-                      height: RUN_VIEWPORT.height,
-                      width: RUN_VIEWPORT.width,
-                    },
+  /**
+   * Open a context, restoring the given state when it carries one.
+   */
+  const openContext = (state: BrowserStorageState | null) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        new RunnerError({
+          message: `Could not open a browser context: ${errorMessage(cause)}`,
+        }),
+      try: () =>
+        browser.newContext({
+          deviceScaleFactor: RUN_VIEWPORT.deviceScaleFactor,
+          ...(state === null ? {} : { storageState: state }),
+          viewport: {
+            height: RUN_VIEWPORT.height,
+            width: RUN_VIEWPORT.width,
+          },
+          ...(capture === undefined
+            ? {}
+            : {
+                recordVideo: {
+                  dir: capture.staging,
+                  size: {
+                    height: RUN_VIEWPORT.height,
+                    width: RUN_VIEWPORT.width,
                   },
-                }),
-          }),
-      });
+                },
+              }),
+        }),
+    });
+
+  yield* Effect.acquireUseRelease(
+    Effect.gen(function* openAttemptContext() {
+      // The parse-time guard is a fast fail on obvious junk, but it cannot
+      // mirror Playwright's own validation — the schema moves, and state files
+      // outlive the binary that wrote them. So the backstop lives here: a
+      // snapshot that survives parsing but not `newContext` costs one failed
+      // open and nothing more, and this attempt starts fresh instead. The Run
+      // that completes then writes a good snapshot over the bad one.
+      const context = yield* restoredState === null
+        ? openContext(null)
+        : openContext(restoredState).pipe(
+            Effect.catch(() => openContext(null))
+          );
       // Interactions cannot be read back after the fact, so a Run that might
       // measure anything records from the first navigation onwards — on every
       // Page this context opens, popups included.
