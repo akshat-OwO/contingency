@@ -420,12 +420,18 @@ const useBrowserWorkspace = () => {
             }),
         }).pipe(
           Effect.tap((result) =>
-            Effect.sync(() =>
+            Effect.sync(() => {
+              // A reply from a session the author has already left must not
+              // become the current session's Emulation: a later grant sends
+              // the whole list, so a stale one would be written onto it.
+              if (emulationSessionRef.current !== selectedSessionId) {
+                return;
+              }
               setSessionEmulation({
                 emulation: result.data.emulation,
                 status: "known",
-              })
-            )
+              });
+            })
           ),
           Effect.catchCause((emulationCause) =>
             Effect.sync(() =>

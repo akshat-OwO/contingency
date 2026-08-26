@@ -141,11 +141,6 @@ const makeService = (
         "Could not read the browser user agent",
         () => page.evaluate(() => navigator.userAgent)
       );
-      const defaultLocale = yield* tryBrowser(
-        "Could not read the browser locale",
-        () =>
-          page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().locale)
-      );
       const state = yield* Ref.make<CreateSessionState>({
         activePage: page,
         colorScheme: undefined,
@@ -164,7 +159,6 @@ const makeService = (
       });
       const session: CreateSession = {
         context,
-        defaultLocale,
         defaultUserAgent,
         emulationSessions: new WeakMap(),
         events,

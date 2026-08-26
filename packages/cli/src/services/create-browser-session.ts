@@ -89,7 +89,6 @@ export interface CreateSessionState {
 export interface CreateSession {
   readonly context: BrowserContext;
   /** The browser's own locale, which clearing a locale override restores. */
-  readonly defaultLocale: string;
   readonly defaultUserAgent: string;
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
@@ -326,6 +325,24 @@ export const applyViewport = (
   });
 
 /**
+ * Timezone and locale overrides are claimed per renderer process, so a Page
+ * that shares a process with one already holding the claim is answered with
+ * "already in effect". The process is then emulating exactly what was asked
+ * for, so that answer is not a failure: swallowing it keeps the rest of the
+ * Page's environment — notably the colour scheme — from being skipped.
+ */
+const tolerateExistingClaim = <A>(
+  effect: Effect.Effect<A, BrowserRpcErrorType>
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  effect.pipe(
+    Effect.asVoid,
+    Effect.catchIf(
+      (error) => error.message.includes("already in effect"),
+      () => Effect.void
+    )
+  );
+
+/**
  * Apply the session's environment Emulation — location override, timezone,
  * locale, and colour scheme — to one Page through its CDP session, the same
  * channel the user agent and viewport overrides already use. Idempotent: a
@@ -345,32 +362,35 @@ export const applyEnvironment = (
         )
       : tryBrowser("Could not set the location override", () =>
           cdp.send("Emulation.setGeolocationOverride", {
-            ...(geolocation.accuracy === undefined
-              ? {}
-              : { accuracy: geolocation.accuracy }),
+            // An omitted accuracy emulates *position unavailable* rather than
+            // a default error radius, so a location with no accuracy stated is
+            // sent as `0` — the same default Playwright's own context takes.
+            accuracy: geolocation.accuracy ?? 0,
             latitude: geolocation.latitude,
             longitude: geolocation.longitude,
           })
         );
     // An empty timezone id is how the protocol expresses "follow the host".
-    yield* timezoneId === undefined
-      ? tryBrowser("Could not clear the timezone override", () =>
-          cdp.send("Emulation.setTimezoneOverride", { timezoneId: "" })
-        )
-      : tryBrowser("Could not set the timezone override", () =>
-          cdp.send("Emulation.setTimezoneOverride", { timezoneId })
-        );
-    // CDP has no locale clear, so "cleared" means restored to the browser's
-    // own — captured before any override existed.
-    yield* locale === undefined
-      ? tryBrowser("Could not restore the locale", () =>
-          cdp.send("Emulation.setLocaleOverride", {
-            locale: session.defaultLocale,
+    yield* tolerateExistingClaim(
+      tryBrowser(
+        timezoneId === undefined
+          ? "Could not clear the timezone override"
+          : "Could not set the timezone override",
+        () =>
+          cdp.send("Emulation.setTimezoneOverride", {
+            timezoneId: timezoneId ?? "",
           })
-        )
-      : tryBrowser("Could not set the locale override", () =>
-          cdp.send("Emulation.setLocaleOverride", { locale })
-        );
+      )
+    );
+    // An empty locale is the protocol's own disable, restoring the host locale.
+    yield* tolerateExistingClaim(
+      tryBrowser(
+        locale === undefined
+          ? "Could not restore the locale"
+          : "Could not set the locale override",
+        () => cdp.send("Emulation.setLocaleOverride", { locale: locale ?? "" })
+      )
+    );
     yield* tryBrowser("Could not set the colour scheme", () =>
       cdp.send("Emulation.setEmulatedMedia", {
         features:
