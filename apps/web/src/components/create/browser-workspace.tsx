@@ -7,7 +7,6 @@ import type {
   BrowserStreamEvent,
   BrowserTab,
   BrowserTabId,
-  SessionEmulation,
   SessionId,
   UserAgentProfileId,
   Viewport,
@@ -75,7 +74,10 @@ import {
   recordingMakesCanvasReadOnly,
 } from "@/components/create/create-workspace-state";
 import { EmulationPicker } from "@/components/create/emulation-picker";
-import type { EmulationPatch } from "@/components/create/emulation-picker";
+import type {
+  EmulationPatch,
+  SessionEmulationState,
+} from "@/components/create/emulation-picker";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -124,7 +126,9 @@ import {
 
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
 const userAgentProfileAtom = Atom.make<UserAgentProfileId>("default");
-const sessionEmulationAtom = Atom.make<SessionEmulation | null>(null);
+const sessionEmulationAtom = Atom.make<SessionEmulationState>({
+  status: "unknown",
+});
 const browserTabsAtom = Atom.make<readonly BrowserTab[]>([]);
 const devtoolsOpenAtom = Atom.make(false);
 const frameReadyAtom = Atom.make(false);
@@ -323,7 +327,10 @@ const useBrowserWorkspace = () => {
   });
   const selectedPresetName = presetName(presetId);
   const activeTab = tabs.find(({ active }) => active);
-  const browserLocked = recordingLocksBrowser(workspace.recording);
+  const browserLocked = recordingLocksBrowser(
+    workspace.recording,
+    selectedSessionId
+  );
   const canvasReadOnly = recordingMakesCanvasReadOnly(workspace.recording);
   const streamIdentity = browserStreamIdentity(
     selectedSessionId,
@@ -355,7 +362,7 @@ const useBrowserWorkspace = () => {
   const loadSessionEmulation = useCallback(
     (sessionId: SessionId) => {
       emulationSessionRef.current = sessionId;
-      setSessionEmulation(null);
+      setSessionEmulation({ status: "unknown" });
       Effect.runFork(
         Effect.tryPromise({
           catch: (cause) => cause,
@@ -369,7 +376,10 @@ const useBrowserWorkspace = () => {
               // A slow answer for a session the author has already left says
               // nothing about the one they are looking at now.
               if (emulationSessionRef.current === sessionId) {
-                setSessionEmulation(result.data.emulation);
+                setSessionEmulation({
+                  emulation: result.data.emulation,
+                  status: "known",
+                });
               }
             })
           ),
@@ -387,7 +397,7 @@ const useBrowserWorkspace = () => {
     setTabs([]);
     if (selectedSessionId === undefined) {
       emulationSessionRef.current = null;
-      setSessionEmulation(null);
+      setSessionEmulation({ status: "unknown" });
       return;
     }
     loadSessionEmulation(selectedSessionId);
@@ -410,7 +420,12 @@ const useBrowserWorkspace = () => {
             }),
         }).pipe(
           Effect.tap((result) =>
-            Effect.sync(() => setSessionEmulation(result.data.emulation))
+            Effect.sync(() =>
+              setSessionEmulation({
+                emulation: result.data.emulation,
+                status: "known",
+              })
+            )
           ),
           Effect.catchCause((emulationCause) =>
             Effect.sync(() =>
@@ -1451,6 +1466,7 @@ const BrowserDeviceToolbar = ({
     selectedPresetName,
     selectPreset,
     selectUserAgent,
+    selectedSessionId,
     sessionEmulation,
     setDevtoolsOpen,
     setHeight,
@@ -1470,8 +1486,11 @@ const BrowserDeviceToolbar = ({
         value={userAgentProfile}
       />
 
+      {/* Coordinates and locale typed for one session mean nothing in the
+          next, so switching sessions starts the picker over. */}
       <EmulationPicker
-        applied={sessionEmulation ?? undefined}
+        applied={sessionEmulation}
+        key={selectedSessionId}
         disabled={browserLocked || opening}
         onPatch={(patch) => {
           void applyEmulationPatch(patch);

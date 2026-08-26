@@ -34,6 +34,7 @@ import {
   publishTabs,
   readSessionState,
   reapplyEmulation,
+  reapplyViewport,
   requirePage,
   resolveUserAgent,
   tabs,
@@ -192,7 +193,7 @@ const makeService = (
     function* setSessionViewport(sessionId: SessionId, viewport: Viewport) {
       const session = yield* requireSession(sessionId);
       yield* Ref.update(session.state, (state) => ({ ...state, viewport }));
-      yield* reapplyEmulation(session);
+      yield* reapplyViewport(session);
       if (readSessionState(session).screencast !== undefined) {
         yield* restartScreencast(session);
       }
@@ -258,8 +259,12 @@ const makeService = (
         timezoneId: patchedValue(state.timezoneId, patch.timezoneId),
       }));
       // Permissions live on the context, the rest on each Page. Both are
-      // re-applied from the one new state, so the patch lands as a unit.
-      yield* applyPermissions(session);
+      // re-applied from the one new state, so the patch lands as a unit — but
+      // a patch that never mentions permissions leaves the context's grants
+      // alone rather than clearing and re-granting them.
+      if (patch.permissions !== undefined) {
+        yield* applyPermissions(session);
+      }
       yield* reapplyEmulation(session);
       return toSessionEmulation(readSessionState(session));
     }

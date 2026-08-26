@@ -1,5 +1,8 @@
 import type { RecordingSnapshot, SessionId } from "@contingency/protocol";
-import { recordingMakesBrowserInputReadOnly } from "@contingency/protocol";
+import {
+  recordingLocksBrowserControls,
+  recordingMakesBrowserInputReadOnly,
+} from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
 export interface CreateWorkspaceState {
@@ -38,9 +41,17 @@ export const recordingAuthoringUiAtom = Atom.make<RecordingAuthoringUiState>({
 
 export const recordingStreamErrorAtom = Atom.make<string | null>(null);
 
+/**
+ * The controls the server rejects are the controls the interface disables, so
+ * both sides answer the question with the same predicate rather than with two
+ * bodies that agree by coincidence.
+ */
 export const recordingLocksBrowser = (
-  recording: RecordingSnapshot | null
-): boolean => recording !== null && recording.phase !== "finished";
+  recording: RecordingSnapshot | null,
+  sessionId: SessionId | undefined
+): boolean =>
+  sessionId !== undefined &&
+  recordingLocksBrowserControls(recording, sessionId);
 
 export const recordingMakesCanvasReadOnly = (
   recording: RecordingSnapshot | null

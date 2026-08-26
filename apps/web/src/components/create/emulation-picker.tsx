@@ -48,9 +48,18 @@ export interface EmulationPatch {
   readonly timezoneId?: string | null;
 }
 
+/**
+ * What the interface knows about a session's Emulation. "Unknown" is a state of
+ * its own rather than an empty Emulation: a patch replaces the whole permission
+ * list, so a client that has not read the session's own list must not send one.
+ */
+export type SessionEmulationState =
+  | { readonly status: "unknown" }
+  | { readonly status: "known"; readonly emulation: SessionEmulation };
+
 interface EmulationPickerProps {
-  /** The Emulation the session last successfully applied. */
-  readonly applied: SessionEmulation | undefined;
+  /** The Emulation the session applies, once the interface has read it. */
+  readonly applied: SessionEmulationState;
   readonly disabled: boolean;
   readonly onPatch: (patch: EmulationPatch) => void;
 }
@@ -79,8 +88,12 @@ const EmulationPicker = ({
   const [timezoneId, setTimezoneId] = useState("");
   const [validationError, setValidationError] = useState<string | undefined>();
 
-  const appliedLocation = applied?.geolocation;
-  const appliedPermissions = applied?.permissions ?? [];
+  const appliedEmulation =
+    applied.status === "known" ? applied.emulation : undefined;
+  const appliedLocation = appliedEmulation?.geolocation;
+  const appliedPermissions = appliedEmulation?.permissions ?? [];
+  // Granting sends the whole list, so it waits for the list the session has.
+  const permissionsUnknown = appliedEmulation === undefined;
 
   const applyLocation = () => {
     const parsedLatitude = parseCoordinate(latitude, LATITUDE_BOUND);
@@ -126,6 +139,9 @@ const EmulationPicker = ({
   };
 
   const grantPermission = (name: string) => {
+    if (permissionsUnknown) {
+      return;
+    }
     if (
       appliedPermissions.some(
         (grant) => grant.origin === undefined && grant.permission === name
@@ -238,6 +254,11 @@ const EmulationPicker = ({
 
         <section className="space-y-1.5">
           <h2 className="text-sm font-medium">Permissions</h2>
+          {permissionsUnknown ? (
+            <p className="text-muted-foreground text-xs">
+              Granted permissions are unavailable for this session.
+            </p>
+          ) : null}
           {appliedPermissions.length === 0 ? null : (
             <p className="text-muted-foreground text-xs">
               Granted:{" "}
@@ -246,7 +267,7 @@ const EmulationPicker = ({
           )}
           <div className="flex items-center gap-1.5">
             <Select
-              disabled={disabled}
+              disabled={disabled || permissionsUnknown}
               onValueChange={(name) => {
                 if (name !== null) {
                   grantPermission(name);

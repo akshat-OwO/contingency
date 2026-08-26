@@ -407,6 +407,20 @@ export const reapplyEmulation = (
   ).pipe(Effect.asVoid);
 
 /**
+ * Re-apply only the session's viewport to every open Page. A resize is
+ * interactive and carries no other change, so it does not pay for re-sending
+ * the user agent and every environment override on each drag.
+ */
+export const reapplyViewport = (
+  session: CreateSession
+): Effect.Effect<void, BrowserRpcErrorType> => {
+  const state = readSessionState(session);
+  return Effect.forEach(state.pageIds.keys(), (page) =>
+    applyViewport(session, page, state.viewport)
+  ).pipe(Effect.asVoid);
+};
+
+/**
  * Split permission grants into the context-wide names and the per-origin ones.
  * Context-wide grants are one call; an origin key narrows a grant without
  * replacing those. Shared by the Runner's context-open path and Create View's

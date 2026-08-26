@@ -67,7 +67,10 @@ vi.mock("@/components/create/browser-workspace", async () => {
         <section
           aria-label="Browser workspace"
           data-address={workspace.address}
-          data-locked={recordingLocksBrowser(workspace.recording)}
+          data-locked={recordingLocksBrowser(
+            workspace.recording,
+            workspace.selectedSessionId
+          )}
           data-session={workspace.selectedSessionId}
         />
       );
