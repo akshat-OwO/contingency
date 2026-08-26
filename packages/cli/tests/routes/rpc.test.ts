@@ -11,6 +11,7 @@ import { Effect, Layer, Stream } from "effect";
 import { RpcTest } from "effect/unstable/rpc";
 
 import {
+  browserControlIsLocked,
   browserInputIsReadOnly,
   RpcHandlersLive,
   storageMutationIsLocked,
@@ -38,6 +39,21 @@ it("keeps Storage mutation locked to the unfinished Recording's session", () => 
   expect(STORAGE_LOCKED_MESSAGE).toBe(
     "Storage is locked while the Recording is in progress."
   );
+});
+
+it("keeps Emulation locked to the unfinished Recording's session", () => {
+  // An incomplete Recording keeps its captured Steps, and recover() resumes
+  // onto them, so the Emulation those Steps were captured under stays put.
+  for (const phase of ["active", "paused", "incomplete"] as const) {
+    expect(browserControlIsLocked({ phase, sessionId }, sessionId)).toBe(true);
+    expect(browserControlIsLocked({ phase, sessionId }, otherSessionId)).toBe(
+      false
+    );
+  }
+  expect(
+    browserControlIsLocked({ phase: "finished", sessionId }, sessionId)
+  ).toBe(false);
+  expect(browserControlIsLocked(null, sessionId)).toBe(false);
 });
 
 it("keeps the canvas read-only for paused or incomplete capture", () => {

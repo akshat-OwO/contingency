@@ -118,6 +118,7 @@ import {
   browserUserAgentMutation,
   browserViewportMutation,
   browserEmulationMutation,
+  browserEmulationQuery,
   runBrowserStream,
 } from "@/lib/rpc";
 
@@ -241,6 +242,7 @@ const useBrowserWorkspace = () => {
   const canvasHoldRef = useRef<CanvasFrameHold>("idle");
   const knownTabIdsRef = useRef<ReadonlySet<BrowserTabId> | null>(null);
   const enrichedTabsRef = useRef<readonly BrowserTab[]>([]);
+  const emulationSessionRef = useRef<SessionId | null>(null);
   const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
   const [devtoolsState, setDevtoolsState] = useAtom(browserDevtoolsAtom);
   const [devtoolsOpen, setDevtoolsOpen] = useAtom(devtoolsOpenAtom);
@@ -287,6 +289,9 @@ const useBrowserWorkspace = () => {
   const [userAgentProfile, setUserAgentProfile] = useAtom(userAgentProfileAtom);
   const [sessionEmulation, setSessionEmulation] = useAtom(sessionEmulationAtom);
   const updateEmulation = useAtomSet(browserEmulationMutation, {
+    mode: "promise",
+  });
+  const readEmulation = useAtomSet(browserEmulationQuery, {
     mode: "promise",
   });
   const openBrowser = useAtomSet(browserOpenMutation, { mode: "promise" });
@@ -340,13 +345,53 @@ const useBrowserWorkspace = () => {
     width: Math.max(1, Number(width) || 1280),
   };
 
+  /**
+   * The interface shows what the session already emulates, so it reads that
+   * Emulation rather than assuming a fresh session: a patch replaces the whole
+   * permission list, and clearing a location override needs to know one is in
+   * force. A session with no browser open yet answers with a failure, which
+   * leaves nothing applied.
+   */
+  const loadSessionEmulation = useCallback(
+    (sessionId: SessionId) => {
+      emulationSessionRef.current = sessionId;
+      setSessionEmulation(null);
+      Effect.runFork(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            readEmulation({
+              payload: { data: { sessionId }, type: "browser.emulation.get" },
+            }),
+        }).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              // A slow answer for a session the author has already left says
+              // nothing about the one they are looking at now.
+              if (emulationSessionRef.current === sessionId) {
+                setSessionEmulation(result.data.emulation);
+              }
+            })
+          ),
+          Effect.catchCause(() => Effect.void)
+        )
+      );
+    },
+    [readEmulation, setSessionEmulation]
+  );
+
   useEffect(() => {
     knownTabIdsRef.current = null;
     enrichedTabsRef.current = [];
     activeTabIdRef.current = null;
-    setSessionEmulation(null);
     setTabs([]);
-  }, [selectedSessionId, setSessionEmulation, setTabs]);
+    if (selectedSessionId === undefined) {
+      emulationSessionRef.current = null;
+      setSessionEmulation(null);
+      return;
+    }
+    loadSessionEmulation(selectedSessionId);
+  }, [loadSessionEmulation, selectedSessionId, setSessionEmulation, setTabs]);
 
   const applyEmulationPatch = useCallback(
     (patch: EmulationPatch) => {
@@ -882,6 +927,7 @@ const useBrowserWorkspace = () => {
           Effect.sync(() => {
             setSelectedSessionId(result.data.sessionId);
             setAddress(result.data.url);
+            loadSessionEmulation(result.data.sessionId);
             markNavigationCommandSettled();
           })
         ),

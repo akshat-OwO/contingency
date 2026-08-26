@@ -101,6 +101,7 @@ const emulationContextOptions = (
 ): {
   colorScheme?: "light" | "dark";
   deviceScaleFactor: number;
+  geolocation?: { accuracy?: number; latitude: number; longitude: number };
   locale?: string;
   timezoneId?: string;
   userAgent?: string;

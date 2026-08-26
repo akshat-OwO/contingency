@@ -461,6 +461,7 @@ export const BrandId = Schema.Literals([
   "browser.viewport.updated",
   "browser.user-agent.set",
   "browser.user-agent.updated",
+  "browser.emulation.get",
   "browser.emulation.set",
   "browser.emulation.updated",
   "browser.stream.subscribe",
@@ -594,6 +595,14 @@ export const SessionEmulation = Schema.Struct({
   viewport: Viewport,
 });
 export type SessionEmulation = typeof SessionEmulation.Type;
+
+/**
+ * Read one session's Emulation without changing it, so a client can seed its
+ * view of what the session already emulates instead of assuming a fresh one.
+ */
+export const BrowserEmulationGet = request("browser.emulation.get", {
+  sessionId: SessionId,
+});
 
 /**
  * Update one session's Emulation. Every field is optional; absent leaves that
@@ -844,6 +853,11 @@ const BrowserUserAgentSetRpc = Rpc.make("browser.user-agent.set", {
   payload: BrowserUserAgentSet,
   success: BrowserUserAgentUpdated,
 });
+const BrowserEmulationGetRpc = Rpc.make("browser.emulation.get", {
+  error: BrowserRpcError,
+  payload: BrowserEmulationGet,
+  success: BrowserEmulationUpdated,
+});
 const BrowserEmulationSetRpc = Rpc.make("browser.emulation.set", {
   error: BrowserRpcError,
   payload: BrowserEmulationSet,
@@ -1027,6 +1041,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   BrowserNavigationRunRpc,
   BrowserViewportSetRpc,
   BrowserUserAgentSetRpc,
+  BrowserEmulationGetRpc,
   BrowserEmulationSetRpc,
   BrowserStreamSubscribeRpc,
   BrowserInputSendRpc,

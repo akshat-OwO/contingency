@@ -605,6 +605,20 @@ export const recordingMakesBrowserInputReadOnly = (
   recording?.phase === "incomplete" ||
   (recording?.phase === "paused" && recording.captureMode === "ordinary");
 
+/**
+ * A Recording that has captured Steps declares the Emulation those Steps were
+ * captured under, so the session's Emulation, viewport, and user agent stay
+ * locked until the Recording is finished — including while it sits
+ * `incomplete`, because `recover()` resumes onto the very same Steps.
+ */
+export const recordingLocksBrowserControls = (
+  recording: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
+  sessionId: string
+): boolean =>
+  recording !== null &&
+  recording.sessionId === sessionId &&
+  recording.phase !== "finished";
+
 export const recordingLocksStorageMutations = (
   recording: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
   sessionId: string

@@ -1,6 +1,7 @@
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
+  recordingLocksBrowserControls,
   recordingLocksStorageMutations,
   recordingMakesBrowserInputReadOnly,
   STORAGE_LOCKED_MESSAGE,
@@ -31,6 +32,11 @@ export const browserInputIsReadOnly = (
   snapshot?.sessionId === sessionId &&
   recordingMakesBrowserInputReadOnly(snapshot);
 
+export const browserControlIsLocked = (
+  snapshot: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
+  sessionId: string
+): boolean => recordingLocksBrowserControls(snapshot, sessionId);
+
 export const storageMutationIsLocked = (
   snapshot: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
   sessionId: string
@@ -57,9 +63,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         .get()
         .pipe(
           Effect.flatMap((snapshot) =>
-            snapshot !== null &&
-            snapshot.sessionId === sessionId &&
-            (snapshot.phase === "active" || snapshot.phase === "paused")
+            browserControlIsLocked(snapshot, sessionId)
               ? Effect.fail(
                   makeBrowserRpcError(
                     "recording_conflict",
@@ -89,6 +93,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by browser and Recording lifecycle operations.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "browser.emulation.get": ({ data }) =>
+        browser.getEmulation(data.sessionId).pipe(
+          Effect.map((emulation) => ({
+            data: { emulation },
+            type: "browser.emulation.updated" as const,
+          }))
+        ),
       "browser.emulation.set": ({ data }) =>
         requireBrowserControl(data.sessionId, "Emulation changes").pipe(
           Effect.andThen(
