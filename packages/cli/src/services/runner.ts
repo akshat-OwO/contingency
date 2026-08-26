@@ -942,7 +942,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
       try: () =>
         page.goto(url, {
           timeout: navigationTimeoutMs,
-          waitUntil: "load",
+          waitUntil: "networkidle",
         }),
     });
     // A server error still navigates, so the Step would otherwise pass and

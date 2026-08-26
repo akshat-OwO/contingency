@@ -8,10 +8,9 @@
     <main>
       <h1>Busy</h1>
       <!--
-        Never goes quiet: after load it keeps fetching and mutating the DOM
-        on a timer, with no interaction required, so a Run that tears down
-        early is observable — the last tick's beacon is missing from the
-        server's request log and the log's length lags the tick counter.
+        Goes busy after navigation has had time to reach network idle, then
+        keeps fetching and mutating the DOM on a timer. This isolates the
+        final quiescence bound from the navigation-idle contract.
       -->
       <p id="tick-count">0</p>
       <ul id="ticks"></ul>
@@ -33,12 +32,15 @@
         }
         fetch("/busy-tick-beacon").catch(() => {});
       };
-      // First tick fires on load rather than after the first interval: a Run
-      // that tears down immediately still leaves one beacon behind, which is
-      // what makes early teardown observable rather than merely likely.
-      tick();
-      const timer = setInterval(tick, 100);
-      window.addEventListener("pagehide", () => clearInterval(timer));
+      let timer;
+      const start = setTimeout(() => {
+        tick();
+        timer = setInterval(tick, 100);
+      }, 700);
+      window.addEventListener("pagehide", () => {
+        clearTimeout(start);
+        clearInterval(timer);
+      });
     </script>
   </body>
 </html>

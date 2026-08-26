@@ -69,10 +69,8 @@ it.live("serves every fixture page a later stack tests against", () =>
 );
 
 /**
- * The busy page goes busy with no interaction at all, so today's runtime —
- * which can navigate but not yet scroll or hover — can still prove a fixture
- * genuinely fires during a Run: the Run's own page load has to leave ticks in
- * the server's request log.
+ * The busy page goes busy shortly after navigation reaches network idle, so
+ * the Run's final quiescence wait has to leave ticks in the request log.
  */
 it.live("busy fixture keeps requesting while a Run is on it", () =>
   Effect.gen(function* watchBusyFixture() {

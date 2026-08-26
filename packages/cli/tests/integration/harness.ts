@@ -110,6 +110,9 @@ export const BUSY_TICK_BEACON = "/busy-tick-beacon";
 /** What the late fixture requests once its content has finished arriving. */
 export const LATE_CONTENT_BEACON = "/settled-beacon";
 
+/** A response held briefly so navigation can prove it waits for network idle. */
+export const LOAD_READY_BEACON = "/load-ready-beacon";
+
 /**
  * What the stateful fixture requests at load, carrying the cart count it read
  * from origin storage: `?at-load=0` means this Run started fresh.
@@ -160,6 +163,14 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
         // only way to test what an interrupted Run leaves behind is to have
         // one still running when the signal arrives.
         if (pathname === NEVER_ANSWERED) {
+          return;
+        }
+        if (pathname === LOAD_READY_BEACON) {
+          setTimeout(() => {
+            response
+              .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
+              .end("ready");
+          }, 250);
           return;
         }
         const page = pages.get(pathname);

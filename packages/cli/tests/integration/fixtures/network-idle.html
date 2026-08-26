@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Network idle</title>
+  </head>
+  <body>
+    <main>
+      <h1>Network idle</h1>
+      <div id="ready-action"></div>
+    </main>
+    <script>
+      fetch("/load-ready-beacon")
+        .then(() => {
+          const button = document.createElement("button");
+          button.textContent = "Continue after load";
+          button.addEventListener("click", () => {
+            fetch("/step-beacon").catch(() => {});
+          });
+          document.getElementById("ready-action").append(button);
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>

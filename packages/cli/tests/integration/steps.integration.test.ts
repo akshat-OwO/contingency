@@ -9,9 +9,36 @@ import {
   flow,
   IntegrationLive,
   LAZY_LOADED_BEACON,
+  LOAD_READY_BEACON,
   recordingDurationSeconds,
   runFlow,
+  STEP_BEACON,
 } from "./harness";
+
+it.live(
+  "waits for network idle before starting the Step after navigation",
+  () =>
+    Effect.gen(function* replayAfterNetworkIdle() {
+      const fixtures = yield* fixtureServer;
+
+      const { run } = yield* runFlow(
+        flow([
+          { type: "navigate", url: fixtures.url("network-idle.html") },
+          {
+            target: [
+              { kind: "role", name: "Continue after load", role: "button" },
+            ],
+            timeout: 100,
+            type: "click",
+          },
+        ])
+      );
+
+      expect(run.outcome).toBe("completed");
+      expect(fixtures.requests).toContain(LOAD_READY_BEACON);
+      expect(fixtures.requests).toContain(STEP_BEACON);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
 
 /**
  * Every Step kind the native schema added, each proven by something the site
