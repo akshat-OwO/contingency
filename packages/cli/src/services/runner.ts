@@ -50,6 +50,7 @@ import {
   prepareTraceArtifacts,
   traceWasWritten,
 } from "./trace-artifacts.ts";
+import type { PreparedTraceArtifacts } from "./trace-artifacts.ts";
 import type { VariableResolution } from "./variables.ts";
 import { redactSecrets, substituteVariables } from "./variables.ts";
 import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
@@ -1305,7 +1306,7 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
     videoFile: string,
     steps: readonly RunStep[],
     attempt: number,
-    tracePrepared: boolean,
+    prepared: PreparedTraceArtifacts | undefined,
     traceError: string | undefined
   ) {
     const stepIndexes = steps.map((step) => step.index);
@@ -1315,9 +1316,9 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
     const { settledFrame } = capture;
     const hasEveryFrame = hasEveryStepFrame && settledFrame !== undefined;
     const derived =
-      tracePrepared && hasEveryFrame
+      prepared !== undefined && hasEveryFrame
         ? yield* Effect.result(
-            deriveVideoFromTrace(capture.traceFile, videoFile, stepIndexes)
+            deriveVideoFromTrace(prepared, videoFile, stepIndexes)
           )
         : undefined;
     let videoError: string | undefined;
@@ -1386,7 +1387,7 @@ const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
   attempt: number,
   stopped: { readonly error: string | undefined; readonly recorded: boolean }
 ) {
-  let prepared = false;
+  let prepared: PreparedTraceArtifacts | undefined;
   let prepareError: string | undefined;
   if (stopped.recorded) {
     const secrets = [...variables.secretNames].flatMap((name) => {
@@ -1406,8 +1407,9 @@ const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
         hasVideoFrames ? { settled, steps: capture.stepFrames } : undefined
       )
     );
-    prepared = result._tag === "Success";
-    if (result._tag === "Failure") {
+    if (result._tag === "Success") {
+      prepared = result.success;
+    } else {
       prepareError = reportable(errorMessage(result.failure));
     }
   }

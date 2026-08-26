@@ -16,6 +16,13 @@ export interface DerivedVideo {
   readonly steps: readonly number[];
 }
 
+export interface PreparedTraceArtifacts {
+  readonly videoFrames?: {
+    readonly settled: Buffer;
+    readonly steps: ReadonlyMap<number, Buffer>;
+  };
+}
+
 const VIDEO_FRAME_DIRECTORY = "contingency/video";
 
 const stepFrameName = (index: number): string =>
@@ -83,10 +90,10 @@ export const prepareTraceArtifacts = (
     readonly settled: Buffer;
     readonly steps: ReadonlyMap<number, Buffer>;
   }
-): Effect.Effect<void, Error> =>
+): Effect.Effect<PreparedTraceArtifacts, Error> =>
   Effect.gen(function* prepareTrace() {
     if (secrets.length === 0 && videoFrames === undefined) {
-      return;
+      return {};
     }
     const entries = yield* readArchive(file);
     let rewrite = false;
@@ -116,6 +123,7 @@ export const prepareTraceArtifacts = (
     if (rewrite) {
       yield* writeArchive(file, entries);
     }
+    return videoFrames === undefined ? {} : { videoFrames };
   });
 
 const encodeFrames = (
@@ -178,9 +186,12 @@ const encodeFrames = (
     )
   );
 
-/** Generate a fixed-duration WebM frame for every executed Step, then settle. */
+/**
+ * Generate the video from the exact frames committed by Trace preparation,
+ * without reopening and inflating the archive a second time.
+ */
 export const deriveVideoFromTrace = (
-  traceFile: string,
+  prepared: PreparedTraceArtifacts,
   videoFile: string,
   stepIndexes: readonly number[]
 ): Effect.Effect<
@@ -189,10 +200,15 @@ export const deriveVideoFromTrace = (
   ChildProcessSpawner.ChildProcessSpawner
 > =>
   Effect.gen(function* deriveVideo() {
-    const entries = yield* readArchive(traceFile);
+    const frames = prepared.videoFrames;
+    if (frames === undefined) {
+      return yield* Effect.fail(
+        new Error("The Trace has no prepared video frames.")
+      );
+    }
     const images: Buffer[] = [];
     for (const index of stepIndexes) {
-      const contents = entries.get(stepFrameName(index));
+      const contents = frames.steps.get(index);
       if (contents === undefined) {
         return yield* Effect.fail(
           new Error(`The Trace is missing the frame for Step ${index}.`)
@@ -200,13 +216,7 @@ export const deriveVideoFromTrace = (
       }
       images.push(contents);
     }
-    const settledFrame = entries.get(SETTLED_FRAME_NAME);
-    if (settledFrame === undefined) {
-      return yield* Effect.fail(
-        new Error("The Trace is missing its final settled frame.")
-      );
-    }
-    images.push(settledFrame);
+    images.push(frames.settled);
     const executable = playwrightRegistry.registry.findExecutable("ffmpeg");
     if (executable === undefined) {
       return yield* Effect.fail(
