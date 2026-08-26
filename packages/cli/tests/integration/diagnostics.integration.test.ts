@@ -224,3 +224,43 @@ it.live("scrubs a secret the page echoed out of every failure artifact", () =>
     expect(contents).not.toContain(secret);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
+
+it.live(
+  "keeps what earlier candidates established when a later one stops the Run",
+  () =>
+    Effect.gen(function* keepPartialEvidence() {
+      const fixtures = yield* fixtureServer;
+
+      const { persisted } = yield* runFlow(
+        flow([
+          { type: "navigate", url: fixtures.url("renamed.html") },
+          {
+            target: [
+              // Answered for, and answered before the ladder broke.
+              { kind: "css", selector: "#saved-for-later" },
+              // Not a question the browser will take, so the ladder stops here.
+              { expression: "//button[", kind: "xpath" },
+            ],
+            timeout: MISS_TIMEOUT_MS,
+            type: "click",
+          },
+        ])
+      );
+
+      expect(persisted.outcome).toBe("failed");
+      // Still unattributed: the ladder was never exhausted, so nothing here says
+      // the Flow is stale.
+      expect(persisted.failure?.kind).toBeUndefined();
+
+      const diagnostics = persisted.steps[1]?.selector;
+      // The verified miss survives. Losing it would make an author re-diagnose a
+      // candidate the Run had already settled, for no reason but its position in
+      // the ladder.
+      expect(
+        diagnostics?.candidates.map((candidate) => candidate.miss)
+      ).toEqual(["hidden"]);
+      // And nothing is invented about the candidate that went unanswered, nor
+      // about a page that was in no state to be asked what it had nearby.
+      expect(diagnostics?.nearest).toBeUndefined();
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);

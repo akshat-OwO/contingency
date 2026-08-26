@@ -494,8 +494,19 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
    * This candidate settled nothing about the selector, so the ladder stops and
    * the failure is left unattributed — no `kind`, because neither the Flow nor
    * the site has been shown to be at fault.
+   *
+   * Candidates already classified still ride along: their misses were verified
+   * before this one went unanswered, and dropping them would lose established
+   * evidence to an accident of ordering. No `nearest`, because that answer
+   * would have to come from the same page that just stopped giving them.
    */
-  const unattributed = (message: string) => new RunnerError({ message });
+  const unattributed = (message: string) =>
+    new RunnerError({
+      message,
+      ...(tried.length === 0
+        ? {}
+        : { diagnostics: { candidates: [...tried] } }),
+    });
 
   for (const descriptor of target) {
     const locator = locatorFor(page, descriptor);

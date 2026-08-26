@@ -23,10 +23,16 @@
       //
       // Deferred rather than blocking inside the handler, so the Step that
       // arms it completes normally instead of waiting out the block it just
-      // started. Bounded, so the suite's teardown never waits on it.
+      // started. Bounded, so the suite's teardown never waits on it forever.
+      //
+      // The window is far longer than the Step that misses inside it needs,
+      // because the whole suite runs browsers in parallel: on a loaded machine
+      // the arming Step can take seconds to settle, and a block that expires
+      // first would let the page answer and turn the miss into a plain
+      // absence — a passing assertion about the wrong thing.
       document.getElementById("wedge").addEventListener("click", () => {
         setTimeout(() => {
-          const until = Date.now() + 6000;
+          const until = Date.now() + 20000;
           while (Date.now() < until) {
             // Deliberately empty: spinning is the point.
           }
