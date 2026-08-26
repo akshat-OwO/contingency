@@ -330,6 +330,22 @@ it.live(
       yield* browser.open(sessionId, locationProbe("tab"), viewport, "default");
       expect(yield* waitForReport("tab")).toBe("tab:52.52,13.405");
 
+      // The picker sends a location with no accuracy, and an omitted accuracy
+      // emulates *position unavailable*, so this is the payload that proves
+      // the override still resolves to coordinates.
+      yield* browser.setEmulation(sessionId, {
+        geolocation: { latitude: 48.8566, longitude: 2.3522 },
+      });
+      yield* browser.open(
+        sessionId,
+        locationProbe("no-accuracy"),
+        viewport,
+        "default"
+      );
+      expect(yield* waitForReport("no-accuracy")).toBe(
+        "no-accuracy:48.8566,2.3522"
+      );
+
       // Changing the user agent rebuilds the whole Emulation, so the
       // location override and grant survive it (ADR 0013).
       yield* browser.setUserAgent(
@@ -338,7 +354,7 @@ it.live(
         viewport,
         "safari-iphone"
       );
-      expect(yield* waitForReport("after-ua")).toBe("after-ua:52.52,13.405");
+      expect(yield* waitForReport("after-ua")).toBe("after-ua:48.8566,2.3522");
 
       // A locale override reaches the Page, and clearing it restores the
       // browser's own rather than leaving the old override in place.
