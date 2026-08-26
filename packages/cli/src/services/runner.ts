@@ -49,6 +49,7 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import {
   describeDiagnostics,
+  describeLocator,
   missedCandidate,
   redactDiagnostics,
   selectorDiagnostics,
@@ -170,8 +171,20 @@ export interface RunResult {
 
 export const Runner = Context.Service<RunnerService>("@contingency/Runner");
 
-const errorMessage = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+/**
+ * What a failure says, for a reader rather than a stack trace.
+ *
+ * An `Error` is not guaranteed to carry a message: Effect's own `TimeoutError`
+ * is an Error subclass whose `message` is undefined, and taking it on trust
+ * puts `undefined` where the Run expects a string. Falling back to the
+ * error's own stringification keeps every failure describable.
+ */
+const errorMessage = (cause: unknown): string => {
+  const message = cause instanceof Error ? cause.message : undefined;
+  return message === undefined || message.length === 0
+    ? String(cause)
+    : message;
+};
 
 const stableStringify = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
@@ -477,6 +490,13 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
   perform: (locator: Locator) => Promise<unknown>
 ) {
   const tried: SelectorCandidate[] = [];
+  /**
+   * This candidate settled nothing about the selector, so the ladder stops and
+   * the failure is left unattributed — no `kind`, because neither the Flow nor
+   * the site has been shown to be at fault.
+   */
+  const unattributed = (message: string) => new RunnerError({ message });
+
   for (const descriptor of target) {
     const locator = locatorFor(page, descriptor);
     const outcome = yield* Effect.result(
@@ -488,23 +508,20 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
     if (outcome._tag === "Success") {
       return;
     }
-    // A candidate that already reached the page is not an unresolved locator:
-    // trying the next one would act on the page a second time, and a dead
-    // session or a browser failure is not evidence about the selector.
     if (!isCandidateMiss(outcome.failure)) {
-      return yield* new RunnerError({ message: errorMessage(outcome.failure) });
+      return yield* unattributed(errorMessage(outcome.failure));
     }
     const candidate = yield* Effect.result(
       missedCandidate(descriptor, locator, outcome.failure)
     );
-    // The page could not say why the candidate missed, so the miss is not
-    // established. Recording an unverified absence here would launder a dead
-    // session into a stale-Flow verdict, which is the same misattribution the
-    // guard above prevents — just one step later.
+    // Recording an unverified absence would launder a dead session into a
+    // stale-Flow verdict — the same misattribution the guard above prevents,
+    // one step later. The message says so, because "TimeoutError" on its own
+    // would send a reader looking at their selectors.
     if (candidate._tag === "Failure") {
-      return yield* new RunnerError({
-        message: errorMessage(candidate.failure),
-      });
+      return yield* unattributed(
+        `The page stopped answering while this Step's target was being diagnosed, so nothing was established about ${describeLocator(descriptor)}: ${errorMessage(candidate.failure)}`
+      );
     }
     tried.push(candidate.success);
   }

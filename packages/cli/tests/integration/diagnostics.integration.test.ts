@@ -140,6 +140,40 @@ it.live("stops the Run when a candidate fails for reasons of its own", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live("refuses to call a miss absent when the page could not be asked", () =>
+  Effect.gen(function* refuseUnverifiedMiss() {
+    const fixtures = yield* fixtureServer;
+
+    const { persisted } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("wedged.html") },
+        // Arms the block. This Step itself completes: the page stops answering
+        // just after, not during.
+        { target: [{ kind: "css", selector: "#wedge" }], type: "click" },
+        {
+          // Nothing here matches, and on a page that answered this would be a
+          // plain absence. This page cannot be asked either way.
+          target: [{ kind: "css", selector: "#never-existed" }],
+          timeout: MISS_TIMEOUT_MS,
+          type: "click",
+        },
+      ]),
+      { trace: false }
+    );
+
+    expect(persisted.outcome).toBe("failed");
+    // The Flow is not blamed. A stale-Flow verdict here would send someone to
+    // re-author a selector that was never shown to be wrong, and would make a
+    // dead session indistinguishable from a renamed button.
+    expect(persisted.failure?.kind).toBeUndefined();
+    // And nothing is recorded as a miss, because nothing was established.
+    expect(persisted.steps[2]?.selector).toBeUndefined();
+    // The message says which question went unanswered, rather than leaving a
+    // bare "TimeoutError" for someone to misread as a selector problem.
+    expect(persisted.steps[2]?.error).toContain("stopped answering");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live("scrubs a secret the page echoed out of every failure artifact", () =>
   Effect.gen(function* scrubSecrets() {
     const fixtures = yield* fixtureServer;

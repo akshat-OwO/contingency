@@ -41,6 +41,9 @@ const NEAREST_NAME_LIMIT = 80;
  */
 const PROBE_TIMEOUT_MS = 1000;
 
+/** How Playwright reports a locator that names more than one element. */
+const STRICT_MODE = "strict mode violation";
+
 /** How Playwright reports the count behind a strict mode violation. */
 const AMBIGUOUS_MATCHES = /resolved to (?<matches>\d+) elements/u;
 
@@ -163,14 +166,24 @@ const readDescriptor = (
 export const describeLocator = (descriptor: LocatorDescriptor): string =>
   readDescriptor(descriptor).phrase;
 
-/** What a miss reads as, once a reader has the candidate in front of them. */
+/**
+ * What a miss reads as, once a reader has the candidate in front of them.
+ *
+ * Every kind is listed rather than leaning on a default: a sixth kind added to
+ * the schema should fail to compile here, not quietly inherit the wording of
+ * whichever one the default happened to describe.
+ */
 const describeMiss = (candidate: SelectorCandidate): string => {
   switch (candidate.miss) {
     case "absent": {
       return "nothing matched";
     }
     case "ambiguous": {
-      return `${candidate.matches ?? 0} elements matched, so the Flow does not say which`;
+      // An unknown count is said as one. "0 elements matched" would be both
+      // false and the exact opposite of what ambiguous means.
+      return candidate.matches === undefined
+        ? "several elements matched, so the Flow does not say which"
+        : `${candidate.matches} elements matched, so the Flow does not say which`;
     }
     case "hidden": {
       return "matched, but not visible";
@@ -178,8 +191,11 @@ const describeMiss = (candidate: SelectorCandidate): string => {
     case "detached": {
       return "matched, but detached from the page";
     }
-    default: {
+    case "unactionable": {
       return "matched, but would not accept the action";
+    }
+    default: {
+      throw new Error("Unknown miss kind.");
     }
   }
 };
@@ -204,8 +220,13 @@ const classifyMiss = (
   cause: unknown
 ): Effect.Effect<Miss, unknown> => {
   const message = cause instanceof Error ? cause.message : String(cause);
-  const ambiguous = AMBIGUOUS_MATCHES.exec(message);
-  const counted = Number(ambiguous?.groups?.["matches"]);
+  // Gated on the violation itself, not on the phrase alone: a call log can
+  // quote how many elements a locator resolved to for reasons that have
+  // nothing to do with ambiguity, and reading a count out of one of those
+  // would report a miss the page never made.
+  const counted = message.includes(STRICT_MODE)
+    ? Number(AMBIGUOUS_MATCHES.exec(message)?.groups?.["matches"])
+    : Number.NaN;
   if (Number.isInteger(counted)) {
     return Effect.succeed({ matches: counted, miss: "ambiguous" });
   }

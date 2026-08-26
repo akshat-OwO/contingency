@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Wedged</title>
+  </head>
+  <body>
+    <main>
+      <h1>Wedged</h1>
+      <p>
+        This page stops answering once a Step has asked it to. A later Step that
+        misses here cannot be told why it missed, which is the case a diagnostic
+        must refuse to guess at.
+      </p>
+      <button id="wedge" type="button">Stop answering</button>
+    </main>
+    <script>
+      // A blocked main thread is the closest a fixture can get to a session
+      // that has stopped answering while staying deterministic: the browser is
+      // alive, the page is there, and no question can be put to it. Playwright
+      // enforces action timeouts client-side, so a Step still fails on time —
+      // it is only the follow-up probe that gets no answer.
+      //
+      // Deferred rather than blocking inside the handler, so the Step that
+      // arms it completes normally instead of waiting out the block it just
+      // started. Bounded, so the suite's teardown never waits on it.
+      document.getElementById("wedge").addEventListener("click", () => {
+        setTimeout(() => {
+          const until = Date.now() + 6000;
+          while (Date.now() < until) {
+            // Deliberately empty: spinning is the point.
+          }
+        }, 0);
+      });
+    </script>
+  </body>
+</html>
