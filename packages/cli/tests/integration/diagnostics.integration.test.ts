@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 
-import type { Flow } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
@@ -75,6 +74,43 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live(
+  "tells an element that went away from one that will not be clicked",
+  () =>
+    Effect.gen(function* classifyUnstableElements() {
+      const fixtures = yield* fixtureServer;
+
+      const { persisted } = yield* runFlow(
+        flow([
+          { type: "navigate", url: fixtures.url("unstable.html") },
+          {
+            target: [
+              // Replaced every tick, so the node the action settled on is gone
+              // by the time it acts.
+              { kind: "css", selector: "#flappy" },
+              // There, visible, and covered by something that eats the click.
+              { kind: "css", selector: "#covered" },
+            ],
+            timeout: MISS_TIMEOUT_MS,
+            type: "click",
+          },
+        ])
+      );
+
+      expect(persisted.outcome).toBe("failed");
+      const candidates = persisted.steps[1]?.selector?.candidates;
+      // Neither of these is absent, and calling either one absent would send an
+      // author looking for markup that is right there.
+      expect(candidates?.map((candidate) => candidate.miss)).toEqual([
+        "detached",
+        "unactionable",
+      ]);
+      // An unactionable miss carries the browser's own last word, because
+      // "would not accept the action" on its own says nothing actionable.
+      expect(candidates?.[1]?.detail).toContain("intercepts pointer events");
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live("stops the Run when a candidate fails for reasons of its own", () =>
   Effect.gen(function* stopOnBrowserFailure() {
     const fixtures = yield* fixtureServer;
@@ -110,8 +146,8 @@ it.live("scrubs a secret the page echoed out of every failure artifact", () =>
     const secret = "hunter2-correct-horse";
 
     const { directory, persisted } = yield* runFlow(
-      {
-        ...flow([
+      flow(
+        [
           { type: "navigate", url: fixtures.url("secret-echo.html") },
           // The page puts this into visible text, so it is now part of what a
           // diagnostic would report as a nearby element.
@@ -127,9 +163,10 @@ it.live("scrubs a secret the page echoed out of every failure artifact", () =>
             timeout: MISS_TIMEOUT_MS,
             type: "click",
           },
-        ]),
-        variables: [{ name: "TOKEN", runtime: false, secret: true }],
-      } as Flow,
+        ],
+        "Integration",
+        [{ name: "TOKEN", runtime: false, secret: true }]
+      ),
       {
         variables: {
           secretNames: new Set(["TOKEN"]),

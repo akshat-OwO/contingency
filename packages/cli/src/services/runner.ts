@@ -453,6 +453,19 @@ const pageFor = Effect.fn("Runner.pageFor")(function* pageFor(
 });
 
 /**
+ * A failed Step's diagnostics, scrubbed, or nothing when the failure was not
+ * about finding an element. Spread into the record either way, so the field is
+ * absent rather than explicitly undefined.
+ */
+const redactedSelector = (
+  failure: RunnerError,
+  variables: VariableResolution
+): { selector?: SelectorDiagnostics } =>
+  failure.diagnostics === undefined
+    ? {}
+    : { selector: redactDiagnostics(failure.diagnostics, variables) };
+
+/**
  * Act through a Step's ordered target, first match wins. The alternatives are
  * candidates, not a sequence: the first that resolves wins, and only the
  * exhaustion of all of them fails the Step — naming every strategy tried, so
@@ -481,7 +494,19 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
     if (!isCandidateMiss(outcome.failure)) {
       return yield* new RunnerError({ message: errorMessage(outcome.failure) });
     }
-    tried.push(yield* missedCandidate(descriptor, locator, outcome.failure));
+    const candidate = yield* Effect.result(
+      missedCandidate(descriptor, locator, outcome.failure)
+    );
+    // The page could not say why the candidate missed, so the miss is not
+    // established. Recording an unverified absence here would launder a dead
+    // session into a stale-Flow verdict, which is the same misattribution the
+    // guard above prevents — just one step later.
+    if (candidate._tag === "Failure") {
+      return yield* new RunnerError({
+        message: errorMessage(candidate.failure),
+      });
+    }
+    tried.push(candidate.success);
   }
   const diagnostics = yield* selectorDiagnostics(page, target, tried);
   return yield* new RunnerError({
@@ -1139,14 +1164,7 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
       // value it typed, so the message is redacted before it reaches the Run.
       error: redactSecrets(outcome.failure.message, execution.variables),
       outcome: "failed",
-      ...(outcome.failure.diagnostics === undefined
-        ? {}
-        : {
-            selector: redactDiagnostics(
-              outcome.failure.diagnostics,
-              execution.variables
-            ),
-          }),
+      ...redactedSelector(outcome.failure, execution.variables),
     } as const;
   }
 );
@@ -1774,14 +1792,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             ...base,
             error: message,
             outcome: "failed",
-            ...(outcome.failure.diagnostics === undefined
-              ? {}
-              : {
-                  selector: redactDiagnostics(
-                    outcome.failure.diagnostics,
-                    variables
-                  ),
-                }),
+            ...redactedSelector(outcome.failure, variables),
           });
           failure = {
             ...(kind === undefined ? {} : { kind }),

@@ -1,12 +1,11 @@
 import type {
   LocatorDescriptor,
-  LocatorMiss,
   LocatorStrategy,
   NearbyElement,
   SelectorCandidate,
   SelectorDiagnostics,
 } from "@contingency/protocol";
-import { Effect, Schema } from "effect";
+import { Effect, Function, Schema } from "effect";
 import type { Locator, Page } from "playwright-core";
 
 import { redactSecrets } from "./variables.ts";
@@ -36,44 +35,123 @@ const NEAREST_SCAN_LIMIT = 400;
 const NEAREST_NAME_LIMIT = 80;
 
 /**
- * How long a post-miss probe of the page may take. Short: the Step has already
- * spent its own timeout failing, and a diagnostic is not worth a second one.
+ * How long a probe of the page may take, both for classifying a miss and for
+ * reading the nearby elements. Short: the Step has already spent its own
+ * timeout failing, and a diagnostic is not worth a second one.
  */
 const PROBE_TIMEOUT_MS = 1000;
 
 /** How Playwright reports the count behind a strict mode violation. */
 const AMBIGUOUS_MATCHES = /resolved to (?<matches>\d+) elements/u;
 
-/** The first line of a browser message, without its call log. */
-const firstLine = (message: string): string =>
-  message.split("\n")[0]?.trim() ?? "";
+/**
+ * How Playwright words an element that went away mid-action, verified against
+ * the installed version rather than remembered. If a future version rewords
+ * it, this degrades gracefully: the miss falls through to the probe below and
+ * is reported as unactionable with the browser's own words attached, which is
+ * vaguer but never false.
+ */
+const DETACHED = "detached from the DOM";
+
+/** How much of the browser's own wording a diagnostic carries. */
+const DETAIL_LIMIT = 120;
+
+/**
+ * Playwright's own retry bookkeeping. These lines say the action was tried
+ * again, never why it had to be — and they are what a call log ends on, so
+ * taking the last line verbatim reports "waiting 500ms" and buries the
+ * obstacle a few lines above it.
+ */
+const BOOKKEEPING = [
+  /^waiting \d+ms$/u,
+  /^(?:attempting|retrying) .* action$/u,
+  /^waiting for (?:element|locator)\b/u,
+  /^(?:scrolling into view if needed|done scrolling)$/u,
+  /^element is visible, enabled and stable$/u,
+];
+
+/**
+ * What the action was actually stuck on, in the browser's own words.
+ *
+ * The first line is only ever "Timeout 2000ms exceeded", which says nothing a
+ * reader does not already know, so this reads the call log and takes the last
+ * line that reports an obstacle rather than a retry. It filters the browser's
+ * wording and never rewrites it: if every line looks like bookkeeping the last
+ * one is quoted as-is, which is vaguer than it could be but never false.
+ */
+const obstacleLine = (message: string): string => {
+  const lines = message
+    .split("\n")
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^-\s*/u, "")
+        .replace(/^\d+ × /u, "")
+    )
+    .filter((line) => line.length > 0 && line !== "Call log:");
+  const obstacles = lines.filter(
+    (line) => !BOOKKEEPING.some((pattern) => pattern.test(line))
+  );
+  return (obstacles.at(-1) ?? lines.at(-1) ?? "").slice(0, DETAIL_LIMIT);
+};
 
 /** An optional field is absent rather than empty, which the schema refuses. */
 const detailOf = (message: string): { detail?: string } => {
-  const line = firstLine(message);
+  const line = obstacleLine(message);
   return line.length === 0 ? {} : { detail: line };
 };
 
-/** How a descriptor reads in a failure message: words before raw paths. */
-export const describeLocator = (descriptor: LocatorDescriptor): string => {
+/** The same, for the nearby elements a diagnostic may or may not have read. */
+const nearestOf = (
+  nearest: readonly NearbyElement[] | undefined
+): { nearest?: readonly NearbyElement[] } =>
+  nearest === undefined ? {} : { nearest };
+
+/**
+ * How a descriptor reads, and what it was searching for.
+ *
+ * One switch rather than two parallel ones: the phrase a reader sees and the
+ * term the nearby elements are ranked against are two views of the same
+ * descriptor, and splitting them was how they could drift apart.
+ *
+ * `phrase` leads with words wherever the strategy has any — role and name,
+ * label, placeholder, text. CSS and XPath are paths by nature, so the phrase
+ * names the strategy and then quotes the path rather than pretending to
+ * paraphrase it.
+ */
+const readDescriptor = (
+  descriptor: LocatorDescriptor
+): { readonly phrase: string; readonly term: string } => {
   switch (descriptor.kind) {
     case "role": {
-      return `role ${descriptor.role} named "${descriptor.name}"`;
+      return {
+        phrase: `role ${descriptor.role} named "${descriptor.name}"`,
+        term: descriptor.name,
+      };
     }
     case "label": {
-      return `label "${descriptor.label}"`;
+      return { phrase: `label "${descriptor.label}"`, term: descriptor.label };
     }
     case "placeholder": {
-      return `placeholder "${descriptor.placeholder}"`;
+      return {
+        phrase: `placeholder "${descriptor.placeholder}"`,
+        term: descriptor.placeholder,
+      };
     }
     case "text": {
-      return `text "${descriptor.text}"`;
+      return { phrase: `text "${descriptor.text}"`, term: descriptor.text };
     }
     case "css": {
-      return `CSS ${descriptor.selector}`;
+      return {
+        phrase: `CSS ${descriptor.selector}`,
+        term: descriptor.selector,
+      };
     }
     case "xpath": {
-      return `XPath ${descriptor.expression}`;
+      return {
+        phrase: `XPath ${descriptor.expression}`,
+        term: descriptor.expression,
+      };
     }
     default: {
       throw new Error("Unknown locator descriptor.");
@@ -81,32 +159,9 @@ export const describeLocator = (descriptor: LocatorDescriptor): string => {
   }
 };
 
-/** The words a descriptor searched for, used to rank what the page did have. */
-const searchTerm = (descriptor: LocatorDescriptor): string => {
-  switch (descriptor.kind) {
-    case "role": {
-      return descriptor.name;
-    }
-    case "label": {
-      return descriptor.label;
-    }
-    case "placeholder": {
-      return descriptor.placeholder;
-    }
-    case "text": {
-      return descriptor.text;
-    }
-    case "css": {
-      return descriptor.selector;
-    }
-    case "xpath": {
-      return descriptor.expression;
-    }
-    default: {
-      throw new Error("Unknown locator descriptor.");
-    }
-  }
-};
+/** How a descriptor reads in a failure message: words before raw paths. */
+export const describeLocator = (descriptor: LocatorDescriptor): string =>
+  readDescriptor(descriptor).phrase;
 
 /** What a miss reads as, once a reader has the candidate in front of them. */
 const describeMiss = (candidate: SelectorCandidate): string => {
@@ -133,21 +188,31 @@ type Miss = Pick<SelectorCandidate, "detail" | "matches" | "miss">;
 
 /**
  * Why this candidate missed, asked of the page rather than inferred from the
- * browser's message. A strict mode violation already carries its own count; a
- * timeout says only that the wait ran out, so the page is counted and checked.
+ * browser's message wherever the page can answer.
  *
- * Never fails: a diagnostic that cannot be gathered must not replace the
- * failure it was describing.
+ * Two answers come from the failure itself, because the page can no longer be
+ * asked about them after the fact: a strict mode violation carries its own
+ * count, and an element that went away mid-action has already gone — probing
+ * afterwards finds it back again, present and visible, and would report the
+ * flapping element as merely unactionable.
+ *
+ * Everything else is measured. This effect fails when the page cannot answer,
+ * which is deliberate: see {@link missedCandidate}.
  */
 const classifyMiss = (
   locator: Locator,
   cause: unknown
-): Effect.Effect<Miss> => {
+): Effect.Effect<Miss, unknown> => {
   const message = cause instanceof Error ? cause.message : String(cause);
   const ambiguous = AMBIGUOUS_MATCHES.exec(message);
   const counted = Number(ambiguous?.groups?.["matches"]);
   if (Number.isInteger(counted)) {
     return Effect.succeed({ matches: counted, miss: "ambiguous" });
+  }
+  if (message.includes(DETACHED)) {
+    // No detail: "matched, but detached from the page" already says it, and a
+    // redundant quote is noise in every artifact that carries it.
+    return Effect.succeed({ miss: "detached" });
   }
   return Effect.tryPromise(async (): Promise<Miss> => {
     const matches = await locator.count();
@@ -157,9 +222,9 @@ const classifyMiss = (
     if (matches > 1) {
       return { matches, miss: "ambiguous" };
     }
-    const visible = await locator
-      .first()
-      .isVisible({ timeout: PROBE_TIMEOUT_MS });
+    // No timeout option: `isVisible` is documented as returning immediately
+    // and ignoring one, so passing it would only look like a wait.
+    const visible = await locator.first().isVisible();
     if (!visible) {
       return { miss: "hidden" };
     }
@@ -168,20 +233,24 @@ const classifyMiss = (
     // dressed up as one of the four.
     return { ...detailOf(message), miss: "unactionable" };
   }).pipe(
-    Effect.orElseSucceed((): Miss => {
-      // The page could not be counted, so the miss is what the browser said
-      // rather than what was measured.
-      const miss: LocatorMiss = message.includes("not attached")
-        ? "detached"
-        : "absent";
-      return { ...detailOf(message), miss };
-    })
+    // A real bound rather than the one `isVisible` documents as ignored. A
+    // page that cannot answer a count in a second is wedged, and this failing
+    // stops the Run rather than inventing a miss for it.
+    Effect.timeout(PROBE_TIMEOUT_MS)
   );
 };
 
-/** One candidate's record: what it looked for, and what the page answered. */
-export const missedCandidate = Effect.fn("Runner.missedCandidate")(
-  function* missedCandidate(
+/**
+ * One candidate's record: what it looked for, and what the page answered.
+ *
+ * Fails when the page could not be asked. A miss is a claim about the site —
+ * that it no longer has what the Flow named — and a claim nobody verified must
+ * not be recorded as one. A session that died between the miss and the probe
+ * would otherwise be filed as an absence, which is precisely the
+ * misattribution the ladder's own guard exists to prevent, one step later.
+ */
+export const missedCandidate = Effect.fn("SelectorDiagnostics.missedCandidate")(
+  function* recordMissedCandidate(
     descriptor: LocatorDescriptor,
     locator: Locator,
     cause: unknown
@@ -301,9 +370,6 @@ const CollectedElements = Schema.Array(
   Schema.Struct({ name: Schema.String, role: Schema.String })
 );
 
-/** The page could not be read, which is not the same as reading an empty one. */
-const noElements = (): readonly NearbyElement[] | undefined => undefined;
-
 /**
  * The nearest elements the page actually had, ranked against what the Step was
  * looking for, so a renamed button is visibly a rename rather than a removal.
@@ -321,7 +387,7 @@ const nearestElements = (
     ),
     Effect.timeout(PROBE_TIMEOUT_MS),
     Effect.map((elements) => {
-      const terms = target.map(searchTerm);
+      const terms = target.map((descriptor) => readDescriptor(descriptor).term);
       return elements
         .map((element) => ({
           element,
@@ -334,21 +400,20 @@ const nearestElements = (
         .slice(0, NEAREST_LIMIT)
         .map(({ element }) => element);
     }),
-    Effect.orElseSucceed(noElements)
+    // The page could not be read, which is not the same as reading an empty
+    // one, and unlike a miss it claims nothing about the site either way.
+    Effect.orElseSucceed(Function.constUndefined)
   );
 
 /** Everything a resolution failure knows, gathered once the ladder is spent. */
-export const selectorDiagnostics = Effect.fn("Runner.selectorDiagnostics")(
+export const selectorDiagnostics = Effect.fn("SelectorDiagnostics.gather")(
   function* gatherDiagnostics(
     page: Page,
     target: readonly LocatorDescriptor[],
     candidates: readonly SelectorCandidate[]
   ) {
     const nearest = yield* nearestElements(page, target);
-    return {
-      candidates,
-      ...(nearest === undefined ? {} : { nearest }),
-    } satisfies SelectorDiagnostics;
+    return { candidates, ...nearestOf(nearest) } satisfies SelectorDiagnostics;
   }
 );
 
@@ -385,12 +450,10 @@ export const redactDiagnostics = (
       : { detail: redactSecrets(candidate.detail, variables) }),
     lookedFor: redactSecrets(candidate.lookedFor, variables),
   })),
-  ...(diagnostics.nearest === undefined
-    ? {}
-    : {
-        nearest: diagnostics.nearest.map((element) => ({
-          ...element,
-          name: redactSecrets(element.name, variables),
-        })),
-      }),
+  ...nearestOf(
+    diagnostics.nearest?.map((element) => ({
+      ...element,
+      name: redactSecrets(element.name, variables),
+    }))
+  ),
 });
