@@ -7,6 +7,7 @@ import type {
   BrowserStreamEvent,
   BrowserTab,
   BrowserTabId,
+  SessionEmulation,
   SessionId,
   UserAgentProfileId,
   Viewport,
@@ -73,6 +74,8 @@ import {
   recordingLocksBrowser,
   recordingMakesCanvasReadOnly,
 } from "@/components/create/create-workspace-state";
+import { EmulationPicker } from "@/components/create/emulation-picker";
+import type { EmulationPatch } from "@/components/create/emulation-picker";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -114,11 +117,13 @@ import {
   browserTabSwitchMutation,
   browserUserAgentMutation,
   browserViewportMutation,
+  browserEmulationMutation,
   runBrowserStream,
 } from "@/lib/rpc";
 
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
 const userAgentProfileAtom = Atom.make<UserAgentProfileId>("default");
+const sessionEmulationAtom = Atom.make<SessionEmulation | null>(null);
 const browserTabsAtom = Atom.make<readonly BrowserTab[]>([]);
 const devtoolsOpenAtom = Atom.make(false);
 const frameReadyAtom = Atom.make(false);
@@ -280,6 +285,10 @@ const useBrowserWorkspace = () => {
   const [tabs, setTabs] = useAtom(browserTabsAtom);
   const [width, setWidth] = useAtom(viewportWidthAtom);
   const [userAgentProfile, setUserAgentProfile] = useAtom(userAgentProfileAtom);
+  const [sessionEmulation, setSessionEmulation] = useAtom(sessionEmulationAtom);
+  const updateEmulation = useAtomSet(browserEmulationMutation, {
+    mode: "promise",
+  });
   const openBrowser = useAtomSet(browserOpenMutation, { mode: "promise" });
   const runNavigation = useAtomSet(browserNavigationMutation, {
     mode: "promise",
@@ -335,8 +344,39 @@ const useBrowserWorkspace = () => {
     knownTabIdsRef.current = null;
     enrichedTabsRef.current = [];
     activeTabIdRef.current = null;
+    setSessionEmulation(null);
     setTabs([]);
-  }, [selectedSessionId, setTabs]);
+  }, [selectedSessionId, setSessionEmulation, setTabs]);
+
+  const applyEmulationPatch = useCallback(
+    (patch: EmulationPatch) => {
+      if (selectedSessionId === undefined) {
+        return;
+      }
+      Effect.runFork(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            updateEmulation({
+              payload: {
+                data: { sessionId: selectedSessionId, ...patch },
+                type: "browser.emulation.set",
+              },
+            }),
+        }).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => setSessionEmulation(result.data.emulation))
+          ),
+          Effect.catchCause((emulationCause) =>
+            Effect.sync(() =>
+              setError(toErrorMessage(Cause.squash(emulationCause)))
+            )
+          )
+        )
+      );
+    },
+    [selectedSessionId, setError, setSessionEmulation, updateEmulation]
+  );
 
   const synchronizeTabState = useCallback(
     (nextTabs: readonly BrowserTab[], rememberMetadata = false) => {
@@ -1182,6 +1222,7 @@ const useBrowserWorkspace = () => {
     activeTabData,
     address,
     addressEditingRef,
+    applyEmulationPatch,
     browserLocked,
     canvasReadOnly,
     canvasRef,
@@ -1208,6 +1249,7 @@ const useBrowserWorkspace = () => {
     selectUserAgent,
     selectedPresetName,
     selectedSessionId,
+    sessionEmulation,
     setAddress,
     setDevtoolsOpen,
     setDevtoolsState,
@@ -1353,6 +1395,7 @@ const BrowserDeviceToolbar = ({
   readonly controller: BrowserWorkspaceController;
 }) => {
   const {
+    applyEmulationPatch,
     browserLocked,
     commitViewport,
     devtoolsOpen,
@@ -1362,6 +1405,7 @@ const BrowserDeviceToolbar = ({
     selectedPresetName,
     selectPreset,
     selectUserAgent,
+    sessionEmulation,
     setDevtoolsOpen,
     setHeight,
     setWidth,
@@ -1378,6 +1422,14 @@ const BrowserDeviceToolbar = ({
           void selectUserAgent(profile);
         }}
         value={userAgentProfile}
+      />
+
+      <EmulationPicker
+        applied={sessionEmulation ?? undefined}
+        disabled={browserLocked || opening}
+        onPatch={(patch) => {
+          void applyEmulationPatch(patch);
+        }}
       />
 
       <Select

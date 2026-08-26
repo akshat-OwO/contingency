@@ -89,6 +89,22 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by browser and Recording lifecycle operations.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "browser.emulation.set": ({ data }) =>
+        requireBrowserControl(data.sessionId, "Emulation changes").pipe(
+          Effect.andThen(
+            browser.setEmulation(data.sessionId, {
+              colorScheme: data.colorScheme,
+              geolocation: data.geolocation,
+              locale: data.locale,
+              permissions: data.permissions,
+              timezoneId: data.timezoneId,
+            })
+          ),
+          Effect.map((emulation) => ({
+            data: { emulation },
+            type: "browser.emulation.updated" as const,
+          }))
+        ),
       "browser.frame.ack": ({ data }) =>
         browser
           .acknowledgeFrame(data.sessionId, data.seq, data.streamId)

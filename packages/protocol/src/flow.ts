@@ -459,8 +459,12 @@ export type PermissionGrant = typeof PermissionGrant.Type;
 
 export const Geolocation = Schema.Struct({
   accuracy: Schema.optional(Schema.Finite),
-  latitude: Schema.Finite,
-  longitude: Schema.Finite,
+  latitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 90, minimum: -90 })
+  ),
+  longitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 180, minimum: -180 })
+  ),
 });
 export type Geolocation = typeof Geolocation.Type;
 

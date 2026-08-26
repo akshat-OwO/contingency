@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>probe</title>
+  </head>
+  <body>
+    <main>
+      <h1>What language is this?</h1>
+      <output id="answer">asking…</output>
+    </main>
+    <script>
+      const label =
+        new URLSearchParams(location.search).get("label") ?? "probe";
+      const answer = document.getElementById("answer");
+      answer.textContent = `${label}:${Intl.DateTimeFormat().resolvedOptions().locale}`;
+      document.title = answer.textContent;
+    </script>
+  </body>
+</html>

@@ -188,6 +188,24 @@ test("a Flow declares its Emulation", () => {
   );
   // An empty permission list grants nothing and says nothing.
   assertRejects(flowWith([navigateStep], { emulation: { permissions: [] } }));
+  // Coordinates are validated before they reach the browser adapter.
+  assertRejects(
+    flowWith([navigateStep], {
+      emulation: { geolocation: { latitude: 90.1, longitude: 0 } },
+    })
+  );
+  assertRejects(
+    flowWith([navigateStep], {
+      emulation: { geolocation: { latitude: 0, longitude: -180.5 } },
+    })
+  );
+  assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        geolocation: { latitude: -90, longitude: 180 },
+      },
+    })
+  );
 });
 
 test("a Flow declares a Gate as accessibility rule ids", () => {

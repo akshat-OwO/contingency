@@ -74,6 +74,11 @@ export const makePlaywrightRecorderCapture = Effect.gen(
         options.sessionId,
         options.tabId
       );
+      // The Emulation the session is applying is what the Flow will declare,
+      // so a headless Run reproduces the conditions authored against (ADR
+      // 0013). Read at capture start, because emulation changes are locked
+      // for the session while a Recording is in progress.
+      const emulation = yield* browser.getEmulation(options.sessionId);
       const bindingName = `__contingency_${randomUUID().replaceAll("-", "")}`;
       const nonce = randomUUID();
       const scriptSource = recorderScriptSource(
@@ -223,6 +228,7 @@ export const makePlaywrightRecorderCapture = Effect.gen(
       );
 
       return {
+        emulation,
         stop: Effect.gen(function* stopCapture() {
           closing = true;
           target.context.off("page", onNewPage);

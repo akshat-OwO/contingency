@@ -6,8 +6,7 @@ import type { ConsoleMessage, Page, Request, Response } from "playwright-core";
 
 import { restartScreencast } from "./create-browser-screencast.ts";
 import {
-  applyUserAgent,
-  applyViewport,
+  applyEmulationToPage,
   publishTabs,
   readSessionState,
   reportCallbackFailure,
@@ -152,17 +151,10 @@ export const initializePage = (session: CreateSession, page: Page): void => {
     }
     publishTabs(session);
   });
-  const { userAgent, viewport } = readSessionState(session);
+  // A new Page — a tab or a popup — joins the session's Emulation like every
+  // other one, because the session emulates one device in one environment.
   Effect.runFork(
-    reportCallbackFailure(
-      session,
-      Effect.all([
-        applyViewport(session, page, viewport),
-        ...(userAgent === undefined
-          ? []
-          : [applyUserAgent(session, page, userAgent)]),
-      ])
-    )
+    reportCallbackFailure(session, applyEmulationToPage(session, page))
   );
   publishTabs(session);
 };

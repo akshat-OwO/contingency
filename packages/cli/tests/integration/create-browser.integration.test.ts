@@ -264,3 +264,116 @@ it.live("applies an opened profile to every tab in an existing session", () =>
     expect(activeTab?.title).toContain("iPhone");
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserLive))
 );
+
+it.live(
+  "applies a session's Emulation to every Page and clears it without closing",
+  () =>
+    Effect.gen(function* sessionEmulationLifecycle() {
+      const browser = yield* CreateBrowser;
+      const fixtures = yield* fixtureServer;
+
+      /** A page that reports what it receives through the geolocation API. */
+      const locationProbe = (label: string) =>
+        `${fixtures.origin}/geolocation-probe.html?label=${label}`;
+
+      const sessionId = yield* browser.create("create-emulation", viewport);
+
+      /** Poll until the probe page reports under its label. */
+      const waitForReport = (label: string) =>
+        Effect.gen(function* pollTitle() {
+          for (let attempt = 0; attempt < 200; attempt += 1) {
+            const tabs = yield* browser.getTabs(sessionId);
+            const title =
+              tabs.find((tab) => tab.title.startsWith(`${label}:`))?.title ??
+              "";
+            if (title.length > 0) {
+              return title;
+            }
+            yield* Effect.sleep("25 millis");
+          }
+          return yield* Effect.die(
+            `The probe never reported: expected ${label}.`
+          );
+        });
+
+      // Nothing granted yet: a site asking for position is refused.
+      yield* browser.open(
+        sessionId,
+        locationProbe("bare"),
+        viewport,
+        "default"
+      );
+      expect(yield* waitForReport("bare")).toBe("bare:denied");
+
+      const applied = yield* browser.setEmulation(sessionId, {
+        geolocation: { accuracy: 25, latitude: 52.52, longitude: 13.405 },
+        permissions: [{ permission: "geolocation" }],
+      });
+      expect(applied.geolocation).toMatchObject({
+        latitude: 52.52,
+        longitude: 13.405,
+      });
+      expect(applied.permissions).toEqual([{ permission: "geolocation" }]);
+
+      // The override is applied to the open Page without a reload being
+      // Contingency's business — the probe navigates itself.
+      yield* browser.open(
+        sessionId,
+        locationProbe("granted"),
+        viewport,
+        "default"
+      );
+      expect(yield* waitForReport("granted")).toBe("granted:52.52,13.405");
+
+      // A new tab is one device in one place too.
+      yield* browser.newTab(sessionId);
+      yield* browser.open(sessionId, locationProbe("tab"), viewport, "default");
+      expect(yield* waitForReport("tab")).toBe("tab:52.52,13.405");
+
+      // Changing the user agent rebuilds the whole Emulation, so the
+      // location override and grant survive it (ADR 0013).
+      yield* browser.setUserAgent(
+        sessionId,
+        locationProbe("after-ua"),
+        viewport,
+        "safari-iphone"
+      );
+      expect(yield* waitForReport("after-ua")).toBe("after-ua:52.52,13.405");
+
+      // A locale override reaches the Page, and clearing it restores the
+      // browser's own rather than leaving the old override in place.
+      yield* browser.setEmulation(sessionId, { locale: "fr-FR" });
+      yield* browser.open(
+        sessionId,
+        `${fixtures.origin}/locale-probe.html?label=locale`,
+        viewport,
+        "default"
+      );
+      expect(yield* waitForReport("locale")).toBe("locale:fr-FR");
+      yield* browser.setEmulation(sessionId, { locale: null });
+      yield* browser.open(
+        sessionId,
+        `${fixtures.origin}/locale-probe.html?label=restored`,
+        viewport,
+        "default"
+      );
+      expect(yield* waitForReport("restored")).not.toBe("restored:fr-FR");
+
+      // Both the grant and the override are dropped without closing anything.
+      const cleared = yield* browser.setEmulation(sessionId, {
+        geolocation: null,
+        permissions: null,
+      });
+      expect(cleared.geolocation).toBeUndefined();
+      expect(cleared.permissions).toEqual([]);
+      yield* browser.open(
+        sessionId,
+        locationProbe("cleared"),
+        viewport,
+        "default"
+      );
+      expect(yield* waitForReport("cleared")).toBe("cleared:denied");
+
+      yield* browser.close(sessionId);
+    }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
