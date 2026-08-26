@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Renamed</title>
+    <style>
+      .gone {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Your basket</h1>
+      <!--
+        The site a stale Flow meets. Every candidate a Flow could have been
+        authored against misses here for a different reason, so one Run
+        exercises the whole vocabulary: absent, ambiguous, and hidden.
+      -->
+
+      <!-- Ambiguous: two of these, so a Flow naming one does not say which. -->
+      <button class="remove" type="button">Remove</button>
+      <button class="remove" type="button">Remove</button>
+
+      <!-- Present and matched, but never visible. -->
+      <button class="gone" id="saved-for-later" type="button">
+        Save for later
+      </button>
+
+      <!-- The rename: what "Place order" became. -->
+      <button id="checkout" type="button">Place your order</button>
+    </main>
+  </body>
+</html>

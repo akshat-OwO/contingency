@@ -29,6 +29,8 @@ import type {
   RunTraceSegment,
   RunVideoManifest,
   RunVideoSegment,
+  SelectorCandidate,
+  SelectorDiagnostics,
 } from "@contingency/protocol";
 import {
   Context,
@@ -45,6 +47,12 @@ import { chromium, errors } from "playwright-core";
 import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
+import {
+  describeDiagnostics,
+  missedCandidate,
+  redactDiagnostics,
+  selectorDiagnostics,
+} from "./selector-diagnostics.ts";
 import {
   deriveVideoFromTrace,
   prepareTraceArtifacts,
@@ -108,6 +116,11 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
    * browser died" read alike.
    */
   readonly kind?: RunFailure["kind"];
+  /**
+   * Every candidate a resolution failure tried, and what the page had instead.
+   * Absent on failures that are not about finding an element.
+   */
+  readonly diagnostics?: SelectorDiagnostics;
   readonly message: string;
 }> {}
 
@@ -351,33 +364,6 @@ const normalizeUrl = (value: string): Effect.Effect<string, RunnerError> =>
     },
   });
 
-/** How a descriptor reads in a failure message: words before raw paths. */
-const describeLocator = (descriptor: LocatorDescriptor): string => {
-  switch (descriptor.kind) {
-    case "role": {
-      return `role ${descriptor.role} named "${descriptor.name}"`;
-    }
-    case "label": {
-      return `label "${descriptor.label}"`;
-    }
-    case "placeholder": {
-      return `placeholder "${descriptor.placeholder}"`;
-    }
-    case "text": {
-      return `text "${descriptor.text}"`;
-    }
-    case "css": {
-      return `CSS ${descriptor.selector}`;
-    }
-    case "xpath": {
-      return `XPath ${descriptor.expression}`;
-    }
-    default: {
-      throw new Error("Unknown locator descriptor.");
-    }
-  }
-};
-
 const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator => {
   switch (descriptor.kind) {
     case "role": {
@@ -477,29 +463,31 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
   target: readonly LocatorDescriptor[],
   perform: (locator: Locator) => Promise<unknown>
 ) {
-  const tried: string[] = [];
-  let lastMessage = "";
+  const tried: SelectorCandidate[] = [];
   for (const descriptor of target) {
+    const locator = locatorFor(page, descriptor);
     const outcome = yield* Effect.result(
       Effect.tryPromise({
         catch: (cause: unknown) => cause,
-        try: () => perform(locatorFor(page, descriptor)),
+        try: () => perform(locator),
       })
     );
     if (outcome._tag === "Success") {
       return;
     }
     // A candidate that already reached the page is not an unresolved locator:
-    // trying the next one would act on the page a second time.
+    // trying the next one would act on the page a second time, and a dead
+    // session or a browser failure is not evidence about the selector.
     if (!isCandidateMiss(outcome.failure)) {
       return yield* new RunnerError({ message: errorMessage(outcome.failure) });
     }
-    tried.push(describeLocator(descriptor));
-    lastMessage = errorMessage(outcome.failure);
+    tried.push(yield* missedCandidate(descriptor, locator, outcome.failure));
   }
+  const diagnostics = yield* selectorDiagnostics(page, target, tried);
   return yield* new RunnerError({
+    diagnostics,
     kind: "flowError",
-    message: `Could not resolve this Step's target (tried ${tried.length}): ${tried.join("; ")}. Last reason: ${lastMessage}`,
+    message: describeDiagnostics(diagnostics),
   });
 });
 
@@ -1151,6 +1139,14 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
       // value it typed, so the message is redacted before it reaches the Run.
       error: redactSecrets(outcome.failure.message, execution.variables),
       outcome: "failed",
+      ...(outcome.failure.diagnostics === undefined
+        ? {}
+        : {
+            selector: redactDiagnostics(
+              outcome.failure.diagnostics,
+              execution.variables
+            ),
+          }),
     } as const;
   }
 );
@@ -1774,7 +1770,19 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           const message = redactSecrets(outcome.failure.message, variables);
           const kind = classifyStepFailure(outcome.failure.kind, message);
 
-          steps.push({ ...base, error: message, outcome: "failed" });
+          steps.push({
+            ...base,
+            error: message,
+            outcome: "failed",
+            ...(outcome.failure.diagnostics === undefined
+              ? {}
+              : {
+                  selector: redactDiagnostics(
+                    outcome.failure.diagnostics,
+                    variables
+                  ),
+                }),
+          });
           failure = {
             ...(kind === undefined ? {} : { kind }),
             message,

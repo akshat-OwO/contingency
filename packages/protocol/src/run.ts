@@ -26,6 +26,82 @@ export const RunPreStepOutcome = Schema.Literals([
 export type RunPreStepOutcome = typeof RunPreStepOutcome.Type;
 
 /**
+ * Which strategy a candidate used, matching the {@link Flow} locator kinds. It
+ * travels on the diagnostic so a reader can see which rungs of the ladder
+ * broke and which were never reached, without re-deriving them from the Flow.
+ */
+export const LocatorStrategy = Schema.Literals([
+  "role",
+  "label",
+  "placeholder",
+  "text",
+  "css",
+  "xpath",
+]);
+export type LocatorStrategy = typeof LocatorStrategy.Type;
+
+/**
+ * Why a candidate did not resolve.
+ *
+ * `absent` and `ambiguous` are the pair that matters most, and the pair the
+ * previous runtime could not tell apart: one means the Flow names something
+ * that is gone, the other means it names something the page now has several
+ * of. They are different repairs. `hidden` and `detached` mean the page has
+ * the element but not in a state that can be acted on, and `unactionable`
+ * covers the rest — matched, visible, attached, and still refusing the action
+ * — rather than mislabelling it as one of the four.
+ */
+export const LocatorMiss = Schema.Literals([
+  "absent",
+  "ambiguous",
+  "hidden",
+  "detached",
+  "unactionable",
+]);
+export type LocatorMiss = typeof LocatorMiss.Type;
+
+/** One alternative a Step tried, and what the page answered. */
+export const SelectorCandidate = Schema.Struct({
+  /**
+   * The browser's own one-line reason, when it says something the miss does
+   * not. Redacted like every other message a Run persists.
+   */
+  detail: Schema.optional(nonEmptyString),
+  /** What this candidate looked for, in words rather than as a raw path. */
+  lookedFor: nonEmptyString,
+  /** How many elements matched. Present on `ambiguous`. */
+  matches: Schema.optional(Schema.Int),
+  miss: LocatorMiss,
+  strategy: LocatorStrategy,
+});
+export type SelectorCandidate = typeof SelectorCandidate.Type;
+
+/**
+ * An element the page actually had when a Step could not find its target. A
+ * renamed button appears here under its new name, which is what makes a rename
+ * visibly different from a removal.
+ */
+export const NearbyElement = Schema.Struct({
+  name: nonEmptyString,
+  role: nonEmptyString,
+});
+export type NearbyElement = typeof NearbyElement.Type;
+
+/**
+ * Everything a resolution failure knows: every candidate tried — not only the
+ * last — and the nearest elements that were present.
+ */
+export const SelectorDiagnostics = Schema.Struct({
+  candidates: Schema.Array(SelectorCandidate),
+  /**
+   * Absent when the page could not be read at all, which is not the same as a
+   * page that had nothing to report.
+   */
+  nearest: Schema.optional(Schema.Array(NearbyElement)),
+});
+export type SelectorDiagnostics = typeof SelectorDiagnostics.Type;
+
+/**
  * One Pre-step evaluation, recorded whether it ran or not. A silently-skipped
  * Pre-step is the first thing anyone looks for when a Run differs unexpectedly
  * from its Baseline, so the record is kept even when nothing happened.
@@ -36,6 +112,8 @@ export const RunPreStep = Schema.Struct({
   preStepId: nonEmptyString,
   /** `flow` Pre-steps run before every Step after the initial navigation. */
   scope: Schema.Literals(["flow", "step"]),
+  /** Present when this Pre-step failed because its target did not resolve. */
+  selector: Schema.optional(SelectorDiagnostics),
 });
 export type RunPreStep = typeof RunPreStep.Type;
 
@@ -186,6 +264,8 @@ export const RunStep = Schema.Struct({
   outcome: RunStepOutcome,
   /** Every Pre-step evaluated before this Step, in evaluation order. */
   preSteps: Schema.optional(Schema.Array(RunPreStep)),
+  /** Present when this Step failed because its target did not resolve. */
+  selector: Schema.optional(SelectorDiagnostics),
   startedAt: Instant,
   stepId: Schema.optional(Schema.String),
   type: nonEmptyString,
