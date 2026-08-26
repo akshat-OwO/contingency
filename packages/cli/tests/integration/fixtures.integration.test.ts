@@ -69,18 +69,31 @@ it.live("serves every fixture page a later stack tests against", () =>
 );
 
 /**
- * The busy page goes busy shortly after navigation reaches network idle, so
- * the Run's final quiescence wait has to leave ticks in the request log.
+ * The busy page polls from load onwards. Navigation and final quiescence are
+ * both bounded, so the Run completes and leaves ticks in the request log.
  */
 it.live("busy fixture keeps requesting while a Run is on it", () =>
   Effect.gen(function* watchBusyFixture() {
     const fixtures = yield* fixtureServer;
 
     const { run } = yield* runFlow(
-      flow([{ type: "navigate", url: fixtures.url("busy.html") }], "Busy")
+      flow(
+        [
+          { type: "navigate", url: fixtures.url("busy.html") },
+          {
+            target: [{ kind: "css", selector: "h1" }],
+            timeout: 100,
+            type: "click",
+          },
+        ],
+        "Busy"
+      )
     );
 
     expect(run.outcome).toBe("completed");
+    expect(run.environment.navigationReadiness).toBe(
+      "load-then-bounded-network-idle"
+    );
     expect(
       fixtures.requests.filter((url) => url === BUSY_TICK_BEACON).length
     ).toBeGreaterThan(0);

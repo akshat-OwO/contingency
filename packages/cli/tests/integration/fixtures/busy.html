@@ -8,9 +8,9 @@
     <main>
       <h1>Busy</h1>
       <!--
-        Goes busy after navigation has had time to reach network idle, then
-        keeps fetching and mutating the DOM on a timer. This isolates the
-        final quiescence bound from the navigation-idle contract.
+        Starts busy at load and keeps fetching and mutating the DOM on a
+        timer. Navigation readiness and final quiescence must both stay
+        bounded when a real Page polls continuously.
       -->
       <p id="tick-count">0</p>
       <ul id="ticks"></ul>
@@ -32,13 +32,9 @@
         }
         fetch("/busy-tick-beacon").catch(() => {});
       };
-      let timer;
-      const start = setTimeout(() => {
-        tick();
-        timer = setInterval(tick, 100);
-      }, 700);
+      tick();
+      const timer = setInterval(tick, 100);
       window.addEventListener("pagehide", () => {
-        clearTimeout(start);
         clearInterval(timer);
       });
     </script>

@@ -131,6 +131,13 @@ export const RunEnvironment = Schema.Struct({
    */
   loadAverage: Schema.Number,
   memoryBytes: Schema.Int,
+  /**
+   * How navigation readiness was established. Absent on Runs written before
+   * ADR 0015 made the bounded post-load network-idle wait explicit.
+   */
+  navigationReadiness: Schema.optional(
+    Schema.Literal("load-then-bounded-network-idle")
+  ),
   platform: nonEmptyString,
 });
 export type RunEnvironment = typeof RunEnvironment.Type;

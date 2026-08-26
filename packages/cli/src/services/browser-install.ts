@@ -39,6 +39,9 @@ const isInstalled = (name: string): boolean => {
   // Called off its registry rather than destructured: it reads `_executables`
   // through `this`.
   const executable = playwrightRegistry.registry.findExecutable(name);
+  if (executable === undefined) {
+    return false;
+  }
   return existsSync(
     playwrightRegistry.browserDirectoryToMarkerFilePath(executable.directory)
   );

@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { readFile, rename, rm } from "node:fs/promises";
+import { open, rename, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 
 import { Effect, Stream } from "effect";
@@ -49,7 +49,6 @@ const writeArchive = (
     catch: (cause) => new Error(`Could not rewrite ${file}: ${String(cause)}`),
     try: async () => {
       const temporary = `${file}.scrubbed`;
-      const backup = `${file}.unscrubbed`;
       const archive = new yazl.ZipFile();
       for (const [name, contents] of entries) {
         archive.addBuffer(contents, name);
@@ -57,12 +56,9 @@ const writeArchive = (
       archive.end();
       await pipeline(archive.outputStream, createWriteStream(temporary));
 
-      await rename(file, backup);
       try {
         await rename(temporary, file);
-        await rm(backup, { force: true });
       } catch (error) {
-        await rename(backup, file);
         await rm(temporary, { force: true });
         throw error;
       }
@@ -75,19 +71,25 @@ const textBuffer = (contents: Buffer): string | undefined => {
 };
 
 /**
- * Remove exact secret values from UTF-8 trace entries where Playwright leaves
- * them readable. Binary screenshots and encoded payloads remain untouched, so
- * this is deliberately only best effort and never makes a Trace safe to share.
+ * Prepare the stopped Trace in one pass: remove exact secret values from UTF-8
+ * entries and, when video was requested, store its explicit frame boundaries.
+ * Binary payloads remain untouched, so scrubbing is deliberately best effort
+ * and never makes a Trace safe to share.
  */
-export const scrubTraceBestEffort = (
+export const prepareTraceArtifacts = (
   file: string,
-  secrets: readonly string[]
+  secrets: readonly string[],
+  videoFrames?: {
+    readonly settled: Buffer;
+    readonly steps: ReadonlyMap<number, Buffer>;
+  }
 ): Effect.Effect<void, Error> =>
-  Effect.gen(function* scrubTrace() {
-    if (secrets.length === 0) {
+  Effect.gen(function* prepareTrace() {
+    if (secrets.length === 0 && videoFrames === undefined) {
       return;
     }
     const entries = yield* readArchive(file);
+    let rewrite = false;
     for (const [name, contents] of entries) {
       const decoded = textBuffer(contents);
       if (decoded === undefined) {
@@ -101,28 +103,19 @@ export const scrubTraceBestEffort = (
       }
       if (scrubbed !== decoded) {
         entries.set(name, Buffer.from(scrubbed, "utf-8"));
+        rewrite = true;
       }
     }
-    yield* writeArchive(file, entries);
-  });
-
-/**
- * Store the exact per-Step screenshots inside the Trace archive. Playwright's
- * screencast is paint-driven and may omit an unchanged Page, while these
- * explicit entries preserve one unambiguous cut point for every Step.
- */
-export const embedVideoFrames = (
-  file: string,
-  stepFrames: ReadonlyMap<number, Buffer>,
-  settledFrame: Buffer
-): Effect.Effect<void, Error> =>
-  Effect.gen(function* embedFrames() {
-    const entries = yield* readArchive(file);
-    for (const [index, frame] of stepFrames) {
-      entries.set(stepFrameName(index), frame);
+    if (videoFrames !== undefined) {
+      for (const [index, frame] of videoFrames.steps) {
+        entries.set(stepFrameName(index), frame);
+      }
+      entries.set(SETTLED_FRAME_NAME, videoFrames.settled);
+      rewrite = true;
     }
-    entries.set(SETTLED_FRAME_NAME, settledFrame);
-    yield* writeArchive(file, entries);
+    if (rewrite) {
+      yield* writeArchive(file, entries);
+    }
   });
 
 const encodeFrames = (
@@ -201,18 +194,26 @@ export const deriveVideoFromTrace = (
     for (const index of stepIndexes) {
       const contents = entries.get(stepFrameName(index));
       if (contents === undefined) {
-        throw new Error(`The Trace is missing the frame for Step ${index}.`);
+        return yield* Effect.fail(
+          new Error(`The Trace is missing the frame for Step ${index}.`)
+        );
       }
       images.push(contents);
     }
     const settledFrame = entries.get(SETTLED_FRAME_NAME);
     if (settledFrame === undefined) {
-      throw new Error("The Trace is missing its final settled frame.");
+      return yield* Effect.fail(
+        new Error("The Trace is missing its final settled frame.")
+      );
     }
     images.push(settledFrame);
-    const ffmpeg = playwrightRegistry.registry
-      .findExecutable("ffmpeg")
-      .executablePath();
+    const executable = playwrightRegistry.registry.findExecutable("ffmpeg");
+    if (executable === undefined) {
+      return yield* Effect.fail(
+        new Error("Playwright's ffmpeg executable is unavailable.")
+      );
+    }
+    const ffmpeg = executable.executablePath();
     yield* encodeFrames(ffmpeg, images, videoFile);
     return {
       includesSettledState: true,
@@ -222,8 +223,14 @@ export const deriveVideoFromTrace = (
 
 /** A cheap integrity check used before a Trace is recorded in its manifest. */
 export const traceWasWritten = async (file: string): Promise<boolean> => {
-  const contents = await readFile(file);
-  return (
-    contents.length > 4 && contents.subarray(0, 2).toString("ascii") === "PK"
-  );
+  const handle = await open(file, "r");
+  try {
+    const header = Buffer.alloc(4);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    return (
+      bytesRead === header.length && header.toString("ascii", 0, 2) === "PK"
+    );
+  } finally {
+    await handle.close();
+  }
 };

@@ -47,8 +47,7 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import {
   deriveVideoFromTrace,
-  embedVideoFrames,
-  scrubTraceBestEffort,
+  prepareTraceArtifacts,
   traceWasWritten,
 } from "./trace-artifacts.ts";
 import type { VariableResolution } from "./variables.ts";
@@ -75,6 +74,9 @@ const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
 
 /** How long one navigation may take, for the same reason (ADR 0021). */
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 20_000;
+
+/** A chatty Page may never become idle, so startup readiness has a ceiling. */
+const NAVIGATION_IDLE_BOUND_MS = 2000;
 
 /** How often a bounded wait re-reads its condition while waiting it out. */
 const WAIT_POLL_MS = 100;
@@ -898,6 +900,48 @@ const waitUntilCondition = Effect.fn("Runner.waitUntilCondition")(
 // Steps
 // ---------------------------------------------------------------------------
 
+const executeNavigation = Effect.fn("Runner.executeNavigation")(
+  function* executeNavigation(
+    execution: ReplayExecution,
+    step: Extract<AuthoredStep, { readonly type: "navigate" }>,
+    resolvedUrl: string,
+    timeoutMs: number
+  ) {
+    const url = yield* normalizeUrl(resolvedUrl);
+    const page = yield* pageFor(execution, step.page, timeoutMs);
+    const navigationDeadline = Date.now() + timeoutMs;
+    const response = yield* Effect.tryPromise({
+      catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+      try: () => page.goto(url, { timeout: timeoutMs, waitUntil: "load" }),
+    });
+    const idleTimeout = Math.min(
+      NAVIGATION_IDLE_BOUND_MS,
+      Math.max(0, navigationDeadline - Date.now())
+    );
+    if (idleTimeout > 0) {
+      // Most pages become idle and their response-driven UI is then ready for
+      // the next Step. Polling, analytics, and long-lived connections do not:
+      // they consume this bound and proceed after load instead of making a
+      // valid Flow fail forever.
+      yield* Effect.tryPromise(() =>
+        page.waitForLoadState("networkidle", { timeout: idleTimeout })
+      ).pipe(Effect.ignore);
+    }
+    // A server error still navigates, so the Step would otherwise pass and
+    // the Flow would fail later on a locator missing only because this is an
+    // error page. That misreads a broken site as a stale Flow.
+    const status = response?.status();
+    execution.measuredPage = page;
+    if (status !== undefined && status >= HTTP_ERROR_STATUS) {
+      return yield* new RunnerError({
+        kind: "siteError",
+        message: `The site under test failed: the server answered this navigation with HTTP ${status}.`,
+      });
+    }
+    return NO_FINDINGS;
+  }
+);
+
 /**
  * Replay one Step, returning whatever it found. Only an Audit Step finds
  * anything; every other Step returns none.
@@ -935,30 +979,12 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
     step.timeout === undefined ? DEFAULT_NAVIGATION_TIMEOUT_MS : step.timeout;
 
   if (step.type === "navigate") {
-    const url = yield* normalizeUrl(resolve(step.url));
-    const page = yield* pageFor(execution, step.page, navigationTimeoutMs);
-    const response = yield* Effect.tryPromise({
-      catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
-      try: () =>
-        page.goto(url, {
-          timeout: navigationTimeoutMs,
-          waitUntil: "networkidle",
-        }),
-    });
-    // A server error still navigates, so the Step would otherwise pass and
-    // the Flow would fail several Steps later on a locator that is missing
-    // only because the page is an error page. That misreads a broken site as
-    // a stale Flow, which is exactly the confusion classification exists to
-    // end.
-    const status = response?.status();
-    execution.measuredPage = page;
-    if (status !== undefined && status >= HTTP_ERROR_STATUS) {
-      return yield* new RunnerError({
-        kind: "siteError",
-        message: `The site under test failed: the server answered this navigation with HTTP ${status}.`,
-      });
-    }
-    return NO_FINDINGS;
+    return yield* executeNavigation(
+      execution,
+      step,
+      resolve(step.url),
+      navigationTimeoutMs
+    );
   }
 
   const page = yield* pageFor(execution, step.page, actionTimeoutMs);
@@ -1081,6 +1107,7 @@ const describeEnvironment = (): RunEnvironment => {
     cpuModel: processors.at(0)?.model ?? "unknown",
     loadAverage: loadavg().at(0) ?? 0,
     memoryBytes: totalmem(),
+    navigationReadiness: "load-then-bounded-network-idle",
     platform: platform(),
   };
 };
@@ -1278,7 +1305,7 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
     videoFile: string,
     steps: readonly RunStep[],
     attempt: number,
-    traceRecorded: boolean,
+    tracePrepared: boolean,
     traceError: string | undefined
   ) {
     const stepIndexes = steps.map((step) => step.index);
@@ -1287,18 +1314,8 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
     );
     const { settledFrame } = capture;
     const hasEveryFrame = hasEveryStepFrame && settledFrame !== undefined;
-    const embedded =
-      traceRecorded && hasEveryFrame
-        ? yield* Effect.result(
-            embedVideoFrames(
-              capture.traceFile,
-              capture.stepFrames,
-              settledFrame
-            )
-          )
-        : undefined;
     const derived =
-      embedded?._tag === "Success"
+      tracePrepared && hasEveryFrame
         ? yield* Effect.result(
             deriveVideoFromTrace(capture.traceFile, videoFile, stepIndexes)
           )
@@ -1308,8 +1325,6 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
       videoError = "The Trace did not capture a frame for every Step.";
     } else if (settledFrame === undefined) {
       videoError = "The Trace did not capture the final settled state.";
-    } else if (embedded?._tag === "Failure") {
-      videoError = reportable(errorMessage(embedded.failure));
     } else if (derived === undefined) {
       videoError = traceError ?? "The Trace was unavailable.";
     } else if (derived._tag === "Failure") {
@@ -1328,16 +1343,12 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
 );
 
 /**
- * Stop one attempt's Trace, scrub readable secret values, and optionally turn
- * the trace screenshots into a video. Artifact failures never change the Run
- * outcome; their manifests record the missing evidence instead.
+ * Stop one attempt's Trace while its context is still open. Rewriting and
+ * video encoding happen only after the browser context has closed.
  */
-const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
+const stopTrace = Effect.fn("Runner.stopTrace")(function* stopTrace(
   context: BrowserContext,
-  capture: ArtifactCapture,
-  variables: VariableResolution,
-  steps: readonly RunStep[],
-  attempt: number
+  capture: ArtifactCapture
 ) {
   const stopped = yield* Effect.result(
     Effect.tryPromise({
@@ -1354,28 +1365,59 @@ const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
             try: () => traceWasWritten(capture.traceFile),
           })
         );
-  const traceRecorded = checked._tag === "Success" && checked.success === true;
-  let traceError: string | undefined;
+  const recorded = checked._tag === "Success" && checked.success === true;
+  let error: string | undefined;
   if (checked._tag === "Failure") {
-    traceError = reportable(errorMessage(checked.failure));
-  } else if (!traceRecorded) {
-    traceError = "Playwright wrote no Trace.";
+    error = reportable(errorMessage(checked.failure));
+  } else if (!recorded) {
+    error = "Playwright wrote no Trace.";
   }
+  return { error, recorded };
+});
 
-  if (traceRecorded) {
+/**
+ * Scrub and enrich one stopped Trace in a single archive rewrite, then derive
+ * its optional video. Artifact failures never change the Run outcome.
+ */
+const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
+  capture: ArtifactCapture,
+  variables: VariableResolution,
+  steps: readonly RunStep[],
+  attempt: number,
+  stopped: { readonly error: string | undefined; readonly recorded: boolean }
+) {
+  let prepared = false;
+  let prepareError: string | undefined;
+  if (stopped.recorded) {
     const secrets = [...variables.secretNames].flatMap((name) => {
       const value = variables.values.get(name);
       return value === undefined ? [] : [value];
     });
-    yield* scrubTraceBestEffort(capture.traceFile, secrets).pipe(Effect.ignore);
+    const stepIndexes = steps.map((step) => step.index);
+    const settled = capture.settledFrame;
+    const hasVideoFrames =
+      capture.videoFile !== undefined &&
+      settled !== undefined &&
+      stepIndexes.every((index) => capture.stepFrames.has(index));
+    const result = yield* Effect.result(
+      prepareTraceArtifacts(
+        capture.traceFile,
+        secrets,
+        hasVideoFrames ? { settled, steps: capture.stepFrames } : undefined
+      )
+    );
+    prepared = result._tag === "Success";
+    if (result._tag === "Failure") {
+      prepareError = reportable(errorMessage(result.failure));
+    }
   }
 
   if (capture.keepTrace) {
     capture.traceSegments.push({
       attempt,
-      ...(traceError === undefined ? {} : { error: traceError }),
+      ...(stopped.error === undefined ? {} : { error: stopped.error }),
       file: path.basename(capture.traceFile),
-      recorded: traceRecorded,
+      recorded: stopped.recorded,
     });
   }
 
@@ -1386,8 +1428,8 @@ const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
         capture.videoFile,
         steps,
         attempt,
-        traceRecorded,
-        traceError
+        prepared,
+        prepareError ?? stopped.error
       )
     );
   }
@@ -1775,15 +1817,16 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             savedState = state.success;
           }
         }
-        if (capture !== undefined) {
-          if (
-            capture.videoFile !== undefined &&
-            capture.settledFrame === undefined
-          ) {
-            yield* settleAndCapture(lastActedOn, capture);
-          }
-          yield* saveArtifacts(context, capture, variables, steps, attempt);
+        if (
+          capture?.videoFile !== undefined &&
+          capture.settledFrame === undefined
+        ) {
+          yield* settleAndCapture(lastActedOn, capture);
         }
+        const stopped =
+          capture === undefined
+            ? undefined
+            : yield* stopTrace(context, capture);
         yield* Effect.tryPromise({
           catch: (cause) =>
             new RunnerError({
@@ -1791,6 +1834,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             }),
           try: () => context.close(),
         }).pipe(Effect.ignore);
+        if (capture !== undefined && stopped !== undefined) {
+          yield* saveArtifacts(capture, variables, steps, attempt, stopped);
+        }
       })
   );
 

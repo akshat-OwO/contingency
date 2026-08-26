@@ -12,4 +12,4 @@ Start Create View with `contingency web`. It serves the production web app from 
 
 Set `CONTINGENCY_STATE_DIR` to override the state directory that holds Run artifacts.
 
-Every Run keeps a Playwright Trace by default. Pass `--trace false` to discard it. `--video` additionally generates a WebM slideshow from the Trace's per-Step screenshots, including the final settled state. Traces and videos are sensitive. Exact secret values are scrubbed from readable Trace entries where possible, but the scrub is best effort and does not make an artifact safe to share.
+Every Run keeps a Playwright Trace by default. Pass `--no-trace` to discard it. `--video` additionally generates a WebM slideshow from the Trace's per-Step screenshots, including the final settled state. Traces and videos are sensitive. Exact secret values are scrubbed from readable Trace entries where possible, but the scrub is best effort and does not make an artifact safe to share.
