@@ -34,8 +34,8 @@ test("withholds granting until the session's own permissions are read", async ()
   ).toBeInTheDocument();
 });
 
-test("offers granting once the session's own permissions are read", async () => {
-  await openPicker({
+test("grants on top of the permissions the session already has", async () => {
+  const onPatch = await openPicker({
     emulation: {
       permissions: [{ permission: "geolocation" }],
       viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
@@ -45,6 +45,19 @@ test("offers granting once the session's own permissions are read", async () => 
 
   expect(screen.getByLabelText("Permission to grant")).not.toBeDisabled();
   expect(screen.getByText("Granted: geolocation")).toBeInTheDocument();
+
+  await userEvent.click(screen.getByLabelText("Permission to grant"));
+  // The Select renders its list in a portal the accessibility tree hides
+  // while the popover holds focus, so the option is queried as hidden.
+  await userEvent.click(
+    screen.getByRole("option", { hidden: true, name: "camera" })
+  );
+
+  // A patch replaces the whole list, so a grant carries what the session
+  // already had — the contract that makes reading the Emulation necessary.
+  expect(onPatch).toHaveBeenCalledWith({
+    permissions: [{ permission: "geolocation" }, { permission: "camera" }],
+  });
 });
 
 test("locks the browser controls only for the Recording's own session", () => {

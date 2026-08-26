@@ -396,14 +396,18 @@ export const applyEmulationToPage = (
   });
 
 /**
- * Re-apply a session's whole Emulation to every open Page. Every change goes
- * through here, so changing one part never silently drops another (ADR 0013).
+ * Re-apply a session's whole Emulation to every open Page. Every change that
+ * can interact with another part goes through here, so changing one never
+ * silently drops another (ADR 0013). The viewport is the one carve-out — it
+ * touches nothing else, so a drag takes `reapplyViewport` instead.
  */
 export const reapplyEmulation = (
   session: CreateSession
 ): Effect.Effect<void, BrowserRpcErrorType> =>
-  Effect.forEach(readSessionState(session).pageIds.keys(), (page) =>
-    applyEmulationToPage(session, page)
+  Effect.suspend(() =>
+    Effect.forEach([...readSessionState(session).pageIds.keys()], (page) =>
+      applyEmulationToPage(session, page)
+    )
   ).pipe(Effect.asVoid);
 
 /**
@@ -413,12 +417,15 @@ export const reapplyEmulation = (
  */
 export const reapplyViewport = (
   session: CreateSession
-): Effect.Effect<void, BrowserRpcErrorType> => {
-  const state = readSessionState(session);
-  return Effect.forEach(state.pageIds.keys(), (page) =>
-    applyViewport(session, page, state.viewport)
-  ).pipe(Effect.asVoid);
-};
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  // The state is read where the Effect runs, not where it is built, so the
+  // Effect answers for the session as it is on every run.
+  Effect.suspend(() => {
+    const state = readSessionState(session);
+    return Effect.forEach([...state.pageIds.keys()], (page) =>
+      applyViewport(session, page, state.viewport)
+    );
+  }).pipe(Effect.asVoid);
 
 /**
  * Split permission grants into the context-wide names and the per-origin ones.
