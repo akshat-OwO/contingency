@@ -200,6 +200,18 @@ test("a Flow declares a Gate as accessibility rule ids", () => {
   assertRejects(flowWith([navigateStep], { gate: [] }));
 });
 
+test("a Flow opts into persisted state explicitly, or starts fresh", () => {
+  const flow = assertDecodes(
+    flowWith([navigateStep], { persistedState: true })
+  );
+  expect(flow.persistedState).toBe(true);
+
+  assertDecodes(flowWith([navigateStep], { persistedState: false }));
+
+  // Anything else is not an opt-in.
+  assertRejects(flowWith([navigateStep], { persistedState: "yes" }));
+});
+
 test("Pre-step conditions accept visible, hidden, and URL matches", () => {
   const bannerTarget = [{ kind: "css", selector: "#cookie-banner" }];
   const flow = assertDecodes(

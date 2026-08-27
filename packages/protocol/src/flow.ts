@@ -515,6 +515,13 @@ export const Flow = Schema.Struct({
    */
   flowId: Schema.optional(FlowId),
   gate: Schema.optional(Gate),
+  /**
+   * Opt into carrying browser state between Runs: each Run still starts from
+   * whatever state the previous one saved rather than from nothing, so a Flow
+   * that depends on being logged in carries that deliberately. Absent — the
+   * default — means every Run executes in a fresh context (ADR 0015).
+   */
+  persistedState: Schema.optional(Schema.Boolean),
   /** Pre-steps that run before every Step after the initial navigation. */
   preSteps: Schema.optional(Schema.Array(PreStep)),
   steps: Schema.Array(AuthoredStep).check(

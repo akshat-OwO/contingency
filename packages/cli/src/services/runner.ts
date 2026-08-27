@@ -77,6 +77,18 @@ const WAIT_POLL_MS = 100;
  */
 const MINIMUM_PAGE_WAIT_MS = 1000;
 
+/**
+ * How long a Run waits for its Page to go quiet after the final Step — network
+ * idle and a stable DOM — before stopping capture and closing the context
+ * (ADR 0015). Bounded, so a Page that never settles cannot stretch a Run
+ * indefinitely; applied once, here, and never between Steps, whose timings
+ * describe the site rather than the Runner.
+ */
+const QUIESCE_BOUND_MS = 2000;
+
+/** How long the DOM must not change for the Page to count as settled. */
+const DOM_STABLE_WINDOW_MS = 250;
+
 export class RunnerError extends Data.TaggedError("RunnerError")<{
   /**
    * Who the failure belongs to, when the Runner knows. Only the Runner can
@@ -299,6 +311,9 @@ interface AttemptSession {
    */
   readonly videoArtifact: Promise<string> | undefined;
 }
+
+/** The cookies and origin storage a context carries, as Playwright reports it. */
+type BrowserStorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 /** The URL forms a Flow may navigate to; anything else is refused. */
 const normalizeUrl = (value: string): Effect.Effect<string, RunnerError> =>
@@ -1123,7 +1138,72 @@ const preStepsFor = (
 
 interface AttemptResult {
   readonly failure: RunFailure | undefined;
+  /**
+   * The context's cookies and storage as a completed attempt left them, for a
+   * Flow that opted into persisted state (ADR 0015). A failed or interrupted
+   * attempt saves nothing: half of a login is not state worth carrying.
+   */
+  readonly savedState: BrowserStorageState | undefined;
 }
+
+/**
+ * Whether one stored cookie could survive Playwright's own validation when the
+ * context opens. A snapshot that fails there would fail every later Run of the
+ * Flow at `newContext` — a failed Run never writes a replacement, so the bad
+ * file would brick the Flow until someone deleted it by hand. Rejecting it
+ * here keeps the promise below: an unrestorable snapshot is no snapshot.
+ */
+const isRestorableCookie = (entry: unknown): boolean => {
+  if (typeof entry !== "object" || entry === null) {
+    return false;
+  }
+  return (
+    "name" in entry &&
+    typeof entry.name === "string" &&
+    "value" in entry &&
+    typeof entry.value === "string" &&
+    (("url" in entry && typeof entry.url === "string") ||
+      ("domain" in entry &&
+        typeof entry.domain === "string" &&
+        "path" in entry &&
+        typeof entry.path === "string"))
+  );
+};
+
+/**
+ * What a previous Run of this Flow wrote, if it parses as one. A snapshot is a
+ * courtesy and not a contract: anything unreadable — absent on a first Run,
+ * truncated, written by another era — restores as nothing, and the Run starts
+ * fresh rather than failing.
+ */
+const parseStoredState = (contents: string): BrowserStorageState | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    return null;
+  }
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "cookies" in parsed &&
+    Array.isArray(parsed.cookies) &&
+    parsed.cookies.every(isRestorableCookie) &&
+    (!("origins" in parsed) || Array.isArray(parsed.origins))
+  ) {
+    return parsed as BrowserStorageState;
+  }
+  return null;
+};
+
+const readStoredState = (
+  fileSystem: FileSystem.FileSystem,
+  statePath: string
+): Effect.Effect<BrowserStorageState | null> =>
+  fileSystem.readFileString(statePath).pipe(
+    Effect.map(parseStoredState),
+    Effect.orElseSucceed(() => null)
+  );
 
 /**
  * Fold the Run's ceiling outcome into its attempts. A Run that ran out of time
@@ -1227,6 +1307,72 @@ const saveRecording = Effect.fn("Runner.saveRecording")(function* saveRecording(
 });
 
 /**
+ * What runs in the Page to establish DOM stability: resolve once the document
+ * has gone `windowMs` without a mutation — or once `boundMs` has passed
+ * altogether, whichever comes first. A mutation inside the window resets it
+ * rather than ending the wait; a page that never goes quiet still ends the
+ * wait. Resolving is guarded, because both timers are always armed.
+ *
+ * Interpolated rather than parameterised: Playwright evaluates a plain-string
+ * expression verbatim, so the values travel in the text.
+ */
+const domStabilityScript = (
+  windowMs: number,
+  boundMs: number
+): string => `(() => {
+  const result = Promise.withResolvers();
+  let settled = false;
+  let timer;
+  const finish = (quiet) => {
+    if (!settled) {
+      settled = true;
+      result.resolve(quiet);
+    }
+  };
+  const observer = new MutationObserver(() => {
+    clearTimeout(timer);
+    timer = setTimeout(() => finish(true), ${windowMs});
+  });
+  observer.observe(document, {
+    attributes: true,
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  setTimeout(() => finish(false), ${boundMs});
+  timer = setTimeout(() => finish(true), ${windowMs});
+  return result.promise;
+})()`;
+
+/**
+ * Wait for a Page to go quiet — no requests in flight, a DOM that has stopped
+ * changing — under one shared bound (ADR 0015). Never throws: a Page that
+ * never settles costs the bound and loses the argument, and a Page that died
+ * mid-wait has nothing left to settle. This is teardown-adjacent, so it is
+ * plain async and sits outside the attempt's error paths on purpose.
+ */
+const settlePage = async (page: Page | undefined): Promise<void> => {
+  if (page === undefined || page.isClosed()) {
+    return;
+  }
+  const deadline = Date.now() + QUIESCE_BOUND_MS;
+  try {
+    await page.waitForLoadState("networkidle", { timeout: QUIESCE_BOUND_MS });
+  } catch {
+    // The bound expired or the Page died; either way this wait is over.
+  }
+  const remaining = deadline - Date.now();
+  if (remaining <= 0 || page.isClosed()) {
+    return;
+  }
+  try {
+    await page.evaluate(domStabilityScript(DOM_STABLE_WINDOW_MS, remaining));
+  } catch {
+    // Same: a Page gone mid-wait has nothing left to settle.
+  }
+};
+
+/**
  * Where an attempt records the accessibility engine's version. Caller-owned
  * like the Steps, so a version an earlier Audit established survives a later
  * Step's failure or a ceiling breach: an attempt that audited anything records
@@ -1255,38 +1401,64 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         readonly segments: RunVideoSegment[];
       }
     | undefined,
+  /**
+   * Storage state saved by an earlier Run of this Flow, for one that opted
+   * into persisted state (ADR 0015). Null — the default — is a fresh context:
+   * nothing the last Run left behind leaks into this one.
+   */
+  restoredState: BrowserStorageState | null,
   attempt: number
 ) {
   let failure: RunFailure | undefined;
   const measures = flow.steps.some(measuresPerformance);
+  /** Set once every Step has run and the Page has had its chance to settle. */
+  let completed = false;
+  let savedState: BrowserStorageState | undefined;
+
+  /**
+   * Open a context, restoring the given state when it carries one.
+   */
+  const openContext = (state: BrowserStorageState | null) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        new RunnerError({
+          message: `Could not open a browser context: ${errorMessage(cause)}`,
+        }),
+      try: () =>
+        browser.newContext({
+          deviceScaleFactor: RUN_VIEWPORT.deviceScaleFactor,
+          ...(state === null ? {} : { storageState: state }),
+          viewport: {
+            height: RUN_VIEWPORT.height,
+            width: RUN_VIEWPORT.width,
+          },
+          ...(capture === undefined
+            ? {}
+            : {
+                recordVideo: {
+                  dir: capture.staging,
+                  size: {
+                    height: RUN_VIEWPORT.height,
+                    width: RUN_VIEWPORT.width,
+                  },
+                },
+              }),
+        }),
+    });
 
   yield* Effect.acquireUseRelease(
-    Effect.gen(function* openContext() {
-      const context = yield* Effect.tryPromise({
-        catch: (cause) =>
-          new RunnerError({
-            message: `Could not open a browser context: ${errorMessage(cause)}`,
-          }),
-        try: () =>
-          browser.newContext({
-            deviceScaleFactor: RUN_VIEWPORT.deviceScaleFactor,
-            viewport: {
-              height: RUN_VIEWPORT.height,
-              width: RUN_VIEWPORT.width,
-            },
-            ...(capture === undefined
-              ? {}
-              : {
-                  recordVideo: {
-                    dir: capture.staging,
-                    size: {
-                      height: RUN_VIEWPORT.height,
-                      width: RUN_VIEWPORT.width,
-                    },
-                  },
-                }),
-          }),
-      });
+    Effect.gen(function* openAttemptContext() {
+      // The parse-time guard is a fast fail on obvious junk, but it cannot
+      // mirror Playwright's own validation — the schema moves, and state files
+      // outlive the binary that wrote them. So the backstop lives here: a
+      // snapshot that survives parsing but not `newContext` costs one failed
+      // open and nothing more, and this attempt starts fresh instead. The Run
+      // that completes then writes a good snapshot over the bad one.
+      const context = yield* restoredState === null
+        ? openContext(null)
+        : openContext(restoredState).pipe(
+            Effect.catch(() => openContext(null))
+          );
       // Interactions cannot be read back after the fact, so a Run that might
       // measure anything records from the first navigation onwards — on every
       // Page this context opens, popups included.
@@ -1331,6 +1503,15 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
          * Index in `steps` of a Step whose page has not been measured yet.
          */
         let pending: number | undefined;
+        /**
+         * The Page the current Step names — the first, when none does —
+         * resolved as each Step begins, so the Run settles where its final
+         * Step acted. A popup that the final Step itself opens is not yet a
+         * named Page of any Step, and is not what settles the Run; a later
+         * Step that names it would be. Deliberate: the bound covers the rest
+         * (ADR 0015).
+         */
+        let lastActedOn: Page | undefined;
         for (const [index, step] of flow.steps.entries()) {
           const stepStartedAt = yield* nowIso;
 
@@ -1354,6 +1535,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             yield* measurePending(execution, steps, pending);
             pending = undefined;
           }
+
+          lastActedOn =
+            execution.pages[pageIndexOf(step) ?? 0] ?? execution.pages[0];
 
           const outcome = yield* Effect.result(
             executeStep(execution, step, index)
@@ -1413,12 +1597,39 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         }
 
         yield* measurePending(execution, steps, pending);
+
+        // The Run ends only once its Page has gone quiet (ADR 0015). Capture
+        // is still live through this wait, so what it observes is what the
+        // recording ends on.
+        yield* Effect.promise(() => settlePage(lastActedOn));
+        completed = true;
       }),
     ({ context, videoArtifact }) =>
       // A Run is torn down uninterruptibly: closing the context is what
       // flushes an in-progress recording, including when the interruption was
       // a Ctrl-C rather than a finished Flow.
       Effect.gen(function* teardownAttempt() {
+        // Read while the context can still answer. Only a completed attempt
+        // contributes: a Run that failed partway must not overwrite the last
+        // known-good state a Flow that depends on it relies on.
+        if (
+          flow.persistedState === true &&
+          completed &&
+          failure === undefined
+        ) {
+          const state = yield* Effect.result(
+            Effect.tryPromise({
+              catch: (cause) =>
+                new Error(
+                  `Could not read the browser storage state: ${errorMessage(cause)}`
+                ),
+              try: () => context.storageState(),
+            })
+          );
+          if (state._tag === "Success") {
+            savedState = state.success;
+          }
+        }
         yield* Effect.tryPromise({
           catch: (cause) =>
             new RunnerError({
@@ -1438,7 +1649,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       })
   );
 
-  return { failure } satisfies AttemptResult;
+  return { failure, savedState } satisfies AttemptResult;
 });
 
 export const makeRunnerService = () =>
@@ -1575,13 +1786,30 @@ export const makeRunnerService = () =>
             let inFlight:
               | { attempt: number; startedAt: Date; steps: RunStep[] }
               | undefined;
+            /** The saved state of the attempt that ran last, if it earned one. */
+            let lastSavedState: BrowserStorageState | undefined;
             /**
              * The engine version of whichever attempt audited anything. The
              * version is pinned, so any attempt's answer is the Run's.
              */
             const engine: AuditEngine = { version: undefined };
+            /**
+             * Where this Flow's persisted browser state lives: one snapshot
+             * beside its Run history, keyed by the Flow's identity (ADR 0015).
+             */
+            const statePath = path.join(
+              flowRunsDirectory(options.outputDirectory, flow),
+              "storage-state.json"
+            );
 
             const replay = Effect.gen(function* replayUntilItHolds() {
+              // A Flow that opted into persisted state starts from whatever
+              // its last completed Run saved; every other Flow starts from
+              // nothing, which is the default and stays the default.
+              const restoredState =
+                flow.persistedState === true
+                  ? yield* readStoredState(fileSystem, statePath)
+                  : null;
               // One Chromium process per Run, closed when it ends; each
               // attempt replays in a context of its own. Runs are
               // deliberately Chromium-only (ADR 0016).
@@ -1644,8 +1872,10 @@ export const makeRunnerService = () =>
                         ),
                       }
                     : undefined,
+                  restoredState,
                   index + 1
                 );
+                lastSavedState = result.savedState;
                 const attemptFinishedAt = yield* nowIso;
                 inFlight = undefined;
                 attempts.push({
@@ -1684,6 +1914,21 @@ export const makeRunnerService = () =>
             );
 
             const last = attempts.at(-1);
+
+            // Persisting what the Run carried out is best-effort: a Run that
+            // executed its Flow is a completed Run even if the snapshot for
+            // the next one could not be written — the next one starts fresh.
+            if (lastSavedState !== undefined) {
+              yield* fileSystem
+                .makeDirectory(path.dirname(statePath), { recursive: true })
+                .pipe(Effect.ignore);
+              yield* fileSystem
+                .writeFileString(
+                  statePath,
+                  `${JSON.stringify(lastSavedState)}\n`
+                )
+                .pipe(Effect.ignore);
+            }
 
             const record: Run = {
               attempts,
