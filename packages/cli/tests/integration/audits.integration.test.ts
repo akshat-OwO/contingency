@@ -151,8 +151,12 @@ it.live("records the engine version even when a later Step fails", () =>
       flow([
         { type: "navigate", url: fixtures.url("violations.html") },
         { kind: "accessibility", type: "audit" },
-        // Answered by nothing, so the Run fails after the Audit succeeded.
-        { type: "navigate", url: fixtures.url("never-answered.bin") },
+        // The missing target fails after the Audit succeeded.
+        {
+          target: [{ kind: "css", selector: "#does-not-exist" }],
+          timeout: 100,
+          type: "click",
+        },
       ])
     );
 

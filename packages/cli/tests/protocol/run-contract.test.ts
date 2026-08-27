@@ -39,6 +39,18 @@ const assertDecodes = (input: unknown): RunEnvironmentType => {
 test("a Run that audited nothing records no engine version", () => {
   const environment = assertDecodes(environmentWith());
   expect(environment.axeVersion).toBeUndefined();
+  expect(environment.navigationReadiness).toBeUndefined();
+});
+
+test("a new Run records its bounded navigation readiness contract", () => {
+  const environment = assertDecodes(
+    environmentWith({
+      navigationReadiness: "load-then-bounded-network-idle",
+    })
+  );
+  expect(environment.navigationReadiness).toBe(
+    "load-then-bounded-network-idle"
+  );
 });
 
 test("a Run that audited something records the pinned engine version", () => {

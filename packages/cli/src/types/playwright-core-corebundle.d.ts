@@ -10,9 +10,12 @@ declare module "playwright-core/lib/coreBundle" {
     ) => Promise<boolean | undefined>;
     readonly browserDirectoryToMarkerFilePath: (directory: string) => string;
     readonly registry: {
-      readonly findExecutable: (name: string) => {
-        readonly directory: string;
-      };
+      readonly findExecutable: (name: string) =>
+        | {
+            readonly directory: string;
+            readonly executablePath: () => string;
+          }
+        | undefined;
     };
   };
 }

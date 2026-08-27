@@ -68,6 +68,29 @@ export const recordingDurationSeconds = (
     },
   });
 
+/** How many decoded video frames ffprobe reads from an artifact. */
+export const recordingFrameCount = (
+  file: string
+): Effect.Effect<number, Error> =>
+  Effect.tryPromise({
+    catch: (cause) => new Error(`ffprobe failed: ${String(cause)}`),
+    try: async () => {
+      const probed = await ffprobe("ffprobe", [
+        "-v",
+        "error",
+        "-count_frames",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=nb_read_frames",
+        "-of",
+        "csv=p=0",
+        file,
+      ]);
+      return Number(String(probed.stdout).trim());
+    },
+  });
+
 /**
  * What the fixture page requests once a Step has typed into it. Waiting for
  * this proves the Run is past its opening navigation and working through
@@ -86,6 +109,9 @@ export const BUSY_TICK_BEACON = "/busy-tick-beacon";
 
 /** What the late fixture requests once its content has finished arriving. */
 export const LATE_CONTENT_BEACON = "/settled-beacon";
+
+/** A response held briefly so navigation can prove it waits for network idle. */
+export const LOAD_READY_BEACON = "/load-ready-beacon";
 
 /**
  * What the stateful fixture requests at load, carrying the cart count it read
@@ -137,6 +163,14 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
         // only way to test what an interrupted Run leaves behind is to have
         // one still running when the signal arrives.
         if (pathname === NEVER_ANSWERED) {
+          return;
+        }
+        if (pathname === LOAD_READY_BEACON) {
+          setTimeout(() => {
+            response
+              .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
+              .end("ready");
+          }, 250);
           return;
         }
         const page = pages.get(pathname);

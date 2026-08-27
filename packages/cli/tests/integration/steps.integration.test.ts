@@ -9,9 +9,36 @@ import {
   flow,
   IntegrationLive,
   LAZY_LOADED_BEACON,
+  LOAD_READY_BEACON,
   recordingDurationSeconds,
   runFlow,
+  STEP_BEACON,
 } from "./harness";
+
+it.live(
+  "waits for network idle before starting the Step after navigation",
+  () =>
+    Effect.gen(function* replayAfterNetworkIdle() {
+      const fixtures = yield* fixtureServer;
+
+      const { run } = yield* runFlow(
+        flow([
+          { type: "navigate", url: fixtures.url("network-idle.html") },
+          {
+            target: [
+              { kind: "role", name: "Continue after load", role: "button" },
+            ],
+            timeout: 100,
+            type: "click",
+          },
+        ])
+      );
+
+      expect(run.outcome).toBe("completed");
+      expect(fixtures.requests).toContain(LOAD_READY_BEACON);
+      expect(fixtures.requests).toContain(STEP_BEACON);
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
 
 /**
  * Every Step kind the native schema added, each proven by something the site
@@ -87,10 +114,9 @@ it.live("types through keyDown, change, and press", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
-// Capture records per Page, so a Flow that opens a popup must still leave
-// exactly one watchable recording — the opening Page's — rather than an
-// arbitrary one of the files Playwright wrote.
-it.live("acts on a popup as the next Page of the Flow, captured to video", () =>
+// Trace frames carry their Page identity, so the derived video follows a Flow
+// across Pages rather than choosing one Page's live capture.
+it.live("acts on a popup as the next Page of the Flow, derived to video", () =>
   Effect.gen(function* replayAcrossPages() {
     const fixtures = yield* fixtureServer;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -125,8 +151,8 @@ it.live("acts on a popup as the next Page of the Flow, captured to video", () =>
     );
     expect(recording.length).toBeGreaterThan(1024);
 
-    // The fixture waits 1.5s between the click and the popup. A recording of
-    // only the popup cannot contain that gap; the opening Page's must.
+    // Three Step frames plus the settled state each last half a second. The
+    // popup Step therefore cannot disappear into the delay that opened it.
     if (canDecodeVideo()) {
       const seconds = yield* recordingDurationSeconds(
         path.join(directory, "attempt-1.webm")
