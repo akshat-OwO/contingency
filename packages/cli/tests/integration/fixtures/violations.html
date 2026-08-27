@@ -1,0 +1,38 @@
+<!doctype html>
+<!--
+  Known accessibility violations, each mapped to the axe-core rule that
+  flags it. Later tickets assert on Findings against these, so the set is
+  deliberate and must not drift silently.
+
+  - image-alt on every image: the many-elements rule. One rule, twelve
+    Findings, so elision with a true count has something to elide.
+  - label on the unlabelled input.
+  - button-name on the empty button.
+  - link-name on the empty link.
+  - document-title: no title element at all.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <main>
+      <h1>Violations</h1>
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <img src="data:image/gif;base64,R0lGODlhAQABAAAAADs=" />
+      <input name="unlabelled" type="text" />
+      <button type="button"></button>
+      <a href="/nowhere.html"></a>
+    </main>
+  </body>
+</html>
