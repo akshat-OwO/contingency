@@ -1,9 +1,21 @@
+import type { Run } from "@contingency/protocol";
+import { Effect, FileSystem } from "effect";
 import { expect, test } from "vitest";
 
 import {
   gateOverride,
   gateOverrideWarning,
+  videoWarning,
 } from "../../src/cmds/run-report.ts";
+
+const videoRun = {
+  video: true,
+} as Run;
+
+const fileSystemReading = (contents: string) =>
+  FileSystem.layerNoop({
+    readFileString: () => Effect.succeed(contents),
+  });
 
 /**
  * How `--gate` and `--ignore-gate` resolve to the Gate a Run is held to.
@@ -47,4 +59,28 @@ test("an unambiguous invocation warns nothing", () => {
   expect(gateOverrideWarning([], false)).toBeUndefined();
   expect(gateOverrideWarning(["image-alt"], false)).toBeUndefined();
   expect(gateOverrideWarning([], true)).toBeUndefined();
+});
+
+test("a malformed video manifest produces a warning instead of a defect", async () => {
+  const warning = await Effect.runPromise(
+    videoWarning(videoRun, "/runs/example").pipe(
+      Effect.provide(fileSystemReading("{ truncated"))
+    )
+  );
+
+  expect(warning).toContain("manifest could not be read");
+});
+
+test("a video manifest is schema-validated before it is reported", async () => {
+  const warning = await Effect.runPromise(
+    videoWarning(videoRun, "/runs/example").pipe(
+      Effect.provide(
+        fileSystemReading(
+          JSON.stringify({ containsSecrets: false, runId: "run", segments: 1 })
+        )
+      )
+    )
+  );
+
+  expect(warning).toContain("manifest could not be read");
 });

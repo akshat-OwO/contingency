@@ -232,15 +232,19 @@ export const deriveVideoFromTrace = (
   });
 
 /** A cheap integrity check used before a Trace is recorded in its manifest. */
-export const traceWasWritten = async (file: string): Promise<boolean> => {
-  const handle = await open(file, "r");
-  try {
-    const header = Buffer.alloc(4);
-    const { bytesRead } = await handle.read(header, 0, header.length, 0);
-    return (
-      bytesRead === header.length && header.toString("ascii", 0, 2) === "PK"
-    );
-  } finally {
-    await handle.close();
-  }
-};
+export const traceWasWritten = (file: string): Effect.Effect<boolean, Error> =>
+  Effect.tryPromise({
+    catch: (cause) => new Error(`Could not inspect ${file}: ${String(cause)}`),
+    try: async () => {
+      const handle = await open(file, "r");
+      try {
+        const header = Buffer.alloc(4);
+        const { bytesRead } = await handle.read(header, 0, header.length, 0);
+        return (
+          bytesRead === header.length && header.toString("ascii", 0, 2) === "PK"
+        );
+      } finally {
+        await handle.close();
+      }
+    },
+  });

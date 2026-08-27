@@ -126,6 +126,36 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 
+it.live(
+  "records a trusted dropdown selection and key press as single Steps",
+  () =>
+    Effect.gen(function* captureSelectAndPress() {
+      const fixtures = yield* fixtureServer;
+      const { page, recording } = yield* openRecording(
+        fixtures.url("recorder.html")
+      );
+
+      // Keyboard input goes through the browser's user-input path, so the
+      // resulting change event is trusted. A page-authored `selectOption` call
+      // remains ignored by the test above.
+      yield* Effect.promise(() => page.focus('select[name="colour"]'));
+      yield* Effect.promise(() => page.keyboard.press("r"));
+      yield* Effect.promise(() => page.keyboard.press("Tab"));
+      yield* Effect.sleep("200 millis");
+
+      expect(
+        yield* Effect.promise(() => page.inputValue('select[name="colour"]'))
+      ).toBe("red");
+      const steps = yield* stepsOf(recording);
+      expect(steps.filter((step) => step.type === "selectOption")).toEqual([
+        expect.objectContaining({ type: "selectOption", values: ["red"] }),
+      ]);
+      expect(
+        steps.some((step) => step.type === "press" && step.key === "Tab")
+      ).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
+
 it.live("captures a scroll once, at the position the page came to rest", () =>
   Effect.gen(function* captureScroll() {
     const fixtures = yield* fixtureServer;

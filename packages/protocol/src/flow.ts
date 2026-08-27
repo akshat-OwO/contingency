@@ -77,6 +77,51 @@ export const LocatorDescriptor = Schema.Union([
 ]);
 export type LocatorDescriptor = typeof LocatorDescriptor.Type;
 
+/** Exhaustive dispatch for the closed locator vocabulary. */
+export interface LocatorDescriptorCases<A> {
+  readonly css: (descriptor: CssLocator) => A;
+  readonly label: (descriptor: LabelLocator) => A;
+  readonly placeholder: (descriptor: PlaceholderLocator) => A;
+  readonly role: (descriptor: RoleLocator) => A;
+  readonly text: (descriptor: TextLocator) => A;
+  readonly xpath: (descriptor: XpathLocator) => A;
+}
+
+/**
+ * Interpret one locator descriptor without repeating the protocol's kind
+ * switch in every consumer. Adding a kind now makes the dispatcher and every
+ * handler set fail to compile together.
+ */
+export const matchLocatorDescriptor = <A>(
+  descriptor: LocatorDescriptor,
+  cases: LocatorDescriptorCases<A>
+): A => {
+  switch (descriptor.kind) {
+    case "role": {
+      return cases.role(descriptor);
+    }
+    case "label": {
+      return cases.label(descriptor);
+    }
+    case "placeholder": {
+      return cases.placeholder(descriptor);
+    }
+    case "text": {
+      return cases.text(descriptor);
+    }
+    case "css": {
+      return cases.css(descriptor);
+    }
+    case "xpath": {
+      return cases.xpath(descriptor);
+    }
+    default: {
+      const unhandled: never = descriptor;
+      return unhandled;
+    }
+  }
+};
+
 /**
  * The ordered alternatives a Step tries when finding its element, resolved
  * first-match-wins. Every Step that acts on an element carries at least one.

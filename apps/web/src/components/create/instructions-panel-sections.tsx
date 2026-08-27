@@ -7,7 +7,10 @@ import type {
   RecordingCaptureMode,
   RecordingSnapshot,
 } from "@contingency/protocol";
-import { hasAuthoredBrowserStep } from "@contingency/protocol";
+import {
+  hasAuthoredBrowserStep,
+  matchLocatorDescriptor,
+} from "@contingency/protocol";
 import {
   DownloadIcon,
   InfoIcon,
@@ -122,31 +125,15 @@ const stepLabel = (
   return `${step.type === "keyDown" ? "Press" : "Release"} ${step.key}`;
 };
 
-const describeLocator = (descriptor: LocatorDescriptor): string => {
-  switch (descriptor.kind) {
-    case "role": {
-      return `${descriptor.role} "${descriptor.name}"`;
-    }
-    case "label": {
-      return `label "${descriptor.label}"`;
-    }
-    case "placeholder": {
-      return `placeholder "${descriptor.placeholder}"`;
-    }
-    case "text": {
-      return `"${descriptor.text}"`;
-    }
-    case "css": {
-      return descriptor.selector;
-    }
-    case "xpath": {
-      return descriptor.expression;
-    }
-    default: {
-      throw new Error("Unknown locator descriptor.");
-    }
-  }
-};
+const describeLocator = (descriptor: LocatorDescriptor): string =>
+  matchLocatorDescriptor(descriptor, {
+    css: ({ selector }) => selector,
+    label: ({ label }) => `label "${label}"`,
+    placeholder: ({ placeholder }) => `placeholder "${placeholder}"`,
+    role: ({ name, role }) => `${role} "${name}"`,
+    text: ({ text }) => `"${text}"`,
+    xpath: ({ expression }) => expression,
+  });
 
 /**
  * The ladder is ordered alternatives, not a path, so the card names the
