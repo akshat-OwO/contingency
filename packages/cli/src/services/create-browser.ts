@@ -15,6 +15,7 @@ import { Effect, Exit, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import { chromium } from "playwright-core";
 import type { Browser } from "playwright-core";
 
+import { ensureChromiumInstalled } from "./browser-install.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { initializePage } from "./create-browser-page.ts";
@@ -453,20 +454,30 @@ export const CreateBrowserLive = Layer.effect(
       if (browser !== undefined) {
         return Effect.succeed(browser);
       }
-      return Effect.tryPromise({
-        catch: (cause) => browserFailure("Could not start Chromium", cause),
-        try: () =>
-          chromium.launch({
-            handleSIGHUP: false,
-            handleSIGINT: false,
-            handleSIGTERM: false,
-            headless: true,
-          }),
-      }).pipe(
-        Effect.tap((launched) =>
-          Effect.sync(() => {
-            browser = launched;
-          })
+      // First launch may pay the one-time browser download, so it sits inside
+      // the same lock as the launch itself: two sessions must not race the
+      // installer.
+      return ensureChromiumInstalled.pipe(
+        Effect.mapError((failure) =>
+          browserFailure("Could not install Chromium", failure)
+        ),
+        Effect.andThen(
+          Effect.tryPromise({
+            catch: (cause) => browserFailure("Could not start Chromium", cause),
+            try: () =>
+              chromium.launch({
+                handleSIGHUP: false,
+                handleSIGINT: false,
+                handleSIGTERM: false,
+                headless: true,
+              }),
+          }).pipe(
+            Effect.tap((launched) =>
+              Effect.sync(() => {
+                browser = launched;
+              })
+            )
+          )
         )
       );
     }).pipe(launchLock.withPermits(1));

@@ -41,6 +41,7 @@ import {
 import { chromium, errors } from "playwright-core";
 import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 
+import { ensureChromiumInstalled } from "./browser-install.ts";
 import type { VariableResolution } from "./variables.ts";
 import { redactSecrets, substituteVariables } from "./variables.ts";
 import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
@@ -1585,23 +1586,30 @@ export const makeRunnerService = () =>
               // attempt replays in a context of its own. Runs are
               // deliberately Chromium-only (ADR 0016).
               const browser = yield* Effect.acquireRelease(
-                Effect.tryPromise({
-                  catch: (cause) =>
-                    new RunnerError({
-                      message: `Could not start Chromium: ${errorMessage(cause)}`,
-                    }),
-                  // Playwright installs process-wide SIGINT/SIGTERM/SIGHUP
-                  // handlers of its own by default, which would force-exit the
-                  // CLI mid-teardown instead of letting the unwind flush a
-                  // recording. Signals belong to the CLI's runtime alone.
-                  try: () =>
-                    chromium.launch({
-                      handleSIGHUP: false,
-                      handleSIGINT: false,
-                      handleSIGTERM: false,
-                      headless: true,
-                    }),
-                }),
+                ensureChromiumInstalled.pipe(
+                  Effect.mapError(
+                    (failure) => new RunnerError({ message: failure.message })
+                  ),
+                  Effect.andThen(
+                    Effect.tryPromise({
+                      catch: (cause) =>
+                        new RunnerError({
+                          message: `Could not start Chromium: ${errorMessage(cause)}`,
+                        }),
+                      // Playwright installs process-wide SIGINT/SIGTERM/SIGHUP
+                      // handlers of its own by default, which would force-exit the
+                      // CLI mid-teardown instead of letting the unwind flush a
+                      // recording. Signals belong to the CLI's runtime alone.
+                      try: () =>
+                        chromium.launch({
+                          handleSIGHUP: false,
+                          handleSIGINT: false,
+                          handleSIGTERM: false,
+                          headless: true,
+                        }),
+                    })
+                  )
+                ),
                 (launched) =>
                   Effect.tryPromise({
                     catch: () =>
