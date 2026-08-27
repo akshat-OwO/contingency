@@ -8,6 +8,7 @@ import {
   accessibilityRuleTags,
   FindingSeverity,
   Flow as FlowSchema,
+  Gate as GateSchema,
   gateBreaches,
   stepNavigates,
 } from "@contingency/protocol";
@@ -300,6 +301,36 @@ const errorMessage = (cause: unknown): string => {
     ? String(cause)
     : message;
 };
+
+/**
+ * The rule ids an invocation holds this Run to, held to the same contract the
+ * Flow path gets for free.
+ *
+ * A Flow-declared Gate cannot be malformed — it decoded through {@link
+ * FlowSchema} before it ever reached here — but an override arrives as raw
+ * strings, and in CI usually from an interpolated variable that can come up
+ * empty. Unchecked it reaches `RunGate.rules` verbatim and persists a
+ * `run.json` the protocol's own decode rejects, so it is refused here, before
+ * the browser opens, rather than after a Run has done all of its work.
+ *
+ * An empty override is not malformed. It is the deliberate "hold this Run to
+ * nothing" of `--ignore-gate`, and resolves to no Gate at all.
+ */
+const checkedGateOverride = Effect.fn("Runner.checkedGateOverride")(
+  function* checkedGateOverride(override: readonly string[] | undefined) {
+    if (override === undefined || override.length === 0) {
+      return override;
+    }
+    return yield* Schema.decodeUnknownEffect(GateSchema)(override).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RunnerError({
+            message: `The Gate supplied for this Run names something that is not a rule id: ${errorMessage(cause)}`,
+          })
+      )
+    );
+  }
+);
 
 const stableStringify = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
@@ -2116,6 +2147,9 @@ export const makeRunnerService = () =>
       runPermit
         .withPermit(
           Effect.gen(function* executeRun() {
+            // First, so a malformed Gate costs nothing: no directory, no
+            // browser, and no artifact that could not be read back.
+            const gateOverride = yield* checkedGateOverride(options.gate);
             const variables = options.variables ?? NO_VARIABLES;
             const retry = Math.max(
               0,
@@ -2327,7 +2361,7 @@ export const makeRunnerService = () =>
             const last = attempts.at(-1);
             // Read off the Steps the Run reports, so the Gate answers for the
             // attempt whose Findings the artifact actually carries.
-            const gate = accountForGate(flow, options.gate, last?.steps ?? []);
+            const gate = accountForGate(flow, gateOverride, last?.steps ?? []);
 
             // Persisting what the Run carried out is best-effort: a Run that
             // executed its Flow is a completed Run even if the snapshot for

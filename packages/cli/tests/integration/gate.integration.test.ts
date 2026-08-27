@@ -168,3 +168,20 @@ it.live("reports a Run that did not complete as broken, not as a breach", () =>
     expect(runIsBaselineEligible(run)).toBe(false);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
+
+it.live("refuses a malformed Gate before it can write an unreadable Run", () =>
+  Effect.gen(function* refuseMalformedGate() {
+    const fixtures = yield* fixtureServer;
+
+    // What an interpolated CI variable that came up empty looks like by the
+    // time it reaches the Runner.
+    const outcome = yield* Effect.result(
+      runFlow(auditing(fixtures.url("violations.html")), { gate: [""] })
+    );
+
+    // Refused rather than persisted: an empty rule id would land in
+    // `RunGate.rules` verbatim and produce a `run.json` that the protocol's
+    // own decode rejects, discovered only by whoever next reads the artifact.
+    expect(outcome._tag).toBe("Failure");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
