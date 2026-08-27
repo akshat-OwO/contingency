@@ -91,9 +91,7 @@ const makeSnapshot = (
     steps: [
       { type: "navigate", url: "https://example.com/start" },
       {
-        offsetX: 4,
-        offsetY: 8,
-        selectors: ["aria/Continue"],
+        target: [{ kind: "role", name: "Continue", role: "button" }],
         type: "click",
       },
     ],
@@ -114,9 +112,7 @@ const makeSnapshot = (
       id: "continue",
       preSteps: [],
       step: {
-        offsetX: 4,
-        offsetY: 8,
-        selectors: ["aria/Continue"],
+        target: [{ kind: "role", name: "Continue", role: "button" }],
         type: "click",
       },
     },
@@ -340,13 +336,11 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
   const preStep = {
     id: "dismiss-banner",
     step: {
-      offsetX: 2,
-      offsetY: 3,
-      selectors: ["aria/Close banner"],
+      target: [{ kind: "role", name: "Close banner", role: "button" }],
       type: "click" as const,
     },
     when: {
-      selectors: ["aria/Banner"],
+      target: [{ kind: "role", name: "Banner", role: "banner" }],
       type: "selectorVisible" as const,
     },
   };
@@ -354,15 +348,14 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
     id: "accessibility-audit",
     preSteps: [],
     step: {
-      name: "contingency.audit" as const,
-      parameters: { kind: "accessibility" as const },
-      type: "customStep" as const,
+      kind: "accessibility" as const,
+      type: "audit" as const,
     },
   };
   const recording: RecordingSnapshot = {
     ...base,
     flow: {
-      contingency: { preSteps: [preStep] },
+      preSteps: [preStep],
       steps: [...base.flow.steps, auditStep.step],
       title: base.flow.title,
     },
@@ -390,7 +383,7 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
 
   const preSteps = screen.getByRole("region", { name: "Flow Pre-steps" });
   expect(within(preSteps).getByText("Click element")).toBeVisible();
-  expect(within(preSteps).getByText("aria/Close banner")).toBeVisible();
+  expect(within(preSteps).getByText('button "Close banner"')).toBeVisible();
   await user.hover(
     screen.getByRole("button", { name: "About Flow Pre-steps" })
   );
@@ -437,9 +430,8 @@ test("does not finish a Flow whose only authored Step is an Audit", () => {
           url: "https://example.com/start",
         },
         {
-          name: "contingency.audit",
-          parameters: { kind: "accessibility" },
-          type: "customStep",
+          kind: "accessibility",
+          type: "audit",
         },
       ],
     },
@@ -453,9 +445,8 @@ test("does not finish a Flow whose only authored Step is an Audit", () => {
         id: "audit",
         preSteps: [],
         step: {
-          name: "contingency.audit",
-          parameters: { kind: "accessibility" },
-          type: "customStep",
+          kind: "accessibility",
+          type: "audit",
         },
       },
     ],
@@ -510,13 +501,11 @@ test("arms explicit Flow Pre-step capture and condition picking", async () => {
   const preStep = {
     id: "dismiss-dialog",
     step: {
-      offsetX: 2,
-      offsetY: 3,
-      selectors: ["aria/Close dialog"],
+      target: [{ kind: "role", name: "Close dialog", role: "button" }],
       type: "click" as const,
     },
     when: {
-      selectors: ["aria/Dialog"],
+      target: [{ kind: "role", name: "Dialog", role: "dialog" }],
       type: "selectorVisible" as const,
     },
   };
@@ -524,7 +513,7 @@ test("arms explicit Flow Pre-step capture and condition picking", async () => {
     ...active,
     flow: {
       ...active.flow,
-      contingency: { preSteps: [preStep] },
+      preSteps: [preStep],
     },
   };
   rpc.conditionResult = { ...withPreStep, captureMode: "conditionPicker" };
@@ -541,7 +530,7 @@ test("renames and rebinds Variables", async () => {
     id: "email-change",
     preSteps: [],
     step: {
-      selectors: ["aria/Email"],
+      target: [{ kind: "label", label: "Email" }],
       type: "change" as const,
       value: "{{ACCOUNT}}",
     },
@@ -551,13 +540,11 @@ test("renames and rebinds Variables", async () => {
     ...active,
     flow: {
       ...active.flow,
-      contingency: {
-        variables: [
-          { name: "ACCOUNT", runtime: true, secret: true },
-          { name: "LOGIN", runtime: true, secret: true },
-        ],
-      },
       steps: [...active.flow.steps, changeStep.step],
+      variables: [
+        { name: "ACCOUNT", runtime: true, secret: true },
+        { name: "LOGIN", runtime: true, secret: true },
+      ],
     },
     recordedSteps: [...active.recordedSteps, changeStep],
   };

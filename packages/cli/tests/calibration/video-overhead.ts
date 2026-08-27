@@ -54,11 +54,7 @@ import type { Flow, Run, RunVideoManifest } from "@contingency/protocol";
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Console, Data, Duration, Effect, FileSystem } from "effect";
 
-import {
-  canRecordVideo,
-  IntegrationLive,
-  runFlow,
-} from "../integration/harness";
+import { IntegrationLive, runFlow } from "../integration/harness";
 
 /** How many interleaved pairs to run when the caller does not say. */
 const DEFAULT_PAIRS = 10;
@@ -168,18 +164,17 @@ const calibrationServer = Effect.gen(function* serveCalibrationPage() {
  * history if anyone ever points Runs at a durable output directory.
  */
 const calibrationFlow = (url: string): Flow => ({
-  contingency: { flowId: "video-overhead-calibration" },
+  flowId: "video-overhead-calibration" as Flow["flowId"],
   steps: [
     {
-      contingency: { id: "open", performance: true },
+      id: "open",
+      performance: true,
       type: "navigate",
       url,
     },
     {
-      contingency: { id: "block" },
-      offsetX: 1,
-      offsetY: 1,
-      selectors: [["#block"]],
+      id: "block",
+      target: [{ kind: "css", selector: "#block" }],
       type: "click",
     },
   ],
@@ -525,13 +520,6 @@ const summarize = Effect.fn("calibration.summarize")(function* summarize(
 });
 
 const program = Effect.gen(function* runExperiment() {
-  if (!canRecordVideo()) {
-    return yield* new CalibrationError({
-      message:
-        "ffmpeg is not on the PATH, so video Runs would encode nothing and the video condition would measure a lie. Install ffmpeg and rerun.",
-    });
-  }
-
   const [pairsArgument] = process.argv.slice(2);
   const pairs =
     pairsArgument === undefined

@@ -39,8 +39,8 @@ jobs:
   integration:
     name: Integration (real browser)
     runs-on: ubuntu-latest
-    # The suite launches the bundled browser per test file and downloads it on
-    # first run, so it is slower than everything above by an order of magnitude.
+    # The suite launches a real Chromium per test file, so it is slower than
+    # everything above by an order of magnitude.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -49,17 +49,22 @@ jobs:
 
       - run: nub ci
 
-      # ffmpeg is what the browser encodes a capture with; it is not bundled,
-      # and the ubuntu-24.04 runner image no longer ships it. Without it the
-      # video assertions skip themselves, and a skipped test proves nothing
-      # about the feature it names — so install it, then fail loudly if it is
-      # still missing rather than letting the suite pass on skips.
-      - name: Install ffmpeg
+      # The Runner drives Chromium through playwright-core, which resolves the
+      # browser from the standard cache. Without a browser every test fails,
+      # and a pinned build keeps Runs comparable across CI runs.
+      - name: Install Chromium
+        run: nub exec --cwd packages/cli playwright-core install chromium
+
+      # The video integration test decodes the WebM it captured with ffprobe;
+      # without it the test skips itself, and a skipped test proves nothing
+      # about the feature it names. The runner no longer encodes with ffmpeg,
+      # but the probe stays a hard prerequisite of this job.
+      - name: Install ffmpeg (ffprobe for the video assertions)
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Check ffmpeg is present
-        run: ffmpeg -version
+      - name: Check ffprobe is present
+        run: ffprobe -version
 
       - run: nub exec turbo run test:integration

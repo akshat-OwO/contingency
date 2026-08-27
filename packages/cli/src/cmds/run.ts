@@ -12,7 +12,6 @@ import {
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
 
-import { AgentBrowser } from "../services/agent-browser";
 import {
   decodeFlowDocument,
   DEFAULT_RETRY,
@@ -20,9 +19,9 @@ import {
   flowRunsDirectory,
   Runner,
   RunnerError,
-} from "../services/runner";
-import { defaultRunsDirectory } from "../services/state-directory";
-import { preflight } from "../services/variables";
+} from "../services/runner.ts";
+import { defaultRunsDirectory } from "../services/state-directory.ts";
+import { preflight } from "../services/variables.ts";
 
 /**
  * A Run that did not complete is the product's core signal, not a crash. It
@@ -39,9 +38,10 @@ class RunDidNotComplete extends Data.TaggedError("RunDidNotComplete")<{
 /**
  * How to say that a captured Run produced no recording, when it produced none.
  *
- * The browser tool encodes captures with `ffmpeg` and does not bundle it, so a
- * machine without it records nothing. Whatever the reason, asking for video
- * and silently getting none sends someone hunting for a file.
+ * Playwright flushes the capture when the browser closes, and a capture that
+ * never began — or was cut off mid-encode — leaves nothing behind. Whatever
+ * the reason, asking for video and silently getting none sends someone
+ * hunting for a file.
  */
 const videoWarning = Effect.fn("run.videoWarning")(function* videoWarning(
   run: Run,
@@ -114,7 +114,6 @@ export const runCommand = Command.make(
   }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const runner = yield* Runner;
-    const agentBrowser = yield* AgentBrowser;
     const resolvedPath = path.resolve(flowPath);
 
     const contents = yield* fileSystem.readFileString(resolvedPath).pipe(
@@ -153,10 +152,10 @@ export const runCommand = Command.make(
       yield* Console.warn(`Warning: ${warning}`);
     }
 
-    const capture = Option.isSome(video)
-      ? video.value
-      : (flow.contingency?.video ?? false);
-    if (capture && (flow.contingency?.variables ?? []).some((v) => v.secret)) {
+    // Video is an observation aid, never a Flow property: it reflects how
+    // this Run was invoked (ADR 0014).
+    const capture = Option.isSome(video) ? video.value : false;
+    if (capture && (flow.variables ?? []).some((variable) => variable.secret)) {
       // Capture is deliberately not suspended while a Step enters a secret, so
       // the recording shows in plaintext what run.json redacts (ADR 0010).
       // Accepted, but never silent.
@@ -164,25 +163,6 @@ export const runCommand = Command.make(
         "Warning: this Flow declares secret Variables and video is on. The recording will show their values in plaintext, unlike the Run."
       );
     }
-    if (capture) {
-      // The browser runs one command at a time per session, so a recording
-      // flush queues behind whatever the browser is still doing. Interrupting
-      // while a navigation is in flight can therefore lose the recording
-      // (ADR 0010). Said here, because at Ctrl-C time it is too late to say
-      // anything.
-      yield* Console.warn(
-        "Warning: video is on. Interrupting the Run while a navigation is in flight may lose the recording."
-      );
-    }
-
-    yield* agentBrowser.init().pipe(
-      Effect.mapError(
-        (cause) =>
-          new RunnerError({
-            message: `Could not prepare the browser: ${cause.message}`,
-          })
-      )
-    );
 
     const { directory, run } = yield* runner.run(flow, {
       outputDirectory,
@@ -235,8 +215,7 @@ export const runCommand = Command.make(
       // which are the same only while no Step is ever left out.
       const source = run.flow.steps[step.index];
       return (
-        source?.type !== "customStep" &&
-        source?.contingency?.performance === true &&
+        source?.performance === true &&
         step.outcome === "completed" &&
         step.vitals === undefined
       );

@@ -1,19 +1,8 @@
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 
-import { AgentBrowser } from "../services/agent-browser";
-import { runCommand } from "./run";
-import { webCommand } from "./web";
+import { runCommand } from "./run.ts";
 
-const rootCommand = Command.make("contingency", {}, () =>
-  Effect.gen(function* runContingency() {
-    const agentBrowser = yield* AgentBrowser;
+const rootCommand = Command.make("contingency", {}, () => Effect.void);
 
-    yield* agentBrowser.init();
-    yield* Console.log("Hello from contigency");
-  })
-);
-
-export const commands = rootCommand.pipe(
-  Command.withSubcommands([runCommand, webCommand])
-);
+export const commands = rootCommand.pipe(Command.withSubcommands([runCommand]));

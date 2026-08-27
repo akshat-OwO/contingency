@@ -2,8 +2,10 @@ import { runInNewContext } from "node:vm";
 
 import { expect, it } from "@effect/vitest";
 
-import { VITALS_COLLECTOR } from "../../src/services/vitals-collector";
-import { VITALS_GLOBAL } from "../../src/services/vitals-recorder";
+import {
+  VITALS_COLLECTOR,
+  VITALS_GLOBAL,
+} from "../../src/services/vitals-recorder";
 
 interface RecordedVitals {
   firstInput: { duration: number; startTime: number } | null;
@@ -46,8 +48,8 @@ const collect = async (
     performance: page,
     setTimeout,
     window: { [VITALS_GLOBAL]: state },
-  })) as string;
-  return JSON.parse(collected) as Collected;
+  })) as Collected;
+  return collected;
 };
 
 it("scores CLS as the worst session window, not the total", async () => {

@@ -98,7 +98,7 @@ export interface PreflightReport {
 }
 
 const declaredVariables = (flow: Flow): readonly Variable[] =>
-  flow.contingency?.variables ?? [];
+  flow.variables ?? [];
 
 /**
  * Resolve every Variable the Flow declares before a browser opens, and report

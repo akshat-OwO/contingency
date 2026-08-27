@@ -1,4 +1,5 @@
 import type {
+  LocatorDescriptor,
   PreStep,
   RecordedStep,
   RecordingSnapshot,
@@ -30,7 +31,7 @@ const stepLabel = (
   step: RecordedStep["step"] | PreStep["step"],
   variable?: string
 ): string => {
-  if (step.type === "customStep") {
+  if (step.type === "audit") {
     return "Accessibility Audit";
   }
   if (step.type === "navigate") {
@@ -48,18 +49,80 @@ const stepLabel = (
   if (step.type === "click") {
     return "Click element";
   }
+  if (step.type === "hover") {
+    return "Hover element";
+  }
+  if (step.type === "scroll") {
+    return "Scroll page";
+  }
+  if (step.type === "selectOption") {
+    return "Select option";
+  }
+  if (step.type === "waitFor") {
+    return "Wait for condition";
+  }
+  if (step.type === "press") {
+    return `Press ${step.key}`;
+  }
   return `${step.type === "keyDown" ? "Press" : "Release"} ${step.key}`;
 };
 
+const describeLocator = (descriptor: LocatorDescriptor): string => {
+  switch (descriptor.kind) {
+    case "role": {
+      return `${descriptor.role} "${descriptor.name}"`;
+    }
+    case "label": {
+      return `label "${descriptor.label}"`;
+    }
+    case "placeholder": {
+      return `placeholder "${descriptor.placeholder}"`;
+    }
+    case "text": {
+      return `"${descriptor.text}"`;
+    }
+    case "css": {
+      return descriptor.selector;
+    }
+    case "xpath": {
+      return descriptor.expression;
+    }
+    default: {
+      throw new Error("Unknown locator descriptor.");
+    }
+  }
+};
+
+/**
+ * The ladder is ordered alternatives, not a path, so the card names the
+ * leading descriptor — the strategy most likely to still resolve.
+ */
+const targetLabel = (target: readonly LocatorDescriptor[]): string => {
+  const [lead] = target;
+  return lead === undefined ? "" : describeLocator(lead);
+};
+
 const selectorLabel = (recorded: RecordedStep): string | undefined => {
-  if (recorded.step.type === "customStep") {
-    return "Contingency custom Step";
+  const { step } = recorded;
+  if (step.type === "audit") {
+    // The card's title already says what an Audit is.
+    return undefined;
   }
-  if (recorded.step.type === "navigate") {
-    return recorded.step.url;
+  if (step.type === "navigate") {
+    return step.url;
   }
-  const [selector] = recorded.step.selectors;
-  return typeof selector === "string" ? selector : selector?.join(" → ");
+  if (step.type === "scroll") {
+    return `Δ (${step.deltaX ?? 0}, ${step.deltaY ?? 0})`;
+  }
+  if (step.type === "waitFor") {
+    return step.condition.type === "urlMatches"
+      ? step.condition.pattern
+      : targetLabel(step.condition.target);
+  }
+  if ("target" in step && step.target !== undefined) {
+    return targetLabel(step.target);
+  }
+  return undefined;
 };
 
 const downloadFlow = (recording: RecordingSnapshot): void => {
@@ -93,7 +156,7 @@ const StepCard = ({ controller, index, variables, step }: StepCardProps) => {
   const frozen =
     recording.phase === "finished" || recording.phase === "incomplete";
   const initial = index === 0;
-  const audit = step.step.type === "customStep";
+  const audit = step.step.type === "audit";
 
   return (
     <li className="bg-card space-y-3 rounded-lg border p-3">
@@ -293,7 +356,7 @@ export const VariablesSection = ({
   readonly controller: RecordingAuthoringController;
 }) => {
   const { busy, recording } = controller;
-  const variables = recording?.flow.contingency?.variables ?? [];
+  const variables = recording?.flow.variables ?? [];
   if (recording === null || variables.length === 0) {
     return null;
   }
@@ -327,7 +390,7 @@ export const FlowPreStepsSection = ({
   readonly controller: RecordingAuthoringController;
 }) => {
   const { busy, recording } = controller;
-  const preSteps = recording?.flow.contingency?.preSteps ?? [];
+  const preSteps = recording?.flow.preSteps ?? [];
   if (recording === null || preSteps.length === 0) {
     return null;
   }
@@ -353,9 +416,10 @@ export const FlowPreStepsSection = ({
       </div>
       <ol className="space-y-2">
         {preSteps.map((preStep, index) => {
-          const [selector] = preStep.step.selectors;
           const selectorText =
-            typeof selector === "string" ? selector : selector?.join(" → ");
+            "target" in preStep.step && preStep.step.target !== undefined
+              ? targetLabel(preStep.step.target)
+              : undefined;
           return (
             <li
               className="bg-card space-y-3 rounded-lg border p-3"
@@ -399,8 +463,7 @@ export const RecordedStepsSection = ({
   readonly controller: RecordingAuthoringController;
 }) => {
   const { recording } = controller;
-  const variables =
-    recording?.flow.contingency?.variables?.map(({ name }) => name) ?? [];
+  const variables = recording?.flow.variables?.map(({ name }) => name) ?? [];
   return (
     <section aria-labelledby="recorded-steps-heading" className="space-y-3">
       <div className="flex items-center justify-between gap-3">
