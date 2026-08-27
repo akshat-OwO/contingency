@@ -79,3 +79,36 @@ it.live("retries in fresh contexts and records every attempt", () =>
     expect(run.steps).toHaveLength(2);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
+
+it.live("records an unusable urlMatches pattern without failing the Run", () =>
+  Effect.gen(function* unusablePattern() {
+    const fixtures = yield* fixtureServer;
+
+    const { run } = yield* runFlow({
+      preSteps: [
+        {
+          id: "malformed",
+          step: {
+            target: [{ kind: "css", selector: "#view-cart" }],
+            type: "click",
+          },
+          // An unclosed group: a pattern a Flow can carry but no engine can
+          // compile.
+          when: { pattern: "https://shop.test/(", type: "urlMatches" },
+        },
+      ],
+      steps: [
+        { type: "navigate", url: fixtures.url("shop.html") },
+        { target: [{ kind: "css", selector: "#view-cart" }], type: "click" },
+      ],
+      title: "Unusable pattern",
+    });
+
+    // A condition nobody could evaluate is the Pre-step's problem, not the
+    // Run's: it is recorded as unanswerable and the journey continues.
+    expect(run.outcome).toBe("completed");
+    const [preStep] = run.steps[1]?.preSteps ?? [];
+    expect(preStep?.outcome).toBe("failed");
+    expect(preStep?.error).toContain("regular expression");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);

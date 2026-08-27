@@ -969,8 +969,14 @@ const conditionHolds = Effect.fn("Runner.conditionHolds")(
     const page = located.success;
 
     if (when.type === "urlMatches") {
-      const pattern = yield* compilePattern(when.pattern);
-      return pattern.test(page.url()) satisfies ConditionOutcome;
+      // A pattern no engine can compile is a condition nobody can answer, not
+      // a failed Run. A Pre-step is best-effort (ADR 0009), so the Flow's own
+      // error is reported on the Pre-step and the journey continues; the
+      // `waitFor` Step, whose condition is the Step, still fails on it.
+      const pattern = yield* Effect.result(compilePattern(when.pattern));
+      return pattern._tag === "Failure"
+        ? ({ reason: pattern.failure.message } satisfies ConditionOutcome)
+        : (pattern.success.test(page.url()) satisfies ConditionOutcome);
     }
 
     let unanswered = "";
