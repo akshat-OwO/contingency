@@ -216,8 +216,15 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
 });
 
 /** A Flow, with the boilerplate a Recorder would have written for it. */
-export const flow = (steps: Flow["steps"], title = "Integration"): Flow =>
-  ({ steps, title }) as Flow;
+export const flow = (
+  steps: Flow["steps"],
+  title = "Integration",
+  variables?: Flow["variables"]
+): Flow => ({
+  steps,
+  title,
+  ...(variables === undefined ? {} : { variables }),
+});
 
 /**
  * Execute a Flow through the real Runner and hand back the Run, plus the

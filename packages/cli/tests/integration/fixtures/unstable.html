@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Unstable</title>
+    <style>
+      #veil {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.05);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Unstable</h1>
+      <!--
+        Two ways an element can be right there and still refuse an action, which
+        a Flow author needs told apart from an element that is simply gone.
+      -->
+
+      <!-- Replaced faster than an action can settle on it. -->
+      <div id="wrap">
+        <button id="flappy" type="button">Flappy</button>
+      </div>
+
+      <!-- Visible, attached, and covered by something that eats the click. -->
+      <button id="covered" type="button">Covered</button>
+    </main>
+    <div id="veil"></div>
+    <script>
+      // Re-created rather than merely moved: the node the action resolved to is
+      // detached every tick, which is what the browser reports as detached.
+      setInterval(() => {
+        const wrap = document.getElementById("wrap");
+        wrap.textContent = "";
+        const button = document.createElement("button");
+        button.id = "flappy";
+        button.type = "button";
+        button.textContent = "Flappy";
+        wrap.appendChild(button);
+      }, 30);
+    </script>
+  </body>
+</html>

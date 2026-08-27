@@ -29,6 +29,8 @@ import type {
   RunTraceSegment,
   RunVideoManifest,
   RunVideoSegment,
+  SelectorCandidate,
+  SelectorDiagnostics,
 } from "@contingency/protocol";
 import {
   Context,
@@ -45,6 +47,13 @@ import { chromium, errors } from "playwright-core";
 import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
+import {
+  describeDiagnostics,
+  describeLocator,
+  missedCandidate,
+  redactDiagnostics,
+  selectorDiagnostics,
+} from "./selector-diagnostics.ts";
 import {
   deriveVideoFromTrace,
   prepareTraceArtifacts,
@@ -108,6 +117,11 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
    * browser died" read alike.
    */
   readonly kind?: RunFailure["kind"];
+  /**
+   * Every candidate a resolution failure tried, and what the page had instead.
+   * Absent on failures that are not about finding an element.
+   */
+  readonly diagnostics?: SelectorDiagnostics;
   readonly message: string;
 }> {}
 
@@ -157,8 +171,20 @@ export interface RunResult {
 
 export const Runner = Context.Service<RunnerService>("@contingency/Runner");
 
-const errorMessage = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+/**
+ * What a failure says, for a reader rather than a stack trace.
+ *
+ * An `Error` is not guaranteed to carry a message: Effect's own `TimeoutError`
+ * is an Error subclass whose `message` is undefined, and taking it on trust
+ * puts `undefined` where the Run expects a string. Falling back to the
+ * error's own stringification keeps every failure describable.
+ */
+const errorMessage = (cause: unknown): string => {
+  const message = cause instanceof Error ? cause.message : undefined;
+  return message === undefined || message.length === 0
+    ? String(cause)
+    : message;
+};
 
 const stableStringify = (value: unknown): string => {
   if (value === null || typeof value !== "object") {
@@ -351,33 +377,6 @@ const normalizeUrl = (value: string): Effect.Effect<string, RunnerError> =>
     },
   });
 
-/** How a descriptor reads in a failure message: words before raw paths. */
-const describeLocator = (descriptor: LocatorDescriptor): string => {
-  switch (descriptor.kind) {
-    case "role": {
-      return `role ${descriptor.role} named "${descriptor.name}"`;
-    }
-    case "label": {
-      return `label "${descriptor.label}"`;
-    }
-    case "placeholder": {
-      return `placeholder "${descriptor.placeholder}"`;
-    }
-    case "text": {
-      return `text "${descriptor.text}"`;
-    }
-    case "css": {
-      return `CSS ${descriptor.selector}`;
-    }
-    case "xpath": {
-      return `XPath ${descriptor.expression}`;
-    }
-    default: {
-      throw new Error("Unknown locator descriptor.");
-    }
-  }
-};
-
 const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator => {
   switch (descriptor.kind) {
     case "role": {
@@ -467,6 +466,19 @@ const pageFor = Effect.fn("Runner.pageFor")(function* pageFor(
 });
 
 /**
+ * A failed Step's diagnostics, scrubbed, or nothing when the failure was not
+ * about finding an element. Spread into the record either way, so the field is
+ * absent rather than explicitly undefined.
+ */
+const redactedSelector = (
+  failure: RunnerError,
+  variables: VariableResolution
+): { selector?: SelectorDiagnostics } =>
+  failure.diagnostics === undefined
+    ? {}
+    : { selector: redactDiagnostics(failure.diagnostics, variables) };
+
+/**
  * Act through a Step's ordered target, first match wins. The alternatives are
  * candidates, not a sequence: the first that resolves wins, and only the
  * exhaustion of all of them fails the Step — naming every strategy tried, so
@@ -477,29 +489,58 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
   target: readonly LocatorDescriptor[],
   perform: (locator: Locator) => Promise<unknown>
 ) {
-  const tried: string[] = [];
-  let lastMessage = "";
+  const tried: SelectorCandidate[] = [];
+  /**
+   * This candidate settled nothing about the selector, so the ladder stops and
+   * the failure is left unattributed — no `kind`, because neither the Flow nor
+   * the site has been shown to be at fault.
+   *
+   * Candidates already classified still ride along: their misses were verified
+   * before this one went unanswered, and dropping them would lose established
+   * evidence to an accident of ordering. No `nearest`, because that answer
+   * would have to come from the same page that just stopped giving them.
+   */
+  const unattributed = (message: string) =>
+    new RunnerError({
+      message,
+      ...(tried.length === 0
+        ? {}
+        : { diagnostics: { candidates: [...tried] } }),
+    });
+
   for (const descriptor of target) {
+    const locator = locatorFor(page, descriptor);
     const outcome = yield* Effect.result(
       Effect.tryPromise({
         catch: (cause: unknown) => cause,
-        try: () => perform(locatorFor(page, descriptor)),
+        try: () => perform(locator),
       })
     );
     if (outcome._tag === "Success") {
       return;
     }
-    // A candidate that already reached the page is not an unresolved locator:
-    // trying the next one would act on the page a second time.
     if (!isCandidateMiss(outcome.failure)) {
-      return yield* new RunnerError({ message: errorMessage(outcome.failure) });
+      return yield* unattributed(errorMessage(outcome.failure));
     }
-    tried.push(describeLocator(descriptor));
-    lastMessage = errorMessage(outcome.failure);
+    const candidate = yield* Effect.result(
+      missedCandidate(descriptor, locator, outcome.failure)
+    );
+    // Recording an unverified absence would launder a dead session into a
+    // stale-Flow verdict — the same misattribution the guard above prevents,
+    // one step later. The message says so, because "TimeoutError" on its own
+    // would send a reader looking at their selectors.
+    if (candidate._tag === "Failure") {
+      return yield* unattributed(
+        `The page stopped answering while this Step's target was being diagnosed, so nothing was established about ${describeLocator(descriptor)}: ${errorMessage(candidate.failure)}`
+      );
+    }
+    tried.push(candidate.success);
   }
+  const diagnostics = yield* selectorDiagnostics(page, target, tried);
   return yield* new RunnerError({
+    diagnostics,
     kind: "flowError",
-    message: `Could not resolve this Step's target (tried ${tried.length}): ${tried.join("; ")}. Last reason: ${lastMessage}`,
+    message: describeDiagnostics(diagnostics),
   });
 });
 
@@ -1151,6 +1192,7 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
       // value it typed, so the message is redacted before it reaches the Run.
       error: redactSecrets(outcome.failure.message, execution.variables),
       outcome: "failed",
+      ...redactedSelector(outcome.failure, execution.variables),
     } as const;
   }
 );
@@ -1774,7 +1816,12 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           const message = redactSecrets(outcome.failure.message, variables);
           const kind = classifyStepFailure(outcome.failure.kind, message);
 
-          steps.push({ ...base, error: message, outcome: "failed" });
+          steps.push({
+            ...base,
+            error: message,
+            outcome: "failed",
+            ...redactedSelector(outcome.failure, variables),
+          });
           failure = {
             ...(kind === undefined ? {} : { kind }),
             message,
