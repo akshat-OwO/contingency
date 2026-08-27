@@ -8,6 +8,7 @@ import {
   accessibilityRuleTags,
   FindingSeverity,
   Flow as FlowSchema,
+  gateBreaches,
   stepNavigates,
 } from "@contingency/protocol";
 import type {
@@ -25,6 +26,7 @@ import type {
   RunAttempt,
   RunEnvironment,
   RunFailure,
+  RunGate,
   RunPreStep,
   RunStep,
   RunTraceManifest,
@@ -200,6 +202,14 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
 }> {}
 
 export interface RunnerRunOptions {
+  /**
+   * Accessibility rule ids this Run must produce no Finding against,
+   * overriding whatever Gate the Flow declares. A Gate lives in the Flow
+   * because it is a fact about what is being audited, but an invocation may
+   * tighten or relax the bar without editing the Flow (ADR 0018). An empty
+   * array is a deliberate override that holds the Run to nothing.
+   */
+  readonly gate?: readonly string[] | undefined;
   /** Keep the Run's Playwright Trace. Defaults to true. */
   readonly trace?: boolean;
   /** Generate a video from the Trace's per-Step screenshots. */
@@ -229,6 +239,37 @@ export const DEFAULT_TIMEOUT = Duration.minutes(5);
 const NO_VARIABLES: VariableResolution = {
   secretNames: new Set(),
   values: new Map(),
+};
+
+/**
+ * The Gate this Run was held to, and which of its rules the Run breached.
+ *
+ * `undefined` — no Gate declared and none supplied — is the default, where a
+ * Run reports every violation and fails nothing (ADR 0009). An invocation that
+ * supplies an empty list relaxes the bar to nothing deliberately, and reads
+ * the same way.
+ *
+ * Findings come from the last attempt's Steps, which are the Steps the Run
+ * reports. An earlier attempt's Findings describe a page the Run went on to
+ * replay from scratch.
+ */
+const accountForGate = (
+  flow: Flow,
+  override: readonly string[] | undefined,
+  steps: readonly RunStep[]
+): RunGate | undefined => {
+  const rules = override ?? flow.gate;
+  if (rules === undefined || rules.length === 0) {
+    return undefined;
+  }
+  return {
+    breached: gateBreaches(
+      rules,
+      steps.flatMap((step) => step.findings ?? [])
+    ),
+    rules,
+    source: override === undefined ? "flow" : "invocation",
+  };
 };
 
 export interface RunnerService {
@@ -2284,6 +2325,9 @@ export const makeRunnerService = () =>
             );
 
             const last = attempts.at(-1);
+            // Read off the Steps the Run reports, so the Gate answers for the
+            // attempt whose Findings the artifact actually carries.
+            const gate = accountForGate(flow, options.gate, last?.steps ?? []);
 
             // Persisting what the Run carried out is best-effort: a Run that
             // executed its Flow is a completed Run even if the snapshot for
@@ -2313,6 +2357,10 @@ export const makeRunnerService = () =>
               flow,
               flowHash,
               flowId,
+              // A breach never reaches `outcome`: the site missed the bar, the
+              // Run executed fine, and `runIsBaselineEligible` keys on outcome
+              // (ADR 0018).
+              ...(gate === undefined ? {} : { gate }),
               outcome: failure === undefined ? "completed" : "failed",
               runId,
               startedAt: startedAt.toISOString(),
