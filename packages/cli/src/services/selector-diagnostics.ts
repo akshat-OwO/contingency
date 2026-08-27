@@ -5,6 +5,7 @@ import type {
   SelectorCandidate,
   SelectorDiagnostics,
 } from "@contingency/protocol";
+import { matchLocatorDescriptor } from "@contingency/protocol";
 import { Effect, Function, Schema } from "effect";
 import type { Locator, Page } from "playwright-core";
 
@@ -59,6 +60,10 @@ const DETACHED = "detached from the DOM";
 /** How much of the browser's own wording a diagnostic carries. */
 const DETAIL_LIMIT = 120;
 
+/** Terminal styling Playwright may include in its call log. */
+// oxlint-disable-next-line eslint/no-control-regex -- ANSI begins with ESC.
+const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/gu;
+
 /**
  * Playwright's own retry bookkeeping. These lines say the action was tried
  * again, never why it had to be — and they are what a call log ends on, so
@@ -87,6 +92,8 @@ const obstacleLine = (message: string): string => {
     .split("\n")
     .map((line) =>
       line
+        .trim()
+        .replaceAll(ANSI_ESCAPE, "")
         .trim()
         .replace(/^-\s*/u, "")
         .replace(/^\d+ × /u, "")
@@ -124,43 +131,24 @@ const nearestOf = (
  */
 const readDescriptor = (
   descriptor: LocatorDescriptor
-): { readonly phrase: string; readonly term: string } => {
-  switch (descriptor.kind) {
-    case "role": {
-      return {
-        phrase: `role ${descriptor.role} named "${descriptor.name}"`,
-        term: descriptor.name,
-      };
-    }
-    case "label": {
-      return { phrase: `label "${descriptor.label}"`, term: descriptor.label };
-    }
-    case "placeholder": {
-      return {
-        phrase: `placeholder "${descriptor.placeholder}"`,
-        term: descriptor.placeholder,
-      };
-    }
-    case "text": {
-      return { phrase: `text "${descriptor.text}"`, term: descriptor.text };
-    }
-    case "css": {
-      return {
-        phrase: `CSS ${descriptor.selector}`,
-        term: descriptor.selector,
-      };
-    }
-    case "xpath": {
-      return {
-        phrase: `XPath ${descriptor.expression}`,
-        term: descriptor.expression,
-      };
-    }
-    default: {
-      throw new Error("Unknown locator descriptor.");
-    }
-  }
-};
+): { readonly phrase: string; readonly term: string } =>
+  matchLocatorDescriptor(descriptor, {
+    css: ({ selector }) => ({ phrase: `CSS ${selector}`, term: selector }),
+    label: ({ label }) => ({ phrase: `label "${label}"`, term: label }),
+    placeholder: ({ placeholder }) => ({
+      phrase: `placeholder "${placeholder}"`,
+      term: placeholder,
+    }),
+    role: ({ name, role }) => ({
+      phrase: `role ${role} named "${name}"`,
+      term: name,
+    }),
+    text: ({ text }) => ({ phrase: `text "${text}"`, term: text }),
+    xpath: ({ expression }) => ({
+      phrase: `XPath ${expression}`,
+      term: expression,
+    }),
+  });
 
 /** How a descriptor reads in a failure message: words before raw paths. */
 export const describeLocator = (descriptor: LocatorDescriptor): string =>

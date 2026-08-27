@@ -130,8 +130,24 @@ export const FindingSeverity = Schema.Literals([
 ]);
 export type FindingSeverity = typeof FindingSeverity.Type;
 
+/** One sampled element that a rule failed on. */
+export const FindingNode = Schema.Struct({
+  /** The engine's explanation for why this element failed the rule. */
+  message: nonEmptyString,
+  /**
+   * How to find the element. Frame hops use ` >>> ` and shadow-root hops use
+   * ` >> `, matching the browser tooling's piercing-selector notation.
+   */
+  target: nonEmptyString,
+});
+export type FindingNode = typeof FindingNode.Type;
+
 /**
- * One accessibility violation, at one element, found by one Audit Step.
+ * One accessibility rule violation found by one Audit Step.
+ *
+ * `nodeCount` is the engine's true count and `nodes` is Contingency's bounded
+ * sample of places to start. A rule failing on four hundred elements therefore
+ * produces one Finding rather than four hundred indistinguishable records.
  *
  * A Finding never influences a Run's outcome or the CLI's exit code. Every
  * real site has pre-existing violations, and failing a build on their count
@@ -142,18 +158,15 @@ export const Finding = Schema.Struct({
   /** The engine's fix guidance for this rule. */
   helpUrl: Schema.optional(nonEmptyString),
   message: nonEmptyString,
+  /** How many elements the engine says failed this rule. */
+  nodeCount: Schema.Int,
+  /** A bounded sample of elements that failed this rule. */
+  nodes: Schema.Array(FindingNode),
   /** The engine's rule id, e.g. `image-alt`. */
   rule: nonEmptyString,
   severity: FindingSeverity,
   /** Position of the Audit Step that produced it, in executed Flow order. */
   stepIndex: Schema.Int,
-  /**
-   * How to find the element. Rendered rather than structured, because the one
-   * thing anyone does with a target is look for the element it names: hops
-   * across a frame boundary are joined with ` >>> ` and into a shadow root
-   * with ` >> `, matching how the browser tooling writes piercing selectors.
-   */
-  target: nonEmptyString,
 });
 export type Finding = typeof Finding.Type;
 
@@ -221,41 +234,11 @@ export const RunEnvironment = Schema.Struct({
 export type RunEnvironment = typeof RunEnvironment.Type;
 
 /**
- * A rule the engine reported only in part.
- *
- * The engine itself reports every element a rule failed on; the cap on how
- * many are listed is Contingency's own, chosen and written down (ADR 0017):
- * ten per rule. A rule failing on four hundred elements says so once with its
- * true count rather than producing four hundred Findings, while the listed
- * sample still names where to start.
- *
- * Recording the shortfall keeps a later Baseline comparison honest. Without
- * it, a page whose violations grew past the cap and a page that genuinely
- * improved to the cap produce the same Findings, and the Regression that
- * matters is the one that stays invisible.
- */
-export const ElidedFindings = Schema.Struct({
-  /** How many the Run holds Findings for. */
-  reported: Schema.Int,
-  rule: nonEmptyString,
-  severity: FindingSeverity,
-  stepIndex: Schema.Int,
-  /** How many the engine says the page has. */
-  total: Schema.Int,
-});
-export type ElidedFindings = typeof ElidedFindings.Type;
-
-/**
  * One executed Step, recorded whether it succeeded or not. `index` is the
  * Step's position in the executed Flow, so a Run reads against its own
  * embedded Flow without a separate lookup.
  */
 export const RunStep = Schema.Struct({
-  /**
-   * Rules whose violations this Step's Findings represent only in part.
-   * Absent when every violation the engine counted is also listed.
-   */
-  elidedFindings: Schema.optional(Schema.Array(ElidedFindings)),
   error: Schema.optional(Schema.String),
   /** Everything an Audit Step found. Absent on Steps that audit nothing. */
   findings: Schema.optional(Schema.Array(Finding)),

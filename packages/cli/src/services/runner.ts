@@ -10,13 +10,13 @@ import {
   Flow as FlowSchema,
   Gate as GateSchema,
   gateBreaches,
+  matchLocatorDescriptor,
   stepNavigates,
 } from "@contingency/protocol";
 import type {
   AuthoredStep,
   Condition,
   CoreWebVitals,
-  ElidedFindings,
   Finding,
   Flow,
   Geolocation,
@@ -129,27 +129,6 @@ const emulationContextOptions = (
     width: emulation?.viewport?.width ?? DEFAULT_RUN_VIEWPORT.width,
   },
 });
-
-/**
- * Grant the Emulation's declared permissions on an opened context. Grants are
- * context options in Playwright rather than constructor arguments, so they
- * land immediately after it opens — before any Page exists to observe them
- * missing.
- */
-const grantDeclaredPermissions = async (
-  context: BrowserContext,
-  grants: readonly PermissionGrant[]
-): Promise<void> => {
-  const { byOrigin, contextWide } = groupedPermissionGrants(grants);
-  if (contextWide.length > 0) {
-    await context.grantPermissions(contextWide);
-  }
-  await Promise.all(
-    [...byOrigin].map(([origin, permissions]) =>
-      context.grantPermissions(permissions, { origin })
-    )
-  );
-};
 
 /**
  * How long one Step may act before failing, set explicitly rather than left at
@@ -301,6 +280,40 @@ const errorMessage = (cause: unknown): string => {
     ? String(cause)
     : message;
 };
+
+/**
+ * Grant the Emulation's declared permissions on an opened context. Grants are
+ * context options in Playwright rather than constructor arguments, so they
+ * land immediately after it opens — before any Page exists to observe them
+ * missing.
+ */
+const grantDeclaredPermissions = Effect.fn("Runner.grantDeclaredPermissions")(
+  function* grantDeclaredPermissions(
+    context: BrowserContext,
+    grants: readonly PermissionGrant[]
+  ) {
+    const grant = (permissions: readonly string[], origin?: string) =>
+      Effect.tryPromise({
+        catch: (cause) =>
+          new RunnerError({
+            message: `Could not grant website permissions: ${errorMessage(cause)}`,
+          }),
+        try: () =>
+          origin === undefined
+            ? context.grantPermissions([...permissions])
+            : context.grantPermissions([...permissions], { origin }),
+      });
+    const { byOrigin, contextWide } = groupedPermissionGrants(grants);
+    if (contextWide.length > 0) {
+      yield* grant(contextWide);
+    }
+    yield* Effect.forEach(
+      [...byOrigin],
+      ([origin, permissions]) => grant(permissions, origin),
+      { discard: true }
+    );
+  }
+);
 
 /**
  * The rule ids an invocation holds this Run to, held to the same contract the
@@ -523,35 +536,20 @@ const normalizeUrl = (value: string): Effect.Effect<string, RunnerError> =>
     },
   });
 
-const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator => {
-  switch (descriptor.kind) {
-    case "role": {
-      // The schema accepts any role name the ARIA vocabulary might grow;
-      // Playwright narrows to the roles it knows today.
-      return page.getByRole(descriptor.role as never, {
-        name: descriptor.name,
-      });
-    }
-    case "label": {
-      return page.getByLabel(descriptor.label);
-    }
-    case "placeholder": {
-      return page.getByPlaceholder(descriptor.placeholder);
-    }
-    case "text": {
-      return page.getByText(descriptor.text);
-    }
-    case "css": {
-      return page.locator(descriptor.selector);
-    }
-    case "xpath": {
-      return page.locator(`xpath=${descriptor.expression}`);
-    }
-    default: {
-      throw new Error("Unknown locator descriptor.");
-    }
-  }
-};
+const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator =>
+  matchLocatorDescriptor(descriptor, {
+    css: ({ selector }) => page.locator(selector),
+    label: ({ label }) => page.getByLabel(label),
+    placeholder: ({ placeholder }) => page.getByPlaceholder(placeholder),
+    // The schema accepts any role name the ARIA vocabulary might grow;
+    // Playwright narrows to the roles it knows today.
+    role: (role) =>
+      page.getByRole(role.role as never, {
+        name: role.name,
+      }),
+    text: ({ text }) => page.getByText(text),
+    xpath: ({ expression }) => page.locator(`xpath=${expression}`),
+  });
 
 /**
  * Whether one candidate's failure is evidence about the candidate itself —
@@ -746,18 +744,16 @@ const collectVitals = Effect.fn("Runner.collectVitals")(function* collectVitals(
 // Accessibility Audits
 // ---------------------------------------------------------------------------
 
-/** What one Audit Step found, what the engine did not list in full, and which engine ran. */
+/** What one Audit Step found and which engine ran. */
 export interface AuditResult {
   /** The engine's own version, so the Run can record it (ADR 0017). */
   readonly axeVersion: string | undefined;
-  readonly elided: readonly ElidedFindings[];
   readonly findings: readonly Finding[];
 }
 
 /** One shared empty result, for every Step that finds nothing. */
 const NO_FINDINGS: AuditResult = {
   axeVersion: undefined,
-  elided: [],
   findings: [],
 };
 
@@ -804,11 +800,9 @@ const AuditReport = Schema.Struct({
 });
 
 /**
- * How many elements per failing rule are listed as Findings before the rest
- * are elided. This cap is Contingency's own, chosen and written down (ADR
- * 0017): ten per rule, matching what the replaced browser tool listed, so a
- * rule failing on four hundred elements produces ten Findings and one true
- * count rather than four hundred of each.
+ * How many elements per failing rule are retained as a starting sample. This
+ * cap is Contingency's own, chosen and written down (ADR 0017): ten per rule,
+ * matching what the replaced browser tool listed.
  */
 const AUDIT_NODE_SAMPLE_CAP = 10;
 
@@ -909,31 +903,20 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
 
   return {
     axeVersion: raw.testEngine.version,
-    elided: report.violations.flatMap((violation) =>
-      violation.nodeCount <= AUDIT_NODE_SAMPLE_CAP
-        ? []
-        : [
-            {
-              reported: AUDIT_NODE_SAMPLE_CAP,
-              rule: violation.id,
-              severity: violation.impact,
-              stepIndex,
-              total: violation.nodeCount,
-            } satisfies ElidedFindings,
-          ]
-    ),
-    findings: report.violations.flatMap((violation) =>
-      violation.nodes.slice(0, AUDIT_NODE_SAMPLE_CAP).map((node) => ({
-        ...(violation.helpUrl === undefined
-          ? {}
-          : { helpUrl: violation.helpUrl }),
+    findings: report.violations.map((violation) => ({
+      ...(violation.helpUrl === undefined
+        ? {}
+        : { helpUrl: violation.helpUrl }),
+      message: violation.help,
+      nodeCount: violation.nodeCount,
+      nodes: violation.nodes.slice(0, AUDIT_NODE_SAMPLE_CAP).map((node) => ({
         message: node.failureSummary ?? violation.help,
-        rule: violation.id,
-        severity: violation.impact,
-        stepIndex,
         target: renderAuditTarget(node.target),
-      }))
-    ),
+      })),
+      rule: violation.id,
+      severity: violation.impact,
+      stepIndex,
+    })),
   } satisfies AuditResult;
 });
 
@@ -954,29 +937,38 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
  */
 type ConditionOutcome = boolean | { readonly reason: string };
 
-const conditionHolds = Effect.fn("Runner.conditionHolds")(
-  function* conditionHolds<C extends Condition>(
-    execution: ReplayExecution,
-    when: C,
-    pageIndex: number | undefined
-  ) {
-    const located = yield* Effect.result(
-      pageFor(execution, pageIndex, DEFAULT_ACTION_TIMEOUT_MS)
-    );
-    if (located._tag === "Failure") {
-      return { reason: located.failure.message } satisfies ConditionOutcome;
-    }
-    const page = located.success;
+type PreparedCondition =
+  | Extract<Condition, { readonly type: "selectorHidden" | "selectorVisible" }>
+  | {
+      readonly authoredPattern: string;
+      readonly pattern: RegExp;
+      readonly type: "urlMatches";
+    };
 
+/** Compile the authored parts once, then use one evaluator everywhere. */
+const prepareCondition = (
+  when: Condition
+): Effect.Effect<PreparedCondition, RunnerError> => {
+  if (when.type !== "urlMatches") {
+    return Effect.succeed(when);
+  }
+  return compilePattern(when.pattern).pipe(
+    Effect.map((pattern) => ({
+      authoredPattern: when.pattern,
+      pattern,
+      type: "urlMatches" as const,
+    }))
+  );
+};
+
+/**
+ * Evaluate one prepared condition now. Pre-steps consume this answer once;
+ * `waitFor` repeats the same operation under one Step-wide deadline.
+ */
+const evaluateCondition = Effect.fn("Runner.evaluateCondition")(
+  function* evaluateCondition(page: Page, when: PreparedCondition) {
     if (when.type === "urlMatches") {
-      // A pattern no engine can compile is a condition nobody can answer, not
-      // a failed Run. A Pre-step is best-effort (ADR 0009), so the Flow's own
-      // error is reported on the Pre-step and the journey continues; the
-      // `waitFor` Step, whose condition is the Step, still fails on it.
-      const pattern = yield* Effect.result(compilePattern(when.pattern));
-      return pattern._tag === "Failure"
-        ? ({ reason: pattern.failure.message } satisfies ConditionOutcome)
-        : (pattern.success.test(page.url()) satisfies ConditionOutcome);
+      return when.pattern.test(page.url()) satisfies ConditionOutcome;
     }
 
     let unanswered = "";
@@ -996,7 +988,6 @@ const conditionHolds = Effect.fn("Runner.conditionHolds")(
           return true satisfies ConditionOutcome;
         }
       } else if (outcome.success) {
-        // selectorHidden: the interference the Pre-step clears is present.
         return false satisfies ConditionOutcome;
       }
     }
@@ -1011,6 +1002,28 @@ const conditionHolds = Effect.fn("Runner.conditionHolds")(
   }
 );
 
+const conditionHolds = Effect.fn("Runner.conditionHolds")(
+  function* conditionHolds<C extends Condition>(
+    execution: ReplayExecution,
+    when: C,
+    pageIndex: number | undefined
+  ) {
+    const located = yield* Effect.result(
+      pageFor(execution, pageIndex, DEFAULT_ACTION_TIMEOUT_MS)
+    );
+    if (located._tag === "Failure") {
+      return { reason: located.failure.message } satisfies ConditionOutcome;
+    }
+    // A pattern no engine can compile is a condition nobody can answer, not a
+    // failed Run. A Pre-step is best-effort (ADR 0009), so the Flow's own error
+    // is recorded on the Pre-step and the journey continues.
+    const prepared = yield* Effect.result(prepareCondition(when));
+    return prepared._tag === "Failure"
+      ? ({ reason: prepared.failure.message } satisfies ConditionOutcome)
+      : yield* evaluateCondition(located.success, prepared.success);
+  }
+);
+
 /**
  * Wait until a `waitFor` Step's condition holds, bounded by the Step's own
  * timeout. Timing out fails the Step: unlike a Pre-step's condition, waiting
@@ -1018,74 +1031,31 @@ const conditionHolds = Effect.fn("Runner.conditionHolds")(
  */
 const waitUntilCondition = Effect.fn("Runner.waitUntilCondition")(
   function* waitUntilCondition(page: Page, when: Condition, timeoutMs: number) {
-    if (when.type === "urlMatches") {
-      const pattern = yield* compilePattern(when.pattern);
-      const outcome = yield* Effect.result(
-        Effect.tryPromise({
-          catch: (cause: unknown) => cause,
-          try: () => page.waitForURL(pattern, { timeout: timeoutMs }),
-        })
-      );
-      if (outcome._tag === "Failure") {
-        return yield* new RunnerError({
-          kind: "flowError",
-          message: `This waitFor Step timed out after ${timeoutMs}ms waiting for a URL matching "${when.pattern}".`,
-        });
-      }
-      return;
-    }
-
-    if (when.type === "selectorVisible") {
-      yield* throughLadder(page, when.target, (locator) =>
-        locator.waitFor({ state: "visible", timeout: timeoutMs })
-      ).pipe(
-        Effect.mapError(
-          (cause) =>
-            new RunnerError({
-              kind: cause instanceof RunnerError ? cause.kind : undefined,
-              message: `This waitFor Step timed out after ${timeoutMs}ms waiting for a visible target. ${cause.message}`,
-            })
-        )
-      );
-      return;
-    }
-
-    // selectorHidden: poll until nothing the target names is visible.
+    const prepared = yield* prepareCondition(when);
     const deadline = Date.now() + timeoutMs;
+    let lastReason = "";
     for (;;) {
-      let anyVisible = false;
-      let unanswered = "";
-      for (const descriptor of when.target) {
-        const outcome = yield* Effect.result(
-          Effect.tryPromise({
-            catch: (cause: unknown) => cause,
-            try: () => locatorFor(page, descriptor).isVisible(),
-          })
-        );
-        if (outcome._tag === "Failure") {
-          unanswered = errorMessage(outcome.failure);
-          continue;
-        }
-        if (outcome.success) {
-          anyVisible = true;
-          break;
-        }
-      }
-      // An unanswered candidate keeps the wait unsettled rather than
-      // satisfied: alternatives can name different elements, so the
-      // interference may be the one that could not be read.
-      if (!anyVisible && unanswered === "") {
+      const outcome = yield* evaluateCondition(page, prepared);
+      if (outcome === true) {
         return;
       }
-      if (Date.now() >= deadline) {
+      if (typeof outcome !== "boolean") {
+        lastReason = outcome.reason;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        let waitedFor = "its target to hide";
+        if (prepared.type === "urlMatches") {
+          waitedFor = `a URL matching "${prepared.authoredPattern}"`;
+        } else if (prepared.type === "selectorVisible") {
+          waitedFor = "a visible target";
+        }
         return yield* new RunnerError({
           kind: "flowError",
-          message: `This waitFor Step timed out after ${timeoutMs}ms waiting for its target to hide.${
-            unanswered === "" ? "" : ` Last reason: ${unanswered}`
-          }`,
+          message: `This waitFor Step timed out after ${timeoutMs}ms waiting for ${waitedFor}.${lastReason === "" ? "" : ` Last reason: ${lastReason}`}`,
         });
       }
-      yield* Effect.sleep(WAIT_POLL_MS);
+      yield* Effect.sleep(Math.min(WAIT_POLL_MS, remaining));
     }
   }
 );
@@ -1383,29 +1353,28 @@ interface AttemptResult {
   readonly savedState: BrowserStorageState | undefined;
 }
 
-/**
- * Whether one stored cookie could survive Playwright's own validation when the
- * context opens. A snapshot that fails there would fail every later Run of the
- * Flow at `newContext` — a failed Run never writes a replacement, so the bad
- * file would brick the Flow until someone deleted it by hand. Rejecting it
- * here keeps the promise below: an unrestorable snapshot is no snapshot.
- */
-const isRestorableCookie = (entry: unknown): boolean => {
-  if (typeof entry !== "object" || entry === null) {
-    return false;
-  }
-  return (
-    "name" in entry &&
-    typeof entry.name === "string" &&
-    "value" in entry &&
-    typeof entry.value === "string" &&
-    (("url" in entry && typeof entry.url === "string") ||
-      ("domain" in entry &&
-        typeof entry.domain === "string" &&
-        "path" in entry &&
-        typeof entry.path === "string"))
-  );
-};
+const StoredState = Schema.Struct({
+  cookies: Schema.Array(
+    Schema.Struct({
+      domain: Schema.String,
+      expires: Schema.Number,
+      httpOnly: Schema.Boolean,
+      name: Schema.String,
+      path: Schema.String,
+      sameSite: Schema.Literals(["Strict", "Lax", "None"]),
+      secure: Schema.Boolean,
+      value: Schema.String,
+    })
+  ),
+  origins: Schema.Array(
+    Schema.Struct({
+      localStorage: Schema.Array(
+        Schema.Struct({ name: Schema.String, value: Schema.String })
+      ),
+      origin: Schema.String,
+    })
+  ),
+});
 
 /**
  * What a previous Run of this Flow wrote, if it parses as one. A snapshot is a
@@ -1414,23 +1383,21 @@ const isRestorableCookie = (entry: unknown): boolean => {
  * fresh rather than failing.
  */
 const parseStoredState = (contents: string): BrowserStorageState | null => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(contents);
-  } catch {
+  const parsed = Effect.try((): unknown => JSON.parse(contents)).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(StoredState)),
+    Effect.option,
+    Effect.runSync
+  );
+  if (parsed._tag === "None") {
     return null;
   }
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "cookies" in parsed &&
-    Array.isArray(parsed.cookies) &&
-    parsed.cookies.every(isRestorableCookie) &&
-    (!("origins" in parsed) || Array.isArray(parsed.origins))
-  ) {
-    return parsed as BrowserStorageState;
-  }
-  return null;
+  return {
+    cookies: parsed.value.cookies.map((cookie) => ({ ...cookie })),
+    origins: parsed.value.origins.map((origin) => ({
+      localStorage: origin.localStorage.map((entry) => ({ ...entry })),
+      origin: origin.origin,
+    })),
+  };
 };
 
 const readStoredState = (
@@ -1474,15 +1441,17 @@ const accountForCeiling = (
 };
 
 /**
- * A Finding describes an element on the page, and the engine builds its target
- * from whatever attribute makes that element unique. Both fields the engine
- * renders from the page go through the same redaction a failure message does,
- * because a Variable interpolated into a URL reaches the target verbatim.
+ * A Finding and its sampled nodes contain text rendered from the page. Every
+ * such field goes through the same redaction a failure message does, because a
+ * Variable interpolated into a URL reaches a target verbatim.
  */
 const redactFinding = (finding: Finding, variables: VariableResolution) => ({
   ...finding,
   message: redactSecrets(finding.message, variables),
-  target: redactSecrets(finding.target, variables),
+  nodes: finding.nodes.map((node) => ({
+    message: redactSecrets(node.message, variables),
+    target: redactSecrets(node.target, variables),
+  })),
 });
 
 /** The last line a failing tool wrote, which says what went wrong. */
@@ -1554,12 +1523,7 @@ const stopTrace = Effect.fn("Runner.stopTrace")(function* stopTrace(
   const checked =
     stopped._tag === "Failure"
       ? stopped
-      : yield* Effect.result(
-          Effect.tryPromise({
-            catch: (cause) => new Error(errorMessage(cause)),
-            try: () => traceWasWritten(capture.traceFile),
-          })
-        );
+      : yield* Effect.result(traceWasWritten(capture.traceFile));
   const recorded = checked._tag === "Success" && checked.success === true;
   let error: string | undefined;
   if (checked._tag === "Failure") {
@@ -1679,29 +1643,26 @@ const domStabilityScript = (
  * Wait for a Page to go quiet — no requests in flight, a DOM that has stopped
  * changing — under one shared bound (ADR 0015). Never throws: a Page that
  * never settles costs the bound and loses the argument, and a Page that died
- * mid-wait has nothing left to settle. This is teardown-adjacent, so it is
- * plain async and sits outside the attempt's error paths on purpose.
+ * mid-wait has nothing left to settle.
  */
-const settlePage = async (page: Page | undefined): Promise<void> => {
+const settlePage = Effect.fn("Runner.settlePage")(function* settlePage(
+  page: Page | undefined
+) {
   if (page === undefined || page.isClosed()) {
     return;
   }
   const deadline = Date.now() + QUIESCE_BOUND_MS;
-  try {
-    await page.waitForLoadState("networkidle", { timeout: QUIESCE_BOUND_MS });
-  } catch {
-    // The bound expired or the Page died; either way this wait is over.
-  }
+  yield* Effect.tryPromise(() =>
+    page.waitForLoadState("networkidle", { timeout: QUIESCE_BOUND_MS })
+  ).pipe(Effect.ignore);
   const remaining = deadline - Date.now();
   if (remaining <= 0 || page.isClosed()) {
     return;
   }
-  try {
-    await page.evaluate(domStabilityScript(DOM_STABLE_WINDOW_MS, remaining));
-  } catch {
-    // Same: a Page gone mid-wait has nothing left to settle.
-  }
-};
+  yield* Effect.tryPromise(() =>
+    page.evaluate(domStabilityScript(DOM_STABLE_WINDOW_MS, remaining))
+  ).pipe(Effect.ignore);
+});
 
 /** Capture the committed Page even when a navigation is still pending. */
 const capturePageScreenshot = (
@@ -1735,7 +1696,7 @@ const settleAndCapture = Effect.fn("Runner.settleAndCapture")(
     page: Page | undefined,
     capture: ArtifactCapture | undefined
   ) {
-    yield* Effect.promise(() => settlePage(page));
+    yield* settlePage(page);
     if (
       capture?.videoFile === undefined ||
       page === undefined ||
@@ -1795,33 +1756,37 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
    * geolocation is the location a site receives because its permission is
    * genuinely granted.
    */
-  const openContext = (state: BrowserStorageState | null) =>
-    Effect.tryPromise({
+  const openContext = Effect.fn("Runner.openContext")(function* openContext(
+    state: BrowserStorageState | null
+  ) {
+    const context = yield* Effect.tryPromise({
       catch: (cause) =>
         new RunnerError({
           message: `Could not open a browser context: ${errorMessage(cause)}`,
         }),
-      try: async () => {
-        const context = await browser.newContext({
+      try: () =>
+        browser.newContext({
           ...emulationContextOptions(flow.emulation),
           ...(state === null ? {} : { storageState: state }),
-        });
-        const grants = flow.emulation?.permissions;
-        if (grants !== undefined) {
-          await grantDeclaredPermissions(context, grants);
-        }
-        return context;
-      },
+        }),
     });
+    const grants = flow.emulation?.permissions;
+    if (grants !== undefined) {
+      yield* grantDeclaredPermissions(context, grants).pipe(
+        Effect.onError(() =>
+          Effect.tryPromise(() => context.close()).pipe(Effect.ignore)
+        )
+      );
+    }
+    return context;
+  });
 
   yield* Effect.acquireUseRelease(
     Effect.gen(function* openAttemptContext() {
-      // The parse-time guard is a fast fail on obvious junk, but it cannot
-      // mirror Playwright's own validation — the schema moves, and state files
-      // outlive the binary that wrote them. So the backstop lives here: a
-      // snapshot that survives parsing but not `newContext` costs one failed
-      // open and nothing more, and this attempt starts fresh instead. The Run
-      // that completes then writes a good snapshot over the bad one.
+      // Contract decoding rejects incomplete state. Playwright remains the
+      // semantic backstop for values its structural schema cannot judge: a
+      // snapshot it refuses costs one failed open, then this attempt starts
+      // fresh and replaces it after completion.
       const context = yield* restoredState === null
         ? openContext(null)
         : openContext(restoredState).pipe(
@@ -1957,14 +1922,6 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
                     findings: outcome.success.findings.map((finding) =>
                       redactFinding(finding, variables)
                     ),
-                  }),
-              ...(outcome.success.elided.length === 0
-                ? {}
-                : {
-                    elidedFindings: outcome.success.elided.map((rule) => ({
-                      ...rule,
-                      stepIndex: index,
-                    })),
                   }),
               outcome: "completed",
             } satisfies RunStep);

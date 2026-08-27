@@ -134,6 +134,67 @@ const assertRunDecodes = (input: unknown): RunType => {
   return result.success;
 };
 
+test("one accessibility rule decodes as one Finding with a bounded node sample", () => {
+  const auditStep = {
+    findings: [
+      {
+        helpUrl: "https://dequeuniversity.com/rules/axe/4.13/image-alt",
+        message: "Images must have alternative text",
+        nodeCount: 42,
+        nodes: [
+          { message: "Element does not have an alt attribute", target: "img" },
+        ],
+        rule: "image-alt",
+        severity: "critical",
+        stepIndex: 0,
+      },
+    ],
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    index: 0,
+    outcome: "completed",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    type: "audit",
+  };
+  const run = assertRunDecodes(
+    runWith({
+      attempts: [
+        {
+          attempt: 1,
+          finishedAt: "2026-01-01T00:00:01.000Z",
+          outcome: "completed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          steps: [auditStep],
+        },
+      ],
+      steps: [auditStep],
+    })
+  );
+  expect(run.steps[0]?.findings?.[0]).toMatchObject({
+    nodeCount: 42,
+    nodes: [{ target: "img" }],
+    rule: "image-alt",
+  });
+});
+
+test("the former per-element Finding shape no longer decodes", () => {
+  const oldFinding = {
+    message: "Images must have alternative text",
+    rule: "image-alt",
+    severity: "critical",
+    stepIndex: 0,
+    target: "img",
+  };
+  const step = {
+    findings: [oldFinding],
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    index: 0,
+    outcome: "completed",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    type: "audit",
+  };
+  expect(Result.isSuccess(decodeRun(runWith({ steps: [step] })))).toBe(false);
+});
+
 test("a Run held to no Gate records none and exits zero", () => {
   const run = assertRunDecodes(runWith());
   expect(run.gate).toBeUndefined();

@@ -1,7 +1,8 @@
 import path from "node:path";
 
-import type { Run, RunVideoManifest } from "@contingency/protocol";
-import { Effect, FileSystem } from "effect";
+import { RunVideoManifest } from "@contingency/protocol";
+import type { Run } from "@contingency/protocol";
+import { Effect, FileSystem, Schema } from "effect";
 
 /**
  * What the terminal says about a finished Run, beyond its outcome and where it
@@ -43,8 +44,8 @@ export const gateOverride = (
 };
 
 /**
- * How many accessibility Findings a Run holds, and how many more the engine
- * counted but did not list.
+ * How many accessibility rules raised Findings and how many elements they
+ * cover.
  *
  * Reported, never fatal by count: every real site has pre-existing violations,
  * so failing on their number makes the check red on day one (ADR 0009). Only a
@@ -58,22 +59,16 @@ export const findingsSummary = (run: Run): string | undefined => {
   if (findings === 0) {
     return undefined;
   }
-  // The Runner lists at most ten elements per rule while counting them all, so
-  // the Findings can be fewer than the page has (ADR 0017).
-  const elided = run.steps.reduce(
+  const nodes = run.steps.reduce(
     (total, step) =>
       total +
-      (step.elidedFindings ?? []).reduce(
-        (missing, rule) => missing + (rule.total - rule.reported),
+      (step.findings ?? []).reduce(
+        (count, finding) => count + finding.nodeCount,
         0
       ),
     0
   );
-  const counted =
-    elided === 0
-      ? ""
-      : `, and ${elided} more the accessibility engine counted but did not list`;
-  return `${findings} accessibility ${findings === 1 ? "Finding" : "Findings"}${counted}.`;
+  return `${findings} accessibility ${findings === 1 ? "Finding" : "Findings"} across ${nodes} ${nodes === 1 ? "element" : "elements"}.`;
 };
 
 /**
@@ -113,7 +108,15 @@ export const videoWarning = Effect.fn("run.videoWarning")(
     if (read._tag === "Failure") {
       return;
     }
-    const manifest = JSON.parse(read.success) as RunVideoManifest;
+    const decoded = yield* Effect.result(
+      Effect.try(() => JSON.parse(read.success) as unknown).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(RunVideoManifest))
+      )
+    );
+    if (decoded._tag === "Failure") {
+      return "Warning: video was requested but its manifest could not be read.";
+    }
+    const manifest = decoded.success;
     const missing = manifest.segments
       .filter(({ recorded }) => !recorded)
       .map(

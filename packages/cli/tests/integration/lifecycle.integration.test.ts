@@ -123,57 +123,58 @@ it.live("an unrestorable snapshot starts the next Run fresh, not broken", () =>
 );
 
 /**
- * The parse-time guard is a fast fail, not a mirror of Playwright's own
- * validation — that schema moves, and state files outlive the binary that
- * wrote them. So a snapshot the guard lets through but `newContext` refuses —
- * here an origins entry with no localStorage array — must cost one failed
- * context-open and nothing more: this Run starts fresh and completes, writing
- * a good snapshot over the bad one.
+ * Validation covers the whole state shape, including origin storage. A
+ * snapshot with an incomplete origin is ignored before context-open, and the
+ * completed Run replaces it with a valid snapshot.
  */
-it.live("a snapshot Playwright refuses degrades to fresh at context-open", () =>
-  Effect.gen(function* replayUnrestorableAtOpen() {
-    const fixtures = yield* fixtureServer;
-    const fileSystem = yield* FileSystem.FileSystem;
-    const shared = yield* fileSystem.makeTempDirectoryScoped({
-      directory: tmpdir(),
-      prefix: "contingency-integration-persisted-",
-    });
+it.live(
+  "an invalid origin snapshot degrades to fresh before context-open",
+  () =>
+    Effect.gen(function* replayUnrestorableAtOpen() {
+      const fixtures = yield* fixtureServer;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const shared = yield* fileSystem.makeTempDirectoryScoped({
+        directory: tmpdir(),
+        prefix: "contingency-integration-persisted-",
+      });
 
-    const persistedFlow = {
-      ...addToCart(fixtures.url("stateful.html")),
-      persistedState: true,
-    };
-    const statePath = path.join(
-      flowRunsDirectory(shared, persistedFlow),
-      "storage-state.json"
-    );
-    // No Run has written anything yet, so the snapshot directory exists only
-    // once this test plants its bad file there.
-    yield* fileSystem.makeDirectory(path.dirname(statePath), {
-      recursive: true,
-    });
-    yield* fileSystem.writeFileString(
-      statePath,
-      `${JSON.stringify({
-        cookies: [],
-        origins: [{ origin: "https://example.com" }],
-      })}\n`
-    );
+      const persistedFlow = {
+        ...addToCart(fixtures.url("stateful.html")),
+        persistedState: true,
+      };
+      const statePath = path.join(
+        flowRunsDirectory(shared, persistedFlow),
+        "storage-state.json"
+      );
+      // No Run has written anything yet, so the snapshot directory exists only
+      // once this test plants its bad file there.
+      yield* fileSystem.makeDirectory(path.dirname(statePath), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(
+        statePath,
+        `${JSON.stringify({
+          cookies: [],
+          origins: [{ origin: "https://example.com" }],
+        })}\n`
+      );
 
-    const { run } = yield* runFlow(persistedFlow, { outputDirectory: shared });
+      const { run } = yield* runFlow(persistedFlow, {
+        outputDirectory: shared,
+      });
 
-    expect(run.outcome).toBe("completed");
-    expect(cartsAtLoad(fixtures.requests).at(-1)).toBe(
-      `${CART_STATE_BEACON}?at-load=0`
-    );
+      expect(run.outcome).toBe("completed");
+      expect(cartsAtLoad(fixtures.requests).at(-1)).toBe(
+        `${CART_STATE_BEACON}?at-load=0`
+      );
 
-    // The completed Run rewrote the file, so the next Run restores instead of
-    // degrading again.
-    yield* runFlow(persistedFlow, { outputDirectory: shared });
-    expect(cartsAtLoad(fixtures.requests).at(-1)).toBe(
-      `${CART_STATE_BEACON}?at-load=1`
-    );
-  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+      // The completed Run rewrote the file, so the next Run restores instead of
+      // degrading again.
+      yield* runFlow(persistedFlow, { outputDirectory: shared });
+      expect(cartsAtLoad(fixtures.requests).at(-1)).toBe(
+        `${CART_STATE_BEACON}?at-load=1`
+      );
+    }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
 /**

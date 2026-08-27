@@ -82,6 +82,39 @@ it.live("executes hover, scroll, press, keys, and waitFor", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live("bounds a waitFor Step once across its whole locator ladder", () =>
+  Effect.gen(function* boundWaitForLadder() {
+    const fixtures = yield* fixtureServer;
+
+    const { run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("checkout.html") },
+        {
+          condition: {
+            target: [
+              { kind: "css", selector: "#missing-one" },
+              { kind: "css", selector: "#missing-two" },
+              { kind: "css", selector: "#missing-three" },
+            ],
+            type: "selectorVisible",
+          },
+          timeout: 200,
+          type: "waitFor",
+        },
+      ])
+    );
+
+    expect(run.outcome).toBe("failed");
+    const waited = run.steps.at(1);
+    const elapsed =
+      Date.parse(waited?.finishedAt ?? "") -
+      Date.parse(waited?.startedAt ?? "");
+    // One shared deadline, with room for scheduler noise. Applying 200ms to
+    // each of three candidates takes roughly 600ms and fails this assertion.
+    expect(elapsed).toBeLessThan(400);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live("types through keyDown, change, and press", () =>
   Effect.gen(function* replayKeyboard() {
     const fixtures = yield* fixtureServer;

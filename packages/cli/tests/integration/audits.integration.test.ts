@@ -38,8 +38,9 @@ it.live("reports every violation an Audit finds", () =>
     expect(findings.length).toBeGreaterThan(0);
     for (const finding of findings) {
       expect(finding.stepIndex).toBe(1);
-      // Every Finding names where on the page it is about.
-      expect(finding.target).not.toBe("");
+      expect(finding.nodeCount).toBeGreaterThanOrEqual(finding.nodes.length);
+      // Every sampled node names where on the page it is about.
+      expect(finding.nodes.every((node) => node.target !== "")).toBe(true);
     }
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
@@ -89,12 +90,11 @@ it.live("audits a clean page without findings", () =>
     const audit = run.steps.at(1);
     // The checkout form is labelled throughout, so nothing trips.
     expect(audit?.findings ?? []).toEqual([]);
-    expect(audit?.elidedFindings).toBeUndefined();
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
 it.live(
-  "lists a bounded sample per rule and elides the rest with the true count",
+  "reports one Finding per rule with its true count and a bounded node sample",
   () =>
     Effect.gen(function* elideSurplus() {
       const fixtures = yield* fixtureServer;
@@ -109,21 +109,23 @@ it.live(
       expect(run.outcome).toBe("completed");
       const audit = run.steps.at(1);
       const findings = audit?.findings ?? [];
-      // Twelve unlabelled images, of which only a sample is listed.
+      // Twelve unlabelled images produce one Finding with ten starting points.
       const images = findings.filter((finding) => finding.rule === "image-alt");
-      expect(images).toHaveLength(10);
-      expect(audit?.elidedFindings).toEqual([
-        {
-          reported: 10,
+      expect(images).toEqual([
+        expect.objectContaining({
+          nodeCount: 12,
+          nodes: expect.arrayContaining([
+            expect.objectContaining({ target: expect.any(String) }),
+          ]),
           rule: "image-alt",
           severity: "critical",
           stepIndex: 1,
-          total: 12,
-        },
+        }),
       ]);
-      // Rules with few violations are listed whole: nothing else is elided.
+      expect(images[0]?.nodes).toHaveLength(10);
+      // Rules with few violations carry every node in their sample.
       for (const finding of findings.filter((f) => f.rule !== "image-alt")) {
-        expect(finding.target).not.toBe("");
+        expect(finding.nodes).toHaveLength(finding.nodeCount);
       }
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
@@ -189,7 +191,9 @@ it.live("renders frame and shadow-root hops distinguishably", () =>
     expect(run.outcome).toBe("completed");
     const audit = run.steps.at(1);
     expect(audit?.outcome).toBe("completed");
-    const targets = (audit?.findings ?? []).map((finding) => finding.target);
+    const targets = (audit?.findings ?? []).flatMap((finding) =>
+      finding.nodes.map((node) => node.target)
+    );
     // The unlabelled image lives across an iframe boundary.
     expect(targets.some((target) => target.includes(" >>> "))).toBe(true);
     // The empty button lives inside an open shadow root — a different hop.
