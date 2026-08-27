@@ -5,7 +5,10 @@ import {
   recordingMakesBrowserInputReadOnly,
   STORAGE_LOCKED_MESSAGE,
 } from "@contingency/protocol";
-import type { RecordingSnapshot } from "@contingency/protocol";
+import type {
+  BrowserRpcErrorType,
+  RecordingSnapshot,
+} from "@contingency/protocol";
 import { Effect, Layer } from "effect";
 import {
   HttpRouter,
@@ -15,7 +18,7 @@ import {
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CreateBrowser } from "../services/create-browser.ts";
-import { RecordingState } from "../services/recording-state.ts";
+import { Recording } from "../services/recording.ts";
 import { isAllowedWebSocketOrigin } from "../services/web-url.ts";
 
 export const browserInputIsReadOnly = (
@@ -33,18 +36,21 @@ export const storageMutationIsLocked = (
   sessionId: string
 ): boolean => recordingLocksStorageMutations(snapshot, sessionId);
 
-const recordingRuntimePending = () =>
-  Effect.fail(
-    makeBrowserRpcError(
-      "recording_unavailable",
-      "Recording capture is unavailable until the Playwright Recorder is connected."
-    )
+/** Every Recording operation answers with the Recording it produced. */
+const recordingResult = (
+  operation: Effect.Effect<RecordingSnapshot, BrowserRpcErrorType>
+) =>
+  operation.pipe(
+    Effect.map((snapshot) => ({
+      data: { recording: snapshot },
+      type: "recording.result" as const,
+    }))
   );
 
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.gen(function* makeRpcHandlers() {
     const browser = yield* CreateBrowser;
-    const recording = yield* RecordingState;
+    const recording = yield* Recording;
 
     const requireBrowserControl = (sessionId: string, control: string) =>
       recording
@@ -236,10 +242,15 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "browser.viewport.updated" as const,
           })
         ),
-      "recording.audit.add": recordingRuntimePending,
-      "recording.capture.cancel": recordingRuntimePending,
-      "recording.discard": recordingRuntimePending,
-      "recording.finish": recordingRuntimePending,
+      "recording.audit.add": ({ data }) =>
+        recordingResult(recording.addAudit(data.audit)),
+      "recording.capture.cancel": () =>
+        recordingResult(recording.cancelCaptureMode()),
+      "recording.discard": () =>
+        recording
+          .discard()
+          .pipe(Effect.as({ data: {}, type: "recording.discarded" as const })),
+      "recording.finish": () => recordingResult(recording.finish()),
       "recording.get": () =>
         recording.get().pipe(
           Effect.map((snapshot) => ({
@@ -247,18 +258,40 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "recording.result" as const,
           }))
         ),
-      "recording.pause": recordingRuntimePending,
-      "recording.pre-step.arm": recordingRuntimePending,
-      "recording.pre-step.condition.arm": recordingRuntimePending,
-      "recording.recover": recordingRuntimePending,
-      "recording.resume": recordingRuntimePending,
-      "recording.start": recordingRuntimePending,
-      "recording.step.delete": recordingRuntimePending,
-      "recording.step.undo": recordingRuntimePending,
-      "recording.step.variable.bind": recordingRuntimePending,
+      "recording.hover.arm": () => recordingResult(recording.armHover()),
+      "recording.pause": () => recordingResult(recording.pause()),
+      "recording.pre-step.arm": ({ data }) =>
+        recordingResult(
+          recording.armPreStep(
+            data.scope === "flow"
+              ? { type: "flow" }
+              : { stepId: data.stepId, type: "step" }
+          )
+        ),
+      "recording.pre-step.condition.arm": ({ data }) =>
+        recordingResult(
+          recording.armPreStepCondition(
+            data.scope === "flow"
+              ? { index: data.index, type: "flow" }
+              : { index: data.index, stepId: data.stepId, type: "step" }
+          )
+        ),
+      "recording.recover": () => recordingResult(recording.recover()),
+      "recording.resume": () => recordingResult(recording.resume()),
+      "recording.start": ({ data }) =>
+        recordingResult(
+          recording.start({ sessionId: data.sessionId, title: data.title })
+        ),
+      "recording.step.delete": ({ data }) =>
+        recordingResult(recording.deleteStep(data.stepId)),
+      "recording.step.undo": () => recordingResult(recording.undoDelete()),
+      "recording.step.variable.bind": ({ data }) =>
+        recordingResult(recording.bindVariable(data.stepId, data.name)),
       "recording.stream.subscribe": () => recording.changes(),
-      "recording.title.update": recordingRuntimePending,
-      "recording.variable.rename": recordingRuntimePending,
+      "recording.title.update": ({ data }) =>
+        recordingResult(recording.updateTitle(data.title)),
+      "recording.variable.rename": ({ data }) =>
+        recordingResult(recording.renameVariable(data.from, data.name)),
     };
   })
 );

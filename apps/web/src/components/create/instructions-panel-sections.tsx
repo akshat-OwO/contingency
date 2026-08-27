@@ -2,6 +2,7 @@ import type {
   LocatorDescriptor,
   PreStep,
   RecordedStep,
+  RecordingCaptureMode,
   RecordingSnapshot,
 } from "@contingency/protocol";
 import { hasAuthoredBrowserStep } from "@contingency/protocol";
@@ -26,6 +27,33 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+/** What the author is being asked for while a capture mode is armed. */
+const capturePrompts: Record<
+  Exclude<RecordingCaptureMode, "ordinary">,
+  { readonly cancel: string; readonly hint: string; readonly title: string }
+> = {
+  conditionPicker: {
+    cancel: "Cancel Pre-step",
+    hint: "Click the element whose visibility should enable this Pre-step.",
+    title: "Pick the condition element",
+  },
+  flowPreStep: {
+    cancel: "Cancel Pre-step",
+    hint: "Perform one click, form change, or meaningful key action in the browser.",
+    title: "Record the next Pre-step",
+  },
+  hoverPicker: {
+    cancel: "Cancel hover",
+    hint: "Click the element the Flow should hover — a menu trigger, most often. The click itself is not recorded.",
+    title: "Pick the element to hover",
+  },
+  stepPreStep: {
+    cancel: "Cancel Pre-step",
+    hint: "Perform one click, form change, or meaningful key action in the browser.",
+    title: "Record the next Pre-step",
+  },
+};
 
 const stepLabel = (
   step: RecordedStep["step"] | PreStep["step"],
@@ -325,14 +353,10 @@ export const RecordingSetup = ({
       {recording !== null && recording.captureMode !== "ordinary" ? (
         <div className="bg-muted/30 rounded-lg border p-3 text-sm">
           <p className="font-medium">
-            {recording.captureMode === "conditionPicker"
-              ? "Pick the condition element"
-              : "Record the next Pre-step"}
+            {capturePrompts[recording.captureMode].title}
           </p>
           <p className="text-muted-foreground mt-1 text-xs">
-            {recording.captureMode === "conditionPicker"
-              ? "Click the element whose visibility should enable this Pre-step."
-              : "Perform one click, form change, or meaningful key action in the browser."}
+            {capturePrompts[recording.captureMode].hint}
           </p>
           <Button
             className="mt-3"
@@ -341,7 +365,7 @@ export const RecordingSetup = ({
             size="sm"
             variant="outline"
           >
-            Cancel Pre-step
+            {capturePrompts[recording.captureMode].cancel}
           </Button>
         </div>
       ) : null}
@@ -520,6 +544,14 @@ export const AuthoringActions = ({
   const captureBusy = busy || recording.captureMode !== "ordinary";
   return (
     <div className="flex flex-wrap gap-2">
+      <Button
+        disabled={captureBusy || recording.phase !== "active"}
+        onClick={controller.armHover}
+        size="sm"
+        variant="outline"
+      >
+        Record a hover
+      </Button>
       <Button
         disabled={captureBusy}
         onClick={controller.armFlowPreStep}

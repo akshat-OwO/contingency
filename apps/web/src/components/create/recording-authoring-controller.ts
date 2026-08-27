@@ -11,6 +11,7 @@ import {
   recordingCaptureCancelMutation,
   recordingDiscardMutation,
   recordingFinishMutation,
+  recordingHoverArmMutation,
   recordingPauseMutation,
   recordingPreStepConditionMutation,
   recordingPreStepMutation,
@@ -37,6 +38,11 @@ export interface RecordingAuthoringController {
   readonly addAudit: (audit: AuditKind) => void;
   readonly armFlowCondition: (index: number) => void;
   readonly armFlowPreStep: () => void;
+  /**
+   * Arm hover capture. Hover is captured by explicit gesture rather than from
+   * mouse movement, so this is the only way a hover becomes a Step.
+   */
+  readonly armHover: () => void;
   readonly armStepCondition: (stepId: string, index: number) => void;
   readonly armStepPreStep: (stepId: string) => void;
   readonly bindVariable: (stepId: string, name: string) => void;
@@ -98,6 +104,9 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
     mode: "promise",
   });
   const cancelMutation = useAtomSet(recordingCaptureCancelMutation, {
+    mode: "promise",
+  });
+  const hoverMutation = useAtomSet(recordingHoverArmMutation, {
     mode: "promise",
   });
   const { address, recording, selectedSessionId } = workspace;
@@ -187,6 +196,12 @@ export const useRecordingAuthoring = (): RecordingAuthoringController => {
             data: { scope: "flow" },
             type: "recording.pre-step.arm",
           },
+        })
+      ),
+    armHover: () =>
+      invoke(() =>
+        hoverMutation({
+          payload: { data: {}, type: "recording.hover.arm" },
         })
       ),
     armStepCondition: (stepId, index) =>

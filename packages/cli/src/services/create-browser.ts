@@ -334,6 +334,33 @@ const makeService = (
         publishTabs(session);
       }),
     open,
+    recorderTarget: (sessionId, requestedTabId) =>
+      Effect.gen(function* resolveRecorderTarget() {
+        const session = yield* requireSession(sessionId);
+        if (requestedTabId !== undefined) {
+          const page = yield* requirePage(session, requestedTabId);
+          return {
+            context: session.context,
+            page,
+            tabId: requestedTabId,
+          };
+        }
+        const state = readSessionState(session);
+        const tabId = state.pageIds.get(state.activePage);
+        if (tabId === undefined) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "session_not_found",
+              `Browser session ${sessionId} has no page to record.`
+            )
+          );
+        }
+        return {
+          context: session.context,
+          page: state.activePage,
+          tabId,
+        };
+      }),
     sendInput: (sessionId, input) =>
       Effect.gen(function* dispatchBrowserInput() {
         const session = yield* requireSession(sessionId);

@@ -1,6 +1,7 @@
 import {
   BrowserTabId,
   ContingencyRpcs,
+  makeBrowserRpcError,
   SessionId,
   STORAGE_LOCKED_MESSAGE,
 } from "@contingency/protocol";
@@ -15,11 +16,9 @@ import {
   storageMutationIsLocked,
 } from "../../src/routes/rpc.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import {
-  RecordingState,
-  RecordingStateLive,
-} from "../../src/services/recording-state.ts";
-import type { RecordingStateService } from "../../src/services/recording-state.ts";
+import { RecordingLive } from "../../src/services/recorder.ts";
+import { Recording } from "../../src/services/recording.ts";
+import type { RecordingService } from "../../src/services/recording.ts";
 
 const sessionId = SessionId.make("create-authoring");
 const otherSessionId = SessionId.make("create-other");
@@ -83,10 +82,34 @@ const activeRecording: RecordingSnapshot = {
   undoAvailable: false,
 };
 
-const recordingState: RecordingStateService = {
+/**
+ * A Recording that is merely *there*. These tests are about what the RPC layer
+ * refuses while one is in progress, so every authoring operation is out of
+ * scope and answers as such rather than pretending to work.
+ */
+const outOfScope = Effect.fail(
+  makeBrowserRpcError("recording_unavailable", "Not under test.")
+);
+const recordingService: RecordingService = {
+  addAudit: () => outOfScope,
+  armHover: () => outOfScope,
+  armPreStep: () => outOfScope,
+  armPreStepCondition: () => outOfScope,
+  bindVariable: () => outOfScope,
+  cancelCaptureMode: () => outOfScope,
   changes: () => Stream.never,
+  deleteStep: () => outOfScope,
+  discard: () => outOfScope,
+  fail: () => Effect.void,
+  finish: () => outOfScope,
   get: () => Effect.succeed(activeRecording),
-  set: () => Effect.void,
+  pause: () => outOfScope,
+  recover: () => outOfScope,
+  renameVariable: () => outOfScope,
+  resume: () => outOfScope,
+  start: () => outOfScope,
+  undoDelete: () => outOfScope,
+  updateTitle: () => outOfScope,
 };
 
 it("keeps the Recording update stream connected", async () => {
@@ -103,8 +126,9 @@ it("keeps the Recording update stream connected", async () => {
       Effect.scoped,
       Effect.provide(
         RpcHandlersLive.pipe(
-          Layer.provide(CreateBrowserLive),
-          Layer.provide(RecordingStateLive)
+          Layer.provide(
+            RecordingLive.pipe(Layer.provideMerge(CreateBrowserLive))
+          )
         )
       )
     )
@@ -139,7 +163,7 @@ it.effect("rejects a Storage mutation before it reaches Playwright", () =>
     Effect.provide(
       RpcHandlersLive.pipe(
         Layer.provide(CreateBrowserLive),
-        Layer.provide(Layer.succeed(RecordingState, recordingState))
+        Layer.provide(Layer.succeed(Recording, recordingService))
       )
     )
   )

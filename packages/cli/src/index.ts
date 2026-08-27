@@ -7,13 +7,12 @@ import { Command } from "effect/unstable/cli";
 import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index.ts";
 import { CreateBrowserLive } from "./services/create-browser.ts";
-import { RecordingStateLive } from "./services/recording-state.ts";
+import { RecordingLive } from "./services/recorder.ts";
 import { RunnerLive } from "./services/runner.ts";
 import { UiInterfaceLive } from "./services/ui-interface.ts";
 
 const servicesLayer = Layer.mergeAll(
-  CreateBrowserLive,
-  RecordingStateLive,
+  RecordingLive.pipe(Layer.provideMerge(CreateBrowserLive)),
   RunnerLive,
   UiInterfaceLive
 ).pipe(Layer.provideMerge(NodeServices.layer));
