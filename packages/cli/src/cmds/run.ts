@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { Run, RunVideoManifest } from "@contingency/protocol";
+import { runExitCode } from "@contingency/protocol";
 import {
   Console,
   Data,
@@ -22,53 +22,47 @@ import {
 } from "../services/runner.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { preflight } from "../services/variables.ts";
+import {
+  findingsSummary,
+  gateOverride,
+  gateOverrideWarning,
+  unmeasuredWarning,
+  videoWarning,
+} from "./run-report.ts";
 
 /**
- * A Run that did not complete is the product's core signal, not a crash. It
- * exits 1 and prints its own message, rather than being reported to the
- * terminal as an unhandled failure with a stack trace (ADR 0009).
+ * How a finished Run leaves the process. Outcome and exit code are separate
+ * axes ([ADR 0018](../../../../docs/adr/0018-a-gate-fails-the-exit-code-not-the-run.md)):
+ * `1` means the Run did not complete, `2` means it completed and breached its
+ * Gate. Either way this is the product's core signal rather than a crash, so
+ * it prints its own message instead of surfacing as an unhandled failure.
  */
-class RunDidNotComplete extends Data.TaggedError("RunDidNotComplete")<{
+class RunExit extends Data.TaggedError("RunExit")<{
+  readonly code: 1 | 2;
   readonly message: string;
 }> {
   readonly [Runtime.errorReported] = false;
-  readonly [Runtime.errorExitCode] = 1;
+  get [Runtime.errorExitCode](): number {
+    return this.code;
+  }
 }
-
-/**
- * How to say that a requested derived video could not be written. Artifact
- * failure does not change the Run outcome, but it must not pass silently.
- */
-const videoWarning = Effect.fn("run.videoWarning")(function* videoWarning(
-  run: Run,
-  directory: string
-) {
-  if (!run.video) {
-    return;
-  }
-  const fileSystem = yield* FileSystem.FileSystem;
-  const read = yield* Effect.result(
-    fileSystem.readFileString(path.join(directory, "video.json"))
-  );
-  if (read._tag === "Failure") {
-    return;
-  }
-  const manifest = JSON.parse(read.success) as RunVideoManifest;
-  const missing = manifest.segments
-    .filter(({ recorded }) => !recorded)
-    .map(
-      ({ attempt, error }) =>
-        `attempt ${attempt} (${error ?? "no reason given"})`
-    );
-  return missing.length === 0
-    ? undefined
-    : `Warning: video was requested but ${missing.length} ${missing.length === 1 ? "attempt" : "attempts"} produced no recording: ${missing.join("; ")}`;
-});
 
 export const runCommand = Command.make(
   "run",
   {
     flowPath: Argument.file("flow", { mustExist: true }),
+    gate: Flag.string("gate").pipe(
+      Flag.withDescription(
+        "An accessibility rule id that must produce no Finding, e.g. image-alt. Repeatable, and replaces the Flow's own Gate. A breach exits 2 without failing the Run."
+      ),
+      Flag.atLeast(0)
+    ),
+    ignoreGate: Flag.boolean("ignore-gate").pipe(
+      Flag.withDescription(
+        "Hold this Run to no Gate, whatever the Flow declares."
+      ),
+      Flag.withDefault(false)
+    ),
     output: Flag.string("output").pipe(
       Flag.withDescription(
         "Directory to write Runs into. Defaults to the Contingency state directory."
@@ -108,6 +102,8 @@ export const runCommand = Command.make(
   },
   Effect.fnUntraced(function* runFlow({
     flowPath,
+    gate,
+    ignoreGate,
     output,
     retry,
     secret,
@@ -168,7 +164,14 @@ export const runCommand = Command.make(
       );
     }
 
+    const conflicting = gateOverrideWarning(gate, ignoreGate);
+    if (conflicting !== undefined) {
+      yield* Console.warn(conflicting);
+    }
+    const rules = gateOverride(gate, ignoreGate);
+
     const { directory, run } = yield* runner.run(flow, {
+      ...(rules === undefined ? {} : { gate: rules }),
       outputDirectory,
       retry,
       timeout: Duration.seconds(timeout),
@@ -185,50 +188,14 @@ export const runCommand = Command.make(
       );
     }
 
-    const findings = run.steps.reduce(
-      (total, step) => total + (step.findings?.length ?? 0),
-      0
-    );
-    // The Runner lists at most ten elements per rule while counting them all,
-    // so the Findings can be fewer than the page has (ADR 0017).
-    const elided = run.steps.reduce(
-      (total, step) =>
-        total +
-        (step.elidedFindings ?? []).reduce(
-          (missing, rule) => missing + (rule.total - rule.reported),
-          0
-        ),
-      0
-    );
-    if (findings > 0) {
-      // Reported, never fatal: every real site has pre-existing violations, so
-      // failing on their count makes the check red on day one (ADR 0009).
-      yield* Console.log(
-        `${findings} accessibility ${findings === 1 ? "Finding" : "Findings"}${
-          elided === 0
-            ? ""
-            : `, and ${elided} more the accessibility engine counted but did not list`
-        }.`
-      );
+    const summary = findingsSummary(run);
+    if (summary !== undefined) {
+      yield* Console.log(summary);
     }
 
-    // A Step the Flow asked to measure that carries no vitals was not
-    // measured. Saying so beats a Run that silently reports performance for
-    // some navigations and not others.
-    const unmeasured = run.steps.filter((step) => {
-      // Keyed on the Step's own recorded index rather than its position here,
-      // which are the same only while no Step is ever left out.
-      const source = run.flow.steps[step.index];
-      return (
-        source?.performance === true &&
-        step.outcome === "completed" &&
-        step.vitals === undefined
-      );
-    }).length;
-    if (unmeasured > 0) {
-      yield* Console.warn(
-        `Warning: ${unmeasured} ${unmeasured === 1 ? "Step" : "Steps"} asked for Core Web Vitals but could not be measured.`
-      );
+    const unmeasured = unmeasuredWarning(run);
+    if (unmeasured !== undefined) {
+      yield* Console.warn(unmeasured);
     }
 
     const unrecorded = yield* videoWarning(run, directory);
@@ -239,20 +206,30 @@ export const runCommand = Command.make(
     yield* Console.log(`Run ${run.runId} ${run.outcome}`);
     yield* Console.log(directory);
 
-    if (run.outcome === "completed") {
-      return;
+    // The protocol owns which code a Run earns, so the CLI reports one of the
+    // three rather than re-deriving the rule (ADR 0018).
+    switch (runExitCode(run)) {
+      case 0: {
+        return;
+      }
+      case 1: {
+        yield* Console.error(
+          run.failure === undefined
+            ? "The Run did not complete."
+            : `The Run did not complete: ${run.failure.message}`
+        );
+        return yield* new RunExit({
+          code: 1,
+          message: "The Run did not complete.",
+        });
+      }
+      default: {
+        const breach = `The Run completed and breached its Gate: ${(run.gate?.breached ?? []).join(", ")}.`;
+        // Said as plainly as the outcome line above it: the Run is fine and
+        // still a Baseline; the site missed a bar its author chose.
+        yield* Console.error(breach);
+        return yield* new RunExit({ code: 2, message: breach });
+      }
     }
-
-    yield* Console.error(
-      run.failure === undefined
-        ? "The Run did not complete."
-        : `The Run did not complete: ${run.failure.message}`
-    );
-
-    // Exit 1 when the Run did not complete. Findings never influence the exit
-    // code — that is what Regressions are for (ADR 0009).
-    return yield* new RunDidNotComplete({
-      message: "The Run did not complete.",
-    });
   })
 ).pipe(Command.withDescription("Execute a Flow into a Run, headlessly."));

@@ -1,7 +1,15 @@
-import type { RunEnvironment as RunEnvironmentType } from "@contingency/protocol";
+import type {
+  Run as RunType,
+  RunEnvironment as RunEnvironmentType,
+} from "@contingency/protocol";
 import {
   axeVersionMismatchWarning,
+  gateBreaches,
+  Run,
+  runBreachedGate,
   RunEnvironment,
+  runExitCode,
+  runIsBaselineEligible,
 } from "@contingency/protocol";
 import { Result, Schema, SchemaIssue } from "effect";
 import { expect, test } from "vitest";
@@ -79,4 +87,149 @@ test("the same engine, or an unrecorded one, warns nothing", () => {
   expect(axeVersionMismatchWarning(same, same)).toBeUndefined();
   expect(axeVersionMismatchWarning(unrecorded, same)).toBeUndefined();
   expect(axeVersionMismatchWarning(same, unrecorded)).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// Gate
+// ---------------------------------------------------------------------------
+
+const decodeRun = Schema.decodeUnknownResult(Run, {
+  onExcessProperty: "error",
+});
+
+const runWith = (extra?: Record<string, unknown>) => ({
+  attempts: [
+    {
+      attempt: 1,
+      finishedAt: "2026-01-01T00:00:01.000Z",
+      outcome: "completed",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      steps: [],
+    },
+  ],
+  environment: environmentWith(),
+  finishedAt: "2026-01-01T00:00:01.000Z",
+  flow: {
+    steps: [{ type: "navigate", url: "https://example.com" }],
+    title: "Contract",
+  },
+  flowHash: "hash",
+  flowId: "hash",
+  outcome: "completed",
+  runId: "run",
+  startedAt: "2026-01-01T00:00:00.000Z",
+  steps: [],
+  trace: true,
+  video: false,
+  ...extra,
+});
+
+const assertRunDecodes = (input: unknown): RunType => {
+  const result = decodeRun(input);
+  if (Result.isFailure(result)) {
+    throw new Error(
+      `Expected the Run to decode: ${formatIssue(result.failure.issue)}`
+    );
+  }
+  return result.success;
+};
+
+test("a Run held to no Gate records none and exits zero", () => {
+  const run = assertRunDecodes(runWith());
+  expect(run.gate).toBeUndefined();
+  expect(runBreachedGate(run)).toBe(false);
+  expect(runExitCode(run)).toBe(0);
+});
+
+test("a Run records the Gate it met, not only the one it breached", () => {
+  const run = assertRunDecodes(
+    runWith({
+      gate: { breached: [], rules: ["image-alt"], source: "flow" },
+    })
+  );
+  // Meeting a bar and being held to no bar are different evidence, and a
+  // later comparison cannot recover the difference from an absent field.
+  expect(run.gate?.rules).toEqual(["image-alt"]);
+  expect(runExitCode(run)).toBe(0);
+});
+
+test("a Run records which Gate rules it breached, and where the bar came from", () => {
+  const run = assertRunDecodes(
+    runWith({
+      gate: {
+        breached: ["image-alt"],
+        rules: ["image-alt", "label"],
+        source: "invocation",
+      },
+    })
+  );
+  expect(run.gate?.breached).toEqual(["image-alt"]);
+  expect(run.gate?.source).toBe("invocation");
+});
+
+test("a Gate names at least one rule", () => {
+  expect(
+    Result.isSuccess(
+      decodeRun(runWith({ gate: { breached: [], rules: [], source: "flow" } }))
+    )
+  ).toBe(false);
+});
+
+test("a breach leaves the outcome completed and only changes the exit code", () => {
+  const run = assertRunDecodes(
+    runWith({
+      gate: { breached: ["label"], rules: ["label"], source: "flow" },
+    })
+  );
+  expect(run.outcome).toBe("completed");
+  expect(runBreachedGate(run)).toBe(true);
+  expect(runExitCode(run)).toBe(2);
+});
+
+test("a Gate-breaching Run remains eligible as a Baseline", () => {
+  const breaching = assertRunDecodes(
+    runWith({
+      gate: { breached: ["label"], rules: ["label"], source: "flow" },
+    })
+  );
+  // Baseline eligibility keys on outcome alone (ADR 0018). Implementing a
+  // breach as a failed outcome would silently destroy eligibility for exactly
+  // the Runs most worth comparing against: the ones documenting today's
+  // known-bad state.
+  expect(runIsBaselineEligible(breaching)).toBe(true);
+});
+
+test("a Run that did not complete exits one, breach or not", () => {
+  const failed = assertRunDecodes(
+    runWith({
+      attempts: [
+        {
+          attempt: 1,
+          failure: { message: "The Step did not resolve." },
+          finishedAt: "2026-01-01T00:00:01.000Z",
+          outcome: "failed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          steps: [],
+        },
+      ],
+      failure: { message: "The Step did not resolve." },
+      gate: { breached: ["label"], rules: ["label"], source: "flow" },
+      outcome: "failed",
+    })
+  );
+  // A Run that stopped early has not established that the Gate's other rules
+  // pass, so it reports the broken check rather than the missed bar.
+  expect(runExitCode(failed)).toBe(1);
+  expect(runIsBaselineEligible(failed)).toBe(false);
+});
+
+test("a breach is the Gate rules that a Finding was raised against, in Gate order", () => {
+  expect(
+    gateBreaches(
+      ["label", "image-alt", "link-name"],
+      [{ rule: "image-alt" }, { rule: "image-alt" }, { rule: "document-title" }]
+    )
+    // A rule outside the Gate is reported and never fails anything, and a
+    // breached rule is named once however many elements it flagged.
+  ).toEqual(["image-alt"]);
 });

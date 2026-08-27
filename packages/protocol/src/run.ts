@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { Flow } from "./flow.ts";
+import { Flow, Gate } from "./flow.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -380,6 +380,40 @@ export const RunTraceManifest = Schema.Struct({
 export type RunTraceManifest = typeof RunTraceManifest.Type;
 
 /**
+ * Where the Gate this Run was held to came from. A Gate is a fact about what
+ * is being audited rather than about how the Run was invoked ([ADR
+ * 0018](../../../docs/adr/0018-a-gate-fails-the-exit-code-not-the-run.md)), so
+ * it lives in the Flow — but an invocation may tighten or relax the bar
+ * without editing the Flow, and a reader of the Run must be able to tell which
+ * bar was actually applied.
+ */
+export const RunGateSource = Schema.Literals(["flow", "invocation"]);
+export type RunGateSource = typeof RunGateSource.Type;
+
+/**
+ * The Gate a Run was held to, and the rules it breached.
+ *
+ * Recorded whether or not anything breached: a Run that names its bar and met
+ * it is different evidence from a Run that was held to no bar at all, and a
+ * later comparison cannot recover the difference from an absent field.
+ *
+ * A breach never changes {@link Run.outcome}. It changes the CLI's exit code
+ * and nothing else, so a Run documenting today's known-bad state stays
+ * eligible as a Baseline — see {@link runIsBaselineEligible}.
+ */
+export const RunGate = Schema.Struct({
+  /**
+   * The Gate rules that produced at least one Finding, in Gate order. Empty
+   * when the Run met its bar.
+   */
+  breached: Schema.Array(nonEmptyString),
+  /** The rule ids actually applied, after any invocation override. */
+  rules: Gate,
+  source: RunGateSource,
+});
+export type RunGate = typeof RunGate.Type;
+
+/**
  * One execution of a Flow. Self-contained: it embeds the Flow it executed plus
  * that Flow's content hash, so a Run stays interpretable when it travels
  * without its Flow file, and so a later Baseline comparison can cheaply detect
@@ -402,6 +436,12 @@ export const Run = Schema.Struct({
    * Flow declares none, so Run history is never keyed on the editable title.
    */
   flowId: nonEmptyString,
+  /**
+   * The Gate this Run was held to. Absent when the Flow declared none and the
+   * invocation supplied none, which is the default: a Run then reports every
+   * violation and fails nothing (ADR 0009).
+   */
+  gate: Schema.optional(RunGate),
   outcome: RunOutcome,
   runId: nonEmptyString,
   startedAt: Instant,
@@ -416,9 +456,50 @@ export const Run = Schema.Struct({
 });
 export type Run = typeof Run.Type;
 
-/** A Run whose Steps failed is never eligible to anchor a comparison. */
+/**
+ * A Run whose Steps failed is never eligible to anchor a comparison.
+ *
+ * Deliberately keyed on outcome alone. A Gate breach is the site missing a bar
+ * the author chose, not the Run failing, and the Runs most worth comparing
+ * against tomorrow are exactly the ones documenting today's known-bad state
+ * (ADR 0018). Folding a breach in here would discard them.
+ */
 export const runIsBaselineEligible = (run: Run): boolean =>
   run.outcome === "completed";
+
+/**
+ * Which of `rules` at least one of `findings` was raised against, in the
+ * Gate's own order so the record reads as the author wrote the bar.
+ */
+export const gateBreaches = (
+  rules: Gate,
+  findings: readonly Pick<Finding, "rule">[]
+): readonly string[] => {
+  const raised = new Set(findings.map(({ rule }) => rule));
+  return rules.filter((rule) => raised.has(rule));
+};
+
+/** Whether this Run was held to a Gate and missed it. */
+export const runBreachedGate = (run: Run): boolean =>
+  (run.gate?.breached.length ?? 0) > 0;
+
+/**
+ * What the CLI exits with. Outcome and exit code are separate axes (ADR 0018):
+ * `0` completed and within its Gate, `1` the Run did not complete, `2` the Run
+ * completed and breached its Gate. One code cannot express the difference
+ * between a regressed site and a broken check, and CI needs to tell them
+ * apart.
+ *
+ * A Run that did not complete reports `1` even where its Findings would have
+ * breached, because a Run that stopped early has not established that the
+ * Gate's other rules pass.
+ */
+export const runExitCode = (run: Run): 0 | 1 | 2 => {
+  if (run.outcome !== "completed") {
+    return 1;
+  }
+  return runBreachedGate(run) ? 2 : 0;
+};
 
 /**
  * The warning a Baseline comparison must carry when the two Runs were audited
