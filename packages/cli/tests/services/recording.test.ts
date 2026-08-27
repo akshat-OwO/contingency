@@ -451,6 +451,66 @@ it.effect("authors a Pre-step and its condition from captured actions", () =>
   })
 );
 
+it.effect("authors a selectorHidden condition from an armed hidden pick", () =>
+  Effect.gen(function* authorHiddenCondition() {
+    const capture = makeCapture();
+    const recording = yield* startRecording(capture);
+    yield* recording.armPreStep({ type: "flow" });
+    yield* capture.emit({
+      button: "left",
+      page: 0,
+      target: cartButton,
+      type: "click",
+    });
+    // The banner is dismissed by the same action that arms the hidden check:
+    // the pick names the element the Flow waits to disappear.
+    yield* recording.armPreStepCondition(
+      { index: 0, type: "flow" },
+      "selectorHidden"
+    );
+    yield* capture.emit({
+      button: "left",
+      page: 0,
+      target: emailField,
+      type: "click",
+    });
+    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    expect(snapshot.captureMode).toBe("ordinary");
+    expect(snapshot.flow.preSteps?.[0]?.when).toEqual({
+      target: emailField,
+      type: "selectorHidden",
+    });
+  })
+);
+
+it.effect("sets a urlMatches condition on a Pre-step directly", () =>
+  Effect.gen(function* setUrlCondition() {
+    const capture = makeCapture();
+    const recording = yield* startRecording(capture);
+    yield* recording.armPreStep({ type: "flow" });
+    yield* capture.emit({
+      button: "left",
+      page: 0,
+      target: cartButton,
+      type: "click",
+    });
+    // A URL condition has no element to pick, so the author supplies it.
+    const updated = yield* recording.setPreStepConditionUrl(
+      { index: 0, type: "flow" },
+      "/checkout$"
+    );
+    expect(updated.flow.preSteps?.[0]?.when).toEqual({
+      pattern: "/checkout$",
+      type: "urlMatches",
+    });
+
+    const missing = yield* Effect.result(
+      recording.setPreStepConditionUrl({ index: 7, type: "flow" }, "/cart$")
+    );
+    expect(missing._tag).toBe("Failure");
+  })
+);
+
 it.effect("ignores an untargeted action while a pick is armed", () =>
   Effect.gen(function* scrollWhilePicking() {
     const capture = makeCapture();

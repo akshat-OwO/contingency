@@ -1,6 +1,8 @@
 import type {
+  Condition,
   LocatorDescriptor,
   PreStep,
+  PreStepPickKind,
   RecordedStep,
   RecordingCaptureMode,
   RecordingSnapshot,
@@ -16,10 +18,17 @@ import {
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
+import { useState } from "react";
 
 import type { RecordingAuthoringController } from "@/components/create/recording-authoring-controller";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -54,6 +63,24 @@ const capturePrompts: Record<
     title: "Record the next Pre-step",
   },
 };
+
+const hiddenConditionPrompt = {
+  cancel: capturePrompts.conditionPicker.cancel,
+  hint: "Click the element that must be hidden for this Pre-step to run.",
+  title: "Pick the hidden element",
+};
+
+const capturePrompt = (
+  mode: Exclude<RecordingCaptureMode, "ordinary">,
+  conditionKind: PreStepPickKind | undefined
+): {
+  readonly cancel: string;
+  readonly hint: string;
+  readonly title: string;
+} =>
+  mode === "conditionPicker" && conditionKind === "selectorHidden"
+    ? hiddenConditionPrompt
+    : capturePrompts[mode];
 
 const stepLabel = (
   step: RecordedStep["step"] | PreStep["step"],
@@ -130,6 +157,16 @@ const targetLabel = (target: readonly LocatorDescriptor[]): string => {
   return lead === undefined ? "" : describeLocator(lead);
 };
 
+const conditionLabel = (when: Condition): string => {
+  if (when.type === "urlMatches") {
+    return `When URL matches ${when.pattern}`;
+  }
+  const target = targetLabel(when.target);
+  return when.type === "selectorHidden"
+    ? `When hidden: ${target}`
+    : `When visible: ${target}`;
+};
+
 const selectorLabel = (recorded: RecordedStep): string | undefined => {
   const { step } = recorded;
   if (step.type === "audit") {
@@ -169,6 +206,152 @@ const downloadFlow = (recording: RecordingSnapshot): void => {
   URL.revokeObjectURL(url);
 };
 
+/** Which Pre-step list a row edits: the Flow-wide one or a Step's own. */
+type PreStepRowScope =
+  | { readonly type: "flow" }
+  | { readonly stepId: string; readonly type: "step" };
+
+interface PreStepRowProps {
+  readonly controller: RecordingAuthoringController;
+  readonly disabled: boolean;
+  readonly index: number;
+  readonly preStep: PreStep;
+  readonly scope: PreStepRowScope;
+}
+
+const conditionChoices: readonly {
+  readonly kind: PreStepPickKind | "urlMatches";
+  readonly label: string;
+}[] = [
+  { kind: "selectorVisible", label: "When an element is visible" },
+  { kind: "selectorHidden", label: "When an element is hidden" },
+  { kind: "urlMatches", label: "When the URL matches…" },
+];
+
+/**
+ * One Pre-step as authored: its action, the condition that gates it, and the
+ * ways the author can change that condition — pick an element for a visible
+ * or hidden check, or type a URL pattern.
+ */
+const PreStepRow = ({
+  controller,
+  disabled,
+  index,
+  preStep,
+  scope,
+}: PreStepRowProps) => {
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [pattern, setPattern] = useState("");
+  const selectorText =
+    "target" in preStep.step && preStep.step.target !== undefined
+      ? targetLabel(preStep.step.target)
+      : undefined;
+
+  const armCondition = (kind: PreStepPickKind) => {
+    if (scope.type === "flow") {
+      controller.armFlowCondition(index, kind);
+    } else {
+      controller.armStepCondition(scope.stepId, index, kind);
+    }
+  };
+  const saveUrl = () => {
+    const trimmed = pattern.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    if (scope.type === "flow") {
+      controller.setFlowConditionUrl(index, trimmed);
+    } else {
+      controller.setStepConditionUrl(scope.stepId, index, trimmed);
+    }
+    setEditingUrl(false);
+    setPattern("");
+  };
+
+  return (
+    <li className="bg-card space-y-3 rounded-lg border p-3">
+      <div className="flex items-start gap-3">
+        <Badge className="mt-0.5 tabular-nums" variant="outline">
+          {index + 1}
+        </Badge>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{stepLabel(preStep.step)}</p>
+          {selectorText === undefined ? null : (
+            <p
+              className="text-muted-foreground truncate text-xs"
+              title={selectorText}
+            >
+              {selectorText}
+            </p>
+          )}
+          <p className="text-muted-foreground mt-1 text-xs">
+            {conditionLabel(preStep.when)}
+          </p>
+        </div>
+      </div>
+      {editingUrl ? (
+        <div className="flex items-center gap-1.5">
+          <Input
+            aria-label="URL pattern"
+            autoFocus
+            className="h-7 flex-1 text-xs"
+            onChange={(event) => setPattern(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                saveUrl();
+              }
+            }}
+            placeholder="/checkout$"
+            value={pattern}
+          />
+          <Button
+            disabled={disabled || pattern.trim().length === 0}
+            onClick={saveUrl}
+            size="xs"
+          >
+            Save
+          </Button>
+          <Button
+            onClick={() => {
+              setEditingUrl(false);
+              setPattern("");
+            }}
+            size="xs"
+            variant="ghost"
+          >
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            disabled={disabled}
+            render={<Button size="xs" variant="outline" />}
+          >
+            Pick condition
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {conditionChoices.map((choice) => (
+              <DropdownMenuItem
+                key={choice.kind}
+                onClick={() => {
+                  if (choice.kind === "urlMatches") {
+                    setEditingUrl(true);
+                    return;
+                  }
+                  armCondition(choice.kind);
+                }}
+              >
+                {choice.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </li>
+  );
+};
+
 interface StepCardProps {
   readonly controller: RecordingAuthoringController;
   readonly index: number;
@@ -185,6 +368,10 @@ const StepCard = ({ controller, index, variables, step }: StepCardProps) => {
     recording.phase === "finished" || recording.phase === "incomplete";
   const initial = index === 0;
   const audit = step.step.type === "audit";
+  const page = "page" in step.step ? step.step.page : undefined;
+  // A Flow begins on Page 0, which carries no badge; a later Step names the
+  // Page it acts on by that same order, so the label matches the document.
+  const pageLabel = page === undefined || page === 0 ? undefined : page;
 
   return (
     <li className="bg-card space-y-3 rounded-lg border p-3">
@@ -192,6 +379,11 @@ const StepCard = ({ controller, index, variables, step }: StepCardProps) => {
         <Badge className="mt-0.5 tabular-nums" variant="outline">
           {index + 1}
         </Badge>
+        {pageLabel === undefined ? null : (
+          <Badge className="mt-0.5" variant="secondary">
+            {`Page ${pageLabel}`}
+          </Badge>
+        )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">
             {stepLabel(step.step, step.variable)}
@@ -203,23 +395,18 @@ const StepCard = ({ controller, index, variables, step }: StepCardProps) => {
             {selectorLabel(step)}
           </p>
           {step.preSteps.length > 0 ? (
-            <div className="text-muted-foreground mt-1 space-y-1 text-xs">
+            <ol className="mt-1 space-y-2">
               {step.preSteps.map((preStep, preStepIndex) => (
-                <div className="flex items-center gap-2" key={preStep.id}>
-                  <span>Pre-step {preStepIndex + 1}</span>
-                  <button
-                    className="underline underline-offset-2"
-                    disabled={busy || frozen}
-                    onClick={() =>
-                      controller.armStepCondition(step.id, preStepIndex)
-                    }
-                    type="button"
-                  >
-                    Pick condition
-                  </button>
-                </div>
+                <PreStepRow
+                  controller={controller}
+                  disabled={busy || frozen}
+                  index={preStepIndex}
+                  key={preStep.id}
+                  preStep={preStep}
+                  scope={{ stepId: step.id, type: "step" }}
+                />
               ))}
-            </div>
+            </ol>
           ) : null}
         </div>
         {initial ? null : (
@@ -353,10 +540,20 @@ export const RecordingSetup = ({
       {recording !== null && recording.captureMode !== "ordinary" ? (
         <div className="bg-muted/30 rounded-lg border p-3 text-sm">
           <p className="font-medium">
-            {capturePrompts[recording.captureMode].title}
+            {
+              capturePrompt(
+                recording.captureMode,
+                controller.armedConditionKind
+              ).title
+            }
           </p>
           <p className="text-muted-foreground mt-1 text-xs">
-            {capturePrompts[recording.captureMode].hint}
+            {
+              capturePrompt(
+                recording.captureMode,
+                controller.armedConditionKind
+              ).hint
+            }
           </p>
           <Button
             className="mt-3"
@@ -439,43 +636,16 @@ export const FlowPreStepsSection = ({
         </Tooltip>
       </div>
       <ol className="space-y-2">
-        {preSteps.map((preStep, index) => {
-          const selectorText =
-            "target" in preStep.step && preStep.step.target !== undefined
-              ? targetLabel(preStep.step.target)
-              : undefined;
-          return (
-            <li
-              className="bg-card space-y-3 rounded-lg border p-3"
-              key={preStep.id}
-            >
-              <div className="flex items-start gap-3">
-                <Badge className="mt-0.5 tabular-nums" variant="outline">
-                  {index + 1}
-                </Badge>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">
-                    {stepLabel(preStep.step)}
-                  </p>
-                  <p
-                    className="text-muted-foreground truncate text-xs"
-                    title={selectorText}
-                  >
-                    {selectorText}
-                  </p>
-                </div>
-              </div>
-              <Button
-                disabled={busy || frozen}
-                onClick={() => controller.armFlowCondition(index)}
-                size="xs"
-                variant="outline"
-              >
-                Pick condition
-              </Button>
-            </li>
-          );
-        })}
+        {preSteps.map((preStep, index) => (
+          <PreStepRow
+            controller={controller}
+            disabled={busy || frozen}
+            index={index}
+            key={preStep.id}
+            preStep={preStep}
+            scope={{ type: "flow" }}
+          />
+        ))}
       </ol>
     </section>
   );

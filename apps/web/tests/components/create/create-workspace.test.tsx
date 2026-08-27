@@ -26,6 +26,8 @@ const rpc = vi.hoisted(() => ({
   bindVariableResult: null as RecordingSnapshot | null,
   condition: vi.fn(),
   conditionResult: null as RecordingSnapshot | null,
+  conditionUrl: vi.fn(),
+  conditionUrlResult: null as RecordingSnapshot | null,
   deleteStep: vi.fn(),
   deleteStepResult: null as RecordingSnapshot | null,
   discard: vi.fn(),
@@ -169,6 +171,10 @@ vi.mock("@/lib/rpc", () => {
       rpc.condition,
       () => rpc.conditionResult
     ),
+    recordingPreStepConditionUrlMutation: controlledMutation(
+      rpc.conditionUrl,
+      () => rpc.conditionUrlResult
+    ),
     recordingRecoverMutation: mutation("active"),
     recordingResumeMutation: mutation("active"),
     recordingVariableBindMutation: controlledMutation(
@@ -222,6 +228,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   rpc.bindVariableResult = null;
   rpc.conditionResult = null;
+  rpc.conditionUrlResult = null;
   rpc.deleteStepResult = null;
   rpc.preStepResult = null;
   rpc.renameVariableResult = null;
@@ -488,7 +495,7 @@ test("deletes and restores a Step through one-level undo", async () => {
   expect(rpc.undoDelete).toHaveBeenCalledOnce();
 });
 
-test("arms explicit Flow Pre-step capture and condition picking", async () => {
+test("arms explicit Flow Pre-step capture and picks a visible condition", async () => {
   const user = userEvent.setup();
   const active = makeSnapshot("active");
   rpc.preStepResult = { ...active, captureMode: "flowPreStep" };
@@ -520,8 +527,132 @@ test("arms explicit Flow Pre-step capture and condition picking", async () => {
   rpc.conditionResult = { ...withPreStep, captureMode: "conditionPicker" };
   renderRecording(withPreStep);
   await user.click(screen.getByRole("button", { name: "Pick condition" }));
-  expect(await screen.findByText("Pick the condition element")).toBeVisible();
+  await user.click(
+    await screen.findByRole("menuitem", {
+      name: "When an element is visible",
+    })
+  );
   expect(rpc.condition).toHaveBeenCalledOnce();
+  expect(rpc.condition.mock.calls[0]?.[0]?.payload).toMatchObject({
+    data: { index: 0, kind: "selectorVisible", scope: "flow" },
+  });
+  expect(await screen.findByText("Pick the condition element")).toBeVisible();
+});
+
+test("arms a hidden-element condition and prompts for it", async () => {
+  const user = userEvent.setup();
+  const active = makeSnapshot("active");
+  const bannerPreStep: RecordingSnapshot["flow"]["preSteps"] = [
+    {
+      id: "clear-banner",
+      step: {
+        target: [{ kind: "role", name: "Dismiss", role: "button" }],
+        type: "click",
+      },
+      when: {
+        target: [{ kind: "role", name: "Banner", role: "banner" }],
+        type: "selectorHidden",
+      },
+    },
+  ];
+  rpc.conditionResult = {
+    ...active,
+    captureMode: "conditionPicker",
+    flow: { ...active.flow, preSteps: bannerPreStep },
+  };
+  renderRecording({
+    ...active,
+    flow: { ...active.flow, preSteps: bannerPreStep },
+  });
+
+  await user.click(screen.getByRole("button", { name: "Pick condition" }));
+  await user.click(
+    await screen.findByRole("menuitem", {
+      name: "When an element is hidden",
+    })
+  );
+  expect(rpc.condition).toHaveBeenCalledOnce();
+  expect(rpc.condition.mock.calls[0]?.[0]?.payload).toMatchObject({
+    data: { kind: "selectorHidden", scope: "flow" },
+  });
+  expect(await screen.findByText("Pick the hidden element")).toBeVisible();
+});
+
+test("authors a urlMatches condition from a typed pattern", async () => {
+  const user = userEvent.setup();
+  const active = makeSnapshot("active");
+  const checkoutPreStep: RecordingSnapshot["flow"]["preSteps"] = [
+    {
+      id: "checkout-only",
+      step: {
+        target: [{ kind: "role", name: "Dismiss", role: "button" }],
+        type: "click",
+      },
+      when: {
+        target: [{ kind: "role", name: "Banner", role: "banner" }],
+        type: "selectorVisible",
+      },
+    },
+  ];
+  const withPreStep = {
+    ...active,
+    flow: { ...active.flow, preSteps: checkoutPreStep },
+  };
+  rpc.conditionUrlResult = {
+    ...withPreStep,
+    flow: {
+      ...withPreStep.flow,
+      preSteps: [
+        {
+          ...checkoutPreStep[0],
+          id: "checkout-only",
+          when: { pattern: "/checkout$", type: "urlMatches" } as const,
+        },
+      ],
+    },
+  };
+  renderRecording(withPreStep);
+
+  await user.click(screen.getByRole("button", { name: "Pick condition" }));
+  await user.click(
+    await screen.findByRole("menuitem", {
+      name: "When the URL matches…",
+    })
+  );
+  const input = screen.getByRole("textbox", { name: "URL pattern" });
+  await user.type(input, "/checkout$");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(rpc.conditionUrl).toHaveBeenCalledOnce();
+  expect(rpc.conditionUrl.mock.calls[0]?.[0]?.payload).toMatchObject({
+    data: { index: 0, pattern: "/checkout$", scope: "flow" },
+  });
+});
+
+test("shows which Page a Step beyond the first acts on", () => {
+  const active = makeSnapshot("active");
+  const popupClick = {
+    id: "popup-continue",
+    preSteps: [],
+    step: {
+      page: 1,
+      target: [{ kind: "role", name: "Pay now", role: "button" }],
+      type: "click" as const,
+    },
+  };
+  const recording: RecordingSnapshot = {
+    ...active,
+    flow: {
+      ...active.flow,
+      steps: [...active.flow.steps, popupClick.step],
+    },
+    recordedSteps: [...active.recordedSteps, popupClick],
+  };
+  renderRecording(recording);
+
+  // The first Page names nothing; a later Step names its Page by the order it
+  // opened, matching the index the Flow document carries.
+  expect(screen.queryByText("Page 0")).toBeNull();
+  expect(screen.getByText("Page 1")).toBeVisible();
 });
 
 test("renames and rebinds Variables", async () => {

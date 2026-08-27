@@ -131,6 +131,8 @@ export const recordingPreStepMutation = ContingencyRpcClient.mutation(
 export const recordingPreStepConditionMutation = ContingencyRpcClient.mutation(
   "recording.pre-step.condition.arm"
 );
+export const recordingPreStepConditionUrlMutation =
+  ContingencyRpcClient.mutation("recording.pre-step.condition.url");
 export const recordingCaptureCancelMutation = ContingencyRpcClient.mutation(
   "recording.capture.cancel"
 );

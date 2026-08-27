@@ -17,6 +17,11 @@ export const createWorkspaceAtom = Atom.make<CreateWorkspaceState>({
 });
 
 export interface RecordingAuthoringUiState {
+  /**
+   * The condition the armed element pick will produce, so the capture prompt
+   * can say which one. Meaningful only while a condition pick is armed.
+   */
+  readonly conditionKind: "selectorHidden" | "selectorVisible" | undefined;
   readonly busy: boolean;
   readonly confirmDiscard: boolean;
   readonly error: string | undefined;
@@ -25,6 +30,7 @@ export interface RecordingAuthoringUiState {
 
 export const recordingAuthoringUiAtom = Atom.make<RecordingAuthoringUiState>({
   busy: false,
+  conditionKind: undefined,
   confirmDiscard: false,
   error: undefined,
   titleDraft: undefined,
