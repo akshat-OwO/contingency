@@ -7,6 +7,8 @@ import {
 import type {
   BrowserRpcErrorType,
   BrowserStreamEvent,
+  Geolocation,
+  PermissionGrant,
   SessionId,
   UserAgentProfileId,
   Viewport,
@@ -26,15 +28,17 @@ import {
   stopScreencast,
 } from "./create-browser-screencast.ts";
 import {
-  applyUserAgent,
-  applyViewport,
+  applyPermissions,
   browserFailure,
   emitStatus,
   publishTabs,
   readSessionState,
+  reapplyEmulation,
+  reapplyViewport,
   requirePage,
   resolveUserAgent,
   tabs,
+  toSessionEmulation,
   tryBrowser,
   validateBrowserUrl,
 } from "./create-browser-session.ts";
@@ -52,6 +56,30 @@ export type {
   BrowserStorageDeleteInput,
   BrowserStorageSetInput,
 } from "./create-browser-contract.ts";
+
+/**
+ * What one patch field means: absent leaves the value as it is, `null` clears
+ * it, and anything else replaces it.
+ */
+const patchedValue = <T>(
+  current: T | undefined,
+  next: T | null | undefined
+): T | undefined => {
+  if (next === undefined) {
+    return current;
+  }
+  return next === null ? undefined : next;
+};
+
+const patchedPermissions = (
+  current: readonly PermissionGrant[],
+  next: readonly PermissionGrant[] | null | undefined
+): readonly PermissionGrant[] => {
+  if (next === undefined) {
+    return current;
+  }
+  return next === null ? [] : [...next];
+};
 
 const makeService = (
   getBrowser: Effect.Effect<Browser, BrowserRpcErrorType>
@@ -115,11 +143,16 @@ const makeService = (
       );
       const state = yield* Ref.make<CreateSessionState>({
         activePage: page,
+        colorScheme: undefined,
+        geolocation: undefined,
+        locale: undefined,
         network: new Map(),
         pageIds: new Map(),
+        permissions: [],
         requestIds: new WeakMap(),
         screencast: undefined,
         sequence: 0,
+        timezoneId: undefined,
         titles: new Map(),
         userAgent: undefined,
         viewport,
@@ -153,14 +186,9 @@ const makeService = (
   const setViewport = Effect.fn("CreateBrowser.setViewport")(
     function* setSessionViewport(sessionId: SessionId, viewport: Viewport) {
       const session = yield* requireSession(sessionId);
-      const state = yield* Ref.modify(session.state, (current) => [
-        { ...current, viewport },
-        { ...current, viewport },
-      ]);
-      yield* Effect.forEach(state.pageIds.keys(), (page) =>
-        applyViewport(session, page, viewport)
-      );
-      if (state.screencast !== undefined) {
+      yield* Ref.update(session.state, (state) => ({ ...state, viewport }));
+      yield* reapplyViewport(session);
+      if (readSessionState(session).screencast !== undefined) {
         yield* restartScreencast(session);
       }
     }
@@ -177,16 +205,62 @@ const makeService = (
       const browser = yield* getBrowser;
       const normalizedUrl = yield* validateBrowserUrl(url);
       const userAgent = resolveUserAgent(profile, browser.version());
-      yield* Ref.update(session.state, (state) => ({ ...state, userAgent }));
-      yield* setViewport(sessionId, viewport);
+      yield* Ref.update(session.state, (state) => ({
+        ...state,
+        userAgent,
+        viewport,
+      }));
+      yield* reapplyEmulation(session);
       const state = yield* Ref.get(session.state);
-      yield* Effect.forEach(state.pageIds.keys(), (page) =>
-        applyUserAgent(session, page, userAgent)
-      );
+      // A user agent only reaches a document at its navigation, so the active
+      // Page is reopened; every other Emulation setting survives untouched.
       yield* tryBrowser("Could not reopen the page", () =>
         state.activePage.goto(normalizedUrl)
       );
       return { url: state.activePage.url() };
+    }
+  );
+
+  const getEmulation = (sessionId: SessionId) =>
+    requireSession(sessionId).pipe(
+      Effect.map((session) => toSessionEmulation(readSessionState(session)))
+    );
+
+  /**
+   * Patch one session's Emulation atomically. Absent leaves a part unchanged,
+   * null clears it, and the whole Emulation is then applied together — so a
+   * permission or location override is dropped without closing the session,
+   * and no other setting moves.
+   */
+  const setEmulation = Effect.fn("CreateBrowser.setEmulation")(
+    function* updateSessionEmulation(
+      sessionId: SessionId,
+      patch: {
+        readonly colorScheme?: "light" | "dark" | null | undefined;
+        readonly geolocation?: Geolocation | null | undefined;
+        readonly locale?: string | null | undefined;
+        readonly permissions?: readonly PermissionGrant[] | null | undefined;
+        readonly timezoneId?: string | null | undefined;
+      }
+    ) {
+      const session = yield* requireSession(sessionId);
+      yield* Ref.update(session.state, (state) => ({
+        ...state,
+        colorScheme: patchedValue(state.colorScheme, patch.colorScheme),
+        geolocation: patchedValue(state.geolocation, patch.geolocation),
+        locale: patchedValue(state.locale, patch.locale),
+        permissions: patchedPermissions(state.permissions, patch.permissions),
+        timezoneId: patchedValue(state.timezoneId, patch.timezoneId),
+      }));
+      // Permissions live on the context, the rest on each Page. Both are
+      // re-applied from the one new state, so the patch lands as a unit — but
+      // a patch that never mentions permissions leaves the context's grants
+      // alone rather than clearing and re-granting them.
+      if (patch.permissions !== undefined) {
+        yield* applyPermissions(session);
+      }
+      yield* reapplyEmulation(session);
+      return toSessionEmulation(readSessionState(session));
     }
   );
 
@@ -217,15 +291,14 @@ const makeService = (
     const finishOpen = (sessionId: SessionId) =>
       Effect.gen(function* finishOpeningSession() {
         const session = yield* requireSession(sessionId);
-        yield* setViewport(sessionId, viewport);
         const userAgent = resolveUserAgent(userAgentProfile, browser.version());
-        const state = yield* Ref.modify(session.state, (current) => [
-          { ...current, userAgent },
-          { ...current, userAgent },
-        ]);
-        yield* Effect.forEach(state.pageIds.keys(), (page) =>
-          applyUserAgent(session, page, userAgent)
-        );
+        yield* Ref.update(session.state, (state) => ({
+          ...state,
+          userAgent,
+          viewport,
+        }));
+        yield* reapplyEmulation(session);
+        const state = yield* Ref.get(session.state);
         yield* tryBrowser("Could not open the URL", () =>
           state.activePage.goto(normalizedUrl)
         );
@@ -267,6 +340,7 @@ const makeService = (
         return readSessionState(session).activePage.url();
       }),
     deleteStorage: storage.remove,
+    getEmulation,
     getNetworkRequest: (sessionId, tabId, requestId) =>
       Effect.gen(function* readNetworkRequest() {
         const session = yield* requireSession(sessionId);
@@ -413,6 +487,7 @@ const makeService = (
           }
         });
       }),
+    setEmulation,
     setStorage: storage.set,
     setUserAgent,
     setViewport,

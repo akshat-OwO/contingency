@@ -459,8 +459,12 @@ export type PermissionGrant = typeof PermissionGrant.Type;
 
 export const Geolocation = Schema.Struct({
   accuracy: Schema.optional(Schema.Finite),
-  latitude: Schema.Finite,
-  longitude: Schema.Finite,
+  latitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 90, minimum: -90 })
+  ),
+  longitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 180, minimum: -180 })
+  ),
 });
 export type Geolocation = typeof Geolocation.Type;
 
@@ -600,6 +604,20 @@ export const recordingMakesBrowserInputReadOnly = (
 ): boolean =>
   recording?.phase === "incomplete" ||
   (recording?.phase === "paused" && recording.captureMode === "ordinary");
+
+/**
+ * A Recording that has captured Steps declares the Emulation those Steps were
+ * captured under, so the session's Emulation, viewport, and user agent stay
+ * locked until the Recording is finished — including while it sits
+ * `incomplete`, because `recover()` resumes onto the very same Steps.
+ */
+export const recordingLocksBrowserControls = (
+  recording: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
+  sessionId: string
+): boolean =>
+  recording !== null &&
+  recording.sessionId === sessionId &&
+  recording.phase !== "finished";
 
 export const recordingLocksStorageMutations = (
   recording: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,

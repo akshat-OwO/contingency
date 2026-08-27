@@ -3,7 +3,12 @@ import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
-import { AuditKind, RecordingSnapshot } from "./flow.ts";
+import {
+  AuditKind,
+  Geolocation,
+  PermissionGrant,
+  RecordingSnapshot,
+} from "./flow.ts";
 import {
   BrowserStorageDeletePayload,
   BrowserStorageSetPayload,
@@ -456,6 +461,9 @@ export const BrandId = Schema.Literals([
   "browser.viewport.updated",
   "browser.user-agent.set",
   "browser.user-agent.updated",
+  "browser.emulation.get",
+  "browser.emulation.set",
+  "browser.emulation.updated",
   "browser.stream.subscribe",
   "browser.input.send",
   "browser.input.sent",
@@ -502,6 +510,8 @@ export const BrandId = Schema.Literals([
   "recording.stream.subscribe",
 ]);
 export type BrandId = typeof BrandId.Type;
+
+const nonEmptyProtocolString = Schema.String.check(Schema.isMinLength(1));
 
 export const BrowserSessionsGet = request("browser.sessions.get", {});
 export const BrowserSessionsResult = response("browser.sessions.result", {
@@ -566,6 +576,53 @@ export const BrowserUserAgentSet = request("browser.user-agent.set", {
 export const BrowserUserAgentUpdated = response("browser.user-agent.updated", {
   url: Schema.String,
   userAgentProfile: UserAgentProfileId,
+});
+
+/**
+ * The emulation a Create View session currently applies to every Page it
+ * opens: the Flow's Emulation shape ([ADR
+ * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)) with
+ * permissions as a plain list, because a fresh session grants nothing rather
+ * than declaring nothing.
+ */
+export const SessionEmulation = Schema.Struct({
+  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
+  geolocation: Schema.optional(Geolocation),
+  locale: Schema.optional(nonEmptyProtocolString),
+  permissions: Schema.Array(PermissionGrant),
+  timezoneId: Schema.optional(nonEmptyProtocolString),
+  userAgent: Schema.optional(nonEmptyProtocolString),
+  viewport: Viewport,
+});
+export type SessionEmulation = typeof SessionEmulation.Type;
+
+/**
+ * Read one session's Emulation without changing it, so a client can seed its
+ * view of what the session already emulates instead of assuming a fresh one.
+ */
+export const BrowserEmulationGet = request("browser.emulation.get", {
+  sessionId: SessionId,
+});
+
+/**
+ * Update one session's Emulation. Every field is optional; absent leaves that
+ * part unchanged and `null` clears it, so permissions and a location override
+ * can be dropped without closing the browser session (ADR 0013). A change is
+ * atomic: the session's whole Emulation is re-applied together, so changing
+ * one part never silently drops another.
+ */
+export const BrowserEmulationSet = request("browser.emulation.set", {
+  colorScheme: Schema.optional(
+    Schema.NullOr(Schema.Literals(["light", "dark"]))
+  ),
+  geolocation: Schema.optional(Schema.NullOr(Geolocation)),
+  locale: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
+  permissions: Schema.optional(Schema.NullOr(Schema.Array(PermissionGrant))),
+  sessionId: SessionId,
+  timezoneId: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
+});
+export const BrowserEmulationUpdated = response("browser.emulation.updated", {
+  emulation: SessionEmulation,
 });
 
 export const BrowserStreamSubscribe = request("browser.stream.subscribe", {
@@ -796,6 +853,16 @@ const BrowserUserAgentSetRpc = Rpc.make("browser.user-agent.set", {
   payload: BrowserUserAgentSet,
   success: BrowserUserAgentUpdated,
 });
+const BrowserEmulationGetRpc = Rpc.make("browser.emulation.get", {
+  error: BrowserRpcError,
+  payload: BrowserEmulationGet,
+  success: BrowserEmulationUpdated,
+});
+const BrowserEmulationSetRpc = Rpc.make("browser.emulation.set", {
+  error: BrowserRpcError,
+  payload: BrowserEmulationSet,
+  success: BrowserEmulationUpdated,
+});
 const BrowserStreamSubscribeRpc = Rpc.make("browser.stream.subscribe", {
   error: BrowserRpcError,
   payload: BrowserStreamSubscribe,
@@ -974,6 +1041,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   BrowserNavigationRunRpc,
   BrowserViewportSetRpc,
   BrowserUserAgentSetRpc,
+  BrowserEmulationGetRpc,
+  BrowserEmulationSetRpc,
   BrowserStreamSubscribeRpc,
   BrowserInputSendRpc,
   BrowserFrameAckRpc,

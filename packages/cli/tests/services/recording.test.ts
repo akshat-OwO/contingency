@@ -11,7 +11,9 @@ import type { ReducibleCaptureEvent } from "../../src/services/recorder-events.t
 import { flowDownloadName } from "../../src/services/recording-flow.ts";
 import { makeRecordingService } from "../../src/services/recording.ts";
 import type {
+  RecordingService,
   RecorderCapture,
+  RecorderCaptureHandle,
   RecorderCaptureStartOptions,
 } from "../../src/services/recording.ts";
 
@@ -55,6 +57,10 @@ const makeCapture = (url = INITIAL_URL) => {
         options = started;
         startCount += 1;
         return {
+          emulation: {
+            permissions: [],
+            viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+          },
           stop: Effect.sync(() => {
             stopCount += 1;
           }),
@@ -86,12 +92,76 @@ const makeCapture = (url = INITIAL_URL) => {
 const steps = (snapshot: RecordingSnapshot): readonly AuthoredStep[] =>
   snapshot.flow.steps;
 
+const declaredEmulation = (snapshot: RecordingSnapshot) =>
+  snapshot.flow.emulation;
+
 const startRecording = (capture: ReturnType<typeof makeCapture>) =>
   Effect.gen(function* start() {
     const recording = yield* makeRecordingService(capture.capture);
     yield* recording.start({ sessionId, title: "Checkout" });
     return recording;
   });
+
+it.effect("declares the session's Emulation on the Flow it produces", () =>
+  Effect.gen(function* declareEmulation() {
+    // The fake capture reports whatever Emulation is current when start runs,
+    // mirroring how the real recorder reads it from the session.
+    let emulation: RecorderCaptureHandle["emulation"] = {
+      permissions: [],
+      viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+    };
+    let onEvent: RecorderCaptureStartOptions["onEvent"] | undefined;
+    const capture: RecorderCapture = {
+      start: (started) =>
+        Effect.sync(() => {
+          ({ onEvent } = started);
+          return {
+            emulation,
+            stop: Effect.void,
+            tabId,
+            url: INITIAL_URL,
+          };
+        }),
+    };
+    const clickThenFinish = (recording: RecordingService) =>
+      Effect.gen(function* captureOneAction() {
+        if (onEvent !== undefined) {
+          yield* onEvent({
+            button: "left",
+            page: 0,
+            target: cartButton,
+            type: "click",
+          });
+        }
+        return yield* recording.finish();
+      });
+
+    const first = yield* makeRecordingService(capture);
+    yield* first.start({ sessionId, title: "Checkout" });
+    expect(
+      yield* clickThenFinish(first).pipe(Effect.map(declaredEmulation))
+    ).toEqual({
+      viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+    });
+
+    // Whatever the session is emulating when capture starts is what the Flow
+    // declares — locale and timezone alongside location (ADR 0013).
+    emulation = {
+      colorScheme: "dark",
+      geolocation: { latitude: 52.52, longitude: 13.405 },
+      locale: "de-DE",
+      permissions: [{ permission: "geolocation" }],
+      timezoneId: "Europe/Berlin",
+      userAgent: "Mozilla/5.0 (iPhone)",
+      viewport: { deviceScaleFactor: 2, height: 720, width: 1280 },
+    };
+    const second = yield* makeRecordingService(capture);
+    yield* second.start({ sessionId, title: "Checkout" });
+    expect(
+      yield* clickThenFinish(second).pipe(Effect.map(declaredEmulation))
+    ).toEqual(emulation);
+  })
+);
 
 it.effect("records the Page a Step acted on, and only past the first", () =>
   Effect.gen(function* recordPages() {

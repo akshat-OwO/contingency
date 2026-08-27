@@ -15,6 +15,7 @@ import type {
   PreStepPickKind,
   RecordedStep,
   RecordingSnapshot,
+  SessionEmulation,
   SessionId,
   Target,
 } from "@contingency/protocol";
@@ -79,11 +80,13 @@ export interface RecorderCaptureStartOptions {
 }
 
 /**
- * What capture hands back: how to stop, and the identity of the Page the
- * Recording is pinned to. A Recording spans the Pages that session opens, but
- * never migrates to another session.
+ * What capture hands back: how to stop, the identity of the Page the
+ * Recording is pinned to, and the Emulation the pinned session is applying —
+ * which the Flow declares, so every Run reproduces it (ADR 0013). A Recording
+ * spans the Pages that session opens, but never migrates to another session.
  */
 export interface RecorderCaptureHandle {
+  readonly emulation: SessionEmulation;
   readonly stop: Effect.Effect<void>;
   readonly tabId: BrowserTabId;
   readonly url: string;
@@ -796,6 +799,7 @@ export const makeRecordingService = (
             const state: RecordingState = {
               captureMode: "ordinary",
               deletedStep: undefined,
+              emulation: handle.emulation,
               flowId: FlowId.make(randomUUID()),
               flowPreSteps: [],
               incompleteFailure: undefined,
@@ -860,6 +864,9 @@ export const makeRecordingService = (
               ...current,
               captureMode: "ordinary",
               deletedStep: undefined,
+              // The session is the same one the Recording started on, so its
+              // Emulation is re-read rather than trusted from the checkpoint.
+              emulation: handle.emulation,
               incompleteFailure: undefined,
               pendingNavigation: new Set(),
               phase: "active",

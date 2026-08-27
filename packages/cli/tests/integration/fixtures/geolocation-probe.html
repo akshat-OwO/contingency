@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>probe</title>
+  </head>
+  <body>
+    <main>
+      <h1>Where am I?</h1>
+      <output id="answer">asking…</output>
+    </main>
+    <script>
+      const label =
+        new URLSearchParams(location.search).get("label") ?? "probe";
+      const answer = document.getElementById("answer");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          answer.textContent = `${label}:${position.coords.latitude},${position.coords.longitude}`;
+          document.title = answer.textContent;
+        },
+        (error) => {
+          answer.textContent = `${label}:denied`;
+          document.title = answer.textContent;
+        },
+        { timeout: 5000 }
+      );
+    </script>
+  </body>
+</html>

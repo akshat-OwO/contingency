@@ -11,6 +11,7 @@ import type {
   RecordingCaptureMode,
   RecordingPhase,
   RecordingSnapshot,
+  SessionEmulation,
   SessionId,
 } from "@contingency/protocol";
 import { Effect } from "effect";
@@ -33,6 +34,11 @@ export interface DeletedStep {
 export interface RecordingState {
   readonly captureMode: RecordingCaptureMode;
   readonly deletedStep: DeletedStep | undefined;
+  /**
+   * The Emulation of the browser session the Recording started on, declared
+   * by the Flow it produces so every Run reproduces it (ADR 0013).
+   */
+  readonly emulation: SessionEmulation;
   readonly flowId: FlowId;
   readonly flowPreSteps: readonly PreStep[];
   readonly incompleteFailure: CaptureFailure | undefined;
@@ -231,7 +237,36 @@ const toAuthoredStep = (recorded: RecordedStep): AuthoredStep => ({
   ...(recorded.variable === undefined ? {} : { variable: recorded.variable }),
 });
 
+/**
+ * The session's Emulation as the Flow declares it. The viewport the author
+ * recorded at is always declared, because a Run that replays at another size
+ * would not be the Flow they authored ([ADR
+ * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+const toEmulation = (emulation: SessionEmulation): Flow["emulation"] => ({
+  ...(emulation.colorScheme === undefined
+    ? {}
+    : { colorScheme: emulation.colorScheme }),
+  ...(emulation.geolocation === undefined
+    ? {}
+    : { geolocation: emulation.geolocation }),
+  ...(emulation.locale === undefined ? {} : { locale: emulation.locale }),
+  ...(emulation.permissions.length === 0
+    ? {}
+    : { permissions: [...emulation.permissions] }),
+  ...(emulation.timezoneId === undefined
+    ? {}
+    : { timezoneId: emulation.timezoneId }),
+  ...(emulation.userAgent === undefined
+    ? {}
+    : { userAgent: emulation.userAgent }),
+  viewport: emulation.viewport,
+});
+
 export const toFlow = (state: RecordingState): Flow => ({
+  // The Emulation of the session the Recording was made on, so a headless Run
+  // reproduces it rather than running from wherever the machine happens to be.
+  emulation: toEmulation(state.emulation),
   // Always emitted, because a Flow keys its Run history on this rather than on
   // the user-editable title, which would orphan that history on a rename.
   flowId: state.flowId,

@@ -60,6 +60,12 @@ export const browserViewportMutation = ContingencyRpcClient.mutation(
 export const browserUserAgentMutation = ContingencyRpcClient.mutation(
   "browser.user-agent.set"
 );
+export const browserEmulationMutation = ContingencyRpcClient.mutation(
+  "browser.emulation.set"
+);
+export const browserEmulationQuery = ContingencyRpcClient.mutation(
+  "browser.emulation.get"
+);
 export const browserInputMutation =
   ContingencyRpcClient.mutation("browser.input.send");
 export const browserFrameAckMutation =

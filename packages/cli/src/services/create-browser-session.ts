@@ -8,6 +8,9 @@ import type {
   BrowserStreamId,
   BrowserTab,
   BrowserTabId,
+  Geolocation,
+  PermissionGrant,
+  SessionEmulation,
   SessionId,
   StorageKind,
   UserAgentProfileId,
@@ -59,11 +62,25 @@ export type FrameAcknowledgement =
 
 export interface CreateSessionState {
   readonly activePage: Page;
+  /** The colour scheme Pages are fed through `prefers-color-scheme`. */
+  readonly colorScheme: "light" | "dark" | undefined;
+  /**
+   * The location override every Page reports through the geolocation API.
+   * Undefined — the default — means the browser's real position.
+   */
+  readonly geolocation: Geolocation | undefined;
+  readonly locale: string | undefined;
   readonly network: ReadonlyMap<BrowserTabId, Map<string, NetworkRecord>>;
   readonly pageIds: ReadonlyMap<Page, BrowserTabId>;
+  /**
+   * Website permission grants, context-wide in v1 with `origin` as the
+   * optional key ([ADR 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+   */
+  readonly permissions: readonly PermissionGrant[];
   readonly requestIds: WeakMap<Request, string>;
   readonly screencast: Screencast | undefined;
   readonly sequence: number;
+  readonly timezoneId: string | undefined;
   readonly titles: ReadonlyMap<Page, string>;
   readonly userAgent: string | undefined;
   readonly viewport: Viewport;
@@ -71,6 +88,7 @@ export interface CreateSessionState {
 
 export interface CreateSession {
   readonly context: BrowserContext;
+  /** The browser's own locale, which clearing a locale override restores. */
   readonly defaultUserAgent: string;
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
@@ -305,6 +323,198 @@ export const applyViewport = (
       })
     );
   });
+
+/**
+ * Timezone and locale overrides are claimed per renderer process, so a Page
+ * that shares a process with one already holding the claim is answered with
+ * "already in effect". The process is then emulating exactly what was asked
+ * for, so that answer is not a failure: swallowing it keeps the rest of the
+ * Page's environment — notably the colour scheme — from being skipped.
+ */
+const tolerateExistingClaim = <A>(
+  effect: Effect.Effect<A, BrowserRpcErrorType>
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  effect.pipe(
+    Effect.asVoid,
+    Effect.catchIf(
+      (error) => error.message.includes("already in effect"),
+      () => Effect.void
+    )
+  );
+
+/**
+ * Apply the session's environment Emulation — location override, timezone,
+ * locale, and colour scheme — to one Page through its CDP session, the same
+ * channel the user agent and viewport overrides already use. Idempotent: a
+ * cleared setting is actively reset rather than left at whatever it was.
+ */
+export const applyEnvironment = (
+  session: CreateSession,
+  page: Page
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.gen(function* applyPageEnvironment() {
+    const { colorScheme, geolocation, locale, timezoneId } =
+      readSessionState(session);
+    const cdp = yield* requireEmulationSession(session, page);
+    yield* geolocation === undefined
+      ? tryBrowser("Could not clear the location override", () =>
+          cdp.send("Emulation.clearGeolocationOverride")
+        )
+      : tryBrowser("Could not set the location override", () =>
+          cdp.send("Emulation.setGeolocationOverride", {
+            // An omitted accuracy emulates *position unavailable* rather than
+            // a default error radius, so a location with no accuracy stated is
+            // sent as `0` — the same default Playwright's own context takes.
+            accuracy: geolocation.accuracy ?? 0,
+            latitude: geolocation.latitude,
+            longitude: geolocation.longitude,
+          })
+        );
+    // An empty timezone id is how the protocol expresses "follow the host".
+    yield* tolerateExistingClaim(
+      tryBrowser(
+        timezoneId === undefined
+          ? "Could not clear the timezone override"
+          : "Could not set the timezone override",
+        () =>
+          cdp.send("Emulation.setTimezoneOverride", {
+            timezoneId: timezoneId ?? "",
+          })
+      )
+    );
+    // An empty locale is the protocol's own disable, restoring the host locale.
+    yield* tolerateExistingClaim(
+      tryBrowser(
+        locale === undefined
+          ? "Could not restore the locale"
+          : "Could not set the locale override",
+        () => cdp.send("Emulation.setLocaleOverride", { locale: locale ?? "" })
+      )
+    );
+    yield* tryBrowser("Could not set the colour scheme", () =>
+      cdp.send("Emulation.setEmulatedMedia", {
+        features:
+          colorScheme === undefined
+            ? []
+            : [{ name: "prefers-color-scheme", value: colorScheme }],
+      })
+    );
+  });
+
+/** Everything a Page needs to match its session's declared Emulation. */
+export const applyEmulationToPage = (
+  session: CreateSession,
+  page: Page
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.gen(function* applyFullEmulation() {
+    const state = readSessionState(session);
+    yield* applyViewport(session, page, state.viewport);
+    // An undefined user agent resets to the browser's own, so switching a
+    // session back to `default` actually clears an override it carried.
+    yield* applyUserAgent(session, page, state.userAgent);
+    yield* applyEnvironment(session, page);
+  });
+
+/**
+ * Re-apply a session's whole Emulation to every open Page. Every change that
+ * can interact with another part goes through here, so changing one never
+ * silently drops another (ADR 0013). The viewport is the one carve-out — it
+ * touches nothing else, so a drag takes `reapplyViewport` instead.
+ */
+export const reapplyEmulation = (
+  session: CreateSession
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.suspend(() =>
+    Effect.forEach([...readSessionState(session).pageIds.keys()], (page) =>
+      applyEmulationToPage(session, page)
+    )
+  ).pipe(Effect.asVoid);
+
+/**
+ * Re-apply only the session's viewport to every open Page. A resize is
+ * interactive and carries no other change, so it does not pay for re-sending
+ * the user agent and every environment override on each drag.
+ */
+export const reapplyViewport = (
+  session: CreateSession
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  // The state is read where the Effect runs, not where it is built, so the
+  // Effect answers for the session as it is on every run.
+  Effect.suspend(() => {
+    const state = readSessionState(session);
+    return Effect.forEach([...state.pageIds.keys()], (page) =>
+      applyViewport(session, page, state.viewport)
+    );
+  }).pipe(Effect.asVoid);
+
+/**
+ * Split permission grants into the context-wide names and the per-origin ones.
+ * Context-wide grants are one call; an origin key narrows a grant without
+ * replacing those. Shared by the Runner's context-open path and Create View's
+ * live session, so both apply grants identically ([ADR
+ * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+export const groupedPermissionGrants = (
+  grants: readonly PermissionGrant[]
+): {
+  readonly byOrigin: ReadonlyMap<string, string[]>;
+  readonly contextWide: readonly string[];
+} => {
+  const contextWide = grants
+    .filter((grant) => grant.origin === undefined)
+    .map((grant) => grant.permission);
+  const byOrigin = new Map<string, string[]>();
+  for (const grant of grants) {
+    if (grant.origin === undefined) {
+      continue;
+    }
+    const names = byOrigin.get(grant.origin) ?? [];
+    names.push(grant.permission);
+    byOrigin.set(grant.origin, names);
+  }
+  return { byOrigin, contextWide };
+};
+
+/** Grant the session's declared permissions on the context, declaratively. */
+export const applyPermissions = (
+  session: CreateSession
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.gen(function* applyContextPermissions() {
+    yield* tryBrowser("Could not clear website permissions", () =>
+      session.context.clearPermissions()
+    );
+    const { permissions } = readSessionState(session);
+    const { byOrigin, contextWide } = groupedPermissionGrants(permissions);
+    if (contextWide.length > 0) {
+      yield* tryBrowser("Could not grant website permissions", () =>
+        session.context.grantPermissions(contextWide)
+      );
+    }
+    yield* Effect.forEach(
+      [...byOrigin],
+      ([origin, names]) =>
+        tryBrowser("Could not grant website permissions", () =>
+          session.context.grantPermissions(names, { origin })
+        ),
+      { discard: true }
+    );
+  });
+
+export const toSessionEmulation = (
+  state: CreateSessionState
+): SessionEmulation => ({
+  ...(state.colorScheme === undefined
+    ? {}
+    : { colorScheme: state.colorScheme }),
+  ...(state.geolocation === undefined
+    ? {}
+    : { geolocation: state.geolocation }),
+  ...(state.locale === undefined ? {} : { locale: state.locale }),
+  permissions: [...state.permissions],
+  ...(state.timezoneId === undefined ? {} : { timezoneId: state.timezoneId }),
+  ...(state.userAgent === undefined ? {} : { userAgent: state.userAgent }),
+  viewport: state.viewport,
+});
 
 export const emptyStorageSnapshot = (
   tabId: BrowserTabId,

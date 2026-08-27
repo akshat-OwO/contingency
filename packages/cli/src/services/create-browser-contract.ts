@@ -10,6 +10,9 @@ import type {
   BrowserTab,
   BrowserTabId,
   FrameSequence,
+  Geolocation,
+  PermissionGrant,
+  SessionEmulation,
   SessionId,
   StorageKind,
   UserAgentProfileId,
@@ -80,6 +83,13 @@ export interface CreateBrowserService {
     tabId: BrowserTabId,
     input: BrowserStorageDeleteInput
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * The Emulation the session currently applies — what a Recording declares on
+   * the Flow it produces, and what the interface shows as applied.
+   */
+  readonly getEmulation: (
+    sessionId: SessionId
+  ) => Effect.Effect<SessionEmulation, BrowserRpcErrorType>;
   readonly getNetworkRequest: (
     sessionId: SessionId,
     tabId: BrowserTabId,
@@ -131,6 +141,24 @@ export interface CreateBrowserService {
     tabId: BrowserTabId,
     input: BrowserStorageSetInput
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Patch the session's Emulation atomically ([ADR
+   * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)):
+   * absent leaves a part unchanged, `null` clears it — so permissions and a
+   * location override can be dropped without closing the browser session —
+   * and the whole Emulation is re-applied together. Answers with the
+   * Emulation now in force.
+   */
+  readonly setEmulation: (
+    sessionId: SessionId,
+    patch: {
+      readonly colorScheme?: "light" | "dark" | null | undefined;
+      readonly geolocation?: Geolocation | null | undefined;
+      readonly locale?: string | null | undefined;
+      readonly permissions?: readonly PermissionGrant[] | null | undefined;
+      readonly timezoneId?: string | null | undefined;
+    }
+  ) => Effect.Effect<SessionEmulation, BrowserRpcErrorType>;
   readonly setUserAgent: (
     sessionId: SessionId,
     url: string,

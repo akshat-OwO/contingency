@@ -17,8 +17,10 @@ import type {
   ElidedFindings,
   Finding,
   Flow,
+  Geolocation,
   LocatorDescriptor,
   PreStep,
+  PermissionGrant,
   Run,
   RunAttempt,
   RunEnvironment,
@@ -47,6 +49,7 @@ import { chromium, errors } from "playwright-core";
 import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
+import { groupedPermissionGrants } from "./create-browser-session.ts";
 import {
   describeDiagnostics,
   describeLocator,
@@ -65,14 +68,85 @@ import { redactSecrets, substituteVariables } from "./variables.ts";
 import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
 
 /**
- * Run sessions replay a Flow, so they open at the Flow's own viewport rather
- * than a canvas-sized one.
+ * Run sessions replay a Flow, so they open at the viewport the Flow declares.
+ * A Flow that declares none still runs at a predictable one rather than at
+ * whatever the browser would pick.
  */
-const RUN_VIEWPORT = {
+const DEFAULT_RUN_VIEWPORT = {
   deviceScaleFactor: 1,
   height: 800,
   width: 1280,
 } as const;
+
+/** The geolocation context option, or nothing when none is declared. */
+const geolocationOption = (geolocation: Geolocation | undefined) =>
+  geolocation === undefined
+    ? {}
+    : {
+        geolocation: {
+          ...(geolocation.accuracy === undefined
+            ? {}
+            : { accuracy: geolocation.accuracy }),
+          latitude: geolocation.latitude,
+          longitude: geolocation.longitude,
+        },
+      };
+
+/**
+ * The Playwright context options a Flow's Emulation translates to. Fields the
+ * Flow does not declare stay at their defaults.
+ */
+const emulationContextOptions = (
+  emulation: Flow["emulation"]
+): {
+  colorScheme?: "light" | "dark";
+  deviceScaleFactor: number;
+  geolocation?: { accuracy?: number; latitude: number; longitude: number };
+  locale?: string;
+  timezoneId?: string;
+  userAgent?: string;
+  viewport: { height: number; width: number };
+} => ({
+  deviceScaleFactor:
+    emulation?.viewport?.deviceScaleFactor ??
+    DEFAULT_RUN_VIEWPORT.deviceScaleFactor,
+  ...(emulation?.colorScheme === undefined
+    ? {}
+    : { colorScheme: emulation.colorScheme }),
+  ...geolocationOption(emulation?.geolocation),
+  ...(emulation?.locale === undefined ? {} : { locale: emulation.locale }),
+  ...(emulation?.timezoneId === undefined
+    ? {}
+    : { timezoneId: emulation.timezoneId }),
+  ...(emulation?.userAgent === undefined
+    ? {}
+    : { userAgent: emulation.userAgent }),
+  viewport: {
+    height: emulation?.viewport?.height ?? DEFAULT_RUN_VIEWPORT.height,
+    width: emulation?.viewport?.width ?? DEFAULT_RUN_VIEWPORT.width,
+  },
+});
+
+/**
+ * Grant the Emulation's declared permissions on an opened context. Grants are
+ * context options in Playwright rather than constructor arguments, so they
+ * land immediately after it opens — before any Page exists to observe them
+ * missing.
+ */
+const grantDeclaredPermissions = async (
+  context: BrowserContext,
+  grants: readonly PermissionGrant[]
+): Promise<void> => {
+  const { byOrigin, contextWide } = groupedPermissionGrants(grants);
+  if (contextWide.length > 0) {
+    await context.grantPermissions(contextWide);
+  }
+  await Promise.all(
+    [...byOrigin].map(([origin, permissions]) =>
+      context.grantPermissions(permissions, { origin })
+    )
+  );
+};
 
 /**
  * How long one Step may act before failing, set explicitly rather than left at
@@ -1636,6 +1710,12 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
 
   /**
    * Open a context, restoring the given state when it carries one.
+   *
+   * The Emulation the Flow declares is applied here, at context open, exactly
+   * as Create View applies it to its live session (ADR 0013): a headless Run
+   * reproduces the conditions the author authored against, and emulated
+   * geolocation is the location a site receives because its permission is
+   * genuinely granted.
    */
   const openContext = (state: BrowserStorageState | null) =>
     Effect.tryPromise({
@@ -1643,15 +1723,17 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
         new RunnerError({
           message: `Could not open a browser context: ${errorMessage(cause)}`,
         }),
-      try: () =>
-        browser.newContext({
-          deviceScaleFactor: RUN_VIEWPORT.deviceScaleFactor,
+      try: async () => {
+        const context = await browser.newContext({
+          ...emulationContextOptions(flow.emulation),
           ...(state === null ? {} : { storageState: state }),
-          viewport: {
-            height: RUN_VIEWPORT.height,
-            width: RUN_VIEWPORT.width,
-          },
-        }),
+        });
+        const grants = flow.emulation?.permissions;
+        if (grants !== undefined) {
+          await grantDeclaredPermissions(context, grants);
+        }
+        return context;
+      },
     });
 
   yield* Effect.acquireUseRelease(

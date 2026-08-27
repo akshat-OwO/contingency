@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Emulation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Your environment</h1>
+      <output id="environment">asking…</output>
+    </main>
+    <script>
+      const output = document.getElementById("environment");
+      const report = (entries) => {
+        output.textContent = JSON.stringify(entries);
+        fetch("/emulation-beacon?" + new URLSearchParams(entries)).catch(
+          () => {}
+        );
+      };
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          report({
+            accuracy: String(position.coords.accuracy),
+            dark: matchMedia("(prefers-color-scheme: dark)").matches
+              ? "1"
+              : "0",
+            height: String(innerHeight),
+            latitude: String(position.coords.latitude),
+            locale: Intl.DateTimeFormat().resolvedOptions().locale,
+            longitude: String(position.coords.longitude),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            width: String(innerWidth),
+          });
+        },
+        (error) => {
+          report({ denied: String(error.code) });
+        },
+        { timeout: 5000 }
+      );
+    </script>
+  </body>
+</html>
