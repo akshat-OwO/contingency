@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+  A parent page for Audit target-path assertions. It carries one violation
+  inside a cross-origin iframe and one inside an open shadow root, so a
+  rendered Finding target must distinguish the two hops: across the frame
+  with ` >>> ` and into the shadow root with ` >> `. The frame is addressed
+  through the same localhost trick the recorder fixture uses, because two
+  origins cannot come from one server port.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Framed audit</title>
+  </head>
+  <body>
+    <main>
+      <h1>Framed audit</h1>
+      <div id="audit-host"></div>
+    </main>
+    <script>
+      const framedSource = new URLSearchParams(location.search).get("frame");
+      if (framedSource) {
+        const frame = document.createElement("iframe");
+        frame.id = "audit-frame";
+        frame.src = framedSource;
+        document.body.append(frame);
+      }
+      const shadow = document
+        .getElementById("audit-host")
+        .attachShadow({ mode: "open" });
+      // An empty button: a violation that lives only inside the shadow root.
+      shadow.innerHTML = '<button type="button"></button>';
+    </script>
+  </body>
+</html>

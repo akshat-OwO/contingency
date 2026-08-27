@@ -114,6 +114,14 @@ export type CoreWebVitals = typeof CoreWebVitals.Type;
  */
 export const RunEnvironment = Schema.Struct({
   architecture: nonEmptyString,
+  /**
+   * The version of the accessibility engine that produced this Run's Findings
+   * (ADR 0017). Absent when the Run audited nothing, so there was no engine to
+   * record. A Baseline comparison that crosses an engine upgrade warns rather
+   * than refuses — see {@link axeVersionMismatchWarning} — because rule churn
+   * between versions describes the engine, not the site.
+   */
+  axeVersion: Schema.optional(nonEmptyString),
   cpuCount: Schema.Int,
   cpuModel: nonEmptyString,
   /**
@@ -128,10 +136,13 @@ export const RunEnvironment = Schema.Struct({
 export type RunEnvironment = typeof RunEnvironment.Type;
 
 /**
- * A rule the engine reported only in part. The vendored engine caps how many
- * elements it lists per rule — verified against the bundled binary: a page
- * with 12 unlabelled images reports `nodeCount: 12` and ten nodes — so a
- * Finding list can be shorter than what the page actually has.
+ * A rule the engine reported only in part.
+ *
+ * The engine itself reports every element a rule failed on; the cap on how
+ * many are listed is Contingency's own, chosen and written down (ADR 0017):
+ * ten per rule. A rule failing on four hundred elements says so once with its
+ * true count rather than producing four hundred Findings, while the listed
+ * sample still names where to start.
  *
  * Recording the shortfall keeps a later Baseline comparison honest. Without
  * it, a page whose violations grew past the cap and a page that genuinely
@@ -296,3 +307,25 @@ export type Run = typeof Run.Type;
 /** A Run whose Steps failed is never eligible to anchor a comparison. */
 export const runIsBaselineEligible = (run: Run): boolean =>
   run.outcome === "completed";
+
+/**
+ * The warning a Baseline comparison must carry when the two Runs were audited
+ * by different engine versions, or `undefined` when there is nothing to warn
+ * about. It warns rather than refuses (ADR 0017): rule churn between versions
+ * describes the engine, not the site, and refusing would discard exactly the
+ * history that makes a Baseline worth keeping.
+ *
+ * Absent versions warn nothing: a Run without an Audit Step recorded no
+ * engine, and it also has no Findings for the comparison to misattribute.
+ */
+export const axeVersionMismatchWarning = (
+  baseline: RunEnvironment,
+  current: RunEnvironment
+): string | undefined => {
+  const before = baseline.axeVersion;
+  const after = current.axeVersion;
+  if (before === undefined || after === undefined || before === after) {
+    return undefined;
+  }
+  return `The Baseline was audited by axe-core ${before}, this Run by ${after}. Differences in Findings may describe the engine upgrade rather than the site.`;
+};
