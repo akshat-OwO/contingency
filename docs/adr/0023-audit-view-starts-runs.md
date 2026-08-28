@@ -1,0 +1,17 @@
+# Audit View starts Runs; it does not attach to one
+
+[ADR 0002](./0002-cli-is-the-sole-runner.md) made the CLI the sole Runner and left one question open, in its own words: Audit View must "invoke **or** attach to" it. Audit View **invokes**. `contingency web` takes the Flow to audit as an argument and hosts the Runner in its own process; the browser is a viewer over a Run that process started.
+
+## Considered Options
+
+- **Attach to a `contingency run` already in flight** — rejected. `web` and `run` are separate processes with nothing between them: attaching means a discovery mechanism, a cross-process stream for `RunStep` results, and handling both attach-mid-Run and no-Run-at-all. None of it exists. Worse, single-Run enforcement ([issue #20](https://github.com/akshat-OwO/contingency/issues/20)) is a per-process semaphore, so attach would need a second, cross-process notion of "one Run at a time" to stay correct.
+- **Start, with the Runner in the `web` process** — chosen. The process already hosts a Playwright stack ([ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md)) and already has the semaphore that makes #20 correct.
+
+## Consequences
+
+- **ADR 0002's actual constraint holds.** Its concern was that "the web UI does not embed a second player that must be kept in sync." Starting a Run does not embed one: `contingency web` is the CLI, and the Runner it invokes is the same engine headless invocations use. What Audit View must never do is implement execution, and it does not.
+- **Attach is deferred, not rejected.** A Run started from a terminal remains invisible to Audit View. So does a finished one: browsing past Runs off disk is a separate concern, even though they are already filed under the state directory.
+- **Audit View Runs force the Trace and the video on.** Stepping the timeline needs the per-Step frames that video derivation captures ([ADR 0014](./0014-artifacts-are-run-properties.md)), so a Run started here cannot disable either artifact. This puts a screenshot on the hot path after every Step — the overhead ADR 0014 retired for live capture, readmitted deliberately and only for Runs a human is watching. Headless invocations are untouched and keep their default cost.
+- **Whether such a Run stays Baseline-eligible is unsettled**, pending a measurement of that overhead against Core Web Vitals. A Flow run once from Audit View and once from CI would otherwise compare vitals across two capture regimes and could report a Regression that belongs to the tooling. If the number is material, excluding Audit View Runs from Baseline eligibility gets its own ADR — it would be a new class of second-class Run, which [ADR 0018](./0018-a-gate-fails-the-exit-code-not-the-run.md) deliberately avoided creating.
+- **A Run and a Recording cannot share the process.** Create View's Recording already locks browser control, and a Run is context-isolated ([ADR 0015](./0015-runs-are-context-isolated-and-end-quiescent.md)); starting one mid-Recording is refused with the existing recording-conflict error rather than contended for.
+- **Runtime Variables are prompted through the browser.** A web server is never an interactive terminal, so the Runner's prompt seam is answered by the UI over RPC. Without this, any Flow declaring a `runtime` Variable — the 2FA case the Variable model was designed around — would fail before its first Step.

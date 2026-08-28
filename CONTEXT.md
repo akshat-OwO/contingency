@@ -8,7 +8,7 @@ Contingency lets companies author and re-run website Flows that check performanc
 
 **Create View**: The authoring mode over a Flow: live browser on a canvas, record Steps, add Audits, and author Pre-steps. _Avoid_: Create product, editor (as the product name)
 
-**Audit View**: The execution and inspection mode over a Flow: open a Flow, watch a Run, step through the Run timeline to inspect a Step's actions and Findings. It observes the CLI Runner rather than executing Flows itself. Watching a live Run and inspecting a finished one through its Trace are distinct: during a live Run, stepping back does not rewind browser state or fork the Run. _Avoid_: calling this mode itself "an Audit"
+**Audit View**: The execution and inspection mode over a Flow: start a Run, watch it execute, and step through the Run timeline to inspect a Step's actions and Findings. It starts and observes Runs through the CLI-owned Runner; it does not implement execution ([ADR 0023](./docs/adr/0023-audit-view-starts-runs.md)). Watching a live Run and inspecting a finished one through its Trace are distinct: a live Run has no frames to step yet, and stepping back never rewinds browser state or forks the Run. _Avoid_: calling this mode itself "an Audit"
 
 **Audit**: A pluggable check represented as an ordered custom Step in a Flow. Running it produces Findings at that point in the Flow. The v1 check kind is accessibility. Performance is not an Audit: it is a toggle on a navigating Step, measured by the Runner at that navigation ([ADR 0008](./docs/adr/0008-performance-is-a-navigation-step-toggle.md)). _Avoid_: Audit View, axe (that is the implementation), performance audit
 
