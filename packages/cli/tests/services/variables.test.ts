@@ -334,3 +334,29 @@ it.effect(
       expect(failure.message).toContain("OTP was left empty");
     }).pipe(Effect.provide(writableFileSystem))
 );
+
+it.effect("asks for a Variable only a Pre-step references", () =>
+  Effect.gen(function* preStepReference() {
+    const prompted: string[] = [];
+    const report = yield* preflight(
+      flowWith([{ name: "OTP", runtime: true, secret: true }]),
+      options({
+        interactive: true,
+        prompt: (variable) => {
+          prompted.push(variable.name);
+          return Effect.succeed(Redacted.make("123456"));
+        },
+      })
+    );
+
+    // A Pre-step executes through the same substitution as the Step it
+    // guards, so a Variable only it references must be asked for too — else
+    // the literal `{{OTP}}` is typed into the page.
+    yield* resolveStepVariables(report.resolution, [
+      { type: "click" },
+      { step: { type: "change", value: "{{OTP}}" } },
+    ]);
+    expect(prompted).toEqual(["OTP"]);
+    expect(report.resolution.values.get("OTP")).toBe("123456");
+  }).pipe(Effect.provide(writableFileSystem))
+);

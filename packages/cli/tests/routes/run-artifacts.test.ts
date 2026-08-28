@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import path from "node:path";
 
 import { makeBrowserRpcError } from "@contingency/protocol";
@@ -8,11 +8,12 @@ import { Context, Effect, FileSystem, Layer, Stream } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 
 import {
-  RunArtifactRoutes,
+  makeRunArtifactRoutes,
   parseByteRange,
 } from "../../src/routes/run-artifacts.ts";
 import { RunSession } from "../../src/services/run-session.ts";
 import type { RunSessionService } from "../../src/services/run-session.ts";
+import { isAllowedHost } from "../../src/services/web-url.ts";
 
 it("reads the one byte range a media element asks for", () => {
   expect(parseByteRange("bytes=0-99", 500)).toEqual({ end: 99, start: 0 });
@@ -49,7 +50,11 @@ const sessionServing = (file: string): RunSessionService => ({
 /** Serves the route on an ephemeral port and hands back its origin. */
 const serving = Effect.fn("serving")(function* serving(file: string) {
   const context = yield* Layer.build(
-    HttpRouter.serve(RunArtifactRoutes).pipe(
+    HttpRouter.serve(
+      makeRunArtifactRoutes({
+        allowedOrigins: new Set(["http://audit.example:7777"]),
+      })
+    ).pipe(
       Layer.provide(Layer.succeed(RunSession, sessionServing(file))),
       Layer.provideMerge(
         NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 0 })
@@ -94,5 +99,48 @@ it.live("answers a byte range, so a player can seek to a Step's frame", () =>
       fetch(`${origin}/runs/other/video/1`)
     );
     expect(missing.status).toBe(404);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it("serves a loopback or configured Host, and nothing a rebind can present", () => {
+  const allowed = new Set(["http://audit.example:7777"]);
+  // A media element sends no Origin, so Host is the only name a request
+  // carries. Loopback literals and the configured origin are servable.
+  expect(isAllowedHost("127.0.0.1:7777", allowed)).toBe(true);
+  expect(isAllowedHost("localhost:5173", allowed)).toBe(true);
+  expect(isAllowedHost("[::1]:7777", allowed)).toBe(true);
+  expect(isAllowedHost("audit.example:7777", allowed)).toBe(true);
+
+  // A DNS rebind reaches the loopback bind but carries the attacker's own
+  // name, which is what this refuses.
+  expect(isAllowedHost("rebind.evil:7777", allowed)).toBe(false);
+  expect(isAllowedHost("audit.example.evil:7777", allowed)).toBe(false);
+  // HTTP/1.1 requires a Host; one that is absent or unparseable is refused.
+  expect(isAllowedHost(undefined, allowed)).toBe(false);
+  expect(isAllowedHost("", allowed)).toBe(false);
+});
+
+it.live("refuses a request carrying a Host that is not ours", () =>
+  Effect.gen(function* refusesRebind() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped();
+    const file = path.join(directory, "attempt-1.webm");
+    yield* fileSystem.writeFile(file, videoBytes);
+    const origin = yield* serving(file);
+
+    // `fetch` refuses to set Host, so the request is made by hand: a rebinding
+    // browser sends the attacker's name here while reaching the loopback bind.
+    const status = yield* Effect.callback<number>((resume) => {
+      const call = request(
+        `${origin}/runs/run-1/video/1`,
+        { headers: { host: "rebind.evil:7777" } },
+        (response) => {
+          response.resume();
+          resume(Effect.succeed(response.statusCode ?? 0));
+        }
+      );
+      call.end();
+    });
+    expect(status).toBe(404);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

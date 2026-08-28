@@ -6,7 +6,7 @@ import { Layer } from "effect";
 import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
 import { makeRpcRoutes } from "../routes/rpc.ts";
-import { RunArtifactRoutes } from "../routes/run-artifacts.ts";
+import { makeRunArtifactRoutes } from "../routes/run-artifacts.ts";
 import { makeRunSessionLayer } from "./run-session.ts";
 import type { RunSessionInput } from "./run-session.ts";
 
@@ -44,7 +44,7 @@ export const makeHttpServerLayer = ({
   const runSession = makeRunSessionLayer(run);
   const runRoutes = Layer.mergeAll(
     makeRpcRoutes({ allowedOrigins, runSession }),
-    RunArtifactRoutes
+    makeRunArtifactRoutes({ allowedOrigins })
   );
   return HttpRouter.serve(Layer.merge(runRoutes, webRoutes)).pipe(
     Layer.provide(NodeHttpServer.layer(createServer, { host, port })),

@@ -221,13 +221,16 @@ describe("frames", () => {
     // so the inverse of a Step's seek is arithmetic on the same list.
     expect(frameStepIndex(segment, 0)).toBe(0);
     expect(frameStepIndex(segment, 0.75)).toBe(1);
-    // Past the end is the last frame, never `undefined`: the video ends on it.
-    expect(frameStepIndex(segment, 99)).toBe(2);
+    // Past the Step frames is the settled state, which belongs to no Step.
+    expect(frameStepIndex(segment, 99)).toBeUndefined();
+    expect(frameStepIndex(segment, 1.4)).toBe(2);
     expect(frameStepIndex(videoSegment(withVideo, 1), 0)).toBeUndefined();
   });
 
-  it("measures a segment as one frame per executed Step", () => {
-    expect(segmentDuration(videoSegment(withVideo, 2))).toBe(1.5);
+  it("counts the settled frame derivation appends after the Steps", () => {
+    // Three Step frames plus the settled one: a duration that stopped at the
+    // Steps would read past its own total on the last frame.
+    expect(segmentDuration(videoSegment(withVideo, 2))).toBe(2);
     expect(segmentDuration(videoSegment(withVideo, 1))).toBe(0);
   });
 

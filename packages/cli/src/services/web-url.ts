@@ -35,6 +35,40 @@ export const isAllowedWebSocketOrigin = (
   allowedOrigins: ReadonlySet<string>
 ): boolean => origin !== undefined && allowedOrigins.has(origin);
 
+/**
+ * Whether a request's `Host` may be served.
+ *
+ * A loopback bind is not on its own a guard: a remote page can point a name it
+ * controls at 127.0.0.1 and have the browser send that name as `Host` — DNS
+ * rebinding — reaching a server bound to loopback only. What the attacker
+ * cannot forge is the name: a rebinding request carries their domain, never a
+ * loopback literal and never a configured origin. Requests carrying no `Host`
+ * at all are refused, since HTTP/1.1 requires one.
+ */
+export const isAllowedHost = (
+  host: string | undefined,
+  allowedOrigins: ReadonlySet<string>
+): boolean => {
+  if (host === undefined || host.length === 0) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${host}`);
+  } catch {
+    return false;
+  }
+  if (isLoopbackHost(parsed.hostname)) {
+    return true;
+  }
+  for (const origin of allowedOrigins) {
+    if (new URL(origin).host === parsed.host) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const resolveAllowedOrigins = (browserUrl: URL): ReadonlySet<string> => {
   const origins = new Set<string>([browserUrl.origin]);
   if (!isLoopbackHost(browserUrl.hostname)) {

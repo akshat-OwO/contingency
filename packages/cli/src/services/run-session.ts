@@ -259,6 +259,10 @@ export const makeRunSessionService = ({
         path.join(directory, "trace.json"),
         RunTraceManifestSchema
       );
+      // A Run that ended while a prompt was open leaves nobody to answer it:
+      // the ceiling interrupts the awaiting fiber, so the question is dead and
+      // must not outlive the Run that asked it.
+      yield* Ref.set(pendingRef, null);
       yield* update((state) => ({
         ...state,
         attempt: run.attempts.at(-1)?.attempt,
@@ -271,6 +275,7 @@ export const makeRunSessionService = ({
         runningIndex: undefined,
         steps: run.steps as RunStep[],
         trace,
+        variablePrompt: null,
         video,
       }));
     });
@@ -292,6 +297,7 @@ export const makeRunSessionService = ({
         })
       );
       if (report._tag === "Failure") {
+        yield* Ref.set(pendingRef, null);
         yield* update((state) => ({
           ...state,
           error: report.failure.message,
@@ -317,6 +323,7 @@ export const makeRunSessionService = ({
         })
       );
       if (outcome._tag === "Failure") {
+        yield* Ref.set(pendingRef, null);
         yield* update((state) => ({
           ...state,
           error: outcome.failure.message,
@@ -448,12 +455,17 @@ export const makeRunSessionService = ({
           yield* Effect.forkDetach(
             execute(state.flow).pipe(
               Effect.catchCause(() =>
-                update((current) => ({
-                  ...current,
-                  error: "The Run ended unexpectedly.",
-                  phase: "idle",
-                  variablePrompt: null,
-                })).pipe(Effect.asVoid)
+                Ref.set(pendingRef, null).pipe(
+                  Effect.andThen(
+                    update((current) => ({
+                      ...current,
+                      error: "The Run ended unexpectedly.",
+                      phase: "idle",
+                      variablePrompt: null,
+                    }))
+                  ),
+                  Effect.asVoid
+                )
               ),
               Effect.provideService(FileSystem.FileSystem, fileSystem)
             )

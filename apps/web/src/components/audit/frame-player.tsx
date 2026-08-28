@@ -1,4 +1,5 @@
 import type { RunVideoSegment } from "@contingency/protocol";
+import { VIDEO_FRAME_DURATION_SECONDS } from "@contingency/protocol";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -104,10 +105,17 @@ export const FramePlayer = ({
     () => [...segment.steps].toSorted((left, right) => left - right),
     [segment.steps]
   );
-  const position = selected === undefined ? -1 : recorded.indexOf(selected);
+  // A Step the attempt never reached has no frame of its own, so the arrows
+  // step from wherever the playhead is instead of going dead.
+  const anchor = selected === undefined ? undefined : selected;
+  const position = recorded.indexOf(
+    (anchor !== undefined && recorded.includes(anchor)
+      ? anchor
+      : frameStepIndex(segment, currentTime)) ?? -1
+  );
   const previous = position > 0 ? recorded[position - 1] : undefined;
   const next =
-    position >= 0 && position < recorded.length - 1
+    position !== -1 && position < recorded.length - 1
       ? recorded[position + 1]
       : undefined;
 
@@ -161,6 +169,17 @@ export const FramePlayer = ({
   }, []);
 
   const over = frameStepIndex(segment, currentTime);
+  // Past the last Step's frame, what plays is the state the Run settled into,
+  // which belongs to the Run rather than to any one Step.
+  const settled =
+    segment.includesSettledState &&
+    currentTime >= duration - VIDEO_FRAME_DURATION_SECONDS;
+  let playheadLabel = "No frame";
+  if (over !== undefined) {
+    playheadLabel = `Step ${over} of ${recorded.length} frames`;
+  } else if (settled) {
+    playheadLabel = "Settled state";
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-black">
@@ -245,9 +264,7 @@ export const FramePlayer = ({
         </div>
 
         <span className="text-[11px] whitespace-nowrap text-white/70">
-          {over === undefined
-            ? "No frame"
-            : `Step ${over} of ${recorded.length} frames`}
+          {playheadLabel}
         </span>
       </div>
     </div>

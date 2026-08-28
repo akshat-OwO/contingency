@@ -1891,8 +1891,26 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           const stepStartedAt = yield* nowIso;
           yield* report({ _tag: "stepStarted", index });
 
+          const applicable = [...preStepsFor(flow, step, index)];
+          // Asked for here, before the first Pre-step runs: a Pre-step is
+          // executed through the same substitution as the Step it guards, so a
+          // Variable only it references must already have a value or the page
+          // is typed the literal `{{NAME}}` text.
+          const asked = yield* Effect.result(
+            resolveStepVariables(variables, [
+              step,
+              ...applicable.map(([preStep]) => preStep),
+            ]).pipe(
+              Effect.mapError(
+                (unanswered) => new RunnerError({ message: unanswered.message })
+              )
+            )
+          );
+
           const preSteps: RunPreStep[] = [];
-          for (const [preStep, scope] of preStepsFor(flow, step, index)) {
+          for (const [preStep, scope] of asked._tag === "Failure"
+            ? []
+            : applicable) {
             preSteps.push(
               yield* evaluatePreStep(
                 execution,
@@ -1915,17 +1933,14 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           lastActedOn =
             execution.pages[pageIndexOf(step) ?? 0] ?? execution.pages[0];
 
+          // A `runtime` Variable is asked for at the Step that references it
+          // rather than before the Run: an OTP does not exist until the Step
+          // before it has asked for one (ADR 0009). A refused or empty answer
+          // fails this Step, which is where it belongs.
           const outcome = yield* Effect.result(
-            // A `runtime` Variable is asked for here, at the Step that
-            // references it, rather than before the Run: an OTP does not exist
-            // until the Step before it has asked for one (ADR 0009). A refused
-            // or empty answer fails this Step, which is where it belongs.
-            resolveStepVariables(variables, step).pipe(
-              Effect.mapError(
-                (unanswered) => new RunnerError({ message: unanswered.message })
-              ),
-              Effect.andThen(executeStep(execution, step, index))
-            )
+            asked._tag === "Failure"
+              ? Effect.fail(asked.failure)
+              : executeStep(execution, step, index)
           );
           const stepFinishedAt = yield* nowIso;
           const actedOn = lastActedOn;

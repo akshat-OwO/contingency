@@ -209,16 +209,27 @@ export const formatTimecode = (seconds: number): string => {
   return `${minutes}:${rest.toFixed(1).padStart(4, "0")}`;
 };
 
-/** How long the segment plays: one frame per executed Step, in order. */
+/**
+ * How long the segment plays: one frame per executed Step, plus the settled
+ * state derivation appends after them when the Trace caught it. Counting that
+ * last frame keeps the transport's numbers honest — without it the timecode
+ * reads past its own total.
+ */
 export const segmentDuration = (
   segment: RunVideoSegment | undefined,
   frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
 ): number =>
-  segment === undefined ? 0 : segment.steps.length * frameDurationSeconds;
+  segment === undefined
+    ? 0
+    : (segment.steps.length + (segment.includesSettledState ? 1 : 0)) *
+      frameDurationSeconds;
 
 /**
  * Which Step the playhead is over. The inverse of `seekSeconds`, for a reader
- * who scrubbed or played rather than clicking a Step.
+ * who scrubbed or played rather than clicking a Step. `undefined` past the
+ * last Step's frame: what plays there is the settled state, which belongs to
+ * the Run rather than to any Step, and labelling it as the last Step would say
+ * the Step ended in a page it never saw.
  */
 export const frameStepIndex = (
   segment: RunVideoSegment | undefined,
@@ -229,9 +240,9 @@ export const frameStepIndex = (
     return undefined;
   }
   const position = Math.floor(seconds / frameDurationSeconds);
-  return segment.steps[
-    Math.min(Math.max(position, 0), segment.steps.length - 1)
-  ];
+  return position > segment.steps.length - 1
+    ? undefined
+    : segment.steps[Math.max(position, 0)];
 };
 
 /** How many Steps the Run has finished. */

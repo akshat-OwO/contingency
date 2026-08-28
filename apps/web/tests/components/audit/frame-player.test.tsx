@@ -93,3 +93,12 @@ test("does not snap back to the pinned Step while the segment is playing", () =>
   expect(pause).toHaveBeenCalledTimes(2);
   vi.restoreAllMocks();
 });
+
+test("keeps stepping available from a Step the attempt never reached", async () => {
+  // Step 2 has no frame of its own; the arrows step from where the playhead
+  // is rather than going dead until something with a frame is clicked.
+  const onPinStep = player(2);
+  expect(screen.getByRole("button", { name: "Next Step" })).toBeEnabled();
+  await userEvent.click(screen.getByRole("button", { name: "Next Step" }));
+  expect(onPinStep).toHaveBeenCalledWith(1);
+});

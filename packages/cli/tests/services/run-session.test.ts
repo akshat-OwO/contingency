@@ -389,3 +389,38 @@ it.live("refuses to swap the Flow out from under a Run in flight", () =>
     expect(error.code).toBe("run_conflict");
   })
 );
+
+it.live("never leaves a dead prompt on a Run that has ended", () =>
+  Effect.gen(function* deadPrompt() {
+    const service: RunnerService = {
+      // A Run that ends while the prompt is unanswered: the ceiling
+      // interrupts the awaiting fiber and the Runner reports a failed Run.
+      run: (_flow, options) =>
+        Effect.gen(function* abandonPrompt() {
+          const steps = [stepAt(0, "failed")];
+          yield* (
+            options.variables?.runtime
+              ?.resolve("OTP")
+              .pipe(Effect.timeout("20 millis"), Effect.ignore) ?? Effect.void
+          );
+          return { directory: "/runs/checkout/run-1", run: runWith(steps) };
+        }),
+    };
+    const session = yield* makeRunSessionService({
+      flow: flowWithRuntimeVariable,
+      outputDirectory: "/runs",
+    }).pipe(Effect.provide(withRunner(service)));
+
+    yield* session.start();
+    yield* Effect.sleep("120 millis");
+
+    const ended = yield* session.get();
+    expect(ended?.phase).toBe("finished");
+    // Nobody is left to answer it, so the question does not outlive the Run.
+    expect(ended?.variablePrompt).toBeNull();
+    // And a late answer is refused rather than reported as accepted and
+    // silently dropped.
+    const late = yield* Effect.flip(session.answerVariable("OTP", "123456"));
+    expect(late.code).toBe("run_invalid");
+  })
+);
