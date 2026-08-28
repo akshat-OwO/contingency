@@ -20,6 +20,11 @@ export interface VariablePromptProps {
   readonly prompt: RunVariablePrompt | null;
   /** Retries this Run may still make, so a single-use code can be warned about. */
   readonly retries: boolean;
+  /**
+   * The Step that asked, named. A `runtime` Variable is asked for by the Step
+   * that references it, so saying which one places the question in the Run.
+   */
+  readonly step?: string | undefined;
 }
 
 /**
@@ -35,14 +40,17 @@ export const VariablePrompt = ({
   onSubmit,
   prompt,
   retries,
+  step,
 }: VariablePromptProps) => (
   <Dialog open={prompt !== null}>
     <DialogContent showCloseButton={false}>
       <DialogHeader>
         <DialogTitle>Value for Variable {prompt?.name}</DialogTitle>
         <DialogDescription>
-          This Run is waiting on a runtime Variable. It is never written to the
-          Run.
+          {step === undefined
+            ? "This Run is waiting on a runtime Variable."
+            : `${step} is waiting on a runtime Variable.`}{" "}
+          It is never written to the Run.
         </DialogDescription>
       </DialogHeader>
       <form

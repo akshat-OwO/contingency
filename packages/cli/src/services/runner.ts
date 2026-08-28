@@ -67,7 +67,11 @@ import {
 } from "./trace-artifacts.ts";
 import type { PreparedTraceArtifacts } from "./trace-artifacts.ts";
 import type { VariableResolution } from "./variables.ts";
-import { redactSecrets, substituteVariables } from "./variables.ts";
+import {
+  redactSecrets,
+  resolveStepVariables,
+  substituteVariables,
+} from "./variables.ts";
 import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
 
 /**
@@ -1912,7 +1916,16 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
             execution.pages[pageIndexOf(step) ?? 0] ?? execution.pages[0];
 
           const outcome = yield* Effect.result(
-            executeStep(execution, step, index)
+            // A `runtime` Variable is asked for here, at the Step that
+            // references it, rather than before the Run: an OTP does not exist
+            // until the Step before it has asked for one (ADR 0009). A refused
+            // or empty answer fails this Step, which is where it belongs.
+            resolveStepVariables(variables, step).pipe(
+              Effect.mapError(
+                (unanswered) => new RunnerError({ message: unanswered.message })
+              ),
+              Effect.andThen(executeStep(execution, step, index))
+            )
           );
           const stepFinishedAt = yield* nowIso;
           const actedOn = lastActedOn;

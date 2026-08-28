@@ -196,6 +196,8 @@ const AuditWorkspace = () => {
   const timeline = timelineSteps(run, attempt);
   const selected = selectedStepIndex(timeline, run, workspace.pinnedStep);
   const step = timeline.find(({ index }) => index === selected);
+  // Which Step is blocked on the prompt: the one the Runner is executing.
+  const asking = timeline.find(({ state }) => state === "running");
 
   return (
     <main className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col overflow-hidden">
@@ -275,6 +277,11 @@ const AuditWorkspace = () => {
         onSubmit={onAnswer}
         prompt={run.variablePrompt}
         retries={run.attemptCeiling > 1}
+        step={
+          asking === undefined
+            ? undefined
+            : `Step ${asking.index} · ${asking.label}`
+        }
       />
     </main>
   );

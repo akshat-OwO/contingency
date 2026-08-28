@@ -83,6 +83,43 @@ const recordingRunner = () => {
   return { invocations, service };
 };
 
+/**
+ * A Runner that asks for a `runtime` Variable when it reaches the Step that
+ * references it, exactly as the real one does — never before the Run.
+ */
+const promptingRunner = () => {
+  const invocations: RunnerRunOptions[] = [];
+  const service: RunnerService = {
+    run: (_flow, options) =>
+      Effect.gen(function* fakeRun() {
+        invocations.push(options);
+        const steps = [stepAt(0, "completed"), stepAt(1, "completed")];
+        yield* (
+          options.onProgress?.emit({
+            _tag: "attemptStarted",
+            attempt: 1,
+          }) ?? Effect.void
+        );
+        yield* (
+          options.onProgress?.emit({ _tag: "stepStarted", index: 0 }) ??
+            Effect.void
+        );
+        // The Step that references it is where the asking happens.
+        yield* (options.variables?.runtime?.resolve("OTP") ?? Effect.void).pipe(
+          Effect.orDie
+        );
+        for (const step of steps) {
+          yield* (
+            options.onProgress?.emit({ _tag: "stepFinished", step }) ??
+              Effect.void
+          );
+        }
+        return { directory: "/runs/checkout/run-1", run: runWith(steps) };
+      }),
+  };
+  return { invocations, service };
+};
+
 /** Preflight probes its output directory; no manifest exists to read back. */
 const noManifests = FileSystem.layerNoop({
   makeDirectory: () => Effect.void,
@@ -173,7 +210,7 @@ it.live("refuses a second Run while one is in flight", () =>
 
 it.live("asks the browser for a runtime Variable and proceeds once told", () =>
   Effect.gen(function* promptsInBrowser() {
-    const runner = recordingRunner();
+    const runner = promptingRunner();
     const session = yield* makeRunSessionService({
       flow: flowWithRuntimeVariable,
       outputDirectory: "/runs",
@@ -195,7 +232,11 @@ it.live("asks the browser for a runtime Variable and proceeds once told", () =>
 
     // A web server is never an interactive terminal, so the prompt seam is
     // answered here rather than failing with the no-terminal error (ADR 0023).
+    // It is asked at the Step that references the Variable, not before the
+    // Run: a single-use code would otherwise expire while the Run walks to
+    // the field it belongs in.
     const asked = yield* session.get();
+    expect(asked?.phase).toBe("running");
     expect(asked?.variablePrompt).toEqual({ name: "OTP", secret: true });
 
     const stale = yield* Effect.flip(session.answerVariable("OTHER", "1"));

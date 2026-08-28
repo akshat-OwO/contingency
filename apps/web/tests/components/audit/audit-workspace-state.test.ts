@@ -126,6 +126,19 @@ describe("what is selected", () => {
     const timeline = timelineSteps(finished, following);
     expect(selectedStepIndex(timeline, finished, following)).toBe(1);
   });
+
+  it("opens a Run that passed on its first Step, not its last", () => {
+    const steps = [stepAt(0, "completed"), stepAt(1, "completed")];
+    const finished = snapshot({
+      phase: "finished",
+      run: { attempts: [], runId: "run-1", steps } as unknown as never,
+      steps,
+    });
+    const timeline = timelineSteps(finished, following);
+    // A Run that passed is read forwards, from the beginning, rather than from
+    // wherever the Runner happened to stop.
+    expect(selectedStepIndex(timeline, finished, following)).toBe(0);
+  });
 });
 
 describe("attempts", () => {

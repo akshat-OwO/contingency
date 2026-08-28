@@ -149,7 +149,8 @@ export const timelineSteps = (
 /**
  * Which Step is on show. Auto-follow tracks the Runner until a click pins one;
  * a finished Run opens on the Step that failed, which is what a reader came
- * for, and on the last Step when nothing failed.
+ * for, and on the first Step when nothing did — a Run that passed is read
+ * forwards, from the beginning, not from where the Runner happened to stop.
  */
 export const selectedStepIndex = (
   timeline: readonly TimelineStep[],
@@ -169,9 +170,7 @@ export const selectedStepIndex = (
   const failed = timeline.find(
     ({ result }) => result?.outcome === "failed"
   )?.index;
-  return (
-    failed ?? timeline.findLast(({ result }) => result !== undefined)?.index
-  );
+  return failed ?? timeline.find(({ result }) => result !== undefined)?.index;
 };
 
 export const videoSegment = (
