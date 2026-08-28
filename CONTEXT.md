@@ -12,7 +12,7 @@ Contingency lets companies author and re-run website Flows that check performanc
 
 **Audit**: A pluggable check represented as an ordered custom Step in a Flow. Running it produces Findings at that point in the Flow. The v1 check kind is accessibility. Performance is not an Audit: it is a toggle on a navigating Step, measured by the Runner at that navigation ([ADR 0008](./docs/adr/0008-performance-is-a-navigation-step-toggle.md)). _Avoid_: Audit View, axe (that is the implementation), performance audit
 
-**Step**: One ordered unit in a Flow: either a browser action (navigate, click, change, hover, scroll, and so on) or an Audit Step. A Step names its target through an ordered list of alternative locator descriptors and, when a Flow spans Pages, the Page it acts on. _Avoid_: semantic step, page, checkpoint (as synonyms for Step)
+**Step**: One ordered unit in a Flow: either a browser action (navigate, click, change, hover, scroll, and so on) or an Audit Step. A Step names its target through an ordered list of alternative locator descriptors and, when a Flow spans Pages, the Page it acts on. A Scroll Step may omit its target only to mean the document itself; an element scroll names that container explicitly. _Avoid_: semantic step, page, checkpoint (as synonyms for Step)
 
 **Pre-step**: A browser-action-shaped Step that may run before a target Step to clear interference such as ads, popups, or cross-sells. Uses an explicit Contingency condition (for example when a selector is visible). Flow Pre-steps run before every Step after the initial navigation; per-Step Pre-steps run only before their target. Pre-steps do not carry Audits or nested Pre-steps. _Avoid_: hook, middleware, guard (as product terms)
 
@@ -38,7 +38,7 @@ Contingency lets companies author and re-run website Flows that check performanc
 
 **Page**: One browser page a Flow acts on, identified by the order it opened. A Flow begins on Page 0 and may open others — a popup or a new tab — which later Steps name explicitly. _Avoid_: tab, target, window (as the domain term)
 
-**Emulation**: The device and environment characteristics a Flow declares and every Run reproduces: viewport, user agent, geolocation, granted website permissions, locale, timezone, and color scheme. Emulated geolocation is the location a site receives when it asks for the current position. _Avoid_: device profile, override, spoofing
+**Emulation**: The coherent browser device and environment a Flow declares and every Run reproduces. Create View applies it as one configuration before navigation; a mobile identity includes mobile browser signals and behaviour, not only a user-agent string. It covers viewport, browser identity, geolocation, website permission decisions, locale, timezone, and color scheme. Coordinates and permission are independent: a site receives the emulated location only when the Flow grants it access, and observes denial when the Flow denies it. _Avoid_: device profile, override, spoofing
 
 **Trace**: The default per-Run artifact recording each action's before and after state, DOM snapshot, timing, network, and console. It is how a finished Run is inspected, and the source the Run's video is derived from. Unredacted, and therefore sensitive ([ADR 0014](./docs/adr/0014-artifacts-are-run-properties.md)). _Avoid_: log, replay (as a synonym for Trace), recording (as a synonym for the video)
 
