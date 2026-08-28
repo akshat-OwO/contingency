@@ -198,6 +198,17 @@ export const seekSeconds = (
     ? undefined
     : stepFrameSeconds(segment, stepIndex);
 
+/**
+ * A playhead position as `m:ss.d`. Tenths, because a frame is half a second:
+ * whole seconds would show two Steps at the same time.
+ */
+export const formatTimecode = (seconds: number): string => {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const minutes = Math.floor(safe / 60);
+  const rest = safe - minutes * 60;
+  return `${minutes}:${rest.toFixed(1).padStart(4, "0")}`;
+};
+
 /** How long the segment plays: one frame per executed Step, in order. */
 export const segmentDuration = (
   segment: RunVideoSegment | undefined,

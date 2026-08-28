@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   attempts,
   attemptSteps,
+  formatTimecode,
   gateBreach,
   frameStepIndex,
   seekSeconds,
@@ -13,7 +14,6 @@ import {
   timelineSteps,
   videoSegment,
 } from "@/components/audit/audit-workspace-state";
-import { formatTimecode } from "@/components/audit/frame-player";
 import { describeStep } from "@/lib/flow-labels";
 
 const stepAt = (index: number, outcome: "completed" | "failed"): RunStep => ({

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TimelineStep } from "@/components/audit/audit-workspace-state";
 import {
+  formatTimecode,
   frameStepIndex,
   seekSeconds,
   segmentDuration,
@@ -22,14 +23,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-
-/** `m:ss.d` — a slideshow is half a second per frame, so tenths matter. */
-export const formatTimecode = (seconds: number): string => {
-  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-  const minutes = Math.floor(safe / 60);
-  const rest = safe - minutes * 60;
-  return `${minutes}:${rest.toFixed(1).padStart(4, "0")}`;
-};
 
 export interface FramePlayerProps {
   readonly onPinStep: (index: number) => void;
@@ -120,15 +113,15 @@ export const FramePlayer = ({
 
   useEffect(() => {
     const element = video.current;
-    if (element === null || seek === undefined) {
-      return;
-    }
-    let landed = false;
+    // Nothing to seek to is nothing to wait for: `apply` becomes a no-op and
+    // the listeners are attached and removed all the same, so this effect has
+    // exactly one exit and never leaves one behind.
+    let landed = element === null || seek === undefined;
     const apply = () => {
       // Once the seek has been honoured this stops firing. It pauses, and a
       // readiness event fires during playback too: without the guard, playing
       // the segment would snap back to the pinned Step and stop.
-      if (landed) {
+      if (landed || element === null || seek === undefined) {
         return;
       }
       // Choosing a Step is asking to look at its frame, so playback stops on
@@ -145,11 +138,11 @@ export const FramePlayer = ({
     // for the seek that was issued before the file was loaded.
     const events = ["loadedmetadata", "loadeddata", "canplay"] as const;
     for (const event of events) {
-      element.addEventListener(event, apply);
+      element?.addEventListener(event, apply);
     }
     return () => {
       for (const event of events) {
-        element.removeEventListener(event, apply);
+        element?.removeEventListener(event, apply);
       }
     };
   }, [seek]);
