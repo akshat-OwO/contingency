@@ -79,7 +79,7 @@ test("does not snap back to the pinned Step while the segment is playing", () =>
   } as TimeRanges);
   player(1);
   const video = document.querySelector("video") as HTMLVideoElement;
-  fireEvent.loadedMetadata(video);
+  fireEvent.canPlay(video);
   expect(pause).toHaveBeenCalledTimes(1);
 
   // A readiness event fires during playback too. The seek has already landed,

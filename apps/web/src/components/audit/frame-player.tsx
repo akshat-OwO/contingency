@@ -114,7 +114,7 @@ export const FramePlayer = ({
   useEffect(() => {
     const element = video.current;
     // Nothing to seek to is nothing to wait for: `apply` becomes a no-op and
-    // the listeners are attached and removed all the same, so this effect has
+    // the listener is attached and removed all the same, so this effect has
     // exactly one exit and never leaves one behind.
     let landed = element === null || seek === undefined;
     const apply = () => {
@@ -134,17 +134,10 @@ export const FramePlayer = ({
       landed = (element.seekable?.length ?? 0) > 0;
     };
     apply();
-    // Repeated as the element reaches each readiness that can honour a seek,
-    // for the seek that was issued before the file was loaded.
-    const events = ["loadedmetadata", "loadeddata", "canplay"] as const;
-    for (const event of events) {
-      element?.addEventListener(event, apply);
-    }
-    return () => {
-      for (const event of events) {
-        element?.removeEventListener(event, apply);
-      }
-    };
+    // Repeated once the file can play, for a seek issued before it loaded: a
+    // seek against a resource that is not yet seekable is simply dropped.
+    element?.addEventListener("canplay", apply);
+    return () => element?.removeEventListener("canplay", apply);
   }, [seek]);
 
   const onScrub = useCallback((value: number) => {
