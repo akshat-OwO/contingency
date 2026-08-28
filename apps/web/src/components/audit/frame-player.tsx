@@ -129,13 +129,19 @@ export const FramePlayer = ({
       element.pause();
       element.currentTime = seek;
     };
-    if (element.readyState !== 0) {
-      apply();
+    apply();
+    // A seek issued before the file is seekable is dropped on the floor, so
+    // it is repeated as the element reaches each readiness that can honour
+    // it. `seeked` never fires for a dropped seek, so this cannot rely on it.
+    const events = ["loadedmetadata", "loadeddata", "canplay"] as const;
+    for (const event of events) {
+      element.addEventListener(event, apply);
     }
-    // Armed regardless: a seek issued before metadata lands is dropped, and
-    // this repeats it once the duration is known.
-    element.addEventListener("loadedmetadata", apply, { once: true });
-    return () => element.removeEventListener("loadedmetadata", apply);
+    return () => {
+      for (const event of events) {
+        element.removeEventListener(event, apply);
+      }
+    };
   }, [seek]);
 
   const onScrub = useCallback((value: number) => {
@@ -171,7 +177,7 @@ export const FramePlayer = ({
         onTimeUpdate={(event) =>
           setCurrentTime(event.currentTarget.currentTime)
         }
-        preload="metadata"
+        preload="auto"
         ref={video}
         src={src}
       />
