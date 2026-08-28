@@ -10,6 +10,7 @@ import {
   fixtureServer,
   flow,
   IntegrationLive,
+  keyframeCount,
   recordingFrameCount,
   runFlow,
 } from "./harness";
@@ -190,6 +191,11 @@ it.live.skipIf(!canDecodeVideo())(
       const recordingPath = path.join(directory, segment?.file ?? "");
       const frames = yield* recordingFrameCount(recordingPath);
       expect(frames).toBe(4);
+
+      // Every frame is its own keyframe. Audit View seeks to a Step's frame
+      // rather than playing to it, and a seek can only land on a keyframe: with
+      // one at the start alone, asking for the last Step renders the first.
+      expect(yield* keyframeCount(recordingPath)).toBe(frames);
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 

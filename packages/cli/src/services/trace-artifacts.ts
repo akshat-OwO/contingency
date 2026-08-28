@@ -149,6 +149,14 @@ const encodeFrames = (
           "pipe:0",
           "-c:v",
           "libvpx",
+          // Every frame is a keyframe. A slideshow is seeked to, not played
+          // through: without this the only keyframe is the first, and asking
+          // for Step 8's frame renders Step 1's. Ten still screenshots cost
+          // little to store this way.
+          "-g",
+          "1",
+          "-keyint_min",
+          "1",
           "-deadline",
           "realtime",
           "-cpu-used",

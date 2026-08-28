@@ -124,6 +124,9 @@ export const FramePlayer = ({
       return;
     }
     const apply = () => {
+      // Choosing a Step is asking to look at its frame, so playback stops on
+      // it rather than running on past what was asked for.
+      element.pause();
       element.currentTime = seek;
     };
     if (element.readyState !== 0) {
