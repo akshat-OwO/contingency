@@ -71,6 +71,36 @@ export interface VariableResolution {
   /** Names whose value must never appear in the persisted Run. */
   readonly secretNames: ReadonlySet<string>;
   readonly values: ReadonlyMap<string, string>;
+  /**
+   * Variables answered during the Run rather than before it. Absent when the
+   * Flow declares none, or when nothing could prompt for them.
+   */
+  readonly runtime?: RuntimeVariables | undefined;
+}
+
+/**
+ * The `runtime` Variables a Flow declares, asked for when a Step first
+ * references one rather than up front.
+ *
+ * Preflight otherwise resolves everything before a browser opens (ADR 0009),
+ * and still does for every Variable whose value can be known in advance. A
+ * `runtime` Variable's cannot be, by definition: an OTP does not exist until
+ * the Step before it has submitted the form that sends it. Asking up front
+ * makes the person answering hold a single-use code while the Run walks to
+ * the field, which is how a code expires before it is typed.
+ *
+ * What preflight still guarantees is unchanged: an unresolvable Variable is
+ * reported before the Run, because the only thing that can go wrong late is
+ * the person declining to answer — and that fails the Step it belongs to
+ * rather than eight Steps later.
+ */
+export interface RuntimeVariables {
+  readonly names: ReadonlySet<string>;
+  /**
+   * Ask for one Variable and record its value, or do nothing when it has
+   * already been answered. Fails when the answer is empty.
+   */
+  readonly resolve: (name: string) => Effect.Effect<void, PreflightFailed>;
 }
 
 export interface ResolveVariablesOptions<R = never> {
@@ -149,6 +179,8 @@ export const preflight = <R>(
 
     const values = new Map<string, string>();
     const secretNames = new Set<string>();
+    /** Declared `runtime`, unsupplied, and answerable: asked for in flight. */
+    const deferred = new Map<string, Variable>();
 
     for (const variable of declared) {
       if (variable.secret) {
@@ -177,13 +209,9 @@ export const preflight = <R>(
         continue;
       }
 
-      const answered = yield* options.prompt(variable);
-      const revealed = Redacted.value(answered);
-      if (revealed.length === 0) {
-        problems.push(`Variable ${variable.name} was left empty.`);
-        continue;
-      }
-      values.set(variable.name, revealed);
+      // Asked for when a Step first references it, not now. See
+      // `RuntimeVariables`.
+      deferred.set(variable.name, variable);
     }
 
     // An unwritable output path is worth knowing before a browser opens, not
@@ -235,8 +263,39 @@ export const preflight = <R>(
       return yield* new PreflightFailed({ problems });
     }
 
+    // Captured so a mid-Run prompt carries whatever the prompt needs — a
+    // Terminal, for the CLI — without the Runner having to know about it.
+    const context = yield* Effect.context<R>();
+    const resolve = (name: string): Effect.Effect<void, PreflightFailed> => {
+      const variable = deferred.get(name);
+      // Already answered, or not deferred at all: Steps are executed one at a
+      // time, so a Variable two Steps reference is asked for once.
+      if (variable === undefined || values.has(name)) {
+        return Effect.void;
+      }
+      return options.prompt(variable).pipe(
+        Effect.provideContext(context),
+        Effect.flatMap((answered) => {
+          const revealed = Redacted.value(answered);
+          return revealed.length === 0
+            ? new PreflightFailed({
+                problems: [`Variable ${name} was left empty.`],
+              })
+            : Effect.sync(() => {
+                values.set(name, revealed);
+              });
+        })
+      );
+    };
+
     return {
-      resolution: { secretNames, values },
+      resolution: {
+        secretNames,
+        values,
+        ...(deferred.size === 0
+          ? {}
+          : { runtime: { names: new Set(deferred.keys()), resolve } }),
+      },
       warnings,
     } satisfies PreflightReport;
   });
@@ -260,6 +319,37 @@ export const substituteVariables = (
     }
     return values.get(name) ?? match;
   });
+
+/** Every `{{NAME}}` a value references, in declaration-agnostic order. */
+export const referencedVariables = (value: unknown): ReadonlySet<string> => {
+  const referenced = new Set<string>();
+  for (const match of JSON.stringify(value).matchAll(REFERENCE_PATTERN)) {
+    const name = match.groups?.name;
+    if (name !== undefined) {
+      referenced.add(name);
+    }
+  }
+  return referenced;
+};
+
+/**
+ * Ask for every `runtime` Variable this Step references and has not been given
+ * a value for yet. Nothing happens for a Step that references none, which is
+ * every Step of most Flows.
+ */
+export const resolveStepVariables = (
+  resolution: VariableResolution,
+  step: unknown
+): Effect.Effect<void, PreflightFailed> => {
+  const { runtime } = resolution;
+  if (runtime === undefined) {
+    return Effect.void;
+  }
+  const wanted = [...referencedVariables(step)].filter((name) =>
+    runtime.names.has(name)
+  );
+  return Effect.forEach(wanted, runtime.resolve, { discard: true });
+};
 
 /**
  * Names referenced by a Flow but never declared. These are left as literal

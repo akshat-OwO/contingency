@@ -1,15 +1,24 @@
 import type {
   Run as RunType,
+  RunAttempt as RunAttemptType,
   RunEnvironment as RunEnvironmentType,
+  RunPhase as RunPhaseType,
+  RunSnapshot as RunSnapshotType,
+  RunVideoSegment as RunVideoSegmentType,
 } from "@contingency/protocol";
 import {
   axeVersionMismatchWarning,
+  defaultAttempt,
   gateBreaches,
   Run,
   runBreachedGate,
   RunEnvironment,
   runExitCode,
   runIsBaselineEligible,
+  runIsInFlight,
+  runVideoPath,
+  stepFrameSeconds,
+  VIDEO_FRAME_DURATION_SECONDS,
 } from "@contingency/protocol";
 import { Result, Schema, SchemaIssue } from "effect";
 import { expect, test } from "vitest";
@@ -293,4 +302,72 @@ test("a breach is the Gate rules that a Finding was raised against, in Gate orde
     // A rule outside the Gate is reported and never fails anything, and a
     // breached rule is named once however many elements it flagged.
   ).toEqual(["image-alt"]);
+});
+
+const attemptWith = (attempt: number, outcome: "completed" | "failed") =>
+  ({
+    attempt,
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    outcome,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    steps: [],
+  }) as RunAttemptType;
+
+test("the attempt worth watching is the last failed one", () => {
+  expect(
+    defaultAttempt({
+      attempts: [attemptWith(1, "failed"), attemptWith(2, "completed")],
+    } as unknown as RunType)
+  ).toBe(1);
+  // Nothing failed, so the last attempt is both the failed answer's fallback
+  // and the only one there is.
+  expect(
+    defaultAttempt({
+      attempts: [attemptWith(1, "completed")],
+    } as unknown as RunType)
+  ).toBe(1);
+  expect(
+    defaultAttempt({
+      attempts: [
+        attemptWith(1, "failed"),
+        attemptWith(2, "failed"),
+        attemptWith(3, "completed"),
+      ],
+    } as unknown as RunType)
+  ).toBe(2);
+});
+
+test("a Step seeks to the middle of its own frame, never a boundary", () => {
+  const segment: RunVideoSegmentType = {
+    attempt: 1,
+    file: "attempt-1.webm",
+    includesSettledState: true,
+    recorded: true,
+    steps: [0, 1, 2],
+  };
+  // One frame per executed Step in order, each held the same length: the seek
+  // is arithmetic on the segment's own list rather than a second index.
+  expect(stepFrameSeconds(segment, 0)).toBe(VIDEO_FRAME_DURATION_SECONDS / 2);
+  expect(stepFrameSeconds(segment, 2)).toBe(VIDEO_FRAME_DURATION_SECONDS * 2.5);
+  // An attempt that failed before a Step has no frame for it, which is not
+  // the same as a frame at zero.
+  expect(stepFrameSeconds(segment, 3)).toBeUndefined();
+});
+
+const snapshotWith = (phase: RunPhaseType): RunSnapshotType =>
+  ({ phase }) as RunSnapshotType;
+
+test("both sides address a derived video by the same path", () => {
+  expect(runVideoPath("2f8c-41", 2)).toBe("/runs/2f8c-41/video/2");
+  // The route matches on `:runId`, so a Run id that needs escaping must not
+  // silently address a different segment of the path.
+  expect(runVideoPath("a/b", 1)).toBe("/runs/a%2Fb/video/1");
+});
+
+test("a Run in flight cannot be started again", () => {
+  expect(runIsInFlight(snapshotWith("starting"))).toBe(true);
+  expect(runIsInFlight(snapshotWith("running"))).toBe(true);
+  expect(runIsInFlight(snapshotWith("idle"))).toBe(false);
+  expect(runIsInFlight(snapshotWith("finished"))).toBe(false);
+  expect(runIsInFlight(null)).toBe(false);
 });

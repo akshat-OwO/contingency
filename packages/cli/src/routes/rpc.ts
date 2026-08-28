@@ -1,6 +1,7 @@
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
+  recordingIsInProgress,
   recordingLocksBrowserControls,
   recordingLocksStorageMutations,
   recordingMakesBrowserInputReadOnly,
@@ -9,8 +10,10 @@ import {
 import type {
   BrowserRpcErrorType,
   RecordingSnapshot,
+  RunSnapshot,
 } from "@contingency/protocol";
 import { Effect, Layer } from "effect";
+import type { FileSystem } from "effect";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -20,6 +23,9 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CreateBrowser } from "../services/create-browser.ts";
 import { Recording } from "../services/recording.ts";
+import { RunSession } from "../services/run-session.ts";
+import type { RunSessionService } from "../services/run-session.ts";
+import type { RunnerService } from "../services/runner.ts";
 import { isAllowedWebSocketOrigin } from "../services/web-url.ts";
 
 export const browserInputIsReadOnly = (
@@ -53,10 +59,39 @@ const recordingResult = (
     }))
   );
 
+/** Every Run operation answers with the Run this process was opened on. */
+const runResult = (
+  operation: Effect.Effect<RunSnapshot | null, BrowserRpcErrorType>
+) =>
+  operation.pipe(
+    Effect.map((run) => ({ data: { run }, type: "run.result" as const }))
+  );
+
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.gen(function* makeRpcHandlers() {
     const browser = yield* CreateBrowser;
     const recording = yield* Recording;
+    const runSession = yield* RunSession;
+
+    /**
+     * A Run and a Recording cannot share the process: a Recording drives a
+     * live session and a Run is context-isolated, so the second is refused
+     * rather than contended for (ADR 0023).
+     */
+    const requireNoRecording = recording
+      .get()
+      .pipe(
+        Effect.flatMap((snapshot) =>
+          recordingIsInProgress(snapshot)
+            ? Effect.fail(
+                makeBrowserRpcError(
+                  "recording_conflict",
+                  "A Run cannot start while this Recording is in progress."
+                )
+              )
+            : Effect.void
+        )
+      );
 
     const requireBrowserControl = (sessionId: string, control: string) =>
       recording
@@ -329,6 +364,14 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         recordingResult(recording.updateTitle(data.title)),
       "recording.variable.rename": ({ data }) =>
         recordingResult(recording.renameVariable(data.from, data.name)),
+      "run.flow.load": ({ data }) =>
+        runResult(runSession.loadFlow(data.document, data.source)),
+      "run.get": () => runResult(runSession.get()),
+      "run.start": () =>
+        runResult(requireNoRecording.pipe(Effect.andThen(runSession.start()))),
+      "run.stream.subscribe": () => runSession.changes(),
+      "run.variable.answer": ({ data }) =>
+        runResult(runSession.answerVariable(data.name, data.value)),
     };
   })
 );
@@ -348,14 +391,23 @@ const makeOriginMiddleware = (allowedOrigins: ReadonlySet<string>) =>
 
 export interface RpcRoutesOptions {
   readonly allowedOrigins: ReadonlySet<string>;
+  /** The Run this process was opened on, shared with the artifact route. */
+  readonly runSession: Layer.Layer<
+    RunSessionService,
+    never,
+    FileSystem.FileSystem | RunnerService
+  >;
 }
 
-export const makeRpcRoutes = ({ allowedOrigins }: RpcRoutesOptions) =>
+export const makeRpcRoutes = ({
+  allowedOrigins,
+  runSession,
+}: RpcRoutesOptions) =>
   RpcServer.layerHttp({
     group: ContingencyRpcs,
     path: "/ws",
   }).pipe(
-    Layer.provide(RpcHandlersLive),
+    Layer.provide(RpcHandlersLive.pipe(Layer.provide(runSession))),
     Layer.provide(RpcSerialization.layerJson),
     Layer.provide(makeOriginMiddleware(allowedOrigins))
   );

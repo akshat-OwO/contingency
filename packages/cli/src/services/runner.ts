@@ -67,7 +67,11 @@ import {
 } from "./trace-artifacts.ts";
 import type { PreparedTraceArtifacts } from "./trace-artifacts.ts";
 import type { VariableResolution } from "./variables.ts";
-import { redactSecrets, substituteVariables } from "./variables.ts";
+import {
+  redactSecrets,
+  resolveStepVariables,
+  substituteVariables,
+} from "./variables.ts";
 import { VITALS_COLLECTOR, VITALS_RECORDER } from "./vitals-recorder.ts";
 
 /**
@@ -181,6 +185,25 @@ export class RunnerError extends Data.TaggedError("RunnerError")<{
   readonly message: string;
 }> {}
 
+/**
+ * What a watcher is told while a Run executes. Deliberately a Step at a time
+ * and nothing else: Audit View shows no frames until the Run ends, because a
+ * frame does not exist until the Trace stops (ADR 0023), so there is nothing
+ * finer-grained worth streaming.
+ */
+export type RunProgressEvent =
+  | { readonly _tag: "attemptStarted"; readonly attempt: number }
+  | { readonly _tag: "stepStarted"; readonly index: number }
+  | { readonly _tag: "stepFinished"; readonly step: RunStep };
+
+/**
+ * Where progress goes. Emitting never fails and never interrupts the Run: a
+ * watcher that has gone away must not change what the Run does or records.
+ */
+export interface RunProgress {
+  readonly emit: (event: RunProgressEvent) => Effect.Effect<void>;
+}
+
 export interface RunnerRunOptions {
   /**
    * Accessibility rule ids this Run must produce no Finding against,
@@ -196,6 +219,8 @@ export interface RunnerRunOptions {
   readonly video?: boolean;
   /** Directory holding one subdirectory per Flow. Defaults to the state dir. */
   readonly outputDirectory: string;
+  /** Told about each attempt and Step as it happens. Headless Runs pass none. */
+  readonly onProgress?: RunProgress | undefined;
   /**
    * How many extra attempts a failing Flow gets. `0` disables retrying, which a
    * Flow with real side effects needs: a rerun places a second order.
@@ -1738,9 +1763,13 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
    * nothing the last Run left behind leaks into this one.
    */
   restoredState: BrowserStorageState | null,
-  attempt: number
+  attempt: number,
+  progress: RunProgress | undefined
 ) {
   let failure: RunFailure | undefined;
+  /** Emitting is a no-op when nobody is watching, which is the headless case. */
+  const report = (event: RunProgressEvent): Effect.Effect<void> =>
+    progress === undefined ? Effect.void : progress.emit(event);
   const measures = flow.steps.some(measuresPerformance);
   /** Set once every Step has run and the Page has had its chance to settle. */
   let completed = false;
@@ -1860,9 +1889,28 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
          */
         for (const [index, step] of flow.steps.entries()) {
           const stepStartedAt = yield* nowIso;
+          yield* report({ _tag: "stepStarted", index });
+
+          const applicable = [...preStepsFor(flow, step, index)];
+          // Asked for here, before the first Pre-step runs: a Pre-step is
+          // executed through the same substitution as the Step it guards, so a
+          // Variable only it references must already have a value or the page
+          // is typed the literal `{{NAME}}` text.
+          const asked = yield* Effect.result(
+            resolveStepVariables(variables, [
+              step,
+              ...applicable.map(([preStep]) => preStep),
+            ]).pipe(
+              Effect.mapError(
+                (unanswered) => new RunnerError({ message: unanswered.message })
+              )
+            )
+          );
 
           const preSteps: RunPreStep[] = [];
-          for (const [preStep, scope] of preStepsFor(flow, step, index)) {
+          for (const [preStep, scope] of asked._tag === "Failure"
+            ? []
+            : applicable) {
             preSteps.push(
               yield* evaluatePreStep(
                 execution,
@@ -1885,8 +1933,14 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           lastActedOn =
             execution.pages[pageIndexOf(step) ?? 0] ?? execution.pages[0];
 
+          // A `runtime` Variable is asked for at the Step that references it
+          // rather than before the Run: an OTP does not exist until the Step
+          // before it has asked for one (ADR 0009). A refused or empty answer
+          // fails this Step, which is where it belongs.
           const outcome = yield* Effect.result(
-            executeStep(execution, step, index)
+            asked._tag === "Failure"
+              ? Effect.fail(asked.failure)
+              : executeStep(execution, step, index)
           );
           const stepFinishedAt = yield* nowIso;
           const actedOn = lastActedOn;
@@ -1914,7 +1968,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
               pending = steps.length;
             }
             engine.version = outcome.success.axeVersion ?? engine.version;
-            steps.push({
+            const completedStep = {
               ...base,
               ...(outcome.success.findings.length === 0
                 ? {}
@@ -1924,7 +1978,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
                     ),
                   }),
               outcome: "completed",
-            } satisfies RunStep);
+            } satisfies RunStep;
+            steps.push(completedStep);
+            yield* report({ _tag: "stepFinished", step: completedStep });
             continue;
           }
 
@@ -1933,12 +1989,14 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           const message = redactSecrets(outcome.failure.message, variables);
           const kind = classifyStepFailure(outcome.failure.kind, message);
 
-          steps.push({
+          const failedStep = {
             ...base,
             error: message,
-            outcome: "failed",
+            outcome: "failed" as const,
             ...redactedSelector(outcome.failure, variables),
-          });
+          };
+          steps.push(failedStep);
+          yield* report({ _tag: "stepFinished", step: failedStep });
           failure = {
             ...(kind === undefined ? {} : { kind }),
             message,
@@ -2242,6 +2300,12 @@ export const makeRunnerService = () =>
               );
               for (let index = 0; index <= retry; index += 1) {
                 const attemptStartedAt = yield* nowIso;
+                yield* options.onProgress === undefined
+                  ? Effect.void
+                  : options.onProgress.emit({
+                      _tag: "attemptStarted",
+                      attempt: index + 1,
+                    });
                 const steps: RunStep[] = [];
                 inFlight = {
                   attempt: index + 1,
@@ -2276,7 +2340,8 @@ export const makeRunnerService = () =>
                       }
                     : undefined,
                   restoredState,
-                  index + 1
+                  index + 1,
+                  options.onProgress
                 ).pipe(
                   Effect.provideService(
                     ChildProcessSpawner.ChildProcessSpawner,

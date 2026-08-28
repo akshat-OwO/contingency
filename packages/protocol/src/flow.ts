@@ -664,6 +664,18 @@ export const recordingLocksBrowserControls = (
   recording.sessionId === sessionId &&
   recording.phase !== "finished";
 
+/**
+ * Whether a Recording still holds the browser. A Run is context-isolated and a
+ * Recording drives a live session, so the two cannot share the process
+ * ([ADR 0023](../../../docs/adr/0023-audit-view-starts-runs.md)): starting a
+ * Run while this holds is refused rather than contended for. Unlike the
+ * control locks, this is not scoped to a session — a Run belongs to no
+ * session, and any unfinished Recording is enough to refuse it.
+ */
+export const recordingIsInProgress = (
+  recording: Pick<RecordingSnapshot, "phase"> | null
+): boolean => recording !== null && recording.phase !== "finished";
+
 export const recordingLocksStorageMutations = (
   recording: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
   sessionId: string

@@ -92,6 +92,31 @@ export const recordingFrameCount = (
   });
 
 /**
+ * How many of an artifact's frames can be seeked to directly. A slideshow is
+ * seeked to rather than played through, so this should equal its frame count.
+ */
+export const keyframeCount = (file: string): Effect.Effect<number, Error> =>
+  Effect.tryPromise({
+    catch: (cause) => new Error(`ffprobe failed: ${String(cause)}`),
+    try: async () => {
+      const probed = await ffprobe("ffprobe", [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "packet=flags",
+        "-of",
+        "csv=p=0",
+        file,
+      ]);
+      return String(probed.stdout)
+        .split("\n")
+        .filter((flags) => flags.startsWith("K")).length;
+    },
+  });
+
+/**
  * What the fixture page requests once a Step has typed into it. Waiting for
  * this proves the Run is past its opening navigation and working through
  * Steps, which request arrival and an empty recording file do not.

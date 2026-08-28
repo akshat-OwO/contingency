@@ -20,6 +20,8 @@ import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { Recording } from "../../src/services/recording.ts";
 import type { RecordingService } from "../../src/services/recording.ts";
+import { RunSession } from "../../src/services/run-session.ts";
+import type { RunSessionService } from "../../src/services/run-session.ts";
 
 const sessionId = SessionId.make("create-authoring");
 const otherSessionId = SessionId.make("create-other");
@@ -129,6 +131,56 @@ const recordingService: RecordingService = {
   updateTitle: () => outOfScope,
 };
 
+/**
+ * A Run session that would start if it were asked. These tests are about what
+ * the RPC layer refuses before it asks, so a reached `start` is a failure of
+ * the guard rather than of the Runner.
+ */
+let startsAsked = 0;
+const runSessionService: RunSessionService = {
+  answerVariable: () =>
+    Effect.fail(makeBrowserRpcError("run_invalid", "Not under test.")),
+  artifactPath: () =>
+    Effect.fail(makeBrowserRpcError("run_invalid", "Not under test.")),
+  changes: () => Stream.never,
+  get: () => Effect.succeed(null),
+  loadFlow: () =>
+    Effect.fail(makeBrowserRpcError("run_invalid", "Not under test.")),
+  start: () =>
+    Effect.sync(() => {
+      startsAsked += 1;
+    }).pipe(
+      Effect.andThen(
+        Effect.fail(makeBrowserRpcError("run_invalid", "Not under test."))
+      )
+    ),
+};
+const RunSessionStub = Layer.succeed(RunSession, runSessionService);
+
+it.effect("refuses to start a Run while a Recording is in progress", () =>
+  Effect.gen(function* refuseRunDuringRecording() {
+    const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+      flatten: true,
+    });
+    const error = yield* Effect.flip(
+      client("run.start", { data: {}, type: "run.start" })
+    );
+    expect(error.code).toBe("recording_conflict");
+    // The guard answers before the Runner is asked: a Run and a Recording
+    // cannot share the process, so the second is refused, not contended for.
+    expect(startsAsked).toBe(0);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      RpcHandlersLive.pipe(
+        Layer.provide(CreateBrowserLive),
+        Layer.provide(Layer.succeed(Recording, recordingService)),
+        Layer.provide(RunSessionStub)
+      )
+    )
+  )
+);
+
 it("keeps the Recording update stream connected", async () => {
   const fiber = Effect.runFork(
     Effect.gen(function* keepRecordingStreamConnected() {
@@ -145,7 +197,8 @@ it("keeps the Recording update stream connected", async () => {
         RpcHandlersLive.pipe(
           Layer.provide(
             RecordingLive.pipe(Layer.provideMerge(CreateBrowserLive))
-          )
+          ),
+          Layer.provide(RunSessionStub)
         )
       )
     )
@@ -180,7 +233,8 @@ it.effect("rejects a Storage mutation before it reaches Playwright", () =>
     Effect.provide(
       RpcHandlersLive.pipe(
         Layer.provide(CreateBrowserLive),
-        Layer.provide(Layer.succeed(Recording, recordingService))
+        Layer.provide(Layer.succeed(Recording, recordingService)),
+        Layer.provide(RunSessionStub)
       )
     )
   )

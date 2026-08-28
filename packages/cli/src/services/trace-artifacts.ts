@@ -2,14 +2,14 @@ import { createWriteStream } from "node:fs";
 import { open, rename, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 
+import { VIDEO_FRAME_DURATION_SECONDS } from "@contingency/protocol";
 import { Effect, Stream } from "effect";
 import type { ChildProcessSpawner } from "effect/unstable/process";
 import { ChildProcess } from "effect/unstable/process";
 import { registry as playwrightRegistry } from "playwright-core/lib/coreBundle";
 import { yauzl, yazl } from "playwright-core/lib/utilsBundle";
 
-/** Every derived frame remains visible for this long. */
-export const VIDEO_FRAME_DURATION_SECONDS = 0.5;
+export { VIDEO_FRAME_DURATION_SECONDS } from "@contingency/protocol";
 
 export interface DerivedVideo {
   readonly includesSettledState: boolean;
@@ -149,6 +149,14 @@ const encodeFrames = (
           "pipe:0",
           "-c:v",
           "libvpx",
+          // Every frame is a keyframe. A slideshow is seeked to, not played
+          // through: without this the only keyframe is the first, and asking
+          // for Step 8's frame renders Step 1's. Ten still screenshots cost
+          // little to store this way.
+          "-g",
+          "1",
+          "-keyint_min",
+          "1",
           "-deadline",
           "realtime",
           "-cpu-used",

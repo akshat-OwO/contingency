@@ -9,6 +9,7 @@ import {
   PermissionGrant,
   RecordingSnapshot,
 } from "./flow.ts";
+import { RunSnapshot } from "./run.ts";
 import {
   BrowserStorageDeletePayload,
   BrowserStorageSetPayload,
@@ -508,6 +509,12 @@ export const BrandId = Schema.Literals([
   "recording.capture.cancel",
   "recording.hover.arm",
   "recording.stream.subscribe",
+  "run.flow.load",
+  "run.get",
+  "run.result",
+  "run.start",
+  "run.variable.answer",
+  "run.stream.subscribe",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -813,6 +820,50 @@ export const RecordingStreamSubscribe = request(
   {}
 );
 
+/**
+ * The Run group is deliberately small. Audit View starts one Run of the one
+ * Flow this process was opened on and watches it
+ * ([ADR 0023](../../../docs/adr/0023-audit-view-starts-runs.md)); it does not
+ * list Flows, browse Run history, or attach to a Run some terminal started.
+ */
+export const RunGet = request("run.get", {});
+/**
+ * Every Run operation answers with the whole snapshot, exactly as every
+ * Recording operation answers with the Recording. `null` means this process
+ * was opened without a Flow, so there is nothing to audit.
+ */
+export const RunResult = response("run.result", {
+  run: Schema.NullOr(RunSnapshot),
+});
+/**
+ * Start the loaded Flow. A Run started here forces its Trace and its video on
+ * whatever the Flow or the defaults say, because stepping the timeline is
+ * stepping those frames (ADR 0023).
+ */
+export const RunStart = request("run.start", {});
+/**
+ * Answer the `runtime` Variable the Runner is waiting on. The name travels so
+ * a stale answer to an earlier prompt is rejected rather than applied to the
+ * wrong Variable.
+ */
+export const RunVariableAnswer = request("run.variable.answer", {
+  name: nonEmptyProtocolString,
+  value: Schema.String,
+});
+export const RunStreamSubscribe = request("run.stream.subscribe", {});
+/**
+ * Hand the server a Flow document to audit, from a browser that has the file
+ * and a server that was opened without one. This is not the Flow picker ADR
+ * 0023 rules out: there is still exactly one loaded Flow at a time, and the
+ * server never lists or searches for Flows — the document travels in the
+ * request, so nothing a caller sends is read as a path.
+ */
+export const RunFlowLoad = request("run.flow.load", {
+  document: nonEmptyProtocolString,
+  /** What to call the document in a decode failure. Never opened as a path. */
+  source: nonEmptyProtocolString,
+});
+
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
   payload: BrowserSessionsGet,
@@ -1032,6 +1083,33 @@ const RecordingStreamSubscribeRpc = Rpc.make("recording.stream.subscribe", {
   success: RecordingSnapshot,
 });
 
+const RunGetRpc = Rpc.make("run.get", {
+  error: BrowserRpcError,
+  payload: RunGet,
+  success: RunResult,
+});
+const RunStartRpc = Rpc.make("run.start", {
+  error: BrowserRpcError,
+  payload: RunStart,
+  success: RunResult,
+});
+const RunVariableAnswerRpc = Rpc.make("run.variable.answer", {
+  error: BrowserRpcError,
+  payload: RunVariableAnswer,
+  success: RunResult,
+});
+const RunFlowLoadRpc = Rpc.make("run.flow.load", {
+  error: BrowserRpcError,
+  payload: RunFlowLoad,
+  success: RunResult,
+});
+const RunStreamSubscribeRpc = Rpc.make("run.stream.subscribe", {
+  error: BrowserRpcError,
+  payload: RunStreamSubscribe,
+  stream: true,
+  success: RunSnapshot,
+});
+
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
   BrowserSessionCreateRpc,
@@ -1074,5 +1152,10 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingPreStepConditionUrlRpc,
   RecordingCaptureCancelRpc,
   RecordingHoverArmRpc,
-  RecordingStreamSubscribeRpc
+  RecordingStreamSubscribeRpc,
+  RunGetRpc,
+  RunStartRpc,
+  RunVariableAnswerRpc,
+  RunStreamSubscribeRpc,
+  RunFlowLoadRpc
 ) {}

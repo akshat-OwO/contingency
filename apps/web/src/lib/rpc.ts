@@ -2,6 +2,7 @@ import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
 import type {
   BrowserStreamEvent,
   RecordingSnapshot,
+  RunSnapshot,
   SessionId,
 } from "@contingency/protocol";
 import { Duration, Effect, Layer, Schedule, Stream } from "effect";
@@ -146,6 +147,17 @@ export const recordingHoverArmMutation = ContingencyRpcClient.mutation(
   "recording.hover.arm"
 );
 
+export const runAtom = ContingencyRpcClient.query("run.get", {
+  data: {},
+  type: "run.get",
+});
+export const runFlowLoadMutation =
+  ContingencyRpcClient.mutation("run.flow.load");
+export const runStartMutation = ContingencyRpcClient.mutation("run.start");
+export const runVariableAnswerMutation = ContingencyRpcClient.mutation(
+  "run.variable.answer"
+);
+
 const reconnectSchedule = Schedule.exponential("100 millis").pipe(
   Schedule.jittered,
   Schedule.modifyDelay(({ duration }) =>
@@ -194,6 +206,20 @@ export const runRecordingStream = (
       const events = client("recording.stream.subscribe", {
         data: {},
         type: "recording.stream.subscribe",
+      });
+      yield* events.pipe(Stream.runForEach(onEvent));
+    })
+  ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
+
+export const runRunProgressStream = (
+  onEvent: (event: RunSnapshot) => Effect.Effect<void>
+) =>
+  Effect.scoped(
+    Effect.gen(function* streamRun() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      const events = client("run.stream.subscribe", {
+        data: {},
+        type: "run.stream.subscribe",
       });
       yield* events.pipe(Stream.runForEach(onEvent));
     })

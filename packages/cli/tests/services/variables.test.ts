@@ -7,6 +7,7 @@ import {
   parseSecretFlag,
   preflight,
   redactSecrets,
+  resolveStepVariables,
   substituteVariables,
   variableEnvironmentName,
 } from "../../src/services/variables";
@@ -118,7 +119,7 @@ it.effect(
 );
 
 it.effect(
-  "prompts for a runtime Variable when the terminal is interactive",
+  "leaves a runtime Variable to be asked for by the Step that needs it",
   () =>
     Effect.gen(function* promptWhenInteractive() {
       const prompted: string[] = [];
@@ -133,8 +134,26 @@ it.effect(
         })
       );
 
+      // Nothing is asked before the Run: an OTP does not exist until the Step
+      // before it has asked for one, so preflight only records what to ask.
+      expect(prompted).toEqual([]);
+      expect(report.resolution.values.has("OTP")).toBe(false);
+      expect(report.resolution.runtime?.names).toEqual(new Set(["OTP"]));
+
+      // The Step that references it asks, once, and the value lands where
+      // substitution reads it.
+      yield* resolveStepVariables(report.resolution, {
+        target: [{ kind: "label", label: "Code" }],
+        type: "change",
+        value: "{{OTP}}",
+      });
+      yield* resolveStepVariables(report.resolution, { value: "{{OTP}}" });
       expect(prompted).toEqual(["OTP"]);
       expect(report.resolution.values.get("OTP")).toBe("123456");
+
+      // A Step referencing nothing asks nothing.
+      yield* resolveStepVariables(report.resolution, { type: "scroll" });
+      expect(prompted).toEqual(["OTP"]);
     }).pipe(Effect.provide(writableFileSystem))
 );
 
@@ -295,3 +314,49 @@ it("redacts overlapping secret values in either declaration order", () => {
     "value {{SHORT}} here"
   );
 });
+
+it.effect(
+  "fails the Step that asked when a runtime Variable is left empty",
+  () =>
+    Effect.gen(function* emptyRuntimeAnswer() {
+      const report = yield* preflight(
+        flowWith([{ name: "OTP", runtime: true, secret: true }]),
+        options({
+          interactive: true,
+          prompt: () => Effect.succeed(Redacted.make("")),
+        })
+      );
+      // Preflight passes: what can be known in advance still is, and only the
+      // answer itself is late.
+      const failure = yield* Effect.flip(
+        resolveStepVariables(report.resolution, { value: "{{OTP}}" })
+      );
+      expect(failure.message).toContain("OTP was left empty");
+    }).pipe(Effect.provide(writableFileSystem))
+);
+
+it.effect("asks for a Variable only a Pre-step references", () =>
+  Effect.gen(function* preStepReference() {
+    const prompted: string[] = [];
+    const report = yield* preflight(
+      flowWith([{ name: "OTP", runtime: true, secret: true }]),
+      options({
+        interactive: true,
+        prompt: (variable) => {
+          prompted.push(variable.name);
+          return Effect.succeed(Redacted.make("123456"));
+        },
+      })
+    );
+
+    // A Pre-step executes through the same substitution as the Step it
+    // guards, so a Variable only it references must be asked for too — else
+    // the literal `{{OTP}}` is typed into the page.
+    yield* resolveStepVariables(report.resolution, [
+      { type: "click" },
+      { step: { type: "change", value: "{{OTP}}" } },
+    ]);
+    expect(prompted).toEqual(["OTP"]);
+    expect(report.resolution.values.get("OTP")).toBe("123456");
+  }).pipe(Effect.provide(writableFileSystem))
+);
