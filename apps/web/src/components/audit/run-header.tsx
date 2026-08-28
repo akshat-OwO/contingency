@@ -7,12 +7,14 @@ import {
   stepsDone,
 } from "@/components/audit/audit-workspace-state";
 import type { TimelineStep } from "@/components/audit/audit-workspace-state";
+import { FlowUpload } from "@/components/audit/flow-upload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
 export interface RunHeaderProps {
   readonly busy: boolean;
+  readonly onLoadFlow: (document: string, source: string) => void;
   readonly onStart: () => void;
   readonly run: RunSnapshot;
   readonly timeline: readonly TimelineStep[];
@@ -55,7 +57,13 @@ const PhaseBadge = ({
   return <Badge variant="outline">Not started</Badge>;
 };
 
-export const RunHeader = ({ busy, onStart, run, timeline }: RunHeaderProps) => {
+export const RunHeader = ({
+  busy,
+  onLoadFlow,
+  onStart,
+  run,
+  timeline,
+}: RunHeaderProps) => {
   const live = run.phase === "running" || run.phase === "starting";
   const done = stepsDone(timeline);
   const breached = gateBreach(run);
@@ -84,6 +92,12 @@ export const RunHeader = ({ busy, onStart, run, timeline }: RunHeaderProps) => {
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {/* One Flow at a time still: this replaces the loaded one. */}
+        <FlowUpload
+          busy={busy || live}
+          label="Open a Flow"
+          onLoad={onLoadFlow}
+        />
         <Button disabled={live || busy} onClick={onStart} size="sm">
           <PlayIcon className="size-3.5" />
           {run.run === null ? "Run Flow" : "Run again"}

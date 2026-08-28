@@ -29,7 +29,12 @@ import {
   Stream,
 } from "effect";
 
-import { DEFAULT_RETRY, flowRunsDirectory, Runner } from "./runner.ts";
+import {
+  DEFAULT_RETRY,
+  decodeFlowDocument,
+  flowRunsDirectory,
+  Runner,
+} from "./runner.ts";
 import type { RunProgress, RunnerService } from "./runner.ts";
 import { preflight } from "./variables.ts";
 import type { VariableResolution } from "./variables.ts";
@@ -69,6 +74,15 @@ export interface RunSessionService {
     value: string
   ) => Effect.Effect<RunSnapshot, BrowserRpcErrorType>;
   readonly changes: () => Stream.Stream<RunSnapshot>;
+  /**
+   * Replace the loaded Flow with one the browser handed over. The document
+   * travels in the request rather than as a path, so this reads nothing from
+   * the filesystem and cannot be pointed at a file of the caller's choosing.
+   */
+  readonly loadFlow: (
+    document: string,
+    source: string
+  ) => Effect.Effect<RunSnapshot, BrowserRpcErrorType>;
   readonly get: () => Effect.Effect<RunSnapshot | null>;
   readonly start: () => Effect.Effect<RunSnapshot, BrowserRpcErrorType>;
 }
@@ -378,6 +392,35 @@ export const makeRunSessionService = ({
         Ref.get(stateRef).pipe(
           Effect.map((state) => (state === null ? null : toSnapshot(state)))
         ),
+
+      loadFlow: (document, source) =>
+        Effect.gen(function* loadFlow() {
+          const state = yield* Ref.get(stateRef);
+          // A Run in flight owns the snapshot the browser is watching, so the
+          // Flow under it is not swapped out from beneath it.
+          if (state !== null && runIsInFlight(toSnapshot(state))) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "run_conflict",
+                "A Run is in progress. Wait for it to finish before loading another Flow."
+              )
+            );
+          }
+          const decoded = yield* Effect.result(
+            decodeFlowDocument(document, source)
+          );
+          if (decoded._tag === "Failure") {
+            return yield* Effect.fail(
+              makeBrowserRpcError("run_invalid", decoded.failure.message)
+            );
+          }
+          // A loaded Flow starts from nothing: the previous Flow's Run, its
+          // artifacts and its warnings describe a different Flow.
+          const loaded = idleState(decoded.success);
+          yield* Ref.set(stateRef, loaded);
+          yield* PubSub.publish(updates, toSnapshot(loaded));
+          return toSnapshot(loaded);
+        }),
 
       start: () =>
         Effect.gen(function* startRun() {

@@ -144,6 +144,8 @@ const runSessionService: RunSessionService = {
     Effect.fail(makeBrowserRpcError("run_invalid", "Not under test.")),
   changes: () => Stream.never,
   get: () => Effect.succeed(null),
+  loadFlow: () =>
+    Effect.fail(makeBrowserRpcError("run_invalid", "Not under test.")),
   start: () =>
     Effect.sync(() => {
       startsAsked += 1;

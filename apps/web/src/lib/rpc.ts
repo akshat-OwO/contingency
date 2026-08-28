@@ -151,6 +151,8 @@ export const runAtom = ContingencyRpcClient.query("run.get", {
   data: {},
   type: "run.get",
 });
+export const runFlowLoadMutation =
+  ContingencyRpcClient.mutation("run.flow.load");
 export const runStartMutation = ContingencyRpcClient.mutation("run.start");
 export const runVariableAnswerMutation = ContingencyRpcClient.mutation(
   "run.variable.answer"

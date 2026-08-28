@@ -299,3 +299,52 @@ it.live("resolves a video path only through the finished Run's manifest", () =>
     ).toBe("run_invalid");
   })
 );
+
+it.live(
+  "loads a Flow the browser handed over to a server started without one",
+  () =>
+    Effect.gen(function* loadsFlow() {
+      const session = yield* makeRunSessionService({
+        flow: null,
+        outputDirectory: "/runs",
+      });
+      const loaded = yield* session.loadFlow(
+        JSON.stringify(flow),
+        "checkout.json"
+      );
+      expect(loaded.flow.title).toBe("Checkout");
+      expect(loaded.phase).toBe("idle");
+      // The Flow is now the loaded one, so starting is no longer refused.
+      expect((yield* session.get())?.flow.title).toBe("Checkout");
+    }).pipe(Effect.provide(withRunner(recordingRunner().service)))
+);
+
+it.live("refuses a Flow document it cannot decode, naming the file", () =>
+  Effect.gen(function* rejectsBadFlow() {
+    const session = yield* makeRunSessionService({
+      flow: null,
+      outputDirectory: "/runs",
+    });
+    const error = yield* Effect.flip(
+      session.loadFlow("{ not json", "broken.json")
+    );
+    expect(error.code).toBe("run_invalid");
+    expect(error.message).toContain("broken.json");
+    // Nothing was loaded, so there is still nothing to audit.
+    expect(yield* session.get()).toBeNull();
+  }).pipe(Effect.provide(withRunner(recordingRunner().service)))
+);
+
+it.live("refuses to swap the Flow out from under a Run in flight", () =>
+  Effect.gen(function* refusesDuringRun() {
+    const session = yield* makeRunSessionService({
+      flow,
+      outputDirectory: "/runs",
+    }).pipe(Effect.provide(withRunner(recordingRunner().service)));
+    yield* session.start();
+    const error = yield* Effect.flip(
+      session.loadFlow(JSON.stringify(flow), "other.json")
+    );
+    expect(error.code).toBe("run_conflict");
+  })
+);

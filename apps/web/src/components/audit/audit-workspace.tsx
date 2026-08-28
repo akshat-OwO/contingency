@@ -15,6 +15,7 @@ import {
   selectedStepIndex,
   timelineSteps,
 } from "@/components/audit/audit-workspace-state";
+import { FlowUpload } from "@/components/audit/flow-upload";
 import { RunHeader } from "@/components/audit/run-header";
 import { StepDetail } from "@/components/audit/step-detail";
 import { StepFindings } from "@/components/audit/step-findings";
@@ -23,6 +24,7 @@ import { VariablePrompt } from "@/components/audit/variable-prompt";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   runAtom,
+  runFlowLoadMutation,
   runStartMutation,
   runRunProgressStream,
   runVariableAnswerMutation,
@@ -33,16 +35,44 @@ const errorMessage = (error: unknown): string =>
     ? error.message
     : "The Runner could not answer.";
 
-const NoFlow = () => (
+const NoFlow = ({
+  busy,
+  error,
+  onLoad,
+}: {
+  readonly busy: boolean;
+  readonly error: string | null;
+  readonly onLoad: (document: string, source: string) => void;
+}) => (
   <main className="grid h-[calc(100svh-3.5rem)] place-items-center p-6">
-    <section className="max-w-md space-y-2 text-center">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        No Flow to audit
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Audit View runs the one Flow this server was opened on. Start it with{" "}
-        <code className="font-mono">contingency web &lt;flow&gt;</code>.
-      </p>
+    <section className="max-w-md space-y-4 text-center">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          No Flow to audit
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Audit View runs one Flow at a time. Start the server with{" "}
+          <code className="font-mono">contingency web &lt;flow&gt;</code>, or
+          open a Flow file from here.
+        </p>
+      </div>
+      <div className="flex justify-center">
+        <FlowUpload
+          busy={busy}
+          label="Open a Flow file"
+          onLoad={onLoad}
+          size="default"
+          variant="default"
+        />
+      </div>
+      {error !== null && (
+        <Alert variant="destructive">
+          <AlertTitle>That Flow could not be loaded</AlertTitle>
+          <AlertDescription className="whitespace-pre-wrap">
+            {error}
+          </AlertDescription>
+        </Alert>
+      )}
     </section>
   </main>
 );
@@ -56,6 +86,7 @@ const AuditWorkspace = () => {
   const runResult = useAtomValue(runAtom);
   const start = useAtomSet(runStartMutation, { mode: "promise" });
   const answer = useAtomSet(runVariableAnswerMutation, { mode: "promise" });
+  const loadFlow = useAtomSet(runFlowLoadMutation, { mode: "promise" });
 
   /**
    * One shape for both requests: a refusal is the Runner's answer and must be
@@ -126,6 +157,24 @@ const AuditWorkspace = () => {
     request(() => start({ payload: { data: {}, type: "run.start" } }));
   }, [request, setWorkspace, start]);
 
+  const onLoadFlow = useCallback(
+    (document: string, source: string) => {
+      // A different Flow is a different timeline: nothing the reader had
+      // pinned survives it.
+      setWorkspace((current) => ({
+        ...current,
+        attempt: undefined,
+        pinnedStep: undefined,
+      }));
+      request(() =>
+        loadFlow({
+          payload: { data: { document, source }, type: "run.flow.load" },
+        })
+      );
+    },
+    [loadFlow, request, setWorkspace]
+  );
+
   const onAnswer = useCallback(() => {
     const name = run?.variablePrompt?.name;
     if (name === undefined) {
@@ -140,7 +189,7 @@ const AuditWorkspace = () => {
   }, [answer, draft, request, run?.variablePrompt?.name, setDraft]);
 
   if (run === null) {
-    return <NoFlow />;
+    return <NoFlow busy={busy} error={actionError} onLoad={onLoadFlow} />;
   }
 
   const attempt = selectedAttempt(run, workspace.attempt);
@@ -150,7 +199,13 @@ const AuditWorkspace = () => {
 
   return (
     <main className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col overflow-hidden">
-      <RunHeader busy={busy} onStart={onStart} run={run} timeline={timeline} />
+      <RunHeader
+        busy={busy}
+        onLoadFlow={onLoadFlow}
+        onStart={onStart}
+        run={run}
+        timeline={timeline}
+      />
 
       {(run.error !== undefined ||
         actionError !== null ||

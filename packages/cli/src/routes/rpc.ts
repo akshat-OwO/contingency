@@ -364,6 +364,8 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         recordingResult(recording.updateTitle(data.title)),
       "recording.variable.rename": ({ data }) =>
         recordingResult(recording.renameVariable(data.from, data.name)),
+      "run.flow.load": ({ data }) =>
+        runResult(runSession.loadFlow(data.document, data.source)),
       "run.get": () => runResult(runSession.get()),
       "run.start": () =>
         runResult(requireNoRecording.pipe(Effect.andThen(runSession.start()))),

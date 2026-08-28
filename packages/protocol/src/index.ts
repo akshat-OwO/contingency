@@ -509,6 +509,7 @@ export const BrandId = Schema.Literals([
   "recording.capture.cancel",
   "recording.hover.arm",
   "recording.stream.subscribe",
+  "run.flow.load",
   "run.get",
   "run.result",
   "run.start",
@@ -850,6 +851,18 @@ export const RunVariableAnswer = request("run.variable.answer", {
   value: Schema.String,
 });
 export const RunStreamSubscribe = request("run.stream.subscribe", {});
+/**
+ * Hand the server a Flow document to audit, from a browser that has the file
+ * and a server that was opened without one. This is not the Flow picker ADR
+ * 0023 rules out: there is still exactly one loaded Flow at a time, and the
+ * server never lists or searches for Flows — the document travels in the
+ * request, so nothing a caller sends is read as a path.
+ */
+export const RunFlowLoad = request("run.flow.load", {
+  document: nonEmptyProtocolString,
+  /** What to call the document in a decode failure. Never opened as a path. */
+  source: nonEmptyProtocolString,
+});
 
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
@@ -1085,6 +1098,11 @@ const RunVariableAnswerRpc = Rpc.make("run.variable.answer", {
   payload: RunVariableAnswer,
   success: RunResult,
 });
+const RunFlowLoadRpc = Rpc.make("run.flow.load", {
+  error: BrowserRpcError,
+  payload: RunFlowLoad,
+  success: RunResult,
+});
 const RunStreamSubscribeRpc = Rpc.make("run.stream.subscribe", {
   error: BrowserRpcError,
   payload: RunStreamSubscribe,
@@ -1138,5 +1156,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   RunGetRpc,
   RunStartRpc,
   RunVariableAnswerRpc,
-  RunStreamSubscribeRpc
+  RunStreamSubscribeRpc,
+  RunFlowLoadRpc
 ) {}
