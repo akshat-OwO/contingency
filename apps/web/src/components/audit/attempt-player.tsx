@@ -1,13 +1,13 @@
 import type { RunSnapshot } from "@contingency/protocol";
 import { runVideoPath } from "@contingency/protocol";
 import { FilmIcon, PlayIcon, TriangleAlertIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
 
+import type { TimelineStep } from "@/components/audit/audit-workspace-state";
 import {
-  seekSeconds,
   traceSegment,
   videoSegment,
 } from "@/components/audit/audit-workspace-state";
+import { FramePlayer } from "@/components/audit/frame-player";
 import { Spinner } from "@/components/ui/spinner";
 
 const Placeholder = ({
@@ -31,8 +31,10 @@ const Placeholder = ({
 export interface AttemptPlayerProps {
   readonly attempt: number | undefined;
   readonly className?: string;
+  readonly onPinStep: (index: number) => void;
   readonly run: RunSnapshot;
   readonly stepIndex: number | undefined;
+  readonly timeline: readonly TimelineStep[];
 }
 
 /**
@@ -46,30 +48,13 @@ export interface AttemptPlayerProps {
 export const AttemptPlayer = ({
   attempt,
   className,
+  onPinStep,
   run,
   stepIndex,
+  timeline,
 }: AttemptPlayerProps) => {
-  const video = useRef<HTMLVideoElement>(null);
   const segment = videoSegment(run, attempt);
   const trace = traceSegment(run, attempt);
-  const seek = seekSeconds(segment, stepIndex);
-
-  useEffect(() => {
-    const element = video.current;
-    if (element === null || seek === undefined) {
-      return;
-    }
-    const apply = () => {
-      element.currentTime = seek;
-    };
-    if (element.readyState !== 0) {
-      apply();
-    }
-    // Armed regardless: a seek issued before metadata lands is dropped, and
-    // this repeats it once the duration is known.
-    element.addEventListener("loadedmetadata", apply, { once: true });
-    return () => element.removeEventListener("loadedmetadata", apply);
-  }, [seek]);
 
   if (run.phase === "idle") {
     return (
@@ -120,7 +105,7 @@ export const AttemptPlayer = ({
   }
 
   return (
-    <div className={`${className ?? ""} relative`}>
+    <div className={`${className ?? ""} relative min-h-0`}>
       {/*
         The Trace these frames came from is unredacted and holds full DOM
         snapshots and network payloads, secret Variable values included. Saying
@@ -132,17 +117,14 @@ export const AttemptPlayer = ({
           Trace {trace.file} · unredacted, local only
         </p>
       )}
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption -- Derived frames of a Run carry no audio track to caption. */}
-      <video
-        className="h-full w-full bg-black object-contain"
-        controls
+      <FramePlayer
         key={`${run.run.runId}-${segment.attempt}`}
-        preload="metadata"
-        ref={video}
+        onPinStep={onPinStep}
+        segment={segment}
+        selected={stepIndex}
         src={runVideoPath(run.run.runId, segment.attempt)}
-      >
-        Your browser cannot play this Run's derived video.
-      </video>
+        timeline={timeline}
+      />
     </div>
   );
 };

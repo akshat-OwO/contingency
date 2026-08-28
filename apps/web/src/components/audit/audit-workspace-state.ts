@@ -6,7 +6,11 @@ import type {
   RunTraceSegment,
   RunVideoSegment,
 } from "@contingency/protocol";
-import { defaultAttempt, stepFrameSeconds } from "@contingency/protocol";
+import {
+  defaultAttempt,
+  stepFrameSeconds,
+  VIDEO_FRAME_DURATION_SECONDS,
+} from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
 import { describeStep } from "@/lib/flow-labels";
@@ -194,6 +198,31 @@ export const seekSeconds = (
   segment === undefined || stepIndex === undefined
     ? undefined
     : stepFrameSeconds(segment, stepIndex);
+
+/** How long the segment plays: one frame per executed Step, in order. */
+export const segmentDuration = (
+  segment: RunVideoSegment | undefined,
+  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+): number =>
+  segment === undefined ? 0 : segment.steps.length * frameDurationSeconds;
+
+/**
+ * Which Step the playhead is over. The inverse of `seekSeconds`, for a reader
+ * who scrubbed or played rather than clicking a Step.
+ */
+export const frameStepIndex = (
+  segment: RunVideoSegment | undefined,
+  seconds: number,
+  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+): number | undefined => {
+  if (segment === undefined || segment.steps.length === 0) {
+    return undefined;
+  }
+  const position = Math.floor(seconds / frameDurationSeconds);
+  return segment.steps[
+    Math.min(Math.max(position, 0), segment.steps.length - 1)
+  ];
+};
 
 /** How many Steps the Run has finished. */
 export const stepsDone = (timeline: readonly TimelineStep[]): number =>

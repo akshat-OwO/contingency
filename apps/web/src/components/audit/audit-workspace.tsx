@@ -255,8 +255,12 @@ const AuditWorkspace = () => {
           <AttemptPlayer
             attempt={attempt}
             className="h-[42%] min-h-40 border-b"
+            onPinStep={(index) =>
+              setWorkspace((current) => ({ ...current, pinnedStep: index }))
+            }
             run={run}
             stepIndex={selected}
+            timeline={timeline}
           />
           <StepDetail step={step} />
         </div>

@@ -5,12 +5,15 @@ import {
   attempts,
   attemptSteps,
   gateBreach,
+  frameStepIndex,
   seekSeconds,
   selectedAttempt,
   selectedStepIndex,
+  segmentDuration,
   timelineSteps,
   videoSegment,
 } from "@/components/audit/audit-workspace-state";
+import { formatTimecode } from "@/components/audit/frame-player";
 import { describeStep } from "@/lib/flow-labels";
 
 const stepAt = (index: number, outcome: "completed" | "failed"): RunStep => ({
@@ -199,6 +202,22 @@ describe("frames", () => {
     expect(videoSegment(withVideo, 2)?.recorded).toBe(true);
   });
 
+  it("names the Step the playhead is over, wherever it was scrubbed to", () => {
+    const segment = videoSegment(withVideo, 2);
+    // Frames are laid one per executed Step, in order, at a fixed duration,
+    // so the inverse of a Step's seek is arithmetic on the same list.
+    expect(frameStepIndex(segment, 0)).toBe(0);
+    expect(frameStepIndex(segment, 0.75)).toBe(1);
+    // Past the end is the last frame, never `undefined`: the video ends on it.
+    expect(frameStepIndex(segment, 99)).toBe(2);
+    expect(frameStepIndex(videoSegment(withVideo, 1), 0)).toBeUndefined();
+  });
+
+  it("measures a segment as one frame per executed Step", () => {
+    expect(segmentDuration(videoSegment(withVideo, 2))).toBe(1.5);
+    expect(segmentDuration(videoSegment(withVideo, 1))).toBe(0);
+  });
+
   it("seeks a Step to its own frame", () => {
     expect(seekSeconds(videoSegment(withVideo, 2), 1)).toBe(0.75);
     expect(seekSeconds(videoSegment(withVideo, 2), following)).toBeUndefined();
@@ -228,4 +247,14 @@ it("names a navigate Step by where it goes", () => {
   expect(
     describeStep({ type: "navigate", url: "https://example.com/cart" } as never)
   ).toBe("Navigate to example.com/cart");
+});
+
+describe("the frame player's timecode", () => {
+  it("reads in tenths, because a frame is half a second", () => {
+    expect(formatTimecode(0)).toBe("0:00.0");
+    expect(formatTimecode(4.75)).toBe("0:04.8");
+    expect(formatTimecode(62.25)).toBe("1:02.3");
+    // A video whose metadata never landed reports NaN rather than a length.
+    expect(formatTimecode(Number.NaN)).toBe("0:00.0");
+  });
 });
