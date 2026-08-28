@@ -1,16 +1,12 @@
 import type {
   Condition,
-  LocatorDescriptor,
   PreStep,
   PreStepPickKind,
   RecordedStep,
   RecordingCaptureMode,
   RecordingSnapshot,
 } from "@contingency/protocol";
-import {
-  hasAuthoredBrowserStep,
-  matchLocatorDescriptor,
-} from "@contingency/protocol";
+import { hasAuthoredBrowserStep } from "@contingency/protocol";
 import {
   DownloadIcon,
   InfoIcon,
@@ -39,6 +35,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { targetLabel } from "@/lib/flow-labels";
 
 /** What the author is being asked for while a capture mode is armed. */
 const capturePrompts: Record<
@@ -123,25 +120,6 @@ const stepLabel = (
     return `Press ${step.key}`;
   }
   return `${step.type === "keyDown" ? "Press" : "Release"} ${step.key}`;
-};
-
-const describeLocator = (descriptor: LocatorDescriptor): string =>
-  matchLocatorDescriptor(descriptor, {
-    css: ({ selector }) => selector,
-    label: ({ label }) => `label "${label}"`,
-    placeholder: ({ placeholder }) => `placeholder "${placeholder}"`,
-    role: ({ name, role }) => `${role} "${name}"`,
-    text: ({ text }) => `"${text}"`,
-    xpath: ({ expression }) => expression,
-  });
-
-/**
- * The ladder is ordered alternatives, not a path, so the card names the
- * leading descriptor — the strategy most likely to still resolve.
- */
-const targetLabel = (target: readonly LocatorDescriptor[]): string => {
-  const [lead] = target;
-  return lead === undefined ? "" : describeLocator(lead);
 };
 
 const conditionLabel = (when: Condition): string => {

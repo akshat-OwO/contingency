@@ -2,14 +2,14 @@ import { createWriteStream } from "node:fs";
 import { open, rename, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 
+import { VIDEO_FRAME_DURATION_SECONDS } from "@contingency/protocol";
 import { Effect, Stream } from "effect";
 import type { ChildProcessSpawner } from "effect/unstable/process";
 import { ChildProcess } from "effect/unstable/process";
 import { registry as playwrightRegistry } from "playwright-core/lib/coreBundle";
 import { yauzl, yazl } from "playwright-core/lib/utilsBundle";
 
-/** Every derived frame remains visible for this long. */
-export const VIDEO_FRAME_DURATION_SECONDS = 0.5;
+export { VIDEO_FRAME_DURATION_SECONDS } from "@contingency/protocol";
 
 export interface DerivedVideo {
   readonly includesSettledState: boolean;

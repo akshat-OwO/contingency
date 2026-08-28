@@ -505,3 +505,134 @@ export const axeVersionMismatchWarning = (
   }
   return `The Baseline was audited by axe-core ${before}, this Run by ${after}. Differences in Findings may describe the engine upgrade rather than the site.`;
 };
+
+// ---------------------------------------------------------------------------
+// Observing a Run
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a Run watched from Audit View has got to.
+ *
+ * `starting` covers everything between the request and the first Step —
+ * resolving Variables, installing and launching Chromium — which is long
+ * enough that collapsing it into `running` would show an empty timeline with
+ * no explanation. `finished` means the Run is written and its artifacts are
+ * prepared, which is the first moment any frame exists to show
+ * ([ADR 0023](../../../docs/adr/0023-audit-view-starts-runs.md)).
+ */
+export const RunPhase = Schema.Literals([
+  "idle",
+  "starting",
+  "running",
+  "finished",
+]);
+export type RunPhase = typeof RunPhase.Type;
+
+/**
+ * A `runtime` Variable the Runner is waiting on. A web server is never an
+ * interactive terminal, so the prompt seam is answered by the browser rather
+ * than by stdin (ADR 0023). The value never travels back in a snapshot: only
+ * the question does.
+ */
+export const RunVariablePrompt = Schema.Struct({
+  name: nonEmptyString,
+  /**
+   * A Variable that is both secret and runtime is usually a single-use code,
+   * which no retry can reuse. The interface says so where it is asked.
+   */
+  secret: Schema.Boolean,
+});
+export type RunVariablePrompt = typeof RunVariablePrompt.Type;
+
+/**
+ * Everything Audit View knows about the one Flow this process was opened on.
+ *
+ * The Flow travels whatever the phase, so the Step timeline reads before a Run
+ * has ever started. {@link RunSnapshot.steps} is the attempt in flight and is
+ * replaced wholesale by each fresh attempt, never appended to: attempts are
+ * context-isolated and are not one timeline (ADR 0015). Once `phase` is
+ * `finished`, {@link RunSnapshot.run} carries every attempt and `steps` stops
+ * being the interesting reading.
+ *
+ * The artifact manifests ride along rather than being fetched separately: they
+ * are small, they only ever change with the phase, and a second round trip
+ * could show a player before the manifest that explains it arrived.
+ */
+export const RunSnapshot = Schema.Struct({
+  /** The attempt in flight, 1-based. Absent before the first one begins. */
+  attempt: Schema.optional(Schema.Int),
+  /** How many attempts this Run may make at most, retries included. */
+  attemptCeiling: Schema.Int,
+  /**
+   * Why the Run could not start, or could not be persisted. A Run that
+   * executed and failed is not this: that is a `finished` Run whose outcome is
+   * `failed`.
+   */
+  error: Schema.optional(nonEmptyString),
+  flow: Flow,
+  outcome: Schema.optional(RunOutcome),
+  phase: RunPhase,
+  /** The finished Run, with every attempt. Null until the Run ends. */
+  run: Schema.NullOr(Run),
+  /** Index of the Step executing right now, absent between Steps. */
+  runningIndex: Schema.optional(Schema.Int),
+  /** The current attempt's Steps so far, in executed order. */
+  steps: Schema.Array(RunStep),
+  trace: Schema.NullOr(RunTraceManifest),
+  /** The `runtime` Variable the Runner is blocked on, if any. */
+  variablePrompt: Schema.NullOr(RunVariablePrompt),
+  video: Schema.NullOr(RunVideoManifest),
+  /** Preflight's warnings, shown once rather than swallowed. */
+  warnings: Schema.Array(nonEmptyString),
+});
+export type RunSnapshot = typeof RunSnapshot.Type;
+
+/**
+ * Whether a Run is in flight, and so cannot be started again. Both sides
+ * answer with this predicate rather than with two bodies that agree by
+ * coincidence.
+ */
+export const runIsInFlight = (snapshot: RunSnapshot | null): boolean =>
+  snapshot?.phase === "starting" || snapshot?.phase === "running";
+
+/**
+ * Which attempt Audit View opens on: the last one that failed, falling back to
+ * the last recorded. The attempt worth watching is the one that went wrong,
+ * and on a Run that needed no retry both answers are the same.
+ */
+export const defaultAttempt = (run: Run): number => {
+  const failed = run.attempts.findLast(
+    (attempt) => attempt.outcome === "failed"
+  );
+  return (failed ?? run.attempts.at(-1))?.attempt ?? 1;
+};
+
+/**
+ * How long each derived frame is held in an attempt's video.
+ *
+ * The protocol owns it because both sides need the same number: the CLI
+ * encodes at this rate, and Audit View seeks by it. Two constants that agreed
+ * by coincidence would drift a seek onto the wrong Step.
+ */
+export const VIDEO_FRAME_DURATION_SECONDS = 0.5;
+
+/**
+ * Where in an attempt's derived video a Step's frame sits, in seconds, or
+ * `undefined` when that Step is not among the frames the segment recorded.
+ *
+ * Derivation lays one frame per executed Step in order, each held for the same
+ * duration, then appends the settled-state frame. Seeking is therefore
+ * arithmetic on the segment's own `steps` list rather than a second index that
+ * could disagree with it. The offset lands just inside the frame's window, so
+ * a seek never resolves to the boundary of the frame before it.
+ */
+export const stepFrameSeconds = (
+  segment: RunVideoSegment,
+  stepIndex: number,
+  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+): number | undefined => {
+  const position = segment.steps.indexOf(stepIndex);
+  return position === -1
+    ? undefined
+    : position * frameDurationSeconds + frameDurationSeconds / 2;
+};
