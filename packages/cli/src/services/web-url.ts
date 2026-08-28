@@ -13,6 +13,20 @@ export interface WebUrlOptions {
   readonly publicUrl: Option.Option<string>;
 }
 
+/**
+ * A hostname that *is* a loopback address, rather than one that merely looks
+ * like one. `isLoopbackHost` is deliberately loose because it classifies a
+ * bind address an operator configured; this is load-bearing for an allowlist,
+ * where a prefix match would admit `127.0.0.1.evil.com` — a name an attacker
+ * can register and rebind, which is exactly what the allowlist exists to
+ * refuse. IPv4 shorthand is not a loophole: WHATWG URL normalises
+ * `http://127.1` to `127.0.0.1` before this sees it.
+ */
+const isLoopbackLiteral = (hostname: string): boolean =>
+  hostname === "localhost" ||
+  hostname === "[::1]" ||
+  /^127(?:\.\d{1,3}){3}$/u.test(hostname);
+
 export const isLoopbackHost = (host: string): boolean =>
   host === "localhost" ||
   host === "::1" ||
@@ -58,7 +72,7 @@ export const isAllowedHost = (
   } catch {
     return false;
   }
-  if (isLoopbackHost(parsed.hostname)) {
+  if (isLoopbackLiteral(parsed.hostname)) {
     return true;
   }
   for (const origin of allowedOrigins) {

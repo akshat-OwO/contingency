@@ -111,9 +111,16 @@ it("serves a loopback or configured Host, and nothing a rebind can present", () 
   expect(isAllowedHost("[::1]:7777", allowed)).toBe(true);
   expect(isAllowedHost("audit.example:7777", allowed)).toBe(true);
 
+  // Shorthand normalises to a loopback literal before this sees it.
+  expect(isAllowedHost("127.1:7777", allowed)).toBe(true);
+
   // A DNS rebind reaches the loopback bind but carries the attacker's own
-  // name, which is what this refuses.
+  // name, which is what this refuses — including a name that merely looks
+  // like a loopback address, which an attacker can register and rebind.
   expect(isAllowedHost("rebind.evil:7777", allowed)).toBe(false);
+  expect(isAllowedHost("127.0.0.1.evil.com:7777", allowed)).toBe(false);
+  expect(isAllowedHost("127.com:7777", allowed)).toBe(false);
+  expect(isAllowedHost("localhost.evil:7777", allowed)).toBe(false);
   expect(isAllowedHost("audit.example.evil:7777", allowed)).toBe(false);
   // HTTP/1.1 requires a Host; one that is absent or unparseable is refused.
   expect(isAllowedHost(undefined, allowed)).toBe(false);
