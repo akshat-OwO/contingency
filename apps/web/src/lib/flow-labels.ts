@@ -62,12 +62,17 @@ export const describeStep = (step: AuthoredStep): string => {
     case "keyUp": {
       return `Release ${step.key}`;
     }
-    default: {
+    case "waitFor": {
       return step.condition.type === "urlMatches"
         ? `Wait for the URL to match ${step.condition.pattern}`
         : `Wait for ${targetLabel(step.condition.target)} to be ${
             step.condition.type === "selectorVisible" ? "visible" : "hidden"
           }`;
+    }
+    default: {
+      // A new Step kind must be named here rather than inherit a wrong label.
+      const unhandled: never = step;
+      return unhandled;
     }
   }
 };

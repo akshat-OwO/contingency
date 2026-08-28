@@ -4,6 +4,7 @@ import { PlayIcon, ShieldAlertIcon } from "lucide-react";
 import {
   gateBreach,
   runProgress,
+  stepsDone,
 } from "@/components/audit/audit-workspace-state";
 import type { TimelineStep } from "@/components/audit/audit-workspace-state";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,7 @@ const PhaseBadge = ({
 
 export const RunHeader = ({ busy, onStart, run, timeline }: RunHeaderProps) => {
   const live = run.phase === "running" || run.phase === "starting";
-  const done = timeline.filter(({ state }) => state === "done").length;
+  const done = stepsDone(timeline);
   const breached = gateBreach(run);
 
   return (

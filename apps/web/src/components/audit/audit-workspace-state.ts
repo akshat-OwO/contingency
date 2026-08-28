@@ -55,6 +55,13 @@ export const auditVariableDraftAtom = Atom.make<string>("");
 
 export const auditBusyAtom = Atom.make<boolean>(false);
 
+/**
+ * Why the last thing the reader asked for was refused — a Run started while a
+ * Recording holds the browser, most often. Distinct from a Run that started
+ * and then failed, which is a `finished` Run with a `failed` outcome.
+ */
+export const auditActionErrorAtom = Atom.make<string | null>(null);
+
 /** The attempt on show: the reader's choice, else the Run's own default. */
 export const selectedAttempt = (
   snapshot: RunSnapshot | null,
@@ -188,14 +195,13 @@ export const seekSeconds = (
     ? undefined
     : stepFrameSeconds(segment, stepIndex);
 
+/** How many Steps the Run has finished. */
+export const stepsDone = (timeline: readonly TimelineStep[]): number =>
+  timeline.filter(({ state }) => state === "done").length;
+
 /** How far through the Flow the Run has got, as a fraction. */
-export const runProgress = (timeline: readonly TimelineStep[]): number => {
-  if (timeline.length === 0) {
-    return 0;
-  }
-  const done = timeline.filter(({ state }) => state === "done").length;
-  return done / timeline.length;
-};
+export const runProgress = (timeline: readonly TimelineStep[]): number =>
+  timeline.length === 0 ? 0 : stepsDone(timeline) / timeline.length;
 
 /**
  * The Gate breach, when there is one. Kept apart from the outcome deliberately:

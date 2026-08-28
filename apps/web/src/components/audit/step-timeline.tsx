@@ -77,7 +77,7 @@ export const StepTimeline = ({
 
   return (
     <div className="flex min-h-0 flex-col border-r">
-      {recorded.length > 1 && (
+      {recorded.length > 0 && (
         <div className="border-b px-3 py-2">
           <label
             className="text-muted-foreground text-xs"

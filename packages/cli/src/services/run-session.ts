@@ -2,6 +2,7 @@ import path from "node:path";
 
 import {
   makeBrowserRpcError,
+  runIsInFlight,
   RunTraceManifest as RunTraceManifestSchema,
   RunVideoManifest as RunVideoManifestSchema,
 } from "@contingency/protocol";
@@ -194,9 +195,9 @@ export const makeRunSessionService = ({
           secret: variable.secret,
         };
         yield* update((state) => ({ ...state, variablePrompt: prompt }));
+        // Cleared by whoever answers, so the answer's own reply already shows
+        // the Run unblocked rather than echoing the question back.
         const value = yield* Deferred.await(awaiting);
-        yield* Ref.set(pendingRef, null);
-        yield* update((state) => ({ ...state, variablePrompt: null }));
         return Redacted.make(value);
       });
 
@@ -327,6 +328,8 @@ export const makeRunSessionService = ({
               )
             );
           }
+          yield* Ref.set(pendingRef, null);
+          yield* update((current) => ({ ...current, variablePrompt: null }));
           yield* Deferred.succeed(pending.awaiting, value);
           return toSnapshot(yield* requireFlow());
         }),
@@ -379,7 +382,12 @@ export const makeRunSessionService = ({
       start: () =>
         Effect.gen(function* startRun() {
           const state = yield* requireFlow();
-          if (state.phase === "starting" || state.phase === "running") {
+          // Not a second notion of "one Run at a time": the Runner's semaphore
+          // remains the enforcement, and this only refuses to *ask* it. Without
+          // the refusal a second request would fork a Run that blocks on the
+          // permit, leaving the interface saying `starting` indefinitely with
+          // nothing to explain it. Both sides read the same predicate.
+          if (runIsInFlight(toSnapshot(state))) {
             return yield* Effect.fail(
               makeBrowserRpcError(
                 "run_conflict",

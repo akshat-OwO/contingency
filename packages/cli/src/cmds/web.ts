@@ -26,14 +26,8 @@ export const webCommand = Command.make(
       Argument.optional
     ),
     noBrowser: Flag.boolean("no-browser").pipe(Flag.withDefault(false)),
-    output: Flag.string("output").pipe(
-      Flag.withDescription(
-        "Directory to write Runs into. Defaults to the Contingency state directory."
-      ),
-      Flag.optional
-    ),
   },
-  Effect.fnUntraced(function* runWeb({ flowPath, noBrowser, output }) {
+  Effect.fnUntraced(function* runWeb({ flowPath, noBrowser }) {
     const isProduction = process.env.NODE_ENV === "production";
     const uiInterface = yield* UiInterface;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -53,9 +47,8 @@ export const webCommand = Command.make(
       );
       flow = yield* decodeFlowDocument(contents, resolvedPath);
     }
-    const outputDirectory = Option.isSome(output)
-      ? path.resolve(output.value)
-      : defaultRunsDirectory();
+    // Runs land where every other Run lands: one Flow, no second output root.
+    const outputDirectory = defaultRunsDirectory();
     const config = yield* Config.all({
       devUrl: Config.string("DEV_URL").pipe(
         Config.withDefault("http://localhost:5173")

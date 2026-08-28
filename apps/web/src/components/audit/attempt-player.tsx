@@ -1,15 +1,14 @@
 import type { RunSnapshot } from "@contingency/protocol";
+import { runVideoPath } from "@contingency/protocol";
 import { FilmIcon, PlayIcon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import {
   seekSeconds,
+  traceSegment,
   videoSegment,
 } from "@/components/audit/audit-workspace-state";
 import { Spinner } from "@/components/ui/spinner";
-
-const videoSource = (runId: string, attempt: number): string =>
-  `/runs/${encodeURIComponent(runId)}/video/${attempt}`;
 
 const Placeholder = ({
   children,
@@ -52,6 +51,7 @@ export const AttemptPlayer = ({
 }: AttemptPlayerProps) => {
   const video = useRef<HTMLVideoElement>(null);
   const segment = videoSegment(run, attempt);
+  const trace = traceSegment(run, attempt);
   const seek = seekSeconds(segment, stepIndex);
 
   useEffect(() => {
@@ -59,8 +59,6 @@ export const AttemptPlayer = ({
     if (element === null || seek === undefined) {
       return;
     }
-    // Seeking before metadata lands is dropped, so the seek is repeated once
-    // the duration is known.
     const apply = () => {
       element.currentTime = seek;
     };
@@ -122,7 +120,18 @@ export const AttemptPlayer = ({
   }
 
   return (
-    <div className={className}>
+    <div className={`${className ?? ""} relative`}>
+      {/*
+        The Trace these frames came from is unredacted and holds full DOM
+        snapshots and network payloads, secret Variable values included. Saying
+        where it is on disk is fine; it never leaves the machine, and ADR 0020
+        forbids referencing a whole Trace from a Handoff.
+      */}
+      {trace?.recorded === true && (
+        <p className="absolute top-1 right-1 z-10 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[10px] text-white">
+          Trace {trace.file} · unredacted, local only
+        </p>
+      )}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- Derived frames of a Run carry no audio track to caption. */}
       <video
         className="h-full w-full bg-black object-contain"
@@ -130,7 +139,7 @@ export const AttemptPlayer = ({
         key={`${run.run.runId}-${segment.attempt}`}
         preload="metadata"
         ref={video}
-        src={videoSource(run.run.runId, segment.attempt)}
+        src={runVideoPath(run.run.runId, segment.attempt)}
       >
         Your browser cannot play this Run's derived video.
       </video>

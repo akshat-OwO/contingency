@@ -608,6 +608,18 @@ export const defaultAttempt = (run: Run): number => {
 };
 
 /**
+ * Where one attempt's derived video is served from.
+ *
+ * The protocol owns the shape because both sides need the same one: the CLI
+ * routes it and Audit View requests it. Video bytes deliberately do not travel
+ * over RPC — a WebM is megabytes of binary that would be framed and buffered
+ * through the same socket the Run's progress arrives on, where a plain HTTP
+ * resource is streamed, seeked, and cached by the browser's own media element.
+ */
+export const runVideoPath = (runId: string, attempt: number): string =>
+  `/runs/${encodeURIComponent(runId)}/video/${attempt}`;
+
+/**
  * How long each derived frame is held in an attempt's video.
  *
  * The protocol owns it because both sides need the same number: the CLI

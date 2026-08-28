@@ -3,23 +3,19 @@ import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 
 import { RunSession } from "../services/run-session.ts";
 
-/** Where Audit View fetches one attempt's derived video. */
-export const runVideoPath = (runId: string, attempt: number): string =>
-  `/runs/${encodeURIComponent(runId)}/video/${attempt}`;
-
 /**
- * Video bytes do not travel over RPC. A WebM is megabytes of binary that would
- * have to be framed and buffered through the same socket the Run's progress
- * arrives on; the browser's own media element streams it, seeks it, and caches
- * it if this is a plain HTTP resource instead.
+ * Serves one attempt's derived video, at the path the protocol names.
  *
  * The Run's directory holds an unredacted Trace beside that video, so the path
- * is resolved from the Run's own manifest rather than from the request, and
- * the server's loopback bind and allowed-origin handling keep it local
- * ([ADR 0014](../../../../docs/adr/0014-artifacts-are-run-properties.md)).
+ * is resolved from the Run's own manifest rather than from the request. What
+ * keeps the bytes local is the server's loopback bind: a media element sends
+ * no `Origin`, so the RPC group's allowed-origin check does not and cannot
+ * apply here ([ADR 0014](../../../../docs/adr/0014-artifacts-are-run-properties.md)).
  */
 export const RunArtifactRoutes = HttpRouter.add(
   "GET",
+  // The pattern behind the protocol's `runVideoPath`, which both sides build
+  // requests from; `run-contract.test.ts` pins the shape they must agree on.
   "/runs/:runId/video/:attempt",
   Effect.gen(function* serveRunVideo() {
     const parameters = yield* HttpRouter.params;

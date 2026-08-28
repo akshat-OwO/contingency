@@ -16,6 +16,7 @@ import {
   runExitCode,
   runIsBaselineEligible,
   runIsInFlight,
+  runVideoPath,
   stepFrameSeconds,
   VIDEO_FRAME_DURATION_SECONDS,
 } from "@contingency/protocol";
@@ -355,6 +356,13 @@ test("a Step seeks to the middle of its own frame, never a boundary", () => {
 
 const snapshotWith = (phase: RunPhaseType): RunSnapshotType =>
   ({ phase }) as RunSnapshotType;
+
+test("both sides address a derived video by the same path", () => {
+  expect(runVideoPath("2f8c-41", 2)).toBe("/runs/2f8c-41/video/2");
+  // The route matches on `:runId`, so a Run id that needs escaping must not
+  // silently address a different segment of the path.
+  expect(runVideoPath("a/b", 1)).toBe("/runs/a%2Fb/video/1");
+});
 
 test("a Run in flight cannot be started again", () => {
   expect(runIsInFlight(snapshotWith("starting"))).toBe(true);

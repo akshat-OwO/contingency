@@ -2,6 +2,7 @@ import type { RunSnapshot, RunStep } from "@contingency/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
+  attempts,
   attemptSteps,
   gateBreach,
   seekSeconds,
@@ -145,6 +146,19 @@ describe("attempts", () => {
   it("defaults to the last failed attempt", () => {
     expect(selectedAttempt(retried, following)).toBe(1);
     expect(selectedAttempt(retried, 2)).toBe(2);
+  });
+
+  it("lists the one attempt a Run that needed no retry made", () => {
+    const single = snapshot({
+      phase: "finished",
+      run: {
+        attempts: [{ attempt: 1, outcome: "completed", steps: [] }],
+        runId: "run-1",
+        steps: [],
+      } as unknown as never,
+    });
+    expect(attempts(single)).toHaveLength(1);
+    expect(selectedAttempt(single, following)).toBe(1);
   });
 
   it("never concatenates two attempts into one timeline", () => {

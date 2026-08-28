@@ -1,9 +1,11 @@
+import { isBrowserRpcError } from "@contingency/protocol";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Fiber, Result } from "effect";
 import { useCallback, useEffect } from "react";
 
 import { AttemptPlayer } from "@/components/audit/attempt-player";
 import {
+  auditActionErrorAtom,
   auditBusyAtom,
   auditStreamErrorAtom,
   auditVariableDraftAtom,
@@ -22,9 +24,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   runAtom,
   runStartMutation,
-  runRunStream,
+  runRunProgressStream,
   runVariableAnswerMutation,
 } from "@/lib/rpc";
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error || isBrowserRpcError(error)
+    ? error.message
+    : "The Runner could not answer.";
 
 const NoFlow = () => (
   <main className="grid h-[calc(100svh-3.5rem)] place-items-center p-6">
@@ -45,9 +52,34 @@ const AuditWorkspace = () => {
   const [streamError, setStreamError] = useAtom(auditStreamErrorAtom);
   const [draft, setDraft] = useAtom(auditVariableDraftAtom);
   const [busy, setBusy] = useAtom(auditBusyAtom);
+  const [actionError, setActionError] = useAtom(auditActionErrorAtom);
   const runResult = useAtomValue(runAtom);
-  const start = useAtomSet(runStartMutation, { mode: "promiseExit" });
-  const answer = useAtomSet(runVariableAnswerMutation, { mode: "promiseExit" });
+  const start = useAtomSet(runStartMutation, { mode: "promise" });
+  const answer = useAtomSet(runVariableAnswerMutation, { mode: "promise" });
+
+  /**
+   * One shape for both requests: a refusal is the Runner's answer and must be
+   * shown, not swallowed. Matches how Create View drives its own mutations.
+   */
+  const request = useCallback(
+    (operation: () => Promise<unknown>) => {
+      if (busy) {
+        return;
+      }
+      setBusy(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await operation();
+        } catch (error) {
+          setActionError(errorMessage(error));
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [busy, setActionError, setBusy]
+  );
 
   useEffect(() => {
     if (runResult._tag !== "Success") {
@@ -60,7 +92,7 @@ const AuditWorkspace = () => {
     const fiber = Effect.runFork(
       Effect.gen(function* observeRun() {
         const outcome = yield* Effect.result(
-          runRunStream((run) =>
+          runRunProgressStream((run) =>
             Effect.sync(() => {
               setStreamError(null);
               setWorkspace((current) => ({ ...current, run }));
@@ -84,7 +116,6 @@ const AuditWorkspace = () => {
   const { run } = workspace;
 
   const onStart = useCallback(() => {
-    setBusy(true);
     // A fresh Run replaces what the reader was looking at, so the attempt and
     // the pinned Step go back to following the Runner.
     setWorkspace((current) => ({
@@ -92,35 +123,21 @@ const AuditWorkspace = () => {
       attempt: undefined,
       pinnedStep: undefined,
     }));
-    void (async () => {
-      try {
-        await start({ payload: { data: {}, type: "run.start" } });
-      } finally {
-        setBusy(false);
-      }
-    })();
-  }, [setBusy, setWorkspace, start]);
+    request(() => start({ payload: { data: {}, type: "run.start" } }));
+  }, [request, setWorkspace, start]);
 
   const onAnswer = useCallback(() => {
     const name = run?.variablePrompt?.name;
     if (name === undefined) {
       return;
     }
-    setBusy(true);
-    void (async () => {
-      try {
-        await answer({
-          payload: {
-            data: { name, value: draft },
-            type: "run.variable.answer",
-          },
-        });
-      } finally {
-        setBusy(false);
-        setDraft("");
-      }
-    })();
-  }, [answer, draft, run?.variablePrompt?.name, setBusy, setDraft]);
+    request(async () => {
+      await answer({
+        payload: { data: { name, value: draft }, type: "run.variable.answer" },
+      });
+      setDraft("");
+    });
+  }, [answer, draft, request, run?.variablePrompt?.name, setDraft]);
 
   if (run === null) {
     return <NoFlow />;
@@ -135,13 +152,15 @@ const AuditWorkspace = () => {
     <main className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col overflow-hidden">
       <RunHeader busy={busy} onStart={onStart} run={run} timeline={timeline} />
 
-      {(run.error !== undefined || streamError !== null) && (
+      {(run.error !== undefined ||
+        actionError !== null ||
+        streamError !== null) && (
         <Alert className="m-2" variant="destructive">
           <AlertTitle>
             {streamError === null ? "The Run did not start" : "Disconnected"}
           </AlertTitle>
           <AlertDescription className="whitespace-pre-wrap">
-            {streamError ?? run.error}
+            {streamError ?? actionError ?? run.error}
           </AlertDescription>
         </Alert>
       )}

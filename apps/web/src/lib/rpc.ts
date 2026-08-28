@@ -209,7 +209,7 @@ export const runRecordingStream = (
     })
   ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
 
-export const runRunStream = (
+export const runRunProgressStream = (
   onEvent: (event: RunSnapshot) => Effect.Effect<void>
 ) =>
   Effect.scoped(
