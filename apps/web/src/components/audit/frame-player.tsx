@@ -123,16 +123,26 @@ export const FramePlayer = ({
     if (element === null || seek === undefined) {
       return;
     }
+    let landed = false;
     const apply = () => {
+      // Once the seek has been honoured this stops firing. It pauses, and a
+      // readiness event fires during playback too: without the guard, playing
+      // the segment would snap back to the pinned Step and stop.
+      if (landed) {
+        return;
+      }
       // Choosing a Step is asking to look at its frame, so playback stops on
       // it rather than running on past what was asked for.
       element.pause();
       element.currentTime = seek;
+      // A seek against a resource that cannot yet honour one is dropped on
+      // the floor and fires no `seeked`, so the only way to know it took is
+      // to ask whether the resource was seekable when it was issued.
+      landed = (element.seekable?.length ?? 0) > 0;
     };
     apply();
-    // A seek issued before the file is seekable is dropped on the floor, so
-    // it is repeated as the element reaches each readiness that can honour
-    // it. `seeked` never fires for a dropped seek, so this cannot rely on it.
+    // Repeated as the element reaches each readiness that can honour a seek,
+    // for the seek that was issued before the file was loaded.
     const events = ["loadedmetadata", "loadeddata", "canplay"] as const;
     for (const event of events) {
       element.addEventListener(event, apply);

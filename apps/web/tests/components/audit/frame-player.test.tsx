@@ -70,3 +70,22 @@ test("says the video could not be loaded rather than showing an empty player", (
   fireEvent.error(video as HTMLVideoElement);
   expect(screen.getByText(/could not be loaded/u)).toBeVisible();
 });
+
+test("does not snap back to the pinned Step while the segment is playing", () => {
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause");
+  // jsdom loads nothing, so the element reports what a loaded file would.
+  vi.spyOn(HTMLMediaElement.prototype, "seekable", "get").mockReturnValue({
+    length: 1,
+  } as TimeRanges);
+  player(1);
+  const video = document.querySelector("video") as HTMLVideoElement;
+  fireEvent.loadedMetadata(video);
+  expect(pause).toHaveBeenCalledTimes(1);
+
+  // A readiness event fires during playback too. The seek has already landed,
+  // so it must not be re-issued: that would pause and rewind mid-play.
+  fireEvent.canPlay(video);
+  fireEvent.canPlay(video);
+  expect(pause).toHaveBeenCalledTimes(1);
+  vi.restoreAllMocks();
+});
