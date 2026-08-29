@@ -10,13 +10,17 @@ import {
   auditStreamErrorAtom,
   auditVariableDraftAtom,
   auditWorkspaceAtom,
+  attempts,
   gateBreach,
   selectedAttempt,
-  selectedStepIndex,
+  selectedFrame,
   timelineSteps,
+  videoSegment,
 } from "@/components/audit/audit-workspace-state";
+import type { AuditWorkspaceState } from "@/components/audit/audit-workspace-state";
 import { FlowUpload } from "@/components/audit/flow-upload";
 import { RunHeader } from "@/components/audit/run-header";
+import { SettledDetail } from "@/components/audit/settled-detail";
 import { StepDetail } from "@/components/audit/step-detail";
 import { StepFindings } from "@/components/audit/step-findings";
 import { StepTimeline } from "@/components/audit/step-timeline";
@@ -76,6 +80,148 @@ const NoFlow = ({
     </section>
   </main>
 );
+
+const LoadedAudit = ({
+  actionError,
+  busy,
+  draft,
+  onAnswer,
+  onLoadFlow,
+  onStart,
+  setDraft,
+  setWorkspace,
+  streamError,
+  workspace,
+}: {
+  readonly actionError: string | null;
+  readonly busy: boolean;
+  readonly draft: string;
+  readonly onAnswer: () => void;
+  readonly onLoadFlow: (document: string, source: string) => void;
+  readonly onStart: () => void;
+  readonly setDraft: (value: string) => void;
+  readonly setWorkspace: (
+    update: (current: AuditWorkspaceState) => AuditWorkspaceState
+  ) => void;
+  readonly streamError: string | null;
+  readonly workspace: AuditWorkspaceState & {
+    readonly run: NonNullable<AuditWorkspaceState["run"]>;
+  };
+}) => {
+  const { run } = workspace;
+  const attempt = selectedAttempt(run, workspace.attempt);
+  const timeline = timelineSteps(run, attempt);
+  const segment = videoSegment(run, attempt);
+  const selected = selectedFrame(timeline, run, workspace.pin, segment);
+  const step =
+    selected?.kind === "step"
+      ? timeline.find(({ index }) => index === selected.index)
+      : undefined;
+  const chosen = attempts(run).find(
+    (candidate) => candidate.attempt === attempt
+  );
+  const asking = timeline.find(({ state }) => state === "running");
+  const pinnedStep =
+    workspace.pin?.kind === "step" ? workspace.pin.index : undefined;
+  const selectedStep = selected?.kind === "step" ? selected.index : undefined;
+
+  return (
+    <main className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col overflow-hidden">
+      <RunHeader
+        busy={busy}
+        onLoadFlow={onLoadFlow}
+        onStart={onStart}
+        run={run}
+        timeline={timeline}
+      />
+
+      {(run.error !== undefined ||
+        actionError !== null ||
+        streamError !== null) && (
+        <Alert className="m-2" variant="destructive">
+          <AlertTitle>
+            {streamError === null ? "The Run did not start" : "Disconnected"}
+          </AlertTitle>
+          <AlertDescription className="whitespace-pre-wrap">
+            {streamError ?? actionError ?? run.error}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {run.warnings.length > 0 && (
+        <Alert className="m-2">
+          <AlertTitle>Before this Run</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc pl-4">
+              {run.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid min-h-0 flex-1 grid-cols-[16rem_1fr_20rem]">
+        <StepTimeline
+          attempt={attempt}
+          onFollow={() =>
+            setWorkspace((current) => ({ ...current, pin: undefined }))
+          }
+          onPin={(index) =>
+            setWorkspace((current) => ({
+              ...current,
+              pin: { index, kind: "step" },
+            }))
+          }
+          onSelectAttempt={(chosenAttempt) =>
+            setWorkspace((current) => ({ ...current, attempt: chosenAttempt }))
+          }
+          pinned={pinnedStep}
+          run={run}
+          selected={selectedStep}
+          timeline={timeline}
+        />
+
+        <div className="flex min-h-0 flex-col">
+          <AttemptPlayer
+            attempt={attempt}
+            className="h-[42%] min-h-40 border-b"
+            onPin={(target) =>
+              setWorkspace((current) => ({ ...current, pin: target }))
+            }
+            run={run}
+            selected={selected}
+            timeline={timeline}
+          />
+          {selected?.kind === "settled" && chosen !== undefined ? (
+            <SettledDetail
+              finishedAt={chosen.finishedAt}
+              outcome={chosen.outcome}
+            />
+          ) : (
+            <StepDetail step={step} />
+          )}
+        </div>
+
+        <StepFindings breached={gateBreach(run) ?? []} step={step} />
+      </div>
+
+      <VariablePrompt
+        busy={busy}
+        draft={draft}
+        onDraftChange={setDraft}
+        onSubmit={onAnswer}
+        prompt={run.variablePrompt}
+        retries={run.attemptCeiling > 1}
+        step={
+          asking === undefined
+            ? undefined
+            : `Step ${asking.index} · ${asking.label}`
+        }
+      />
+    </main>
+  );
+};
 
 const AuditWorkspace = () => {
   const [workspace, setWorkspace] = useAtom(auditWorkspaceAtom);
@@ -152,7 +298,7 @@ const AuditWorkspace = () => {
     setWorkspace((current) => ({
       ...current,
       attempt: undefined,
-      pinnedStep: undefined,
+      pin: undefined,
     }));
     request(() => start({ payload: { data: {}, type: "run.start" } }));
   }, [request, setWorkspace, start]);
@@ -164,7 +310,7 @@ const AuditWorkspace = () => {
       setWorkspace((current) => ({
         ...current,
         attempt: undefined,
-        pinnedStep: undefined,
+        pin: undefined,
       }));
       request(() =>
         loadFlow({
@@ -192,98 +338,19 @@ const AuditWorkspace = () => {
     return <NoFlow busy={busy} error={actionError} onLoad={onLoadFlow} />;
   }
 
-  const attempt = selectedAttempt(run, workspace.attempt);
-  const timeline = timelineSteps(run, attempt);
-  const selected = selectedStepIndex(timeline, run, workspace.pinnedStep);
-  const step = timeline.find(({ index }) => index === selected);
-  // Which Step is blocked on the prompt: the one the Runner is executing.
-  const asking = timeline.find(({ state }) => state === "running");
-
   return (
-    <main className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col overflow-hidden">
-      <RunHeader
-        busy={busy}
-        onLoadFlow={onLoadFlow}
-        onStart={onStart}
-        run={run}
-        timeline={timeline}
-      />
-
-      {(run.error !== undefined ||
-        actionError !== null ||
-        streamError !== null) && (
-        <Alert className="m-2" variant="destructive">
-          <AlertTitle>
-            {streamError === null ? "The Run did not start" : "Disconnected"}
-          </AlertTitle>
-          <AlertDescription className="whitespace-pre-wrap">
-            {streamError ?? actionError ?? run.error}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {run.warnings.length > 0 && (
-        <Alert className="m-2">
-          <AlertTitle>Before this Run</AlertTitle>
-          <AlertDescription>
-            <ul className="list-disc pl-4">
-              {run.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <div className="grid min-h-0 flex-1 grid-cols-[16rem_1fr_20rem]">
-        <StepTimeline
-          attempt={attempt}
-          onFollow={() =>
-            setWorkspace((current) => ({ ...current, pinnedStep: undefined }))
-          }
-          onPin={(index) =>
-            setWorkspace((current) => ({ ...current, pinnedStep: index }))
-          }
-          onSelectAttempt={(chosen) =>
-            setWorkspace((current) => ({ ...current, attempt: chosen }))
-          }
-          pinned={workspace.pinnedStep}
-          run={run}
-          selected={selected}
-          timeline={timeline}
-        />
-
-        <div className="flex min-h-0 flex-col">
-          <AttemptPlayer
-            attempt={attempt}
-            className="h-[42%] min-h-40 border-b"
-            onPinStep={(index) =>
-              setWorkspace((current) => ({ ...current, pinnedStep: index }))
-            }
-            run={run}
-            stepIndex={selected}
-            timeline={timeline}
-          />
-          <StepDetail step={step} />
-        </div>
-
-        <StepFindings breached={gateBreach(run) ?? []} step={step} />
-      </div>
-
-      <VariablePrompt
-        busy={busy}
-        draft={draft}
-        onDraftChange={setDraft}
-        onSubmit={onAnswer}
-        prompt={run.variablePrompt}
-        retries={run.attemptCeiling > 1}
-        step={
-          asking === undefined
-            ? undefined
-            : `Step ${asking.index} · ${asking.label}`
-        }
-      />
-    </main>
+    <LoadedAudit
+      actionError={actionError}
+      busy={busy}
+      draft={draft}
+      onAnswer={onAnswer}
+      onLoadFlow={onLoadFlow}
+      onStart={onStart}
+      setDraft={setDraft}
+      setWorkspace={setWorkspace}
+      streamError={streamError}
+      workspace={{ ...workspace, run }}
+    />
   );
 };
 

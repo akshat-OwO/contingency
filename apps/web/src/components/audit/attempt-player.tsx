@@ -1,4 +1,4 @@
-import type { RunSnapshot } from "@contingency/protocol";
+import type { RunSnapshot, VideoFrameTarget } from "@contingency/protocol";
 import { runVideoPath } from "@contingency/protocol";
 import { FilmIcon, PlayIcon, TriangleAlertIcon } from "lucide-react";
 
@@ -31,9 +31,9 @@ const Placeholder = ({
 export interface AttemptPlayerProps {
   readonly attempt: number | undefined;
   readonly className?: string;
-  readonly onPinStep: (index: number) => void;
+  readonly onPin: (target: VideoFrameTarget) => void;
   readonly run: RunSnapshot;
-  readonly stepIndex: number | undefined;
+  readonly selected: VideoFrameTarget | undefined;
   readonly timeline: readonly TimelineStep[];
 }
 
@@ -48,9 +48,9 @@ export interface AttemptPlayerProps {
 export const AttemptPlayer = ({
   attempt,
   className,
-  onPinStep,
+  onPin,
   run,
-  stepIndex,
+  selected,
   timeline,
 }: AttemptPlayerProps) => {
   const segment = videoSegment(run, attempt);
@@ -119,9 +119,9 @@ export const AttemptPlayer = ({
       )}
       <FramePlayer
         key={`${run.run.runId}-${segment.attempt}`}
-        onPinStep={onPinStep}
+        onPin={onPin}
         segment={segment}
-        selected={stepIndex}
+        selected={selected}
         src={runVideoPath(run.run.runId, segment.attempt)}
         timeline={timeline}
       />

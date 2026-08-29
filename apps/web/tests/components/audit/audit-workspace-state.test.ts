@@ -9,6 +9,7 @@ import {
   frameStepIndex,
   seekSeconds,
   selectedAttempt,
+  selectedFrame,
   selectedStepIndex,
   segmentDuration,
   timelineSteps,
@@ -139,6 +140,48 @@ describe("what is selected", () => {
     // wherever the Runner happened to stop.
     expect(selectedStepIndex(timeline, finished, following)).toBe(0);
   });
+
+  it("keeps Run settled as its own selection, never a Step", () => {
+    const steps = [stepAt(0, "completed"), stepAt(1, "completed")];
+    const finished = snapshot({
+      phase: "finished",
+      run: { attempts: [], runId: "run-1", steps } as unknown as never,
+      steps,
+      video: {
+        containsSecrets: false,
+        runId: "run-1",
+        segments: [
+          {
+            attempt: 1,
+            file: "attempt-1.webm",
+            includesSettledState: true,
+            recorded: true,
+            steps: [0, 1],
+          },
+        ],
+      },
+    });
+    const timeline = timelineSteps(finished, following);
+    const segment = videoSegment(finished, 1);
+    expect(
+      selectedFrame(timeline, finished, { kind: "settled" }, segment)
+    ).toEqual({ kind: "settled" });
+    expect(
+      selectedFrame(
+        timeline,
+        finished,
+        { kind: "settled" },
+        {
+          attempt: 1,
+          error: "The Trace did not capture the final settled state.",
+          file: "attempt-1.webm",
+          includesSettledState: false,
+          recorded: false,
+          steps: [],
+        }
+      )?.kind
+    ).toBe("step");
+  });
 });
 
 describe("attempts", () => {
@@ -220,8 +263,11 @@ describe("frames", () => {
     // Frames are laid one per executed Step, in order, at a fixed duration,
     // so the inverse of a Step's seek is arithmetic on the same list.
     expect(frameStepIndex(segment, 0)).toBe(0);
-    expect(frameStepIndex(segment, 0.75)).toBe(1);
+    expect(frameStepIndex(segment, 0.5)).toBe(1);
+    expect(frameStepIndex(segment, 1)).toBe(2);
     // Past the Step frames is the settled state, which belongs to no Step.
+    expect(frameStepIndex(segment, 1.5)).toBeUndefined();
+    expect(frameStepIndex(segment, 2)).toBeUndefined();
     expect(frameStepIndex(segment, 99)).toBeUndefined();
     expect(frameStepIndex(segment, 1.4)).toBe(2);
     expect(frameStepIndex(videoSegment(withVideo, 1), 0)).toBeUndefined();
@@ -234,10 +280,22 @@ describe("frames", () => {
     expect(segmentDuration(videoSegment(withVideo, 1))).toBe(0);
   });
 
-  it("seeks a Step to its own frame", () => {
-    expect(seekSeconds(videoSegment(withVideo, 2), 1)).toBe(0.75);
-    expect(seekSeconds(videoSegment(withVideo, 2), following)).toBeUndefined();
-    expect(seekSeconds(videoSegment(withVideo, 1), 0)).toBeUndefined();
+  it("seeks a Step to the beginning of its frame, starting at 0:00.0", () => {
+    const segment = videoSegment(withVideo, 2);
+    expect(seekSeconds(segment, { index: 0, kind: "step" })).toBe(0);
+    expect(seekSeconds(segment, { index: 1, kind: "step" })).toBe(0.5);
+    expect(seekSeconds(segment, { index: 2, kind: "step" })).toBe(1);
+    expect(seekSeconds(segment, { kind: "settled" })).toBe(1.5);
+    expect(seekSeconds(segment, following)).toBeUndefined();
+    expect(
+      seekSeconds(videoSegment(withVideo, 1), { index: 0, kind: "step" })
+    ).toBeUndefined();
+  });
+
+  it("does not treat the last Step as the settled state when capture missed it", () => {
+    const missing = videoSegment(withVideo, 1);
+    expect(seekSeconds(missing, { kind: "settled" })).toBeUndefined();
+    expect(frameStepIndex(missing, 0)).toBeUndefined();
   });
 });
 

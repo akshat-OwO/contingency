@@ -629,14 +629,22 @@ export const runVideoPath = (runId: string, attempt: number): string =>
 export const VIDEO_FRAME_DURATION_SECONDS = 0.5;
 
 /**
+ * Which frame a playhead sits on. The settled-state frame is a terminal of
+ * the Run, not another Step, so it is a distinct kind (ADR 0014).
+ */
+export type VideoFrameTarget =
+  | { readonly kind: "settled" }
+  | { readonly kind: "step"; readonly index: number };
+
+/**
  * Where in an attempt's derived video a Step's frame sits, in seconds, or
  * `undefined` when that Step is not among the frames the segment recorded.
  *
  * Derivation lays one frame per executed Step in order, each held for the same
  * duration, then appends the settled-state frame. Seeking is therefore
  * arithmetic on the segment's own `steps` list rather than a second index that
- * could disagree with it. The offset lands just inside the frame's window, so
- * a seek never resolves to the boundary of the frame before it.
+ * could disagree with it. The first executed Step begins at `0:00.0`; every
+ * later Step seeks to the beginning of its frame.
  */
 export const stepFrameSeconds = (
   segment: RunVideoSegment,
@@ -644,7 +652,54 @@ export const stepFrameSeconds = (
   frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
 ): number | undefined => {
   const position = segment.steps.indexOf(stepIndex);
-  return position === -1
-    ? undefined
-    : position * frameDurationSeconds + frameDurationSeconds / 2;
+  return position === -1 ? undefined : position * frameDurationSeconds;
+};
+
+/**
+ * Where the settled-state frame begins, or `undefined` when capture produced
+ * none. That absence must stay visible: the final Step is never reused as the
+ * settled interval (ADR 0014).
+ */
+export const settledFrameSeconds = (
+  segment: RunVideoSegment,
+  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+): number | undefined =>
+  segment.includesSettledState
+    ? segment.steps.length * frameDurationSeconds
+    : undefined;
+
+/**
+ * How long the segment plays: one frame per executed Step, plus the settled
+ * state when the Trace caught it.
+ */
+export const videoSegmentDuration = (
+  segment: RunVideoSegment,
+  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+): number =>
+  (segment.steps.length + (segment.includesSettledState ? 1 : 0)) *
+  frameDurationSeconds;
+
+/**
+ * Which frame owns a playhead time. Inverse of {@link stepFrameSeconds} and
+ * {@link settledFrameSeconds}. A time at the declared duration still belongs
+ * to the last complete interval, so the media element's end does not invent a
+ * frame past the segment.
+ */
+export const playheadAtSeconds = (
+  segment: RunVideoSegment,
+  seconds: number,
+  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+): VideoFrameTarget | undefined => {
+  const duration = videoSegmentDuration(segment, frameDurationSeconds);
+  if (duration === 0 || !Number.isFinite(seconds)) {
+    return undefined;
+  }
+  const last = duration / frameDurationSeconds - 1;
+  const raw = seconds <= 0 ? 0 : Math.floor(seconds / frameDurationSeconds);
+  const position = Math.min(raw, last);
+  if (position >= segment.steps.length) {
+    return segment.includesSettledState ? { kind: "settled" } : undefined;
+  }
+  const index = segment.steps[position];
+  return index === undefined ? undefined : { index, kind: "step" };
 };

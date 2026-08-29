@@ -5,11 +5,14 @@ import type {
   RunStep,
   RunTraceSegment,
   RunVideoSegment,
+  VideoFrameTarget,
 } from "@contingency/protocol";
 import {
   defaultAttempt,
+  playheadAtSeconds,
+  settledFrameSeconds,
   stepFrameSeconds,
-  VIDEO_FRAME_DURATION_SECONDS,
+  videoSegmentDuration,
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
@@ -39,16 +42,16 @@ export interface AuditWorkspaceState {
    */
   readonly attempt: number | undefined;
   /**
-   * The Step the reader pinned by clicking one, or `undefined` to follow the
-   * Runner. A click pins; nothing else does.
+   * The frame the reader pinned, or `undefined` to follow the Runner. A click
+   * pins; nothing else does. Settled is a pin of its own, never a Step index.
    */
-  readonly pinnedStep: number | undefined;
+  readonly pin: VideoFrameTarget | undefined;
   readonly run: RunSnapshot | null;
 }
 
 export const auditWorkspaceAtom = Atom.make<AuditWorkspaceState>({
   attempt: undefined,
-  pinnedStep: undefined,
+  pin: undefined,
   run: null,
 });
 
@@ -173,6 +176,27 @@ export const selectedStepIndex = (
   return failed ?? timeline.find(({ result }) => result !== undefined)?.index;
 };
 
+/**
+ * Which frame is on show. A settled pin wins only while that attempt actually
+ * has a settled-state frame; otherwise the ordinary Step selection applies.
+ */
+export const selectedFrame = (
+  timeline: readonly TimelineStep[],
+  snapshot: RunSnapshot | null,
+  pin: VideoFrameTarget | undefined,
+  segment: RunVideoSegment | undefined
+): VideoFrameTarget | undefined => {
+  if (pin?.kind === "settled" && segment?.includesSettledState === true) {
+    return { kind: "settled" };
+  }
+  const index = selectedStepIndex(
+    timeline,
+    snapshot,
+    pin?.kind === "step" ? pin.index : undefined
+  );
+  return index === undefined ? undefined : { index, kind: "step" };
+};
+
 export const videoSegment = (
   snapshot: RunSnapshot | null,
   attempt: number | undefined
@@ -186,17 +210,21 @@ export const traceSegment = (
   snapshot?.trace?.segments.find((segment) => segment.attempt === attempt);
 
 /**
- * Where the player should sit for the selected Step, or `undefined` when the
+ * Where the player should sit for the selected frame, or `undefined` when the
  * segment holds no frame for it — a Step of an attempt that failed before
- * reaching it, most often.
+ * reaching it, or a settled pin when capture produced none.
  */
 export const seekSeconds = (
   segment: RunVideoSegment | undefined,
-  stepIndex: number | undefined
-): number | undefined =>
-  segment === undefined || stepIndex === undefined
-    ? undefined
-    : stepFrameSeconds(segment, stepIndex);
+  target: VideoFrameTarget | undefined
+): number | undefined => {
+  if (segment === undefined || target === undefined) {
+    return undefined;
+  }
+  return target.kind === "settled"
+    ? settledFrameSeconds(segment)
+    : stepFrameSeconds(segment, target.index);
+};
 
 /**
  * A playhead position as `m:ss.d`. Tenths, because a frame is half a second:
@@ -216,33 +244,25 @@ export const formatTimecode = (seconds: number): string => {
  * reads past its own total.
  */
 export const segmentDuration = (
-  segment: RunVideoSegment | undefined,
-  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
-): number =>
-  segment === undefined
-    ? 0
-    : (segment.steps.length + (segment.includesSettledState ? 1 : 0)) *
-      frameDurationSeconds;
+  segment: RunVideoSegment | undefined
+): number => (segment === undefined ? 0 : videoSegmentDuration(segment));
 
 /**
  * Which Step the playhead is over. The inverse of `seekSeconds`, for a reader
- * who scrubbed or played rather than clicking a Step. `undefined` past the
- * last Step's frame: what plays there is the settled state, which belongs to
- * the Run rather than to any Step, and labelling it as the last Step would say
- * the Step ended in a page it never saw.
+ * who scrubbed or played rather than clicking a Step. `undefined` on the
+ * settled-state interval: what plays there belongs to the Run rather than to
+ * any Step, and labelling it as the last Step would say the Step ended in a
+ * page it never saw.
  */
 export const frameStepIndex = (
   segment: RunVideoSegment | undefined,
-  seconds: number,
-  frameDurationSeconds: number = VIDEO_FRAME_DURATION_SECONDS
+  seconds: number
 ): number | undefined => {
-  if (segment === undefined || segment.steps.length === 0) {
+  if (segment === undefined) {
     return undefined;
   }
-  const position = Math.floor(seconds / frameDurationSeconds);
-  return position > segment.steps.length - 1
-    ? undefined
-    : segment.steps[Math.max(position, 0)];
+  const playhead = playheadAtSeconds(segment, seconds);
+  return playhead?.kind === "step" ? playhead.index : undefined;
 };
 
 /** How many Steps the Run has finished. */

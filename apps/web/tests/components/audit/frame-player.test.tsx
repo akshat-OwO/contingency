@@ -1,4 +1,4 @@
-import type { RunVideoSegment } from "@contingency/protocol";
+import type { RunVideoSegment, VideoFrameTarget } from "@contingency/protocol";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -26,45 +26,107 @@ const timeline = [0, 1, 2, 3].map((index): TimelineStep => ({
   type: "click",
 }));
 
-const player = (selected: number | undefined) => {
-  const onPinStep = vi.fn();
+const player = (
+  selected: VideoFrameTarget | undefined,
+  source: RunVideoSegment = segment
+) => {
+  const onPin = vi.fn();
   render(
     <FramePlayer
-      onPinStep={onPinStep}
-      segment={segment}
+      onPin={onPin}
+      segment={source}
       selected={selected}
       src="/runs/run-1/video/1"
       timeline={timeline}
     />
   );
-  return onPinStep;
+  return onPin;
 };
 
 test("moves in whole Steps, skipping one the attempt never reached", async () => {
-  const onPinStep = player(1);
+  const onPin = player({ index: 1, kind: "step" });
   await userEvent.click(screen.getByRole("button", { name: "Next Step" }));
   // Step 2 has no frame, so the next Step is the next one that has one.
-  expect(onPinStep).toHaveBeenCalledWith(3);
+  expect(onPin).toHaveBeenCalledWith({ index: 3, kind: "step" });
   await userEvent.click(screen.getByRole("button", { name: "Previous Step" }));
-  expect(onPinStep).toHaveBeenCalledWith(0);
+  expect(onPin).toHaveBeenCalledWith({ index: 0, kind: "step" });
 });
 
 test("stops at the ends rather than wrapping", () => {
-  player(0);
+  player({ index: 0, kind: "step" });
   expect(screen.getByRole("button", { name: "Previous Step" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Next Step" })).toBeEnabled();
 });
 
 test("puts a marker on the transport for every frame, and pins on a click", async () => {
-  const onPinStep = player(0);
+  const onPin = player({ index: 0, kind: "step" });
   const markers = screen.getAllByRole("button", { name: /^Step \d/u });
   expect(markers).toHaveLength(segment.steps.length);
   await userEvent.click(markers[2] as HTMLElement);
-  expect(onPinStep).toHaveBeenCalledWith(3);
+  expect(onPin).toHaveBeenCalledWith({ index: 3, kind: "step" });
+});
+
+test("places Step markers at frame boundaries, starting at 0:00.0", () => {
+  player({ index: 0, kind: "step" });
+  expect(screen.getByRole("button", { name: /^Step 0/u })).toHaveStyle({
+    left: "0%",
+  });
+  expect(screen.getByRole("button", { name: /^Step 1/u })).toHaveStyle({
+    left: "25%",
+  });
+  expect(screen.getByRole("button", { name: /^Step 3/u })).toHaveStyle({
+    left: "50%",
+  });
+  expect(screen.getByRole("button", { name: "Run settled" })).toHaveStyle({
+    left: "75%",
+  });
+});
+
+test("offers a Run settled marker after the last Step, never labelled as a Step", async () => {
+  const onPin = player({ index: 3, kind: "step" });
+  const terminal = screen.getByRole("button", { name: "Run settled" });
+  expect(terminal).toBeVisible();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Next: Run settled" })
+  );
+  expect(onPin).toHaveBeenCalledWith({ kind: "settled" });
+  await userEvent.click(terminal);
+  expect(onPin).toHaveBeenCalledWith({ kind: "settled" });
+});
+
+test("hides the Run settled marker when capture produced no settled frame", () => {
+  player(
+    { index: 0, kind: "step" },
+    {
+      attempt: 1,
+      error: "The Trace did not capture the final settled state.",
+      file: "attempt-1.webm",
+      includesSettledState: false,
+      recorded: true,
+      steps: [0, 1, 3],
+    }
+  );
+  expect(screen.queryByRole("button", { name: "Run settled" })).toBeNull();
+  expect(
+    screen.getByText("The Trace did not capture the final settled state.")
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: /^Step 3/u })).toBeVisible();
+});
+
+test("moves from the last Step to Run settled with the arrow keys", async () => {
+  const onPin = player({ index: 3, kind: "step" });
+  screen.getByRole("region", { name: "Derived frames" }).focus();
+  await userEvent.keyboard("{ArrowRight}");
+  expect(onPin).toHaveBeenCalledWith({ kind: "settled" });
+  cleanup();
+  const onPinBack = player({ kind: "settled" });
+  screen.getByRole("region", { name: "Derived frames" }).focus();
+  await userEvent.keyboard("{ArrowLeft}");
+  expect(onPinBack).toHaveBeenCalledWith({ index: 3, kind: "step" });
 });
 
 test("says the video could not be loaded rather than showing an empty player", () => {
-  player(0);
+  player({ index: 0, kind: "step" });
   const video = document.querySelector("video");
   expect(video).not.toBeNull();
   fireEvent.error(video as HTMLVideoElement);
@@ -76,7 +138,7 @@ test("does not snap back to the pinned Step while the segment is playing", () =>
   // jsdom loads nothing: nothing is seekable until the file can play.
   const seekable = vi.spyOn(HTMLMediaElement.prototype, "seekable", "get");
   seekable.mockReturnValue({ length: 0 } as TimeRanges);
-  player(1);
+  player({ index: 1, kind: "step" });
   const video = document.querySelector("video") as HTMLVideoElement;
   expect(pause).toHaveBeenCalledTimes(1);
 
@@ -97,8 +159,8 @@ test("does not snap back to the pinned Step while the segment is playing", () =>
 test("keeps stepping available from a Step the attempt never reached", async () => {
   // Step 2 has no frame of its own; the arrows step from where the playhead
   // is rather than going dead until something with a frame is clicked.
-  const onPinStep = player(2);
+  const onPin = player({ index: 2, kind: "step" });
   expect(screen.getByRole("button", { name: "Next Step" })).toBeEnabled();
   await userEvent.click(screen.getByRole("button", { name: "Next Step" }));
-  expect(onPinStep).toHaveBeenCalledWith(1);
+  expect(onPin).toHaveBeenCalledWith({ index: 1, kind: "step" });
 });
