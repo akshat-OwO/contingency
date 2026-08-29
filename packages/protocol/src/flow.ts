@@ -313,6 +313,7 @@ const preStepActionSchemas = [
   KeyStep,
   PressStep,
   HoverStep,
+  ScrollStep,
   SelectOptionStep,
 ];
 

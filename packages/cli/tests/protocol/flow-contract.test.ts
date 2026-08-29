@@ -306,6 +306,30 @@ test("a Pre-step cannot navigate or wait", () => {
   );
 });
 
+test("a Pre-step can use the ordinary Scroll contract", () => {
+  const decoded = assertDecodes({
+    preSteps: [
+      {
+        id: "clear-sticky-panel",
+        step: {
+          deltaY: 300,
+          target: [{ kind: "css", selector: "#panel" }],
+          timeout: 500,
+          type: "scroll",
+        },
+        when: {
+          target: [{ kind: "css", selector: "#panel" }],
+          type: "selectorVisible",
+        },
+      },
+    ],
+    steps: [{ type: "navigate", url: "https://example.com" }],
+    title: "Scroll Pre-step",
+  });
+
+  expect(decoded.preSteps?.[0]?.step.type).toBe("scroll");
+});
+
 test("a navigate Step accepts the performance toggle", () => {
   assertDecodes(flowWith([{ ...navigateStep, performance: true }]));
 });

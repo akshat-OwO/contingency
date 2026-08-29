@@ -30,6 +30,8 @@ import type {
   RunFailure,
   RunGate,
   RunPreStep,
+  ScrollReadinessDiagnostic,
+  ScrollReadinessEvidence,
   RunStep,
   RunTraceManifest,
   RunTraceSegment,
@@ -51,7 +53,14 @@ import {
 } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { chromium, errors } from "playwright-core";
-import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
+import type {
+  Browser,
+  BrowserContext,
+  JSHandle,
+  Locator,
+  Page,
+  Request,
+} from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { groupedPermissionGrants } from "./create-browser-session.ts";
@@ -171,6 +180,12 @@ const QUIESCE_BOUND_MS = 2000;
 
 /** How long the DOM must not change for the Page to count as settled. */
 const DOM_STABLE_WINDOW_MS = 250;
+
+/** A Scroll never waits longer than this for action-specific readiness. */
+const SCROLL_READINESS_BOUND_MS = 2000;
+
+/** Read readiness often enough to observe two ordinary animation frames. */
+const SCROLL_READINESS_POLL_MS = 25;
 
 export class RunnerError extends Data.TaggedError("RunnerError")<{
   /**
@@ -755,6 +770,276 @@ const documentWheelPoint = (deltaX: number, deltaY: number): string => `(() => {
   return { x: 1, y: 1 };
 })()`;
 
+interface ScrollReadinessSnapshot {
+  readonly domQuiet: boolean;
+  readonly scrollStable: boolean;
+}
+
+interface ScrollReadinessHandle {
+  readonly arm: () => void;
+  readonly dispose: () => void;
+  readonly snapshot: () => ScrollReadinessSnapshot;
+}
+
+interface ScrollReadinessPageGlobals {
+  readonly cancelAnimationFrame: (handle: number) => void;
+  readonly document: unknown;
+  readonly MutationObserver: new (callback: () => void) => {
+    readonly disconnect: () => void;
+    readonly observe: (
+      target: unknown,
+      options: {
+        readonly attributes: boolean;
+        readonly characterData: boolean;
+        readonly childList: boolean;
+        readonly subtree: boolean;
+      }
+    ) => void;
+  };
+  readonly performance: { readonly now: () => number };
+  readonly requestAnimationFrame: (callback: () => void) => number;
+  readonly scrollX: number;
+  readonly scrollY: number;
+}
+
+/** Installed in the page before a wheel action. */
+const installScrollReadinessObserver = ({
+  element,
+  stableWindowMs,
+}: {
+  readonly element: unknown;
+  readonly stableWindowMs: number;
+}): ScrollReadinessHandle => {
+  const browser = globalThis as unknown as ScrollReadinessPageGlobals;
+  const position = () => {
+    if (element === null) {
+      return { x: browser.scrollX, y: browser.scrollY };
+    }
+    if (
+      typeof element !== "object" ||
+      !("scrollLeft" in element) ||
+      !("scrollTop" in element) ||
+      typeof element.scrollLeft !== "number" ||
+      typeof element.scrollTop !== "number"
+    ) {
+      return { x: 0, y: 0 };
+    }
+    return { x: element.scrollLeft, y: element.scrollTop };
+  };
+  let actionStarted = false;
+  let animationFrame = 0;
+  let lastMutationAt = browser.performance.now();
+  let lastPosition = position();
+  let stableFrames = 0;
+  const mutations = new browser.MutationObserver(() => {
+    if (actionStarted) {
+      lastMutationAt = browser.performance.now();
+    }
+  });
+  mutations.observe(browser.document, {
+    attributes: true,
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  const sample = () => {
+    if (actionStarted) {
+      const current = position();
+      if (current.x === lastPosition.x && current.y === lastPosition.y) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+      }
+      lastPosition = current;
+    }
+    animationFrame = browser.requestAnimationFrame(sample);
+  };
+  animationFrame = browser.requestAnimationFrame(sample);
+  return {
+    arm: () => {
+      actionStarted = true;
+      lastMutationAt = browser.performance.now();
+      lastPosition = position();
+      stableFrames = 0;
+    },
+    dispose: () => {
+      browser.cancelAnimationFrame(animationFrame);
+      mutations.disconnect();
+    },
+    snapshot: () => ({
+      domQuiet: browser.performance.now() - lastMutationAt >= stableWindowMs,
+      scrollStable: stableFrames >= 2,
+    }),
+  };
+};
+
+/** What one Step observed while it ran. */
+export interface StepResult {
+  /** The accessibility engine's version, when this was an Audit Step. */
+  readonly axeVersion: string | undefined;
+  readonly findings: readonly Finding[];
+  /** Present only when a Scroll exhausted its bounded readiness wait. */
+  readonly scrollReadiness?: ScrollReadinessDiagnostic;
+}
+
+/** One shared empty result, for every Step that observes nothing. */
+const NO_FINDINGS: StepResult = {
+  axeVersion: undefined,
+  findings: [],
+};
+
+/** Keep Effect's inferred Step success channel at the shared result shape. */
+const stepResult = (result: StepResult): StepResult => result;
+
+/** WebSocket and EventSource requests describe a connection, not finite work. */
+const requestCanSettle = (request: Request): boolean =>
+  !["eventsource", "websocket"].includes(request.resourceType());
+
+/**
+ * Dispatch one Scroll and wait for the evidence it directly started. Listener
+ * registration and DOM observation both happen before the wheel action.
+ */
+const executeScroll = Effect.fn("Runner.executeScroll")(function* executeScroll(
+  page: Page,
+  step: Extract<AuthoredStep, { readonly type: "scroll" }>,
+  actionTimeoutMs: number
+) {
+  const actionDeadline = Date.now() + actionTimeoutMs;
+  const pendingRequests = new Set<Request>();
+  let readiness: JSHandle<ScrollReadinessHandle> | undefined;
+  let requestObservationArmed = false;
+  const requestStarted = (request: Request) => {
+    if (requestObservationArmed && requestCanSettle(request)) {
+      pendingRequests.add(request);
+    }
+  };
+  const requestSettled = (request: Request) => {
+    pendingRequests.delete(request);
+  };
+  page.on("request", requestStarted);
+  page.on("requestfailed", requestSettled);
+  page.on("requestfinished", requestSettled);
+
+  const cleanup = Effect.gen(function* cleanupScrollReadiness() {
+    page.off("request", requestStarted);
+    page.off("requestfailed", requestSettled);
+    page.off("requestfinished", requestSettled);
+    if (readiness !== undefined) {
+      yield* Effect.tryPromise(async () => {
+        await readiness?.evaluate((observer) => observer.dispose());
+        await readiness?.dispose();
+      }).pipe(Effect.ignore);
+    }
+  });
+
+  return yield* Effect.gen(function* dispatchAndWait() {
+    if (step.target === undefined) {
+      const point = yield* Effect.tryPromise({
+        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+        try: () =>
+          page.evaluate<{ readonly x: number; readonly y: number }>(
+            documentWheelPoint(step.deltaX ?? 0, step.deltaY ?? 0)
+          ),
+      });
+      yield* Effect.tryPromise({
+        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+        try: async () => {
+          await page.mouse.move(point.x, point.y);
+          readiness = await page.evaluateHandle(
+            installScrollReadinessObserver,
+            {
+              element: null,
+              stableWindowMs: DOM_STABLE_WINDOW_MS,
+            }
+          );
+        },
+      });
+    } else {
+      yield* throughLadder(page, step.target, async (locator) => {
+        await locator.hover({
+          timeout: Math.max(1, actionDeadline - Date.now()),
+        });
+        const element = await locator.elementHandle({
+          timeout: Math.max(1, actionDeadline - Date.now()),
+        });
+        readiness = await page.evaluateHandle(installScrollReadinessObserver, {
+          element,
+          stableWindowMs: DOM_STABLE_WINDOW_MS,
+        });
+        await element.dispose();
+      });
+    }
+
+    if (readiness === undefined) {
+      return yield* new RunnerError({
+        message: "The page could not start observing Scroll readiness.",
+      });
+    }
+    const observer = readiness;
+    yield* Effect.tryPromise({
+      catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+      try: () => observer.evaluate((value) => value.arm()),
+    });
+    requestObservationArmed = true;
+    yield* Effect.tryPromise({
+      catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+      try: () => page.mouse.wheel(step.deltaX ?? 0, step.deltaY ?? 0),
+    });
+
+    const waitStartedAt = Date.now();
+    const waitBoundMs = Math.min(
+      SCROLL_READINESS_BOUND_MS,
+      Math.max(0, actionDeadline - waitStartedAt)
+    );
+    const readinessDeadline = waitStartedAt + waitBoundMs;
+    let snapshot: ScrollReadinessSnapshot = {
+      domQuiet: false,
+      scrollStable: false,
+    };
+    for (;;) {
+      snapshot = yield* Effect.tryPromise({
+        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
+        try: () => observer.evaluate((value) => value.snapshot()),
+      });
+      if (
+        snapshot.domQuiet &&
+        snapshot.scrollStable &&
+        pendingRequests.size === 0
+      ) {
+        return NO_FINDINGS;
+      }
+      const remainingMs = readinessDeadline - Date.now();
+      if (remainingMs <= 0) {
+        break;
+      }
+      yield* Effect.sleep(Math.min(SCROLL_READINESS_POLL_MS, remainingMs));
+    }
+
+    const unsettled: ScrollReadinessEvidence[] = [];
+    if (!snapshot.scrollStable) {
+      unsettled.push("scroll-position");
+    }
+    if (!snapshot.domQuiet) {
+      unsettled.push("dom-mutations");
+    }
+    const pendingRequestCount = pendingRequests.size;
+    if (pendingRequestCount > 0) {
+      unsettled.push("finite-requests");
+    }
+    if (unsettled.length === 0) {
+      return NO_FINDINGS;
+    }
+    return stepResult({
+      ...NO_FINDINGS,
+      scrollReadiness: {
+        pendingRequests: pendingRequestCount,
+        unsettled,
+        waitDurationMs: Date.now() - waitStartedAt,
+      },
+    });
+  }).pipe(Effect.ensuring(cleanup));
+});
+
 /**
  * What the collector resolves with. `null` is the page saying it produced no
  * such measurement, which is not the same as zero.
@@ -810,19 +1095,6 @@ const collectVitals = Effect.fn("Runner.collectVitals")(function* collectVitals(
 // ---------------------------------------------------------------------------
 // Accessibility Audits
 // ---------------------------------------------------------------------------
-
-/** What one Audit Step found and which engine ran. */
-export interface AuditResult {
-  /** The engine's own version, so the Run can record it (ADR 0017). */
-  readonly axeVersion: string | undefined;
-  readonly findings: readonly Finding[];
-}
-
-/** One shared empty result, for every Step that finds nothing. */
-const NO_FINDINGS: AuditResult = {
-  axeVersion: undefined,
-  findings: [],
-};
 
 /** A target path: selectors, nested once per frame or shadow-root hop. */
 type AuditTargetPath = string | readonly AuditTargetPath[];
@@ -968,7 +1240,7 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
     });
   }
 
-  return {
+  return stepResult({
     axeVersion: raw.testEngine.version,
     findings: report.violations.map((violation) => ({
       ...(violation.helpUrl === undefined
@@ -984,7 +1256,7 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
       severity: violation.impact,
       stepIndex,
     })),
-  } satisfies AuditResult;
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1282,28 +1554,7 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
       return NO_FINDINGS;
     }
     case "scroll": {
-      const positionPointer =
-        step.target === undefined
-          ? Effect.tryPromise({
-              catch: (cause) =>
-                new RunnerError({ message: errorMessage(cause) }),
-              try: async () => {
-                const point = await page.evaluate<{
-                  readonly x: number;
-                  readonly y: number;
-                }>(documentWheelPoint(step.deltaX ?? 0, step.deltaY ?? 0));
-                await page.mouse.move(point.x, point.y);
-              },
-            })
-          : throughLadder(page, step.target, (locator) =>
-              locator.hover({ timeout: actionTimeoutMs })
-            );
-      yield* positionPointer;
-      yield* Effect.tryPromise({
-        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
-        try: () => page.mouse.wheel(step.deltaX ?? 0, step.deltaY ?? 0),
-      });
-      return NO_FINDINGS;
+      return yield* executeScroll(page, step, actionTimeoutMs);
     }
     case "waitFor": {
       yield* waitUntilCondition(page, step.condition, actionTimeoutMs);
@@ -1390,7 +1641,13 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
       executeStep(execution, preStep.step, index)
     );
     if (outcome._tag === "Success") {
-      return { ...base, outcome: "completed" } as const;
+      return {
+        ...base,
+        outcome: "completed",
+        ...(outcome.success.scrollReadiness === undefined
+          ? {}
+          : { scrollReadiness: outcome.success.scrollReadiness }),
+      } as const;
     }
     return {
       ...base,
@@ -2050,6 +2307,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
                       redactFinding(finding, variables)
                     ),
                   }),
+              ...(outcome.success.scrollReadiness === undefined
+                ? {}
+                : { scrollReadiness: outcome.success.scrollReadiness }),
               outcome: "completed",
             } satisfies RunStep;
             steps.push(completedStep);

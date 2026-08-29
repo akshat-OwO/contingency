@@ -13,6 +13,7 @@ import {
   NESTED_SCROLL_BEACON,
   recordingDurationSeconds,
   runFlow,
+  SCROLL_READY_BEACON,
   STEP_BEACON,
 } from "./harness";
 
@@ -116,6 +117,90 @@ it.live("replays a Scroll against its named nested container", () =>
 
     expect(run.outcome).toBe("completed");
     expect(fixtures.requests).toContain(NESTED_SCROLL_BEACON);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live("waits for finite work and DOM quietness started by a Scroll", () =>
+  Effect.gen(function* waitForScrollReadiness() {
+    const fixtures = yield* fixtureServer;
+
+    const { persisted, run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("scroll-readiness.html") },
+        { deltaY: 1200, type: "scroll" },
+        {
+          target: [{ kind: "css", selector: "#continue" }],
+          timeout: 100,
+          type: "click",
+        },
+      ])
+    );
+
+    expect(run.outcome).toBe("completed");
+    expect(run.steps[1]?.scrollReadiness).toBeUndefined();
+    expect(fixtures.requests).toContain(SCROLL_READY_BEACON);
+    expect(fixtures.requests).toContain(STEP_BEACON);
+    expect(persisted.steps[1]?.scrollReadiness).toBeUndefined();
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live("continues with a diagnostic when a Scroll never becomes quiet", () =>
+  Effect.gen(function* boundBusyScroll() {
+    const fixtures = yield* fixtureServer;
+
+    const { persisted, run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("scroll-busy.html") },
+        { deltaY: 1200, timeout: 350, type: "scroll" },
+        {
+          target: [{ kind: "css", selector: "#continue" }],
+          timeout: 100,
+          type: "click",
+        },
+      ])
+    );
+
+    expect(run.outcome).toBe("completed");
+    expect(run.steps[1]?.outcome).toBe("completed");
+    expect(run.steps[1]?.scrollReadiness?.unsettled).toContain("dom-mutations");
+    expect(run.steps[1]?.scrollReadiness?.waitDurationMs).toBeLessThan(500);
+    expect(persisted.steps[1]?.scrollReadiness).toEqual(
+      run.steps[1]?.scrollReadiness
+    );
+    expect(fixtures.requests).toContain(STEP_BEACON);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live("uses the same bounded readiness contract for a Scroll Pre-step", () =>
+  Effect.gen(function* boundBusyScrollPreStep() {
+    const fixtures = yield* fixtureServer;
+    const target = flow([
+      { type: "navigate", url: fixtures.url("scroll-busy.html") },
+      {
+        target: [{ kind: "css", selector: "#continue" }],
+        timeout: 100,
+        type: "click",
+      },
+    ]);
+
+    const { run } = yield* runFlow({
+      ...target,
+      preSteps: [
+        {
+          id: "clear-busy-page",
+          step: { deltaY: 1200, timeout: 300, type: "scroll" },
+          when: {
+            target: [{ kind: "css", selector: "h1" }],
+            type: "selectorVisible",
+          },
+        },
+      ],
+    });
+
+    const preStep = run.steps[1]?.preSteps?.[0];
+    expect(run.outcome).toBe("completed");
+    expect(preStep?.outcome).toBe("completed");
+    expect(preStep?.scrollReadiness?.unsettled).toContain("dom-mutations");
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 

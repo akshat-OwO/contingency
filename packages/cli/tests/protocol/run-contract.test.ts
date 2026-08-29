@@ -208,6 +208,25 @@ test("the former per-element Finding shape no longer decodes", () => {
   expect(Result.isSuccess(decodeRun(runWith({ steps: [step] })))).toBe(false);
 });
 
+test("a completed Scroll can record a non-failing readiness diagnostic", () => {
+  const scrollStep = {
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    index: 0,
+    outcome: "completed",
+    scrollReadiness: {
+      pendingRequests: 1,
+      unsettled: ["dom-mutations", "finite-requests"],
+      waitDurationMs: 350,
+    },
+    startedAt: "2026-01-01T00:00:00.000Z",
+    type: "scroll",
+  };
+  const run = assertRunDecodes(runWith({ steps: [scrollStep] }));
+
+  expect(run.outcome).toBe("completed");
+  expect(run.steps[0]?.scrollReadiness).toEqual(scrollStep.scrollReadiness);
+});
+
 test("a Run held to no Gate records none and exits zero", () => {
   const run = assertRunDecodes(runWith());
   expect(run.gate).toBeUndefined();
