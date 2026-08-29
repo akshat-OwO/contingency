@@ -78,7 +78,7 @@ test("every browser action Step decodes", () => {
       { key: "Enter", target, type: "press" },
       { key: "Escape", type: "press" },
       { target, type: "hover" },
-      { deltaX: 0, deltaY: 600, type: "scroll" },
+      { deltaX: 0, deltaY: 600, target, type: "scroll" },
       { target, type: "selectOption", values: ["2", "three"] },
       {
         condition: { target, type: "selectorHidden" },
@@ -112,6 +112,18 @@ test("a keystroke carries a target when it belongs to an element", () => {
   expect(() =>
     assertDecodes(flowWith([{ key: "", type: "keyDown" }]))
   ).toThrow();
+});
+
+test("a Scroll target is optional and keeps its ordered locator ladder", () => {
+  const documentScroll = assertDecodes(
+    flowWith([{ deltaY: 600, type: "scroll" }])
+  );
+  const elementScroll = assertDecodes(
+    flowWith([{ deltaY: 600, target, type: "scroll" }])
+  );
+
+  expect(documentScroll.steps[0]).not.toHaveProperty("target");
+  expect(elementScroll.steps[0]).toMatchObject({ target });
 });
 
 test("a target keeps its ordered alternatives in order", () => {

@@ -253,12 +253,14 @@ export type HoverStep = typeof HoverStep.Type;
 /**
  * One scroll per resting position, never a log of wheel ticks. Deltas are
  * absent-meaning-zero rather than required, so a Flow can express a plain
- * scroll to top.
+ * scroll to top. An omitted target means the document; an element scroll
+ * retains the same ordered locator ladder as any other targeted Step.
  */
 export const ScrollStep = Schema.Struct({
   ...actionFields,
   deltaX: Schema.optional(Schema.Finite),
   deltaY: Schema.optional(Schema.Finite),
+  target: Schema.optional(Target),
   type: Schema.Literal("scroll"),
 });
 export type ScrollStep = typeof ScrollStep.Type;

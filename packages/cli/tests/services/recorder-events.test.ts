@@ -84,6 +84,18 @@ it("never accepts a test-id locator descriptor", () => {
   ).toBe("refused");
 });
 
+it("accepts an optional locator ladder for an element scroll", () => {
+  const scroll = { deltaY: 100, target: click.target, type: "scroll" };
+
+  expect(read(payload(scroll, 1))).toEqual({
+    _tag: "accepted",
+    event: scroll,
+  });
+  expect(read(payload({ deltaY: 100, type: "scroll" }, 1))).toMatchObject({
+    _tag: "accepted",
+  });
+});
+
 it("treats every refused payload as lost integrity, never recoverable", () => {
   expect(refusalFailure({ _tag: "malformed" })).toEqual({
     kind: "integrityLost",

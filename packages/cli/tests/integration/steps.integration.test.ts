@@ -10,6 +10,7 @@ import {
   IntegrationLive,
   LAZY_LOADED_BEACON,
   LOAD_READY_BEACON,
+  NESTED_SCROLL_BEACON,
   recordingDurationSeconds,
   runFlow,
   STEP_BEACON,
@@ -79,6 +80,42 @@ it.live("executes hover, scroll, press, keys, and waitFor", () =>
     expect(fixtures.requests).toContain("/confirmed.html");
     expect(fixtures.requests).toContain(LAZY_LOADED_BEACON);
     expect(persisted.outcome).toBe("completed");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live("replays a Scroll against its named nested container", () =>
+  Effect.gen(function* replayNestedScroll() {
+    const fixtures = yield* fixtureServer;
+
+    const { run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("nested-scroll.html") },
+        {
+          deltaY: 400,
+          target: [{ kind: "css", selector: "#panel" }],
+          type: "scroll",
+        },
+        {
+          condition: {
+            target: [{ kind: "css", selector: "#container-scrolled" }],
+            type: "selectorVisible",
+          },
+          type: "waitFor",
+        },
+        { deltaY: 400, type: "scroll" },
+        {
+          condition: {
+            target: [{ kind: "css", selector: "#document-scrolled" }],
+            type: "selectorVisible",
+          },
+          timeout: 500,
+          type: "waitFor",
+        },
+      ])
+    );
+
+    expect(run.outcome).toBe("completed");
+    expect(fixtures.requests).toContain(NESTED_SCROLL_BEACON);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 

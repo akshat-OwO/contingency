@@ -574,11 +574,13 @@ const RECORDER_SOURCE = String.raw`
   //
   // A scroll inside a container counts too — a lazy-loading list or an open
   // menu is the case that matters — so each scrolled thing keeps its own
-  // resting position. A ScrollStep names no container, and replay scrolls
-  // whatever is under the pointer, so what is recorded is the distance.
+  // resting position. The wheel event arrives before its default scroll and
+  // records the relative gesture directly; scroll positions cover other input
+  // paths such as scrollbar drags and keyboard scrolling.
   const scrollPositions = new WeakMap();
-  let restTimer;
-  let pendingScrollTarget;
+  const scrolledTargets = new WeakSet();
+  const pendingWheelDeltas = new WeakMap();
+  const scrollRestTimers = new Map();
 
   const scrollPositionOf = (target) =>
     target === document || target === globalThis
@@ -590,27 +592,88 @@ const RECORDER_SOURCE = String.raw`
       ? document.documentElement
       : target;
 
-  const settleScroll = () => {
-    restTimer = undefined;
-    const target = pendingScrollTarget;
-    pendingScrollTarget = undefined;
-    if (!target) {
-      return;
-    }
+  const settleScroll = (target) => {
     const key = scrollKey(target);
+    scrollRestTimers.delete(key);
     const position = scrollPositionOf(target);
     const resting = scrollPositions.get(key) ?? { x: 0, y: 0 };
     scrollPositions.set(key, position);
-    const deltaX = position.x - resting.x;
-    const deltaY = position.y - resting.y;
+    const wheel = pendingWheelDeltas.get(key);
+    pendingWheelDeltas.delete(key);
+    const moved = scrolledTargets.delete(key);
+    if (wheel !== undefined && !moved) {
+      return;
+    }
+    const deltaX = wheel?.x ?? position.x - resting.x;
+    const deltaY = wheel?.y ?? position.y - resting.y;
     if (deltaX === 0 && deltaY === 0) {
       return;
     }
-    emit({
+    const captured = {
       ...(deltaX === 0 ? {} : { deltaX }),
       ...(deltaY === 0 ? {} : { deltaY }),
       type: "scroll",
+    };
+    if (target instanceof Element) {
+      emitTargeted(target, (locatorTarget) => ({
+        ...captured,
+        target: locatorTarget,
+      }));
+      return;
+    }
+    emit(captured);
+  };
+
+  const scheduleScrollSettlement = (target) => {
+    const key = scrollKey(target);
+    const pending = scrollRestTimers.get(key);
+    if (pending !== undefined) {
+      clearTimeout(pending);
+    }
+    scrollRestTimers.set(
+      key,
+      setTimeout(() => settleScroll(target), SCROLL_REST_MS)
+    );
+  };
+
+  const seedWheelScroll = (event) => {
+    if (!event.isTrusted) {
+      return;
+    }
+    const target = event
+      .composedPath()
+      .find((candidate) => {
+        if (!(candidate instanceof Element)) {
+          return false;
+        }
+        const style = getComputedStyle(candidate);
+        const scrollsX = /^(?:auto|scroll)$/u.test(style.overflowX);
+        const scrollsY = /^(?:auto|scroll)$/u.test(style.overflowY);
+        return (
+          (scrollsX && candidate.scrollWidth > candidate.clientWidth) ||
+          (scrollsY && candidate.scrollHeight > candidate.clientHeight)
+        );
+      });
+    const scrollTarget = target ?? document;
+    const key = scrollKey(scrollTarget);
+    if (!scrollPositions.has(key)) {
+      scrollPositions.set(key, scrollPositionOf(scrollTarget));
+    }
+    const pending = pendingWheelDeltas.get(key) ?? { x: 0, y: 0 };
+    scrolledTargets.delete(key);
+    pendingWheelDeltas.set(key, {
+      x: pending.x + event.deltaX,
+      y: pending.y + event.deltaY,
     });
+    scrollTarget.addEventListener(
+      "scroll",
+      () => {
+        scrolledTargets.add(key);
+        scheduleScrollSettlement(scrollTarget);
+      },
+      { once: true }
+    );
+    scheduleScrollSettlement(scrollTarget);
   };
 
   const handleScroll = (event) => {
@@ -619,6 +682,7 @@ const RECORDER_SOURCE = String.raw`
     }
     const target = event.target ?? document;
     const key = scrollKey(target);
+    scrolledTargets.add(key);
     // Where this thing was before the author touched it. Recorded on the way
     // past, so a page that loads already scrolled — an anchor, a restored
     // position — does not report that offset as the author's first scroll.
@@ -626,11 +690,7 @@ const RECORDER_SOURCE = String.raw`
       scrollPositions.set(key, scrollPositionOf(target));
       return;
     }
-    pendingScrollTarget = target;
-    if (restTimer !== undefined) {
-      clearTimeout(restTimer);
-    }
-    restTimer = setTimeout(settleScroll, SCROLL_REST_MS);
+    scheduleScrollSettlement(target);
   };
 
   scrollPositions.set(document.documentElement, {
@@ -648,6 +708,7 @@ const RECORDER_SOURCE = String.raw`
   addEventListener("change", handleInput, true);
   addEventListener("keydown", handleKey, true);
   addEventListener("beforeunload", handleBeforeUnload, true);
+  addEventListener("wheel", seedWheelScroll, true);
   addEventListener("scroll", handleScroll, true);
 
   // Only the recorder may stop the recorder. Without this the page could call
@@ -666,13 +727,15 @@ const RECORDER_SOURCE = String.raw`
     removeEventListener("change", handleInput, true);
     removeEventListener("keydown", handleKey, true);
     removeEventListener("beforeunload", handleBeforeUnload, true);
+    removeEventListener("wheel", seedWheelScroll, true);
     removeEventListener("scroll", handleScroll, true);
     if (inspectorFrame !== undefined) {
       cancelAnimationFrame(inspectorFrame);
     }
-    if (restTimer !== undefined) {
-      clearTimeout(restTimer);
+    for (const pending of scrollRestTimers.values()) {
+      clearTimeout(pending);
     }
+    scrollRestTimers.clear();
     hideInspector();
     inspector.remove();
     inspectorLabel.remove();

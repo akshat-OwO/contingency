@@ -251,11 +251,21 @@ it.effect("records a scroll as one Step per resting position", () =>
     const capture = makeCapture();
     const recording = yield* startRecording(capture);
     yield* capture.emit({ deltaY: 900, page: 0, type: "scroll" });
-    yield* capture.emit({ deltaY: 400, page: 0, type: "scroll" });
+    yield* capture.emit({
+      deltaY: 400,
+      page: 0,
+      target: cartButton,
+      type: "scroll",
+    });
     const recorded = steps((yield* recording.get()) as RecordingSnapshot);
     expect(recorded.slice(1)).toEqual([
       { deltaY: 900, id: expect.any(String), type: "scroll" },
-      { deltaY: 400, id: expect.any(String), type: "scroll" },
+      {
+        deltaY: 400,
+        id: expect.any(String),
+        target: cartButton,
+        type: "scroll",
+      },
     ]);
   })
 );

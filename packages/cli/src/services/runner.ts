@@ -716,6 +716,46 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
 });
 
 /**
+ * Find a viewport point whose wheel events bubble to the document instead of
+ * being consumed by a nested scroller. The point is derived from the current
+ * page for this action; no pointer coordinates enter the Flow or Run.
+ */
+const documentWheelPoint = (deltaX: number, deltaY: number): string => `(() => {
+  const canConsume = (element) => {
+    if (element === document.body || element === document.documentElement) {
+      return false;
+    }
+    const style = getComputedStyle(element);
+    const scrollsX = /^(?:auto|scroll)$/u.test(style.overflowX);
+    const scrollsY = /^(?:auto|scroll)$/u.test(style.overflowY);
+    const canMoveX = ${deltaX} < 0
+      ? element.scrollLeft > 0
+      : ${deltaX} > 0 && element.scrollLeft + element.clientWidth < element.scrollWidth;
+    const canMoveY = ${deltaY} < 0
+      ? element.scrollTop > 0
+      : ${deltaY} > 0 && element.scrollTop + element.clientHeight < element.scrollHeight;
+    return (scrollsX && canMoveX) || (scrollsY && canMoveY);
+  };
+  for (let y = 1; y < innerHeight; y += 32) {
+    for (let x = 1; x < innerWidth; x += 32) {
+      let element = document.elementFromPoint(x, y);
+      let nestedScroller = false;
+      while (element) {
+        if (canConsume(element)) {
+          nestedScroller = true;
+          break;
+        }
+        element = element.parentElement;
+      }
+      if (!nestedScroller) {
+        return { x, y };
+      }
+    }
+  }
+  return { x: 1, y: 1 };
+})()`;
+
+/**
  * What the collector resolves with. `null` is the page saying it produced no
  * such measurement, which is not the same as zero.
  */
@@ -1242,6 +1282,23 @@ const executeStep = Effect.fn("Runner.executeStep")(function* executeStep(
       return NO_FINDINGS;
     }
     case "scroll": {
+      const positionPointer =
+        step.target === undefined
+          ? Effect.tryPromise({
+              catch: (cause) =>
+                new RunnerError({ message: errorMessage(cause) }),
+              try: async () => {
+                const point = await page.evaluate<{
+                  readonly x: number;
+                  readonly y: number;
+                }>(documentWheelPoint(step.deltaX ?? 0, step.deltaY ?? 0));
+                await page.mouse.move(point.x, point.y);
+              },
+            })
+          : throughLadder(page, step.target, (locator) =>
+              locator.hover({ timeout: actionTimeoutMs })
+            );
+      yield* positionPointer;
       yield* Effect.tryPromise({
         catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
         try: () => page.mouse.wheel(step.deltaX ?? 0, step.deltaY ?? 0),

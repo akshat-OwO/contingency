@@ -82,6 +82,7 @@ const PressCapture = Schema.Struct({
 const ScrollCapture = Schema.Struct({
   deltaX: Schema.optional(Schema.Finite),
   deltaY: Schema.optional(Schema.Finite),
+  target: Schema.optional(RecordedTarget),
   type: Schema.Literal("scroll"),
 });
 
