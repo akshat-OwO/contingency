@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Framed</title>
+  </head>
+  <body>
+    <main><h1>Embedding</h1></main>
+    <script>
+      // `localhost` and `127.0.0.1` are the same server on the same port but
+      // different origins, so this frame really is cross-process — the shape a
+      // site's ads, embeds, and payment frames take.
+      const frame = document.createElement("iframe");
+      frame.src =
+        location.protocol +
+        "//localhost:" +
+        location.port +
+        "/identity-frame.html";
+      document.body.append(frame);
+    </script>
+  </body>
+</html>

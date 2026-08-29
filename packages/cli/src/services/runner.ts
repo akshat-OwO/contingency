@@ -349,14 +349,20 @@ const errorMessage = (cause: unknown): string => {
 /**
  * Install a Page's user-agent client hints. Playwright's context options carry
  * the string, the mobile metrics, and touch, but not the client-hint metadata
- * beside them, which Chromium takes per target — so a Run applies it as each
+ * beside them, which Chromium takes per Page — so a Run applies it as each
  * Page opens, before that Page has requested anything. A Flow that declares no
  * hints leaves Chromium reporting its own.
  *
- * A failure is the Run's, not a detail to swallow: a Page whose hints say
- * desktop Chromium while its string says a phone is exactly the incoherence
- * the Flow's identity exists to prevent, and it would otherwise reach a site
- * silently.
+ * The override reaches the Page's cross-process subframes too, which
+ * `browser-identity.integration.test.ts` pins: a cross-origin iframe is where
+ * a string and its hints would drift apart unnoticed.
+ *
+ * Chromium substitutes the real running browser's brand list wherever an
+ * override omits `brands`, so a target that misses this install does not fall
+ * back to something neutral: it reports the desktop binary underneath while
+ * its string says a phone. That is the incoherence the Flow's identity exists
+ * to prevent, which is why the Page the Flow acts on fails the Run rather than
+ * swallowing it.
  */
 const installClientHints = (
   page: Page,
@@ -2277,10 +2283,12 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       context.on("page", (opened) => {
         execution.pages.push(opened);
         // A popup is the same browser as the Page that opened it, so it
-        // carries the same client hints. Chromium gives no seam to install
-        // them before the popup's own first request, which already carries
-        // the string and the mobile hint Playwright derives from it; the
-        // brands and model land as soon as the override does.
+        // carries the same client hints. Nothing here can be awaited — the
+        // listener is Playwright's, not the Run's — so a popup may make its
+        // very first request before the override lands, carrying the string
+        // and the mobile hint Playwright derives from it but the running
+        // binary's brands. Everything after it is coherent. A Step that acts
+        // on a popup does so long after this has settled.
         Effect.runFork(
           Effect.ignore(
             installClientHints(opened, flowBrowserIdentity(flow.emulation))

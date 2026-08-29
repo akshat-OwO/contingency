@@ -19,17 +19,21 @@ const waitFor = (ready: () => boolean) =>
   }).pipe(Effect.timeout("10 seconds"));
 
 const IDENTITY_BEACON = "/identity-beacon";
+const FRAME_IDENTITY_BEACON = "/frame-identity-beacon";
 
-/** What the fixture reported about the browser it ran in. */
-const identityReports = (requests: readonly string[]) =>
+/** What a fixture reported about the browser it ran in. */
+const reportsOn = (beacon: string, requests: readonly string[]) =>
   requests
-    .filter((request) => request.startsWith(`${IDENTITY_BEACON}?`))
+    .filter((request) => request.startsWith(`${beacon}?`))
     .map(
       (request) =>
         Object.fromEntries(
           new URLSearchParams(request.split("?")[1] ?? "")
         ) as Record<string, string>
     );
+
+const identityReports = (requests: readonly string[]) =>
+  reportsOn(IDENTITY_BEACON, requests);
 
 /**
  * The identity Chrome Android Mobile resolves to against the Chromium that
@@ -193,4 +197,50 @@ it.live("shows an author the identity a Run will reproduce", () =>
     Effect.scoped,
     Effect.provide(Layer.merge(CreateBrowserLive, NodeServices.layer))
   )
+);
+
+/**
+ * A cross-origin iframe — an ad, an embed, a payment frame — is where a string
+ * and its client hints could drift apart unnoticed, because Chromium
+ * substitutes the running binary's brand list wherever an override omits
+ * `brands`. The Page's override does reach those frames; this pins that, so a
+ * Chromium or Playwright change that stopped it would fail here rather than
+ * reach a site.
+ */
+it.live("carries the identity into a cross-origin subframe", () =>
+  Effect.gen(function* replayFramedIdentity() {
+    const fixtures = yield* fixtureServer;
+    const identity = yield* chromeAndroidMobile;
+
+    const { run } = yield* runFlow({
+      ...flow([
+        {
+          type: "navigate",
+          url: fixtures.url("browser-identity-frames.html"),
+        },
+      ]),
+      emulation: { browser: identity, viewport: ANDROID_VIEWPORT },
+    });
+
+    expect(run.outcome).toBe("completed");
+    // The frame's own document request, which is genuinely cross-site.
+    const frameDocument = fixtures.requestHeaders.find(({ url }) =>
+      url.endsWith("identity-frame.html")
+    );
+    expect(frameDocument?.headers["sec-fetch-dest"]).toBe("iframe");
+    expect(frameDocument?.headers["sec-fetch-site"]).toBe("cross-site");
+    expect(frameDocument?.headers["user-agent"]).toBe(identity.userAgent);
+    expect(frameDocument?.headers["sec-ch-ua-mobile"]).toBe("?1");
+    expect(frameDocument?.headers["sec-ch-ua"]).toContain("Google Chrome");
+    expect(frameDocument?.headers["sec-ch-ua"]).not.toContain("Headless");
+
+    const [framed] = reportsOn(FRAME_IDENTITY_BEACON, fixtures.requests);
+    expect(framed).toBeDefined();
+    expect(framed?.["userAgent"]).toBe(identity.userAgent);
+    expect(framed?.["hintMobile"]).toBe("1");
+    // The authored brands, not the brands of the Chromium actually running.
+    expect(framed?.["brands"]).toContain("Google Chrome");
+    expect(framed?.["brands"]).not.toContain("HeadlessChrome");
+    expect(framed?.["model"]).toBe("Pixel 10");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

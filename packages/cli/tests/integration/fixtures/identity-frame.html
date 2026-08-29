@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Framed identity</title>
+  </head>
+  <body>
+    <p>embedded</p>
+    <script>
+      const data = navigator.userAgentData;
+      (data
+        ? data.getHighEntropyValues(["model"]).catch(() => ({}))
+        : Promise.resolve({})
+      ).then((high) => {
+        fetch(
+          "/frame-identity-beacon?" +
+            new URLSearchParams({
+              brands: (data?.brands ?? [])
+                .map((entry) => entry.brand)
+                .join(","),
+              hintMobile: data ? (data.mobile ? "1" : "0") : "absent",
+              model: String(high.model ?? ""),
+              userAgent: navigator.userAgent,
+            })
+        ).catch(() => {});
+      });
+    </script>
+  </body>
+</html>
