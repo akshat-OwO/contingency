@@ -54,6 +54,7 @@ it.live("serves every fixture page a later stack tests against", () =>
       "stateful.html",
       "scroll-readiness.html",
       "scroll-busy.html",
+      "scroll-redirect.html",
     ]) {
       const response = yield* Effect.promise(() => fetch(fixtures.url(page)));
       expect(response.status, page).toBe(200);

@@ -997,10 +997,19 @@ const executeScroll = Effect.fn("Runner.executeScroll")(function* executeScroll(
       scrollStable: false,
     };
     for (;;) {
-      snapshot = yield* Effect.tryPromise({
-        catch: (cause) => new RunnerError({ message: errorMessage(cause) }),
-        try: () => observer.evaluate((value) => value.snapshot()),
-      });
+      const observed = yield* Effect.result(
+        Effect.tryPromise({
+          catch: (cause: unknown) => cause,
+          try: () => observer.evaluate((value) => value.snapshot()),
+        })
+      );
+      // A Scroll can navigate. Once the wheel has succeeded, losing the old
+      // document's execution context is unavailable readiness evidence, not a
+      // failed action. Preserve the last snapshot in the diagnostic below.
+      if (observed._tag === "Failure") {
+        break;
+      }
+      snapshot = observed.success;
       if (
         snapshot.domQuiet &&
         snapshot.scrollStable &&

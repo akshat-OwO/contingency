@@ -171,6 +171,32 @@ it.live("continues with a diagnostic when a Scroll never becomes quiet", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live("does not fail when a Scroll destroys its readiness observer", () =>
+  Effect.gen(function* scrollRedirects() {
+    const fixtures = yield* fixtureServer;
+
+    const { run } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("scroll-redirect.html") },
+        { deltaY: 1200, timeout: 500, type: "scroll" },
+        {
+          condition: {
+            target: [{ kind: "css", selector: "#confirmation" }],
+            type: "selectorVisible",
+          },
+          timeout: 2000,
+          type: "waitFor",
+        },
+      ])
+    );
+
+    expect(run.outcome).toBe("completed");
+    expect(run.steps[1]?.outcome).toBe("completed");
+    expect(run.steps[1]?.scrollReadiness).toBeDefined();
+    expect(fixtures.requests).toContain("/confirmed.html");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live("uses the same bounded readiness contract for a Scroll Pre-step", () =>
   Effect.gen(function* boundBusyScrollPreStep() {
     const fixtures = yield* fixtureServer;
