@@ -9,6 +9,7 @@ import type {
   BrowserStreamId,
   BrowserTab,
   BrowserTabId,
+  DraftEmulation,
   FrameSequence,
   Geolocation,
   PermissionGrant,
@@ -115,11 +116,16 @@ export interface CreateBrowserService {
   readonly newTab: (
     sessionId: SessionId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * Open a URL under one whole Emulation. The snapshot is applied to the
+   * session — identity, viewport, permissions, and environment together —
+   * before the navigation, so the first request and document already carry it
+   * ([ADR 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+   */
   readonly open: (
     sessionId: SessionId | undefined,
     url: string,
-    viewport: Viewport,
-    userAgentProfile: UserAgentProfileId
+    emulation: DraftEmulation
   ) => Effect.Effect<
     { readonly sessionId: SessionId; readonly url: string },
     BrowserRpcErrorType

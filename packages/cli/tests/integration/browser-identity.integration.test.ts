@@ -8,7 +8,13 @@ import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
-import { fixtureServer, flow, IntegrationLive, runFlow } from "./harness.ts";
+import {
+  draftEmulation,
+  fixtureServer,
+  flow,
+  IntegrationLive,
+  runFlow,
+} from "./harness.ts";
 
 /** Poll until a page has reported, rather than guessing at a delay. */
 const waitFor = (ready: () => boolean) =>
@@ -163,8 +169,7 @@ it.live("shows an author the identity a Run will reproduce", () =>
     yield* browser.open(
       sessionId,
       fixtures.url("browser-identity.html"),
-      ANDROID_VIEWPORT,
-      "chrome-android-mobile"
+      draftEmulation("chrome-android-mobile", ANDROID_VIEWPORT)
     );
     yield* waitFor(() => identityReports(fixtures.requests).length > 0);
 

@@ -1,7 +1,8 @@
-import type { PermissionGrant, SessionEmulation } from "@contingency/protocol";
+import type { SessionEmulation } from "@contingency/protocol";
 import { MapPinIcon } from "lucide-react";
 import { useState } from "react";
 
+import type { EmulationPatch } from "@/components/create/emulation-draft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,18 +36,6 @@ const LATITUDE_BOUND = 90;
 const LONGITUDE_BOUND = 180;
 /** The permission the grant Select opens on; choosing any option grants it. */
 const DEFAULT_PERMISSION_CHOICE = "geolocation";
-
-export interface EmulationPatch {
-  readonly colorScheme?: "light" | "dark" | null;
-  readonly geolocation?: {
-    readonly accuracy?: number;
-    readonly latitude: number;
-    readonly longitude: number;
-  } | null;
-  readonly locale?: string | null;
-  readonly permissions?: readonly PermissionGrant[] | null;
-  readonly timezoneId?: string | null;
-}
 
 /**
  * What the interface knows about a session's Emulation. "Unknown" is a state of

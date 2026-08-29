@@ -8,6 +8,7 @@ import {
 import type {
   BrowserRpcErrorType,
   BrowserStreamEvent,
+  DraftEmulation,
   Geolocation,
   PermissionGrant,
   SessionId,
@@ -47,6 +48,7 @@ import type {
   CreateSessionState,
 } from "./create-browser-session.ts";
 import { makeCreateBrowserStorage } from "./create-browser-storage.ts";
+import { environmentContextOptions } from "./emulation-options.ts";
 
 export {
   CreateBrowser,
@@ -56,6 +58,9 @@ export type {
   BrowserStorageDeleteInput,
   BrowserStorageSetInput,
 } from "./create-browser-contract.ts";
+
+/** An Emulation's environment: everything but the identity it presents. */
+type SessionEnvironment = Omit<DraftEmulation, "userAgentProfile" | "viewport">;
 
 /**
  * What one patch field means: absent leaves the value as it is, `null` clears
@@ -104,8 +109,19 @@ const makeService = (
     );
   };
 
+  /**
+   * A session may be born already emulating an environment, which its context
+   * owns from birth rather than having it patched onto the first Page — see
+   * `environmentContextOptions`. Permissions are not among those settings:
+   * they are granted before the navigation by `applyPermissions`, which also
+   * honours per-origin grants.
+   */
   const createUnlocked = Effect.fn("CreateBrowser.create")(
-    function* createSession(name: string, viewport: Viewport) {
+    function* createSession(
+      name: string,
+      viewport: Viewport,
+      environment?: SessionEnvironment
+    ) {
       const browser = yield* getBrowser;
       const decoded = yield* Effect.try({
         catch: () =>
@@ -128,6 +144,9 @@ const makeService = (
         () =>
           browser.newContext({
             deviceScaleFactor: viewport.deviceScaleFactor,
+            // The same translation a Run applies, so a session authored here
+            // and a headless Run present one environment (ADR 0013).
+            ...environmentContextOptions(environment),
             viewport: { height: viewport.height, width: viewport.width },
           })
       );
@@ -143,17 +162,17 @@ const makeService = (
       );
       const state = yield* Ref.make<CreateSessionState>({
         activePage: page,
-        colorScheme: undefined,
-        geolocation: undefined,
+        colorScheme: environment?.colorScheme,
+        geolocation: environment?.geolocation,
         identity: undefined,
-        locale: undefined,
+        locale: environment?.locale,
         network: new Map(),
         pageIds: new Map(),
-        permissions: [],
+        permissions: environment?.permissions ?? [],
         requestIds: new WeakMap(),
         screencast: undefined,
         sequence: 0,
-        timezoneId: undefined,
+        timezoneId: environment?.timezoneId,
         titles: new Map(),
         viewport,
       });
@@ -180,8 +199,11 @@ const makeService = (
     }
   );
 
-  const create = (name: string, viewport: Viewport) =>
-    registryLock.withPermit(createUnlocked(name, viewport));
+  const create = (
+    name: string,
+    viewport: Viewport,
+    environment?: SessionEnvironment
+  ) => registryLock.withPermit(createUnlocked(name, viewport, environment));
 
   const setViewport = Effect.fn("CreateBrowser.setViewport")(
     function* setSessionViewport(sessionId: SessionId, viewport: Viewport) {
@@ -280,23 +302,39 @@ const makeService = (
     }
   );
 
+  /**
+   * Open a URL under one Emulation snapshot. The whole snapshot lands on the
+   * session state, is granted and applied, and only then does the navigation
+   * start — so the first request cannot carry a previous identity, viewport,
+   * or environment (ADR 0013).
+   */
   const open = Effect.fn("CreateBrowser.open")(function* openUrl(
     requestedSessionId: SessionId | undefined,
     url: string,
-    viewport: Viewport,
-    userAgentProfile: UserAgentProfileId
+    emulation: DraftEmulation
   ) {
     const browser = yield* getBrowser;
     const normalizedUrl = yield* validateBrowserUrl(url);
     const finishOpen = (sessionId: SessionId) =>
       Effect.gen(function* finishOpeningSession() {
         const session = yield* requireSession(sessionId);
-        const identity = resolveIdentity(userAgentProfile, browser.version());
+        const identity = resolveIdentity(
+          emulation.userAgentProfile,
+          browser.version()
+        );
         yield* Ref.update(session.state, (state) => ({
           ...state,
+          colorScheme: emulation.colorScheme,
+          geolocation: emulation.geolocation,
           identity,
-          viewport,
+          locale: emulation.locale,
+          permissions: [...emulation.permissions],
+          timezoneId: emulation.timezoneId,
+          viewport: emulation.viewport,
         }));
+        // Permissions live on the context and the rest on each Page, so both
+        // are applied before the navigation rather than one of them after it.
+        yield* applyPermissions(session);
         yield* reapplyEmulation(session);
         const state = yield* Ref.get(session.state);
         yield* tryBrowser("Could not open the URL", () =>
@@ -308,7 +346,7 @@ const makeService = (
       return yield* finishOpen(requestedSessionId);
     }
     return yield* Effect.acquireUseRelease(
-      create(`create-${randomUUID()}`, viewport),
+      create(`create-${randomUUID()}`, emulation.viewport, emulation),
       finishOpen,
       (sessionId, exit) =>
         Exit.isSuccess(exit)

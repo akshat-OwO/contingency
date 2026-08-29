@@ -10,7 +10,12 @@ import {
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { Recording } from "../../src/services/recording.ts";
 import { RunnerLive } from "../../src/services/runner.ts";
-import { CART_VIEWED_BEACON, fixtureServer, runFlow } from "./harness.ts";
+import {
+  CART_VIEWED_BEACON,
+  draftEmulation,
+  fixtureServer,
+  runFlow,
+} from "./harness.ts";
 
 /**
  * The whole product in one line: a Flow authored by recording in Create View,
@@ -51,8 +56,7 @@ it.live(
       yield* browser.open(
         sessionId,
         fixtures.url("shop.html"),
-        viewport,
-        "chrome-windows"
+        draftEmulation("chrome-windows", viewport)
       );
       yield* recording.start({ sessionId, title: "Anvil Works" });
       const { page } = yield* browser.recorderTarget(sessionId);

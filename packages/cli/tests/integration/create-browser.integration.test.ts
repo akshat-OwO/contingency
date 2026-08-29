@@ -7,7 +7,7 @@ import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
-import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
+import { draftEmulation, fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -36,8 +36,7 @@ it.live(
       const opened = yield* browser.open(
         sessionId,
         "data:text/html,<title>Live</title><main>ready</main>",
-        viewport,
-        "chrome-windows"
+        draftEmulation("chrome-windows", viewport)
       );
       expect(opened.sessionId).toBe(sessionId);
 
@@ -66,8 +65,7 @@ it.live(
       const domainOnly = yield* browser.open(
         sessionId,
         "example.com",
-        viewport,
-        "chrome-windows"
+        draftEmulation("chrome-windows", viewport)
       );
       expect(domainOnly.url).toBe("https://example.com/");
       yield* browser.setStorage(sessionId, tabId, {
@@ -138,8 +136,7 @@ it.live(
       yield* browser.open(
         sessionId,
         "https://example.org/",
-        viewport,
-        "safari-iphone"
+        draftEmulation("safari-iphone", viewport)
       );
       expect(
         yield* browser.getStorage(sessionId, tabId, "cookies")
@@ -176,7 +173,11 @@ it.live("rolls back only implicitly created sessions when opening fails", () =>
     );
 
     yield* Effect.flip(
-      browser.open(undefined, "http://127.0.0.1:1/", viewport, "chrome-windows")
+      browser.open(
+        undefined,
+        "http://127.0.0.1:1/",
+        draftEmulation("chrome-windows", viewport)
+      )
     );
     expect(yield* browser.list()).toEqual([existingSessionId]);
 
@@ -184,8 +185,7 @@ it.live("rolls back only implicitly created sessions when opening fails", () =>
       browser.open(
         existingSessionId,
         "http://127.0.0.1:1/",
-        viewport,
-        "chrome-windows"
+        draftEmulation("chrome-windows", viewport)
       )
     );
     expect(yield* browser.list()).toEqual([existingSessionId]);
@@ -203,7 +203,11 @@ it.live("rolls back interrupted implicit opens only", () =>
     const neverAnsweredUrl = `${fixtures.origin}${NEVER_ANSWERED}`;
 
     const implicitOpen = yield* Effect.forkChild(
-      browser.open(undefined, neverAnsweredUrl, viewport, "chrome-windows")
+      browser.open(
+        undefined,
+        neverAnsweredUrl,
+        draftEmulation("chrome-windows", viewport)
+      )
     );
     yield* waitUntil(
       () =>
@@ -217,8 +221,7 @@ it.live("rolls back interrupted implicit opens only", () =>
       browser.open(
         existingSessionId,
         neverAnsweredUrl,
-        viewport,
-        "chrome-windows"
+        draftEmulation("chrome-windows", viewport)
       )
     );
     yield* waitUntil(
@@ -238,8 +241,7 @@ it.live("applies an opened profile to every tab in an existing session", () =>
     yield* browser.open(
       sessionId,
       "data:text/html,<title></title><script>document.title=navigator.userAgent</script>",
-      viewport,
-      "chrome-windows"
+      draftEmulation("chrome-windows", viewport)
     );
     const [firstTab] = yield* browser.getTabs(sessionId);
     expect(firstTab).toBeDefined();
@@ -248,8 +250,7 @@ it.live("applies an opened profile to every tab in an existing session", () =>
     yield* browser.open(
       sessionId,
       "data:text/html,<title>second</title>",
-      viewport,
-      "safari-iphone"
+      draftEmulation("safari-iphone", viewport)
     );
     yield* browser.switchTab(
       sessionId,
@@ -278,6 +279,14 @@ it.live(
 
       const sessionId = yield* browser.create("create-emulation", viewport);
 
+      /**
+       * A navigation applies one whole Emulation, so each probe carries the
+       * settings that are meant to be in force when it loads rather than
+       * inheriting whatever the session was last patched with.
+       */
+      const berlin = { accuracy: 25, latitude: 52.52, longitude: 13.405 };
+      const granted = [{ permission: "geolocation" }];
+
       /** Poll until the probe page reports under its label. */
       const waitForReport = (label: string) =>
         Effect.gen(function* pollTitle() {
@@ -300,8 +309,7 @@ it.live(
       yield* browser.open(
         sessionId,
         locationProbe("bare"),
-        viewport,
-        "default"
+        draftEmulation("default", viewport)
       );
       expect(yield* waitForReport("bare")).toBe("bare:denied");
 
@@ -320,14 +328,23 @@ it.live(
       yield* browser.open(
         sessionId,
         locationProbe("granted"),
-        viewport,
-        "default"
+        draftEmulation("default", viewport, {
+          geolocation: berlin,
+          permissions: granted,
+        })
       );
       expect(yield* waitForReport("granted")).toBe("granted:52.52,13.405");
 
       // A new tab is one device in one place too.
       yield* browser.newTab(sessionId);
-      yield* browser.open(sessionId, locationProbe("tab"), viewport, "default");
+      yield* browser.open(
+        sessionId,
+        locationProbe("tab"),
+        draftEmulation("default", viewport, {
+          geolocation: berlin,
+          permissions: granted,
+        })
+      );
       expect(yield* waitForReport("tab")).toBe("tab:52.52,13.405");
 
       // The picker sends a location with no accuracy, and an omitted accuracy
@@ -339,8 +356,10 @@ it.live(
       yield* browser.open(
         sessionId,
         locationProbe("no-accuracy"),
-        viewport,
-        "default"
+        draftEmulation("default", viewport, {
+          geolocation: { latitude: 48.8566, longitude: 2.3522 },
+          permissions: granted,
+        })
       );
       expect(yield* waitForReport("no-accuracy")).toBe(
         "no-accuracy:48.8566,2.3522"
@@ -362,16 +381,17 @@ it.live(
       yield* browser.open(
         sessionId,
         `${fixtures.origin}/locale-probe.html?label=locale`,
-        viewport,
-        "default"
+        draftEmulation("default", viewport, {
+          locale: "fr-FR",
+          permissions: granted,
+        })
       );
       expect(yield* waitForReport("locale")).toBe("locale:fr-FR");
       yield* browser.setEmulation(sessionId, { locale: null });
       yield* browser.open(
         sessionId,
         `${fixtures.origin}/locale-probe.html?label=restored`,
-        viewport,
-        "default"
+        draftEmulation("default", viewport, { permissions: granted })
       );
       expect(yield* waitForReport("restored")).not.toBe("restored:fr-FR");
 
@@ -382,14 +402,129 @@ it.live(
       });
       expect(cleared.geolocation).toBeUndefined();
       expect(cleared.permissions).toEqual([]);
+      // The snapshot grants nothing and declares no location, so the site is
+      // refused again without the session being closed.
       yield* browser.open(
         sessionId,
         locationProbe("cleared"),
-        viewport,
-        "default"
+        draftEmulation("default", viewport)
       );
       expect(yield* waitForReport("cleared")).toBe("cleared:denied");
 
       yield* browser.close(sessionId);
     }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
+const ENVIRONMENT_BEACON = "/environment-beacon";
+
+/** What the fixture page reported about the browser it loaded into. */
+const environmentReports = (requests: readonly string[]) =>
+  requests
+    .filter((request) => request.startsWith(`${ENVIRONMENT_BEACON}?`))
+    .map((request) =>
+      Object.fromEntries(new URLSearchParams(request.split("?")[1] ?? ""))
+    );
+
+/**
+ * One navigation applies one whole Emulation. Every claim is read off what the
+ * document itself observed, because a setting applied after the first request
+ * is exactly the defect this covers ([ADR
+ * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+it.live(
+  "applies one Emulation snapshot before the session's first document",
+  () =>
+    Effect.gen(function* applySnapshotBeforeFirstDocument() {
+      const fixtures = yield* fixtureServer;
+      const browser = yield* CreateBrowser;
+      const sessionId = yield* browser
+        .open(undefined, `${fixtures.origin}/emulation-environment.html`, {
+          colorScheme: "dark",
+          geolocation: { accuracy: 25, latitude: 52.52, longitude: 13.405 },
+          locale: "de-DE",
+          permissions: [{ permission: "geolocation" }],
+          timezoneId: "Europe/Berlin",
+          userAgentProfile: "chrome-android-mobile",
+          viewport: { deviceScaleFactor: 3, height: 892, width: 412 },
+        })
+        .pipe(Effect.map(({ sessionId: opened }) => opened));
+
+      yield* waitUntil(() => environmentReports(fixtures.requests).length >= 2);
+      const [environment, location] = environmentReports(fixtures.requests);
+      expect(environment).toMatchObject({
+        colorScheme: "dark",
+        language: "de-DE",
+        timezone: "Europe/Berlin",
+      });
+      // The grant travelled with the snapshot, so the site was answered rather
+      // than refused — and with the emulated position.
+      expect(location).toMatchObject({
+        latitude: "52.52",
+        longitude: "13.405",
+      });
+
+      // The identity reached the first request itself, not just the document.
+      const document = fixtures.requestHeaders.find(({ url }) =>
+        url.startsWith("/emulation-environment.html")
+      );
+      expect(document?.headers["user-agent"]).toContain("Android");
+      expect(document?.headers["sec-ch-ua-mobile"]).toBe("?1");
+
+      yield* browser.close(sessionId);
+    }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
+/**
+ * Changing identity reloads the page rather than rebuilding the session, so
+ * everything the author signed into or stored is still there afterwards.
+ */
+it.live("keeps cookies and storage across an identity change", () =>
+  Effect.gen(function* retainStorageAcrossIdentityChange() {
+    const fixtures = yield* fixtureServer;
+    const browser = yield* CreateBrowser;
+    const url = `${fixtures.origin}/emulation-environment.html`;
+    const { sessionId } = yield* browser.open(
+      undefined,
+      url,
+      draftEmulation("chrome-windows", viewport)
+    );
+    const [tab] = yield* browser.getTabs(sessionId);
+    const tabId = BrowserTabId.make(tab?.tabId ?? "missing");
+    yield* browser.setStorage(sessionId, tabId, {
+      key: "cart",
+      kind: "local",
+      value: "two-items",
+    });
+    yield* browser.setStorage(sessionId, tabId, {
+      cookie: {
+        domain: "127.0.0.1",
+        httpOnly: false,
+        name: "session-token",
+        path: "/",
+        secure: false,
+        value: "signed-in",
+      },
+      kind: "cookies",
+    });
+
+    yield* browser.setUserAgent(
+      sessionId,
+      url,
+      viewport,
+      "chrome-android-mobile"
+    );
+
+    expect(yield* browser.getStorage(sessionId, tabId, "local")).toMatchObject({
+      entries: { cart: "two-items" },
+    });
+    expect(
+      yield* browser.getStorage(sessionId, tabId, "cookies")
+    ).toMatchObject({
+      cookies: [
+        expect.objectContaining({ name: "session-token", value: "signed-in" }),
+      ],
+    });
+
+    yield* browser.close(sessionId);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );

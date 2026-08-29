@@ -7,13 +7,15 @@ import type {
   BrowserStreamEvent,
   BrowserTab,
   BrowserTabId,
+  DraftEmulation,
   SessionId,
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import { useAtom, useAtomSet } from "@effect/atom-react";
+import { RegistryContext, useAtom, useAtomSet } from "@effect/atom-react";
 import { Cause, Effect, Fiber, Queue, Result, Schedule, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
+import type { AtomRegistry } from "effect/unstable/reactivity";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -25,7 +27,7 @@ import {
   RotateCwIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useContext, useEffect, useRef } from "react";
 import type { FormEvent, KeyboardEvent, PointerEvent } from "react";
 
 import {
@@ -66,7 +68,6 @@ import {
   replacePendingBrowserFrame,
   shouldDropStaleCanvasFrame,
   shouldRevealCanvasAfterPaint,
-  viewportForIdentity,
 } from "@/components/create/browser-workspace-state";
 import type { CanvasFrameHold } from "@/components/create/browser-workspace-state";
 import {
@@ -74,11 +75,17 @@ import {
   recordingLocksBrowser,
   recordingMakesCanvasReadOnly,
 } from "@/components/create/create-workspace-state";
+import {
+  draftFromSessionEmulation,
+  draftSessionEmulation,
+  draftWithIdentity,
+  draftWithPatch,
+  draftWithViewport,
+  emulationDraftAtom,
+} from "@/components/create/emulation-draft";
+import type { EmulationPatch } from "@/components/create/emulation-draft";
 import { EmulationPicker } from "@/components/create/emulation-picker";
-import type {
-  EmulationPatch,
-  SessionEmulationState,
-} from "@/components/create/emulation-picker";
+import type { SessionEmulationState } from "@/components/create/emulation-picker";
 import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -126,7 +133,6 @@ import {
 } from "@/lib/rpc";
 
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
-const userAgentProfileAtom = Atom.make<UserAgentProfileId>("default");
 const sessionEmulationAtom = Atom.make<SessionEmulationState>({
   status: "unknown",
 });
@@ -145,13 +151,12 @@ const browserOptionalStateAtom = Atom.make<BrowserOptionalState>({
   error: undefined,
 });
 const streamConnectedAtom = Atom.make(false);
-const viewportWidthAtom = Atom.make("1280");
 /**
- * The device scale factor Pages render at. It is part of the browser identity
- * rather than a separate control: selecting a mobile identity applies its own
- * ([ADR 0013](../../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ * The viewport inputs' text, which is an edit buffer rather than a second
+ * source of truth: every parseable edit lands on the draft Emulation, and the
+ * draft is what a navigation applies.
  */
-const viewportScaleAtom = Atom.make(1);
+const viewportWidthAtom = Atom.make("1280");
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error || isBrowserRpcError(error)
@@ -297,9 +302,24 @@ const useBrowserWorkspace = () => {
   const [streamConnected, setStreamConnected] = useAtom(streamConnectedAtom);
   const [tabs, setTabs] = useAtom(browserTabsAtom);
   const [width, setWidth] = useAtom(viewportWidthAtom);
-  const [deviceScaleFactor, setDeviceScaleFactor] = useAtom(viewportScaleAtom);
-  const [userAgentProfile, setUserAgentProfile] = useAtom(userAgentProfileAtom);
   const [sessionEmulation, setSessionEmulation] = useAtom(sessionEmulationAtom);
+  /**
+   * The one draft Emulation every control writes to. It is read out of the
+   * registry rather than out of a render's closure wherever a request carries
+   * it, so a selection made an instant before a submission is the selection
+   * that travels — no control's own re-render has to have happened first ([ADR
+   * 0013](../../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+   */
+  const registry: AtomRegistry.AtomRegistry = useContext(RegistryContext);
+  const [draft] = useAtom(emulationDraftAtom);
+  const { userAgentProfile, viewport } = draft;
+  const updateDraft = useCallback(
+    (update: (current: DraftEmulation) => DraftEmulation): DraftEmulation => {
+      registry.update(emulationDraftAtom, update);
+      return registry.get(emulationDraftAtom);
+    },
+    [registry]
+  );
   const updateEmulation = useAtomSet(browserEmulationMutation, {
     mode: "promise",
   });
@@ -333,6 +353,15 @@ const useBrowserWorkspace = () => {
   const getNetworkRequests = useAtomSet(browserNetworkRequestsMutation, {
     mode: "promise",
   });
+  /**
+   * What the Emulation controls show: a live session's own Emulation once it
+   * has been read, and the draft before any session exists — the draft is
+   * exactly what the first navigation will apply, so it is not "unknown".
+   */
+  const appliedEmulation: SessionEmulationState =
+    selectedSessionId === undefined
+      ? { emulation: draftSessionEmulation(draft), status: "known" }
+      : sessionEmulation;
   const selectedPresetName = presetName(presetId);
   const activeTab = tabs.find(({ active }) => active);
   const browserLocked = recordingLocksBrowser(
@@ -354,12 +383,6 @@ const useBrowserWorkspace = () => {
     selectedSessionId,
     activeTab?.tabId
   );
-  const viewport: Viewport = {
-    deviceScaleFactor,
-    height: Math.max(1, Number(height) || 720),
-    width: Math.max(1, Number(width) || 1280),
-  };
-
   /**
    * The interface shows what the session already emulates, so it reads that
    * Emulation rather than assuming a fresh session: a patch replaces the whole
@@ -388,6 +411,12 @@ const useBrowserWorkspace = () => {
                   emulation: result.data.emulation,
                   status: "known",
                 });
+                // The draft is what the next navigation applies, so it adopts
+                // what the session already emulates rather than re-applying
+                // settings the author composed for a different session.
+                updateDraft((current) =>
+                  draftFromSessionEmulation(current, result.data.emulation)
+                );
               }
             })
           ),
@@ -395,7 +424,7 @@ const useBrowserWorkspace = () => {
         )
       );
     },
-    [readEmulation, setSessionEmulation]
+    [readEmulation, setSessionEmulation, updateDraft]
   );
 
   useEffect(() => {
@@ -411,8 +440,14 @@ const useBrowserWorkspace = () => {
     loadSessionEmulation(selectedSessionId);
   }, [loadSessionEmulation, selectedSessionId, setSessionEmulation, setTabs]);
 
+  /**
+   * Every Emulation edit lands on the draft first, so the controls mean the
+   * same thing before a session exists as after: a live session is then told
+   * about the change, and answers with the Emulation now in force.
+   */
   const applyEmulationPatch = useCallback(
     (patch: EmulationPatch) => {
+      updateDraft((current) => draftWithPatch(current, patch));
       if (selectedSessionId === undefined) {
         return;
       }
@@ -449,7 +484,13 @@ const useBrowserWorkspace = () => {
         )
       );
     },
-    [selectedSessionId, setError, setSessionEmulation, updateEmulation]
+    [
+      selectedSessionId,
+      setError,
+      setSessionEmulation,
+      updateDraft,
+      updateEmulation,
+    ]
   );
 
   const synchronizeTabState = useCallback(
@@ -791,6 +832,13 @@ const useBrowserWorkspace = () => {
               setPresetId(RESPONSIVE_PRESET_ID);
               setWidth(String(event.viewportWidth));
               setHeight(String(event.viewportHeight));
+              updateDraft((current) =>
+                draftWithViewport(current, {
+                  deviceScaleFactor: current.viewport.deviceScaleFactor,
+                  height: event.viewportHeight,
+                  width: event.viewportWidth,
+                })
+              );
             }
           });
         })
@@ -830,6 +878,7 @@ const useBrowserWorkspace = () => {
     setWidth,
     streamIdentity,
     synchronizeTabState,
+    updateDraft,
   ]);
 
   useEffect(
@@ -943,10 +992,11 @@ const useBrowserWorkspace = () => {
           openBrowser({
             payload: {
               data: {
+                // One immutable snapshot, read at submission rather than
+                // composed from controls that may not have re-rendered yet.
+                emulation: registry.get(emulationDraftAtom),
                 sessionId: selectedSessionId,
                 url: address,
-                userAgentProfile,
-                viewport,
               },
               type: "browser.open",
             },
@@ -981,17 +1031,17 @@ const useBrowserWorkspace = () => {
    * a later explicit viewport edit overwrites them (ADR 0013).
    */
   const selectUserAgent = (profile: UserAgentProfileId) => {
-    setUserAgentProfile(profile);
-    const nextViewport = viewportForIdentity(profile, viewport);
+    const previousViewport = registry.get(emulationDraftAtom).viewport;
+    const { viewport: nextViewport } = updateDraft((current) =>
+      draftWithIdentity(current, profile)
+    );
     if (
-      nextViewport.width !== viewport.width ||
-      nextViewport.height !== viewport.height ||
-      nextViewport.deviceScaleFactor !== viewport.deviceScaleFactor
+      nextViewport.width !== previousViewport.width ||
+      nextViewport.height !== previousViewport.height
     ) {
       setPresetId(RESPONSIVE_PRESET_ID);
       setWidth(String(nextViewport.width));
       setHeight(String(nextViewport.height));
-      setDeviceScaleFactor(nextViewport.deviceScaleFactor);
     }
     if (
       selectedSessionId === undefined ||
@@ -1208,26 +1258,46 @@ const useBrowserWorkspace = () => {
     }
     setWidth(String(preset.width));
     setHeight(String(preset.height));
-    applyViewport({
-      deviceScaleFactor,
-      height: preset.height,
-      width: preset.width,
-    });
+    // An explicit viewport choice outranks whatever the identity applied, so
+    // it is written to the draft as well as sent to any open session.
+    const { viewport: nextViewport } = updateDraft((current) =>
+      draftWithViewport(current, {
+        deviceScaleFactor: current.viewport.deviceScaleFactor,
+        height: preset.height,
+        width: preset.width,
+      })
+    );
+    applyViewport(nextViewport);
   };
 
+  /**
+   * A typed dimension reaches the draft as it is typed, so what the controls
+   * display and what the next navigation applies never disagree. Only an open
+   * session waits for the blur, which is where `commitViewport` sends it. A
+   * half-typed or emptied field is not a viewport at all, so the draft keeps
+   * the last dimension the author actually stated.
+   */
   const updateDimension = (
     nextValue: string,
-    setDimension: (value: string) => void
+    setDimension: (value: string) => void,
+    dimension: "height" | "width"
   ) => {
     if (!DIMENSION_PATTERN.test(nextValue)) {
       return;
     }
     setPresetId(RESPONSIVE_PRESET_ID);
     setDimension(nextValue);
+    const parsed = Number(nextValue);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return;
+    }
+    updateDraft((current) =>
+      draftWithViewport(current, { ...current.viewport, [dimension]: parsed })
+    );
   };
 
   const commitViewport = () => {
-    applyViewport(viewport);
+    applyViewport(registry.get(emulationDraftAtom).viewport);
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -1314,6 +1384,7 @@ const useBrowserWorkspace = () => {
     activeTabData,
     address,
     addressEditingRef,
+    appliedEmulation,
     applyEmulationPatch,
     browserLocked,
     canvasReadOnly,
@@ -1487,6 +1558,7 @@ const BrowserDeviceToolbar = ({
   readonly controller: BrowserWorkspaceController;
 }) => {
   const {
+    appliedEmulation,
     applyEmulationPatch,
     browserLocked,
     commitViewport,
@@ -1498,7 +1570,6 @@ const BrowserDeviceToolbar = ({
     selectPreset,
     selectUserAgent,
     selectedSessionId,
-    sessionEmulation,
     setDevtoolsOpen,
     setHeight,
     setWidth,
@@ -1517,10 +1588,11 @@ const BrowserDeviceToolbar = ({
         value={userAgentProfile}
       />
 
-      {/* Coordinates and locale typed for one session mean nothing in the
-          next, so switching sessions starts the picker over. */}
+      {/* Coordinates typed but never applied mean nothing in the next
+          session, so switching sessions clears the picker's own edit buffers.
+          What a session actually emulates travels in the draft instead. */}
       <EmulationPicker
-        applied={sessionEmulation}
+        applied={appliedEmulation}
         key={selectedSessionId}
         disabled={browserLocked || opening}
         onPatch={(patch) => {
@@ -1560,7 +1632,9 @@ const BrowserDeviceToolbar = ({
         disabled={browserLocked}
         inputMode="numeric"
         onBlur={commitViewport}
-        onChange={(event) => updateDimension(event.target.value, setWidth)}
+        onChange={(event) =>
+          updateDimension(event.target.value, setWidth, "width")
+        }
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.currentTarget.blur();
@@ -1577,7 +1651,9 @@ const BrowserDeviceToolbar = ({
         disabled={browserLocked}
         inputMode="numeric"
         onBlur={commitViewport}
-        onChange={(event) => updateDimension(event.target.value, setHeight)}
+        onChange={(event) =>
+          updateDimension(event.target.value, setHeight, "height")
+        }
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.currentTarget.blur();
