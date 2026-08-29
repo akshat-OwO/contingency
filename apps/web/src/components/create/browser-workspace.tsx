@@ -1412,7 +1412,6 @@ const useBrowserWorkspace = () => {
     selectUserAgent,
     selectedPresetName,
     selectedSessionId,
-    sessionEmulation,
     setAddress,
     setDevtoolsOpen,
     setDevtoolsState,
