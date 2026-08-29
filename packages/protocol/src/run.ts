@@ -105,6 +105,7 @@ export type SelectorDiagnostics = typeof SelectorDiagnostics.Type;
 export const ScrollReadinessEvidence = Schema.Literals([
   "dom-mutations",
   "finite-requests",
+  "observation-ended",
   "scroll-position",
 ]);
 export type ScrollReadinessEvidence = typeof ScrollReadinessEvidence.Type;

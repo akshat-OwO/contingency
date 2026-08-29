@@ -16,6 +16,7 @@ const vitalUnits: Record<string, string> = {
 const readinessEvidenceLabels = {
   "dom-mutations": "The DOM kept changing",
   "finite-requests": "Requests started by the Scroll were still running",
+  "observation-ended": "Readiness observation ended with the previous page",
   "scroll-position": "The scroll position was still moving",
 } as const;
 

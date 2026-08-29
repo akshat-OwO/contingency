@@ -996,6 +996,7 @@ const executeScroll = Effect.fn("Runner.executeScroll")(function* executeScroll(
       domQuiet: false,
       scrollStable: false,
     };
+    let observationEnded = false;
     for (;;) {
       const observed = yield* Effect.result(
         Effect.tryPromise({
@@ -1005,8 +1006,9 @@ const executeScroll = Effect.fn("Runner.executeScroll")(function* executeScroll(
       );
       // A Scroll can navigate. Once the wheel has succeeded, losing the old
       // document's execution context is unavailable readiness evidence, not a
-      // failed action. Preserve the last snapshot in the diagnostic below.
+      // failed action. Record that observation ended in the diagnostic below.
       if (observed._tag === "Failure") {
+        observationEnded = true;
         break;
       }
       snapshot = observed.success;
@@ -1025,11 +1027,15 @@ const executeScroll = Effect.fn("Runner.executeScroll")(function* executeScroll(
     }
 
     const unsettled: ScrollReadinessEvidence[] = [];
-    if (!snapshot.scrollStable) {
-      unsettled.push("scroll-position");
-    }
-    if (!snapshot.domQuiet) {
-      unsettled.push("dom-mutations");
+    if (observationEnded) {
+      unsettled.push("observation-ended");
+    } else {
+      if (!snapshot.scrollStable) {
+        unsettled.push("scroll-position");
+      }
+      if (!snapshot.domQuiet) {
+        unsettled.push("dom-mutations");
+      }
     }
     const pendingRequestCount = pendingRequests.size;
     if (pendingRequestCount > 0) {

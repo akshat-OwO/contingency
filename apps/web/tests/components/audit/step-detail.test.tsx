@@ -17,7 +17,7 @@ test("renders a bounded Scroll readiness diagnostic as non-failing evidence", ()
       outcome: "completed",
       scrollReadiness: {
         pendingRequests: 2,
-        unsettled: ["dom-mutations", "finite-requests"],
+        unsettled: ["dom-mutations", "finite-requests", "observation-ended"],
         waitDurationMs: 350,
       },
       startedAt: "2026-01-01T00:00:00.000Z",
@@ -39,5 +39,8 @@ test("renders a bounded Scroll readiness diagnostic as non-failing evidence", ()
   ).toBeVisible();
   expect(
     screen.getByText("Requests started by the Scroll were still running (2)")
+  ).toBeVisible();
+  expect(
+    screen.getByText("Readiness observation ended with the previous page")
   ).toBeVisible();
 });

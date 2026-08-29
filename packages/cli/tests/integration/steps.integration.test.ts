@@ -192,7 +192,10 @@ it.live("does not fail when a Scroll destroys its readiness observer", () =>
 
     expect(run.outcome).toBe("completed");
     expect(run.steps[1]?.outcome).toBe("completed");
-    expect(run.steps[1]?.scrollReadiness).toBeDefined();
+    const unsettled = run.steps[1]?.scrollReadiness?.unsettled;
+    expect(unsettled).toContain("observation-ended");
+    expect(unsettled).not.toContain("scroll-position");
+    expect(unsettled).not.toContain("dom-mutations");
     expect(fixtures.requests).toContain("/confirmed.html");
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
