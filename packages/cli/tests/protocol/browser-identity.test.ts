@@ -78,15 +78,28 @@ test("the default profile applies no identity at all", () => {
 });
 
 /**
- * Chromium can wear a Safari or Firefox string but never reproduce those
- * engines, so Create View stops offering them for new work while existing
- * Flows naming them still decode.
+ * Chromium can wear a Safari, Firefox, or iOS string but never reproduce
+ * those engines, so Create View stops offering them for new work while
+ * existing Flows naming them still decode.
  */
-test("Safari and Firefox identities are no longer selectable", () => {
+test("identities Chromium cannot reproduce are no longer selectable", () => {
   const offered = selectableUserAgentProfiles.map(({ id }) => id);
 
   expect(offered).not.toContain("safari-iphone");
   expect(offered).not.toContain("firefox-windows");
+  // Chrome and Edge on iOS are WebKit wearing a Chromium-ish name.
+  expect(offered).not.toContain("chrome-iphone");
+  expect(offered).not.toContain("chrome-ipad");
+  expect(offered).not.toContain("edge-iphone");
+  expect(offered).not.toContain("edge-ipad");
+  // Every identity still offered declares mobile behaviour or is a desktop
+  // one, so no offered choice is a mobile string over desktop behaviour.
+  for (const id of offered) {
+    const identity = resolveIdentity(id, CHROMIUM_VERSION);
+    expect(
+      identity?.userAgent.includes("Mobile") !== true || identity.mobile
+    ).toBe(true);
+  }
   expect(offered).toContain("chrome-android-mobile");
   expect(offered).toContain("googlebot-smartphone");
   expect(userAgentProfiles.map(({ id }) => id)).toContain("safari-iphone");

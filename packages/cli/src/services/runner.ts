@@ -169,33 +169,6 @@ const emulationContextOptions = (
 };
 
 /**
- * Install a Page's user-agent client hints. Playwright's context options carry
- * the string, the mobile metrics, and touch, but not the client-hint metadata
- * beside them, which Chromium takes per target — so a Run applies it as each
- * Page opens, before that Page has requested anything. A Flow that declares no
- * hints leaves Chromium reporting its own.
- */
-const installClientHints = (
-  page: Page,
-  identity: BrowserIdentity | undefined
-): Effect.Effect<void> => {
-  if (identity?.userAgentMetadata === undefined) {
-    return Effect.void;
-  }
-  return Effect.ignore(
-    Effect.tryPromise(async () => {
-      // The session stays attached for the Page's life: Chromium reverts an
-      // override when the session that set it detaches, which would leave the
-      // identity installed for no request at all.
-      const cdp = await page.context().newCDPSession(page);
-      await cdp.send("Emulation.setUserAgentOverride", {
-        ...userAgentOverride(identity, identity.userAgent),
-      });
-    })
-  );
-};
-
-/**
  * How long one Step may act before failing, set explicitly rather than left at
  * Playwright's thirty-second default. A few inherited defaults under retry
  * would consume the whole Run ceiling and report a ceiling breach instead of
@@ -371,6 +344,42 @@ const errorMessage = (cause: unknown): string => {
   return message === undefined || message.length === 0
     ? String(cause)
     : message;
+};
+
+/**
+ * Install a Page's user-agent client hints. Playwright's context options carry
+ * the string, the mobile metrics, and touch, but not the client-hint metadata
+ * beside them, which Chromium takes per target — so a Run applies it as each
+ * Page opens, before that Page has requested anything. A Flow that declares no
+ * hints leaves Chromium reporting its own.
+ *
+ * A failure is the Run's, not a detail to swallow: a Page whose hints say
+ * desktop Chromium while its string says a phone is exactly the incoherence
+ * the Flow's identity exists to prevent, and it would otherwise reach a site
+ * silently.
+ */
+const installClientHints = (
+  page: Page,
+  identity: BrowserIdentity | undefined
+): Effect.Effect<void, RunnerError> => {
+  if (identity?.userAgentMetadata === undefined) {
+    return Effect.void;
+  }
+  return Effect.tryPromise({
+    catch: (cause) =>
+      new RunnerError({
+        message: `Could not apply the browser identity: ${errorMessage(cause)}`,
+      }),
+    try: async () => {
+      // The session stays attached for the Page's life: Chromium reverts an
+      // override when the session that set it detaches, which would leave the
+      // identity installed for no request at all.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setUserAgentOverride", {
+        ...userAgentOverride(identity, identity.userAgent),
+      });
+    },
+  });
 };
 
 /**
@@ -2268,9 +2277,14 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       context.on("page", (opened) => {
         execution.pages.push(opened);
         // A popup is the same browser as the Page that opened it, so it
-        // carries the same client hints.
+        // carries the same client hints. Chromium gives no seam to install
+        // them before the popup's own first request, which already carries
+        // the string and the mobile hint Playwright derives from it; the
+        // brands and model land as soon as the override does.
         Effect.runFork(
-          installClientHints(opened, flowBrowserIdentity(flow.emulation))
+          Effect.ignore(
+            installClientHints(opened, flowBrowserIdentity(flow.emulation))
+          )
         );
       });
       return { context, execution } satisfies AttemptSession;

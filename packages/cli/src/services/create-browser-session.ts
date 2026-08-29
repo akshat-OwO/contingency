@@ -523,9 +523,10 @@ export const toSessionEmulation = (
   ...(state.locale === undefined ? {} : { locale: state.locale }),
   permissions: [...state.permissions],
   ...(state.timezoneId === undefined ? {} : { timezoneId: state.timezoneId }),
-  ...(state.identity === undefined
-    ? {}
-    : { browser: state.identity, userAgent: state.identity.userAgent }),
+  // The identity alone. Writing its string beside it as `userAgent` would be
+  // a second copy of one answer, and a later edit could leave the two
+  // disagreeing about what the Flow emulates.
+  ...(state.identity === undefined ? {} : { browser: state.identity }),
   viewport: state.viewport,
 });
 

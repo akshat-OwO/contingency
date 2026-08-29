@@ -983,7 +983,11 @@ const useBrowserWorkspace = () => {
   const selectUserAgent = (profile: UserAgentProfileId) => {
     setUserAgentProfile(profile);
     const nextViewport = viewportForIdentity(profile, viewport);
-    if (nextViewport !== viewport) {
+    if (
+      nextViewport.width !== viewport.width ||
+      nextViewport.height !== viewport.height ||
+      nextViewport.deviceScaleFactor !== viewport.deviceScaleFactor
+    ) {
       setPresetId(RESPONSIVE_PRESET_ID);
       setWidth(String(nextViewport.width));
       setHeight(String(nextViewport.height));

@@ -1,4 +1,9 @@
-import type { BrowserIdentity, Flow, Viewport } from "@contingency/protocol";
+import type {
+  BrandVersion,
+  BrowserIdentity,
+  Flow,
+  Viewport,
+} from "@contingency/protocol";
 import { stringOnlyIdentity } from "@contingency/protocol";
 
 /**
@@ -32,11 +37,8 @@ export const flowBrowserIdentity = (
 interface CdpUserAgentMetadata {
   readonly architecture: string;
   readonly bitness: string;
-  readonly brands: { readonly brand: string; readonly version: string }[];
-  readonly fullVersionList: {
-    readonly brand: string;
-    readonly version: string;
-  }[];
+  readonly brands: BrandVersion[];
+  readonly fullVersionList: BrandVersion[];
   readonly mobile: boolean;
   readonly model: string;
   readonly platform: string;

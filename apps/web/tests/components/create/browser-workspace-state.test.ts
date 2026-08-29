@@ -231,7 +231,15 @@ test("a mobile identity brings its own viewport and scale factor", () => {
     height: 892,
     width: 412,
   });
-  // A desktop identity declares no metrics, so the author's viewport stands.
-  expect(viewportForIdentity("chrome-windows", desktop)).toBe(desktop);
-  expect(viewportForIdentity("default", desktop)).toBe(desktop);
+  // A desktop identity declares no metrics, so the author's size stands.
+  expect(viewportForIdentity("chrome-windows", desktop)).toEqual(desktop);
+  expect(viewportForIdentity("default", desktop)).toEqual(desktop);
+  // Switching back off a mobile identity takes its pixel ratio with it,
+  // rather than leaving a desktop browser rendering at 3x.
+  const phone = { deviceScaleFactor: 3, height: 892, width: 412 };
+  expect(viewportForIdentity("chrome-windows", phone)).toEqual({
+    deviceScaleFactor: 1,
+    height: 892,
+    width: 412,
+  });
 });

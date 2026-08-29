@@ -164,6 +164,9 @@ export const canvasHoldAfterFirstFrame = (
 export const shouldRevealCanvasAfterPaint = (hold: CanvasFrameHold): boolean =>
   !shouldDropStaleCanvasFrame(hold);
 
+/** What a browser with no declared pixel ratio renders at. */
+const DEFAULT_DEVICE_SCALE_FACTOR = 1;
+
 /**
  * The viewport a browser identity selection applies. A mobile identity brings
  * its own device metrics — a phone user agent over a desktop viewport is the
@@ -175,4 +178,12 @@ export const shouldRevealCanvasAfterPaint = (hold: CanvasFrameHold): boolean =>
 export const viewportForIdentity = (
   profileId: UserAgentProfileId,
   current: Viewport
-): Viewport => profileViewport(profileId) ?? current;
+): Viewport =>
+  profileViewport(profileId) ?? {
+    ...current,
+    // The scale factor belongs to the identity, so an identity that declares
+    // none takes back whatever a mobile one applied rather than rendering a
+    // desktop browser at a phone's pixel ratio. Width and height are the
+    // author's and stay put.
+    deviceScaleFactor: DEFAULT_DEVICE_SCALE_FACTOR,
+  };
