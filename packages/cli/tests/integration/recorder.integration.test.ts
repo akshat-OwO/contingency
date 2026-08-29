@@ -444,10 +444,14 @@ it.live("cannot be made to record a Step by page code", () =>
     );
     yield* Effect.sleep("300 millis");
 
-    // The transport is not among the page's globals at all. Cleanup is, by
-    // necessity — the CLI evaluates it in the main world — and is guarded by
-    // the same credential instead, which the next test exercises.
-    expect(attack.callable).toEqual(["__contingencyRecorderCleanup"]);
+    // The transport is not among the page's globals at all. Cleanup and
+    // hover-picker swallow toggling are, by necessity — the CLI evaluates
+    // them in the main world — and are guarded by the same credential
+    // instead, which the next test exercises.
+    expect(attack.callable).toEqual([
+      "__contingencyRecorderSetSwallowClicks",
+      "__contingencyRecorderCleanup",
+    ]);
     // The page did observe the recorder's real emission for its own click —
     // that data is the page's own — but no credential passed through the
     // serializer, so replaying what it saw authorizes nothing.
