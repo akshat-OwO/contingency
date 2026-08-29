@@ -108,7 +108,9 @@ const stepLabel = (
     return "Hover element";
   }
   if (step.type === "scroll") {
-    return "Scroll page";
+    return step.target === undefined
+      ? "Scroll page"
+      : `Scroll ${targetLabel(step.target)}`;
   }
   if (step.type === "selectOption") {
     return "Select option";

@@ -658,6 +658,31 @@ test("shows which Page a Step beyond the first acts on", () => {
   expect(screen.getByText("Page 1")).toBeVisible();
 });
 
+test("names a container Scroll by its target", () => {
+  const active = makeSnapshot("active");
+  const containerScroll = {
+    id: "results-scroll",
+    preSteps: [],
+    step: {
+      deltaY: 200,
+      target: [{ kind: "role", name: "Results", role: "region" }],
+      type: "scroll" as const,
+    },
+  };
+  const recording: RecordingSnapshot = {
+    ...active,
+    flow: {
+      ...active.flow,
+      steps: [...active.flow.steps, containerScroll.step],
+    },
+    recordedSteps: [...active.recordedSteps, containerScroll],
+  };
+  renderRecording(recording);
+
+  expect(screen.getByText('Scroll region "Results"')).toBeVisible();
+  expect(screen.getByText("Δ (0, 200)")).toBeVisible();
+});
+
 test("renames and rebinds Variables", async () => {
   const user = userEvent.setup();
   const active = makeSnapshot("active");

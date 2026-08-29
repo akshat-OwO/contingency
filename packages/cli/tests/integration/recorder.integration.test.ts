@@ -11,7 +11,13 @@ import {
 import { connectionLost } from "../../src/services/recorder-events.ts";
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { Recording } from "../../src/services/recording.ts";
-import { fixtureServer } from "./harness.ts";
+import {
+  DOCUMENT_SCROLL_BEACON,
+  fixtureServer,
+  IntegrationLive,
+  NESTED_SCROLL_BEACON,
+  runFlow,
+} from "./harness.ts";
 
 /**
  * The Recorder, driving a real Chromium in process.
@@ -25,6 +31,11 @@ import { fixtureServer } from "./harness.ts";
 const RecorderIntegrationLive = RecordingLive.pipe(
   Layer.provideMerge(CreateBrowserLive),
   Layer.provideMerge(NodeServices.layer)
+);
+
+const RecorderReplayIntegrationLive = Layer.merge(
+  RecorderIntegrationLive,
+  IntegrationLive
 );
 
 const viewport = { deviceScaleFactor: 1, height: 480, width: 640 } as const;
@@ -156,7 +167,7 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 
-it.live("captures a scroll once, at the position the page came to rest", () =>
+it.live("captures a document scroll once at its resting position", () =>
   Effect.gen(function* captureScroll() {
     const fixtures = yield* fixtureServer;
     const { page, recording } = yield* openRecording(
@@ -171,16 +182,59 @@ it.live("captures a scroll once, at the position the page came to rest", () =>
       (step) => step.type === "scroll"
     );
     expect(scrolls).toHaveLength(1);
-    expect(scrolls[0]).toMatchObject({ type: "scroll" });
+    expect(scrolls[0]).toMatchObject({ deltaY: 600, type: "scroll" });
+    expect(scrolls[0]).not.toHaveProperty("target");
+  }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
 
-    // A container scrolls where the document does not, and that is the case
-    // lazy-loaded content lives in.
+it.live("records and replays document and nested-container Scrolls", () =>
+  Effect.gen(function* recordAndReplayScrolls() {
+    const fixtures = yield* fixtureServer;
+    const { page, recording } = yield* openRecording(
+      fixtures.url("nested-scroll.html")
+    );
+
     yield* Effect.promise(() => page.hover("#panel"));
     yield* Effect.promise(() => page.mouse.wheel(0, 200));
     yield* Effect.sleep(SCROLL_REST);
+    yield* Effect.promise(() => page.mouse.move(500, 300));
+    yield* Effect.promise(() => page.mouse.wheel(0, 300));
+    yield* Effect.sleep(SCROLL_REST);
+
+    const snapshot = yield* recording.get();
+    const scrolls = snapshotSteps(snapshot).filter(
+      (step) => step.type === "scroll"
+    );
+    expect(scrolls).toHaveLength(2);
+    expect(scrolls[0]).toMatchObject({ deltaY: 200 });
+    expect(scrolls[0]).toHaveProperty("target");
+    expect(scrolls[1]).toMatchObject({ deltaY: 300 });
+    expect(scrolls[1]).not.toHaveProperty("target");
+
+    if (snapshot === null) {
+      return;
+    }
+    const { run } = yield* runFlow(snapshot.flow);
+    expect(run.outcome).toBe("completed");
+    expect(fixtures.requests).toContain(NESTED_SCROLL_BEACON);
+    expect(fixtures.requests).toContain(DOCUMENT_SCROLL_BEACON);
+  }).pipe(Effect.scoped, Effect.provide(RecorderReplayIntegrationLive))
+);
+
+it.live("does not record a wheel gesture that cannot move its container", () =>
+  Effect.gen(function* ignoreWheelAtBoundary() {
+    const fixtures = yield* fixtureServer;
+    const { page, recording } = yield* openRecording(
+      fixtures.url("nested-scroll.html?panel-at-end")
+    );
+
+    yield* Effect.promise(() => page.hover("#panel"));
+    yield* Effect.promise(() => page.mouse.wheel(0, 200));
+    yield* Effect.sleep(SCROLL_REST);
+
     expect(
       (yield* stepsOf(recording)).filter((step) => step.type === "scroll")
-    ).toHaveLength(2);
+    ).toEqual([]);
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 

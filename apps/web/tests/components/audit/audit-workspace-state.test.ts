@@ -335,6 +335,19 @@ it("names a navigate Step by where it goes", () => {
   ).toBe("Navigate to example.com/cart");
 });
 
+it("distinguishes a container Scroll from a page Scroll", () => {
+  expect(
+    describeStep({
+      deltaY: 200,
+      target: [{ kind: "role", name: "Results", role: "region" }],
+      type: "scroll",
+    } as never)
+  ).toBe('Scroll region "Results"');
+  expect(describeStep({ deltaY: 200, type: "scroll" } as never)).toBe(
+    "Scroll the page"
+  );
+});
+
 describe("the frame player's timecode", () => {
   it("reads in tenths, because a frame is half a second", () => {
     expect(formatTimecode(0)).toBe("0:00.0");

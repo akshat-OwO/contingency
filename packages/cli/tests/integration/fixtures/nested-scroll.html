@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nested scroll</title>
+  </head>
+  <body>
+    <main>
+      <h1>Nested scroll</h1>
+      <div id="panel" style="height: 120px; overflow-y: scroll">
+        <div style="height: 900px">Container contents</div>
+      </div>
+      <p hidden id="container-scrolled">Container scrolled</p>
+      <div id="document-spacer" style="height: 300vh"></div>
+      <p hidden id="document-scrolled">Document scrolled</p>
+    </main>
+    <script>
+      const panel = document.getElementById("panel");
+      if (new URLSearchParams(location.search).has("panel-at-end")) {
+        document.getElementById("document-spacer").hidden = true;
+        panel.scrollTop = panel.scrollHeight;
+      }
+      panel.addEventListener(
+        "scroll",
+        () => {
+          if (panel.scrollTop > 0) {
+            document.getElementById("container-scrolled").hidden = false;
+            fetch("/nested-scroll-beacon").catch(() => {});
+          }
+        },
+        { once: true }
+      );
+      addEventListener(
+        "scroll",
+        () => {
+          if (globalThis.scrollY > 0) {
+            document.getElementById("document-scrolled").hidden = false;
+            fetch("/document-scroll-beacon").catch(() => {});
+          }
+        },
+        { once: true }
+      );
+    </script>
+  </body>
+</html>

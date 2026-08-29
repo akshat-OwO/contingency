@@ -74,6 +74,54 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+it.live("reports the ordinary selector diagnostics for a Scroll target", () =>
+  Effect.gen(function* reportScrollTargetMisses() {
+    const fixtures = yield* fixtureServer;
+
+    const { persisted } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("renamed.html") },
+        {
+          deltaY: 100,
+          target: [
+            { kind: "css", selector: "#missing" },
+            { kind: "css", selector: ".remove" },
+            { kind: "css", selector: "#saved-for-later" },
+          ],
+          timeout: MISS_TIMEOUT_MS,
+          type: "scroll",
+        },
+      ])
+    );
+
+    expect(persisted.outcome).toBe("failed");
+    expect(
+      persisted.steps[1]?.selector?.candidates.map(({ miss }) => miss)
+    ).toEqual(["absent", "ambiguous", "hidden"]);
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
+it.live("reports a detached Scroll target instead of calling it absent", () =>
+  Effect.gen(function* reportDetachedScrollTarget() {
+    const fixtures = yield* fixtureServer;
+
+    const { persisted } = yield* runFlow(
+      flow([
+        { type: "navigate", url: fixtures.url("unstable.html") },
+        {
+          deltaY: 100,
+          target: [{ kind: "css", selector: "#flappy" }],
+          timeout: MISS_TIMEOUT_MS,
+          type: "scroll",
+        },
+      ])
+    );
+
+    expect(persisted.outcome).toBe("failed");
+    expect(persisted.steps[1]?.selector?.candidates[0]?.miss).toBe("detached");
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
+
 it.live(
   "tells an element that went away from one that will not be clicked",
   () =>

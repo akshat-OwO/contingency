@@ -254,6 +254,7 @@ const toBrowserStep = (
         ...at,
         ...(action.deltaX === undefined ? {} : { deltaX: action.deltaX }),
         ...(action.deltaY === undefined ? {} : { deltaY: action.deltaY }),
+        ...(action.target === undefined ? {} : { target: action.target }),
         type: "scroll",
       };
     }

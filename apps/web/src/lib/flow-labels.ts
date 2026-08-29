@@ -51,7 +51,9 @@ export const describeStep = (step: AuthoredStep): string => {
       return `Select ${step.values.join(", ")}`;
     }
     case "scroll": {
-      return "Scroll the page";
+      return step.target === undefined
+        ? "Scroll the page"
+        : `Scroll ${targetLabel(step.target)}`;
     }
     case "press": {
       return `Press ${step.key}`;

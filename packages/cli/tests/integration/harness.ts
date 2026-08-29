@@ -126,6 +126,12 @@ export const STEP_BEACON = "/step-beacon";
 /** What the lazy fixture requests once its below-the-fold content loads. */
 export const LAZY_LOADED_BEACON = "/lazy-loaded-beacon";
 
+/** What the nested Scroll fixture requests when its container moves. */
+export const NESTED_SCROLL_BEACON = "/nested-scroll-beacon";
+
+/** What the nested Scroll fixture requests when the document moves. */
+export const DOCUMENT_SCROLL_BEACON = "/document-scroll-beacon";
+
 /** What the shop fixture requests once its cart is viewed. */
 export const CART_VIEWED_BEACON = "/cart-viewed";
 
