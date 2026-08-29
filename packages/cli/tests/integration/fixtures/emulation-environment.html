@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Environment</title>
+  </head>
+  <body>
+    <main>
+      <h1>Where and when am I</h1>
+      <output id="environment">asking…</output>
+    </main>
+    <script>
+      // Reported from the document itself, so what is asserted is what the
+      // first page of the session actually observed rather than what a later
+      // patch could have installed.
+      const report = (entries) => {
+        document.getElementById("environment").textContent =
+          JSON.stringify(entries);
+        fetch("/environment-beacon?" + new URLSearchParams(entries)).catch(
+          () => {}
+        );
+      };
+      report({
+        colorScheme: matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light",
+        language: navigator.language,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          report({
+            latitude: String(position.coords.latitude),
+            longitude: String(position.coords.longitude),
+          });
+        },
+        (error) => {
+          report({ locationError: String(error.code) });
+        }
+      );
+    </script>
+  </body>
+</html>

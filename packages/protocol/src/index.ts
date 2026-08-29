@@ -334,11 +334,29 @@ export const BrowserSessionClose = request("browser.session.close", {
 });
 export const BrowserSessionClosed = response("browser.session.closed", {});
 
-export const BrowserOpen = request("browser.open", {
-  sessionId: Schema.optional(SessionId),
-  url: Schema.String,
+/**
+ * One whole Emulation Create View has composed but no session applies yet: the
+ * browser identity, its viewport, and the environment around it as a single
+ * value. It travels with the first navigation so the session's first request
+ * and document already carry it, rather than being patched in afterwards ([ADR
+ * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+export const DraftEmulation = Schema.Struct({
+  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
+  geolocation: Schema.optional(Geolocation),
+  locale: Schema.optional(nonEmptyProtocolString),
+  permissions: Schema.Array(PermissionGrant),
+  timezoneId: Schema.optional(nonEmptyProtocolString),
   userAgentProfile: UserAgentProfileId,
   viewport: Viewport,
+});
+export type DraftEmulation = typeof DraftEmulation.Type;
+
+export const BrowserOpen = request("browser.open", {
+  /** The whole Emulation to apply before the first request leaves. */
+  emulation: DraftEmulation,
+  sessionId: Schema.optional(SessionId),
+  url: Schema.String,
 });
 export const BrowserOpened = response("browser.opened", {
   sessionId: SessionId,

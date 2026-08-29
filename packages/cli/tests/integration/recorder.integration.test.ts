@@ -13,6 +13,7 @@ import { RecordingLive } from "../../src/services/recorder.ts";
 import { Recording } from "../../src/services/recording.ts";
 import {
   DOCUMENT_SCROLL_BEACON,
+  draftEmulation,
   fixtureServer,
   IntegrationLive,
   NESTED_SCROLL_BEACON,
@@ -64,7 +65,11 @@ const openRecording = (url: string, title = "Recorder") =>
     yield* Effect.addFinalizer(() =>
       browser.close(sessionId).pipe(Effect.ignore)
     );
-    yield* browser.open(sessionId, url, viewport, "chrome-windows");
+    yield* browser.open(
+      sessionId,
+      url,
+      draftEmulation("chrome-windows", viewport)
+    );
     yield* recording.start({ sessionId, title });
     const target = yield* browser.recorderTarget(sessionId);
     return { browser, page: target.page, recording, sessionId };
@@ -619,8 +624,7 @@ it.live("reveals nothing to a page waiting for capture to attach", () =>
     yield* browser.open(
       sessionId,
       fixtures.url("recorder.html"),
-      viewport,
-      "chrome-windows"
+      draftEmulation("chrome-windows", viewport)
     );
 
     // The ambush is in place before capture starts, in the document capture

@@ -7,7 +7,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { Flow, Run } from "@contingency/protocol";
+import type {
+  DraftEmulation,
+  Flow,
+  Run,
+  UserAgentProfileId,
+  Viewport,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Layer } from "effect";
 import type { Scope } from "effect/Scope";
@@ -272,6 +278,23 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
     /** The URL of a fixture page, for a Flow to navigate to. */
     url: (page: string) => `${origin}/${page}`,
   };
+});
+
+/**
+ * One Emulation snapshot for `CreateBrowser.open`, which takes the identity,
+ * viewport, and environment as a single value rather than separate arguments.
+ */
+export const draftEmulation = (
+  userAgentProfile: UserAgentProfileId,
+  viewport: Viewport,
+  environment: Partial<
+    Omit<DraftEmulation, "userAgentProfile" | "viewport">
+  > = {}
+): DraftEmulation => ({
+  ...environment,
+  permissions: environment.permissions ?? [],
+  userAgentProfile,
+  viewport,
 });
 
 /** A Flow, with the boilerplate a Recorder would have written for it. */

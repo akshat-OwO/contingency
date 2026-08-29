@@ -195,14 +195,12 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "browser.open": ({ data }) =>
-        browser
-          .open(data.sessionId, data.url, data.viewport, data.userAgentProfile)
-          .pipe(
-            Effect.map(({ sessionId, url }) => ({
-              data: { sessionId, url },
-              type: "browser.opened" as const,
-            }))
-          ),
+        browser.open(data.sessionId, data.url, data.emulation).pipe(
+          Effect.map(({ sessionId, url }) => ({
+            data: { sessionId, url },
+            type: "browser.opened" as const,
+          }))
+        ),
       "browser.session.attach": ({ data }) =>
         browser.currentUrl(data.sessionId).pipe(
           Effect.map((url) => ({

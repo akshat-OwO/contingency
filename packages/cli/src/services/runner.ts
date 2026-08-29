@@ -21,7 +21,6 @@ import type {
   CoreWebVitals,
   Finding,
   Flow,
-  Geolocation,
   LocatorDescriptor,
   PreStep,
   PermissionGrant,
@@ -66,6 +65,7 @@ import type {
 import { flowBrowserIdentity, userAgentOverride } from "./browser-identity.ts";
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { groupedPermissionGrants } from "./create-browser-session.ts";
+import { environmentContextOptions } from "./emulation-options.ts";
 import {
   describeDiagnostics,
   describeLocator,
@@ -97,43 +97,6 @@ const DEFAULT_RUN_VIEWPORT = {
   height: 800,
   width: 1280,
 } as const;
-
-/** The geolocation context option, or nothing when none is declared. */
-const geolocationOption = (geolocation: Geolocation | undefined) =>
-  geolocation === undefined
-    ? {}
-    : {
-        geolocation: {
-          ...(geolocation.accuracy === undefined
-            ? {}
-            : { accuracy: geolocation.accuracy }),
-          latitude: geolocation.latitude,
-          longitude: geolocation.longitude,
-        },
-      };
-
-/**
- * The Playwright context options a Flow's Emulation translates to. Fields the
- * Flow does not declare stay at their defaults.
- */
-/** The environment half of an Emulation: what a site senses about its place. */
-const environmentContextOptions = (
-  emulation: Flow["emulation"]
-): {
-  colorScheme?: "light" | "dark";
-  geolocation?: { accuracy?: number; latitude: number; longitude: number };
-  locale?: string;
-  timezoneId?: string;
-} => ({
-  ...(emulation?.colorScheme === undefined
-    ? {}
-    : { colorScheme: emulation.colorScheme }),
-  ...geolocationOption(emulation?.geolocation),
-  ...(emulation?.locale === undefined ? {} : { locale: emulation.locale }),
-  ...(emulation?.timezoneId === undefined
-    ? {}
-    : { timezoneId: emulation.timezoneId }),
-});
 
 const emulationContextOptions = (
   emulation: Flow["emulation"]
