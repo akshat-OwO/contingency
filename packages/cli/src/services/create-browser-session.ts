@@ -1,6 +1,7 @@
-import { makeBrowserRpcError, userAgentProfiles } from "@contingency/protocol";
+import { makeBrowserRpcError } from "@contingency/protocol";
 import type {
   BrowserCookie,
+  BrowserIdentity,
   BrowserNetworkRequest,
   BrowserRpcErrorType,
   BrowserStorageSnapshot,
@@ -13,7 +14,6 @@ import type {
   SessionEmulation,
   SessionId,
   StorageKind,
-  UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
 import type { Semaphore } from "effect";
@@ -25,6 +25,12 @@ import type {
   Request,
   Response,
 } from "playwright-core";
+
+import {
+  deviceMetricsOverride,
+  touchEmulation,
+  userAgentOverride,
+} from "./browser-identity.ts";
 
 export interface ScreencastFramePayload {
   readonly data: string;
@@ -82,7 +88,11 @@ export interface CreateSessionState {
   readonly sequence: number;
   readonly timezoneId: string | undefined;
   readonly titles: ReadonlyMap<Page, string>;
-  readonly userAgent: string | undefined;
+  /**
+   * The concrete browser the session presents — string, client hints, mobile
+   * metrics, and touch as one value. Undefined is the browser's own identity.
+   */
+  readonly identity: BrowserIdentity | undefined;
   readonly viewport: Viewport;
 }
 
@@ -175,15 +185,6 @@ export const validateBrowserUrl = (url: string) =>
       return new URL(absolute).href;
     },
   });
-
-export const resolveUserAgent = (
-  profileId: UserAgentProfileId,
-  browserVersion: string
-): string | undefined => {
-  const profile = userAgentProfiles.find(({ id }) => id === profileId);
-  const majorVersion = browserVersion.split(".")[0] ?? browserVersion;
-  return profile?.template?.replaceAll("%s", majorVersion);
-};
 
 export const normalizeCookie = (cookie: {
   readonly domain: string;
@@ -287,24 +288,35 @@ const requireEmulationSession = (session: CreateSession, page: Page) =>
     return created;
   });
 
-export const applyUserAgent = (
+/**
+ * Install one browser identity on a Page: the legacy string, the client-hint
+ * metadata beside it, and touch capability. The device metrics that complete
+ * the identity travel with the viewport, which `applyViewport` sends from the
+ * same identity.
+ */
+export const applyIdentity = (
   session: CreateSession,
   page: Page,
-  userAgent: string | undefined
+  identity: BrowserIdentity | undefined
 ) =>
-  Effect.gen(function* setPageUserAgent() {
+  Effect.gen(function* setPageIdentity() {
     const cdp = yield* requireEmulationSession(session, page);
     yield* tryBrowser("Could not set the user agent", () =>
-      cdp.send("Network.setUserAgentOverride", {
-        userAgent: userAgent ?? session.defaultUserAgent,
-      })
+      cdp.send(
+        "Emulation.setUserAgentOverride",
+        userAgentOverride(identity, session.defaultUserAgent)
+      )
+    );
+    yield* tryBrowser("Could not set touch emulation", () =>
+      cdp.send("Emulation.setTouchEmulationEnabled", touchEmulation(identity))
     );
   });
 
 export const applyViewport = (
   session: CreateSession,
   page: Page,
-  viewport: Viewport
+  viewport: Viewport,
+  identity: BrowserIdentity | undefined
 ) =>
   Effect.gen(function* setPageViewport() {
     yield* tryBrowser("Could not set the viewport", () =>
@@ -315,12 +327,10 @@ export const applyViewport = (
     );
     const cdp = yield* requireEmulationSession(session, page);
     yield* tryBrowser("Could not set the viewport", () =>
-      cdp.send("Emulation.setDeviceMetricsOverride", {
-        deviceScaleFactor: viewport.deviceScaleFactor,
-        height: viewport.height,
-        mobile: false,
-        width: viewport.width,
-      })
+      cdp.send(
+        "Emulation.setDeviceMetricsOverride",
+        deviceMetricsOverride(identity, viewport)
+      )
     );
   });
 
@@ -408,10 +418,11 @@ export const applyEmulationToPage = (
 ): Effect.Effect<void, BrowserRpcErrorType> =>
   Effect.gen(function* applyFullEmulation() {
     const state = readSessionState(session);
-    yield* applyViewport(session, page, state.viewport);
-    // An undefined user agent resets to the browser's own, so switching a
-    // session back to `default` actually clears an override it carried.
-    yield* applyUserAgent(session, page, state.userAgent);
+    // The identity first: the device metrics it implies are part of it, so the
+    // viewport and the user agent a site reads can never disagree about
+    // whether this is a phone.
+    yield* applyIdentity(session, page, state.identity);
+    yield* applyViewport(session, page, state.viewport, state.identity);
     yield* applyEnvironment(session, page);
   });
 
@@ -443,7 +454,7 @@ export const reapplyViewport = (
   Effect.suspend(() => {
     const state = readSessionState(session);
     return Effect.forEach([...state.pageIds.keys()], (page) =>
-      applyViewport(session, page, state.viewport)
+      applyViewport(session, page, state.viewport, state.identity)
     );
   }).pipe(Effect.asVoid);
 
@@ -512,7 +523,10 @@ export const toSessionEmulation = (
   ...(state.locale === undefined ? {} : { locale: state.locale }),
   permissions: [...state.permissions],
   ...(state.timezoneId === undefined ? {} : { timezoneId: state.timezoneId }),
-  ...(state.userAgent === undefined ? {} : { userAgent: state.userAgent }),
+  // The identity alone. Writing its string beside it as `userAgent` would be
+  // a second copy of one answer, and a later edit could leave the two
+  // disagreeing about what the Flow emulates.
+  ...(state.identity === undefined ? {} : { browser: state.identity }),
   viewport: state.viewport,
 });
 

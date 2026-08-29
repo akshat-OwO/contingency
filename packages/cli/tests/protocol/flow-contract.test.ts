@@ -220,6 +220,64 @@ test("a Flow declares its Emulation", () => {
   );
 });
 
+/**
+ * A Flow carries the concrete browser Create View applied, not the profile id
+ * that produced it: a durable reference to a mutable authoring list could mean
+ * something else later ([ADR
+ * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+test("a Flow declares a concrete browser identity", () => {
+  const browser = {
+    hasTouch: true,
+    mobile: true,
+    userAgent:
+      "Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36",
+    userAgentMetadata: {
+      architecture: "",
+      bitness: "",
+      brands: [
+        { brand: "Not_A Brand", version: "24" },
+        { brand: "Chromium", version: "141" },
+        { brand: "Google Chrome", version: "141" },
+      ],
+      model: "Pixel 10",
+      platform: "Android",
+      platformVersion: "16.0.0",
+    },
+  };
+  const flow = assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        browser,
+        viewport: { deviceScaleFactor: 3, height: 892, width: 412 },
+      },
+    })
+  );
+  expect(flow.emulation?.browser).toEqual(browser);
+
+  // Mobile and touch are the identity's own answers, so they are stated
+  // rather than inferred from the string.
+  assertRejects(
+    flowWith([navigateStep], {
+      emulation: { browser: { userAgent: "Mozilla/5.0 (Linux; Android 16)" } },
+    })
+  );
+  // Client-hint metadata is optional: a string-only identity declares none.
+  assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        browser: { hasTouch: false, mobile: false, userAgent: "Custom/1.0" },
+      },
+    })
+  );
+  // A profile id is not an identity.
+  assertRejects(
+    flowWith([navigateStep], {
+      emulation: { browser: "chrome-android-mobile" },
+    })
+  );
+});
+
 test("a Flow declares a Gate as accessibility rule ids", () => {
   const flow = assertDecodes(
     flowWith([navigateStep], { gate: ["image-alt", "label"] })

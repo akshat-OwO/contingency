@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      A responsive page, so a mobile identity lays it out at the device width
+      and a desktop one does not. Without this a mobile Chromium falls back to
+      its 980px layout width and the two look alike.
+    -->
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <title>Identity</title>
+  </head>
+  <body>
+    <main>
+      <h1>Who am I</h1>
+      <output id="identity">asking…</output>
+    </main>
+    <script>
+      const report = (entries) => {
+        document.getElementById("identity").textContent =
+          JSON.stringify(entries);
+        fetch("/identity-beacon?" + new URLSearchParams(entries)).catch(
+          () => {}
+        );
+      };
+      const data = navigator.userAgentData;
+      const hints = data
+        ? data.getHighEntropyValues(["model", "platformVersion"])
+        : Promise.resolve({});
+      hints
+        .catch(() => ({}))
+        .then((high) => {
+          report({
+            brands: (data?.brands ?? [])
+              .map((entry) => entry.brand + "/" + entry.version)
+              .join(","),
+            coarse: matchMedia("(pointer: coarse)").matches ? "1" : "0",
+            devicePixelRatio: String(devicePixelRatio),
+            hintMobile: data ? (data.mobile ? "1" : "0") : "absent",
+            maxTouchPoints: String(navigator.maxTouchPoints),
+            model: String(high.model ?? ""),
+            platform: String(data?.platform ?? ""),
+            touchEvents: "ontouchstart" in window ? "1" : "0",
+            userAgent: navigator.userAgent,
+            width: String(innerWidth),
+          });
+        });
+    </script>
+  </body>
+</html>

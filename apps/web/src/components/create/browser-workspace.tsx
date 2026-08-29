@@ -66,6 +66,7 @@ import {
   replacePendingBrowserFrame,
   shouldDropStaleCanvasFrame,
   shouldRevealCanvasAfterPaint,
+  viewportForIdentity,
 } from "@/components/create/browser-workspace-state";
 import type { CanvasFrameHold } from "@/components/create/browser-workspace-state";
 import {
@@ -145,6 +146,12 @@ const browserOptionalStateAtom = Atom.make<BrowserOptionalState>({
 });
 const streamConnectedAtom = Atom.make(false);
 const viewportWidthAtom = Atom.make("1280");
+/**
+ * The device scale factor Pages render at. It is part of the browser identity
+ * rather than a separate control: selecting a mobile identity applies its own
+ * ([ADR 0013](../../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+const viewportScaleAtom = Atom.make(1);
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error || isBrowserRpcError(error)
@@ -290,6 +297,7 @@ const useBrowserWorkspace = () => {
   const [streamConnected, setStreamConnected] = useAtom(streamConnectedAtom);
   const [tabs, setTabs] = useAtom(browserTabsAtom);
   const [width, setWidth] = useAtom(viewportWidthAtom);
+  const [deviceScaleFactor, setDeviceScaleFactor] = useAtom(viewportScaleAtom);
   const [userAgentProfile, setUserAgentProfile] = useAtom(userAgentProfileAtom);
   const [sessionEmulation, setSessionEmulation] = useAtom(sessionEmulationAtom);
   const updateEmulation = useAtomSet(browserEmulationMutation, {
@@ -347,7 +355,7 @@ const useBrowserWorkspace = () => {
     activeTab?.tabId
   );
   const viewport: Viewport = {
-    deviceScaleFactor: 1,
+    deviceScaleFactor,
     height: Math.max(1, Number(height) || 720),
     width: Math.max(1, Number(width) || 1280),
   };
@@ -966,8 +974,25 @@ const useBrowserWorkspace = () => {
     );
   };
 
+  /**
+   * Choosing an identity moves every signal it implies together. A mobile
+   * identity brings its own viewport and scale factor, which the request
+   * carries rather than reading back from state that has not re-rendered yet;
+   * a later explicit viewport edit overwrites them (ADR 0013).
+   */
   const selectUserAgent = (profile: UserAgentProfileId) => {
     setUserAgentProfile(profile);
+    const nextViewport = viewportForIdentity(profile, viewport);
+    if (
+      nextViewport.width !== viewport.width ||
+      nextViewport.height !== viewport.height ||
+      nextViewport.deviceScaleFactor !== viewport.deviceScaleFactor
+    ) {
+      setPresetId(RESPONSIVE_PRESET_ID);
+      setWidth(String(nextViewport.width));
+      setHeight(String(nextViewport.height));
+      setDeviceScaleFactor(nextViewport.deviceScaleFactor);
+    }
     if (
       selectedSessionId === undefined ||
       address.trim().length === 0 ||
@@ -988,7 +1013,7 @@ const useBrowserWorkspace = () => {
                 sessionId: selectedSessionId,
                 url: address,
                 userAgentProfile: profile,
-                viewport,
+                viewport: nextViewport,
               },
               type: "browser.user-agent.set",
             },
@@ -1184,7 +1209,7 @@ const useBrowserWorkspace = () => {
     setWidth(String(preset.width));
     setHeight(String(preset.height));
     applyViewport({
-      deviceScaleFactor: 1,
+      deviceScaleFactor,
       height: preset.height,
       width: preset.width,
     });

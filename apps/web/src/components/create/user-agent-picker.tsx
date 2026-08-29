@@ -1,4 +1,4 @@
-import { userAgentProfiles } from "@contingency/protocol";
+import { selectableUserAgentProfiles } from "@contingency/protocol";
 import type { UserAgentProfileId } from "@contingency/protocol";
 import { LaptopIcon } from "lucide-react";
 
@@ -12,14 +12,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type UserAgentProfile = (typeof userAgentProfiles)[number];
+/**
+ * Only the identities Chromium can genuinely reproduce are offered for new
+ * work: Safari and Firefox profiles could disguise Chromium with a string but
+ * never behave as those engines ([ADR
+ * 0013](../../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+type UserAgentProfile = (typeof selectableUserAgentProfiles)[number];
 
 const userAgentGroups: {
   readonly group: string;
   readonly profiles: UserAgentProfile[];
 }[] = [];
 
-for (const profile of userAgentProfiles) {
+for (const profile of selectableUserAgentProfiles) {
   const existingGroup = userAgentGroups.find(
     ({ group }) => group === profile.group
   );
@@ -41,7 +47,7 @@ const UserAgentPicker = ({
   onValueChange,
   value,
 }: UserAgentPickerProps) => {
-  const selectedProfile = userAgentProfiles.find(
+  const selectedProfile = selectableUserAgentProfiles.find(
     (profile) => profile.id === value
   );
 
@@ -49,7 +55,9 @@ const UserAgentPicker = ({
     <Select
       disabled={disabled}
       onValueChange={(nextValue) => {
-        const profile = userAgentProfiles.find(({ id }) => id === nextValue);
+        const profile = selectableUserAgentProfiles.find(
+          ({ id }) => id === nextValue
+        );
         if (profile !== undefined) {
           onValueChange(profile.id);
         }

@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
   AuditKind,
@@ -55,235 +56,22 @@ export const BrowserStreamId = Schema.String.check(Schema.isMinLength(1)).pipe(
 export type BrowserStreamId = typeof BrowserStreamId.Type;
 
 export { Viewport } from "./viewport.ts";
-
-export const UserAgentProfileId = Schema.Literals([
-  "default",
-  "chrome-android-mobile",
-  "chrome-android-mobile-high-end",
-  "chrome-android-tablet",
-  "chrome-iphone",
-  "chrome-ipad",
-  "chrome-chrome-os",
-  "chrome-mac",
-  "chrome-windows",
-  "firefox-android-mobile",
-  "firefox-android-tablet",
-  "firefox-iphone",
-  "firefox-ipad",
-  "firefox-mac",
-  "firefox-windows",
-  "googlebot",
-  "googlebot-desktop",
-  "googlebot-smartphone",
-  "edge-chromium-windows",
-  "edge-chromium-mac",
-  "edge-iphone",
-  "edge-ipad",
-  "edge-android-mobile",
-  "edge-android-tablet",
-  "safari-ipad",
-  "safari-iphone",
-  "safari-mac",
-]);
-export type UserAgentProfileId = typeof UserAgentProfileId.Type;
-
-export interface UserAgentProfile {
-  readonly group: string;
-  readonly id: UserAgentProfileId;
-  readonly label: string;
-  readonly template: string | undefined;
-}
-
-export const userAgentProfiles: readonly UserAgentProfile[] = [
-  {
-    group: "Default",
-    id: "default",
-    label: "Browser default",
-    template: undefined,
-  },
-  {
-    group: "Chrome",
-    id: "chrome-android-mobile",
-    label: "Chrome — Android Mobile",
-    template:
-      "Mozilla/5.0 (Linux; Android 16; Pixel 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-android-mobile-high-end",
-    label: "Chrome — Android Mobile (high-end)",
-    template:
-      "Mozilla/5.0 (Linux; Android 16; Pixel 10 Pro XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-android-tablet",
-    label: "Chrome — Android Tablet",
-    template:
-      "Mozilla/5.0 (Linux; Android 16; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-iphone",
-    label: "Chrome — iPhone",
-    template:
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/%s Mobile/15E148 Safari/604.1",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-ipad",
-    label: "Chrome — iPad",
-    template:
-      "Mozilla/5.0 (iPad; CPU OS 26_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/%s Mobile/15E148 Safari/604.1",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-chrome-os",
-    label: "Chrome — Chrome OS",
-    template:
-      "Mozilla/5.0 (X11; CrOS x86_64 10066.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-mac",
-    label: "Chrome — Mac",
-    template:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
-  },
-  {
-    group: "Chrome",
-    id: "chrome-windows",
-    label: "Chrome — Windows",
-    template:
-      "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36",
-  },
-  {
-    group: "Firefox",
-    id: "firefox-android-mobile",
-    label: "Firefox — Android Mobile",
-    template:
-      "Mozilla/5.0 (Android 4.4; Mobile; rv:70.0) Gecko/70.0 Firefox/70.0",
-  },
-  {
-    group: "Firefox",
-    id: "firefox-android-tablet",
-    label: "Firefox — Android Tablet",
-    template:
-      "Mozilla/5.0 (Android 4.4; Tablet; rv:70.0) Gecko/70.0 Firefox/70.0",
-  },
-  {
-    group: "Firefox",
-    id: "firefox-iphone",
-    label: "Firefox — iPhone",
-    template:
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 8_3 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) FxiOS/1.0 Mobile/12F69 Safari/600.1.4",
-  },
-  {
-    group: "Firefox",
-    id: "firefox-ipad",
-    label: "Firefox — iPad",
-    template:
-      "Mozilla/5.0 (iPad; CPU iPhone OS 8_3 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) FxiOS/1.0 Mobile/12F69 Safari/600.1.4",
-  },
-  {
-    group: "Firefox",
-    id: "firefox-mac",
-    label: "Firefox — Mac",
-    template:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:70.0) Gecko/20100101 Firefox/70.0",
-  },
-  {
-    group: "Firefox",
-    id: "firefox-windows",
-    label: "Firefox — Windows",
-    template:
-      "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:70.0) Gecko/20100101 Firefox/70.0",
-  },
-  {
-    group: "Googlebot",
-    id: "googlebot",
-    label: "Googlebot",
-    template:
-      "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-  },
-  {
-    group: "Googlebot",
-    id: "googlebot-desktop",
-    label: "Googlebot Desktop",
-    template:
-      "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/%s Safari/537.36",
-  },
-  {
-    group: "Googlebot",
-    id: "googlebot-smartphone",
-    label: "Googlebot Smartphone",
-    template:
-      "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-  },
-  {
-    group: "Microsoft Edge",
-    id: "edge-chromium-windows",
-    label: "Microsoft Edge (Chromium) — Windows",
-    template:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36 Edg/%s",
-  },
-  {
-    group: "Microsoft Edge",
-    id: "edge-chromium-mac",
-    label: "Microsoft Edge (Chromium) — Mac",
-    template:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Chrome/%s Safari/604.1 Edg/%s",
-  },
-  {
-    group: "Microsoft Edge",
-    id: "edge-iphone",
-    label: "Microsoft Edge — iPhone",
-    template:
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 12_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.1.1 EdgiOS/44.5.0.10 Mobile/15E148 Safari/604.1",
-  },
-  {
-    group: "Microsoft Edge",
-    id: "edge-ipad",
-    label: "Microsoft Edge — iPad",
-    template:
-      "Mozilla/5.0 (iPad; CPU OS 12_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 EdgiOS/44.5.2 Mobile/15E148 Safari/605.1.15",
-  },
-  {
-    group: "Microsoft Edge",
-    id: "edge-android-mobile",
-    label: "Microsoft Edge — Android Mobile",
-    template:
-      "Mozilla/5.0 (Linux; Android 8.1.0; Pixel Build/OPM4.171019.021.D1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36 EdgA/42.0.0.2057",
-  },
-  {
-    group: "Microsoft Edge",
-    id: "edge-android-tablet",
-    label: "Microsoft Edge — Android Tablet",
-    template:
-      "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 7 Build/MOB30X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36 EdgA/42.0.0.2057",
-  },
-  {
-    group: "Safari",
-    id: "safari-ipad",
-    label: "Safari — iPad iOS 13.2",
-    template:
-      "Mozilla/5.0 (iPad; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1",
-  },
-  {
-    group: "Safari",
-    id: "safari-iphone",
-    label: "Safari — iPhone iOS 13.2",
-    template:
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1",
-  },
-  {
-    group: "Safari",
-    id: "safari-mac",
-    label: "Safari — Mac",
-    template:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Safari/605.1.15",
-  },
-];
+export {
+  BrandVersion,
+  BrowserIdentity,
+  browserIdentityFor,
+  profileIdentity,
+  profileViewport,
+  resolveIdentity,
+  resolveUserAgent,
+  resolveUserAgentMetadata,
+  selectableUserAgentProfiles,
+  stringOnlyIdentity,
+  UserAgentMetadata,
+  UserAgentProfileId,
+  userAgentProfiles,
+} from "./browser-identity.ts";
+export type { ProfileIdentity, UserAgentProfile } from "./browser-identity.ts";
 
 export const BrowserSession = Schema.Struct({
   id: SessionId,
@@ -593,6 +381,8 @@ export const BrowserUserAgentUpdated = response("browser.user-agent.updated", {
  * than declaring nothing.
  */
 export const SessionEmulation = Schema.Struct({
+  /** The concrete browser identity the session applies to every Page. */
+  browser: Schema.optional(BrowserIdentity),
   colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyProtocolString),

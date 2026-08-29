@@ -16,6 +16,7 @@ import {
 } from "@contingency/protocol";
 import type {
   AuthoredStep,
+  BrowserIdentity,
   Condition,
   CoreWebVitals,
   Finding,
@@ -62,6 +63,7 @@ import type {
   Request,
 } from "playwright-core";
 
+import { flowBrowserIdentity, userAgentOverride } from "./browser-identity.ts";
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { groupedPermissionGrants } from "./create-browser-session.ts";
 import {
@@ -114,20 +116,15 @@ const geolocationOption = (geolocation: Geolocation | undefined) =>
  * The Playwright context options a Flow's Emulation translates to. Fields the
  * Flow does not declare stay at their defaults.
  */
-const emulationContextOptions = (
+/** The environment half of an Emulation: what a site senses about its place. */
+const environmentContextOptions = (
   emulation: Flow["emulation"]
 ): {
   colorScheme?: "light" | "dark";
-  deviceScaleFactor: number;
   geolocation?: { accuracy?: number; latitude: number; longitude: number };
   locale?: string;
   timezoneId?: string;
-  userAgent?: string;
-  viewport: { height: number; width: number };
 } => ({
-  deviceScaleFactor:
-    emulation?.viewport?.deviceScaleFactor ??
-    DEFAULT_RUN_VIEWPORT.deviceScaleFactor,
   ...(emulation?.colorScheme === undefined
     ? {}
     : { colorScheme: emulation.colorScheme }),
@@ -136,14 +133,40 @@ const emulationContextOptions = (
   ...(emulation?.timezoneId === undefined
     ? {}
     : { timezoneId: emulation.timezoneId }),
-  ...(emulation?.userAgent === undefined
-    ? {}
-    : { userAgent: emulation.userAgent }),
-  viewport: {
-    height: emulation?.viewport?.height ?? DEFAULT_RUN_VIEWPORT.height,
-    width: emulation?.viewport?.width ?? DEFAULT_RUN_VIEWPORT.width,
-  },
 });
+
+const emulationContextOptions = (
+  emulation: Flow["emulation"]
+): {
+  colorScheme?: "light" | "dark";
+  deviceScaleFactor: number;
+  geolocation?: { accuracy?: number; latitude: number; longitude: number };
+  hasTouch: boolean;
+  isMobile: boolean;
+  locale?: string;
+  timezoneId?: string;
+  userAgent?: string;
+  viewport: { height: number; width: number };
+} => {
+  const identity = flowBrowserIdentity(emulation);
+  return {
+    deviceScaleFactor:
+      emulation?.viewport?.deviceScaleFactor ??
+      DEFAULT_RUN_VIEWPORT.deviceScaleFactor,
+    // The identity's mobile metrics and touch capability travel with its
+    // string rather than beside it: a mobile user agent over desktop behaviour
+    // is the incoherence ADR 0013 removes. The client hints that complete the
+    // identity are installed per Page, because Chromium takes them per target.
+    hasTouch: identity?.hasTouch ?? false,
+    isMobile: identity?.mobile ?? false,
+    ...environmentContextOptions(emulation),
+    ...(identity === undefined ? {} : { userAgent: identity.userAgent }),
+    viewport: {
+      height: emulation?.viewport?.height ?? DEFAULT_RUN_VIEWPORT.height,
+      width: emulation?.viewport?.width ?? DEFAULT_RUN_VIEWPORT.width,
+    },
+  };
+};
 
 /**
  * How long one Step may act before failing, set explicitly rather than left at
@@ -321,6 +344,48 @@ const errorMessage = (cause: unknown): string => {
   return message === undefined || message.length === 0
     ? String(cause)
     : message;
+};
+
+/**
+ * Install a Page's user-agent client hints. Playwright's context options carry
+ * the string, the mobile metrics, and touch, but not the client-hint metadata
+ * beside them, which Chromium takes per Page — so a Run applies it as each
+ * Page opens, before that Page has requested anything. A Flow that declares no
+ * hints leaves Chromium reporting its own.
+ *
+ * The override reaches the Page's cross-process subframes too, which
+ * `browser-identity.integration.test.ts` pins: a cross-origin iframe is where
+ * a string and its hints would drift apart unnoticed.
+ *
+ * Chromium substitutes the real running browser's brand list wherever an
+ * override omits `brands`, so a target that misses this install does not fall
+ * back to something neutral: it reports the desktop binary underneath while
+ * its string says a phone. That is the incoherence the Flow's identity exists
+ * to prevent, which is why the Page the Flow acts on fails the Run rather than
+ * swallowing it.
+ */
+const installClientHints = (
+  page: Page,
+  identity: BrowserIdentity | undefined
+): Effect.Effect<void, RunnerError> => {
+  if (identity?.userAgentMetadata === undefined) {
+    return Effect.void;
+  }
+  return Effect.tryPromise({
+    catch: (cause) =>
+      new RunnerError({
+        message: `Could not apply the browser identity: ${errorMessage(cause)}`,
+      }),
+    try: async () => {
+      // The session stays attached for the Page's life: Chromium reverts an
+      // override when the session that set it detaches, which would leave the
+      // identity installed for no request at all.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setUserAgentOverride", {
+        ...userAgentOverride(identity, identity.userAgent),
+      });
+    },
+  });
 };
 
 /**
@@ -2205,6 +2270,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           }),
         try: () => context.newPage(),
       });
+      // Before the Page has navigated, so the identity is complete on the
+      // first document request rather than from the second one onwards.
+      yield* installClientHints(page, flowBrowserIdentity(flow.emulation));
       const execution: ReplayExecution = {
         measuredPage: undefined,
         pages: [page],
@@ -2214,6 +2282,18 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       // which is exactly the identity a Step names.
       context.on("page", (opened) => {
         execution.pages.push(opened);
+        // A popup is the same browser as the Page that opened it, so it
+        // carries the same client hints. Nothing here can be awaited — the
+        // listener is Playwright's, not the Run's — so a popup may make its
+        // very first request before the override lands, carrying the string
+        // and the mobile hint Playwright derives from it but the running
+        // binary's brands. Everything after it is coherent. A Step that acts
+        // on a popup does so long after this has settled.
+        Effect.runFork(
+          Effect.ignore(
+            installClientHints(opened, flowBrowserIdentity(flow.emulation))
+          )
+        );
       });
       return { context, execution } satisfies AttemptSession;
     }),
