@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+import { BrowserIdentity } from "./browser-identity.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -524,6 +525,13 @@ export type Geolocation = typeof Geolocation.Type;
  * `offline` and extra HTTP headers are deferred.
  */
 export const Emulation = Schema.Struct({
+  /**
+   * The concrete browser the Flow presents, applied identically by Create View
+   * and every Run. It supersedes `userAgent`, which stays for Flows written
+   * before an identity was concrete and for custom strings that declare
+   * nothing further.
+   */
+  browser: Schema.optional(BrowserIdentity),
   colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyString),

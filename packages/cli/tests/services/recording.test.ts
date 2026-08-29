@@ -147,15 +147,22 @@ it.effect("declares the session's Emulation on the Flow it produces", () =>
     });
 
     // Whatever the session is emulating when capture starts is what the Flow
-    // declares — locale and timezone alongside location (ADR 0013).
+    // declares — locale and timezone alongside location, and the concrete
+    // browser identity rather than the profile id behind it (ADR 0013).
     emulation = {
+      browser: {
+        hasTouch: true,
+        mobile: true,
+        userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 10)",
+        userAgentMetadata: { model: "Pixel 10", platform: "Android" },
+      },
       colorScheme: "dark",
       geolocation: { latitude: 52.52, longitude: 13.405 },
       locale: "de-DE",
       permissions: [{ permission: "geolocation" }],
       timezoneId: "Europe/Berlin",
-      userAgent: "Mozilla/5.0 (iPhone)",
-      viewport: { deviceScaleFactor: 2, height: 720, width: 1280 },
+      userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 10)",
+      viewport: { deviceScaleFactor: 3, height: 892, width: 412 },
     };
     const second = yield* makeRecordingService(capture);
     yield* second.start({ sessionId, title: "Checkout" });

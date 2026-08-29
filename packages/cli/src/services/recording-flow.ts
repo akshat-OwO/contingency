@@ -245,6 +245,11 @@ const toAuthoredStep = (recorded: RecordedStep): AuthoredStep => ({
  * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
 const toEmulation = (emulation: SessionEmulation): Flow["emulation"] => ({
+  // The concrete identity, not the profile id that produced it: a Flow that
+  // referenced a mutable Create View profile could mean something else later
+  // (ADR 0013). `userAgent` stays beside it for readers that only know the
+  // string.
+  ...(emulation.browser === undefined ? {} : { browser: emulation.browser }),
   ...(emulation.colorScheme === undefined
     ? {}
     : { colorScheme: emulation.colorScheme }),

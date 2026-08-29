@@ -187,11 +187,27 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
    */
   const requests: string[] = [];
 
+  /**
+   * The headers of every request, in the same order. The first document
+   * request is the only place a browser identity can be proved to have been
+   * installed *before* the page existed rather than patched afterwards.
+   */
+  const requestHeaders: { headers: Record<string, string>; url: string }[] = [];
+
   const server = yield* Effect.acquireRelease(
     Effect.callback<Server>((resume) => {
       const created = createServer((request, response) => {
         const url = request.url ?? "/";
         requests.push(url);
+        requestHeaders.push({
+          headers: Object.fromEntries(
+            Object.entries(request.headers).map(([name, value]) => [
+              name,
+              Array.isArray(value) ? value.join(", ") : (value ?? ""),
+            ])
+          ),
+          url,
+        });
         const { pathname } = new URL(url, "http://fixtures");
         // Answered by nothing at all, so a Run that asks for it waits: the
         // only way to test what an interrupted Run leaves behind is to have
@@ -251,6 +267,7 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
   const origin = `http://127.0.0.1:${port}`;
   return {
     origin,
+    requestHeaders,
     requests,
     /** The URL of a fixture page, for a Flow to navigate to. */
     url: (page: string) => `${origin}/${page}`,

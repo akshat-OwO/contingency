@@ -2,7 +2,10 @@ import type {
   BrowserTab,
   BrowserTabId,
   SessionId,
+  UserAgentProfileId,
+  Viewport,
 } from "@contingency/protocol";
+import { profileViewport } from "@contingency/protocol";
 import { Effect } from "effect";
 
 export const browserAddressFromUrlEvent = (
@@ -160,3 +163,16 @@ export const canvasHoldAfterFirstFrame = (
 /** True when a completed paint may clear Loading / show the canvas. */
 export const shouldRevealCanvasAfterPaint = (hold: CanvasFrameHold): boolean =>
   !shouldDropStaleCanvasFrame(hold);
+
+/**
+ * The viewport a browser identity selection applies. A mobile identity brings
+ * its own device metrics — a phone user agent over a desktop viewport is the
+ * incoherence [ADR
+ * 0013](../../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)
+ * removes — while an identity that declares none leaves the author's viewport
+ * exactly as it is. A later explicit viewport edit overwrites either.
+ */
+export const viewportForIdentity = (
+  profileId: UserAgentProfileId,
+  current: Viewport
+): Viewport => profileViewport(profileId) ?? current;

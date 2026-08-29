@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   makeBrowserRpcError,
+  resolveIdentity,
   SessionId as SessionIdSchema,
 } from "@contingency/protocol";
 import type {
@@ -36,7 +37,6 @@ import {
   reapplyEmulation,
   reapplyViewport,
   requirePage,
-  resolveUserAgent,
   tabs,
   toSessionEmulation,
   tryBrowser,
@@ -145,6 +145,7 @@ const makeService = (
         activePage: page,
         colorScheme: undefined,
         geolocation: undefined,
+        identity: undefined,
         locale: undefined,
         network: new Map(),
         pageIds: new Map(),
@@ -154,7 +155,6 @@ const makeService = (
         sequence: 0,
         timezoneId: undefined,
         titles: new Map(),
-        userAgent: undefined,
         viewport,
       });
       const session: CreateSession = {
@@ -204,10 +204,10 @@ const makeService = (
       const session = yield* requireSession(sessionId);
       const browser = yield* getBrowser;
       const normalizedUrl = yield* validateBrowserUrl(url);
-      const userAgent = resolveUserAgent(profile, browser.version());
+      const identity = resolveIdentity(profile, browser.version());
       yield* Ref.update(session.state, (state) => ({
         ...state,
-        userAgent,
+        identity,
         viewport,
       }));
       yield* reapplyEmulation(session);
@@ -291,10 +291,10 @@ const makeService = (
     const finishOpen = (sessionId: SessionId) =>
       Effect.gen(function* finishOpeningSession() {
         const session = yield* requireSession(sessionId);
-        const userAgent = resolveUserAgent(userAgentProfile, browser.version());
+        const identity = resolveIdentity(userAgentProfile, browser.version());
         yield* Ref.update(session.state, (state) => ({
           ...state,
-          userAgent,
+          identity,
           viewport,
         }));
         yield* reapplyEmulation(session);

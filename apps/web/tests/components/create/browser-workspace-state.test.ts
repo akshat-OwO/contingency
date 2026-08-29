@@ -1,6 +1,6 @@
 import type { BrowserTabId, SessionId } from "@contingency/protocol";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import {
   browserAddressFromUrlEvent,
@@ -16,6 +16,7 @@ import {
   replacePendingBrowserFrame,
   shouldDropStaleCanvasFrame,
   shouldRevealCanvasAfterPaint,
+  viewportForIdentity,
 } from "../../../src/components/create/browser-workspace-state";
 
 describe("browserAddressEditingAfter", () => {
@@ -215,4 +216,22 @@ describe("browserViewportEmptyState", () => {
       title: "Loading…",
     });
   });
+});
+
+/**
+ * Choosing a mobile identity moves the device metrics with it, so an author
+ * never sees a phone user agent laid out at a desktop size ([ADR
+ * 0013](../../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+test("a mobile identity brings its own viewport and scale factor", () => {
+  const desktop = { deviceScaleFactor: 1, height: 720, width: 1280 };
+
+  expect(viewportForIdentity("chrome-android-mobile", desktop)).toEqual({
+    deviceScaleFactor: 3,
+    height: 892,
+    width: 412,
+  });
+  // A desktop identity declares no metrics, so the author's viewport stands.
+  expect(viewportForIdentity("chrome-windows", desktop)).toBe(desktop);
+  expect(viewportForIdentity("default", desktop)).toBe(desktop);
 });
