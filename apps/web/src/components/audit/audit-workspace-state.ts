@@ -9,7 +9,6 @@ import type {
 } from "@contingency/protocol";
 import {
   defaultAttempt,
-  playheadAtSeconds,
   settledFrameSeconds,
   stepFrameSeconds,
   videoSegmentDuration,
@@ -246,24 +245,6 @@ export const formatTimecode = (seconds: number): string => {
 export const segmentDuration = (
   segment: RunVideoSegment | undefined
 ): number => (segment === undefined ? 0 : videoSegmentDuration(segment));
-
-/**
- * Which Step the playhead is over. The inverse of `seekSeconds`, for a reader
- * who scrubbed or played rather than clicking a Step. `undefined` on the
- * settled-state interval: what plays there belongs to the Run rather than to
- * any Step, and labelling it as the last Step would say the Step ended in a
- * page it never saw.
- */
-export const frameStepIndex = (
-  segment: RunVideoSegment | undefined,
-  seconds: number
-): number | undefined => {
-  if (segment === undefined) {
-    return undefined;
-  }
-  const playhead = playheadAtSeconds(segment, seconds);
-  return playhead?.kind === "step" ? playhead.index : undefined;
-};
 
 /** How many Steps the Run has finished. */
 export const stepsDone = (timeline: readonly TimelineStep[]): number =>

@@ -1,4 +1,5 @@
 import type { RunSnapshot, RunStep } from "@contingency/protocol";
+import { playheadAtSeconds } from "@contingency/protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,7 +7,6 @@ import {
   attemptSteps,
   formatTimecode,
   gateBreach,
-  frameStepIndex,
   seekSeconds,
   selectedAttempt,
   selectedFrame,
@@ -259,17 +259,26 @@ describe("frames", () => {
 
   it("names the Step the playhead is over, wherever it was scrubbed to", () => {
     const segment = videoSegment(withVideo, 2);
+    expect(segment).toBeDefined();
+    if (segment === undefined) {
+      return;
+    }
     // Frames are laid one per executed Step, in order, at a fixed duration,
     // so the inverse of a Step's seek is arithmetic on the same list.
-    expect(frameStepIndex(segment, 0)).toBe(0);
-    expect(frameStepIndex(segment, 0.5)).toBe(1);
-    expect(frameStepIndex(segment, 1)).toBe(2);
+    expect(playheadAtSeconds(segment, 0)).toEqual({ index: 0, kind: "step" });
+    expect(playheadAtSeconds(segment, 0.5)).toEqual({ index: 1, kind: "step" });
+    expect(playheadAtSeconds(segment, 1)).toEqual({ index: 2, kind: "step" });
     // Past the Step frames is the settled state, which belongs to no Step.
-    expect(frameStepIndex(segment, 1.5)).toBeUndefined();
-    expect(frameStepIndex(segment, 2)).toBeUndefined();
-    expect(frameStepIndex(segment, 99)).toBeUndefined();
-    expect(frameStepIndex(segment, 1.4)).toBe(2);
-    expect(frameStepIndex(videoSegment(withVideo, 1), 0)).toBeUndefined();
+    expect(playheadAtSeconds(segment, 1.5)).toEqual({ kind: "settled" });
+    expect(playheadAtSeconds(segment, 2)).toEqual({ kind: "settled" });
+    expect(playheadAtSeconds(segment, 99)).toEqual({ kind: "settled" });
+    expect(playheadAtSeconds(segment, 1.4)).toEqual({ index: 2, kind: "step" });
+    const missing = videoSegment(withVideo, 1);
+    expect(missing).toBeDefined();
+    if (missing === undefined) {
+      return;
+    }
+    expect(playheadAtSeconds(missing, 0)).toBeUndefined();
   });
 
   it("counts the settled frame derivation appends after the Steps", () => {
@@ -294,7 +303,11 @@ describe("frames", () => {
   it("does not treat the last Step as the settled state when capture missed it", () => {
     const missing = videoSegment(withVideo, 1);
     expect(seekSeconds(missing, { kind: "settled" })).toBeUndefined();
-    expect(frameStepIndex(missing, 0)).toBeUndefined();
+    expect(missing).toBeDefined();
+    if (missing === undefined) {
+      return;
+    }
+    expect(playheadAtSeconds(missing, 0)).toBeUndefined();
   });
 });
 
