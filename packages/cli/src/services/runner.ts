@@ -11,6 +11,7 @@ import {
   Gate as GateSchema,
   gateBreaches,
   matchLocatorDescriptor,
+  settlingDiagnostic,
   stepNavigates,
 } from "@contingency/protocol";
 import type {
@@ -36,6 +37,7 @@ import type {
   RunVideoSegment,
   SelectorCandidate,
   SelectorDiagnostics,
+  SettlingDiagnostic,
 } from "@contingency/protocol";
 import {
   Context,
@@ -1376,6 +1378,7 @@ interface AttemptResult {
    * attempt saves nothing: half of a login is not state worth carrying.
    */
   readonly savedState: BrowserStorageState | undefined;
+  readonly settling: SettlingDiagnostic | undefined;
 }
 
 const StoredState = Schema.Struct({
@@ -1673,20 +1676,31 @@ const domStabilityScript = (
 const settlePage = Effect.fn("Runner.settlePage")(function* settlePage(
   page: Page | undefined
 ) {
+  const started = Date.now();
   if (page === undefined || page.isClosed()) {
-    return;
+    return settlingDiagnostic(0, ["the Page"]);
   }
-  const deadline = Date.now() + QUIESCE_BOUND_MS;
-  yield* Effect.tryPromise(() =>
-    page.waitForLoadState("networkidle", { timeout: QUIESCE_BOUND_MS })
-  ).pipe(Effect.ignore);
-  const remaining = deadline - Date.now();
-  if (remaining <= 0 || page.isClosed()) {
-    return;
+  const remaining: string[] = [];
+  const deadline = started + QUIESCE_BOUND_MS;
+  const idle = yield* Effect.result(
+    Effect.tryPromise(() =>
+      page.waitForLoadState("networkidle", { timeout: QUIESCE_BOUND_MS })
+    )
+  );
+  if (idle._tag === "Failure") {
+    remaining.push("network idle");
   }
-  yield* Effect.tryPromise(() =>
-    page.evaluate(domStabilityScript(DOM_STABLE_WINDOW_MS, remaining))
-  ).pipe(Effect.ignore);
+  const leftover = deadline - Date.now();
+  if (leftover <= 0 || page.isClosed()) {
+    return settlingDiagnostic(Date.now() - started, remaining);
+  }
+  const quiet = yield* Effect.tryPromise(() =>
+    page.evaluate(domStabilityScript(DOM_STABLE_WINDOW_MS, leftover))
+  ).pipe(Effect.orElseSucceed(() => false));
+  if (quiet !== true) {
+    remaining.push("DOM mutations");
+  }
+  return settlingDiagnostic(Date.now() - started, remaining);
 });
 
 /** Capture the committed Page even when a navigation is still pending. */
@@ -1721,16 +1735,17 @@ const settleAndCapture = Effect.fn("Runner.settleAndCapture")(
     page: Page | undefined,
     capture: ArtifactCapture | undefined
   ) {
-    yield* settlePage(page);
+    const settling = yield* settlePage(page);
     if (
       capture?.videoFile === undefined ||
       page === undefined ||
       page.isClosed()
     ) {
-      return;
+      return settling;
     }
     const frame = yield* Effect.result(capturePageScreenshot(page, 1000));
     capture.settledFrame = frame._tag === "Success" ? frame.success : undefined;
+    return settling;
   }
 );
 
@@ -1775,6 +1790,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   let completed = false;
   let lastActedOn: Page | undefined;
   let savedState: BrowserStorageState | undefined;
+  let settling: SettlingDiagnostic | undefined;
 
   /**
    * Open a context, restoring the given state when it carries one.
@@ -2005,7 +2021,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           // The navigation that was measured still happened, and a Flow that
           // fails at Step 9 should not lose the metrics from Step 2.
           yield* measurePending(execution, steps, pending);
-          yield* settleAndCapture(lastActedOn, capture);
+          settling = yield* settleAndCapture(lastActedOn, capture);
           return;
         }
 
@@ -2013,7 +2029,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
 
         // The Run ends only once its Page has gone quiet (ADR 0015). The Trace
         // stays live through this wait, and its final frame records that state.
-        yield* settleAndCapture(lastActedOn, capture);
+        settling = yield* settleAndCapture(lastActedOn, capture);
         completed = true;
       }),
     ({ context }) =>
@@ -2045,7 +2061,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           capture?.videoFile !== undefined &&
           capture.settledFrame === undefined
         ) {
-          yield* settleAndCapture(lastActedOn, capture);
+          settling = yield* settleAndCapture(lastActedOn, capture);
         }
         const stopped =
           capture === undefined
@@ -2064,7 +2080,7 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
       })
   );
 
-  return { failure, savedState } satisfies AttemptResult;
+  return { failure, savedState, settling } satisfies AttemptResult;
 });
 
 export const makeRunnerService = () =>
@@ -2360,6 +2376,9 @@ export const makeRunnerService = () =>
                   outcome:
                     result.failure === undefined ? "completed" : "failed",
                   startedAt: attemptStartedAt.toISOString(),
+                  ...(result.settling === undefined
+                    ? {}
+                    : { settling: result.settling }),
                   steps,
                 });
 

@@ -16,9 +16,11 @@ import {
   runExitCode,
   runIsBaselineEligible,
   runIsInFlight,
+  describeSettlingDiagnostic,
   playheadAtSeconds,
   runVideoPath,
   settledFrameSeconds,
+  settlingDiagnostic,
   stepFrameSeconds,
   VIDEO_FRAME_DURATION_SECONDS,
 } from "@contingency/protocol";
@@ -403,6 +405,47 @@ test("a missing settled frame is not invented from the last Step", () => {
   expect(playheadAtSeconds(segment, VIDEO_FRAME_DURATION_SECONDS * 2)).toEqual({
     index: 2,
     kind: "step",
+  });
+});
+
+test("a settling diagnostic is recorded only when something still prevented settlement", () => {
+  expect(settlingDiagnostic(0, [])).toBeUndefined();
+  expect(settlingDiagnostic(2000, ["network idle"])).toEqual({
+    remaining: ["network idle"],
+    waitMs: 2000,
+  });
+  expect(
+    describeSettlingDiagnostic({
+      remaining: ["network idle", "DOM mutations"],
+      waitMs: 2000,
+    })
+  ).toBe(
+    "Waited 2000ms; network idle and DOM mutations still prevented settlement."
+  );
+});
+
+test("an attempt may carry a settling diagnostic without changing the outcome", () => {
+  const run = assertRunDecodes(
+    runWith({
+      attempts: [
+        {
+          attempt: 1,
+          finishedAt: "2026-01-01T00:00:01.000Z",
+          outcome: "completed",
+          settling: {
+            remaining: ["network idle"],
+            waitMs: 2000,
+          },
+          startedAt: "2026-01-01T00:00:00.000Z",
+          steps: [],
+        },
+      ],
+    })
+  );
+  expect(run.outcome).toBe("completed");
+  expect(run.attempts[0]?.settling).toEqual({
+    remaining: ["network idle"],
+    waitMs: 2000,
   });
 });
 

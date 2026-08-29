@@ -1,4 +1,7 @@
-import { isBrowserRpcError } from "@contingency/protocol";
+import {
+  describeSettlingDiagnostic,
+  isBrowserRpcError,
+} from "@contingency/protocol";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Fiber, Result } from "effect";
 import { useCallback, useEffect } from "react";
@@ -195,6 +198,11 @@ const LoadedAudit = ({
           />
           {selected?.kind === "settled" && chosen !== undefined ? (
             <SettledDetail
+              {...(chosen.settling === undefined
+                ? {}
+                : {
+                    diagnostic: describeSettlingDiagnostic(chosen.settling),
+                  })}
               finishedAt={chosen.finishedAt}
               outcome={chosen.outcome}
             />

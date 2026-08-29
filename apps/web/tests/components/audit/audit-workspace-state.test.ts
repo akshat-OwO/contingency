@@ -145,7 +145,6 @@ describe("what is selected", () => {
     const steps = [stepAt(0, "completed"), stepAt(1, "completed")];
     const finished = snapshot({
       phase: "finished",
-      run: { attempts: [], runId: "run-1", steps } as unknown as never,
       steps,
       video: {
         containsSecrets: false,

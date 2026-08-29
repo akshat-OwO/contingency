@@ -286,6 +286,44 @@ export const RunFailure = Schema.Struct({
 export type RunFailure = typeof RunFailure.Type;
 
 /**
+ * Why the Page did not go quiet before the Run's bounded wait ended (ADR
+ * 0015). Absent when the wait proved settlement. This is not a Finding, cannot
+ * breach a Gate, and does not change the attempt's outcome.
+ */
+export const SettlingDiagnostic = Schema.Struct({
+  /**
+   * What was still busy when the bound expired, in the order the wait looked
+   * for it.
+   */
+  remaining: Schema.Array(nonEmptyString).check(Schema.isMinLength(1)),
+  waitMs: Schema.Int,
+});
+export type SettlingDiagnostic = typeof SettlingDiagnostic.Type;
+
+/**
+ * Record a settling diagnostic only when evidence remained. An empty remaining
+ * list is a successful wait, not a document of nothing.
+ */
+export const settlingDiagnostic = (
+  waitMs: number,
+  remaining: readonly string[]
+): SettlingDiagnostic | undefined => {
+  if (remaining.length === 0) {
+    return undefined;
+  }
+  return {
+    remaining: [...remaining],
+    waitMs: Math.max(0, Math.round(waitMs)),
+  };
+};
+
+/** The diagnostic as a sentence for Audit View's Run settled pane. */
+export const describeSettlingDiagnostic = (
+  diagnostic: SettlingDiagnostic
+): string =>
+  `Waited ${String(diagnostic.waitMs)}ms; ${diagnostic.remaining.join(" and ")} still prevented settlement.`;
+
+/**
  * One attempt at executing the Flow. Every attempt is recorded, including the
  * failures that preceded a later attempt's success: silent retry is how a Flow
  * that fails 40% of the time reports green for a month.
@@ -296,6 +334,12 @@ export const RunAttempt = Schema.Struct({
   failure: Schema.optional(RunFailure),
   finishedAt: Instant,
   outcome: RunOutcome,
+  /**
+   * Present when the final quiet wait hit its bound before the Page settled.
+   * Selecting `Run settled` shows this instead of inventing another Step
+   * (ADR 0014).
+   */
+  settling: Schema.optional(SettlingDiagnostic),
   startedAt: Instant,
   steps: Schema.Array(RunStep),
 });
