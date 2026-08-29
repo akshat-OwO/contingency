@@ -61,6 +61,7 @@ const makeCapture = (url = INITIAL_URL) => {
             permissions: [],
             viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
           },
+          setHoverPickerSwallowClicks: () => Effect.void,
           stop: Effect.sync(() => {
             stopCount += 1;
           }),
@@ -117,6 +118,7 @@ it.effect("declares the session's Emulation on the Flow it produces", () =>
           ({ onEvent } = started);
           return {
             emulation,
+            setHoverPickerSwallowClicks: () => Effect.void,
             stop: Effect.void,
             tabId,
             url: INITIAL_URL,

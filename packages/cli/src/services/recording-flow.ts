@@ -56,6 +56,7 @@ export interface RecordingState {
   readonly sessionId: SessionId;
   readonly steps: readonly RecordedStep[];
   readonly stopCapture: Effect.Effect<void>;
+  readonly syncHoverPickerSwallow: (swallow: boolean) => Effect.Effect<void>;
   readonly tabId: BrowserTabId;
   /**
    * The condition the armed element pick will produce. Absent whenever no

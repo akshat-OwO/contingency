@@ -22,6 +22,7 @@ import type {
 import {
   recorderCleanupExpression,
   recorderScriptSource,
+  recorderSetSwallowClicksExpression,
 } from "./recorder-script.ts";
 import { makeRecordingService, Recording } from "./recording.ts";
 import type {
@@ -229,6 +230,17 @@ export const makePlaywrightRecorderCapture = Effect.gen(
 
       return {
         emulation,
+        setHoverPickerSwallowClicks: (swallow: boolean) =>
+          Effect.forEach(
+            pages.flatMap((page) => page.frames()),
+            (frame) =>
+              tryQuietly(() =>
+                frame.evaluate(
+                  recorderSetSwallowClicksExpression(nonce, swallow)
+                )
+              ),
+            { discard: true }
+          ),
         stop: Effect.gen(function* stopCapture() {
           closing = true;
           target.context.off("page", onNewPage);

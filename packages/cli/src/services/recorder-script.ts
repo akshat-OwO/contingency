@@ -457,6 +457,26 @@ const RECORDER_SOURCE = String.raw`
     emit(build(target));
   };
 
+  // While the author is picking a hover target, the click that selects the
+  // element must not reach the page — only the hover Step is recorded.
+  let swallowClicks = false;
+
+  const setSwallowClicks = (nonce, value) => {
+    if (nonce !== "__CONTINGENCY_NONCE__") {
+      return;
+    }
+    swallowClicks = Boolean(value);
+  };
+  globalThis.__contingencyRecorderSetSwallowClicks = setSwallowClicks;
+
+  const swallowActivation = (event) => {
+    if (!swallowClicks || !event.isTrusted) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+
   const handleClick = (event) => {
     if (!event.isTrusted) {
       return;
@@ -472,6 +492,7 @@ const RECORDER_SOURCE = String.raw`
       button = "right";
     }
     emitTargeted(element, (target) => ({ button, target, type: "click" }));
+    swallowActivation(event);
   };
 
   const emitChange = (element) => {
@@ -620,6 +641,8 @@ const RECORDER_SOURCE = String.raw`
   addEventListener("mousemove", inspectPointerTarget, true);
   addEventListener("mouseleave", hideInspector, true);
   addEventListener("blur", hideInspector, true);
+  addEventListener("mousedown", swallowActivation, true);
+  addEventListener("mouseup", swallowActivation, true);
   addEventListener("click", handleClick, true);
   addEventListener("input", handleInput, true);
   addEventListener("change", handleInput, true);
@@ -636,6 +659,8 @@ const RECORDER_SOURCE = String.raw`
     removeEventListener("mousemove", inspectPointerTarget, true);
     removeEventListener("mouseleave", hideInspector, true);
     removeEventListener("blur", hideInspector, true);
+    removeEventListener("mousedown", swallowActivation, true);
+    removeEventListener("mouseup", swallowActivation, true);
     removeEventListener("click", handleClick, true);
     removeEventListener("input", handleInput, true);
     removeEventListener("change", handleInput, true);
@@ -653,6 +678,7 @@ const RECORDER_SOURCE = String.raw`
     inspectorLabel.remove();
     globalThis.__contingencyRecorder = undefined;
     delete globalThis.__contingencyRecorderCleanup;
+    delete globalThis.__contingencyRecorderSetSwallowClicks;
   };
 })();
 `;
@@ -663,6 +689,13 @@ const RECORDER_SOURCE = String.raw`
  */
 export const recorderCleanupExpression = (nonce: string): string =>
   `globalThis.__contingencyRecorderCleanup?.(${JSON.stringify(nonce)})`;
+
+/** Toggles whether picker clicks are swallowed before they reach the page. */
+export const recorderSetSwallowClicksExpression = (
+  nonce: string,
+  swallow: boolean
+): string =>
+  `globalThis.__contingencyRecorderSetSwallowClicks?.(${JSON.stringify(nonce)}, ${swallow})`;
 
 /**
  * The recorder source, bound to the page function Playwright exposed for this

@@ -87,6 +87,9 @@ export interface RecorderCaptureStartOptions {
  */
 export interface RecorderCaptureHandle {
   readonly emulation: SessionEmulation;
+  readonly setHoverPickerSwallowClicks: (
+    swallow: boolean
+  ) => Effect.Effect<void>;
   readonly stop: Effect.Effect<void>;
   readonly tabId: BrowserTabId;
   readonly url: string;
@@ -444,6 +447,9 @@ export const makeRecordingService = (
           targetConditionKind: undefined,
           targetStepId: undefined,
         });
+        if (current.captureMode === "hoverPicker") {
+          yield* current.syncHoverPickerSwallow(false);
+        }
       });
 
     const fail = (failure: CaptureFailure) =>
@@ -643,6 +649,12 @@ export const makeRecordingService = (
           const target = capturedTarget(action);
           const picked = reducePick(mutable, target, page);
           if (picked !== undefined) {
+            if (
+              mutable.captureMode === "hoverPicker" &&
+              picked[1].captureMode === "ordinary"
+            ) {
+              yield* mutable.syncHoverPickerSwallow(false);
+            }
             return picked;
           }
 
@@ -811,6 +823,7 @@ export const makeRecordingService = (
               sessionId: input.sessionId,
               steps: [initialStep],
               stopCapture: handle.stop,
+              syncHoverPickerSwallow: handle.setHoverPickerSwallowClicks,
               tabId: handle.tabId,
               targetConditionKind: undefined,
               targetPreStepIndex: undefined,
@@ -873,6 +886,7 @@ export const makeRecordingService = (
               revision: current.revision + 1,
               steps: [...current.steps, checkpoint],
               stopCapture: handle.stop,
+              syncHoverPickerSwallow: handle.setHoverPickerSwallowClicks,
               tabId: handle.tabId,
               targetConditionKind: undefined,
               targetPreStepIndex: undefined,
@@ -1004,6 +1018,7 @@ export const makeRecordingService = (
               targetPreStepIndex: undefined,
               targetStepId: undefined,
             };
+            yield* mutable.syncHoverPickerSwallow(true);
             return [toSnapshot(next), next] as const;
           })
         ),
@@ -1122,6 +1137,9 @@ export const makeRecordingService = (
         mutate((state) =>
           Effect.gen(function* cancel() {
             const mutable = yield* requireMutable(state);
+            if (mutable.captureMode === "hoverPicker") {
+              yield* mutable.syncHoverPickerSwallow(false);
+            }
             const next = {
               ...mutable,
               captureMode: "ordinary" as const,
