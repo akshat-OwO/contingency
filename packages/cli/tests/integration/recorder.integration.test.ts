@@ -207,6 +207,61 @@ it.live("captures hover only through the author's explicit control", () =>
   }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
 );
 
+it.live("swallows the picker click while hover capture is armed", () =>
+  Effect.gen(function* swallowHoverPickerClick() {
+    const fixtures = yield* fixtureServer;
+    const { page, recording } = yield* openRecording(
+      fixtures.url("recorder.html")
+    );
+
+    yield* Effect.promise(() =>
+      page.evaluate(`(() => {
+        globalThis.__cartClicked = false;
+        document.getElementById("cart")?.addEventListener(
+          "click",
+          () => {
+            globalThis.__cartClicked = true;
+          },
+          { once: true }
+        );
+      })()`)
+    );
+
+    yield* recording.armHover();
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
+
+    const clickReachedPage = yield* Effect.promise(() =>
+      page.evaluate("globalThis.__cartClicked === true")
+    );
+    expect(clickReachedPage).toBe(false);
+
+    const hover = (yield* stepsOf(recording)).at(-1);
+    expect(hover).toMatchObject({ type: "hover" });
+
+    yield* Effect.promise(() =>
+      page.evaluate(`(() => {
+        globalThis.__cartClicked = false;
+        document.getElementById("cart")?.addEventListener(
+          "click",
+          () => {
+            globalThis.__cartClicked = true;
+          },
+          { once: true }
+        );
+      })()`)
+    );
+    yield* Effect.promise(() => page.click("#cart"));
+    yield* Effect.sleep("300 millis");
+
+    const clickRecordedAfterPicker = yield* Effect.promise(() =>
+      page.evaluate("globalThis.__cartClicked === true")
+    );
+    expect(clickRecordedAfterPicker).toBe(true);
+    expect((yield* stepsOf(recording)).at(-1)).toMatchObject({ type: "click" });
+  }).pipe(Effect.scoped, Effect.provide(RecorderIntegrationLive))
+);
+
 it.live("records a popup as a further Page, and names it on its Steps", () =>
   Effect.gen(function* followPopup() {
     const fixtures = yield* fixtureServer;
