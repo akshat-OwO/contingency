@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scroll readiness</title>
+    <style>
+      .spacer {
+        height: 150vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Scroll readiness</h1>
+      <div class="spacer"></div>
+      <button id="continue" type="button" hidden>Continue</button>
+    </main>
+    <script>
+      // This request predates the Scroll and never answers. Readiness must not
+      // adopt work that was already in flight when observation began.
+      fetch("/never-answered.bin").catch(() => {});
+      let started = false;
+      let events;
+      addEventListener("scroll", async () => {
+        if (started) {
+          return;
+        }
+        started = true;
+        // EventSource is a connection rather than finite Scroll-started work.
+        events = new EventSource("/never-answered.bin");
+        await fetch("/scroll-ready-beacon");
+        document.getElementById("continue").hidden = false;
+      });
+      addEventListener("pagehide", () => events?.close());
+      document.getElementById("continue").addEventListener("click", () => {
+        fetch("/step-beacon").catch(() => {});
+      });
+    </script>
+  </body>
+</html>

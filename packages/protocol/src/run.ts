@@ -101,6 +101,26 @@ export const SelectorDiagnostics = Schema.Struct({
 });
 export type SelectorDiagnostics = typeof SelectorDiagnostics.Type;
 
+/** Evidence a bounded Scroll readiness wait could not establish in time. */
+export const ScrollReadinessEvidence = Schema.Literals([
+  "dom-mutations",
+  "finite-requests",
+  "observation-ended",
+  "scroll-position",
+]);
+export type ScrollReadinessEvidence = typeof ScrollReadinessEvidence.Type;
+
+/**
+ * A Scroll still succeeded, but the Runner reached its readiness bound before
+ * the page settled. This is observation metadata, not a Finding or failure.
+ */
+export const ScrollReadinessDiagnostic = Schema.Struct({
+  pendingRequests: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  unsettled: Schema.Array(ScrollReadinessEvidence).check(Schema.isMinLength(1)),
+  waitDurationMs: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type ScrollReadinessDiagnostic = typeof ScrollReadinessDiagnostic.Type;
+
 /**
  * One Pre-step evaluation, recorded whether it ran or not. A silently-skipped
  * Pre-step is the first thing anyone looks for when a Run differs unexpectedly
@@ -112,6 +132,8 @@ export const RunPreStep = Schema.Struct({
   preStepId: nonEmptyString,
   /** `flow` Pre-steps run before every Step after the initial navigation. */
   scope: Schema.Literals(["flow", "step"]),
+  /** Present only when a Scroll Pre-step exhausted its readiness bound. */
+  scrollReadiness: Schema.optional(ScrollReadinessDiagnostic),
   /** Present when this Pre-step failed because its target did not resolve. */
   selector: Schema.optional(SelectorDiagnostics),
 });
@@ -247,6 +269,8 @@ export const RunStep = Schema.Struct({
   outcome: RunStepOutcome,
   /** Every Pre-step evaluated before this Step, in evaluation order. */
   preSteps: Schema.optional(Schema.Array(RunPreStep)),
+  /** Present only when a Scroll exhausted its readiness bound. */
+  scrollReadiness: Schema.optional(ScrollReadinessDiagnostic),
   /** Present when this Step failed because its target did not resolve. */
   selector: Schema.optional(SelectorDiagnostics),
   startedAt: Instant,

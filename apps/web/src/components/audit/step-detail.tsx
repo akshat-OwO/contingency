@@ -13,6 +13,13 @@ const vitalUnits: Record<string, string> = {
   ttfb: "ms",
 };
 
+const readinessEvidenceLabels = {
+  "dom-mutations": "The DOM kept changing",
+  "finite-requests": "Requests started by the Scroll were still running",
+  "observation-ended": "Readiness observation ended with the previous page",
+  "scroll-position": "The scroll position was still moving",
+} as const;
+
 export const StepDetail = ({
   step,
 }: {
@@ -104,6 +111,28 @@ export const StepDetail = ({
           </section>
         )}
 
+        {result?.scrollReadiness !== undefined && (
+          <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+            <h3 className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-200">
+              <AlertTriangleIcon className="size-4" />
+              Scroll readiness reached its bound
+            </h3>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Continued after {result.scrollReadiness.waitDurationMs} ms. This
+              did not fail the Step.
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+              {result.scrollReadiness.unsettled.map((evidence) => (
+                <li key={evidence}>
+                  {readinessEvidenceLabels[evidence]}
+                  {evidence === "finite-requests" &&
+                    ` (${result.scrollReadiness?.pendingRequests ?? 0})`}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {result?.preSteps !== undefined && result.preSteps.length > 0 && (
           <section>
             <h3 className="mb-2 text-sm font-medium">Pre-steps</h3>
@@ -127,6 +156,12 @@ export const StepDetail = ({
                   <span className="text-muted-foreground">
                     {preStep.error ?? preStep.outcome}
                   </span>
+                  {preStep.scrollReadiness !== undefined && (
+                    <span className="text-amber-700 dark:text-amber-300">
+                      Scroll readiness bound reached after{" "}
+                      {preStep.scrollReadiness.waitDurationMs} ms
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

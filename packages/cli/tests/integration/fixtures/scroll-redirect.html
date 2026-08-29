@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scroll redirect</title>
+    <style>
+      .spacer {
+        height: 150vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Scroll redirect</h1>
+      <div class="spacer"></div>
+    </main>
+    <script>
+      addEventListener(
+        "scroll",
+        () => {
+          location.href = "/confirmed.html";
+        },
+        { once: true }
+      );
+    </script>
+  </body>
+</html>

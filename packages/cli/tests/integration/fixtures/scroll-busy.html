@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scroll busy</title>
+    <style>
+      .spacer {
+        height: 150vh;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Scroll busy</h1>
+      <p id="tick">Waiting</p>
+      <div class="spacer"></div>
+      <button id="continue" type="button">Continue</button>
+    </main>
+    <script>
+      let timer;
+      addEventListener("scroll", () => {
+        if (timer !== undefined) {
+          return;
+        }
+        let tick = 0;
+        timer = setInterval(() => {
+          tick += 1;
+          document.getElementById("tick").textContent = String(tick);
+        }, 40);
+      });
+      addEventListener("pagehide", () => clearInterval(timer));
+      document.getElementById("continue").addEventListener("click", () => {
+        fetch("/step-beacon").catch(() => {});
+      });
+    </script>
+  </body>
+</html>

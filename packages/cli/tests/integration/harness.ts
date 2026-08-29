@@ -126,6 +126,9 @@ export const STEP_BEACON = "/step-beacon";
 /** What the lazy fixture requests once its below-the-fold content loads. */
 export const LAZY_LOADED_BEACON = "/lazy-loaded-beacon";
 
+/** A Scroll-started response held long enough to exercise readiness waiting. */
+export const SCROLL_READY_BEACON = "/scroll-ready-beacon";
+
 /** What the nested Scroll fixture requests when its container moves. */
 export const NESTED_SCROLL_BEACON = "/nested-scroll-beacon";
 
@@ -202,6 +205,14 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
               .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
               .end("ready");
           }, 250);
+          return;
+        }
+        if (pathname === SCROLL_READY_BEACON) {
+          setTimeout(() => {
+            response
+              .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
+              .end("ready");
+          }, 300);
           return;
         }
         const page = pages.get(pathname);

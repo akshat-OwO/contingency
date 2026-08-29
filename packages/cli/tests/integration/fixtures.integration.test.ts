@@ -10,6 +10,7 @@ import {
   IntegrationLive,
   LAZY_LOADED_BEACON,
   LATE_CONTENT_BEACON,
+  SCROLL_READY_BEACON,
   runFlow,
   STEP_BEACON,
 } from "./harness";
@@ -26,6 +27,7 @@ const BEACONED_PAGES = [
   ["busy.html", BUSY_TICK_BEACON],
   ["late.html", LATE_CONTENT_BEACON],
   ["stateful.html", CART_STATE_BEACON],
+  ["scroll-readiness.html", SCROLL_READY_BEACON],
 ] as const;
 
 /**
@@ -50,6 +52,9 @@ it.live("serves every fixture page a later stack tests against", () =>
       "busy.html",
       "late.html",
       "stateful.html",
+      "scroll-readiness.html",
+      "scroll-busy.html",
+      "scroll-redirect.html",
     ]) {
       const response = yield* Effect.promise(() => fetch(fixtures.url(page)));
       expect(response.status, page).toBe(200);
