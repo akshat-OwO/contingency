@@ -1,5 +1,5 @@
-import type { RunVideoSegment } from "@contingency/protocol";
-import { VIDEO_FRAME_DURATION_SECONDS } from "@contingency/protocol";
+import { playheadAtSeconds } from "@contingency/protocol";
+import type { RunVideoSegment, VideoFrameTarget } from "@contingency/protocol";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -8,11 +8,11 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import type { TimelineStep } from "@/components/audit/audit-workspace-state";
 import {
   formatTimecode,
-  frameStepIndex,
   seekSeconds,
   segmentDuration,
 } from "@/components/audit/audit-workspace-state";
@@ -26,33 +26,84 @@ import {
 import { cn } from "@/lib/utils";
 
 export interface FramePlayerProps {
-  readonly onPinStep: (index: number) => void;
+  readonly onPin: (target: VideoFrameTarget) => void;
   readonly segment: RunVideoSegment;
-  readonly selected: number | undefined;
+  readonly selected: VideoFrameTarget | undefined;
   readonly src: string;
   readonly timeline: readonly TimelineStep[];
 }
 
+const sameFrame = (left: VideoFrameTarget, right: VideoFrameTarget): boolean =>
+  left.kind === "settled"
+    ? right.kind === "settled"
+    : right.kind === "step" && right.index === left.index;
+
+const pinControlLabel = (
+  direction: "Next" | "Previous",
+  target: VideoFrameTarget | undefined
+): string =>
+  target?.kind === "settled"
+    ? `${direction}: Run settled`
+    : `${direction} Step`;
+
+const framePins = (segment: RunVideoSegment): readonly VideoFrameTarget[] => [
+  ...segment.steps.map((index) => ({ index, kind: "step" as const })),
+  ...(segment.includesSettledState ? [{ kind: "settled" as const }] : []),
+];
+
+const SettledMarker = ({
+  duration,
+  onPin,
+  segment,
+  selected,
+}: {
+  readonly duration: number;
+  readonly onPin: (target: VideoFrameTarget) => void;
+  readonly segment: RunVideoSegment;
+  readonly selected: VideoFrameTarget | undefined;
+}) => {
+  const at = seekSeconds(segment, { kind: "settled" });
+  if (at === undefined || duration === 0 || !segment.includesSettledState) {
+    return null;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-label="Run settled"
+        className={cn(
+          "pointer-events-auto absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-400/80",
+          selected?.kind === "settled" && "ring-primary size-2 ring-2"
+        )}
+        onClick={() => onPin({ kind: "settled" })}
+        render={<button type="button" />}
+        style={{ left: `${(at / duration) * 100}%` }}
+      />
+      <TooltipContent>Run settled</TooltipContent>
+    </Tooltip>
+  );
+};
+
 const StepMarkers = ({
   duration,
-  onPinStep,
+  onPin,
   segment,
   selected,
   timeline,
 }: {
   readonly duration: number;
-  readonly onPinStep: (index: number) => void;
+  readonly onPin: (target: VideoFrameTarget) => void;
   readonly segment: RunVideoSegment;
-  readonly selected: number | undefined;
+  readonly selected: VideoFrameTarget | undefined;
   readonly timeline: readonly TimelineStep[];
 }) => (
   <div className="pointer-events-none absolute inset-x-0 top-0 h-1">
     {segment.steps.map((stepIndex) => {
-      const at = seekSeconds(segment, stepIndex);
+      const at = seekSeconds(segment, { index: stepIndex, kind: "step" });
       if (at === undefined || duration === 0) {
         return null;
       }
       const step = timeline.find(({ index }) => index === stepIndex);
+      const active = selected?.kind === "step" && selected.index === stepIndex;
       return (
         <Tooltip key={stepIndex}>
           <TooltipTrigger
@@ -62,9 +113,9 @@ const StepMarkers = ({
               step?.result?.outcome === "failed"
                 ? "bg-destructive"
                 : "bg-muted-foreground/60",
-              stepIndex === selected && "ring-primary size-2 ring-2"
+              active && "ring-primary size-2 ring-2"
             )}
-            onClick={() => onPinStep(stepIndex)}
+            onClick={() => onPin({ index: stepIndex, kind: "step" })}
             render={<button type="button" />}
             style={{ left: `${(at / duration) * 100}%` }}
           />
@@ -74,6 +125,12 @@ const StepMarkers = ({
         </Tooltip>
       );
     })}
+    <SettledMarker
+      duration={duration}
+      onPin={onPin}
+      segment={segment}
+      selected={selected}
+    />
   </div>
 );
 
@@ -81,12 +138,12 @@ const StepMarkers = ({
  * The player for a Run's derived frames. Built out of the design system rather
  * than the browser's own controls: what is being scrubbed is a Step timeline,
  * not a recording, so the transport carries a marker per Step and moves in
- * whole Steps. Free scrubbing and playing stay available and do not change
- * which Step is pinned — only a Step control does
+ * whole frames. Free scrubbing and playing stay available and do not change
+ * which frame is pinned — only a frame control does
  * ([ADR 0023](../../../../docs/adr/0023-audit-view-starts-runs.md)).
  */
 export const FramePlayer = ({
-  onPinStep,
+  onPin,
   segment,
   selected,
   src,
@@ -98,25 +155,25 @@ export const FramePlayer = ({
   const [failed, setFailed] = useState(false);
   const seek = seekSeconds(segment, selected);
   // The segment's own length, which is known before the file loads: one frame
-  // per executed Step. The element's `duration` only confirms it.
+  // per executed Step, plus the settled state when capture produced one. The
+  // element's `duration` only confirms it.
   const duration = segmentDuration(segment);
+  const pins = useMemo(() => framePins(segment), [segment]);
 
-  const recorded = useMemo(
-    () => [...segment.steps].toSorted((left, right) => left - right),
-    [segment.steps]
-  );
-  // A Step the attempt never reached has no frame of its own, so the arrows
-  // step from wherever the playhead is instead of going dead.
-  const anchor = selected === undefined ? undefined : selected;
-  const position = recorded.indexOf(
-    (anchor !== undefined && recorded.includes(anchor)
-      ? anchor
-      : frameStepIndex(segment, currentTime)) ?? -1
-  );
-  const previous = position > 0 ? recorded[position - 1] : undefined;
+  const current =
+    selected !== undefined &&
+    (selected.kind === "settled" ||
+      pins.some((pin) => sameFrame(pin, selected)))
+      ? selected
+      : playheadAtSeconds(segment, currentTime);
+  const position =
+    current === undefined
+      ? -1
+      : pins.findIndex((pin) => sameFrame(pin, current));
+  const previous = position > 0 ? pins[position - 1] : undefined;
   const next =
-    position !== -1 && position < recorded.length - 1
-      ? recorded[position + 1]
+    position !== -1 && position < pins.length - 1
+      ? pins[position + 1]
       : undefined;
 
   useEffect(() => {
@@ -168,21 +225,46 @@ export const FramePlayer = ({
     element.pause();
   }, []);
 
-  const over = frameStepIndex(segment, currentTime);
-  // Past the last Step's frame, what plays is the state the Run settled into,
-  // which belongs to the Run rather than to any one Step.
-  const settled =
-    segment.includesSettledState &&
-    currentTime >= duration - VIDEO_FRAME_DURATION_SECONDS;
+  const stepTo = useCallback(
+    (target: VideoFrameTarget | undefined) => {
+      if (target !== undefined) {
+        onPin(target);
+      }
+    },
+    [onPin]
+  );
+
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        stepTo(next);
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        stepTo(previous);
+      }
+    },
+    [next, previous, stepTo]
+  );
+
+  const over = playheadAtSeconds(segment, currentTime);
   let playheadLabel = "No frame";
-  if (over !== undefined) {
-    playheadLabel = `Step ${over} of ${recorded.length} frames`;
-  } else if (settled) {
-    playheadLabel = "Settled state";
+  if (over?.kind === "step") {
+    playheadLabel = `Step ${over.index} of ${segment.steps.length} frames`;
+  } else if (over?.kind === "settled") {
+    playheadLabel = "Run settled";
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-black">
+    <div
+      aria-label="Derived frames"
+      className="flex h-full min-h-0 flex-col bg-black"
+      onKeyDown={onKeyDown}
+      role="region"
+      tabIndex={0}
+    >
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- Derived frames of a Run carry no audio track to caption. */}
       <video
         className="min-h-0 w-full flex-1 object-contain"
@@ -204,6 +286,13 @@ export const FramePlayer = ({
         </p>
       )}
 
+      {segment.error !== undefined && (
+        <p className="flex items-center justify-center gap-2 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-500">
+          <TriangleAlertIcon className="size-3.5" />
+          {segment.error}
+        </p>
+      )}
+
       <div className="flex items-center gap-2 border-t border-white/10 px-2 py-1.5 text-white">
         <Button
           aria-label={playing ? "Pause" : "Play"}
@@ -219,20 +308,20 @@ export const FramePlayer = ({
           )}
         </Button>
         <Button
-          aria-label="Previous Step"
+          aria-label={pinControlLabel("Previous", previous)}
           className="text-white hover:bg-white/10 hover:text-white"
           disabled={previous === undefined}
-          onClick={() => previous !== undefined && onPinStep(previous)}
+          onClick={() => stepTo(previous)}
           size="icon-sm"
           variant="ghost"
         >
           <ChevronLeftIcon className="size-3.5" />
         </Button>
         <Button
-          aria-label="Next Step"
+          aria-label={pinControlLabel("Next", next)}
           className="text-white hover:bg-white/10 hover:text-white"
           disabled={next === undefined}
-          onClick={() => next !== undefined && onPinStep(next)}
+          onClick={() => stepTo(next)}
           size="icon-sm"
           variant="ghost"
         >
@@ -256,7 +345,7 @@ export const FramePlayer = ({
           />
           <StepMarkers
             duration={duration}
-            onPinStep={onPinStep}
+            onPin={onPin}
             segment={segment}
             selected={selected}
             timeline={timeline}

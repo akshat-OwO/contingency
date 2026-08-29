@@ -16,7 +16,11 @@ import {
   runExitCode,
   runIsBaselineEligible,
   runIsInFlight,
+  describeSettlingDiagnostic,
+  playheadAtSeconds,
   runVideoPath,
+  settledFrameSeconds,
+  settlingDiagnostic,
   stepFrameSeconds,
   VIDEO_FRAME_DURATION_SECONDS,
 } from "@contingency/protocol";
@@ -337,7 +341,7 @@ test("the attempt worth watching is the last failed one", () => {
   ).toBe(2);
 });
 
-test("a Step seeks to the middle of its own frame, never a boundary", () => {
+test("a Step seeks to the beginning of its own frame", () => {
   const segment: RunVideoSegmentType = {
     attempt: 1,
     file: "attempt-1.webm",
@@ -347,11 +351,102 @@ test("a Step seeks to the middle of its own frame, never a boundary", () => {
   };
   // One frame per executed Step in order, each held the same length: the seek
   // is arithmetic on the segment's own list rather than a second index.
-  expect(stepFrameSeconds(segment, 0)).toBe(VIDEO_FRAME_DURATION_SECONDS / 2);
-  expect(stepFrameSeconds(segment, 2)).toBe(VIDEO_FRAME_DURATION_SECONDS * 2.5);
+  expect(stepFrameSeconds(segment, 0)).toBe(0);
+  expect(stepFrameSeconds(segment, 1)).toBe(VIDEO_FRAME_DURATION_SECONDS);
+  expect(stepFrameSeconds(segment, 2)).toBe(VIDEO_FRAME_DURATION_SECONDS * 2);
+  // The settled-state frame occupies the last complete interval, after the
+  // final Step, through the video's declared duration.
+  expect(settledFrameSeconds(segment)).toBe(VIDEO_FRAME_DURATION_SECONDS * 3);
   // An attempt that failed before a Step has no frame for it, which is not
   // the same as a frame at zero.
   expect(stepFrameSeconds(segment, 3)).toBeUndefined();
+});
+
+test("the playhead names the frame that owns each boundary", () => {
+  const segment: RunVideoSegmentType = {
+    attempt: 1,
+    file: "attempt-1.webm",
+    includesSettledState: true,
+    recorded: true,
+    steps: [0, 1, 2],
+  };
+  const duration = VIDEO_FRAME_DURATION_SECONDS * 4;
+  expect(playheadAtSeconds(segment, 0)).toEqual({ index: 0, kind: "step" });
+  expect(playheadAtSeconds(segment, VIDEO_FRAME_DURATION_SECONDS)).toEqual({
+    index: 1,
+    kind: "step",
+  });
+  expect(playheadAtSeconds(segment, VIDEO_FRAME_DURATION_SECONDS * 2)).toEqual({
+    index: 2,
+    kind: "step",
+  });
+  expect(playheadAtSeconds(segment, VIDEO_FRAME_DURATION_SECONDS * 3)).toEqual({
+    kind: "settled",
+  });
+  // Exactly at the declared duration still belongs to the settled interval,
+  // not to a fictional extra frame past the end.
+  expect(playheadAtSeconds(segment, duration)).toEqual({ kind: "settled" });
+});
+
+test("a missing settled frame is not invented from the last Step", () => {
+  const segment: RunVideoSegmentType = {
+    attempt: 1,
+    error: "The Trace did not capture the final settled state.",
+    file: "attempt-1.webm",
+    includesSettledState: false,
+    recorded: false,
+    steps: [0, 1, 2],
+  };
+  expect(settledFrameSeconds(segment)).toBeUndefined();
+  expect(playheadAtSeconds(segment, VIDEO_FRAME_DURATION_SECONDS * 3)).toEqual({
+    index: 2,
+    kind: "step",
+  });
+  expect(playheadAtSeconds(segment, VIDEO_FRAME_DURATION_SECONDS * 2)).toEqual({
+    index: 2,
+    kind: "step",
+  });
+});
+
+test("a settling diagnostic is recorded only when something still prevented settlement", () => {
+  expect(settlingDiagnostic(0, [])).toBeUndefined();
+  expect(settlingDiagnostic(2000, ["network idle"])).toEqual({
+    remaining: ["network idle"],
+    waitMs: 2000,
+  });
+  expect(
+    describeSettlingDiagnostic({
+      remaining: ["network idle", "DOM mutations"],
+      waitMs: 2000,
+    })
+  ).toBe(
+    "Waited 2000ms; network idle and DOM mutations still prevented settlement."
+  );
+});
+
+test("an attempt may carry a settling diagnostic without changing the outcome", () => {
+  const run = assertRunDecodes(
+    runWith({
+      attempts: [
+        {
+          attempt: 1,
+          finishedAt: "2026-01-01T00:00:01.000Z",
+          outcome: "completed",
+          settling: {
+            remaining: ["network idle"],
+            waitMs: 2000,
+          },
+          startedAt: "2026-01-01T00:00:00.000Z",
+          steps: [],
+        },
+      ],
+    })
+  );
+  expect(run.outcome).toBe("completed");
+  expect(run.attempts[0]?.settling).toEqual({
+    remaining: ["network idle"],
+    waitMs: 2000,
+  });
 });
 
 const snapshotWith = (phase: RunPhaseType): RunSnapshotType =>
