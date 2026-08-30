@@ -860,6 +860,7 @@ const installScrollReadinessObserver = ({
   let animationFrame = 0;
   let lastMutationAt = browser.performance.now();
   let lastPosition = position();
+  let moved = false;
   let stableFrames = 0;
   const mutations = new browser.MutationObserver(() => {
     if (actionStarted) {
@@ -878,7 +879,12 @@ const installScrollReadinessObserver = ({
       if (current.x === lastPosition.x && current.y === lastPosition.y) {
         stableFrames += 1;
       } else {
+        // Stillness before the wheel takes effect is not readiness. Restart
+        // the quiet window on the first move so work the scroll starts is
+        // observed instead of racing a 250ms clock that began at arm.
+        moved = true;
         stableFrames = 0;
+        lastMutationAt = browser.performance.now();
       }
       lastPosition = current;
     }
@@ -890,6 +896,7 @@ const installScrollReadinessObserver = ({
       actionStarted = true;
       lastMutationAt = browser.performance.now();
       lastPosition = position();
+      moved = false;
       stableFrames = 0;
     },
     dispose: () => {
@@ -898,7 +905,7 @@ const installScrollReadinessObserver = ({
     },
     snapshot: () => ({
       domQuiet: browser.performance.now() - lastMutationAt >= stableWindowMs,
-      scrollStable: stableFrames >= 2,
+      scrollStable: moved && stableFrames >= 2,
     }),
   };
 };
