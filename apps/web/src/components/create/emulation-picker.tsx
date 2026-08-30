@@ -1,4 +1,8 @@
-import type { SessionEmulation } from "@contingency/protocol";
+import type {
+  PermissionDecision,
+  PermissionState,
+  SessionEmulation,
+} from "@contingency/protocol";
 import { MapPinIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -19,12 +23,13 @@ import {
 } from "@/components/ui/select";
 
 /**
- * The website permissions Create View offers by name, mapped to what Chromium
- * grants. Geolocation leads because an emulated location only reaches a site
- * that asks when its permission is genuinely granted ([ADR
+ * The website permissions Create View can decide by name. Geolocation leads
+ * because an emulated location only reaches a site that asks when its
+ * permission is genuinely granted, and only a deliberate denial makes that
+ * site observe refusal ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
-const GRANTABLE_PERMISSIONS = [
+const DECIDABLE_PERMISSIONS = [
   "geolocation",
   "notifications",
   "camera",
@@ -34,8 +39,31 @@ const GRANTABLE_PERMISSIONS = [
 
 const LATITUDE_BOUND = 90;
 const LONGITUDE_BOUND = 180;
-/** The permission the grant Select opens on; choosing any option grants it. */
+/** The permission the decision Select opens on. */
 const DEFAULT_PERMISSION_CHOICE = "geolocation";
+
+/** How a decision reads back, so an origin-scoped one is not read as global. */
+const decisionLabel = (decision: PermissionDecision): string =>
+  decision.origin === undefined
+    ? decision.permission
+    : `${decision.permission} (${decision.origin})`;
+
+/** The decisions as they read back, split by the answer each one records. */
+const decisionLabels = (
+  decisions: readonly PermissionDecision[]
+): {
+  readonly denied: readonly string[];
+  readonly granted: readonly string[];
+} => {
+  const denied: string[] = [];
+  const granted: string[] = [];
+  for (const decision of decisions) {
+    (decision.state === "granted" ? granted : denied).push(
+      decisionLabel(decision)
+    );
+  }
+  return { denied, granted };
+};
 
 /**
  * What the interface knows about a session's Emulation. "Unknown" is a state of
@@ -65,6 +93,131 @@ const parseCoordinate = (value: string, bound: number): number | undefined => {
   return parsed;
 };
 
+/**
+ * The session's website permission decisions, and the control that records
+ * another. Decisions are their own concern: they are the one part of the
+ * Emulation the author answers rather than measures, and a denial is as much
+ * an answer as a grant ([ADR
+ * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+const PermissionControls = ({
+  applied,
+  disabled,
+  onPatch,
+}: {
+  /** Undefined until the interface has read the session's own decisions. */
+  readonly applied: readonly PermissionDecision[] | undefined;
+  readonly disabled: boolean;
+  readonly onPatch: (patch: EmulationPatch) => void;
+}) => {
+  const [choice, setChoice] = useState<string>(DEFAULT_PERMISSION_CHOICE);
+  // A decision sends the whole list, so it waits for the list the session has.
+  const unknown = applied === undefined;
+  const decisions = applied ?? [];
+  const { denied, granted } = decisionLabels(decisions);
+
+  /**
+   * Decide the chosen permission for every site in this session. One scope
+   * holds one answer, so an earlier context-wide decision about the same
+   * permission is replaced rather than joined by a contradicting one.
+   *
+   * Granting context-wide also drops that permission's origin denials, because
+   * Chromium cannot narrow a context-wide grant back down for one site: kept,
+   * they would be a decision no Run could reproduce, and the Flow would refuse
+   * to save what the session had already applied.
+   */
+  const decide = (state: PermissionState) => {
+    if (unknown) {
+      return;
+    }
+    const kept = decisions.filter((decision) => {
+      if (decision.permission !== choice) {
+        return true;
+      }
+      if (decision.origin === undefined) {
+        return false;
+      }
+      return !(state === "granted" && decision.state === "denied");
+    });
+    onPatch({ permissions: [...kept, { permission: choice, state }] });
+  };
+
+  return (
+    <section className="space-y-1.5">
+      <h2 className="text-sm font-medium">Permissions</h2>
+      {unknown ? (
+        <p className="text-muted-foreground text-xs">
+          Permission decisions are unavailable for this session.
+        </p>
+      ) : null}
+      {granted.length === 0 ? null : (
+        <p className="text-muted-foreground text-xs">
+          Granted: {granted.join(", ")}
+        </p>
+      )}
+      {denied.length === 0 ? null : (
+        <p className="text-muted-foreground text-xs">
+          Denied: {denied.join(", ")}
+        </p>
+      )}
+      <div className="flex items-center gap-1.5">
+        <Select
+          disabled={disabled || unknown}
+          onValueChange={(name) => {
+            if (name !== null) {
+              setChoice(name);
+            }
+          }}
+          value={choice}
+        >
+          <SelectTrigger aria-label="Permission" className="flex-1" size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="start">
+            {DECIDABLE_PERMISSIONS.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          disabled={disabled || unknown}
+          onClick={() => decide("granted")}
+          size="sm"
+          type="button"
+          variant="secondary"
+        >
+          Grant
+        </Button>
+        <Button
+          disabled={disabled || unknown}
+          onClick={() => decide("denied")}
+          size="sm"
+          type="button"
+          variant="secondary"
+        >
+          Deny
+        </Button>
+        {decisions.length === 0 ? null : (
+          <Button
+            onClick={() => onPatch({ permissions: null })}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Clear all
+          </Button>
+        )}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        A decision applies to every site in this session. Denying makes a site
+        observe refusal rather than a prompt.
+      </p>
+    </section>
+  );
+};
+
 const EmulationPicker = ({
   applied,
   disabled,
@@ -80,9 +233,6 @@ const EmulationPicker = ({
   const appliedEmulation =
     applied.status === "known" ? applied.emulation : undefined;
   const appliedLocation = appliedEmulation?.geolocation;
-  const appliedPermissions = appliedEmulation?.permissions ?? [];
-  // Granting sends the whole list, so it waits for the list the session has.
-  const permissionsUnknown = appliedEmulation === undefined;
 
   const applyLocation = () => {
     const parsedLatitude = parseCoordinate(latitude, LATITUDE_BOUND);
@@ -125,26 +275,6 @@ const EmulationPicker = ({
       },
       { timeout: 10_000 }
     );
-  };
-
-  const grantPermission = (name: string) => {
-    if (permissionsUnknown) {
-      return;
-    }
-    if (
-      appliedPermissions.some(
-        (grant) => grant.origin === undefined && grant.permission === name
-      )
-    ) {
-      return;
-    }
-    onPatch({
-      permissions: [...appliedPermissions, { permission: name }],
-    });
-  };
-
-  const clearPermissions = () => {
-    onPatch({ permissions: null });
   };
 
   const applyLocale = () => {
@@ -241,59 +371,11 @@ const EmulationPicker = ({
           </div>
         </section>
 
-        <section className="space-y-1.5">
-          <h2 className="text-sm font-medium">Permissions</h2>
-          {permissionsUnknown ? (
-            <p className="text-muted-foreground text-xs">
-              Granted permissions are unavailable for this session.
-            </p>
-          ) : null}
-          {appliedPermissions.length === 0 ? null : (
-            <p className="text-muted-foreground text-xs">
-              Granted:{" "}
-              {appliedPermissions.map((grant) => grant.permission).join(", ")}
-            </p>
-          )}
-          <div className="flex items-center gap-1.5">
-            <Select
-              disabled={disabled || permissionsUnknown}
-              onValueChange={(name) => {
-                if (name !== null) {
-                  grantPermission(name);
-                }
-              }}
-              value={DEFAULT_PERMISSION_CHOICE}
-            >
-              <SelectTrigger
-                aria-label="Permission to grant"
-                className="flex-1"
-                size="sm"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {GRANTABLE_PERMISSIONS.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {appliedPermissions.length === 0 ? null : (
-              <Button
-                onClick={clearPermissions}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Clear all
-              </Button>
-            )}
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Choosing a permission grants it to every site in this session.
-          </p>
-        </section>
+        <PermissionControls
+          applied={appliedEmulation?.permissions}
+          disabled={disabled}
+          onPatch={onPatch}
+        />
 
         <section className="space-y-1.5">
           <h2 className="text-sm font-medium">Environment</h2>

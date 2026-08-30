@@ -159,7 +159,7 @@ it.effect("declares the session's Emulation on the Flow it produces", () =>
       colorScheme: "dark",
       geolocation: { latitude: 52.52, longitude: 13.405 },
       locale: "de-DE",
-      permissions: [{ permission: "geolocation" }],
+      permissions: [{ permission: "geolocation", state: "granted" }],
       timezoneId: "Europe/Berlin",
       userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 10)",
       viewport: { deviceScaleFactor: 3, height: 892, width: 412 },

@@ -10,7 +10,7 @@ import type {
   BrowserTab,
   BrowserTabId,
   Geolocation,
-  PermissionGrant,
+  PermissionDecision,
   SessionEmulation,
   SessionId,
   StorageKind,
@@ -79,10 +79,11 @@ export interface CreateSessionState {
   readonly network: ReadonlyMap<BrowserTabId, Map<string, NetworkRecord>>;
   readonly pageIds: ReadonlyMap<Page, BrowserTabId>;
   /**
-   * Website permission grants, context-wide in v1 with `origin` as the
-   * optional key ([ADR 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+   * The session's explicit website permission decisions — granted or denied,
+   * context-wide or narrowed to an origin ([ADR
+   * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
    */
-  readonly permissions: readonly PermissionGrant[];
+  readonly permissions: readonly PermissionDecision[];
   readonly requestIds: WeakMap<Request, string>;
   readonly screencast: Screencast | undefined;
   readonly sequence: number;
@@ -459,34 +460,55 @@ export const reapplyViewport = (
   }).pipe(Effect.asVoid);
 
 /**
- * Split permission grants into the context-wide names and the per-origin ones.
- * Context-wide grants are one call; an origin key narrows a grant without
- * replacing those. Shared by the Runner's context-open path and Create View's
- * live session, so both apply grants identically ([ADR
+ * The granted names of a decision set, as the calls a browser context needs:
+ * the context-wide names, then the complete set each named origin must be
+ * granted.
+ *
+ * An origin's list carries the context-wide grants as well as its own, because
+ * Chromium's per-origin grant is a replacement rather than an addition — it
+ * grants what it names for that origin and rejects every other permission
+ * there. Sending only an origin's own names would therefore withdraw the
+ * Flow's context-wide grants at exactly the site the author singled out.
+ *
+ * Denials need no call of their own: Chromium grants exactly what it is told
+ * to and denies the rest outright, so an explicit denial and an absent
+ * decision reach a site the same way — as a refusal, never as the native
+ * prompt Create View cannot operate. What the denial buys is durability: the
+ * Flow says the author meant it. Shared by the Runner's context-open path and
+ * Create View's live session, so both reproduce a decision identically ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ *
+ * A grant is never subtracted for one origin: an origin denial beside a
+ * context-wide grant of the same permission is not a set a Flow may declare,
+ * because no union of grants could express it.
  */
-export const groupedPermissionGrants = (
-  grants: readonly PermissionGrant[]
+export const grantedPermissionScopes = (
+  decisions: readonly PermissionDecision[]
 ): {
   readonly byOrigin: ReadonlyMap<string, string[]>;
   readonly contextWide: readonly string[];
 } => {
-  const contextWide = grants
-    .filter((grant) => grant.origin === undefined)
-    .map((grant) => grant.permission);
+  const granted = decisions.filter((decision) => decision.state === "granted");
+  const contextWide = granted
+    .filter((decision) => decision.origin === undefined)
+    .map((decision) => decision.permission);
   const byOrigin = new Map<string, string[]>();
-  for (const grant of grants) {
-    if (grant.origin === undefined) {
+  for (const decision of granted) {
+    if (decision.origin === undefined) {
       continue;
     }
-    const names = byOrigin.get(grant.origin) ?? [];
-    names.push(grant.permission);
-    byOrigin.set(grant.origin, names);
+    const names = byOrigin.get(decision.origin) ?? [...contextWide];
+    names.push(decision.permission);
+    byOrigin.set(decision.origin, names);
   }
   return { byOrigin, contextWide };
 };
 
-/** Grant the session's declared permissions on the context, declaratively. */
+/**
+ * Apply the session's declared permission decisions on the context. Clearing
+ * first makes the result declarative: whatever a previous decision set granted
+ * is gone before this one is applied.
+ */
 export const applyPermissions = (
   session: CreateSession
 ): Effect.Effect<void, BrowserRpcErrorType> =>
@@ -495,7 +517,7 @@ export const applyPermissions = (
       session.context.clearPermissions()
     );
     const { permissions } = readSessionState(session);
-    const { byOrigin, contextWide } = groupedPermissionGrants(permissions);
+    const { byOrigin, contextWide } = grantedPermissionScopes(permissions);
     if (contextWide.length > 0) {
       yield* tryBrowser("Could not grant website permissions", () =>
         session.context.grantPermissions(contextWide)

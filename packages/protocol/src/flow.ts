@@ -1,4 +1,4 @@
-import { Schema, SchemaGetter } from "effect";
+import { Effect, Schema, SchemaGetter } from "effect";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import {
@@ -499,17 +499,91 @@ const performanceOnlyOnNavigatingSteps = Schema.makeFilter<
 );
 
 /**
- * Where a website permission grant applies. Absent `origin` means the grant
- * is context-wide — the v1 shape — while the key leaves room for per-origin
- * grants without a later breaking change ([ADR
- * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ * The two answers a Flow can give about a website permission. Chromium's own
+ * `prompt` is absent deliberately: the native bubble sits outside the streamed
+ * page, so it is neither operable in Create View nor reproducible in a Run
+ * ([ADR 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
-export const PermissionGrant = Schema.Struct({
+export const PermissionState = Schema.Literals(["granted", "denied"]);
+export type PermissionState = typeof PermissionState.Type;
+
+/**
+ * One explicit website permission decision and where it applies. Absent
+ * `origin` means the decision is context-wide; an origin narrows it to that
+ * site. Flows written before decisions were explicit list grants only, so a
+ * missing `state` decodes as `granted` rather than as an absent answer.
+ */
+export const PermissionDecision = Schema.Struct({
   origin: Schema.optional(nonEmptyString),
   /** The engine's permission name, e.g. `geolocation`. */
   permission: nonEmptyString,
+  state: PermissionState.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("granted" as const))
+  ),
 });
-export type PermissionGrant = typeof PermissionGrant.Type;
+export type PermissionDecision = typeof PermissionDecision.Type;
+
+const decisionScope = (decision: PermissionDecision): string =>
+  decision.origin ?? "*";
+
+/**
+ * Reject decision sets no browser could reproduce. One scope saying both
+ * `granted` and `denied` about a permission has no answer, and Chromium's
+ * context-wide grant cannot be narrowed back down for a single origin, so a
+ * context-wide grant beside an origin denial would silently grant.
+ */
+const coherentPermissionDecisions = Schema.makeFilter<
+  readonly PermissionDecision[]
+>((decisions) => {
+  const issues: { readonly issue: string; readonly path: readonly number[] }[] =
+    [];
+  const seen = new Map<string, PermissionState>();
+  for (const [index, decision] of decisions.entries()) {
+    const key = `${decision.permission}@${decisionScope(decision)}`;
+    const previous = seen.get(key);
+    if (previous !== undefined && previous !== decision.state) {
+      issues.push({
+        issue:
+          `The ${decision.permission} permission is both granted and denied ` +
+          `for ${decision.origin ?? "every origin"}. Declare one decision per scope.`,
+        path: [index],
+      });
+    }
+    seen.set(key, decision.state);
+  }
+  for (const [index, decision] of decisions.entries()) {
+    if (decision.origin === undefined || decision.state !== "denied") {
+      continue;
+    }
+    const grantedEverywhere = decisions.some(
+      (other) =>
+        other.origin === undefined &&
+        other.permission === decision.permission &&
+        other.state === "granted"
+    );
+    if (grantedEverywhere) {
+      issues.push({
+        issue:
+          `The ${decision.permission} permission is granted to every origin, ` +
+          `so it cannot also be denied to ${decision.origin}. Grant it to the ` +
+          "origins that may have it instead.",
+        path: [index],
+      });
+    }
+  }
+  return issues;
+});
+
+/**
+ * A whole set of permission decisions, coherent as a set. Create View's live
+ * session, the RPC that patches it, and the Flow all carry this one shape, so
+ * a set the session accepts is a set the Flow can be saved with rather than
+ * one the author discovers is unwritable later.
+ */
+export const PermissionDecisions = Schema.Array(PermissionDecision).check(
+  coherentPermissionDecisions
+);
+export type PermissionDecisions = typeof PermissionDecisions.Type;
 
 export const Geolocation = Schema.Struct({
   accuracy: Schema.optional(Schema.Finite),
@@ -541,7 +615,7 @@ export const Emulation = Schema.Struct({
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyString),
   permissions: Schema.optional(
-    Schema.Array(PermissionGrant).check(Schema.isMinLength(1))
+    PermissionDecisions.check(Schema.isMinLength(1))
   ),
   timezoneId: Schema.optional(nonEmptyString),
   userAgent: Schema.optional(nonEmptyString),

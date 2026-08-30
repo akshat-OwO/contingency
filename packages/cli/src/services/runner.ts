@@ -23,7 +23,7 @@ import type {
   Flow,
   LocatorDescriptor,
   PreStep,
-  PermissionGrant,
+  PermissionDecision,
   Run,
   RunAttempt,
   RunEnvironment,
@@ -64,7 +64,7 @@ import type {
 
 import { flowBrowserIdentity, userAgentOverride } from "./browser-identity.ts";
 import { ensureChromiumInstalled } from "./browser-install.ts";
-import { groupedPermissionGrants } from "./create-browser-session.ts";
+import { grantedPermissionScopes } from "./create-browser-session.ts";
 import { environmentContextOptions } from "./emulation-options.ts";
 import {
   describeDiagnostics,
@@ -352,15 +352,17 @@ const installClientHints = (
 };
 
 /**
- * Grant the Emulation's declared permissions on an opened context. Grants are
- * context options in Playwright rather than constructor arguments, so they
- * land immediately after it opens — before any Page exists to observe them
- * missing.
+ * Apply the Emulation's declared permission decisions on an opened context.
+ * Permissions are context options in Playwright rather than constructor
+ * arguments, so they land immediately after it opens — before any Page exists
+ * to observe them missing, and therefore before a site can ask. A Run never
+ * prompts: it reproduces the answer the Flow already recorded, granting what
+ * was granted and leaving Chromium to refuse everything else.
  */
-const grantDeclaredPermissions = Effect.fn("Runner.grantDeclaredPermissions")(
-  function* grantDeclaredPermissions(
+const applyDeclaredPermissions = Effect.fn("Runner.applyDeclaredPermissions")(
+  function* applyDeclaredPermissions(
     context: BrowserContext,
-    grants: readonly PermissionGrant[]
+    decisions: readonly PermissionDecision[]
   ) {
     const grant = (permissions: readonly string[], origin?: string) =>
       Effect.tryPromise({
@@ -373,7 +375,7 @@ const grantDeclaredPermissions = Effect.fn("Runner.grantDeclaredPermissions")(
             ? context.grantPermissions([...permissions])
             : context.grantPermissions([...permissions], { origin }),
       });
-    const { byOrigin, contextWide } = groupedPermissionGrants(grants);
+    const { byOrigin, contextWide } = grantedPermissionScopes(decisions);
     if (contextWide.length > 0) {
       yield* grant(contextWide);
     }
@@ -2172,9 +2174,9 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           ...(state === null ? {} : { storageState: state }),
         }),
     });
-    const grants = flow.emulation?.permissions;
-    if (grants !== undefined) {
-      yield* grantDeclaredPermissions(context, grants).pipe(
+    const decisions = flow.emulation?.permissions;
+    if (decisions !== undefined) {
+      yield* applyDeclaredPermissions(context, decisions).pipe(
         Effect.onError(() =>
           Effect.tryPromise(() => context.close()).pipe(Effect.ignore)
         )

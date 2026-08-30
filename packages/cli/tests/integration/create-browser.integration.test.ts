@@ -285,7 +285,9 @@ it.live(
        * inheriting whatever the session was last patched with.
        */
       const berlin = { accuracy: 25, latitude: 52.52, longitude: 13.405 };
-      const granted = [{ permission: "geolocation" }];
+      const granted = [
+        { permission: "geolocation", state: "granted" as const },
+      ];
 
       /** Poll until the probe page reports under its label. */
       const waitForReport = (label: string) =>
@@ -315,13 +317,15 @@ it.live(
 
       const applied = yield* browser.setEmulation(sessionId, {
         geolocation: { accuracy: 25, latitude: 52.52, longitude: 13.405 },
-        permissions: [{ permission: "geolocation" }],
+        permissions: [{ permission: "geolocation", state: "granted" }],
       });
       expect(applied.geolocation).toMatchObject({
         latitude: 52.52,
         longitude: 13.405,
       });
-      expect(applied.permissions).toEqual([{ permission: "geolocation" }]);
+      expect(applied.permissions).toEqual([
+        { permission: "geolocation", state: "granted" },
+      ]);
 
       // The override is applied to the open Page without a reload being
       // Contingency's business — the probe navigates itself.
@@ -415,6 +419,102 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
 
+/**
+ * Create View reproduces a decision the same way a Run does. A denial keeps the
+ * coordinates installed and still refuses the site, and an origin narrows a
+ * grant to the one site under test. Neither answer waits on Chromium's native
+ * permission bubble, which sits outside the streamed canvas: a prompt here
+ * would never be answered, so the probe would never report at all ([ADR
+ * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+it.live("applies explicit permission decisions in a live session", () =>
+  Effect.gen(function* applyPermissionDecisions() {
+    const browser = yield* CreateBrowser;
+    const fixtures = yield* fixtureServer;
+
+    const locationProbe = (label: string) =>
+      `${fixtures.origin}/geolocation-probe.html?label=${label}`;
+    const berlin = { accuracy: 25, latitude: 52.52, longitude: 13.405 };
+
+    const sessionId = yield* browser.create("create-decisions", viewport);
+
+    const waitForReport = (label: string) =>
+      Effect.gen(function* pollTitle() {
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+          const tabs = yield* browser.getTabs(sessionId);
+          const title =
+            tabs.find((tab) => tab.title.startsWith(`${label}:`))?.title ?? "";
+          if (title.length > 0) {
+            return title;
+          }
+          yield* Effect.sleep("25 millis");
+        }
+        return yield* Effect.die(
+          `The probe never reported: expected ${label}.`
+        );
+      });
+
+    yield* browser.open(
+      sessionId,
+      locationProbe("denied"),
+      draftEmulation("default", viewport, {
+        geolocation: berlin,
+        permissions: [{ permission: "geolocation", state: "denied" }],
+      })
+    );
+    expect(yield* waitForReport("denied")).toBe("denied:denied");
+
+    const decided = yield* browser.setEmulation(sessionId, {
+      permissions: [
+        { permission: "geolocation", state: "denied" },
+        {
+          origin: fixtures.origin,
+          permission: "geolocation",
+          state: "granted",
+        },
+      ],
+    });
+    expect(decided.permissions).toEqual([
+      { permission: "geolocation", state: "denied" },
+      { origin: fixtures.origin, permission: "geolocation", state: "granted" },
+    ]);
+
+    yield* browser.open(
+      sessionId,
+      locationProbe("origin"),
+      draftEmulation("default", viewport, {
+        geolocation: berlin,
+        permissions: [
+          { permission: "geolocation", state: "denied" },
+          {
+            origin: fixtures.origin,
+            permission: "geolocation",
+            state: "granted",
+          },
+        ],
+      })
+    );
+    expect(yield* waitForReport("origin")).toBe("origin:52.52,13.405");
+
+    // The same coordinates were installed under the denial all along: turning
+    // the decision into a context-wide grant answers the site with them
+    // without the location itself being re-applied.
+    yield* browser.open(
+      sessionId,
+      locationProbe("context-wide"),
+      draftEmulation("default", viewport, {
+        geolocation: berlin,
+        permissions: [{ permission: "geolocation", state: "granted" }],
+      })
+    );
+    expect(yield* waitForReport("context-wide")).toBe(
+      "context-wide:52.52,13.405"
+    );
+
+    yield* browser.close(sessionId);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
 const ENVIRONMENT_BEACON = "/environment-beacon";
 
 /** What the fixture page reported about the browser it loaded into. */
@@ -442,7 +542,7 @@ it.live(
           colorScheme: "dark",
           geolocation: { accuracy: 25, latitude: 52.52, longitude: 13.405 },
           locale: "de-DE",
-          permissions: [{ permission: "geolocation" }],
+          permissions: [{ permission: "geolocation", state: "granted" }],
           timezoneId: "Europe/Berlin",
           userAgentProfile: "chrome-android-mobile",
           viewport: { deviceScaleFactor: 3, height: 892, width: 412 },

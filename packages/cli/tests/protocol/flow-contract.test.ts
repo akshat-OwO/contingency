@@ -184,7 +184,14 @@ test("a Flow declares its Emulation", () => {
       },
     })
   );
-  expect(flow.emulation?.permissions).toEqual(permissions);
+  expect(flow.emulation?.permissions).toEqual([
+    {
+      origin: "https://example.com",
+      permission: "geolocation",
+      state: "granted",
+    },
+    { permission: "camera", state: "granted" },
+  ]);
 
   // A partial Emulation declares only what the Flow needs.
   assertDecodes(
@@ -656,4 +663,105 @@ test("encoding a Flow emits only the current format", () => {
   expect(encoded).not.toContain("contingency");
   expect(encoded).not.toContain("secretVariable");
   expect(encoded).not.toContain('"video"');
+});
+
+/**
+ * A permission is an explicit decision, not the mere presence of a name in a
+ * list. Flows written before the decision existed said only "granted", so a
+ * grant-only entry decodes into the granted state rather than being rejected
+ * or read as a prompt ([ADR
+ * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+test("permission decisions are explicit grants and denials", () => {
+  const legacy = assertDecodes(
+    flowWith([navigateStep], {
+      emulation: { permissions: [{ permission: "geolocation" }] },
+    })
+  );
+  expect(legacy.emulation?.permissions).toEqual([
+    { permission: "geolocation", state: "granted" },
+  ]);
+
+  const decided = assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        permissions: [
+          { permission: "geolocation", state: "denied" },
+          {
+            origin: "https://example.com",
+            permission: "geolocation",
+            state: "granted",
+          },
+          { permission: "camera", state: "granted" },
+        ],
+      },
+    })
+  );
+  expect(decided.emulation?.permissions).toEqual([
+    { permission: "geolocation", state: "denied" },
+    {
+      origin: "https://example.com",
+      permission: "geolocation",
+      state: "granted",
+    },
+    { permission: "camera", state: "granted" },
+  ]);
+
+  // A decision is granted or denied. Chromium's own `prompt` state is not a
+  // decision a Run could reproduce without asking a human.
+  assertRejects(
+    flowWith([navigateStep], {
+      emulation: {
+        permissions: [{ permission: "geolocation", state: "prompt" }],
+      },
+    })
+  );
+
+  // One scope cannot say two things about the same permission.
+  const conflict = failureMessage(
+    flowWith([navigateStep], {
+      emulation: {
+        permissions: [
+          { permission: "geolocation", state: "granted" },
+          { permission: "geolocation", state: "denied" },
+        ],
+      },
+    })
+  );
+  expect(conflict).toContain("geolocation");
+
+  // Chromium cannot narrow a context-wide grant back down for one origin, so
+  // the Flow cannot claim a decision no Run could reproduce.
+  const unnarrowable = failureMessage(
+    flowWith([navigateStep], {
+      emulation: {
+        permissions: [
+          { permission: "geolocation", state: "granted" },
+          {
+            origin: "https://example.com",
+            permission: "geolocation",
+            state: "denied",
+          },
+        ],
+      },
+    })
+  );
+  expect(unnarrowable).toContain("geolocation");
+
+  // A context-wide denial narrowed by an origin grant is reproducible, so it
+  // stands.
+  assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        permissions: [
+          { permission: "geolocation", state: "denied" },
+          {
+            origin: "https://example.com",
+            permission: "geolocation",
+            state: "granted",
+          },
+        ],
+      },
+    })
+  );
 });

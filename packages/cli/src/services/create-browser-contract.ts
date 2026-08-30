@@ -12,7 +12,7 @@ import type {
   DraftEmulation,
   FrameSequence,
   Geolocation,
-  PermissionGrant,
+  PermissionDecision,
   SessionEmulation,
   SessionId,
   StorageKind,
@@ -161,7 +161,7 @@ export interface CreateBrowserService {
       readonly colorScheme?: "light" | "dark" | null | undefined;
       readonly geolocation?: Geolocation | null | undefined;
       readonly locale?: string | null | undefined;
-      readonly permissions?: readonly PermissionGrant[] | null | undefined;
+      readonly permissions?: readonly PermissionDecision[] | null | undefined;
       readonly timezoneId?: string | null | undefined;
     }
   ) => Effect.Effect<SessionEmulation, BrowserRpcErrorType>;
