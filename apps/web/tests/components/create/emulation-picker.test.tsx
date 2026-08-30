@@ -115,3 +115,44 @@ test("locks the browser controls only for the Recording's own session", () => {
   expect(recordingLocksBrowser(recording, noSelection)).toBe(false);
   expect(recordingLocksBrowser(null, sessionId)).toBe(false);
 });
+
+/**
+ * Chromium cannot narrow a context-wide grant back down for one site, so a
+ * Flow may not declare both. Granting to every site therefore drops that
+ * permission's origin denials rather than composing a set the Flow would
+ * refuse to save.
+ */
+test("granting to every site drops that permission's origin denials", async () => {
+  const onPatch = await openPicker({
+    emulation: {
+      permissions: [
+        { permission: "geolocation", state: "denied" },
+        {
+          origin: "https://example.com",
+          permission: "geolocation",
+          state: "denied",
+        },
+        {
+          origin: "https://example.com",
+          permission: "camera",
+          state: "granted",
+        },
+      ],
+      viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+    },
+    status: "known",
+  });
+
+  await userEvent.click(screen.getByRole("button", { name: "Grant" }));
+
+  expect(onPatch).toHaveBeenCalledWith({
+    permissions: [
+      {
+        origin: "https://example.com",
+        permission: "camera",
+        state: "granted",
+      },
+      { permission: "geolocation", state: "granted" },
+    ],
+  });
+});

@@ -496,6 +496,21 @@ it.live("applies explicit permission decisions in a live session", () =>
     );
     expect(yield* waitForReport("origin")).toBe("origin:52.52,13.405");
 
+    // The same coordinates were installed under the denial all along: turning
+    // the decision into a context-wide grant answers the site with them
+    // without the location itself being re-applied.
+    yield* browser.open(
+      sessionId,
+      locationProbe("context-wide"),
+      draftEmulation("default", viewport, {
+        geolocation: berlin,
+        permissions: [{ permission: "geolocation", state: "granted" }],
+      })
+    );
+    expect(yield* waitForReport("context-wide")).toBe(
+      "context-wide:52.52,13.405"
+    );
+
     yield* browser.close(sessionId);
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );

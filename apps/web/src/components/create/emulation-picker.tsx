@@ -42,11 +42,6 @@ const LONGITUDE_BOUND = 180;
 /** The permission the decision Select opens on. */
 const DEFAULT_PERMISSION_CHOICE = "geolocation";
 
-/**
- * What the interface knows about a session's Emulation. "Unknown" is a state of
- * its own rather than an empty Emulation: a patch replaces the whole permission
- * list, so a client that has not read the session's own list must not send one.
- */
 /** How a decision reads back, so an origin-scoped one is not read as global. */
 const decisionLabel = (decision: PermissionDecision): string =>
   decision.origin === undefined
@@ -70,6 +65,11 @@ const decisionLabels = (
   return { denied, granted };
 };
 
+/**
+ * What the interface knows about a session's Emulation. "Unknown" is a state of
+ * its own rather than an empty Emulation: a patch replaces the whole permission
+ * list, so a client that has not read the session's own list must not send one.
+ */
 export type SessionEmulationState =
   | { readonly status: "unknown" }
   | { readonly status: "known"; readonly emulation: SessionEmulation };
@@ -120,15 +120,25 @@ const PermissionDecisions = ({
    * Decide the chosen permission for every site in this session. One scope
    * holds one answer, so an earlier context-wide decision about the same
    * permission is replaced rather than joined by a contradicting one.
+   *
+   * Granting context-wide also drops that permission's origin denials, because
+   * Chromium cannot narrow a context-wide grant back down for one site: kept,
+   * they would be a decision no Run could reproduce, and the Flow would refuse
+   * to save what the session had already applied.
    */
   const decide = (state: PermissionState) => {
     if (unknown) {
       return;
     }
-    const kept = decisions.filter(
-      (decision) =>
-        decision.origin !== undefined || decision.permission !== choice
-    );
+    const kept = decisions.filter((decision) => {
+      if (decision.permission !== choice) {
+        return true;
+      }
+      if (decision.origin === undefined) {
+        return false;
+      }
+      return !(state === "granted" && decision.state === "denied");
+    });
     onPatch({ permissions: [...kept, { permission: choice, state }] });
   };
 

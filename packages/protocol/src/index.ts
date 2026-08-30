@@ -7,7 +7,7 @@ import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
   AuditKind,
   Geolocation,
-  PermissionDecision,
+  PermissionDecisions,
   RecordingSnapshot,
 } from "./flow.ts";
 import { RunSnapshot } from "./run.ts";
@@ -351,7 +351,7 @@ export const DraftEmulation = Schema.Struct({
   colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyProtocolString),
-  permissions: Schema.Array(PermissionDecision),
+  permissions: PermissionDecisions,
   timezoneId: Schema.optional(nonEmptyProtocolString),
   userAgentProfile: UserAgentProfileId,
   viewport: Viewport,
@@ -410,7 +410,7 @@ export const SessionEmulation = Schema.Struct({
   colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyProtocolString),
-  permissions: Schema.Array(PermissionDecision),
+  permissions: PermissionDecisions,
   timezoneId: Schema.optional(nonEmptyProtocolString),
   userAgent: Schema.optional(nonEmptyProtocolString),
   viewport: Viewport,
@@ -438,7 +438,7 @@ export const BrowserEmulationSet = request("browser.emulation.set", {
   ),
   geolocation: Schema.optional(Schema.NullOr(Geolocation)),
   locale: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
-  permissions: Schema.optional(Schema.NullOr(Schema.Array(PermissionDecision))),
+  permissions: Schema.optional(Schema.NullOr(PermissionDecisions)),
   sessionId: SessionId,
   timezoneId: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
 });

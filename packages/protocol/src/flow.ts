@@ -499,10 +499,10 @@ const performanceOnlyOnNavigatingSteps = Schema.makeFilter<
 );
 
 /**
- * What a Flow decided about a website permission. Chromium's own `prompt` is
- * absent deliberately: the native bubble sits outside the streamed page, so it
- * is neither operable in Create View nor reproducible in a Run ([ADR
- * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ * The two answers a Flow can give about a website permission. Chromium's own
+ * `prompt` is absent deliberately: the native bubble sits outside the streamed
+ * page, so it is neither operable in Create View nor reproducible in a Run
+ * ([ADR 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
 export const PermissionState = Schema.Literals(["granted", "denied"]);
 export type PermissionState = typeof PermissionState.Type;
@@ -574,6 +574,17 @@ const coherentPermissionDecisions = Schema.makeFilter<
   return issues;
 });
 
+/**
+ * A whole set of permission decisions, coherent as a set. Create View's live
+ * session, the RPC that patches it, and the Flow all carry this one shape, so
+ * a set the session accepts is a set the Flow can be saved with rather than
+ * one the author discovers is unwritable later.
+ */
+export const PermissionDecisions = Schema.Array(PermissionDecision).check(
+  coherentPermissionDecisions
+);
+export type PermissionDecisions = typeof PermissionDecisions.Type;
+
 export const Geolocation = Schema.Struct({
   accuracy: Schema.optional(Schema.Finite),
   latitude: Schema.Finite.check(
@@ -604,10 +615,7 @@ export const Emulation = Schema.Struct({
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyString),
   permissions: Schema.optional(
-    Schema.Array(PermissionDecision).check(
-      Schema.isMinLength(1),
-      coherentPermissionDecisions
-    )
+    PermissionDecisions.check(Schema.isMinLength(1))
   ),
   timezoneId: Schema.optional(nonEmptyString),
   userAgent: Schema.optional(nonEmptyString),
