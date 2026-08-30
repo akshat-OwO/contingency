@@ -460,9 +460,15 @@ export const reapplyViewport = (
   }).pipe(Effect.asVoid);
 
 /**
- * The granted names of a decision set, split into the context-wide ones and
- * the per-origin ones. Context-wide grants are one call; an origin key narrows
- * a grant without replacing those.
+ * The granted names of a decision set, as the calls a browser context needs:
+ * the context-wide names, then the complete set each named origin must be
+ * granted.
+ *
+ * An origin's list carries the context-wide grants as well as its own, because
+ * Chromium's per-origin grant is a replacement rather than an addition — it
+ * grants what it names for that origin and rejects every other permission
+ * there. Sending only an origin's own names would therefore withdraw the
+ * Flow's context-wide grants at exactly the site the author singled out.
  *
  * Denials need no call of their own: Chromium grants exactly what it is told
  * to and denies the rest outright, so an explicit denial and an absent
@@ -471,6 +477,10 @@ export const reapplyViewport = (
  * Flow says the author meant it. Shared by the Runner's context-open path and
  * Create View's live session, so both reproduce a decision identically ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ *
+ * A grant is never subtracted for one origin: an origin denial beside a
+ * context-wide grant of the same permission is not a set a Flow may declare,
+ * because no union of grants could express it.
  */
 export const grantedPermissionScopes = (
   decisions: readonly PermissionDecision[]
@@ -487,7 +497,7 @@ export const grantedPermissionScopes = (
     if (decision.origin === undefined) {
       continue;
     }
-    const names = byOrigin.get(decision.origin) ?? [];
+    const names = byOrigin.get(decision.origin) ?? [...contextWide];
     names.push(decision.permission);
     byOrigin.set(decision.origin, names);
   }

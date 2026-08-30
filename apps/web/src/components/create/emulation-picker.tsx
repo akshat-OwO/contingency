@@ -100,7 +100,7 @@ const parseCoordinate = (value: string, bound: number): number | undefined => {
  * an answer as a grant ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
-const PermissionDecisions = ({
+const PermissionControls = ({
   applied,
   disabled,
   onPatch,
@@ -371,7 +371,7 @@ const EmulationPicker = ({
           </div>
         </section>
 
-        <PermissionDecisions
+        <PermissionControls
           applied={appliedEmulation?.permissions}
           disabled={disabled}
           onPatch={onPatch}

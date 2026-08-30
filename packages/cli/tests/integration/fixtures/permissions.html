@@ -21,6 +21,7 @@
       (async () => {
         const entries = {
           camera: await query("camera"),
+          geolocation: await query("geolocation"),
           notifications: await query("notifications"),
         };
         document.getElementById("permissions").textContent =

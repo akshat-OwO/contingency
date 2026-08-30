@@ -176,3 +176,38 @@ it.live("reproduces decisions about other permission names", () =>
     });
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
+
+/**
+ * A context-wide grant and an origin-scoped one describe one site together.
+ * Chromium's per-origin grant rejects every permission it does not name, so
+ * the origin's decisions have to carry the context-wide grants with them or
+ * naming one permission for a site silently withdraws the rest there.
+ */
+it.live("keeps context-wide grants at an origin that names another", () =>
+  Effect.gen(function* replayMixedScopeGrants() {
+    const fixtures = yield* fixtureServer;
+
+    const { run } = yield* runFlow({
+      ...flow([{ type: "navigate", url: fixtures.url("permissions.html") }]),
+      emulation: {
+        permissions: [
+          { permission: "notifications", state: "granted" },
+          {
+            origin: fixtures.origin,
+            permission: "geolocation",
+            state: "granted",
+          },
+        ],
+      },
+    });
+
+    expect(run.outcome).toBe("completed");
+    const reports = beaconReports(fixtures.requests);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toMatchObject({
+      // The origin's own grant, and the context-wide one it must not displace.
+      geolocation: "granted",
+      notifications: "granted",
+    });
+  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
+);
