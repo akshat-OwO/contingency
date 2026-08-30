@@ -11,6 +11,23 @@ test("the CLI warns when Chromium runs a legacy engine identity", () => {
   ]);
 });
 
+test("the CLI warns for a legacy engine string in a concrete identity", () => {
+  const userAgent = resolveUserAgent("firefox-windows", "141");
+  if (userAgent === undefined) {
+    throw new Error("Firefox Windows must declare a user agent");
+  }
+
+  expect(
+    flowBrowserIdentityWarnings({
+      browser: {
+        hasTouch: false,
+        mobile: false,
+        userAgent,
+      },
+    })
+  ).toEqual([expect.stringContaining("Firefox — Windows")]);
+});
+
 test("the CLI does not warn about custom or concrete identities", () => {
   expect(
     flowBrowserIdentityWarnings({ userAgent: "Acme Mobile Browser/1.0" })

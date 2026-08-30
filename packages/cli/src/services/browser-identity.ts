@@ -40,7 +40,9 @@ export const flowBrowserIdentity = (
 export const flowBrowserIdentityWarnings = (
   emulation: Flow["emulation"]
 ): readonly string[] => {
-  const warning = browserIdentityCompatibilityWarning(emulation?.userAgent);
+  const warning = browserIdentityCompatibilityWarning(
+    emulation?.browser?.userAgent ?? emulation?.userAgent
+  );
   return warning === undefined ? [] : [warning];
 };
 
