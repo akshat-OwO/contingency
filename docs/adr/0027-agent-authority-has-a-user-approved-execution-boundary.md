@@ -1,0 +1,5 @@
+# Agent authority has a user-approved Execution Boundary
+
+An external agent may generate and execute its own plan, but only inside an **Execution Boundary** approved by the user. Each Agent Flow declares a **Domain Scope** proposed from Teaching and explicitly approved by the user. A new domain pauses the Run. The user also marks irreversible or high-impact objectives as **Confirmation Steps**. Confirmation authorizes one specific irreversible browser action attempt, not the whole Step or Run; retrying it requires fresh confirmation because a timed-out submission may already have succeeded. A new objective outside the approved Agent Steps pauses under the same rule. This trusts the agent's plan without treating its prompt as a security boundary.
+
+During **Takeover**, browser control is exclusive: Contingency disables agent action tools, continues recording, represents sensitive inputs as Variable references, and resumes agent actions only after the user returns control. Concurrent input was rejected because it makes the Demonstration and Run ordering unreliable; pausing recording was rejected because it hides the interval where the agent needed help.

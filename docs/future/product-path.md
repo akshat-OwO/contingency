@@ -24,10 +24,10 @@ Depends on: live browser streaming (done), Flow schema.
 
 ## 3. Runner and Run lifecycle
 
-- Implement the **Runner** in the CLI only ([ADR 0002](../adr/0002-cli-is-the-sole-runner.md)).
+- Implement one Contingency-owned **Runner** used by the CLI, web interfaces, and MCP server ([ADR 0029](../adr/0029-contingency-owns-the-sole-runner.md)).
 - A **Run**: load Flow → for each Step after initial navigation, evaluate Flow/Step Pre-steps → execute an action or Audit Step → collect **Findings** from Audits.
 - Headless: `contingency` CLI entrypoints that produce Runs without the web UI.
-- Audit View: import/open a Flow, start/attach to a Run via the CLI Runner, stream progress, step the Run timeline for inspection (no browser time-travel).
+- Audit View: import/open a Flow, start a Run through the Contingency-owned Runner, stream progress, and step the Run timeline for inspection (no browser time-travel).
 
 ## 4. Baseline, Regression, Alert
 
@@ -41,6 +41,13 @@ Depends on: live browser streaming (done), Flow schema.
 - When Regressions (or selected Findings) warrant action, emit a **Handoff** for an external agent ([ADR 0003](../adr/0003-fixes-via-external-handoff.md)).
 - Payload should identify Flow, Step, Findings/Regressions, and enough context for a fixer; Contingency does not apply patches.
 
+## 6. Agent Flow
+
+- Add the separate **Agent Flow** artifact compiled from mixed-control Teaching, rather than adding agent intent to deterministic Flow Steps ([ADR 0025](../adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
+- Let an external agent control Teaching and Interactive Runs through session-scoped MCP tools while Contingency owns browser effects, lifecycle, evidence, and approval ([ADR 0026](../adr/0026-external-agents-control-agent-flows-through-mcp.md)).
+- Ship one Agent Flow end to end before adding ordered company sanity Suites and Suite Setup.
+- See [`agent-flow.md`](./agent-flow.md) for the settled design and implementation sequence.
+
 ## Suggested build order
 
 ```text
@@ -50,4 +57,8 @@ Flow schema
     → Audit View observes Runner
     → Baseline / Regression / Alert
     → Handoff API
+
+Runner + browser streaming
+    → Agent Flow end-to-end milestone
+    → Suite orchestration and Suite Setup
 ```

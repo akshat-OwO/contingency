@@ -1,0 +1,7 @@
+# Agent Flow Catalog stores versioned evidence packages
+
+Each **Agent Flow Revision** is a directory containing a schema-validated manifest and content-addressed **Evidence Slice** files. The manifest carries an explicit schema version, stable Agent Flow identity, immutable revision identity, title, short description, Domain Scope, Emulation, Variables, ordered Agent Steps, Confirmation Step markers, and evidence references. Unchanged evidence may be reused across revisions by content hash. Explicit, non-destructive migrations preserve persisted company knowledge when the schema changes.
+
+The local **Agent Flow Catalog** provides deterministic filters and full-text search over titles, descriptions, optional tags, and Agent Step descriptions. Before Teaching creates a candidate, the agent searches the catalog and asks the user whether a close match should run, receive a draft revision, or remain distinct. Suite membership stays in the Suite manifest rather than creating an Agent Flow revision.
+
+Embedding binary evidence in one JSON document was rejected because it makes manifests large and prevents evidence reuse. An opaque database was rejected for the local first version because directory packages remain inspectable and portable while preserving schema validation.
