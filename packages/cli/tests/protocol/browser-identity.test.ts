@@ -1,4 +1,6 @@
 import {
+  browserIdentityCompatibilityWarning,
+  matchUserAgentProfile,
   profileViewport,
   resolveIdentity,
   resolveUserAgent,
@@ -106,4 +108,36 @@ test("identities Chromium cannot reproduce are no longer selectable", () => {
   expect(resolveUserAgent("safari-iphone", CHROMIUM_VERSION)).toContain(
     "Safari"
   );
+});
+
+test("legacy engine profile strings carry a compatibility warning", () => {
+  const safari = resolveUserAgent("safari-iphone", CHROMIUM_VERSION);
+  const firefox = resolveUserAgent("firefox-windows", CHROMIUM_VERSION);
+
+  expect(browserIdentityCompatibilityWarning(safari)).toContain(
+    "Safari — iPhone iOS 13.2"
+  );
+  expect(browserIdentityCompatibilityWarning(firefox)).toContain(
+    "Firefox — Windows"
+  );
+  expect(
+    browserIdentityCompatibilityWarning("Acme Mobile Browser/1.0")
+  ).toBeUndefined();
+  expect(
+    browserIdentityCompatibilityWarning(
+      resolveUserAgent("chrome-android-mobile", CHROMIUM_VERSION)
+    )
+  ).toBeUndefined();
+});
+
+test("profile matching accepts only exact templates", () => {
+  const edge = resolveUserAgent("edge-chromium-windows", CHROMIUM_VERSION);
+  expect(matchUserAgentProfile(edge ?? "")?.profile.id).toBe(
+    "edge-chromium-windows"
+  );
+
+  expect(matchUserAgentProfile("Acme Mobile Browser/1.0")).toBeUndefined();
+  expect(
+    matchUserAgentProfile(edge?.replace("Edg/141", "Edg/140") ?? "")
+  ).toBeUndefined();
 });

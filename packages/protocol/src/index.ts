@@ -59,7 +59,9 @@ export { Viewport } from "./viewport.ts";
 export {
   BrandVersion,
   BrowserIdentity,
+  browserIdentityCompatibilityWarning,
   browserIdentityFor,
+  matchUserAgentProfile,
   profileIdentity,
   profileViewport,
   resolveIdentity,
@@ -71,7 +73,11 @@ export {
   UserAgentProfileId,
   userAgentProfiles,
 } from "./browser-identity.ts";
-export type { ProfileIdentity, UserAgentProfile } from "./browser-identity.ts";
+export type {
+  MatchedUserAgentProfile,
+  ProfileIdentity,
+  UserAgentProfile,
+} from "./browser-identity.ts";
 
 export const BrowserSession = Schema.Struct({
   id: SessionId,

@@ -1,4 +1,4 @@
-import { Flow } from "@contingency/protocol";
+import { Flow, resolveUserAgent } from "@contingency/protocol";
 import { Result, Schema, SchemaIssue } from "effect";
 import { expect, test } from "vitest";
 
@@ -276,6 +276,94 @@ test("a Flow declares a concrete browser identity", () => {
       emulation: { browser: "chrome-android-mobile" },
     })
   );
+});
+
+test("a known older mobile identity decodes to its concrete shape", () => {
+  const userAgent = resolveUserAgent("chrome-android-mobile", "141.0.7390.54");
+  if (userAgent === undefined) {
+    throw new Error("Chrome Android Mobile must declare a user agent");
+  }
+
+  const flow = assertDecodes(
+    flowWith([navigateStep], { emulation: { userAgent } })
+  );
+
+  expect(flow.emulation).toMatchObject({
+    browser: {
+      hasTouch: true,
+      mobile: true,
+      userAgent,
+      userAgentMetadata: {
+        model: "Pixel 10",
+        platform: "Android",
+      },
+    },
+    viewport: { deviceScaleFactor: 3, height: 892, width: 412 },
+  });
+  expect(flow.emulation?.userAgent).toBeUndefined();
+});
+
+test("encoding a migrated identity writes the normalized shape", () => {
+  const userAgent = resolveUserAgent("chrome-android-mobile", "141");
+  if (userAgent === undefined) {
+    throw new Error("Chrome Android Mobile must declare a user agent");
+  }
+  const flow = assertDecodes(
+    flowWith([navigateStep], { emulation: { userAgent } })
+  );
+
+  const encoded = Schema.encodeSync(Flow)(flow);
+
+  expect(encoded.emulation?.browser?.userAgent).toBe(userAgent);
+  expect(encoded.emulation?.userAgent).toBeUndefined();
+});
+
+test("migration preserves an older Flow's explicit viewport", () => {
+  const userAgent = resolveUserAgent("chrome-android-mobile", "141");
+  if (userAgent === undefined) {
+    throw new Error("Chrome Android Mobile must declare a user agent");
+  }
+
+  const flow = assertDecodes(
+    flowWith([navigateStep], {
+      emulation: {
+        userAgent,
+        viewport: { deviceScaleFactor: 2, height: 844, width: 390 },
+      },
+    })
+  );
+
+  expect(flow.emulation?.viewport).toEqual({
+    deviceScaleFactor: 2,
+    height: 844,
+    width: 390,
+  });
+});
+
+test("an unknown Mobile string stays a desktop string-only override", () => {
+  const userAgent = "Acme Mobile Browser/1.0";
+
+  const flow = assertDecodes(
+    flowWith([navigateStep], { emulation: { userAgent } })
+  );
+
+  expect(flow.emulation?.browser).toBeUndefined();
+  expect(flow.emulation?.userAgent).toBe(userAgent);
+  expect(flow.emulation?.viewport).toBeUndefined();
+});
+
+test("a legacy Safari identity remains a string-only override", () => {
+  const userAgent = resolveUserAgent("safari-mac", "141");
+  if (userAgent === undefined) {
+    throw new Error("Safari Mac must declare a user agent");
+  }
+
+  const flow = assertDecodes(
+    flowWith([navigateStep], { emulation: { userAgent } })
+  );
+
+  expect(flow.emulation?.browser).toBeUndefined();
+  expect(flow.emulation?.userAgent).toBe(userAgent);
 });
 
 test("a Flow declares a Gate as accessibility rule ids", () => {

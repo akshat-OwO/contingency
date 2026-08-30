@@ -1,7 +1,12 @@
-import { Schema } from "effect";
+import { Schema, SchemaGetter } from "effect";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
-import { BrowserIdentity } from "./browser-identity.ts";
+import {
+  BrowserIdentity,
+  matchUserAgentProfile,
+  profileViewport,
+  resolveIdentity,
+} from "./browser-identity.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -558,16 +563,17 @@ export type Gate = typeof Gate.Type;
  * Contingency's primary durable artifact: a native JSON document declaring
  * ordered Steps, conditional Pre-steps, Variables, Emulation, and a Gate
  * ([ADR 0011](../../../docs/adr/0011-flow-is-a-native-format.md)). Chrome
- * DevTools Recorder compatibility and import are dropped entirely; there are
- * no legacy field folds and no migration. Documents carrying old selector
- * arrays, frame indices, asserted events, targets-as-strings, or a video flag
- * are rejected, not migrated.
+ * DevTools Recorder compatibility and import are dropped entirely. The one
+ * deliberate compatibility fold is an older known browser profile string
+ * into its concrete identity. Documents carrying old selector arrays, frame
+ * indices, asserted events, targets-as-strings, or a video flag are rejected,
+ * not migrated.
  *
  * Strictness lives here, not at the call site: unknown fields are a decode
  * error, because a document from another era must be rejected rather than
  * silently stripped of whatever the author meant.
  */
-export const Flow = Schema.Struct({
+const FlowDocument = Schema.Struct({
   emulation: Schema.optional(Emulation),
   /**
    * Stable identity for the Flow, independent of its user-editable title, so
@@ -600,6 +606,40 @@ export const Flow = Schema.Struct({
   identifier: "Flow",
   parseOptions: { onExcessProperty: "error" },
 });
+
+type FlowDocument = typeof FlowDocument.Type;
+
+const normalizeOlderBrowserIdentity = (flow: FlowDocument): FlowDocument => {
+  const { emulation } = flow;
+  if (emulation?.browser !== undefined || emulation?.userAgent === undefined) {
+    return flow;
+  }
+  const matched = matchUserAgentProfile(emulation.userAgent);
+  if (matched === undefined || !matched.profile.selectable) {
+    return flow;
+  }
+  const browser = resolveIdentity(matched.profile.id, matched.browserVersion);
+  if (browser === undefined) {
+    return flow;
+  }
+  const { userAgent: _, ...current } = emulation;
+  const viewport = current.viewport ?? profileViewport(matched.profile.id);
+  return {
+    ...flow,
+    emulation: {
+      ...current,
+      browser,
+      ...(viewport === undefined ? {} : { viewport }),
+    },
+  };
+};
+
+export const Flow = FlowDocument.pipe(
+  Schema.decode({
+    decode: SchemaGetter.transform(normalizeOlderBrowserIdentity),
+    encode: SchemaGetter.transform((flow) => flow),
+  })
+);
 export type Flow = typeof Flow.Type;
 
 // ---------------------------------------------------------------------------

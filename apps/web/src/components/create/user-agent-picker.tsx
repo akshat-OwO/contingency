@@ -1,6 +1,6 @@
 import { selectableUserAgentProfiles } from "@contingency/protocol";
 import type { UserAgentProfileId } from "@contingency/protocol";
-import { LaptopIcon } from "lucide-react";
+import { LaptopIcon, TriangleAlertIcon } from "lucide-react";
 
 import {
   Select,
@@ -11,6 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /**
  * Only the identities Chromium can genuinely reproduce are offered for new
@@ -37,12 +42,14 @@ for (const profile of selectableUserAgentProfiles) {
 }
 
 interface UserAgentPickerProps {
+  readonly compatibilityWarning?: string;
   readonly disabled: boolean;
   readonly onValueChange: (value: UserAgentProfileId) => void;
   readonly value: UserAgentProfileId;
 }
 
 const UserAgentPicker = ({
+  compatibilityWarning,
   disabled,
   onValueChange,
   value,
@@ -52,35 +59,50 @@ const UserAgentPicker = ({
   );
 
   return (
-    <Select
-      disabled={disabled}
-      onValueChange={(nextValue) => {
-        const profile = selectableUserAgentProfiles.find(
-          ({ id }) => id === nextValue
-        );
-        if (profile !== undefined) {
-          onValueChange(profile.id);
-        }
-      }}
-      value={value}
-    >
-      <SelectTrigger aria-label="User agent" className="w-48" size="sm">
-        <LaptopIcon aria-hidden="true" className="size-3.5" />
-        <SelectValue>{selectedProfile?.label ?? "Browser default"}</SelectValue>
-      </SelectTrigger>
-      <SelectContent align="start" className="w-80">
-        {userAgentGroups.map(({ group, profiles }) => (
-          <SelectGroup key={group}>
-            <SelectLabel>{group}</SelectLabel>
-            {profiles.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                {profile.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-1">
+      <Select
+        disabled={disabled}
+        onValueChange={(nextValue) => {
+          const profile = selectableUserAgentProfiles.find(
+            ({ id }) => id === nextValue
+          );
+          if (profile !== undefined) {
+            onValueChange(profile.id);
+          }
+        }}
+        value={value}
+      >
+        <SelectTrigger aria-label="User agent" className="w-48" size="sm">
+          <LaptopIcon aria-hidden="true" className="size-3.5" />
+          <SelectValue>
+            {selectedProfile?.label ?? "Browser default"}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent align="start" className="w-80">
+          {userAgentGroups.map(({ group, profiles }) => (
+            <SelectGroup key={group}>
+              <SelectLabel>{group}</SelectLabel>
+              {profiles.map((profile) => (
+                <SelectItem key={profile.id} value={profile.id}>
+                  {profile.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+      {compatibilityWarning === undefined ? null : (
+        <Tooltip>
+          <TooltipTrigger
+            aria-label="Legacy browser identity compatibility warning"
+            className="text-amber-600 dark:text-amber-400"
+          >
+            <TriangleAlertIcon aria-hidden="true" className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent>{compatibilityWarning}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   );
 };
 

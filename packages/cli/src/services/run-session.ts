@@ -29,6 +29,7 @@ import {
   Stream,
 } from "effect";
 
+import { flowBrowserIdentityWarnings } from "./browser-identity.ts";
 import {
   DEFAULT_RETRY,
   decodeFlowDocument,
@@ -120,7 +121,7 @@ const idleState = (flow: Flow): RunSessionState => ({
   trace: null,
   variablePrompt: null,
   video: null,
-  warnings: [],
+  warnings: [...flowBrowserIdentityWarnings(flow.emulation)],
 });
 
 /**
@@ -307,7 +308,13 @@ export const makeRunSessionService = ({
         return;
       }
       const { resolution, warnings } = report.success;
-      yield* update((state) => ({ ...state, warnings: [...warnings] }));
+      yield* update((state) => ({
+        ...state,
+        warnings: [
+          ...flowBrowserIdentityWarnings(started.emulation),
+          ...warnings,
+        ],
+      }));
 
       const outcome = yield* Effect.result(
         runner.run(started, {
