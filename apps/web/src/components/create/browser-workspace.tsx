@@ -1,5 +1,6 @@
 import {
   browserIdentityCompatibilityWarning,
+  httpOriginFromUrl,
   isBrowserRpcError,
   recordingLocksStorageMutations,
 } from "@contingency/protocol";
@@ -365,6 +366,7 @@ const useBrowserWorkspace = () => {
       : sessionEmulation;
   const selectedPresetName = presetName(presetId);
   const activeTab = tabs.find(({ active }) => active);
+  const currentOrigin = httpOriginFromUrl(activeTab?.url ?? "")?.origin;
   const browserLocked = recordingLocksBrowser(
     workspace.recording,
     selectedSessionId
@@ -1393,6 +1395,7 @@ const useBrowserWorkspace = () => {
     closeTab,
     commitViewport,
     createTab,
+    currentOrigin,
     deleteSession,
     devtoolsOpen,
     error,
@@ -1562,6 +1565,7 @@ const BrowserDeviceToolbar = ({
     applyEmulationPatch,
     browserLocked,
     commitViewport,
+    currentOrigin,
     devtoolsOpen,
     height,
     opening,
@@ -1603,6 +1607,7 @@ const BrowserDeviceToolbar = ({
           What a session actually emulates travels in the draft instead. */}
       <EmulationPicker
         applied={appliedEmulation}
+        {...(currentOrigin === undefined ? {} : { currentOrigin })}
         key={selectedSessionId}
         disabled={browserLocked || opening}
         onPatch={(patch) => {
