@@ -1,7 +1,7 @@
 import type {
   DraftEmulation,
   Geolocation,
-  PermissionGrant,
+  PermissionDecision,
   SessionEmulation,
   UserAgentProfileId,
   Viewport,
@@ -19,7 +19,7 @@ export interface EmulationPatch {
   readonly colorScheme?: "light" | "dark" | null;
   readonly geolocation?: Geolocation | null;
   readonly locale?: string | null;
-  readonly permissions?: readonly PermissionGrant[] | null;
+  readonly permissions?: readonly PermissionDecision[] | null;
   readonly timezoneId?: string | null;
 }
 
@@ -58,7 +58,7 @@ const patched = <T>(current: T | undefined, next: T | null | undefined) => {
   return next === null ? undefined : next;
 };
 
-/** A permission list is replaced whole: `null` grants nothing at all. */
+/** A decision list is replaced whole: `null` decides nothing at all. */
 const patchedPermissions = (
   current: DraftEmulation["permissions"],
   next: EmulationPatch["permissions"]

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Permissions</title>
+  </head>
+  <body>
+    <main>
+      <h1>Your permissions</h1>
+      <output id="permissions">asking…</output>
+    </main>
+    <script>
+      const query = async (name) => {
+        try {
+          const status = await navigator.permissions.query({ name });
+          return status.state;
+        } catch {
+          return "unsupported";
+        }
+      };
+      (async () => {
+        const entries = {
+          camera: await query("camera"),
+          notifications: await query("notifications"),
+        };
+        document.getElementById("permissions").textContent =
+          JSON.stringify(entries);
+        fetch("/emulation-beacon?" + new URLSearchParams(entries)).catch(
+          () => {}
+        );
+      })();
+    </script>
+  </body>
+</html>

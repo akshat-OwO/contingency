@@ -10,7 +10,7 @@ import type {
   BrowserStreamEvent,
   DraftEmulation,
   Geolocation,
-  PermissionGrant,
+  PermissionDecision,
   SessionId,
   UserAgentProfileId,
   Viewport,
@@ -77,9 +77,9 @@ const patchedValue = <T>(
 };
 
 const patchedPermissions = (
-  current: readonly PermissionGrant[],
-  next: readonly PermissionGrant[] | null | undefined
-): readonly PermissionGrant[] => {
+  current: readonly PermissionDecision[],
+  next: readonly PermissionDecision[] | null | undefined
+): readonly PermissionDecision[] => {
   if (next === undefined) {
     return current;
   }
@@ -112,9 +112,9 @@ const makeService = (
   /**
    * A session may be born already emulating an environment, which its context
    * owns from birth rather than having it patched onto the first Page — see
-   * `environmentContextOptions`. Permissions are not among those settings:
-   * they are granted before the navigation by `applyPermissions`, which also
-   * honours per-origin grants.
+   * `environmentContextOptions`. Permission decisions are not among those
+   * settings: they are applied before the navigation by `applyPermissions`,
+   * which also honours per-origin decisions.
    */
   const createUnlocked = Effect.fn("CreateBrowser.create")(
     function* createSession(
@@ -261,7 +261,7 @@ const makeService = (
         readonly colorScheme?: "light" | "dark" | null | undefined;
         readonly geolocation?: Geolocation | null | undefined;
         readonly locale?: string | null | undefined;
-        readonly permissions?: readonly PermissionGrant[] | null | undefined;
+        readonly permissions?: readonly PermissionDecision[] | null | undefined;
         readonly timezoneId?: string | null | undefined;
       }
     ) {
@@ -276,8 +276,8 @@ const makeService = (
       }));
       // Permissions live on the context, the rest on each Page. Both are
       // re-applied from the one new state, so the patch lands as a unit — but
-      // a patch that never mentions permissions leaves the context's grants
-      // alone rather than clearing and re-granting them.
+      // a patch that never mentions permissions leaves the context's decisions
+      // alone rather than clearing and re-applying them.
       if (patch.permissions !== undefined) {
         yield* applyPermissions(session);
       }

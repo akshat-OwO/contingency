@@ -7,7 +7,7 @@ import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
   AuditKind,
   Geolocation,
-  PermissionGrant,
+  PermissionDecision,
   RecordingSnapshot,
 } from "./flow.ts";
 import { RunSnapshot } from "./run.ts";
@@ -351,7 +351,7 @@ export const DraftEmulation = Schema.Struct({
   colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyProtocolString),
-  permissions: Schema.Array(PermissionGrant),
+  permissions: Schema.Array(PermissionDecision),
   timezoneId: Schema.optional(nonEmptyProtocolString),
   userAgentProfile: UserAgentProfileId,
   viewport: Viewport,
@@ -401,8 +401,8 @@ export const BrowserUserAgentUpdated = response("browser.user-agent.updated", {
  * The emulation a Create View session currently applies to every Page it
  * opens: the Flow's Emulation shape ([ADR
  * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)) with
- * permissions as a plain list, because a fresh session grants nothing rather
- * than declaring nothing.
+ * permission decisions as a plain list, because a fresh session has decided
+ * nothing rather than declaring nothing.
  */
 export const SessionEmulation = Schema.Struct({
   /** The concrete browser identity the session applies to every Page. */
@@ -410,7 +410,7 @@ export const SessionEmulation = Schema.Struct({
   colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
   geolocation: Schema.optional(Geolocation),
   locale: Schema.optional(nonEmptyProtocolString),
-  permissions: Schema.Array(PermissionGrant),
+  permissions: Schema.Array(PermissionDecision),
   timezoneId: Schema.optional(nonEmptyProtocolString),
   userAgent: Schema.optional(nonEmptyProtocolString),
   viewport: Viewport,
@@ -438,7 +438,7 @@ export const BrowserEmulationSet = request("browser.emulation.set", {
   ),
   geolocation: Schema.optional(Schema.NullOr(Geolocation)),
   locale: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
-  permissions: Schema.optional(Schema.NullOr(Schema.Array(PermissionGrant))),
+  permissions: Schema.optional(Schema.NullOr(Schema.Array(PermissionDecision))),
   sessionId: SessionId,
   timezoneId: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
 });

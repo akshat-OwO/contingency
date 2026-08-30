@@ -59,11 +59,13 @@ test("a patch replaces, clears, or leaves each part of the draft", () => {
   expect(cleared.timezoneId).toBe("Europe/Berlin");
 });
 
-test("a permission list is replaced whole, and null grants nothing", () => {
+test("a permission decision list is replaced whole, and null decides nothing", () => {
   const granted = draftWithPatch(desktop, {
-    permissions: [{ permission: "geolocation" }],
+    permissions: [{ permission: "geolocation", state: "granted" }],
   });
-  expect(granted.permissions).toEqual([{ permission: "geolocation" }]);
+  expect(granted.permissions).toEqual([
+    { permission: "geolocation", state: "granted" },
+  ]);
 
   expect(draftWithPatch(granted, { permissions: null }).permissions).toEqual(
     []
@@ -86,18 +88,20 @@ test("the draft reads back as the Emulation the controls display", () => {
 test("the draft adopts what a selected session already emulates", () => {
   const composed = draftWithPatch(desktop, {
     locale: "de-DE",
-    permissions: [{ permission: "camera" }],
+    permissions: [{ permission: "camera", state: "granted" }],
   });
 
   const adopted = draftFromSessionEmulation(composed, {
-    permissions: [{ permission: "geolocation" }],
+    permissions: [{ permission: "geolocation", state: "granted" }],
     timezoneId: "Europe/Berlin",
     viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
   });
 
   // The session grants geolocation and no locale, so the draft says so too:
   // the next navigation applies the draft.
-  expect(adopted.permissions).toEqual([{ permission: "geolocation" }]);
+  expect(adopted.permissions).toEqual([
+    { permission: "geolocation", state: "granted" },
+  ]);
   expect(adopted.timezoneId).toBe("Europe/Berlin");
   expect("locale" in adopted).toBe(false);
   // The identity controls own the identity, so the session does not move it.
