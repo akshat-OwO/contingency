@@ -71,3 +71,22 @@ test("reports the identity an author chose", async () => {
 
   expect(onValueChange).toHaveBeenCalledWith("chrome-android-mobile");
 });
+
+test("exposes a compatibility warning for an existing legacy identity", async () => {
+  render(
+    <UserAgentPicker
+      compatibilityWarning="Runs still use Chromium."
+      disabled={false}
+      onValueChange={vi.fn()}
+      value="default"
+    />
+  );
+
+  await userEvent.hover(
+    screen.getByRole("button", {
+      name: "Legacy browser identity compatibility warning",
+    })
+  );
+
+  expect(await screen.findByText("Runs still use Chromium.")).toBeVisible();
+});

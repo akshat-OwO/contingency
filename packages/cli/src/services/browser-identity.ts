@@ -4,7 +4,10 @@ import type {
   Flow,
   Viewport,
 } from "@contingency/protocol";
-import { stringOnlyIdentity } from "@contingency/protocol";
+import {
+  browserIdentityCompatibilityWarning,
+  stringOnlyIdentity,
+} from "@contingency/protocol";
 
 /**
  * How a concrete browser identity reaches a Page. Create View and the Runner
@@ -31,6 +34,16 @@ export const flowBrowserIdentity = (
   return emulation?.userAgent === undefined
     ? undefined
     : stringOnlyIdentity(emulation.userAgent);
+};
+
+/** Warnings attached to an older Flow before Chromium applies its identity. */
+export const flowBrowserIdentityWarnings = (
+  emulation: Flow["emulation"]
+): readonly string[] => {
+  const warning = browserIdentityCompatibilityWarning(
+    emulation?.browser?.userAgent ?? emulation?.userAgent
+  );
+  return warning === undefined ? [] : [warning];
 };
 
 /** The client-hint metadata shape Chromium's own override takes. */

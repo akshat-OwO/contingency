@@ -1,5 +1,10 @@
 import type { RecordingSnapshot } from "@contingency/protocol";
-import { BrowserTabId, SessionId } from "@contingency/protocol";
+import {
+  BrowserTabId,
+  Flow,
+  resolveUserAgent,
+  SessionId,
+} from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import {
   cleanup,
@@ -9,7 +14,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -768,4 +773,40 @@ test("downloads only the finished Flow with its normalized filename", async () =
   expect(downloadedBlob).toBeDefined();
   const downloadedText = await downloadedBlob?.text();
   expect(downloadedText).toBe(`${JSON.stringify(finished.flow, null, 2)}\n`);
+});
+
+test("downloads a migrated browser identity in the normalized shape", async () => {
+  const user = userEvent.setup();
+  const userAgent = resolveUserAgent("chrome-android-mobile", "141");
+  const migrated = Schema.decodeUnknownSync(Flow)({
+    emulation: { userAgent },
+    steps: [{ type: "navigate", url: "https://example.com/start" }],
+    title: "Older mobile Flow",
+  });
+  const finished = {
+    ...makeSnapshot("finished"),
+    downloadName: "older-mobile.json",
+    flow: migrated,
+  };
+  let downloadedBlob: Blob | undefined;
+  vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    downloadedBlob = blob;
+    return "blob:flow";
+  });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => null);
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  renderRecording(finished);
+
+  await user.click(
+    screen.getByRole("button", { name: "Download older-mobile.json" })
+  );
+  const downloaded = JSON.parse((await downloadedBlob?.text()) ?? "null") as {
+    readonly emulation?: {
+      readonly browser?: { readonly mobile?: boolean };
+      readonly userAgent?: string;
+    };
+  };
+
+  expect(downloaded.emulation?.browser?.mobile).toBe(true);
+  expect(downloaded.emulation?.userAgent).toBeUndefined();
 });

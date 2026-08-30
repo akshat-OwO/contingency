@@ -1,4 +1,5 @@
 import {
+  browserIdentityCompatibilityWarning,
   isBrowserRpcError,
   recordingLocksStorageMutations,
 } from "@contingency/protocol";
@@ -1576,10 +1577,20 @@ const BrowserDeviceToolbar = ({
     userAgentProfile,
     width,
   } = controller;
+  const currentIdentity =
+    appliedEmulation.status === "known"
+      ? (appliedEmulation.emulation.browser?.userAgent ??
+        appliedEmulation.emulation.userAgent)
+      : undefined;
+  const compatibilityWarning =
+    browserIdentityCompatibilityWarning(currentIdentity);
 
   return (
     <div className="bg-background flex h-10 shrink-0 items-center justify-center gap-1.5 overflow-x-auto overscroll-x-contain border-b px-2">
       <UserAgentPicker
+        {...(compatibilityWarning === undefined
+          ? {}
+          : { compatibilityWarning })}
         disabled={browserLocked || opening}
         onValueChange={(profile) => {
           void selectUserAgent(profile);

@@ -12,6 +12,7 @@ import {
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
 
+import { flowBrowserIdentityWarnings } from "../services/browser-identity.ts";
 import {
   decodeFlowDocument,
   DEFAULT_RETRY,
@@ -131,7 +132,7 @@ export const runCommand = Command.make(
 
     // Preflight before the browser opens, so a misconfigured invocation fails
     // in seconds with every problem listed rather than eight Steps deep.
-    const { resolution, warnings } = yield* preflight(flow, {
+    const { resolution, warnings: preflightWarnings } = yield* preflight(flow, {
       environment: process.env,
       interactive: process.stdin.isTTY === true,
       // Probe the directory this Flow's Runs are actually filed in, not just
@@ -147,6 +148,10 @@ export const runCommand = Command.make(
       secrets: secret,
     }).pipe(Effect.tapError((failure) => Console.error(failure.message)));
 
+    const warnings = [
+      ...flowBrowserIdentityWarnings(flow.emulation),
+      ...preflightWarnings,
+    ];
     for (const warning of warnings) {
       yield* Console.warn(`Warning: ${warning}`);
     }

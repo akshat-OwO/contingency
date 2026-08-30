@@ -1,3 +1,4 @@
+import { resolveUserAgent } from "@contingency/protocol";
 import type { Flow, Run, RunStep } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber, FileSystem, Layer, Stream } from "effect";
@@ -140,6 +141,21 @@ it.live("has nothing to run when the server was opened without a Flow", () =>
     expect(yield* session.get()).toBeNull();
     const error = yield* Effect.flip(session.start());
     expect(error.code).toBe("run_unavailable");
+  }).pipe(Effect.provide(withRunner(recordingRunner().service)))
+);
+
+it.live("shows a legacy engine warning as soon as the web view opens", () =>
+  Effect.gen(function* legacyWarning() {
+    const userAgent = resolveUserAgent("firefox-windows", "141");
+    const session = yield* makeRunSessionService({
+      flow: { ...flow, emulation: { userAgent } },
+      outputDirectory: "/runs",
+    });
+
+    const snapshot = yield* session.get();
+    expect(snapshot?.warnings).toEqual([
+      expect.stringContaining("Firefox — Windows"),
+    ]);
   }).pipe(Effect.provide(withRunner(recordingRunner().service)))
 );
 

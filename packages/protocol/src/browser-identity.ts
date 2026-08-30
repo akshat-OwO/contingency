@@ -111,6 +111,11 @@ export interface UserAgentProfile {
   readonly template: string | undefined;
 }
 
+export interface MatchedUserAgentProfile {
+  readonly browserVersion: string;
+  readonly profile: UserAgentProfile;
+}
+
 /**
  * Every identity the product knows, selectable or not. The full list stays
  * available for decoding, so a Flow naming a legacy profile still resolves.
@@ -497,6 +502,72 @@ export const browserIdentityFor = (
  */
 export const selectableUserAgentProfiles: readonly UserAgentProfile[] =
   userAgentProfiles.filter(({ selectable }) => selectable);
+
+const versionFromTemplate = (
+  template: string,
+  userAgent: string
+): string | undefined => {
+  const parts = template.split("%s");
+  const first = parts[0] ?? "";
+  if (!userAgent.startsWith(first)) {
+    return undefined;
+  }
+  if (parts.length === 1) {
+    return userAgent === template ? "" : undefined;
+  }
+
+  let offset = first.length;
+  let version: string | undefined;
+  for (const suffix of parts.slice(1)) {
+    const suffixAt =
+      suffix.length === 0
+        ? userAgent.length
+        : userAgent.indexOf(suffix, offset);
+    if (suffixAt < offset) {
+      return undefined;
+    }
+    const candidate = userAgent.slice(offset, suffixAt);
+    if (
+      candidate.length === 0 ||
+      (version !== undefined && candidate !== version)
+    ) {
+      return undefined;
+    }
+    version = candidate;
+    offset = suffixAt + suffix.length;
+  }
+  return offset === userAgent.length ? version : undefined;
+};
+
+/** Match an older profile string exactly, without inferring from fragments. */
+export const matchUserAgentProfile = (
+  userAgent: string
+): MatchedUserAgentProfile | undefined => {
+  for (const profile of userAgentProfiles) {
+    if (profile.template === undefined) {
+      continue;
+    }
+    const browserVersion = versionFromTemplate(profile.template, userAgent);
+    if (browserVersion !== undefined) {
+      return { browserVersion, profile };
+    }
+  }
+  return undefined;
+};
+
+/** Explain the engine mismatch retained for an older Safari or Firefox Flow. */
+export const browserIdentityCompatibilityWarning = (
+  userAgent: string | undefined
+): string | undefined => {
+  if (userAgent === undefined) {
+    return undefined;
+  }
+  const matched = matchUserAgentProfile(userAgent);
+  if (matched === undefined || matched.profile.selectable) {
+    return undefined;
+  }
+  return `This Flow uses ${matched.profile.label} as a legacy browser identity. Runs still use Chromium, so engine-specific behavior is not reproduced.`;
+};
 
 const majorVersion = (browserVersion: string): string =>
   browserVersion.split(".")[0] ?? browserVersion;
