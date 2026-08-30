@@ -1,4 +1,5 @@
 import type {
+  BrowserTab,
   RecordingSnapshot,
   SessionEmulation,
 } from "@contingency/protocol";
@@ -10,6 +11,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
@@ -34,6 +36,7 @@ const rpc = vi.hoisted(() => ({
   open: vi.fn(),
   sessionClose: vi.fn(),
   sessionCreate: vi.fn(),
+  tabs: [] as BrowserTab[],
   userAgent: vi.fn(),
   viewport: vi.fn(),
 }));
@@ -83,7 +86,12 @@ vi.mock("@/lib/rpc", () => ({
   browserTabCloseMutation: answer(null, {}),
   browserTabNewMutation: answer(null, {}),
   browserTabSwitchMutation: answer(null, {}),
-  browserTabsMutation: answer(null, { tabs: [] }),
+  browserTabsMutation: Atom.fn(() =>
+    Effect.succeed({
+      data: { tabs: rpc.tabs },
+      type: "browser.tabs.result" as const,
+    })
+  ),
   browserUserAgentMutation: Atom.fn((request: unknown) => {
     rpc.userAgent(request);
     return Effect.succeed({
@@ -166,6 +174,7 @@ const submitAddress = async (url: string) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  rpc.tabs = [];
 });
 
 afterEach(cleanup);
@@ -200,6 +209,51 @@ test("composes Emulation before a session exists and applies it at the first nav
   };
   expect(viewport.width).toBeLessThan(1280);
   expect(viewport.deviceScaleFactor).toBeGreaterThan(1);
+});
+
+test("uses the active tab origin as the default location permission scope", async () => {
+  rpc.tabs = [
+    {
+      active: true,
+      label: null,
+      tabId,
+      title: "Shop",
+      type: "page",
+      url: "https://shop.example/cart",
+    },
+  ];
+  renderOpenSession();
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Shop" })).toBeInTheDocument();
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Emulation" }));
+  await userEvent.type(screen.getByLabelText("Latitude"), "52.52");
+  await userEvent.type(screen.getByLabelText("Longitude"), "13.405");
+  await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+  const currentWebsite = screen.getByRole("radio", {
+    name: /Current website only \(https:\/\/shop\.example\)/u,
+  });
+  expect(currentWebsite).toBeChecked();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apply and grant location" })
+  );
+
+  const request = rpc.emulationSet.mock.calls.at(-1)?.[0] as {
+    readonly payload: { readonly data: Record<string, unknown> };
+  };
+  expect(request.payload.data).toMatchObject({
+    geolocation: { latitude: 52.52, longitude: 13.405 },
+    permissions: [
+      {
+        origin: "https://shop.example",
+        permission: "geolocation",
+        state: "granted",
+      },
+    ],
+    sessionId,
+  });
 });
 
 test("sends a viewport edit made in the same tick as the submission", async () => {
