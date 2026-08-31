@@ -1,6 +1,9 @@
 import {
   BrowserTabId,
+  BrowserStreamId,
   ContingencyRpcs,
+  FrameSequence,
+  AgentSessionId,
   makeBrowserRpcError,
   SessionId,
   STORAGE_LOCKED_MESSAGE,
@@ -16,6 +19,10 @@ import {
   RpcHandlersLive,
   storageMutationIsLocked,
 } from "../../src/routes/rpc.ts";
+import { AgentSession } from "../../src/services/agent-session.ts";
+import type { AgentSessionService } from "../../src/services/agent-session.ts";
+import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
+import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { Recording } from "../../src/services/recording.ts";
@@ -157,6 +164,60 @@ const runSessionService: RunSessionService = {
 };
 const RunSessionStub = Layer.succeed(RunSession, runSessionService);
 
+const genericPrivateSessionId = SessionId.make("create-agent-private");
+const genericPublicSessionId = SessionId.make("create-public");
+const genericAgentSessionId = AgentSessionId.make("agent-private");
+let genericCloseCalls = 0;
+let agentAcknowledgeCalls = 0;
+const rpcNotUnderTest = () => Effect.die("Not under test.");
+const rpcStreamNotUnderTest = () => Stream.never;
+
+const genericBrowser: CreateBrowserService = {
+  acknowledgeFrame: rpcNotUnderTest,
+  clearStorage: rpcNotUnderTest,
+  close: () =>
+    Effect.sync(() => {
+      genericCloseCalls += 1;
+    }),
+  closeTab: rpcNotUnderTest,
+  create: rpcNotUnderTest,
+  currentUrl: rpcNotUnderTest,
+  deleteStorage: rpcNotUnderTest,
+  getEmulation: rpcNotUnderTest,
+  getNetworkRequest: rpcNotUnderTest,
+  getNetworkRequests: rpcNotUnderTest,
+  getStorage: rpcNotUnderTest,
+  getTabs: rpcNotUnderTest,
+  list: () => Effect.succeed([genericPrivateSessionId, genericPublicSessionId]),
+  navigate: rpcNotUnderTest,
+  newTab: rpcNotUnderTest,
+  open: rpcNotUnderTest,
+  recorderTarget: rpcNotUnderTest,
+  sendInput: rpcNotUnderTest,
+  setEmulation: rpcNotUnderTest,
+  setStorage: rpcNotUnderTest,
+  setUserAgent: rpcNotUnderTest,
+  setViewport: rpcNotUnderTest,
+  stream: rpcStreamNotUnderTest,
+  switchTab: rpcNotUnderTest,
+};
+
+const agentSessionOwnership: AgentSessionService = {
+  acknowledgeFrame: () =>
+    Effect.sync(() => {
+      agentAcknowledgeCalls += 1;
+    }),
+  browserStream: rpcStreamNotUnderTest,
+  changes: rpcStreamNotUnderTest,
+  close: rpcNotUnderTest,
+  closeAll: () => Effect.void,
+  get: rpcNotUnderTest,
+  list: () => Effect.succeed([]),
+  ownsBrowserSession: (ownedSessionId) =>
+    Effect.succeed(ownedSessionId === genericPrivateSessionId),
+  start: rpcNotUnderTest,
+};
+
 it.effect("refuses to start a Run while a Recording is in progress", () =>
   Effect.gen(function* refuseRunDuringRecording() {
     const client = yield* RpcTest.makeClient(ContingencyRpcs, {
@@ -174,6 +235,76 @@ it.effect("refuses to start a Run while a Recording is in progress", () =>
     Effect.provide(
       RpcHandlersLive.pipe(
         Layer.provide(CreateBrowserLive),
+        Layer.provide(Layer.succeed(Recording, recordingService)),
+        Layer.provide(RunSessionStub)
+      )
+    )
+  )
+);
+
+it.effect(
+  "answers a typed unavailable error without an Agent Session layer",
+  () =>
+    Effect.gen(function* agentSessionUnavailable() {
+      const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+        flatten: true,
+      });
+      const error = yield* Effect.flip(
+        client("agent.sessions.get", { data: {}, type: "agent.sessions.get" })
+      );
+      expect(error.code).toBe("agent_session_unavailable");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        RpcHandlersLive.pipe(
+          Layer.provide(CreateBrowserLive),
+          Layer.provide(Layer.succeed(Recording, recordingService)),
+          Layer.provide(RunSessionStub)
+        )
+      )
+    )
+);
+
+it.effect("hides Agent Session browsers from generic browser RPC", () =>
+  Effect.gen(function* genericBrowserOwnership() {
+    genericCloseCalls = 0;
+    agentAcknowledgeCalls = 0;
+    const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+      flatten: true,
+    });
+    const listed = yield* client("browser.sessions.get", {
+      data: {},
+      type: "browser.sessions.get",
+    });
+    expect(listed.data.sessions.map(({ id }) => id)).toEqual([
+      genericPublicSessionId,
+    ]);
+
+    const rejected = yield* Effect.flip(
+      client("browser.session.close", {
+        data: { sessionId: genericPrivateSessionId },
+        type: "browser.session.close",
+      })
+    );
+    expect(rejected.code).toBe("agent_session_conflict");
+    expect(genericCloseCalls).toBe(0);
+
+    const acknowledged = yield* client("agent.browser.frame.ack", {
+      data: {
+        frameId: FrameSequence.make(1),
+        sessionId: genericAgentSessionId,
+        streamId: BrowserStreamId.make("agent-stream"),
+      },
+      type: "agent.browser.frame.ack",
+    });
+    expect(acknowledged.type).toBe("agent.browser.frame.acked");
+    expect(agentAcknowledgeCalls).toBe(1);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      RpcHandlersLive.pipe(
+        Layer.provide(Layer.succeed(CreateBrowser, genericBrowser)),
+        Layer.provide(Layer.succeed(AgentSession, agentSessionOwnership)),
         Layer.provide(Layer.succeed(Recording, recordingService)),
         Layer.provide(RunSessionStub)
       )
