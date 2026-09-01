@@ -13,6 +13,7 @@ import { afterEach, expect, test, vi } from "vitest";
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined as string | undefined,
   inputCalls: [] as unknown[],
+  navigateCalls: [] as unknown[],
   returnControlCalls: [] as unknown[],
   sessionsResult: {
     _tag: "Initial" as const,
@@ -26,6 +27,12 @@ vi.mock("@/lib/rpc", () => ({
   agentBrowserInputMutation: Atom.fn((payload: unknown) =>
     Effect.sync(() => {
       rpc.inputCalls.push(payload);
+      return {};
+    })
+  ),
+  agentBrowserNavigateMutation: Atom.fn((payload: unknown) =>
+    Effect.sync(() => {
+      rpc.navigateCalls.push(payload);
       return {};
     })
   ),
@@ -99,6 +106,7 @@ afterEach(() => {
   cleanup();
   rpc.agentStreamFailureMessage = undefined;
   rpc.inputCalls = [];
+  rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
   rpc.takeoverCalls = [];
 });
@@ -301,5 +309,90 @@ test("forwards browser input only while the user holds the browser", async () =>
   await user.click(driving);
   await waitFor(() => {
     expect(rpc.inputCalls.length).toBeGreaterThan(0);
+  });
+});
+
+const takenOverSession = {
+  ...session,
+  controller: "user",
+  currentUrl: "https://example.com/dashboard",
+  phase: "takeover",
+  takeover: {
+    reason: "I will finish this myself.",
+    requestedAt: "2026-08-31T00:00:03.000Z",
+    requestedBy: "user",
+  },
+} as unknown as Session;
+
+test("offers browser navigation only while the user holds the browser", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([session]), session.id);
+  expect(await screen.findByLabelText("Go back")).toBeDisabled();
+  expect(screen.getByLabelText("Reload page")).toBeDisabled();
+  expect(screen.getByLabelText("Browser address")).toBeDisabled();
+
+  cleanup();
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const back = await screen.findByLabelText("Go back");
+  expect(back).toBeEnabled();
+  await user.click(back);
+  await waitFor(() => {
+    expect(rpc.navigateCalls).toHaveLength(1);
+  });
+  expect(rpc.navigateCalls.at(0)).toMatchObject({
+    payload: {
+      data: {
+        action: { action: "back", type: "history" },
+        sessionId: session.id,
+      },
+      type: "agent.browser.navigate",
+    },
+  });
+});
+
+test("navigates to a typed address during Takeover", async () => {
+  const user = userEvent.setup();
+  rpc.navigateCalls.length = 0;
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const address = await screen.findByLabelText("Browser address");
+  expect(address).toHaveValue("https://example.com/dashboard");
+  await user.clear(address);
+  await user.type(address, "example.org/pricing{Enter}");
+  await waitFor(() => {
+    expect(rpc.navigateCalls).toHaveLength(1);
+  });
+  expect(rpc.navigateCalls.at(0)).toMatchObject({
+    payload: {
+      data: {
+        action: { type: "navigate", url: "https://example.org/pricing" },
+      },
+    },
+  });
+});
+
+test("scrolls the browser with the wheel only during Takeover", async () => {
+  renderWorkspace(resultFor([session]), session.id);
+  const watching = await screen.findByLabelText("Live browser viewport");
+  rpc.inputCalls.length = 0;
+  watching.dispatchEvent(
+    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 })
+  );
+  expect(rpc.inputCalls).toHaveLength(0);
+
+  cleanup();
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const driving = await screen.findByLabelText("Live browser viewport");
+  driving.dispatchEvent(
+    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 })
+  );
+  await waitFor(() => {
+    expect(rpc.inputCalls).toHaveLength(1);
+  });
+  expect(rpc.inputCalls.at(0)).toMatchObject({
+    payload: {
+      data: {
+        input: { deltaY: 240, eventType: "mouseWheel", type: "input_mouse" },
+      },
+    },
   });
 });

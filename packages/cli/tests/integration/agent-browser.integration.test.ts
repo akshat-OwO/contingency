@@ -146,7 +146,7 @@ it.live(
         "start-observe"
       );
 
-      const observed = yield* callTool("agent.browser.snapshot", {
+      const observed = yield* callTool("agent_browser_snapshot", {
         sessionId: session.id,
       });
       const snapshot = observed;
@@ -162,7 +162,7 @@ it.live(
       );
       const viewCart = findNode(snapshot.nodes, "button", "View cart");
 
-      const filled = yield* callTool("agent.browser.act", {
+      const filled = yield* callTool("agent_browser_act", {
         action: { ref: search.ref, text: "anvil", type: "fill" },
         operationId: OperationId.make("act-fill"),
         sessionId: session.id,
@@ -175,7 +175,7 @@ it.live(
       // The reference came from the Snapshot before the fill, and the fill
       // took another one: within a document, a reference lives until its
       // element does.
-      const clicked = yield* callTool("agent.browser.act", {
+      const clicked = yield* callTool("agent_browser_act", {
         action: { ref: viewCart.ref, type: "click" },
         operationId: OperationId.make("act-view-cart"),
         sessionId: session.id,
@@ -188,7 +188,7 @@ it.live(
 
       // The same operation id answers with the recorded result and never
       // reaches the browser a second time.
-      const replayed = yield* callTool("agent.browser.act", {
+      const replayed = yield* callTool("agent_browser_act", {
         action: { ref: viewCart.ref, type: "click" },
         operationId: OperationId.make("act-view-cart"),
         sessionId: session.id,
@@ -222,12 +222,12 @@ it.live("expires element references when the Page navigates", () =>
       fixtures.url("shop.html"),
       "start-stale"
     );
-    const observed = yield* callTool("agent.browser.snapshot", {
+    const observed = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,
     });
     const viewCart = findNode(observed.nodes, "button", "View cart");
 
-    yield* callTool("agent.browser.act", {
+    yield* callTool("agent_browser_act", {
       action: { type: "navigate", url: fixtures.url("cart.html") },
       operationId: OperationId.make("act-navigate"),
       sessionId: session.id,
@@ -236,12 +236,12 @@ it.live("expires element references when the Page navigates", () =>
     // References are minted from a counter that never restarts, so the new
     // document's Snapshot cannot reuse the old numbers, and the superseded
     // reference misses rather than resolving to whatever now sits there.
-    const second = yield* callTool("agent.browser.snapshot", {
+    const second = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,
     });
     expect(second.nodes.map(({ ref }) => ref)).not.toContain(viewCart.ref);
     const superseded = yield* Effect.flip(
-      callTool("agent.browser.act", {
+      callTool("agent_browser_act", {
         action: { ref: viewCart.ref, type: "click" },
         operationId: OperationId.make("act-superseded"),
         sessionId: session.id,
@@ -250,7 +250,7 @@ it.live("expires element references when the Page navigates", () =>
     expect(superseded.code).toBe("agent_element_stale");
 
     const stale = yield* Effect.flip(
-      callTool("agent.browser.act", {
+      callTool("agent_browser_act", {
         action: { ref: viewCart.ref, type: "click" },
         operationId: OperationId.make("act-stale"),
         sessionId: session.id,
@@ -261,18 +261,18 @@ it.live("expires element references when the Page navigates", () =>
     // A meaningful page mutation expires a reference too: this fixture
     // re-creates its button, so the element the Snapshot named is gone even
     // though the Page never navigated.
-    yield* callTool("agent.browser.act", {
+    yield* callTool("agent_browser_act", {
       action: { type: "navigate", url: fixtures.url("unstable.html") },
       operationId: OperationId.make("act-navigate-unstable"),
       sessionId: session.id,
     });
-    const unstable = yield* callTool("agent.browser.snapshot", {
+    const unstable = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,
     });
     const flappy = findNode(unstable.nodes, "button", "Flappy");
     yield* Effect.sleep("200 millis");
     const mutated = yield* Effect.flip(
-      callTool("agent.browser.act", {
+      callTool("agent_browser_act", {
         action: { ref: flappy.ref, type: "click" },
         operationId: OperationId.make("act-mutated"),
         sessionId: session.id,
@@ -280,7 +280,7 @@ it.live("expires element references when the Page navigates", () =>
     );
     expect(mutated.code).toBe("agent_element_stale");
 
-    const screenshot = yield* callTool("agent.browser.screenshot", {
+    const screenshot = yield* callTool("agent_browser_screenshot", {
       sessionId: session.id,
     });
     expect(screenshot.format).toBe("png");
@@ -299,7 +299,7 @@ it.live(
         fixtures.url("shop.html"),
         "start-requested"
       );
-      const requested = yield* callTool("agent.session.takeover.request", {
+      const requested = yield* callTool("agent_session_takeover_request", {
         operationId: OperationId.make("takeover-request"),
         reason: "The catalogue needs a signed-in account.",
         sessionId: session.id,
@@ -314,7 +314,7 @@ it.live(
       expect(requested.takeover?.requestedBy).toBe("agent");
 
       const refused = yield* Effect.flip(
-        callTool("agent.browser.act", {
+        callTool("agent_browser_act", {
           action: { action: "reload", type: "history" },
           operationId: OperationId.make("act-during-takeover"),
           sessionId: session.id,
@@ -333,11 +333,11 @@ it.live(
       expect(returned.data.session.phase).toBe("running");
       expect(returned.data.session.takeover).toBeNull();
 
-      const observed = yield* callTool("agent.browser.snapshot", {
+      const observed = yield* callTool("agent_browser_snapshot", {
         sessionId: session.id,
       });
       const viewCart = findNode(observed.nodes, "button", "View cart");
-      const acted = yield* callTool("agent.browser.act", {
+      const acted = yield* callTool("agent_browser_act", {
         action: { ref: viewCart.ref, type: "click" },
         operationId: OperationId.make("act-after-return"),
         sessionId: session.id,
@@ -360,7 +360,7 @@ it.live("gives a user Takeover priority over the in-flight agent action", () =>
     // to the browser and still in flight when the user takes control.
     const inFlight = yield* Effect.forkChild(
       Effect.result(
-        callTool("agent.browser.act", {
+        callTool("agent_browser_act", {
           action: {
             type: "navigate",
             url: `${fixtures.origin}${NEVER_ANSWERED}`,
@@ -398,7 +398,7 @@ it.live("gives a user Takeover priority over the in-flight agent action", () =>
     // The interrupted action was dispatched, so its operation id is spent:
     // retrying it answers with the same refusal rather than acting again.
     const retried = yield* Effect.flip(
-      callTool("agent.browser.act", {
+      callTool("agent_browser_act", {
         action: {
           type: "navigate",
           url: `${fixtures.origin}${NEVER_ANSWERED}`,
@@ -411,7 +411,7 @@ it.live("gives a user Takeover priority over the in-flight agent action", () =>
     expect(retried.message).toContain("may already have happened");
 
     const stillPaused = yield* Effect.flip(
-      callTool("agent.browser.act", {
+      callTool("agent_browser_act", {
         action: { action: "reload", type: "history" },
         operationId: OperationId.make("act-after-priority"),
         sessionId: session.id,
@@ -484,7 +484,7 @@ it.live(
 
       // Agent actions stay disabled until the user explicitly returns control.
       const paused = yield* Effect.flip(
-        callTool("agent.browser.act", {
+        callTool("agent_browser_act", {
           action: { action: "reload", type: "history" },
           operationId: OperationId.make("act-while-user-drives"),
           sessionId: session.id,
@@ -517,4 +517,72 @@ it.live(
       );
       expect(afterReturn.code).toBe("agent_control_unavailable");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("completes an action that navigates the Page it was read from", () =>
+  Effect.gen(function* submitNavigates() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("shop.html"),
+      "start-submit"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const search = findNode(observed.nodes, "textbox", "Search the catalogue");
+
+    yield* callTool("agent_browser_act", {
+      action: { ref: search.ref, text: "anvil", type: "fill" },
+      operationId: OperationId.make("submit-fill"),
+      sessionId: session.id,
+    });
+    // Submitting navigates, which destroys the context the post-action read
+    // runs in. The action did happen, so it is reported as what it was.
+    const submitted = yield* callTool("agent_browser_act", {
+      action: { key: "Enter", ref: search.ref, type: "press" },
+      operationId: OperationId.make("submit-enter"),
+      sessionId: session.id,
+    });
+    expect(submitted.entry.outcome).toBe("completed");
+    expect(submitted.url).toContain("search=anvil");
+    expect(submitted.snapshot.url).toBe(submitted.url);
+
+    const current = yield* agent("agent.session.get", {
+      data: { sessionId: session.id },
+      type: "agent.session.get",
+    });
+    expect(current.data.session.currentUrl).toBe(submitted.url);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("tells an MCP caller why an action failed", () =>
+  Effect.gen(function* readableToolFailure() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("shop.html"),
+      "start-failure"
+    );
+
+    const failed = yield* Effect.flip(
+      callTool("agent_browser_act", {
+        action: {
+          text: "no such text here",
+          timeoutMs: 1000,
+          type: "wait_for_text",
+        },
+        operationId: OperationId.make("failure-wait"),
+        sessionId: session.id,
+      })
+    );
+    // The MCP server reports a declared failure to the client by its message,
+    // and only when it is an Error. Anything else reaches the agent as
+    // "an internal server error", which names no cause it can act on.
+    expect(failed).toBeInstanceOf(Error);
+    expect(failed.message).toContain("no such text here");
+    expect(failed.message).toContain(failed.code);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );

@@ -12,12 +12,18 @@ export type AgentViewPhase =
   | "switching";
 
 export interface AgentViewState {
+  /** What the address bar shows while the user holds the browser. */
+  readonly address: string;
   readonly browserStreamError: string | undefined;
   /** What went wrong the last time this View tried to change control. */
   readonly controlError: string | undefined;
   /** A control change is in flight, so the control button is not offered twice. */
   readonly controlPending: boolean;
   readonly frameReady: boolean;
+  /** What went wrong the last time the user navigated the browser. */
+  readonly navigationError: string | undefined;
+  /** A navigation is in flight, so the toolbar does not dispatch it twice. */
+  readonly navigationPending: boolean;
   readonly phase: AgentViewPhase;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
@@ -27,10 +33,13 @@ export interface AgentViewState {
 }
 
 export const agentViewStateAtom = Atom.make<AgentViewState>({
+  address: "",
   browserStreamError: undefined,
   controlError: undefined,
   controlPending: false,
   frameReady: false,
+  navigationError: undefined,
+  navigationPending: false,
   phase: "loading",
   selectedSessionId: undefined,
   session: undefined,

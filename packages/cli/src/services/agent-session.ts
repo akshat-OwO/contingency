@@ -9,6 +9,9 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  DraftEmulation,
+  AgentHistoryAction,
+  AgentNavigateAction,
   BrowserInput,
   AgentBrowserAction,
   AgentBrowserSnapshot,
@@ -35,6 +38,7 @@ import {
   Option,
   PubSub,
   Ref,
+  Result,
   Schedule,
   Scope,
   Semaphore,
@@ -46,6 +50,7 @@ import {
   captureAgentScreenshot,
   makeAgentElementRegistry,
   performAgentAction,
+  snapshotAfterAction,
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
@@ -66,6 +71,8 @@ export interface AgentSessionServiceOptions {
 
 export interface AgentSessionStartInput {
   readonly activity?: AgentSessionActivity | undefined;
+  /** The whole Emulation to run under, viewport included. */
+  readonly emulation?: DraftEmulation | undefined;
   readonly clientName?: string | undefined;
   readonly clientVersion?: string | undefined;
   readonly name?: string | undefined;
@@ -129,6 +136,15 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     input: BrowserInput
   ) => Effect.Effect<void, AgentSessionError>;
+  /**
+   * Address-bar and history navigation during Takeover. The user drives the
+   * same browser the agent does, so navigation is refused for the same reason
+   * raw input is: control is exclusive.
+   */
+  readonly userNavigate: (
+    sessionId: AgentSessionId,
+    action: AgentNavigateAction | AgentHistoryAction
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly snapshot: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AgentBrowserSnapshot, AgentSessionError>;
@@ -194,11 +210,24 @@ export const isAllowedAgentSessionBaseUrl = (baseUrl: string): boolean => {
   }
 };
 
+/**
+ * What the session actually runs under. An Emulation is one whole value, so a
+ * supplied one is used as it stands — its viewport included — rather than
+ * merged field by field with the shorthand viewport.
+ */
+const sessionEmulation = (input: AgentSessionStartInput): DraftEmulation =>
+  input.emulation ?? {
+    permissions: [],
+    userAgentProfile: UserAgentProfileId.make("default"),
+    viewport: input.viewport,
+  };
+
 const normalizedStartInput = (input: AgentSessionStartInput): string =>
   JSON.stringify({
     activity: input.activity ?? "run",
     clientName: input.clientName?.trim() || "unknown",
     clientVersion: input.clientVersion?.trim() || "unknown",
+    emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
     url: input.url ?? null,
     viewport: {
@@ -319,6 +348,37 @@ const makeAgentSession = (
       Ref.update(sessions, (current) =>
         new Map(current).set(sessionId, { ...record, snapshot })
       ).pipe(Effect.andThen(publish(snapshot)));
+
+    /**
+     * The browser is the authority on where it is. The user drives it directly
+     * during Takeover — a click that navigates goes through raw input and no
+     * action path at all — so the session re-reads the Page's URL whenever it
+     * hands a snapshot out rather than trusting the last write.
+     *
+     * `currentUrl` is a local read on the active Page, not a browser round
+     * trip, and the state is only written when the URL actually changed, so a
+     * change reaches Agent View through the same stream every other change
+     * does. No timeline entry is invented for it: the moment a read notices a
+     * navigation is not the moment the user made it.
+     */
+    const refreshedSnapshot = (
+      sessionId: AgentSessionId,
+      record: SessionRecord
+    ): Effect.Effect<AgentSessionSnapshot> =>
+      browser.currentUrl(record.browserSessionId).pipe(
+        Effect.flatMap((currentUrl) => {
+          if (currentUrl === record.snapshot.currentUrl) {
+            return Effect.succeed(record.snapshot);
+          }
+          const next: AgentSessionSnapshot = {
+            ...record.snapshot,
+            currentUrl,
+            updatedAt: now().toISOString(),
+          };
+          return save(sessionId, record, next).pipe(Effect.as(next));
+        }),
+        Effect.orElseSucceed(() => record.snapshot)
+      );
 
     const remember = (
       operationId: OperationId | string | undefined,
@@ -597,9 +657,13 @@ const makeAgentSession = (
             const acquisitionAndSetup = Effect.gen(
               function* acquireAndSetupAgentSession() {
                 yield* sessionResource(sessionScope, sessionId);
+                // One Emulation for the session: the browser is created at the
+                // viewport it will navigate under, so the first document is
+                // laid out for the device rather than resized into it.
+                const emulation = sessionEmulation(input);
                 const acquired = yield* Scope.provide(sessionScope)(
                   Effect.acquireRelease(
-                    browser.create(browserName, input.viewport),
+                    browser.create(browserName, emulation.viewport),
                     (browserSessionId) =>
                       browser.close(browserSessionId).pipe(Effect.ignore)
                   )
@@ -640,11 +704,7 @@ const makeAgentSession = (
                 yield* publish(base);
                 const setup = Effect.gen(function* finishStartingSession() {
                   if (input.url !== undefined) {
-                    yield* browser.open(acquired, input.url, {
-                      permissions: [],
-                      userAgentProfile: UserAgentProfileId.make("default"),
-                      viewport: input.viewport,
-                    });
+                    yield* browser.open(acquired, input.url, emulation);
                   }
                   const currentUrl = yield* browser.currentUrl(acquired);
                   const running: AgentSessionSnapshot = {
@@ -745,7 +805,7 @@ const makeAgentSession = (
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
             yield* performAgentAction(page, record.registry, action);
-            const snapshot = yield* record.registry.snapshot(page);
+            const snapshot = yield* snapshotAfterAction(page, record.registry);
             return {
               entry: {
                 actor: "agent" as const,
@@ -788,15 +848,21 @@ const makeAgentSession = (
           return yield* Effect.fail(refusal);
         }
         const cause = Cause.findErrorOption(exit.cause);
-        yield* recordEntry(sessionId, {
-          actor: "agent",
-          at: now().toISOString(),
-          description,
-          detail: Option.isSome(cause) ? cause.value.message : undefined,
-          dispatched: true,
-          id,
-          outcome: "failed",
-        });
+        // A failed action may still have moved the Page, so the session records
+        // where the browser actually is rather than where it last succeeded.
+        yield* recordEntry(
+          sessionId,
+          {
+            actor: "agent",
+            at: now().toISOString(),
+            description,
+            detail: Option.isSome(cause) ? cause.value.message : undefined,
+            dispatched: true,
+            id,
+            outcome: "failed",
+          },
+          { currentUrl: page.url() }
+        );
         return yield* Effect.failCause(exit.cause);
       }
     );
@@ -1054,12 +1120,15 @@ const makeAgentSession = (
           )
         ),
       get: (sessionId) =>
-        read(sessionId).pipe(Effect.map(({ snapshot }) => snapshot)),
+        read(sessionId).pipe(
+          Effect.flatMap((record) => refreshedSnapshot(sessionId, record))
+        ),
       list: () =>
-        Effect.sync(() =>
-          [...Ref.getUnsafe(sessions).values()]
-            .map(({ snapshot }) => snapshot)
-            .filter(({ phase }) => isLive(phase))
+        Effect.forEach(
+          [...Ref.getUnsafe(sessions).values()].filter(({ snapshot }) =>
+            isLive(snapshot.phase)
+          ),
+          (record) => refreshedSnapshot(record.snapshot.id, record)
         ),
       ownsBrowserSession: (sessionId) =>
         Effect.sync(() =>
@@ -1097,6 +1166,53 @@ const makeAgentSession = (
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)
         ),
+      userNavigate: (sessionId, action) =>
+        Effect.gen(function* navigateAsUser() {
+          const record = yield* requireLiveRecord(sessionId);
+          if (record.snapshot.controller !== "user") {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_control_unavailable",
+                "The agent holds the browser. Take control before driving it yourself."
+              )
+            );
+          }
+          const page = yield* browser.activePage(record.browserSessionId);
+          const description = describeAgentAction(action);
+          const id = `user-${randomUUID()}`;
+          // One browser takes one navigation at a time. Without this permit a
+          // second click races the first, and Playwright cancels the pending
+          // navigation: both attempts report success and the page never moves.
+          const outcome = yield* record.control.lock.withPermit(
+            Effect.result(performAgentAction(page, record.registry, action))
+          );
+          const at = now().toISOString();
+          if (Result.isFailure(outcome)) {
+            yield* recordEntry(sessionId, {
+              actor: "user",
+              at,
+              description,
+              detail: outcome.failure.message,
+              dispatched: true,
+              id,
+              outcome: "failed",
+            });
+            return yield* Effect.fail(outcome.failure);
+          }
+          const url = page.url();
+          return yield* recordEntry(
+            sessionId,
+            {
+              actor: "user",
+              at,
+              description,
+              dispatched: true,
+              id,
+              outcome: "completed",
+            },
+            { currentUrl: url }
+          );
+        }),
     };
 
     return service;

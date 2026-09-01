@@ -1,6 +1,9 @@
 import type {
+  AgentHistoryAction,
+  AgentNavigateAction,
   AgentSessionId,
   AgentSessionSnapshot,
+  BrowserInput,
   BrowserStreamEvent,
 } from "@contingency/protocol";
 import { isBrowserRpcError, OperationId } from "@contingency/protocol";
@@ -12,12 +15,17 @@ import {
 } from "@effect/atom-react";
 import { Effect, Fiber, Result, Schedule } from "effect";
 import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDotIcon,
   LoaderCircleIcon,
+  LockKeyholeIcon,
+  RotateCwIcon,
   UserRoundIcon,
 } from "lucide-react";
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
@@ -28,14 +36,22 @@ import {
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import {
+  keyboardModifiers,
   makeBrowserInputHandlers,
+  mousePosition,
   renderFrame,
 } from "@/components/create/browser-input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import {
   agentBrowserFrameAckMutation,
   agentBrowserInputMutation,
+  agentBrowserNavigateMutation,
   agentReturnControlMutation,
   agentSessionsAtom,
   agentTakeoverMutation,
@@ -69,6 +85,12 @@ const statusIcon = (status: string) => {
     return <UserRoundIcon aria-hidden="true" className="size-4" />;
   }
   return <CircleDotIcon aria-hidden="true" className="size-4" />;
+};
+
+/** What the address bar means when it is not already a full URL. */
+const navigationUrl = (address: string): string => {
+  const trimmed = address.trim();
+  return /^[a-z][\w+.-]*:/iu.test(trimmed) ? trimmed : `https://${trimmed}`;
 };
 
 const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
@@ -191,6 +213,96 @@ const AgentBrowserCanvas = ({
   </div>
 );
 
+const AgentBrowserToolbar = ({
+  address,
+  navigationError,
+  navigationPending,
+  onAddressChange,
+  onAddressSubmit,
+  onNavigate,
+  readOnly,
+}: {
+  readonly address: string;
+  readonly navigationError: string | undefined;
+  readonly navigationPending: boolean;
+  readonly onAddressChange: (address: string) => void;
+  readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onNavigate: (action: "back" | "forward" | "reload") => void;
+  readonly readOnly: boolean;
+}) => (
+  <>
+    <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
+      <div
+        aria-label="Browser navigation"
+        className="flex gap-0.5"
+        role="group"
+      >
+        <Button
+          aria-label="Go back"
+          disabled={readOnly || navigationPending}
+          onClick={() => onNavigate("back")}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <ArrowLeftIcon />
+        </Button>
+        <Button
+          aria-label="Go forward"
+          disabled={readOnly || navigationPending}
+          onClick={() => onNavigate("forward")}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <ArrowRightIcon />
+        </Button>
+        <Button
+          aria-label="Reload page"
+          disabled={readOnly || navigationPending}
+          onClick={() => onNavigate("reload")}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <RotateCwIcon />
+        </Button>
+      </div>
+      <form className="min-w-0 flex-1" onSubmit={onAddressSubmit}>
+        <InputGroup className="bg-muted/40 h-8">
+          <InputGroupAddon align="inline-start">
+            {navigationPending ? (
+              <LoaderCircleIcon
+                aria-hidden="true"
+                className="size-3.5 animate-spin"
+              />
+            ) : (
+              <LockKeyholeIcon aria-hidden="true" className="size-3.5" />
+            )}
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label="Browser address"
+            disabled={readOnly || navigationPending}
+            onChange={(event) => onAddressChange(event.target.value)}
+            placeholder={
+              readOnly
+                ? "Take control to drive the browser"
+                : "Enter a URL to navigate"
+            }
+            spellCheck={false}
+            value={address}
+          />
+        </InputGroup>
+      </form>
+    </div>
+    {navigationError === undefined ? null : (
+      <p className="text-destructive border-b px-3 py-1.5 text-xs">
+        {navigationError}
+      </p>
+    )}
+  </>
+);
+
 const SessionDetails = ({
   controlError,
   controlPending,
@@ -206,7 +318,7 @@ const SessionDetails = ({
 }) => {
   const control = agentControlPresentation(session);
   return (
-    <aside className="min-h-0 overflow-y-auto border-t lg:border-t-0 lg:border-l">
+    <aside className="min-h-0 min-w-0 overflow-y-auto border-t lg:border-t-0 lg:border-l">
       <div className="space-y-5 p-4">
         <section aria-labelledby="agent-session-status" className="space-y-3">
           <div className="flex items-start justify-between gap-3">
@@ -220,23 +332,25 @@ const SessionDetails = ({
                   : "Interactive Run"}
               </p>
             </div>
-            <span className="bg-muted inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium">
+            <span className="bg-muted inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium">
               {statusIcon(status)}
               {status}
             </span>
           </div>
           <dl className="divide-y rounded-lg border text-sm">
             <div className="flex items-start justify-between gap-3 p-3">
-              <dt className="text-muted-foreground">Client</dt>
-              <dd className="text-right font-medium">{session.clientName}</dd>
+              <dt className="text-muted-foreground shrink-0">Client</dt>
+              <dd className="min-w-0 text-right font-medium break-words">
+                {session.clientName}
+              </dd>
             </div>
             <div className="flex items-start justify-between gap-3 p-3">
-              <dt className="text-muted-foreground">Controller</dt>
+              <dt className="text-muted-foreground shrink-0">Controller</dt>
               <dd className="font-medium capitalize">{session.controller}</dd>
             </div>
             <div className="flex items-start justify-between gap-3 p-3">
-              <dt className="text-muted-foreground">Current URL</dt>
-              <dd className="max-w-[14rem] truncate text-right font-mono text-xs">
+              <dt className="text-muted-foreground shrink-0">Current URL</dt>
+              <dd className="min-w-0 truncate text-right font-mono text-xs">
                 {session.currentUrl === "about:blank"
                   ? "New browser page"
                   : session.currentUrl}
@@ -295,10 +409,16 @@ const SessionDetails = ({
               className="divide-y rounded-lg border"
             >
               {session.timeline.map((entry) => (
-                <li className="space-y-1 p-3 text-sm" key={entry.id}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-medium">{entry.description}</span>
-                    <span className="text-muted-foreground text-xs capitalize">
+                <li className="min-w-0 space-y-1 p-3 text-sm" key={entry.id}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    {/*
+                      A description can be a whole URL, so it wraps inside its
+                      own column instead of pushing the outcome out of the card.
+                    */}
+                    <span className="min-w-0 font-medium wrap-anywhere">
+                      {entry.description}
+                    </span>
+                    <span className="text-muted-foreground shrink-0 text-xs capitalize">
                       {entry.outcome}
                     </span>
                   </div>
@@ -308,7 +428,7 @@ const SessionDetails = ({
                     {entry.dispatched ? " · dispatched to the browser" : ""}
                   </p>
                   {entry.detail === undefined ? null : (
-                    <p className="text-muted-foreground text-xs">
+                    <p className="text-muted-foreground text-xs wrap-anywhere">
                       {entry.detail}
                     </p>
                   )}
@@ -328,17 +448,24 @@ const SessionDetails = ({
 const AgentLiveView = ({
   canvasRef,
   input,
+  onAddressChange,
+  onAddressSubmit,
   onControl,
+  onNavigate,
   session,
   state,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
+  readonly onAddressChange: (address: string) => void;
+  readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onControl: () => void;
+  readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
 }) => {
   const status = agentStatusLabel(session, state.streamConnected);
+  const readOnly = session.controller !== "user";
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="border-b px-4 py-3 sm:px-6">
@@ -366,13 +493,22 @@ const AgentLiveView = ({
           <AlertDescription>{state.browserStreamError}</AlertDescription>
         </Alert>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <div className="relative flex min-h-0 flex-col">
+          <AgentBrowserToolbar
+            address={state.address}
+            navigationError={state.navigationError}
+            navigationPending={state.navigationPending}
+            onAddressChange={onAddressChange}
+            onAddressSubmit={onAddressSubmit}
+            onNavigate={onNavigate}
+            readOnly={readOnly}
+          />
           <AgentBrowserCanvas
             canvasRef={canvasRef}
             frameReady={state.frameReady}
             input={input}
-            readOnly={session.controller !== "user"}
+            readOnly={readOnly}
           />
           {state.phase === "switching" ? <SwitchingState /> : null}
         </div>
@@ -408,6 +544,9 @@ const useAgentView = (
   const requestReturnControl = useAtomSet(agentReturnControlMutation, {
     mode: "promise",
   });
+  const navigateBrowser = useAtomSet(agentBrowserNavigateMutation, {
+    mode: "promise",
+  });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const pendingFrameRef = useRef<Extract<
@@ -416,6 +555,9 @@ const useAgentView = (
   > | null>(null);
   const activeSessionRef = useRef<AgentSessionId | null>(null);
   const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
+  // The address bar belongs to whoever is typing in it: a URL event never
+  // overwrites what the user has not submitted yet.
+  const addressEditingRef = useRef(false);
 
   const sessions =
     sessionsResult._tag === "Success"
@@ -794,28 +936,145 @@ const useAgentView = (
     []
   );
 
-  const input = useMemo(
-    () =>
-      makeBrowserInputHandlers((browserInput) => {
-        const sessionId = activeSessionRef.current;
-        if (sessionId === null) {
-          return;
-        }
-        Effect.runFork(
+  const currentUrl = state.session?.currentUrl;
+  useEffect(() => {
+    if (addressEditingRef.current || currentUrl === undefined) {
+      return;
+    }
+    const next = currentUrl === "about:blank" ? "" : currentUrl;
+    setState((current) =>
+      current.address === next ? current : { ...current, address: next }
+    );
+  }, [currentUrl, setState]);
+
+  const setAddress = useCallback(
+    (address: string) => {
+      addressEditingRef.current = true;
+      setState((current) => ({ ...current, address }));
+    },
+    [setState]
+  );
+
+  /**
+   * Navigation during Takeover. The user drives the same browser the agent
+   * does, so it goes through the Agent Session rather than the generic browser
+   * RPCs: the lower-level session id never leaves the process.
+   */
+  const runNavigation = useCallback(
+    (action: AgentHistoryAction | AgentNavigateAction) => {
+      const sessionId = activeSessionRef.current;
+      if (sessionId === null) {
+        return;
+      }
+      setState((current) => ({
+        ...current,
+        navigationError: undefined,
+        navigationPending: true,
+      }));
+      Effect.runFork(
+        Effect.result(
           Effect.tryPromise({
             catch: (cause) => cause,
             try: () =>
-              sendBrowserInput({
+              navigateBrowser({
                 payload: {
-                  data: { input: browserInput, sessionId },
-                  type: "agent.browser.input.send",
+                  data: { action, sessionId },
+                  type: "agent.browser.navigate",
                 },
               }),
-          }).pipe(Effect.ignore)
-        );
-      }),
+          })
+        ).pipe(
+          Effect.flatMap((outcome) =>
+            Effect.sync(() => {
+              setState((current) => ({
+                ...current,
+                navigationError: Result.isFailure(outcome)
+                  ? errorMessage(outcome.failure)
+                  : undefined,
+                navigationPending: false,
+              }));
+            })
+          )
+        )
+      );
+    },
+    [navigateBrowser, setState]
+  );
+
+  const navigate = useCallback(
+    (action: "back" | "forward" | "reload") => {
+      runNavigation({ action, type: "history" });
+    },
+    [runNavigation]
+  );
+
+  const submitAddress = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const url = navigationUrl(state.address);
+      if (url === "https://") {
+        return;
+      }
+      addressEditingRef.current = false;
+      runNavigation({ type: "navigate", url });
+    },
+    [runNavigation, state.address]
+  );
+
+  const dispatchInput = useCallback(
+    (browserInput: BrowserInput) => {
+      const sessionId = activeSessionRef.current;
+      if (sessionId === null) {
+        return;
+      }
+      Effect.runFork(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            sendBrowserInput({
+              payload: {
+                data: { input: browserInput, sessionId },
+                type: "agent.browser.input.send",
+              },
+            }),
+        }).pipe(Effect.ignore)
+      );
+    },
     [sendBrowserInput]
   );
+
+  const input = useMemo(
+    () => makeBrowserInputHandlers(dispatchInput),
+    [dispatchInput]
+  );
+
+  /**
+   * Scrolling is a wheel event, and React only offers it passively, so the
+   * canvas listens itself to keep the page from scrolling underneath it.
+   */
+  const controller = state.session?.controller;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas === null || controller !== "user") {
+      return;
+    }
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchInput({
+        ...mousePosition(canvas, event),
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        eventType: "mouseWheel",
+        modifiers: keyboardModifiers(event),
+        type: "input_mouse",
+      });
+    };
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", handleWheel);
+    };
+  }, [controller, dispatchInput]);
 
   const selectSession = useCallback(
     (nextSessionId: string) => {
@@ -824,10 +1083,16 @@ const useAgentView = (
         return;
       }
       onSelectSession?.(nextSession.id);
+      addressEditingRef.current = false;
       setState((current) => ({
         ...current,
+        address:
+          nextSession.currentUrl === "about:blank"
+            ? ""
+            : nextSession.currentUrl,
         browserStreamError: undefined,
         frameReady: false,
+        navigationError: undefined,
         phase: "switching",
         selectedSessionId: nextSession.id,
         session: nextSession,
@@ -841,10 +1106,13 @@ const useAgentView = (
     canvasRef,
     changeControl,
     input,
+    navigate,
     selectSession,
     sessions,
     sessionsResult,
+    setAddress,
     state,
+    submitAddress,
   };
 };
 
@@ -907,7 +1175,10 @@ export const AgentWorkspace = ({
       <AgentLiveView
         canvasRef={view.canvasRef}
         input={view.input}
+        onAddressChange={view.setAddress}
+        onAddressSubmit={view.submitAddress}
         onControl={view.changeControl}
+        onNavigate={view.navigate}
         session={state.session}
         state={state}
       />

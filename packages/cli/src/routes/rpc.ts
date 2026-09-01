@@ -569,6 +569,15 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.browser.input.sent" as const,
           })
         ),
+      "agent.browser.navigate": ({ data }) =>
+        agentUnavailable((service) =>
+          service.userNavigate(data.sessionId, data.action)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.browser.navigated" as const,
+          }))
+        ),
       "agent.session.takeover": ({ data }) =>
         agentUnavailable((service) =>
           service.takeover(data.sessionId, data.reason, data.operationId)

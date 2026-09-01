@@ -224,6 +224,7 @@ const agentSessionOwnership: AgentSessionService = {
   snapshot: rpcNotUnderTest,
   start: rpcNotUnderTest,
   takeover: rpcNotUnderTest,
+  userNavigate: rpcNotUnderTest,
 };
 
 it.effect("refuses to start a Run while a Recording is in progress", () =>

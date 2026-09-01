@@ -6,6 +6,7 @@ import {
   matchUserAgentProfile,
   profileViewport,
   resolveIdentity,
+  UserAgentProfileId,
 } from "./browser-identity.ts";
 import { Viewport } from "./viewport.ts";
 
@@ -808,3 +809,21 @@ export const recordingLocksStorageMutations = (
   recording !== null &&
   recording.sessionId === sessionId &&
   recording.phase !== "finished";
+
+/**
+ * One whole Emulation composed but not yet applied to any session: the browser
+ * identity, its viewport, and the environment around it as a single value. It
+ * travels with the first navigation so the session's first request and document
+ * already carry it, rather than being patched in afterwards ([ADR
+ * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ */
+export const DraftEmulation = Schema.Struct({
+  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
+  geolocation: Schema.optional(Geolocation),
+  locale: Schema.optional(nonEmptyString),
+  permissions: PermissionDecisions,
+  timezoneId: Schema.optional(nonEmptyString),
+  userAgentProfile: UserAgentProfileId,
+  viewport: Viewport,
+});
+export type DraftEmulation = typeof DraftEmulation.Type;

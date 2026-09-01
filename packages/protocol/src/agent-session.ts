@@ -7,6 +7,7 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
+import { DraftEmulation } from "./flow.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -71,6 +72,13 @@ export const AgentSessionStart = Schema.Struct({
   activity: Schema.optional(AgentSessionActivity),
   clientName: nonEmptyString,
   clientVersion: nonEmptyString,
+  /**
+   * The whole Emulation the session runs under — browser identity, viewport,
+   * and environment together. Its viewport is the session's viewport, so a
+   * phone profile is a phone rather than a narrow desktop window. Without it
+   * the session runs the default identity at `viewport`.
+   */
+  emulation: Schema.optional(DraftEmulation),
   name: Schema.optional(nonEmptyString),
   operationId: OperationId,
   url: Schema.optional(nonEmptyString),

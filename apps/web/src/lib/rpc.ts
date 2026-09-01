@@ -112,6 +112,10 @@ export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
 export const agentBrowserInputMutation = ContingencyRpcClient.mutation(
   "agent.browser.input.send"
 );
+/** History and address-bar navigation while the user holds the browser. */
+export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
+  "agent.browser.navigate"
+);
 /** Takeover is a direct user action: Agent View alone initiates it. */
 export const agentTakeoverMutation = ContingencyRpcClient.mutation(
   "agent.session.takeover"

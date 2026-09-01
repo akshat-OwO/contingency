@@ -1,7 +1,11 @@
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
-import { AgentBrowserObserve } from "./agent-browser.ts";
+import {
+  AgentBrowserObserve,
+  AgentHistoryAction,
+  AgentNavigateAction,
+} from "./agent-browser.ts";
 import {
   AgentSessionClose,
   AgentSessionCloseResult,
@@ -19,6 +23,7 @@ import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
   AuditKind,
+  DraftEmulation,
   Geolocation,
   PermissionDecisions,
   RecordingSnapshot,
@@ -341,6 +346,8 @@ export const BrandId = Schema.Literals([
   "agent.session.control.returned",
   "agent.browser.input.send",
   "agent.browser.input.sent",
+  "agent.browser.navigate",
+  "agent.browser.navigated",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -371,24 +378,6 @@ export const BrowserSessionClose = request("browser.session.close", {
   sessionId: SessionId,
 });
 export const BrowserSessionClosed = response("browser.session.closed", {});
-
-/**
- * One whole Emulation Create View has composed but no session applies yet: the
- * browser identity, its viewport, and the environment around it as a single
- * value. It travels with the first navigation so the session's first request
- * and document already carry it, rather than being patched in afterwards ([ADR
- * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
- */
-export const DraftEmulation = Schema.Struct({
-  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
-  geolocation: Schema.optional(Geolocation),
-  locale: Schema.optional(nonEmptyProtocolString),
-  permissions: PermissionDecisions,
-  timezoneId: Schema.optional(nonEmptyProtocolString),
-  userAgentProfile: UserAgentProfileId,
-  viewport: Viewport,
-});
-export type DraftEmulation = typeof DraftEmulation.Type;
 
 export const BrowserOpen = request("browser.open", {
   /** The whole Emulation to apply before the first request leaves. */
@@ -720,6 +709,7 @@ export const AgentSessionStartRequest = request("agent.session.start", {
   activity: AgentSessionStart.fields.activity,
   clientName: AgentSessionStart.fields.clientName,
   clientVersion: AgentSessionStart.fields.clientVersion,
+  emulation: AgentSessionStart.fields.emulation,
   name: AgentSessionStart.fields.name,
   operationId: AgentSessionStart.fields.operationId,
   url: AgentSessionStart.fields.url,
@@ -803,6 +793,19 @@ export const AgentBrowserInputSend = request("agent.browser.input.send", {
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
 export const AgentBrowserInputSent = response("agent.browser.input.sent", {});
+
+/**
+ * Address-bar and history navigation while the user holds the browser. It
+ * carries the same actions the agent may take, so a Takeover is a real
+ * browser, not a viewport: only the actor changes.
+ */
+export const AgentBrowserNavigate = request("agent.browser.navigate", {
+  action: Schema.Union([AgentNavigateAction, AgentHistoryAction]),
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+export const AgentBrowserNavigated = response("agent.browser.navigated", {
+  session: AgentSessionSnapshot,
+});
 
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
@@ -1108,6 +1111,11 @@ const AgentBrowserInputSendRpc = Rpc.make("agent.browser.input.send", {
   payload: AgentBrowserInputSend,
   success: AgentBrowserInputSent,
 });
+const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
+  error: BrowserRpcError,
+  payload: AgentBrowserNavigate,
+  success: AgentBrowserNavigated,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -1166,5 +1174,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserFrameAckRpc,
   AgentSessionTakeoverRpc,
   AgentSessionControlReturnRpc,
-  AgentBrowserInputSendRpc
+  AgentBrowserInputSendRpc,
+  AgentBrowserNavigateRpc
 ) {}

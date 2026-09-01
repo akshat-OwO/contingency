@@ -72,10 +72,12 @@ export const AgentNavigateAction = Schema.Struct({
   type: Schema.Literal("navigate"),
   url: nonEmptyString,
 });
+export type AgentNavigateAction = typeof AgentNavigateAction.Type;
 export const AgentHistoryAction = Schema.Struct({
   action: Schema.Literals(["back", "forward", "reload"]),
   type: Schema.Literal("history"),
 });
+export type AgentHistoryAction = typeof AgentHistoryAction.Type;
 export const AgentClickAction = withRef({ type: Schema.Literal("click") });
 export const AgentHoverAction = withRef({ type: Schema.Literal("hover") });
 export const AgentFillAction = withRef({
@@ -172,7 +174,9 @@ export const describeAgentAction = (action: AgentBrowserAction): string => {
       return `Navigate to ${action.url}`;
     }
     case "history": {
-      return `Go ${action.action}`;
+      return action.action === "reload"
+        ? "Reload the page"
+        : `Go ${action.action}`;
     }
     case "click": {
       return `Click ${action.ref}`;
