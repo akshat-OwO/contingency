@@ -50,6 +50,7 @@ const makeFakeBrowser = (options?: {
   );
   const browser: CreateBrowserService = {
     acknowledgeFrame: notUnderTest,
+    activePage: notUnderTest,
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {

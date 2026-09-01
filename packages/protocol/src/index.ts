@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
+import { AgentBrowserObserve } from "./agent-browser.ts";
 import {
   AgentSessionClose,
   AgentSessionCloseResult,
@@ -10,6 +11,8 @@ import {
   AgentSessionStart,
   AgentSessionStartResult,
   AgentSessionStreamSubscribe,
+  AgentSessionReturnControl,
+  AgentSessionTakeover,
 } from "./agent-session.ts";
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
@@ -37,7 +40,11 @@ export * from "./run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./storage.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-identifiers.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-session.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-browser.ts";
 export {
   BrowserTabId,
   SessionId,
@@ -328,6 +335,12 @@ export const BrandId = Schema.Literals([
   "agent.session.stream.subscribe",
   "agent.browser.stream.subscribe",
   "agent.browser.frame.ack",
+  "agent.session.takeover",
+  "agent.session.takeover.started",
+  "agent.session.control.return",
+  "agent.session.control.returned",
+  "agent.browser.input.send",
+  "agent.browser.input.sent",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -752,6 +765,45 @@ export const AgentBrowserFrameAck = request("agent.browser.frame.ack", {
 });
 export const AgentBrowserFrameAcked = response("agent.browser.frame.acked", {});
 
+/**
+ * Takeover is exclusive and the user has priority. Agent View initiates it
+ * directly; the external agent may only request it, and that request returns
+ * the Agent View link immediately rather than holding a call open while the
+ * user acts ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ */
+export const AgentSessionTakeoverRequest = request("agent.session.takeover", {
+  operationId: AgentSessionTakeover.fields.operationId,
+  reason: AgentSessionTakeover.fields.reason,
+  sessionId: AgentSessionTakeover.fields.sessionId,
+});
+export const AgentSessionTakeoverStarted = response(
+  "agent.session.takeover.started",
+  { session: AgentSessionSnapshot }
+);
+
+export const AgentSessionControlReturnRequest = request(
+  "agent.session.control.return",
+  {
+    operationId: AgentSessionReturnControl.fields.operationId,
+    sessionId: AgentSessionReturnControl.fields.sessionId,
+  }
+);
+export const AgentSessionControlReturned = response(
+  "agent.session.control.returned",
+  { session: AgentSessionSnapshot }
+);
+
+/**
+ * What the user does with the browser during Takeover. It is deliberately not
+ * an MCP tool: raw input belongs to the person who took control, and control
+ * is exclusive, so the agent cannot send it at all.
+ */
+export const AgentBrowserInputSend = request("agent.browser.input.send", {
+  input: BrowserInput,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+export const AgentBrowserInputSent = response("agent.browser.input.sent", {});
+
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
   payload: BrowserSessionsGet,
@@ -1041,6 +1093,21 @@ const AgentBrowserFrameAckRpc = Rpc.make("agent.browser.frame.ack", {
   payload: AgentBrowserFrameAck,
   success: AgentBrowserFrameAcked,
 });
+const AgentSessionTakeoverRpc = Rpc.make("agent.session.takeover", {
+  error: BrowserRpcError,
+  payload: AgentSessionTakeoverRequest,
+  success: AgentSessionTakeoverStarted,
+});
+const AgentSessionControlReturnRpc = Rpc.make("agent.session.control.return", {
+  error: BrowserRpcError,
+  payload: AgentSessionControlReturnRequest,
+  success: AgentSessionControlReturned,
+});
+const AgentBrowserInputSendRpc = Rpc.make("agent.browser.input.send", {
+  error: BrowserRpcError,
+  payload: AgentBrowserInputSend,
+  success: AgentBrowserInputSent,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -1096,5 +1163,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionCloseRpc,
   AgentSessionStreamSubscribeRpc,
   AgentBrowserStreamSubscribeRpc,
-  AgentBrowserFrameAckRpc
+  AgentBrowserFrameAckRpc,
+  AgentSessionTakeoverRpc,
+  AgentSessionControlReturnRpc,
+  AgentBrowserInputSendRpc
 ) {}

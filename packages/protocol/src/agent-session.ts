@@ -1,31 +1,15 @@
 import { Schema } from "effect";
 
+import { AgentTimelineEntry } from "./agent-browser.ts";
+import {
+  AgentProcessId,
+  AgentSessionController,
+  AgentSessionId,
+  OperationId,
+} from "./agent-identifiers.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
-
-/**
- * An Agent Session is a coordination envelope, not a browser session or a
- * durable Run. Keeping its identifier separate prevents a URL selector from
- * accidentally becoming a handle to the lower-level browser API.
- */
-const agentSessionIdPattern = /^agent-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
-export const AgentSessionId = Schema.String.check(
-  Schema.isPattern(agentSessionIdPattern)
-).pipe(Schema.brand("@contingency/AgentSessionId"));
-export type AgentSessionId = typeof AgentSessionId.Type;
-
-/** A process ownership marker used to scope Agent View discovery. */
-export const AgentProcessId = nonEmptyString.pipe(
-  Schema.brand("@contingency/AgentProcessId")
-);
-export type AgentProcessId = typeof AgentProcessId.Type;
-
-/** A retry-safe id supplied by the external agent on every mutation. */
-export const OperationId = nonEmptyString.pipe(
-  Schema.brand("@contingency/OperationId")
-);
-export type OperationId = typeof OperationId.Type;
 
 export const AgentSessionActivity = Schema.Literals(["teaching", "run"]);
 export type AgentSessionActivity = typeof AgentSessionActivity.Type;
@@ -40,9 +24,6 @@ export const AgentSessionPhase = Schema.Literals([
   "closed",
 ]);
 export type AgentSessionPhase = typeof AgentSessionPhase.Type;
-
-export const AgentSessionController = Schema.Literals(["agent", "user"]);
-export type AgentSessionController = typeof AgentSessionController.Type;
 
 export const AgentTakeoverRequest = Schema.Struct({
   reason: nonEmptyString,
@@ -65,9 +46,17 @@ export const AgentSessionSnapshot = Schema.Struct({
   currentUrl: Schema.String,
   error: Schema.optional(Schema.String),
   id: AgentSessionId,
+  /**
+   * The action the browser had already been asked to perform when Takeover
+   * interrupted it. Contingency cannot undo a dispatched effect, so Agent View
+   * discloses it rather than presenting Takeover as a rollback.
+   */
+  interruptedAction: Schema.NullOr(AgentTimelineEntry),
   ownerProcessId: AgentProcessId,
   phase: AgentSessionPhase,
   takeover: Schema.NullOr(AgentTakeoverRequest),
+  /** The most recent attempts, oldest first, in the order they were made. */
+  timeline: Schema.Array(AgentTimelineEntry),
   updatedAt: nonEmptyString,
   viewUrl: nonEmptyString,
 });

@@ -560,6 +560,33 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         ),
       "agent.browser.stream.subscribe": ({ data }) =>
         agentStream((service) => service.browserStream(data.sessionId)),
+      "agent.browser.input.send": ({ data }) =>
+        agentUnavailable((service) =>
+          service.sendInput(data.sessionId, data.input)
+        ).pipe(
+          Effect.as({
+            data: {},
+            type: "agent.browser.input.sent" as const,
+          })
+        ),
+      "agent.session.takeover": ({ data }) =>
+        agentUnavailable((service) =>
+          service.takeover(data.sessionId, data.reason, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.takeover.started" as const,
+          }))
+        ),
+      "agent.session.control.return": ({ data }) =>
+        agentUnavailable((service) =>
+          service.returnControl(data.sessionId, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.control.returned" as const,
+          }))
+        ),
     };
   })
 );

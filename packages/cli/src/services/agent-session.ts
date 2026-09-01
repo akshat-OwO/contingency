@@ -3,10 +3,18 @@ import { randomUUID } from "node:crypto";
 import {
   AgentProcessId,
   AgentSessionId,
+  describeAgentAction,
+  makeBrowserRpcError,
   UserAgentProfileId,
 } from "@contingency/protocol";
 import type {
+  AgentActionResult,
+  BrowserInput,
+  AgentBrowserAction,
+  AgentBrowserSnapshot,
+  AgentScreenshot,
   AgentSessionActivity,
+  AgentTimelineEntry,
   AgentSessionSnapshot,
   AgentSessionStart,
   BrowserStreamEvent,
@@ -17,11 +25,14 @@ import type {
   SessionId,
 } from "@contingency/protocol";
 import {
+  Cause,
   Context,
   Effect,
   Exit,
   FileSystem,
+  Fiber,
   Layer,
+  Option,
   PubSub,
   Ref,
   Schedule,
@@ -29,7 +40,14 @@ import {
   Semaphore,
   Stream,
 } from "effect";
+import type { Page } from "playwright-core";
 
+import {
+  captureAgentScreenshot,
+  makeAgentElementRegistry,
+  performAgentAction,
+} from "./agent-browser.ts";
+import type { AgentElementRegistry } from "./agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { isLoopbackHost } from "./web-url.ts";
@@ -57,6 +75,16 @@ export interface AgentSessionStartInput {
 }
 
 export interface AgentSessionService {
+  /**
+   * Perform one agent browser action. The action is dispatched on a child
+   * fiber so a user Takeover can interrupt it and wait for its cleanup; a
+   * repeated operation id answers with the recorded result instead.
+   */
+  readonly act: (
+    sessionId: AgentSessionId,
+    action: AgentBrowserAction,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   readonly changes: (
     sessionId: AgentSessionId
   ) => Stream.Stream<AgentSessionSnapshot, AgentSessionError>;
@@ -79,10 +107,45 @@ export interface AgentSessionService {
     streamId: BrowserStreamId
   ) => Effect.Effect<void, AgentSessionError>;
   readonly list: () => Effect.Effect<readonly AgentSessionSnapshot[]>;
+  /** Ask the user to take control, and answer immediately with the link. */
+  readonly requestTakeover: (
+    sessionId: AgentSessionId,
+    reason: string,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /** Hand control back to the agent. Only the user may do this. */
+  readonly returnControl: (
+    sessionId: AgentSessionId,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly screenshot: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<AgentScreenshot, AgentSessionError>;
+  /**
+   * Drive the browser as the user during Takeover. Control is exclusive, so
+   * this is refused unless the user actually holds it.
+   */
+  readonly sendInput: (
+    sessionId: AgentSessionId,
+    input: BrowserInput
+  ) => Effect.Effect<void, AgentSessionError>;
+  readonly snapshot: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<AgentBrowserSnapshot, AgentSessionError>;
   /** Internal ownership check for generic browser RPC isolation. */
   readonly ownsBrowserSession: (sessionId: SessionId) => Effect.Effect<boolean>;
   readonly start: (
     input: AgentSessionStartInput
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Take control away from the agent. User initiation has priority: the
+   * in-flight action is interrupted, its cleanup is awaited, and agent action
+   * tools stay disabled until control is explicitly returned.
+   */
+  readonly takeover: (
+    sessionId: AgentSessionId,
+    reason: string,
+    operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
 }
 
@@ -145,22 +208,71 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     },
   });
 
+/**
+ * Whether agent action tools are disabled. They are while the user holds the
+ * browser, and also while a Takeover the agent itself asked for is pending: an
+ * agent that asked for help does not keep acting while it waits.
+ */
+const agentIsPaused = (snapshot: AgentSessionSnapshot): boolean =>
+  snapshot.controller === "user" || snapshot.phase === "takeover";
+
+/** Agent action tools are disabled while the user holds the browser. */
+const takenOver = (description: string): BrowserRpcErrorType =>
+  makeBrowserRpcError(
+    "agent_control_unavailable",
+    `${description} The user holds the browser; agent actions resume when the user returns control.`
+  );
+
 const isLive = (phase: AgentSessionSnapshot["phase"]): boolean =>
   phase === "starting" || phase === "running" || phase === "takeover";
+
+/** How many attempts one Agent Session keeps in its action timeline. */
+const TIMELINE_LIMIT = 200;
+
+/**
+ * The action the agent has dispatched to the browser right now, if any. A user
+ * Takeover interrupts this fiber and reports the attempt as dispatched: the
+ * browser may already have performed it, and Contingency cannot undo it.
+ */
+interface InFlightAction {
+  readonly description: string;
+  readonly fiber: Fiber.Fiber<AgentActionResult, AgentSessionError>;
+  readonly id: string;
+}
+
+interface ActionControl {
+  inFlight: InFlightAction | undefined;
+  /** One agent action at a time, so Takeover always has one fiber to stop. */
+  readonly lock: Semaphore.Semaphore;
+}
 
 interface SessionRecord {
   /** Private Create Browser handle. Never included in protocol snapshots. */
   readonly browserSessionId: SessionId;
+  readonly control: ActionControl;
+  /** The Browser Snapshot references this session has minted. */
+  readonly registry: AgentElementRegistry;
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
 }
 
-type AgentOperationKind = "close" | "start";
+type AgentOperationKind = "act" | "close" | "control" | "start" | "takeover";
+
+/** What a replayed operation answers with, discriminated so no cast is needed. */
+type AgentOperationResult =
+  | { readonly kind: "act"; readonly result: AgentActionResult }
+  /**
+   * A dispatched action whose outcome Contingency does not know. The browser
+   * may already have performed it, so the id answers with the same refusal
+   * rather than performing it a second time.
+   */
+  | { readonly error: BrowserRpcErrorType; readonly kind: "act-unresolved" }
+  | { readonly kind: "session"; readonly result: AgentSessionSnapshot };
 
 interface ReplayRecord {
   readonly input: string;
   readonly kind: AgentOperationKind;
-  readonly snapshot: AgentSessionSnapshot;
+  readonly result: AgentOperationResult;
   readonly target: string;
 }
 
@@ -213,7 +325,7 @@ const makeAgentSession = (
       kind: AgentOperationKind,
       target: string,
       input: string,
-      snapshot: AgentSessionSnapshot
+      result: AgentOperationResult
     ): Effect.Effect<void> =>
       operationId === undefined
         ? Effect.void
@@ -221,11 +333,28 @@ const makeAgentSession = (
             new Map(current).set(String(operationId), {
               input,
               kind,
-              snapshot,
+              result,
               target,
             })
           );
 
+    const rememberSession = (
+      operationId: OperationId | string | undefined,
+      kind: AgentOperationKind,
+      target: string,
+      input: string,
+      snapshot: AgentSessionSnapshot
+    ): Effect.Effect<void> =>
+      remember(operationId, kind, target, input, {
+        kind: "session",
+        result: snapshot,
+      });
+
+    /**
+     * What a repeated operation id means. An identical request answers with
+     * the recorded result and performs no effect; a different request under a
+     * used id is a conflict rather than a second effect.
+     */
     const replay = (
       operationId: OperationId | string | undefined,
       kind: AgentOperationKind,
@@ -233,7 +362,7 @@ const makeAgentSession = (
       input: string
     ):
       | { readonly _tag: "conflict"; readonly error: AgentSessionDomainError }
-      | { readonly _tag: "replay"; readonly snapshot: AgentSessionSnapshot }
+      | { readonly _tag: "replay"; readonly result: AgentOperationResult }
       | undefined => {
       if (operationId === undefined) {
         return undefined;
@@ -247,7 +376,7 @@ const makeAgentSession = (
         prior.target === target &&
         prior.input === input
       ) {
-        return { _tag: "replay", snapshot: prior.snapshot };
+        return { _tag: "replay", result: prior.result };
       }
       return {
         _tag: "conflict",
@@ -256,6 +385,31 @@ const makeAgentSession = (
           `Operation ${String(operationId)} was already used for a different ${prior.kind} request.`
         ),
       };
+    };
+
+    /** The replayed snapshot of a session mutation, if this id replays one. */
+    const replaySession = (
+      operationId: OperationId | string | undefined,
+      kind: AgentOperationKind,
+      target: string,
+      input: string
+    ):
+      | { readonly _tag: "conflict"; readonly error: AgentSessionDomainError }
+      | { readonly _tag: "replay"; readonly snapshot: AgentSessionSnapshot }
+      | undefined => {
+      const replayed = replay(operationId, kind, target, input);
+      if (replayed === undefined || replayed._tag === "conflict") {
+        return replayed;
+      }
+      return replayed.result.kind === "session"
+        ? { _tag: "replay", snapshot: replayed.result.result }
+        : {
+            _tag: "conflict",
+            error: error(
+              "agent_session_conflict",
+              `Operation ${String(operationId)} was already used for a browser action.`
+            ),
+          };
     };
 
     const sessionResource = (
@@ -321,7 +475,12 @@ const makeAgentSession = (
         operationId?: OperationId | string
       ) {
         const requestInput = "";
-        const replayed = replay(operationId, "close", sessionId, requestInput);
+        const replayed = replaySession(
+          operationId,
+          "close",
+          sessionId,
+          requestInput
+        );
         if (replayed?._tag === "replay") {
           return replayed.snapshot;
         }
@@ -330,7 +489,7 @@ const makeAgentSession = (
         }
         const record = yield* read(sessionId);
         if (!isLive(record.snapshot.phase)) {
-          yield* remember(
+          yield* rememberSession(
             operationId,
             "close",
             sessionId,
@@ -355,7 +514,7 @@ const makeAgentSession = (
             // record are one uninterruptible mutation.
             yield* save(sessionId, record, closed);
             yield* Scope.close(record.scope, Exit.void);
-            yield* remember(
+            yield* rememberSession(
               operationId,
               "close",
               sessionId,
@@ -393,7 +552,7 @@ const makeAgentSession = (
     const startUnlocked = Effect.fn("AgentSession.start")(
       function* startSession(input: AgentSessionStartInput) {
         const requestInput = normalizedStartInput(input);
-        const replayed = replay(
+        const replayed = replaySession(
           input.operationId,
           "start",
           "start",
@@ -455,14 +614,23 @@ const makeAgentSession = (
                   createdAt: at,
                   currentUrl: "about:blank",
                   id: sessionId,
+                  interruptedAction: null,
                   ownerProcessId: owner,
                   phase: "starting",
                   takeover: null,
+                  timeline: [],
                   updatedAt: at,
                   viewUrl: viewUrl(options.baseUrl, sessionId),
                 };
+                const registry = makeAgentElementRegistry(now);
+                yield* Scope.addFinalizer(sessionScope, registry.clear());
                 const record: SessionRecord = {
                   browserSessionId: acquired,
+                  control: {
+                    inFlight: undefined,
+                    lock: Semaphore.makeUnsafe(1),
+                  },
+                  registry,
                   scope: sessionScope,
                   snapshot: base,
                 };
@@ -486,7 +654,7 @@ const makeAgentSession = (
                     updatedAt: now().toISOString(),
                   };
                   yield* save(sessionId, record, running);
-                  yield* remember(
+                  yield* rememberSession(
                     input.operationId,
                     "start",
                     "start",
@@ -508,6 +676,320 @@ const makeAgentSession = (
       }
     );
 
+    const requireLiveRecord = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<SessionRecord, AgentSessionError> =>
+      read(sessionId).pipe(
+        Effect.flatMap((record) =>
+          isLive(record.snapshot.phase)
+            ? Effect.succeed(record)
+            : Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Agent Session ${sessionId} is no longer running.`
+                )
+              )
+        )
+      );
+
+    /** Append one attempt to the timeline and publish the new state. */
+    const recordEntry = (
+      sessionId: AgentSessionId,
+      entry: AgentTimelineEntry,
+      patch: Partial<AgentSessionSnapshot> = {}
+    ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
+      Effect.gen(function* appendTimelineEntry() {
+        const record = yield* read(sessionId);
+        const next: AgentSessionSnapshot = {
+          ...record.snapshot,
+          ...patch,
+          timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
+          updatedAt: now().toISOString(),
+        };
+        yield* save(sessionId, record, next);
+        return next;
+      });
+
+    const observe = <A>(
+      sessionId: AgentSessionId,
+      read_: (
+        record: SessionRecord,
+        page: Page
+      ) => Effect.Effect<A, AgentSessionError>
+    ): Effect.Effect<A, AgentSessionError> =>
+      Effect.gen(function* observeAgentBrowser() {
+        const record = yield* requireLiveRecord(sessionId);
+        const page = yield* browser.activePage(record.browserSessionId);
+        return yield* read_(record, page);
+      });
+
+    const dispatch = Effect.fn("AgentSession.dispatch")(
+      function* dispatchAgentBrowserAction(
+        sessionId: AgentSessionId,
+        record: SessionRecord,
+        page: Page,
+        action: AgentBrowserAction,
+        description: string,
+        id: string,
+        operationId: OperationId | string | undefined,
+        requestInput: string
+      ) {
+        const current = yield* requireLiveRecord(sessionId);
+        if (agentIsPaused(current.snapshot)) {
+          return yield* Effect.fail(
+            takenOver("This action was not dispatched.")
+          );
+        }
+        // The action runs on a child fiber so a user Takeover can interrupt it
+        // and wait for its cleanup rather than racing it.
+        const fiber = yield* Effect.forkChild(
+          Effect.gen(function* dispatchAgentAction() {
+            yield* performAgentAction(page, record.registry, action);
+            const snapshot = yield* record.registry.snapshot(page);
+            return {
+              entry: {
+                actor: "agent" as const,
+                at: now().toISOString(),
+                description,
+                dispatched: true,
+                id,
+                outcome: "completed" as const,
+              },
+              snapshot,
+              url: snapshot.url,
+            };
+          })
+        );
+        record.control.inFlight = { description, fiber, id };
+        const exit = yield* Fiber.await(fiber);
+        record.control.inFlight = undefined;
+        if (Exit.isSuccess(exit)) {
+          const result = exit.value;
+          yield* recordEntry(sessionId, result.entry, {
+            currentUrl: result.url,
+          });
+          yield* remember(operationId, "act", sessionId, requestInput, {
+            kind: "act",
+            result,
+          });
+          return result;
+        }
+        if (Cause.hasInterrupts(exit.cause)) {
+          // Takeover already recorded the dispatched attempt. The browser may
+          // have performed it, so this operation id is spent: retrying it
+          // answers with the same refusal instead of acting again.
+          const refusal = takenOver(
+            `${description} was interrupted and may already have happened.`
+          );
+          yield* remember(operationId, "act", sessionId, requestInput, {
+            error: refusal,
+            kind: "act-unresolved",
+          });
+          return yield* Effect.fail(refusal);
+        }
+        const cause = Cause.findErrorOption(exit.cause);
+        yield* recordEntry(sessionId, {
+          actor: "agent",
+          at: now().toISOString(),
+          description,
+          detail: Option.isSome(cause) ? cause.value.message : undefined,
+          dispatched: true,
+          id,
+          outcome: "failed",
+        });
+        return yield* Effect.failCause(exit.cause);
+      }
+    );
+
+    const actUnlocked = Effect.fn("AgentSession.act")(
+      function* performAgentBrowserAction(
+        sessionId: AgentSessionId,
+        action: AgentBrowserAction,
+        operationId?: OperationId | string
+      ) {
+        const requestInput = JSON.stringify(action);
+        const replayed = replay(operationId, "act", sessionId, requestInput);
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        if (replayed?._tag === "replay") {
+          if (replayed.result.kind === "act") {
+            return replayed.result.result;
+          }
+          if (replayed.result.kind === "act-unresolved") {
+            return yield* Effect.fail(replayed.result.error);
+          }
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Operation ${String(operationId)} was already used for a session mutation.`
+            )
+          );
+        }
+        const record = yield* requireLiveRecord(sessionId);
+        if (agentIsPaused(record.snapshot)) {
+          return yield* Effect.fail(
+            takenOver("This action was not dispatched.")
+          );
+        }
+        const page = yield* browser.activePage(record.browserSessionId);
+        const description = describeAgentAction(action);
+        const id = `action-${randomUUID()}`;
+        // Concurrent agent actions would leave a fiber Takeover cannot reach,
+        // so a second action waits here and re-reads control when it wakes.
+        return yield* record.control.lock.withPermit(
+          dispatch(
+            sessionId,
+            record,
+            page,
+            action,
+            description,
+            id,
+            operationId,
+            requestInput
+          )
+        );
+      }
+    );
+
+    /**
+     * Enter Takeover. A user initiation takes control immediately and has
+     * priority: it interrupts the in-flight agent action and waits for its
+     * cleanup. An agent request only pauses agent actions and publishes the
+     * reason — the agent cannot hand the user control the user has not taken,
+     * and Agent View still shows a Take control action
+     * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+     */
+    const beginTakeoverUnlocked = Effect.fn("AgentSession.takeover")(
+      function* beginTakeover(
+        sessionId: AgentSessionId,
+        reason: string,
+        by: AgentSessionSnapshot["controller"],
+        operationId?: OperationId | string
+      ) {
+        const kind = by === "user" ? "takeover" : "control";
+        const requestInput = JSON.stringify({ by, reason });
+        const replayed = replaySession(
+          operationId,
+          kind,
+          sessionId,
+          requestInput
+        );
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        const record = yield* requireLiveRecord(sessionId);
+        const inFlight = by === "user" ? record.control.inFlight : undefined;
+        let interruptedAction: AgentTimelineEntry | null = null;
+        if (inFlight !== undefined) {
+          // Interruption waits for the action fiber's finalizers, but the
+          // browser may already have performed the effect, so the attempt is
+          // recorded as dispatched rather than as never having happened.
+          yield* Fiber.interrupt(inFlight.fiber);
+          record.control.inFlight = undefined;
+          interruptedAction = {
+            actor: "agent",
+            at: now().toISOString(),
+            description: inFlight.description,
+            detail:
+              "Takeover interrupted this action. The browser may already have performed it.",
+            dispatched: true,
+            id: inFlight.id,
+            outcome: "interrupted",
+          };
+        }
+        const at = now().toISOString();
+        const entry: AgentTimelineEntry = {
+          actor: by,
+          at,
+          description:
+            by === "user"
+              ? "The user took control"
+              : "The agent asked the user to take control",
+          detail: reason,
+          dispatched: false,
+          id: `takeover-${randomUUID()}`,
+          outcome: "completed",
+        };
+        const current = yield* read(sessionId);
+        const timeline = [
+          ...current.snapshot.timeline,
+          ...(interruptedAction === null ? [] : [interruptedAction]),
+          entry,
+        ].slice(-TIMELINE_LIMIT);
+        const next: AgentSessionSnapshot = {
+          ...current.snapshot,
+          controller: by === "user" ? "user" : current.snapshot.controller,
+          interruptedAction,
+          phase: "takeover",
+          takeover: { reason, requestedAt: at, requestedBy: by },
+          timeline,
+          updatedAt: at,
+        };
+        yield* save(sessionId, current, next);
+        yield* rememberSession(
+          operationId,
+          kind,
+          sessionId,
+          requestInput,
+          next
+        );
+        return next;
+      }
+    );
+
+    const returnControlUnlocked = Effect.fn("AgentSession.returnControl")(
+      function* returnControl(
+        sessionId: AgentSessionId,
+        operationId?: OperationId | string
+      ) {
+        const requestInput = "";
+        const replayed = replaySession(
+          operationId,
+          "control",
+          sessionId,
+          requestInput
+        );
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        const record = yield* requireLiveRecord(sessionId);
+        const at = now().toISOString();
+        const entry: AgentTimelineEntry = {
+          actor: "user",
+          at,
+          description: "The user returned control to the agent",
+          dispatched: false,
+          id: `control-${randomUUID()}`,
+          outcome: "completed",
+        };
+        const next: AgentSessionSnapshot = {
+          ...record.snapshot,
+          controller: "agent",
+          interruptedAction: null,
+          phase: "running",
+          takeover: null,
+          timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
+          updatedAt: at,
+        };
+        yield* save(sessionId, record, next);
+        yield* rememberSession(
+          operationId,
+          "control",
+          sessionId,
+          requestInput,
+          next
+        );
+        return next;
+      }
+    );
+
     const service: AgentSessionService = {
       acknowledgeFrame: (sessionId, sequence, streamId) =>
         Effect.gen(function* acknowledgeAgentFrame() {
@@ -526,6 +1008,8 @@ const makeAgentSession = (
             streamId
           );
         }),
+      act: (sessionId, action, operationId) =>
+        actUnlocked(sessionId, action, operationId),
       browserStream: (sessionId) =>
         Stream.unwrap(
           read(sessionId).pipe(
@@ -583,7 +1067,36 @@ const makeAgentSession = (
             ({ browserSessionId }) => browserSessionId === sessionId
           )
         ),
+      requestTakeover: (sessionId, reason, operationId) =>
+        lock.withPermit(
+          beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
+        ),
+      returnControl: (sessionId, operationId) =>
+        lock.withPermit(returnControlUnlocked(sessionId, operationId)),
+      screenshot: (sessionId) =>
+        observe(sessionId, (_record, page) =>
+          captureAgentScreenshot(page, now)
+        ),
+      sendInput: (sessionId, input) =>
+        Effect.gen(function* sendUserInput() {
+          const record = yield* requireLiveRecord(sessionId);
+          if (record.snapshot.controller !== "user") {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_control_unavailable",
+                "The agent holds the browser. Take control before driving it yourself."
+              )
+            );
+          }
+          return yield* browser.sendInput(record.browserSessionId, input);
+        }),
+      snapshot: (sessionId) =>
+        observe(sessionId, (record, page) => record.registry.snapshot(page)),
       start: (input) => lock.withPermit(startUnlocked(input)),
+      takeover: (sessionId, reason, operationId) =>
+        lock.withPermit(
+          beginTakeoverUnlocked(sessionId, reason, "user", operationId)
+        ),
     };
 
     return service;

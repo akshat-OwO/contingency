@@ -3,7 +3,7 @@ import type {
   AgentSessionSnapshot,
   BrowserStreamEvent,
 } from "@contingency/protocol";
-import { isBrowserRpcError } from "@contingency/protocol";
+import { isBrowserRpcError, OperationId } from "@contingency/protocol";
 import {
   useAtom,
   useAtomRefresh,
@@ -18,19 +18,27 @@ import {
   LoaderCircleIcon,
   UserRoundIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
+  agentControlPresentation,
   agentSessionLabel,
   agentStatusLabel,
   agentViewStateAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
-import { renderFrame } from "@/components/create/browser-input";
+import {
+  makeBrowserInputHandlers,
+  renderFrame,
+} from "@/components/create/browser-input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   agentBrowserFrameAckMutation,
+  agentBrowserInputMutation,
+  agentReturnControlMutation,
   agentSessionsAtom,
+  agentTakeoverMutation,
   runAgentBrowserStream,
   runAgentSessionStream,
 } from "@/lib/rpc";
@@ -136,10 +144,12 @@ const SwitchingState = () => (
 const AgentBrowserCanvas = ({
   canvasRef,
   frameReady,
+  input,
   readOnly,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   readonly frameReady: boolean;
+  readonly input: ReturnType<typeof makeBrowserInputHandlers>;
   readonly readOnly: boolean;
 }) => (
   <div className="bg-muted/20 relative grid min-h-0 flex-1 place-items-center overflow-hidden p-2">
@@ -156,88 +166,175 @@ const AgentBrowserCanvas = ({
         </div>
       </div>
     )}
+    {/*
+      Watching is read-only; Takeover is not. Control is exclusive, so the
+      canvas only forwards input while the user actually holds the browser.
+    */}
     <canvas
       aria-label="Live browser viewport"
       aria-readonly={readOnly}
-      className="max-h-full max-w-full bg-white outline-none aria-readonly:cursor-default aria-readonly:opacity-95"
+      className="focus-visible:ring-ring max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 aria-readonly:cursor-default aria-readonly:opacity-95"
+      onKeyDown={
+        readOnly ? undefined : (event) => input.handleKey(event, "keyDown")
+      }
+      onKeyUp={
+        readOnly ? undefined : (event) => input.handleKey(event, "keyUp")
+      }
+      onPointerCancel={readOnly ? undefined : input.handlePointerUp}
+      onPointerDown={readOnly ? undefined : input.handlePointerDown}
+      onPointerMove={readOnly ? undefined : input.handlePointerMove}
+      onPointerUp={readOnly ? undefined : input.handlePointerUp}
       ref={canvasRef}
       style={{ display: frameReady ? "block" : "none" }}
+      tabIndex={readOnly ? undefined : 0}
     />
   </div>
 );
 
 const SessionDetails = ({
+  controlError,
+  controlPending,
+  onControl,
   session,
   status,
 }: {
+  readonly controlError: string | undefined;
+  readonly controlPending: boolean;
+  readonly onControl: () => void;
   readonly session: AgentSessionSnapshot;
   readonly status: string;
-}) => (
-  <aside className="min-h-0 overflow-y-auto border-t lg:border-t-0 lg:border-l">
-    <div className="space-y-5 p-4">
-      <section aria-labelledby="agent-session-status" className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold" id="agent-session-status">
-              Session status
-            </h2>
-            <p className="text-muted-foreground mt-1 text-xs">
-              {session.activity === "teaching" ? "Teaching" : "Interactive Run"}
-            </p>
+}) => {
+  const control = agentControlPresentation(session);
+  return (
+    <aside className="min-h-0 overflow-y-auto border-t lg:border-t-0 lg:border-l">
+      <div className="space-y-5 p-4">
+        <section aria-labelledby="agent-session-status" className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold" id="agent-session-status">
+                Session status
+              </h2>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {session.activity === "teaching"
+                  ? "Teaching"
+                  : "Interactive Run"}
+              </p>
+            </div>
+            <span className="bg-muted inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium">
+              {statusIcon(status)}
+              {status}
+            </span>
           </div>
-          <span className="bg-muted inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium">
-            {statusIcon(status)}
-            {status}
-          </span>
-        </div>
-        <dl className="divide-y rounded-lg border text-sm">
-          <div className="flex items-start justify-between gap-3 p-3">
-            <dt className="text-muted-foreground">Client</dt>
-            <dd className="text-right font-medium">{session.clientName}</dd>
-          </div>
-          <div className="flex items-start justify-between gap-3 p-3">
-            <dt className="text-muted-foreground">Controller</dt>
-            <dd className="font-medium capitalize">{session.controller}</dd>
-          </div>
-          <div className="flex items-start justify-between gap-3 p-3">
-            <dt className="text-muted-foreground">Current URL</dt>
-            <dd className="max-w-[14rem] truncate text-right font-mono text-xs">
-              {session.currentUrl === "about:blank"
-                ? "New browser page"
-                : session.currentUrl}
-            </dd>
-          </div>
-        </dl>
-      </section>
+          <dl className="divide-y rounded-lg border text-sm">
+            <div className="flex items-start justify-between gap-3 p-3">
+              <dt className="text-muted-foreground">Client</dt>
+              <dd className="text-right font-medium">{session.clientName}</dd>
+            </div>
+            <div className="flex items-start justify-between gap-3 p-3">
+              <dt className="text-muted-foreground">Controller</dt>
+              <dd className="font-medium capitalize">{session.controller}</dd>
+            </div>
+            <div className="flex items-start justify-between gap-3 p-3">
+              <dt className="text-muted-foreground">Current URL</dt>
+              <dd className="max-w-[14rem] truncate text-right font-mono text-xs">
+                {session.currentUrl === "about:blank"
+                  ? "New browser page"
+                  : session.currentUrl}
+              </dd>
+            </div>
+          </dl>
+        </section>
 
-      <section aria-labelledby="agent-activity" className="space-y-2">
-        <h2 className="text-sm font-semibold" id="agent-activity">
-          Activity
-        </h2>
-        <div className="rounded-lg border p-3 text-sm">
-          <p className="font-medium">
-            {session.activity === "teaching"
-              ? "Teaching in progress"
-              : "Interactive Run in progress"}
-          </p>
-          <p className="text-muted-foreground mt-1 text-xs">
-            The live browser and controller status are scoped to this session.
-          </p>
-        </div>
-      </section>
-      <p className="text-muted-foreground text-xs">
-        This view is read-only. Closing it never pauses the session.
-      </p>
-    </div>
-  </aside>
-);
+        <section aria-labelledby="agent-control" className="space-y-2">
+          <h2 className="text-sm font-semibold" id="agent-control">
+            Control
+          </h2>
+          <div className="space-y-3 rounded-lg border p-3 text-sm">
+            <p className="font-medium">{control.holder}</p>
+            {control.reason === undefined ? null : (
+              <p className="text-muted-foreground text-xs">{control.reason}</p>
+            )}
+            {session.interruptedAction === null ? null : (
+              <Alert variant="destructive">
+                <CircleAlertIcon aria-hidden="true" />
+                <AlertTitle>
+                  {session.interruptedAction.description} was already dispatched
+                </AlertTitle>
+                <AlertDescription>
+                  {session.interruptedAction.detail ??
+                    "Takeover interrupted this action. The browser may already have performed it."}
+                </AlertDescription>
+              </Alert>
+            )}
+            <Button
+              disabled={controlPending}
+              onClick={onControl}
+              size="sm"
+              type="button"
+              variant={session.controller === "user" ? "outline" : "default"}
+            >
+              {control.action}
+            </Button>
+            {controlError === undefined ? null : (
+              <p className="text-destructive text-xs">{controlError}</p>
+            )}
+          </div>
+        </section>
+
+        <section aria-labelledby="agent-timeline" className="space-y-2">
+          <h2 className="text-sm font-semibold" id="agent-timeline">
+            Action timeline
+          </h2>
+          {session.timeline.length === 0 ? (
+            <p className="text-muted-foreground text-xs">
+              No actions have been attempted yet.
+            </p>
+          ) : (
+            <ul
+              aria-label="Action timeline"
+              className="divide-y rounded-lg border"
+            >
+              {session.timeline.map((entry) => (
+                <li className="space-y-1 p-3 text-sm" key={entry.id}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium">{entry.description}</span>
+                    <span className="text-muted-foreground text-xs capitalize">
+                      {entry.outcome}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {entry.actor === "user" ? "You" : "The agent"} ·{" "}
+                    {new Date(entry.at).toLocaleTimeString()}
+                    {entry.dispatched ? " · dispatched to the browser" : ""}
+                  </p>
+                  {entry.detail === undefined ? null : (
+                    <p className="text-muted-foreground text-xs">
+                      {entry.detail}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <p className="text-muted-foreground text-xs">
+          Closing this View never pauses the session.
+        </p>
+      </div>
+    </aside>
+  );
+};
 
 const AgentLiveView = ({
   canvasRef,
+  input,
+  onControl,
   session,
   state,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  readonly input: ReturnType<typeof makeBrowserInputHandlers>;
+  readonly onControl: () => void;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
 }) => {
@@ -274,11 +371,18 @@ const AgentLiveView = ({
           <AgentBrowserCanvas
             canvasRef={canvasRef}
             frameReady={state.frameReady}
-            readOnly
+            input={input}
+            readOnly={session.controller !== "user"}
           />
           {state.phase === "switching" ? <SwitchingState /> : null}
         </div>
-        <SessionDetails session={session} status={status} />
+        <SessionDetails
+          controlError={state.controlError}
+          controlPending={state.controlPending}
+          onControl={onControl}
+          session={session}
+          status={status}
+        />
       </div>
     </main>
   );
@@ -295,6 +399,15 @@ const useAgentView = (
   const acknowledgeFrame = useAtomSet(agentBrowserFrameAckMutation, {
     mode: "promise",
   });
+  const requestTakeover = useAtomSet(agentTakeoverMutation, {
+    mode: "promise",
+  });
+  const sendBrowserInput = useAtomSet(agentBrowserInputMutation, {
+    mode: "promise",
+  });
+  const requestReturnControl = useAtomSet(agentReturnControlMutation, {
+    mode: "promise",
+  });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const pendingFrameRef = useRef<Extract<
@@ -302,6 +415,7 @@ const useAgentView = (
     { readonly type: "frame" }
   > | null>(null);
   const activeSessionRef = useRef<AgentSessionId | null>(null);
+  const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
 
   const sessions =
     sessionsResult._tag === "Success"
@@ -602,6 +716,107 @@ const useAgentView = (
     };
   }, [ackFrame, enqueueFrame, selectedSessionId, setState]);
 
+  /**
+   * Taking control is a direct user action from this View, and returning it is
+   * another: the agent can ask, but only the user moves the boundary.
+   */
+  const changeControl = useCallback(() => {
+    const current = state.session;
+    if (current === undefined || state.controlPending) {
+      return;
+    }
+    const operationId = OperationId.make(globalThis.crypto.randomUUID());
+    setState((previous) => ({
+      ...previous,
+      controlError: undefined,
+      controlPending: true,
+    }));
+    const change: () => Promise<unknown> =
+      current.controller === "user"
+        ? () =>
+            requestReturnControl({
+              payload: {
+                data: { operationId, sessionId: current.id },
+                type: "agent.session.control.return",
+              },
+            })
+        : () =>
+            requestTakeover({
+              payload: {
+                data: {
+                  operationId,
+                  reason: "The user took control from Agent View.",
+                  sessionId: current.id,
+                },
+                type: "agent.session.takeover",
+              },
+            });
+    controlFiberRef.current = Effect.runFork(
+      Effect.result(
+        Effect.tryPromise({ catch: (cause) => cause, try: change })
+      ).pipe(
+        Effect.flatMap((outcome) =>
+          Effect.sync(() => {
+            setState((previous) => ({
+              ...previous,
+              controlError: Result.isFailure(outcome)
+                ? errorMessage(outcome.failure)
+                : undefined,
+              controlPending: false,
+            }));
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            controlFiberRef.current = null;
+          })
+        )
+      )
+    );
+  }, [
+    requestReturnControl,
+    requestTakeover,
+    setState,
+    state.controlPending,
+    state.session,
+  ]);
+
+  // A control change outlives no View: an unmount mid-request interrupts it
+  // rather than leaving a fiber to write to a component that is gone.
+  useEffect(
+    () => () => {
+      const fiber = controlFiberRef.current;
+      controlFiberRef.current = null;
+      if (fiber !== null) {
+        Effect.runFork(Fiber.interrupt(fiber));
+      }
+    },
+    []
+  );
+
+  const input = useMemo(
+    () =>
+      makeBrowserInputHandlers((browserInput) => {
+        const sessionId = activeSessionRef.current;
+        if (sessionId === null) {
+          return;
+        }
+        Effect.runFork(
+          Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              sendBrowserInput({
+                payload: {
+                  data: { input: browserInput, sessionId },
+                  type: "agent.browser.input.send",
+                },
+              }),
+          }).pipe(Effect.ignore)
+        );
+      }),
+    [sendBrowserInput]
+  );
+
   const selectSession = useCallback(
     (nextSessionId: string) => {
       const nextSession = sessions.find(({ id }) => id === nextSessionId);
@@ -624,6 +839,8 @@ const useAgentView = (
 
   return {
     canvasRef,
+    changeControl,
+    input,
     selectSession,
     sessions,
     sessionsResult,
@@ -689,6 +906,8 @@ export const AgentWorkspace = ({
       </div>
       <AgentLiveView
         canvasRef={view.canvasRef}
+        input={view.input}
+        onControl={view.changeControl}
         session={state.session}
         state={state}
       />

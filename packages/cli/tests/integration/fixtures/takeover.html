@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Takeover</title>
+    <style>
+      #surface {
+        position: fixed;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Takeover</h1>
+      <!--
+        Whoever is driving, the page reports it. During Takeover the browser is
+        the user's, and only input that actually reaches the document proves
+        that control moved rather than merely being announced.
+      -->
+      <div id="surface"></div>
+    </main>
+    <script>
+      const report = (kind) => {
+        fetch(`/user-input-beacon?kind=${kind}`).catch(() => {});
+      };
+      document.addEventListener("mousedown", () => report("mouse"));
+      document.addEventListener("keydown", () => report("key"));
+    </script>
+  </body>
+</html>

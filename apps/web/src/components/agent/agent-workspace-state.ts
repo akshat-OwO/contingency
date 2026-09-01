@@ -13,6 +13,10 @@ export type AgentViewPhase =
 
 export interface AgentViewState {
   readonly browserStreamError: string | undefined;
+  /** What went wrong the last time this View tried to change control. */
+  readonly controlError: string | undefined;
+  /** A control change is in flight, so the control button is not offered twice. */
+  readonly controlPending: boolean;
   readonly frameReady: boolean;
   readonly phase: AgentViewPhase;
   readonly selectedSessionId: AgentSessionId | undefined;
@@ -24,6 +28,8 @@ export interface AgentViewState {
 
 export const agentViewStateAtom = Atom.make<AgentViewState>({
   browserStreamError: undefined,
+  controlError: undefined,
+  controlPending: false,
   frameReady: false,
   phase: "loading",
   selectedSessionId: undefined,
@@ -35,6 +41,49 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
 
 export const agentSessionLabel = (session: AgentSessionSnapshot): string =>
   `${session.clientName} · ${session.activity} · ${session.id}`;
+
+/**
+ * How Agent View describes control. Control is exclusive, and an agent that
+ * asked for help has paused without being handed the user's control, so the
+ * three states are told apart rather than collapsed into "not the agent".
+ */
+export interface AgentControlPresentation {
+  /** What the one control button does next. */
+  readonly action: string;
+  /** Who holds the browser right now. */
+  readonly holder: string;
+  /** Why control changed hands, when something asked for it. */
+  readonly reason: string | undefined;
+}
+
+const takeoverReason = (
+  takeover: AgentSessionSnapshot["takeover"]
+): string | undefined => {
+  if (takeover === null) {
+    return undefined;
+  }
+  return takeover.requestedBy === "agent"
+    ? `The agent asked for help: ${takeover.reason}`
+    : `You took control: ${takeover.reason}`;
+};
+
+export const agentControlPresentation = (
+  session: AgentSessionSnapshot
+): AgentControlPresentation => {
+  const { takeover } = session;
+  const reason = takeoverReason(takeover);
+  if (session.controller === "user") {
+    return { action: "Return control", holder: "You have control", reason };
+  }
+  return {
+    action: "Take control",
+    holder:
+      session.phase === "takeover"
+        ? "The agent is waiting for you"
+        : "The agent has control",
+    reason,
+  };
+};
 
 export const agentStatusLabel = (
   session: AgentSessionSnapshot | undefined,

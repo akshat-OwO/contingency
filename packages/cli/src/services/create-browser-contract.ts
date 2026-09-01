@@ -60,6 +60,14 @@ export interface CreateBrowserService {
     sequence: FrameSequence,
     streamId: BrowserStreamId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * The Page an Agent Session observes and acts on: the session's active tab.
+   * Playwright objects stay inside Contingency's services — no adapter, and no
+   * external agent, ever receives one.
+   */
+  readonly activePage: (
+    sessionId: SessionId
+  ) => Effect.Effect<Page, BrowserRpcErrorType>;
   readonly clearStorage: (
     sessionId: SessionId,
     tabId: BrowserTabId,
