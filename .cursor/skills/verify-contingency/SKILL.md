@@ -102,8 +102,11 @@ Stable handles in this repo:
 - Audit View after a Run: region `Derived frames`, button `Play`, slider `Scrub the derived frames`, buttons `Previous Step` / `Next Step`, frame pins `Step N` / `Run settled`.
 - Agent View on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
 - Agent View on `mcp` with no session: heading `No active Agent Sessions`.
+- Agent View with a live session: heading `Agent View`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`, and one control button that reads `Take control` or `Return control`.
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Agent View available at http://127.0.0.1:<port>/agent` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
+
+`mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Agent View. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits `2`.
 
 ## Evidence
 
@@ -143,6 +146,8 @@ export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/agent
 "$CONTROL" browser wait --role alert --has-text "Agent Session unavailable"
 "$CONTROL" mcp start
+"$CONTROL" mcp call --tool agent_sessions_get
+"$CONTROL" mcp stop
 "$CONTROL" fixture start            # alias for ecommerce start
 "$CONTROL" reload --flow "$CONTINGENCY_VERIFY_DIR/verify-flow.json"
 "$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0

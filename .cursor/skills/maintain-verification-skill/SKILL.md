@@ -15,12 +15,7 @@ description: Update verify-contingency when Contingency's user-facing behavior c
 - Ecommerce fixture: `.cursor/skills/verify-contingency/fixtures/ecommerce/`
 - Evidence: `.cursor/skills/verify-contingency/artifacts/` (gitignored)
 
-After editing `.cursor/skills/verify-contingency/`, sync the same files into:
-
-- `.claude/skills/verify-contingency/`
-- `.agents/skills/verify-contingency/`
-
-Do not sync `artifacts/`.
+`.claude/skills/verify-contingency/` and `.agents/skills/verify-contingency/` are symlinks to that directory, so editing the source is the whole update. Do not replace them with copies.
 
 ## Canonical agent drive
 
@@ -32,7 +27,7 @@ That drive uses:
 2. **Create View** for browsing, session switching, recording, and Flow download.
 3. **Audit View** for opening the recorded Flow, running it, and scrubbing/playing the derived frames.
 
-Do not add Agent View scenarios unless explicitly requested.
+Agent View scenarios are covered by `features/agent-view.md`, including live Takeover. Keep them out of `ecommerce-drive.md`: that recipe stays a Create-and-Audit proof.
 
 ## Two driving surfaces in Create View
 
@@ -63,6 +58,7 @@ Extend `control-contingency` when a user action has no faithful CLI equivalent, 
 - `browser set-input-files` for Audit View `Open a Flow file`
 - `browser download` for finished Flow JSON download buttons
 - Serving multi-page ecommerce fixtures instead of a single HTML stub
+- `mcp call` for tools only an MCP client can reach, such as starting the Agent Session a live Agent View drive needs
 
 Do not change product code to make verification easier unless the product behavior itself is wrong.
 
@@ -82,6 +78,5 @@ When adding pages or SKUs, update `ecommerce-drive.md` and any smoke Flow titles
 1. Change harness and/or fixtures under `.cursor/skills/verify-contingency/`.
 2. Update the relevant `features/*.md` recipes and `features/README.md` index.
 3. Update `verify-contingency/SKILL.md` if launch/doctor/drive/cleanup contracts change.
-4. Sync copies to `.claude/` and `.agents/`.
-5. Run a real drive: `launch` → `doctor` → `ecommerce start` → ecommerce-drive steps → `cleanup`.
-6. Confirm evidence under `artifacts/` survives `cleanup`.
+4. Run a real drive: `launch` → `doctor` → `ecommerce start` → ecommerce-drive steps → `cleanup`. For Agent View, add `mcp start` and the `agent-view.md` live-session steps.
+5. Confirm evidence under `artifacts/` survives `cleanup`.
