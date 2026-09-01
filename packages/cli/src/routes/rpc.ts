@@ -1,6 +1,7 @@
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
+  isBrowserRpcError,
   recordingIsInProgress,
   recordingLocksBrowserControls,
   recordingLocksStorageMutations,
@@ -11,8 +12,9 @@ import type {
   BrowserRpcErrorType,
   RecordingSnapshot,
   RunSnapshot,
+  SessionId,
 } from "@contingency/protocol";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 import type { FileSystem } from "effect";
 import {
   HttpRouter,
@@ -21,12 +23,20 @@ import {
 } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
+import { AgentSession } from "../services/agent-session.ts";
+import type {
+  AgentSessionError,
+  AgentSessionService,
+} from "../services/agent-session.ts";
 import { CreateBrowser } from "../services/create-browser.ts";
 import { Recording } from "../services/recording.ts";
 import { RunSession } from "../services/run-session.ts";
 import type { RunSessionService } from "../services/run-session.ts";
 import type { RunnerService } from "../services/runner.ts";
-import { isAllowedWebSocketOrigin } from "../services/web-url.ts";
+import {
+  isAllowedHost,
+  isAllowedWebSocketOrigin,
+} from "../services/web-url.ts";
 
 export const browserInputIsReadOnly = (
   snapshot: Pick<
@@ -47,6 +57,61 @@ export const storageMutationIsLocked = (
   snapshot: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
   sessionId: string
 ): boolean => recordingLocksStorageMutations(snapshot, sessionId);
+
+const agentError = (cause: AgentSessionError): BrowserRpcErrorType =>
+  isBrowserRpcError(cause)
+    ? cause
+    : makeBrowserRpcError(cause.code, cause.message);
+
+const agentSessionBrowserPrivate = () =>
+  makeBrowserRpcError(
+    "agent_session_conflict",
+    "Agent Session browser handles are private to the Agent Session boundary."
+  );
+
+const requireGenericBrowserSession = (sessionId: SessionId) =>
+  Effect.serviceOption(AgentSession).pipe(
+    Effect.flatMap((service) =>
+      Option.isNone(service)
+        ? Effect.void
+        : service.value
+            .ownsBrowserSession(sessionId)
+            .pipe(
+              Effect.flatMap((owned) =>
+                owned ? Effect.fail(agentSessionBrowserPrivate()) : Effect.void
+              )
+            )
+    )
+  );
+
+const genericBrowser = <A>(
+  sessionId: SessionId | undefined,
+  operation: Effect.Effect<A, BrowserRpcErrorType>
+) =>
+  sessionId === undefined
+    ? operation
+    : requireGenericBrowserSession(sessionId).pipe(Effect.andThen(operation));
+
+const filterGenericBrowserSessions = (sessions: readonly SessionId[]) =>
+  Effect.serviceOption(AgentSession).pipe(
+    Effect.flatMap((service) =>
+      Option.isNone(service)
+        ? Effect.succeed([...sessions])
+        : Effect.all(
+            sessions.map((sessionId) =>
+              service.value
+                .ownsBrowserSession(sessionId)
+                .pipe(Effect.map((owned) => (owned ? undefined : sessionId)))
+            )
+          ).pipe(
+            Effect.map((visible) =>
+              visible.filter(
+                (sessionId): sessionId is SessionId => sessionId !== undefined
+              )
+            )
+          )
+    )
+  );
 
 /** Every Recording operation answers with the Recording it produced. */
 const recordingResult = (
@@ -72,6 +137,34 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     const browser = yield* CreateBrowser;
     const recording = yield* Recording;
     const runSession = yield* RunSession;
+
+    const agentUnavailable = <A>(
+      operation: (
+        service: AgentSessionService
+      ) => Effect.Effect<A, AgentSessionError>
+    ): Effect.Effect<A, BrowserRpcErrorType> =>
+      Effect.serviceOption(AgentSession).pipe(
+        Effect.flatMap((service) =>
+          Option.isSome(service)
+            ? operation(service.value).pipe(Effect.mapError(agentError))
+            : Effect.fail(
+                makeBrowserRpcError(
+                  "agent_session_unavailable",
+                  "Agent Sessions are unavailable in this server process."
+                )
+              )
+        )
+      );
+    const agentStream = <A>(
+      operation: (
+        service: AgentSessionService
+      ) => Stream.Stream<A, AgentSessionError>
+    ) =>
+      Stream.unwrap(
+        agentUnavailable((service) =>
+          Effect.succeed(operation(service).pipe(Stream.mapError(agentError)))
+        )
+      );
 
     /**
      * A Run and a Recording cannot share the process: a Recording drives a
@@ -129,91 +222,110 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // oxlint-disable-next-line eslint/sort-keys
     return {
       "browser.emulation.get": ({ data }) =>
-        browser.getEmulation(data.sessionId).pipe(
+        genericBrowser(
+          data.sessionId,
+          browser.getEmulation(data.sessionId)
+        ).pipe(
           Effect.map((emulation) => ({
             data: { emulation },
             type: "browser.emulation.updated" as const,
           }))
         ),
       "browser.emulation.set": ({ data }) =>
-        requireBrowserControl(data.sessionId, "Emulation changes").pipe(
-          Effect.andThen(
-            browser.setEmulation(data.sessionId, {
-              colorScheme: data.colorScheme,
-              geolocation: data.geolocation,
-              locale: data.locale,
-              permissions: data.permissions,
-              timezoneId: data.timezoneId,
-            })
-          ),
+        genericBrowser(
+          data.sessionId,
+          requireBrowserControl(data.sessionId, "Emulation changes").pipe(
+            Effect.andThen(
+              browser.setEmulation(data.sessionId, {
+                colorScheme: data.colorScheme,
+                geolocation: data.geolocation,
+                locale: data.locale,
+                permissions: data.permissions,
+                timezoneId: data.timezoneId,
+              })
+            )
+          )
+        ).pipe(
           Effect.map((emulation) => ({
             data: { emulation },
             type: "browser.emulation.updated" as const,
           }))
         ),
       "browser.frame.ack": ({ data }) =>
-        browser
-          .acknowledgeFrame(data.sessionId, data.seq, data.streamId)
-          .pipe(Effect.as({ data: {}, type: "browser.frame.acked" as const })),
+        genericBrowser(
+          data.sessionId,
+          browser.acknowledgeFrame(data.sessionId, data.seq, data.streamId)
+        ).pipe(Effect.as({ data: {}, type: "browser.frame.acked" as const })),
       "browser.input.send": ({ data }) =>
-        Effect.gen(function* sendBrowserInput() {
-          const snapshot = yield* recording.get();
-          if (browserInputIsReadOnly(snapshot, data.sessionId)) {
-            return yield* Effect.fail(
-              makeBrowserRpcError(
-                "recording_conflict",
-                snapshot?.phase === "incomplete"
-                  ? "The browser canvas is read-only because this Recording is incomplete. Recover or discard it to continue."
-                  : "The browser canvas is read-only while Recording is paused."
-              )
-            );
-          }
-          yield* browser.sendInput(data.sessionId, data.input);
-          return { data: {}, type: "browser.input.sent" as const };
-        }),
+        genericBrowser(
+          data.sessionId,
+          Effect.gen(function* sendBrowserInput() {
+            const snapshot = yield* recording.get();
+            if (browserInputIsReadOnly(snapshot, data.sessionId)) {
+              return yield* Effect.fail(
+                makeBrowserRpcError(
+                  "recording_conflict",
+                  snapshot?.phase === "incomplete"
+                    ? "The browser canvas is read-only because this Recording is incomplete. Recover or discard it to continue."
+                    : "The browser canvas is read-only while Recording is paused."
+                )
+              );
+            }
+            yield* browser.sendInput(data.sessionId, data.input);
+            return { data: {}, type: "browser.input.sent" as const };
+          })
+        ),
       "browser.navigation.run": ({ data }) =>
-        browser.navigate(data.sessionId, data.action).pipe(
+        genericBrowser(
+          data.sessionId,
+          browser.navigate(data.sessionId, data.action)
+        ).pipe(
           Effect.as({
             data: {},
             type: "browser.navigation.completed" as const,
           })
         ),
       "browser.network.request.get": ({ data }) =>
-        browser
-          .getNetworkRequest(data.sessionId, data.tabId, data.requestId)
-          .pipe(
-            Effect.map((request) => ({
-              data: { request },
-              type: "browser.network.request.result" as const,
-            }))
-          ),
+        genericBrowser(
+          data.sessionId,
+          browser.getNetworkRequest(data.sessionId, data.tabId, data.requestId)
+        ).pipe(
+          Effect.map((request) => ({
+            data: { request },
+            type: "browser.network.request.result" as const,
+          }))
+        ),
       "browser.network.requests.get": ({ data }) =>
-        browser.getNetworkRequests(data.sessionId, data.tabId).pipe(
+        genericBrowser(
+          data.sessionId,
+          browser.getNetworkRequests(data.sessionId, data.tabId)
+        ).pipe(
           Effect.map((requests) => ({
             data: { requests },
             type: "browser.network.requests.result" as const,
           }))
         ),
       "browser.open": ({ data }) =>
-        browser.open(data.sessionId, data.url, data.emulation).pipe(
+        genericBrowser(
+          data.sessionId,
+          browser.open(data.sessionId, data.url, data.emulation)
+        ).pipe(
           Effect.map(({ sessionId, url }) => ({
             data: { sessionId, url },
             type: "browser.opened" as const,
           }))
         ),
       "browser.session.attach": ({ data }) =>
-        browser.currentUrl(data.sessionId).pipe(
+        genericBrowser(data.sessionId, browser.currentUrl(data.sessionId)).pipe(
           Effect.map((url) => ({
             data: { sessionId: data.sessionId, url },
             type: "browser.session.attached" as const,
           }))
         ),
       "browser.session.close": ({ data }) =>
-        browser
-          .close(data.sessionId)
-          .pipe(
-            Effect.as({ data: {}, type: "browser.session.closed" as const })
-          ),
+        genericBrowser(data.sessionId, browser.close(data.sessionId)).pipe(
+          Effect.as({ data: {}, type: "browser.session.closed" as const })
+        ),
       "browser.session.create": ({ data }) =>
         browser.create(data.name, data.viewport).pipe(
           Effect.map((sessionId) => ({
@@ -223,6 +335,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         ),
       "browser.sessions.get": () =>
         browser.list().pipe(
+          Effect.flatMap(filterGenericBrowserSessions),
           Effect.map((sessions) => ({
             data: {
               sessions: sessions.map((id) => ({ id, selected: false })),
@@ -231,72 +344,107 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "browser.storage.clear": ({ data }) =>
-        requireStorageMutation(data.sessionId).pipe(
-          Effect.andThen(
-            browser.clearStorage(data.sessionId, data.tabId, data.kind)
-          ),
+        genericBrowser(
+          data.sessionId,
+          requireStorageMutation(data.sessionId).pipe(
+            Effect.andThen(
+              browser.clearStorage(data.sessionId, data.tabId, data.kind)
+            )
+          )
+        ).pipe(
           Effect.as({ data: {}, type: "browser.storage.updated" as const })
         ),
       "browser.storage.delete": ({ data }) =>
-        requireStorageMutation(data.sessionId).pipe(
-          Effect.andThen(
-            browser.deleteStorage(data.sessionId, data.tabId, data)
-          ),
+        genericBrowser(
+          data.sessionId,
+          requireStorageMutation(data.sessionId).pipe(
+            Effect.andThen(
+              browser.deleteStorage(data.sessionId, data.tabId, data)
+            )
+          )
+        ).pipe(
           Effect.as({ data: {}, type: "browser.storage.updated" as const })
         ),
       "browser.storage.get": ({ data }) =>
-        browser.getStorage(data.sessionId, data.tabId, data.kind).pipe(
+        genericBrowser(
+          data.sessionId,
+          browser.getStorage(data.sessionId, data.tabId, data.kind)
+        ).pipe(
           Effect.map((snapshot) => ({
             data: { snapshot },
             type: "browser.storage.result" as const,
           }))
         ),
       "browser.storage.set": ({ data }) =>
-        requireStorageMutation(data.sessionId).pipe(
-          Effect.andThen(browser.setStorage(data.sessionId, data.tabId, data)),
+        genericBrowser(
+          data.sessionId,
+          requireStorageMutation(data.sessionId).pipe(
+            Effect.andThen(browser.setStorage(data.sessionId, data.tabId, data))
+          )
+        ).pipe(
           Effect.as({ data: {}, type: "browser.storage.updated" as const })
         ),
-      "browser.stream.subscribe": ({ data }) => browser.stream(data.sessionId),
+      "browser.stream.subscribe": ({ data }) =>
+        Stream.unwrap(
+          genericBrowser(
+            data.sessionId,
+            Effect.succeed(browser.stream(data.sessionId))
+          )
+        ),
       "browser.tab.close": ({ data }) =>
-        requireBrowserControl(data.sessionId, "Tab changes").pipe(
-          Effect.andThen(browser.closeTab(data.sessionId, data.tabId)),
-          Effect.as({ data: {}, type: "browser.tab.closed" as const })
-        ),
+        genericBrowser(
+          data.sessionId,
+          requireBrowserControl(data.sessionId, "Tab changes").pipe(
+            Effect.andThen(browser.closeTab(data.sessionId, data.tabId))
+          )
+        ).pipe(Effect.as({ data: {}, type: "browser.tab.closed" as const })),
       "browser.tab.new": ({ data }) =>
-        requireBrowserControl(data.sessionId, "Tab changes").pipe(
-          Effect.andThen(browser.newTab(data.sessionId)),
-          Effect.as({ data: {}, type: "browser.tab.created" as const })
-        ),
+        genericBrowser(
+          data.sessionId,
+          requireBrowserControl(data.sessionId, "Tab changes").pipe(
+            Effect.andThen(browser.newTab(data.sessionId))
+          )
+        ).pipe(Effect.as({ data: {}, type: "browser.tab.created" as const })),
       "browser.tab.switch": ({ data }) =>
-        requireBrowserControl(data.sessionId, "Tab changes").pipe(
-          Effect.andThen(browser.switchTab(data.sessionId, data.tabId)),
-          Effect.as({ data: {}, type: "browser.tab.switched" as const })
-        ),
+        genericBrowser(
+          data.sessionId,
+          requireBrowserControl(data.sessionId, "Tab changes").pipe(
+            Effect.andThen(browser.switchTab(data.sessionId, data.tabId))
+          )
+        ).pipe(Effect.as({ data: {}, type: "browser.tab.switched" as const })),
       "browser.tabs.get": ({ data }) =>
-        browser.getTabs(data.sessionId).pipe(
+        genericBrowser(data.sessionId, browser.getTabs(data.sessionId)).pipe(
           Effect.map((tabs) => ({
             data: { tabs },
             type: "browser.tabs.result" as const,
           }))
         ),
       "browser.user-agent.set": ({ data }) =>
-        requireBrowserControl(data.sessionId, "User agent changes").pipe(
-          Effect.andThen(
-            browser.setUserAgent(
-              data.sessionId,
-              data.url,
-              data.viewport,
-              data.userAgentProfile
+        genericBrowser(
+          data.sessionId,
+          requireBrowserControl(data.sessionId, "User agent changes").pipe(
+            Effect.andThen(
+              browser.setUserAgent(
+                data.sessionId,
+                data.url,
+                data.viewport,
+                data.userAgentProfile
+              )
             )
-          ),
+          )
+        ).pipe(
           Effect.map(({ url }) => ({
             data: { url, userAgentProfile: data.userAgentProfile },
             type: "browser.user-agent.updated" as const,
           }))
         ),
       "browser.viewport.set": ({ data }) =>
-        requireBrowserControl(data.sessionId, "Viewport changes").pipe(
-          Effect.andThen(browser.setViewport(data.sessionId, data.viewport)),
+        genericBrowser(
+          data.sessionId,
+          requireBrowserControl(data.sessionId, "Viewport changes").pipe(
+            Effect.andThen(browser.setViewport(data.sessionId, data.viewport))
+          )
+        ).pipe(
           Effect.as({
             data: { viewport: data.viewport },
             type: "browser.viewport.updated" as const,
@@ -370,6 +518,48 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "run.stream.subscribe": () => runSession.changes(),
       "run.variable.answer": ({ data }) =>
         runResult(runSession.answerVariable(data.name, data.value)),
+      "agent.sessions.get": () =>
+        agentUnavailable((service) =>
+          service.list().pipe(Effect.map((sessions) => ({ sessions })))
+        ).pipe(
+          Effect.map((data) => ({
+            data,
+            type: "agent.sessions.result" as const,
+          }))
+        ),
+      "agent.session.start": ({ data }) =>
+        agentUnavailable((service) => service.start(data)).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.started" as const,
+          }))
+        ),
+      "agent.session.get": ({ data }) =>
+        agentUnavailable((service) => service.get(data.sessionId)).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.result" as const,
+          }))
+        ),
+      "agent.session.close": ({ data }) =>
+        agentUnavailable((service) =>
+          service.close(data.sessionId, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.closed" as const,
+          }))
+        ),
+      "agent.session.stream.subscribe": ({ data }) =>
+        agentStream((service) => service.changes(data.sessionId)),
+      "agent.browser.frame.ack": ({ data }) =>
+        agentUnavailable((service) =>
+          service.acknowledgeFrame(data.sessionId, data.frameId, data.streamId)
+        ).pipe(
+          Effect.as({ data: {}, type: "agent.browser.frame.acked" as const })
+        ),
+      "agent.browser.stream.subscribe": ({ data }) =>
+        agentStream((service) => service.browserStream(data.sessionId)),
     };
   })
 );
@@ -387,25 +577,41 @@ const makeOriginMiddleware = (allowedOrigins: ReadonlySet<string>) =>
     )
   ).layer;
 
-export interface RpcRoutesOptions {
+/**
+ * Reject DNS-rebinding requests before an RPC handler sees them. A process
+ * bound to loopback can still receive a remote page's attacker-controlled
+ * Host header, so the transport checks Host as well as browser Origin.
+ */
+const makeHostMiddleware = (allowedOrigins: ReadonlySet<string>) =>
+  HttpRouter.middleware(
+    Effect.succeed((httpEffect) =>
+      Effect.gen(function* validateRpcHost() {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        return isAllowedHost(request.headers.host, allowedOrigins)
+          ? yield* httpEffect
+          : HttpServerResponse.empty({ status: 404 });
+      })
+    )
+  ).layer;
+
+export interface RpcRoutesOptions<
+  Requirements = FileSystem.FileSystem | RunnerService,
+> {
   readonly allowedOrigins: ReadonlySet<string>;
   /** The Run this process was opened on, shared with the artifact route. */
-  readonly runSession: Layer.Layer<
-    RunSessionService,
-    never,
-    FileSystem.FileSystem | RunnerService
-  >;
+  readonly runSession: Layer.Layer<RunSessionService, never, Requirements>;
 }
 
-export const makeRpcRoutes = ({
+export const makeRpcRoutes = <Requirements>({
   allowedOrigins,
   runSession,
-}: RpcRoutesOptions) =>
+}: RpcRoutesOptions<Requirements>) =>
   RpcServer.layerHttp({
     group: ContingencyRpcs,
     path: "/ws",
   }).pipe(
     Layer.provide(RpcHandlersLive.pipe(Layer.provide(runSession))),
     Layer.provide(RpcSerialization.layerJson),
-    Layer.provide(makeOriginMiddleware(allowedOrigins))
+    Layer.provide(makeOriginMiddleware(allowedOrigins)),
+    Layer.provide(makeHostMiddleware(allowedOrigins))
   );

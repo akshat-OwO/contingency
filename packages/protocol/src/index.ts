@@ -1,6 +1,16 @@
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
+import {
+  AgentSessionClose,
+  AgentSessionCloseResult,
+  AgentSessionGet,
+  AgentSessionGetResult,
+  AgentSessionSnapshot,
+  AgentSessionStart,
+  AgentSessionStartResult,
+  AgentSessionStreamSubscribe,
+} from "./agent-session.ts";
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
@@ -26,6 +36,8 @@ export * from "./flow.ts";
 export * from "./run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./storage.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-session.ts";
 export {
   BrowserTabId,
   SessionId,
@@ -309,6 +321,13 @@ export const BrandId = Schema.Literals([
   "run.start",
   "run.variable.answer",
   "run.stream.subscribe",
+  "agent.sessions.get",
+  "agent.session.start",
+  "agent.session.get",
+  "agent.session.close",
+  "agent.session.stream.subscribe",
+  "agent.browser.stream.subscribe",
+  "agent.browser.frame.ack",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -678,6 +697,61 @@ export const RunFlowLoad = request("run.flow.load", {
   source: nonEmptyProtocolString,
 });
 
+/** Agent View's process-owned session boundary. */
+export const AgentSessionsGet = request("agent.sessions.get", {});
+export const AgentSessionsResult = response("agent.sessions.result", {
+  sessions: Schema.Array(AgentSessionSnapshot),
+});
+
+export const AgentSessionStartRequest = request("agent.session.start", {
+  activity: AgentSessionStart.fields.activity,
+  clientName: AgentSessionStart.fields.clientName,
+  clientVersion: AgentSessionStart.fields.clientVersion,
+  name: AgentSessionStart.fields.name,
+  operationId: AgentSessionStart.fields.operationId,
+  url: AgentSessionStart.fields.url,
+  viewport: AgentSessionStart.fields.viewport,
+});
+export const AgentSessionStarted = response("agent.session.started", {
+  session: AgentSessionStartResult.fields.session,
+});
+
+export const AgentSessionGetRequest = request("agent.session.get", {
+  sessionId: AgentSessionGet.fields.sessionId,
+});
+export const AgentSessionResult = response("agent.session.result", {
+  session: AgentSessionGetResult.fields.session,
+});
+
+export const AgentSessionCloseRequest = request("agent.session.close", {
+  operationId: AgentSessionClose.fields.operationId,
+  sessionId: AgentSessionClose.fields.sessionId,
+});
+export const AgentSessionClosed = response("agent.session.closed", {
+  session: AgentSessionCloseResult.fields.session,
+});
+
+export const AgentSessionStreamSubscribeRequest = request(
+  "agent.session.stream.subscribe",
+  { sessionId: AgentSessionStreamSubscribe.fields.sessionId }
+);
+
+/**
+ * Agent View receives browser events through the Agent Session boundary. The
+ * lower-level Create Browser SessionId is intentionally not part of this
+ * contract, so an MCP caller can only stream the session it owns.
+ */
+export const AgentBrowserStreamSubscribe = request(
+  "agent.browser.stream.subscribe",
+  { sessionId: AgentSessionStreamSubscribe.fields.sessionId }
+);
+export const AgentBrowserFrameAck = request("agent.browser.frame.ack", {
+  frameId: FrameSequence,
+  sessionId: AgentSessionStreamSubscribe.fields.sessionId,
+  streamId: BrowserStreamId,
+});
+export const AgentBrowserFrameAcked = response("agent.browser.frame.acked", {});
+
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
   payload: BrowserSessionsGet,
@@ -924,6 +998,50 @@ const RunStreamSubscribeRpc = Rpc.make("run.stream.subscribe", {
   success: RunSnapshot,
 });
 
+const AgentSessionsGetRpc = Rpc.make("agent.sessions.get", {
+  error: BrowserRpcError,
+  payload: AgentSessionsGet,
+  success: AgentSessionsResult,
+});
+const AgentSessionStartRpc = Rpc.make("agent.session.start", {
+  error: BrowserRpcError,
+  payload: AgentSessionStartRequest,
+  success: AgentSessionStarted,
+});
+const AgentSessionGetRpc = Rpc.make("agent.session.get", {
+  error: BrowserRpcError,
+  payload: AgentSessionGetRequest,
+  success: AgentSessionResult,
+});
+const AgentSessionCloseRpc = Rpc.make("agent.session.close", {
+  error: BrowserRpcError,
+  payload: AgentSessionCloseRequest,
+  success: AgentSessionClosed,
+});
+const AgentSessionStreamSubscribeRpc = Rpc.make(
+  "agent.session.stream.subscribe",
+  {
+    error: BrowserRpcError,
+    payload: AgentSessionStreamSubscribeRequest,
+    stream: true,
+    success: AgentSessionSnapshot,
+  }
+);
+const AgentBrowserStreamSubscribeRpc = Rpc.make(
+  "agent.browser.stream.subscribe",
+  {
+    error: BrowserRpcError,
+    payload: AgentBrowserStreamSubscribe,
+    stream: true,
+    success: BrowserStreamEvent,
+  }
+);
+const AgentBrowserFrameAckRpc = Rpc.make("agent.browser.frame.ack", {
+  error: BrowserRpcError,
+  payload: AgentBrowserFrameAck,
+  success: AgentBrowserFrameAcked,
+});
+
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
   BrowserSessionCreateRpc,
@@ -971,5 +1089,12 @@ export class ContingencyRpcs extends RpcGroup.make(
   RunStartRpc,
   RunVariableAnswerRpc,
   RunStreamSubscribeRpc,
-  RunFlowLoadRpc
+  RunFlowLoadRpc,
+  AgentSessionsGetRpc,
+  AgentSessionStartRpc,
+  AgentSessionGetRpc,
+  AgentSessionCloseRpc,
+  AgentSessionStreamSubscribeRpc,
+  AgentBrowserStreamSubscribeRpc,
+  AgentBrowserFrameAckRpc
 ) {}

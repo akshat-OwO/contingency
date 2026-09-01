@@ -1,5 +1,7 @@
 import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
 import type {
+  AgentSessionId,
+  AgentSessionSnapshot,
   BrowserStreamEvent,
   RecordingSnapshot,
   RunSnapshot,
@@ -98,6 +100,15 @@ export const browserStorageClearMutation = ContingencyRpcClient.mutation(
   "browser.storage.clear"
 );
 
+/** Agent View only sees the sessions owned by the current MCP process. */
+export const agentSessionsAtom = ContingencyRpcClient.query(
+  "agent.sessions.get",
+  { data: {}, type: "agent.sessions.get" }
+);
+export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
+  "agent.browser.frame.ack"
+);
+
 export const recordingAtom = ContingencyRpcClient.query("recording.get", {
   data: {},
   type: "recording.get",
@@ -191,6 +202,43 @@ export const runBrowserStream = (
       const events = client("browser.stream.subscribe", {
         data: { sessionId },
         type: "browser.stream.subscribe",
+      });
+
+      yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
+    })
+  ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
+
+/** Subscribe to one process-owned Agent Session's lifecycle snapshot. */
+export const runAgentSessionStream = (
+  sessionId: AgentSessionId,
+  onEvent: (event: AgentSessionSnapshot) => Effect.Effect<void>
+) =>
+  Effect.scoped(
+    Effect.gen(function* streamAgentSession() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      const events = client("agent.session.stream.subscribe", {
+        data: { sessionId },
+        type: "agent.session.stream.subscribe",
+      });
+
+      yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
+    })
+  ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
+
+/**
+ * Agent-scoped browser frames never expose the lower-level browser session id
+ * to Agent View. The MCP-owned server resolves that id inside its adapter.
+ */
+export const runAgentBrowserStream = (
+  sessionId: AgentSessionId,
+  onEvent: (event: BrowserStreamEvent) => Effect.Effect<void>
+) =>
+  Effect.scoped(
+    Effect.gen(function* streamAgentBrowser() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      const events = client("agent.browser.stream.subscribe", {
+        data: { sessionId },
+        type: "agent.browser.stream.subscribe",
       });
 
       yield* events.pipe(Stream.runForEach((event) => onEvent(event)));

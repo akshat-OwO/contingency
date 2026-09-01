@@ -22,16 +22,23 @@ export interface WebUrlOptions {
  * refuse. IPv4 shorthand is not a loophole: WHATWG URL normalises
  * `http://127.1` to `127.0.0.1` before this sees it.
  */
-const isLoopbackLiteral = (hostname: string): boolean =>
-  hostname === "localhost" ||
-  hostname === "[::1]" ||
-  /^127(?:\.\d{1,3}){3}$/u.test(hostname);
+const isLoopbackLiteral = (hostname: string): boolean => {
+  if (hostname === "localhost" || hostname === "[::1]") {
+    return true;
+  }
+  const octets = hostname.split(".");
+  return (
+    octets.length === 4 &&
+    octets[0] === "127" &&
+    octets.slice(1).every((octet) => {
+      const value = Number(octet);
+      return /^\d{1,3}$/u.test(octet) && value >= 0 && value <= 255;
+    })
+  );
+};
 
 export const isLoopbackHost = (host: string): boolean =>
-  host === "localhost" ||
-  host === "::1" ||
-  host === "[::1]" ||
-  host.startsWith("127.");
+  host === "::1" || isLoopbackLiteral(host);
 
 const hostForUrl = (host: string): string =>
   host.includes(":") ? `[${host}]` : host;

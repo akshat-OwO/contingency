@@ -23,6 +23,13 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "run_invalid",
     // This process was opened without a Flow, so there is nothing to run.
     "run_unavailable",
+    // Agent Sessions are process-owned coordination envelopes. These errors
+    // are kept distinct from lower-level browser-session failures so an MCP
+    // adapter cannot accidentally treat the URL selector as a browser handle.
+    "agent_session_conflict",
+    "agent_session_invalid",
+    "agent_session_not_found",
+    "agent_session_unavailable",
   ]),
   message: Schema.String,
 });
