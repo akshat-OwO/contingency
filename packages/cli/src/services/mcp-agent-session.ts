@@ -75,10 +75,7 @@ const AgentTakeoverParameters = Schema.Struct({
   sessionId: AgentSessionTakeover.fields.sessionId,
 });
 
-const AgentSessionsGetParameters = Schema.Struct({
-  /** Reserved for future filters. Ignored today. */
-  includeClosed: Schema.optional(Schema.Boolean),
-});
+const AgentSessionsGetParameters = Schema.Struct({});
 
 /** MCP tool names use underscores; dots break common clients such as Cursor. */
 const AgentSessionsGetTool = Tool.make("agent_sessions_get", {

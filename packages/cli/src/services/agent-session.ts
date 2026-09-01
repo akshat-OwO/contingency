@@ -275,6 +275,15 @@ interface ActionControl {
   readonly lock: Semaphore.Semaphore;
 }
 
+/** What one snapshot write answers with, and the map it leaves behind. */
+type SnapshotWrite = readonly [
+  {
+    readonly changed: boolean;
+    readonly snapshot: AgentSessionSnapshot | undefined;
+  },
+  ReadonlyMap<AgentSessionId, SessionRecord>,
+];
+
 interface SessionRecord {
   /** Private Create Browser handle. Never included in protocol snapshots. */
   readonly browserSessionId: SessionId;
@@ -350,6 +359,37 @@ const makeAgentSession = (
       ).pipe(Effect.andThen(publish(snapshot)));
 
     /**
+     * Every incremental snapshot write is a read-modify-write over the record
+     * as it stands when the write lands, not as it stood when its caller read
+     * it. Takeover runs under the session lock and actions under the record's
+     * own, so a writer that suspended — a URL read, a dispatched action — must
+     * not save state built before a control change it never saw.
+     */
+    const mutate = (
+      sessionId: AgentSessionId,
+      change: (snapshot: AgentSessionSnapshot) => AgentSessionSnapshot
+    ): Effect.Effect<AgentSessionSnapshot | undefined> =>
+      Ref.modify(sessions, (current): SnapshotWrite => {
+        const record = current.get(sessionId);
+        if (record === undefined) {
+          return [{ changed: false, snapshot: undefined }, current];
+        }
+        const next = change(record.snapshot);
+        if (next === record.snapshot) {
+          return [{ changed: false, snapshot: next }, current];
+        }
+        return [
+          { changed: true, snapshot: next },
+          new Map(current).set(sessionId, { ...record, snapshot: next }),
+        ];
+      }).pipe(
+        Effect.tap(({ changed, snapshot }) =>
+          changed && snapshot !== undefined ? publish(snapshot) : Effect.void
+        ),
+        Effect.map(({ snapshot }) => snapshot)
+      );
+
+    /**
      * The browser is the authority on where it is. The user drives it directly
      * during Takeover — a click that navigates goes through raw input and no
      * action path at all — so the session re-reads the Page's URL whenever it
@@ -366,17 +406,14 @@ const makeAgentSession = (
       record: SessionRecord
     ): Effect.Effect<AgentSessionSnapshot> =>
       browser.currentUrl(record.browserSessionId).pipe(
-        Effect.flatMap((currentUrl) => {
-          if (currentUrl === record.snapshot.currentUrl) {
-            return Effect.succeed(record.snapshot);
-          }
-          const next: AgentSessionSnapshot = {
-            ...record.snapshot,
-            currentUrl,
-            updatedAt: now().toISOString(),
-          };
-          return save(sessionId, record, next).pipe(Effect.as(next));
-        }),
+        Effect.flatMap((currentUrl) =>
+          mutate(sessionId, (snapshot) =>
+            snapshot.currentUrl === currentUrl
+              ? snapshot
+              : { ...snapshot, currentUrl, updatedAt: now().toISOString() }
+          )
+        ),
+        Effect.map((next) => next ?? record.snapshot),
         Effect.orElseSucceed(() => record.snapshot)
       );
 
@@ -703,9 +740,15 @@ const makeAgentSession = (
                 );
                 yield* publish(base);
                 const setup = Effect.gen(function* finishStartingSession() {
-                  if (input.url !== undefined) {
-                    yield* browser.open(acquired, input.url, emulation);
-                  }
+                  // An Emulation reaches a document at its navigation, so the
+                  // session always opens one — `about:blank` when the caller
+                  // named no URL. Otherwise an identity asked for here would
+                  // never apply to the pages the agent later visits.
+                  yield* browser.open(
+                    acquired,
+                    input.url ?? "about:blank",
+                    emulation
+                  );
                   const currentUrl = yield* browser.currentUrl(acquired);
                   const running: AgentSessionSnapshot = {
                     ...base,
@@ -759,14 +802,23 @@ const makeAgentSession = (
       patch: Partial<AgentSessionSnapshot> = {}
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
-        const record = yield* read(sessionId);
-        const next: AgentSessionSnapshot = {
-          ...record.snapshot,
+        // The entry joins the timeline as it stands now: an action that ran
+        // while control changed hands records what it did without undoing the
+        // change it raced.
+        const next = yield* mutate(sessionId, (snapshot) => ({
+          ...snapshot,
           ...patch,
-          timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
+          timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
           updatedAt: now().toISOString(),
-        };
-        yield* save(sessionId, record, next);
+        }));
+        if (next === undefined) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_not_found",
+              `Agent Session ${sessionId} was not found.`
+            )
+          );
+        }
         return next;
       });
 
@@ -1026,6 +1078,18 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
+        // There must be something to hand back: the user holds the browser, or
+        // the agent asked for help and is waiting. Without this the loopback
+        // RPC would record a handover that never happened while the agent was
+        // already running.
+        if (!agentIsPaused(record.snapshot)) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_control_unavailable",
+              "The agent already holds the browser."
+            )
+          );
+        }
         const at = now().toISOString();
         const entry: AgentTimelineEntry = {
           actor: "user",
