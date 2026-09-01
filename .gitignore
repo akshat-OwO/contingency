@@ -16,6 +16,8 @@ node_modules
 coverage
 
 # Verification evidence (kept on disk for a run, not committed)
+.agents/skills/verify-contingency/artifacts/
+.claude/skills/verify-contingency/artifacts/
 .cursor/skills/verify-contingency/artifacts/
 
 # Turbo
