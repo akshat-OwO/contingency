@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Contingency Shop</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      nav a {
+        margin-right: 1rem;
+      }
+      .catalog-preview {
+        border: 1px solid #ccc;
+        height: 12rem;
+        margin-top: 1rem;
+        overflow-y: auto;
+        padding: 0.5rem;
+      }
+      .product {
+        border-bottom: 1px solid #eee;
+        padding: 0.75rem 0;
+      }
+      .product:hover {
+        background: #f5f5f5;
+      }
+    </style>
+  </head>
+  <body>
+    <nav aria-label="Shop">
+      <a href="/shop.html">Home</a>
+      <a href="/catalog.html">Catalog</a>
+      <a href="/cart.html">Cart</a>
+    </nav>
+    <main>
+      <h1>Contingency Shop</h1>
+      <p>A disposable ecommerce site for verification runs.</p>
+      <form id="search-form">
+        <label for="search">Search the catalogue</label>
+        <input id="search" name="search" placeholder="anvil" type="search" />
+      </form>
+      <section aria-labelledby="sku-heading">
+        <h2 id="sku-heading">Add by SKU</h2>
+        <label for="sku">SKU</label>
+        <input id="sku" name="sku" placeholder="ANVIL-001" type="text" />
+        <button id="add-sku" type="button">Add SKU to cart</button>
+      </section>
+      <p id="cart-status">0 items in cart</p>
+      <button id="view-cart" type="button">View cart</button>
+      <section aria-labelledby="preview-heading" class="catalog-preview">
+        <h2 id="preview-heading">Featured products</h2>
+        <article class="product">
+          <h3>Giant anvil</h3>
+          <p>SKU ANVIL-001</p>
+        </article>
+        <article class="product">
+          <h3>Workbench</h3>
+          <p>SKU BENCH-002</p>
+        </article>
+        <article class="product">
+          <h3>Safety goggles</h3>
+          <p>SKU SAFE-003</p>
+        </article>
+      </section>
+    </main>
+    <script>
+      const storageKey = "contingency-shop-cart";
+      const readCart = () => {
+        try {
+          return JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
+        } catch {
+          return [];
+        }
+      };
+      const writeCart = (items) => {
+        sessionStorage.setItem(storageKey, JSON.stringify(items));
+        document.getElementById("cart-status").textContent =
+          `${items.length} item${items.length === 1 ? "" : "s"} in cart`;
+      };
+      writeCart(readCart());
+      document.getElementById("add-sku").addEventListener("click", () => {
+        const sku = document.getElementById("sku").value.trim();
+        if (!sku) {
+          return;
+        }
+        const cart = readCart();
+        cart.push(sku);
+        writeCart(cart);
+        fetch("/cart-added").catch(() => {});
+      });
+      document.getElementById("view-cart").addEventListener("click", () => {
+        window.location.assign("/cart.html");
+      });
+    </script>
+  </body>
+</html>

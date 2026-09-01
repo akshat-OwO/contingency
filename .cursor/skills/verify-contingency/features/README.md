@@ -9,13 +9,15 @@ This directory is the maintained source for verifying Contingency's user-facing 
 - Export `CONTINGENCY_VERIFY_DIR` from launch stdout.
 - Run `control-contingency doctor` and require `ok`, the printed URL, and a `stateDir` under that verify directory.
 - Never drive an instance that this run did not start.
+- For site-backed drives, run `control-contingency ecommerce start` and export `ECOMMERCE_URL` from stdout.
 
 ## Driving conventions
 
 - Start every recipe from `/` unless its preconditions say otherwise.
 - Prefer ARIA roles and accessible names over CSS selectors or canvas coordinates.
 - Treat every command as literal. Keep quoted names and flags unchanged.
-- Run UI actions through `control-contingency browser`.
+- Run Contingency chrome actions through `control-contingency browser`.
+- Run nested Create View site actions through `computerUse` at the verification URL.
 - Run headless Flows through `control-contingency cli --`.
 - Restore nothing in the user's `~/.local/state/contingency`. Isolated state is deleted on cleanup. Proof artifacts are not.
 
@@ -42,7 +44,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Ecommerce end-to-end drive](./ecommerce-drive.md) is the canonical proof: browse the local shop, switch sessions, record a cart Flow, download JSON, audit-run it, and scrub/play derived frames.
 - [Create View](./create-view.md) covers the authoring workspace, session picker, address bar, Recording start, and captured Steps.
-- [Audit View](./audit-view.md) covers the empty state, loading a Flow from the process argument, and starting a Run.
+- [Audit View](./audit-view.md) covers the empty state, loading a Flow from the process argument or file picker, starting a Run, and derived-frame playback.
 - [Agent View](./agent-view.md) covers the unavailable state on `web` and the empty state when MCP has no session.
-- [Headless Run](./cli-run.md) covers `contingency run` against a disposable fixture page.
+- [Headless Run](./cli-run.md) covers `contingency run` against the ecommerce smoke Flow.

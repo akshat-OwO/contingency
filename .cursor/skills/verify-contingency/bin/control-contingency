@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -22,6 +23,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const skillRoot = path.resolve(here, "..");
 const repoRoot = path.resolve(skillRoot, "../../..");
 const defaultArtifacts = path.join(skillRoot, "artifacts");
+const ecommerceFixturesDir = path.join(skillRoot, "fixtures", "ecommerce");
 const instanceName = "instance.json";
 
 const fail = (message, code = 1) => {
@@ -47,7 +49,10 @@ Commands:
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
+  browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>
+  browser download --role <role> --name <name> --path <file> [--partial]
   cli -- <contingency args...>
+  ecommerce start
   fixture start
   fixture stop
 
@@ -213,6 +218,41 @@ const resolveEvidencePath = (filePath) => {
   return path.join(defaultArtifacts, filePath);
 };
 
+const resolveInputFilePath = (filePath) => {
+  if (path.isAbsolute(filePath)) {
+    return filePath;
+  }
+  const configured = process.env.CONTINGENCY_VERIFY_DIR?.trim();
+  if (configured) {
+    const fromVerify = path.join(path.resolve(configured), filePath);
+    if (existsSync(fromVerify)) {
+      return fromVerify;
+    }
+  }
+  const fromArtifacts = path.join(defaultArtifacts, filePath);
+  if (existsSync(fromArtifacts)) {
+    return fromArtifacts;
+  }
+  return path.resolve(filePath);
+};
+
+const loadEcommercePages = () => {
+  if (!existsSync(ecommerceFixturesDir)) {
+    fail(`Ecommerce fixtures are missing at ${ecommerceFixturesDir}.`);
+  }
+  const pages = new Map();
+  for (const name of readdirSync(ecommerceFixturesDir)) {
+    if (!name.endsWith(".html")) {
+      continue;
+    }
+    pages.set(`/${name}`, readFileSync(path.join(ecommerceFixturesDir, name), "utf8"));
+  }
+  if (!pages.has("/shop.html")) {
+    fail(`Ecommerce fixtures must include shop.html under ${ecommerceFixturesDir}.`);
+  }
+  return pages;
+};
+
 const runPageAction = async (page, appUrl, action, flags) => {
   switch (action) {
     case "goto": {
@@ -293,6 +333,37 @@ const runPageAction = async (page, appUrl, action, flags) => {
       const destination = resolveEvidencePath(flags.path);
       mkdirSync(path.dirname(destination), { recursive: true });
       await page.screenshot({ fullPage: true, path: destination });
+      return destination;
+    }
+    case "set-input-files": {
+      if (typeof flags.path !== "string") {
+        throw new Error("browser set-input-files needs --path.");
+      }
+      const filePath = resolveInputFilePath(flags.path);
+      if (!existsSync(filePath)) {
+        throw new Error(`browser set-input-files file does not exist: ${filePath}`);
+      }
+      const target =
+        typeof flags.label === "string"
+          ? page.getByLabel(flags.label, { exact: !partialMatch(flags) })
+          : locator(page, flags);
+      await target.setInputFiles(filePath);
+      return filePath;
+    }
+    case "download": {
+      if (typeof flags.path !== "string") {
+        throw new Error("browser download needs --path.");
+      }
+      const destination = resolveEvidencePath(flags.path);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      const timeout =
+        typeof flags["timeout-ms"] === "string"
+          ? Number(flags["timeout-ms"])
+          : 30_000;
+      const downloadPromise = page.waitForEvent("download", { timeout });
+      await locator(page, flags).click();
+      const download = await downloadPromise;
+      await download.saveAs(destination);
       return destination;
     }
     default: {
@@ -727,25 +798,26 @@ const cmdCli = async (rest) => {
   process.exit(code ?? 1);
 };
 
-const fixtureHtml = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Contingency verify fixture</title>
-  </head>
-  <body>
-    <h1>Verify fixture</h1>
-    <p>A disposable page for headless contingency run.</p>
-    <button type="button">Continue</button>
-  </body>
-</html>
-`;
-
 const cmdFixtureServe = async () => {
   const directory = verifyDir();
-  const server = createHttpServer((_request, response) => {
+  const pages = loadEcommercePages();
+  const server = createHttpServer((request, response) => {
+    const url = request.url ?? "/";
+    const { pathname } = new URL(url, "http://127.0.0.1");
+    if (pathname === "/cart-added" || pathname === "/cart-viewed") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    const pagePath = pathname === "/" ? "/shop.html" : pathname;
+    const body = pages.get(pagePath);
+    if (body === undefined) {
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found\n");
+      return;
+    }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(fixtureHtml);
+    response.end(body);
   });
   const port = await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -758,8 +830,9 @@ const cmdFixtureServe = async () => {
       resolve(address.port);
     });
   });
+  const shopUrl = `http://127.0.0.1:${port}/shop.html`;
   const readyFile = path.join(directory, "fixture-url.txt");
-  writeFileSync(readyFile, `http://127.0.0.1:${port}/\n`);
+  writeFileSync(readyFile, `${shopUrl}\n`);
   await new Promise(() => {
     // Stay alive until cleanup.
   });
@@ -779,14 +852,14 @@ const cmdFixtureStart = async () => {
   const child = spawnDetached(["fixture-serve"], {
     CONTINGENCY_VERIFY_DIR: directory,
   });
-  const fixtureUrl = await waitForFile(readyFile, 10_000);
+  const shopUrl = await waitForFile(readyFile, 10_000);
   const flowPath = path.join(directory, "verify-flow.json");
   writeFileSync(
     flowPath,
     `${JSON.stringify(
       {
-        steps: [{ type: "navigate", url: fixtureUrl }],
-        title: "Verify fixture",
+        steps: [{ type: "navigate", url: shopUrl }],
+        title: "Contingency Shop smoke",
       },
       null,
       2
@@ -794,11 +867,14 @@ const cmdFixtureStart = async () => {
   );
   writeInstance(directory, {
     ...instance,
+    ecommerceUrl: shopUrl,
     fixturePid: child.pid,
-    fixtureUrl,
+    fixtureUrl: shopUrl,
     flowPath,
   });
-  process.stdout.write(`fixture=${fixtureUrl}\nflow=${flowPath}\n`);
+  process.stdout.write(
+    `ecommerce=${shopUrl}\nfixture=${shopUrl}\nflow=${flowPath}\n`
+  );
 };
 
 const cmdMcpStart = async () => {
@@ -938,6 +1014,18 @@ const main = async () => {
   if (command === "fixture-serve") {
     await cmdFixtureServe();
     return;
+  }
+  if (command === "ecommerce") {
+    const action = argv[1];
+    if (action === "start") {
+      await cmdFixtureStart();
+      return;
+    }
+    if (action === "stop") {
+      await cmdFixtureStop();
+      return;
+    }
+    fail("ecommerce needs start or stop.");
   }
   if (command === "fixture") {
     const action = argv[1];

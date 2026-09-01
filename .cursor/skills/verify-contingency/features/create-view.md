@@ -13,6 +13,8 @@ Create View is the default local UI: a live browser workspace beside Flow author
 - `create-address` navigates the session to a URL from the address bar.
 - `create-start-enabled` enables `Start Recording` once session, URL, and title are set.
 - `create-recording-active` starts a Recording and shows at least one Step with Pause / Finish controls.
+- `create-session-switch` switches between two browser sessions from the session combobox.
+- `create-finish-download` finishes a Recording and downloads the Flow JSON.
 
 ## How to get to it (user POV)
 
@@ -26,7 +28,7 @@ Preconditions:
 
 - Contingency is healthy at the verification URL.
 - `control-contingency doctor` reports that URL and a disposable `stateDir`.
-- This launch did not pass `--flow` (irrelevant to Create View, but Audit then starts empty).
+- For ecommerce browsing and recording, `control-contingency ecommerce start` has printed `ecommerce=` and nested actions use `computerUse` (see `ecommerce-drive.md`).
 
 - **Open Create View.** Load `/`. Run `control-contingency browser goto --path /`. The `Create` link is current and the heading `Flow authoring` is visible.
 - **Confirm chrome.** Wait for the workspace. Run `control-contingency browser wait --role textbox --name "Browser address"` and `control-contingency browser wait --role button --name "Start Recording"`. The address field placeholder is `Enter a URL to start recording`. The empty browser heading is `Your browser will appear here`. The Steps empty copy is `No Recording yet`. The session control is a combobox named `Choose browser session`.
@@ -38,6 +40,9 @@ Preconditions:
 - **Nav entry.** Choose `Create` after visiting Audit. Run `control-contingency browser click --role link --name Audit`, then `control-contingency browser click --role link --name Create`. The authoring heading is visible.
 - **Proof (landing).** Capture the filled title before Recording. Run `control-contingency browser snapshot --aria --path create-view/landing.aria.txt` and `control-contingency browser screenshot --path create-view/landing.png`. Both show Contingency, current `Create`, `Flow authoring`, `Pharmacy`, `No Recording yet`, and disabled `Start Recording`.
 - **Proof (recording).** After `Start Recording`, capture the active state. Run `control-contingency browser snapshot --aria --path create-view/recording.aria.txt` and `control-contingency browser screenshot --path create-view/recording.png`. Both show `active`, at least `1 Steps`, and `Pause`.
+- **Switch sessions.** With two sessions created, open the session combobox and select the first session, then the second. The combobox label updates to the selected session id.
+- **Finish and download.** After Recording, click `Finish`, then `control-contingency browser download --role button --name ".json" --partial --path create-view/downloaded-flow.json`.
+- **Full ecommerce path.** For browse → session switch → record SKU → cart → audit replay, follow `ecommerce-drive.md` instead of duplicating steps here.
 
 ## Gotchas
 
@@ -45,6 +50,6 @@ Preconditions:
 - Creating a session (`Choose browser session` combobox, then create) launches a nested Chromium inside the CLI process. That is a real side effect. Do it only when the run needs a Recording or live page, and keep it on the isolated verify instance.
 - The session combobox is named `Choose browser session` only while none is selected. After selection it becomes `Browser session: {id}`.
 - Filling `Browser address` alone does not navigate. Submit with `browser press --key Enter --role textbox --name "Browser address"` (or an equivalent user submit) so the URL reaches workspace state.
-- Clicks on `Interactive browser viewport` hit a canvas, not the nested page's DOM. Do not treat canvas clicks as proof that a site control was used. Use `Record a hover` for explicit hover Steps.
+- Clicks on `Interactive browser viewport` hit a canvas, not the nested page's DOM. Drive nested ecommerce pages with `computerUse`; use `Record a hover` for explicit hover Steps in Contingency chrome.
 - `Loading…` and `Connecting to the browser stream...` are transient between session creation and canvas readiness. Wait for the session label or address field to settle before starting a Recording.
 - A full-page screenshot immediately after `Start Recording` can fail while the browser stream is still attaching. Wait for `1 Steps` or `Pause` before capturing `recording.png`.

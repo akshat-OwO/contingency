@@ -9,9 +9,11 @@ Contingency's primary user surface is the local web UI served by the CLI: Create
 
 This skill drives a disposable production build of that UI through Playwright. It does not drive the user's existing `localhost:5173` or `127.0.0.1:7777` session.
 
-Read `features/README.md`, then the feature file for the behavior under test, before opening the app.
+Read `features/README.md`, then the feature file for the behavior under test, before opening the app. For the canonical product proof, start with `features/ecommerce-drive.md`.
 
 Helper: `.cursor/skills/verify-contingency/bin/control-contingency` (executable). Examples below assume it is on `PATH` or invoked by that path. Evidence lands in `.cursor/skills/verify-contingency/artifacts/` and survives cleanup.
+
+To change recipes, fixtures, or harness behavior, follow `.cursor/skills/maintain-verification-skill/SKILL.md`.
 
 ## Launch
 
@@ -50,6 +52,22 @@ Run this first whenever anything looks off, and after launch before driving.
 
 Done when stdout is JSON with `"ok": true` and the `pid`, `port`, `url`, and `stateDir` match the instance you launched. Fail and stop if the listening pid is not that instance, the page has no `Contingency` title, or the driver websocket is dead. Do not fall back to whatever is bound to 7777 or 5173.
 
+## Ecommerce fixture
+
+Start the local shop before Create or Audit drives that need a real site:
+
+```sh
+"$CONTROL" ecommerce start
+```
+
+Stdout prints `ecommerce=http://127.0.0.1:<port>/shop.html` (and `fixture=` with the same URL). Export it:
+
+```sh
+export ECOMMERCE_URL=...
+```
+
+`fixture start` is an alias. Pages live under `.cursor/skills/verify-contingency/fixtures/ecommerce/`.
+
 ## Drive
 
 Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
@@ -59,10 +77,21 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 "$CONTROL" browser wait --role link --name Create
 "$CONTROL" browser click --role link --name Audit
 "$CONTROL" browser fill --role textbox --name "Flow title" --value "Pharmacy"
+"$CONTROL" browser set-input-files --label "Open a Flow file" --path "$CONTINGENCY_VERIFY_DIR/recorded-flow.json"
+"$CONTROL" browser download --role button --name ".json" --partial --path ecommerce-drive/recorded-flow.json
 "$CONTROL" browser snapshot --aria --path create-view/create.aria.txt
 "$CONTROL" browser screenshot --path create-view/create.png
 "$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0 --output "$CONTINGENCY_VERIFY_DIR/state/runs"
 ```
+
+### Two surfaces in Create View
+
+| Surface | Drive with |
+| --- | --- |
+| Contingency chrome (nav, session picker, address bar, authoring panel, Recording controls) | `control-contingency browser` |
+| Nested ecommerce site inside the workspace canvas | `computerUse` subagent at the verification URL |
+
+Do not click the canvas through `control-contingency browser` as if it were the nested page DOM.
 
 Stable handles in this repo:
 
@@ -70,10 +99,9 @@ Stable handles in this repo:
 - Create View: region `Browser workspace`, group `Browser navigation`, textbox `Browser address`, combobox `Choose browser session`, complementary/heading `Flow authoring`, textbox `Flow title`, button `Start Recording` (disabled until a session, URL, and title are set), text `No Recording yet`, heading `Your browser will appear here` before a session exists.
 - Audit View with no Flow: heading `No Flow to audit`, label `Open a Flow file`.
 - Audit View with a Flow: heading is the Flow title, button `Run Flow` (then `Run again`), status `Not started` / `Starting` / `Running` / `Completed` / `Failed`.
+- Audit View after a Run: region `Derived frames`, button `Play`, slider `Scrub the derived frames`, buttons `Previous Step` / `Next Step`, frame pins `Step N` / `Run settled`.
 - Agent View on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
 - Agent View on `mcp` with no session: heading `No active Agent Sessions`.
-
-Do not click through the inner Create View canvas as if it were the site under audit. That canvas is a screencast of a nested Chromium. Drive Contingency's chrome (nav, address, session picker, authoring panel, Audit header) with roles. Nested-page actions belong to a Create session or a CLI Run, not to the driver page's DOM.
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Agent View available at http://127.0.0.1:<port>/agent` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 
@@ -90,7 +118,7 @@ A proof is incomplete unless it includes:
 
 Traces and Run videos are sensitive. Verification Runs may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's default `~/.local/state/contingency`.
 
-Mocks are not allowed for the Runner, Playwright, or the web UI. The fixture HTTP server (`control-contingency fixture start`) is verification scaffolding for a disposable page the Flow can navigate to. Cleanup removes that server.
+Mocks are not allowed for the Runner, Playwright, or the web UI. The ecommerce HTTP server (`control-contingency ecommerce start`) is verification scaffolding. Cleanup removes that server.
 
 ## Cleanup
 
@@ -109,11 +137,13 @@ CONTROL=".cursor/skills/verify-contingency/bin/control-contingency"
 "$CONTROL" launch
 export CONTINGENCY_VERIFY_DIR=...   # from launch stdout
 "$CONTROL" doctor
+"$CONTROL" ecommerce start
+export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" browser goto --path /audit
 "$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/agent
 "$CONTROL" browser wait --role alert --has-text "Agent Session unavailable"
 "$CONTROL" mcp start
-"$CONTROL" fixture start            # optional; writes verify-flow.json into the verify dir
+"$CONTROL" fixture start            # alias for ecommerce start
 "$CONTROL" reload --flow "$CONTINGENCY_VERIFY_DIR/verify-flow.json"
 "$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0
 "$CONTROL" cleanup

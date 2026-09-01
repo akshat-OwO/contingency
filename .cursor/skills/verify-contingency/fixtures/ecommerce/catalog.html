@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Catalog — Contingency Shop</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      nav a {
+        margin-right: 1rem;
+      }
+      .catalog {
+        border: 1px solid #ccc;
+        height: 18rem;
+        margin-top: 1rem;
+        overflow-y: auto;
+        padding: 0.5rem;
+      }
+      .product {
+        border-bottom: 1px solid #eee;
+        padding: 1rem 0;
+      }
+      .product:hover {
+        background: #f4f4f4;
+      }
+    </style>
+  </head>
+  <body>
+    <nav aria-label="Shop">
+      <a href="/shop.html">Home</a>
+      <a href="/catalog.html" aria-current="page">Catalog</a>
+      <a href="/cart.html">Cart</a>
+    </nav>
+    <main>
+      <h1>Catalog</h1>
+      <p>Scroll, hover, and open products before recording a checkout Flow.</p>
+      <section aria-label="Product catalogue" class="catalog">
+        <article class="product">
+          <h2>Iron ingot</h2>
+          <p>SKU INGOT-010</p>
+          <button type="button">Quick view</button>
+        </article>
+        <article class="product">
+          <h2>Leather apron</h2>
+          <p>SKU APRON-011</p>
+          <button type="button">Quick view</button>
+        </article>
+        <article class="product">
+          <h2>Forge bellows</h2>
+          <p>SKU BELL-012</p>
+          <button type="button">Quick view</button>
+        </article>
+        <article class="product">
+          <h2>Steel tongs</h2>
+          <p>SKU TONG-013</p>
+          <button type="button">Quick view</button>
+        </article>
+        <article class="product">
+          <h2>Quenching bucket</h2>
+          <p>SKU BUCK-014</p>
+          <button type="button">Quick view</button>
+        </article>
+        <article class="product">
+          <h2>Measuring calipers</h2>
+          <p>SKU CALI-015</p>
+          <button type="button">Quick view</button>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
