@@ -9,6 +9,8 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 
+const REQUEST_TIMEOUT_MS = 60_000;
+
 const args = process.argv.slice(2);
 const flag = (name) => {
   const index = args.indexOf(`--${name}`);
@@ -27,11 +29,12 @@ const child = spawn(process.execPath, [cli, "mcp"], {
   stdio: ["pipe", "pipe", "inherit"],
 });
 
+/** Replies the server still owes, by JSON-RPC id. */
 const pending = new Map();
 let nextId = 0;
 let buffer = "";
 
-child.stdout.setEncoding("utf8");
+child.stdout.setEncoding("utf-8");
 child.stdout.on("data", (chunk) => {
   buffer += chunk;
   let newline = buffer.indexOf("\n");
@@ -56,34 +59,38 @@ child.stdout.on("data", (chunk) => {
   }
 });
 
-const send = (method, params) =>
-  new Promise((resolve, reject) => {
-    const id = (nextId += 1);
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error(`${method} timed out after 60s`));
-    }, 60_000);
-    pending.set(id, (message) => {
-      clearTimeout(timer);
-      resolve(message);
-    });
-    child.stdin.write(`${JSON.stringify({ id, jsonrpc: "2.0", method, params })}\n`);
-  });
+const send = async (method, params) => {
+  const id = (nextId += 1);
+  const reply = Promise.withResolvers();
+  const timer = setTimeout(() => {
+    pending.delete(id);
+    reply.reject(
+      new Error(`${method} timed out after ${REQUEST_TIMEOUT_MS}ms`)
+    );
+  }, REQUEST_TIMEOUT_MS);
+  pending.set(id, reply.resolve);
+  child.stdin.write(
+    `${JSON.stringify({ id, jsonrpc: "2.0", method, params })}\n`
+  );
+  try {
+    return await reply.promise;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 const notify = (method, params) => {
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
 };
 
-const readBody = (request) =>
-  new Promise((resolve, reject) => {
-    let body = "";
-    request.setEncoding("utf8");
-    request.on("data", (chunk) => {
-      body += chunk;
-    });
-    request.on("end", () => resolve(body));
-    request.on("error", reject);
-  });
+const readBody = async (request) => {
+  request.setEncoding("utf-8");
+  let body = "";
+  for await (const chunk of request) {
+    body += chunk;
+  }
+  return body;
+};
 
 const respond = (response, status, payload) => {
   const text = JSON.stringify(payload);
@@ -94,51 +101,34 @@ const respond = (response, status, payload) => {
   response.end(text);
 };
 
-const initialized = send("initialize", {
-  capabilities: {},
-  clientInfo: { name: "verify-contingency", version: "1.0.0" },
-  protocolVersion: "2025-06-18",
-}).then((message) => {
-  if (message.error !== undefined) {
-    throw new Error(`initialize failed: ${JSON.stringify(message.error)}`);
-  }
-  notify("notifications/initialized", {});
-  return message.result;
-});
-
-const server = createServer((request, response) => {
+const handle = async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
-    initialized.then(
-      () => respond(response, 200, { ok: true }),
-      (error) => respond(response, 503, { error: String(error) })
-    );
+    respond(response, 200, { ok: true });
     return;
   }
   if (request.method !== "POST" || request.url !== "/call") {
     respond(response, 404, { error: "POST /call or GET /health" });
     return;
   }
-  readBody(request)
-    .then(async (body) => {
-      await initialized;
-      const { params = {}, tool } = JSON.parse(body);
-      if (typeof tool !== "string") {
-        respond(response, 400, { error: "call needs a tool name" });
-        return;
-      }
-      const message = await send("tools/call", {
-        arguments: params,
-        name: tool,
-      });
-      if (message.error !== undefined) {
-        respond(response, 502, { error: message.error });
-        return;
-      }
-      respond(response, 200, message.result);
-    })
-    .catch((error) => {
-      respond(response, 500, { error: String(error) });
-    });
+  const { params = {}, tool } = JSON.parse(await readBody(request));
+  if (typeof tool !== "string") {
+    respond(response, 400, { error: "call needs a tool name" });
+    return;
+  }
+  const message = await send("tools/call", { arguments: params, name: tool });
+  if (message.error === undefined) {
+    respond(response, 200, message.result);
+    return;
+  }
+  respond(response, 502, { error: message.error });
+};
+
+const server = createServer(async (request, response) => {
+  try {
+    await handle(request, response);
+  } catch (error) {
+    respond(response, 500, { error: String(error) });
+  }
 });
 
 const shutdown = () => {
@@ -153,6 +143,21 @@ child.on("exit", (code) => {
   process.stderr.write(`mcp server exited with code ${code}\n`);
   process.exit(code ?? 1);
 });
+
+// The port opens only once the conversation is initialized, so a caller that
+// reaches /health has a server that can already answer tools/call.
+const handshake = await send("initialize", {
+  capabilities: {},
+  clientInfo: { name: "verify-contingency", version: "1.0.0" },
+  protocolVersion: "2025-06-18",
+});
+if (handshake.error !== undefined) {
+  process.stderr.write(
+    `initialize failed: ${JSON.stringify(handshake.error)}\n`
+  );
+  process.exit(1);
+}
+notify("notifications/initialized", {});
 
 server.listen(port, "127.0.0.1", () => {
   process.stdout.write(`broker listening on ${port}\n`);
