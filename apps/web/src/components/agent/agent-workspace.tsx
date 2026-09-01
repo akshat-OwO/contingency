@@ -284,7 +284,10 @@ const AgentLiveView = ({
   );
 };
 
-const useAgentView = (requestedSessionId: string | undefined) => {
+const useAgentView = (
+  requestedSessionId: string | undefined,
+  onSelectSession: ((sessionId: AgentSessionId) => void) | undefined
+) => {
   const sessionsResult = useAtomValue(agentSessionsAtom);
   const refreshSessions = useAtomRefresh(agentSessionsAtom);
   const [state, setState] = useAtom(agentViewStateAtom);
@@ -605,6 +608,7 @@ const useAgentView = (requestedSessionId: string | undefined) => {
       if (nextSession === undefined) {
         return;
       }
+      onSelectSession?.(nextSession.id);
       setState((current) => ({
         ...current,
         browserStreamError: undefined,
@@ -615,7 +619,7 @@ const useAgentView = (requestedSessionId: string | undefined) => {
         streamConnected: false,
       }));
     },
-    [sessions, setState]
+    [onSelectSession, sessions, setState]
   );
 
   return {
@@ -628,11 +632,13 @@ const useAgentView = (requestedSessionId: string | undefined) => {
 };
 
 export const AgentWorkspace = ({
+  onSelectSession,
   requestedSessionId,
 }: {
+  readonly onSelectSession?: ((sessionId: AgentSessionId) => void) | undefined;
   readonly requestedSessionId?: string | undefined;
 }) => {
-  const view = useAgentView(requestedSessionId);
+  const view = useAgentView(requestedSessionId, onSelectSession);
   const { sessionsResult, state } = view;
   if (sessionsResult._tag === "Initial") {
     return <LoadingState />;

@@ -1,10 +1,24 @@
-import { createFileRoute, useSearch } from "@tanstack/react-router";
+import type { AgentSessionId } from "@contingency/protocol";
+import {
+  createFileRoute,
+  useNavigate,
+  useSearch,
+} from "@tanstack/react-router";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 
 const AgentRouteComponent = () => {
   const { session } = useSearch({ from: "/agent" });
-  return <AgentWorkspace requestedSessionId={session} />;
+  const navigate = useNavigate({ from: "/agent" });
+  const selectSession = (sessionId: AgentSessionId) => {
+    navigate({ search: { session: sessionId } });
+  };
+  return (
+    <AgentWorkspace
+      onSelectSession={selectSession}
+      requestedSessionId={session}
+    />
+  );
 };
 
 const AgentRoute = createFileRoute("/agent")({

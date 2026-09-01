@@ -1,4 +1,9 @@
 import { RegistryProvider } from "@effect/atom-react";
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
@@ -20,6 +25,7 @@ vi.mock("@/lib/rpc", () => ({
 }));
 
 const { AgentWorkspace } = await import("@/components/agent/agent-workspace");
+const { routeTree } = await import("@/routeTree.gen");
 
 const session = {
   activity: "run",
@@ -112,5 +118,37 @@ test("marks a selected session as switching before its stream resumes", async ()
   await userEvent.selectOptions(select, secondSession.id);
   await waitFor(() => {
     expect(screen.getByText("Switching Agent Session…")).toBeVisible();
+  });
+});
+
+test("keeps a selected Agent Session in the route query", async () => {
+  const secondSession = {
+    ...session,
+    currentUrl: "https://www.1mg.com/",
+    id: "agent-two",
+    viewUrl: "http://127.0.0.1:7777/agent?session=agent-two",
+  };
+  rpc.sessionsResult = resultFor([session, secondSession]);
+  const history = createMemoryHistory({
+    initialEntries: [`/agent?session=${session.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <RegistryProvider>
+      <RouterProvider router={testRouter} />
+    </RegistryProvider>
+  );
+
+  const select = await screen.findByRole("combobox", {
+    name: "Agent Session",
+  });
+  await userEvent.selectOptions(select, secondSession.id);
+
+  await waitFor(() => {
+    expect(testRouter.state.location.search).toEqual({
+      session: secondSession.id,
+    });
+    expect(select).toHaveValue(secondSession.id);
   });
 });
