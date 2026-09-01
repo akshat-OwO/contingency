@@ -155,25 +155,14 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               )
         )
       );
-    const agentStream = (
-      sessionId: Parameters<AgentSessionService["changes"]>[0]
+    const agentStream = <A>(
+      operation: (
+        service: AgentSessionService
+      ) => Stream.Stream<A, AgentSessionError>
     ) =>
       Stream.unwrap(
-        Effect.serviceOption(AgentSession).pipe(
-          Effect.flatMap((service) =>
-            Option.isSome(service)
-              ? Effect.succeed(
-                  service.value
-                    .changes(sessionId)
-                    .pipe(Stream.mapError(agentError))
-                )
-              : Effect.fail(
-                  makeBrowserRpcError(
-                    "agent_session_unavailable",
-                    "Agent Sessions are unavailable in this server process."
-                  )
-                )
-          )
+        agentUnavailable((service) =>
+          Effect.succeed(operation(service).pipe(Stream.mapError(agentError)))
         )
       );
 
@@ -562,7 +551,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "agent.session.stream.subscribe": ({ data }) =>
-        agentStream(data.sessionId),
+        agentStream((service) => service.changes(data.sessionId)),
       "agent.browser.frame.ack": ({ data }) =>
         agentUnavailable((service) =>
           service.acknowledgeFrame(data.sessionId, data.frameId, data.streamId)
@@ -570,24 +559,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           Effect.as({ data: {}, type: "agent.browser.frame.acked" as const })
         ),
       "agent.browser.stream.subscribe": ({ data }) =>
-        Stream.unwrap(
-          Effect.serviceOption(AgentSession).pipe(
-            Effect.flatMap((service) =>
-              Option.isSome(service)
-                ? Effect.succeed(
-                    service.value
-                      .browserStream(data.sessionId)
-                      .pipe(Stream.mapError(agentError))
-                  )
-                : Effect.fail(
-                    makeBrowserRpcError(
-                      "agent_session_unavailable",
-                      "Agent Sessions are unavailable in this server process."
-                    )
-                  )
-            )
-          )
-        ),
+        agentStream((service) => service.browserStream(data.sessionId)),
     };
   })
 );

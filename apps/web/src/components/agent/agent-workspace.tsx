@@ -652,9 +652,10 @@ export const AgentWorkspace = ({
     return (
       <UnavailableState
         message={
-          requestedSessionId === undefined
+          state.browserStreamError ??
+          (requestedSessionId === undefined
             ? "The selected Agent Session is no longer available."
-            : `Agent Session ${requestedSessionId} is not owned by this MCP process or is no longer running.`
+            : `Agent Session ${requestedSessionId} is not owned by this MCP process or is no longer running.`)
         }
       />
     );
@@ -694,5 +695,3 @@ export const AgentWorkspace = ({
     </div>
   );
 };
-
-export const AgentView = AgentWorkspace;

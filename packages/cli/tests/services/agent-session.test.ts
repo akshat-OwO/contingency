@@ -232,6 +232,43 @@ it.effect("keeps close atomic when browser cleanup is interrupted", () =>
   })
 );
 
+it.effect("does not miss changes while delivering the initial snapshot", () =>
+  Effect.gen(function* subscribedBeforeInitialSnapshot() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const started = yield* service.start(startInput("stream-close"));
+    const initialDelivered = yield* Deferred.make<true>();
+    const releaseInitial = yield* Deferred.make<true>();
+    let isInitial = true;
+    const snapshotsFiber = yield* Effect.forkChild(
+      service.changes(started.id).pipe(
+        Stream.mapEffect((snapshot) => {
+          if (!isInitial) {
+            return Effect.succeed(snapshot);
+          }
+          isInitial = false;
+          return Deferred.succeed(initialDelivered, true).pipe(
+            Effect.andThen(Deferred.await(releaseInitial)),
+            Effect.as(snapshot)
+          );
+        }),
+        Stream.take(2),
+        Stream.runCollect
+      )
+    );
+
+    yield* Deferred.await(initialDelivered);
+    yield* service.close(started.id);
+    yield* Deferred.succeed(releaseInitial, true);
+    const snapshots = yield* Fiber.join(snapshotsFiber);
+
+    expect([...snapshots].map(({ phase }) => phase)).toEqual([
+      "running",
+      "closed",
+    ]);
+  })
+);
+
 it.effect("marks live sessions interrupted during owner shutdown", () =>
   Effect.gen(function* interruptedAgentSession() {
     const fake = makeFakeBrowser();

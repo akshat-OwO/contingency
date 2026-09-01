@@ -24,6 +24,7 @@ import {
   Layer,
   PubSub,
   Ref,
+  Schedule,
   Scope,
   Semaphore,
   Stream,
@@ -541,12 +542,19 @@ const makeAgentSession = (
           )
         ),
       changes: (sessionId) =>
-        Stream.concat(
-          Stream.fromEffect(
-            read(sessionId).pipe(Effect.map(({ snapshot }) => snapshot))
-          ),
-          Stream.fromPubSub(events).pipe(
-            Stream.filter(({ id }) => id === sessionId)
+        Stream.unwrap(
+          lock.withPermit(
+            Effect.gen(function* subscribeToSessionChanges() {
+              const subscription = yield* PubSub.subscribe(events);
+              const { snapshot } = yield* read(sessionId);
+              return Stream.concat(
+                Stream.succeed(snapshot),
+                Stream.fromEffect(PubSub.take(subscription)).pipe(
+                  Stream.repeat(Schedule.forever),
+                  Stream.filter(({ id }) => id === sessionId)
+                )
+              );
+            })
           )
         ),
       close: (sessionId, operationId) =>

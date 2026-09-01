@@ -11,6 +11,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { afterEach, expect, test, vi } from "vitest";
 
 const rpc = vi.hoisted(() => ({
+  agentStreamFailureMessage: undefined as string | undefined,
   sessionsResult: {
     _tag: "Initial" as const,
     waiting: true,
@@ -21,7 +22,10 @@ vi.mock("@/lib/rpc", () => ({
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
   runAgentBrowserStream: () => Effect.never,
-  runAgentSessionStream: () => Effect.never,
+  runAgentSessionStream: () =>
+    rpc.agentStreamFailureMessage === undefined
+      ? Effect.never
+      : Effect.fail(new Error(rpc.agentStreamFailureMessage)),
 }));
 
 const { AgentWorkspace } = await import("@/components/agent/agent-workspace");
@@ -66,7 +70,10 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
     );
   })();
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  rpc.agentStreamFailureMessage = undefined;
+});
 
 test("announces that Agent Sessions are loading", () => {
   renderWorkspace({ _tag: "Initial", waiting: true });
@@ -109,6 +116,15 @@ test("does not use a foreign URL session id", async () => {
     await screen.findByText(/not owned by this MCP process/u)
   ).toBeVisible();
   expect(screen.queryByLabelText("Live browser viewport")).toBeNull();
+});
+
+test("shows the Agent Session stream failure reason", async () => {
+  rpc.agentStreamFailureMessage = "The Agent Session stream disconnected.";
+  renderWorkspace(resultFor([session]), session.id);
+
+  expect(
+    await screen.findByText("The Agent Session stream disconnected.")
+  ).toBeVisible();
 });
 
 test("marks a selected session as switching before its stream resumes", async () => {
