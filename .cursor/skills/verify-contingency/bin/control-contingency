@@ -35,12 +35,16 @@ const usage = () => {
 Commands:
   launch [--flow <path>]
   doctor
+  reload --flow <path>
   cleanup
-  browser goto --path <path>
-  browser click --role <role> --name <name>
-  browser fill --role <role> --name <name> --value <value>
-  browser press --key <key>
-  browser wait --role <role> --name <name> [--timeout-ms <n>]
+  browser goto --path <path> | --url <absolute-url>
+  browser click --role <role> --name <name> [--partial]
+  browser fill --role <role> --name <name> --value <value> [--partial]
+  browser press --key <key> [--role <role> --name <name> [--partial]]
+  browser wait --role <role> --name <name> [--has-text <substring>] [--timeout-ms <n>] [--partial]
+  browser wait --text <substring> [--timeout-ms <n>] [--partial]
+  mcp start
+  mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
   cli -- <contingency args...>
@@ -190,13 +194,16 @@ const playwrightModule = () => {
 
 const loadPlaywright = () => playwrightModule();
 
+const partialMatch = (flags) =>
+  flags.partial === true || flags.partial === "true";
+
 const locator = (page, flags) => {
   const role = flags.role;
   const name = flags.name;
   if (typeof role !== "string" || typeof name !== "string") {
     fail("browser actions that target a control need --role and --name.");
   }
-  return page.getByRole(role, { exact: true, name });
+  return page.getByRole(role, { exact: !partialMatch(flags), name });
 };
 
 const resolveEvidencePath = (filePath) => {
@@ -209,8 +216,13 @@ const resolveEvidencePath = (filePath) => {
 const runPageAction = async (page, appUrl, action, flags) => {
   switch (action) {
     case "goto": {
-      const route = typeof flags.path === "string" ? flags.path : "/";
-      const target = new URL(route, appUrl).href;
+      const target =
+        typeof flags.url === "string"
+          ? flags.url
+          : new URL(
+              typeof flags.path === "string" ? flags.path : "/",
+              appUrl
+            ).href;
       await page.goto(target, { waitUntil: "load" });
       return page.url();
     }
@@ -229,7 +241,11 @@ const runPageAction = async (page, appUrl, action, flags) => {
       if (typeof flags.key !== "string") {
         throw new Error("browser press needs --key.");
       }
-      await page.keyboard.press(flags.key);
+      if (typeof flags.role === "string" && typeof flags.name === "string") {
+        await locator(page, flags).press(flags.key);
+      } else {
+        await page.keyboard.press(flags.key);
+      }
       return "";
     }
     case "wait": {
@@ -237,7 +253,24 @@ const runPageAction = async (page, appUrl, action, flags) => {
         typeof flags["timeout-ms"] === "string"
           ? Number(flags["timeout-ms"])
           : 10_000;
-      await locator(page, flags).waitFor({ state: "visible", timeout });
+      if (typeof flags.text === "string") {
+        await page
+          .getByText(flags.text, { exact: !partialMatch(flags) })
+          .waitFor({ state: "visible", timeout });
+        return "";
+      }
+      let target;
+      if (typeof flags["has-text"] === "string") {
+        if (typeof flags.role !== "string") {
+          throw new Error("browser wait --has-text needs --role.");
+        }
+        target = page
+          .getByRole(flags.role)
+          .filter({ hasText: flags["has-text"] });
+      } else {
+        target = locator(page, flags);
+      }
+      await target.waitFor({ state: "visible", timeout });
       return "";
     }
     case "snapshot": {
@@ -574,6 +607,46 @@ const cmdDoctor = async () => {
   );
 };
 
+const cmdReload = async (flags) => {
+  const flow = flags.flow;
+  if (typeof flow !== "string" || !existsSync(flow)) {
+    fail("reload needs --flow pointing at an existing Flow file.");
+  }
+  const directory = verifyDir();
+  const instance = readInstance();
+  const stopPid = async (pid) => {
+    if (!pidAlive(pid)) {
+      return;
+    }
+    process.kill(pid, "SIGTERM");
+    const deadline = Date.now() + 10_000;
+    while (pidAlive(pid) && Date.now() < deadline) {
+      await delay(100);
+    }
+    if (pidAlive(pid)) {
+      process.kill(pid, "SIGKILL");
+    }
+  };
+  if (typeof instance.pid === "number") {
+    await stopPid(instance.pid);
+  }
+  const child = await launchCli({
+    directory,
+    flow: path.resolve(flow),
+    port: instance.port,
+    stateDir: instance.stateDir,
+  });
+  writeInstance(directory, {
+    ...instance,
+    flow: path.resolve(flow),
+    pid: child.pid,
+  });
+  await waitForHttp(instance.url, 30_000);
+  process.stdout.write(
+    `reloaded web pid=${child.pid} flow=${path.resolve(flow)}\n`
+  );
+};
+
 const cmdCleanup = async () => {
   const directory = verifyDir();
   const file = instancePath(directory);
@@ -603,6 +676,9 @@ const cmdCleanup = async () => {
   }
   if (typeof instance.fixturePid === "number") {
     await stopPid(instance.fixturePid);
+  }
+  if (typeof instance.mcpPid === "number") {
+    await stopPid(instance.mcpPid);
   }
   rmSync(path.join(directory, "browser-profile"), {
     force: true,
@@ -725,6 +801,82 @@ const cmdFixtureStart = async () => {
   process.stdout.write(`fixture=${fixtureUrl}\nflow=${flowPath}\n`);
 };
 
+const cmdMcpStart = async () => {
+  const directory = verifyDir();
+  const instance = readInstance();
+  if (typeof instance.mcpPid === "number" && pidAlive(instance.mcpPid)) {
+    fail(`MCP already running as pid ${instance.mcpPid}.`);
+  }
+  const port = await pickPort();
+  const owner = await listenPid(port);
+  if (owner !== undefined) {
+    fail(`Port ${port} is owned by pid ${owner}. Pick another port.`);
+  }
+  const cli = ensureBuiltCli();
+  const logPath = path.join(directory, "mcp.log");
+  const logFd = openSync(logPath, "a");
+  const child = spawn(process.execPath, [cli, "mcp"], {
+    cwd: repoRoot,
+    detached: true,
+    env: {
+      ...process.env,
+      CONTINGENCY_MCP_HOST: "127.0.0.1",
+      CONTINGENCY_MCP_PORT: String(port),
+      CONTINGENCY_STATE_DIR: instance.stateDir,
+      NODE_ENV: "production",
+    },
+    stdio: ["ignore", logFd, logFd],
+  });
+  closeSync(logFd);
+  child.unref();
+  if (child.pid === undefined) {
+    fail("Failed to spawn the Contingency MCP server.");
+  }
+  const mcpUrl = `http://127.0.0.1:${port}/`;
+  try {
+    await waitForHttp(mcpUrl, 30_000);
+    const ready = await fetchText(mcpUrl);
+    if (!ready.body.includes("Contingency")) {
+      throw new Error(`GET ${mcpUrl} did not include the Contingency mark`);
+    }
+  } catch (error) {
+    child.kill("SIGTERM");
+    fail(
+      `Started MCP but the Agent View endpoint did not become ready: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  writeInstance(directory, {
+    ...instance,
+    mcpPid: child.pid,
+    mcpPort: port,
+    mcpUrl,
+  });
+  process.stdout.write(
+    `mcpUrl=${mcpUrl}\nmcpPort=${port}\nmcpPid=${child.pid}\n`
+  );
+};
+
+const cmdMcpStop = async () => {
+  const instance = readInstance();
+  if (typeof instance.mcpPid !== "number" || !pidAlive(instance.mcpPid)) {
+    fail("No live MCP instance is recorded for this verify directory.");
+  }
+  process.kill(instance.mcpPid, "SIGTERM");
+  const deadline = Date.now() + 10_000;
+  while (pidAlive(instance.mcpPid) && Date.now() < deadline) {
+    await delay(100);
+  }
+  if (pidAlive(instance.mcpPid)) {
+    process.kill(instance.mcpPid, "SIGKILL");
+  }
+  const next = { ...instance };
+  delete next.mcpPid;
+  delete next.mcpPort;
+  delete next.mcpUrl;
+  writeInstance(verifyDir(), next);
+  process.stdout.write("mcp stopped\n");
+};
+
 const cmdFixtureStop = async () => {
   const instance = readInstance();
   if (typeof instance.fixturePid === "number" && pidAlive(instance.fixturePid)) {
@@ -750,6 +902,10 @@ const main = async () => {
   }
   if (command === "doctor") {
     await cmdDoctor();
+    return;
+  }
+  if (command === "reload") {
+    await cmdReload(parseArgs(argv.slice(1)).flags);
     return;
   }
   if (command === "cleanup") {
@@ -794,6 +950,18 @@ const main = async () => {
       return;
     }
     fail("fixture needs start or stop.");
+  }
+  if (command === "mcp") {
+    const action = argv[1];
+    if (action === "start") {
+      await cmdMcpStart();
+      return;
+    }
+    if (action === "stop") {
+      await cmdMcpStop();
+      return;
+    }
+    fail("mcp needs start or stop.");
   }
   fail(`Unknown command: ${command}`);
 };

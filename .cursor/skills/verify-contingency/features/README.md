@@ -42,7 +42,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Create View](./create-view.md) covers the authoring workspace, address bar, session picker, and empty Recording panel.
+- [Create View](./create-view.md) covers the authoring workspace, session picker, address bar, Recording start, and captured Steps.
 - [Audit View](./audit-view.md) covers the empty state, loading a Flow from the process argument, and starting a Run.
 - [Agent View](./agent-view.md) covers the unavailable state on `web` and the empty state when MCP has no session.
 - [Headless Run](./cli-run.md) covers `contingency run` against a disposable fixture page.

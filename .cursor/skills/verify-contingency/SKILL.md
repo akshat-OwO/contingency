@@ -70,7 +70,7 @@ Stable handles in this repo:
 - Create View: region `Browser workspace`, group `Browser navigation`, textbox `Browser address`, combobox `Choose browser session`, complementary/heading `Flow authoring`, textbox `Flow title`, button `Start Recording` (disabled until a session, URL, and title are set), text `No Recording yet`, heading `Your browser will appear here` before a session exists.
 - Audit View with no Flow: heading `No Flow to audit`, label `Open a Flow file`.
 - Audit View with a Flow: heading is the Flow title, button `Run Flow` (then `Run again`), status `Not started` / `Starting` / `Running` / `Completed` / `Failed`.
-- Agent View on `web` (no MCP): heading `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.`
+- Agent View on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
 - Agent View on `mcp` with no session: heading `No active Agent Sessions`.
 
 Do not click through the inner Create View canvas as if it were the site under audit. That canvas is a screencast of a nested Chromium. Drive Contingency's chrome (nav, address, session picker, authoring panel, Audit header) with roles. Nested-page actions belong to a Create session or a CLI Run, not to the driver page's DOM.
@@ -98,7 +98,7 @@ Mocks are not allowed for the Runner, Playwright, or the web UI. The fixture HTT
 "$CONTROL" cleanup
 ```
 
-This signals only the pids recorded in `$CONTINGENCY_VERIFY_DIR/instance.json` (CLI server, driver browser, fixture). It deletes the instance file, browser profile, and isolated state dir. It does not delete `.cursor/skills/verify-contingency/artifacts/`. After cleanup, confirm those artifact files still exist.
+This signals only the pids recorded in `$CONTINGENCY_VERIFY_DIR/instance.json` (CLI server, driver browser, fixture, MCP). It deletes the instance file, browser profile, and isolated state dir. It does not delete `.cursor/skills/verify-contingency/artifacts/`. After cleanup, confirm those artifact files still exist.
 
 If launch failed partway, still run cleanup with `CONTINGENCY_VERIFY_DIR` pointing at the directory launch printed, so ports are not left bound.
 
@@ -110,7 +110,11 @@ CONTROL=".cursor/skills/verify-contingency/bin/control-contingency"
 export CONTINGENCY_VERIFY_DIR=...   # from launch stdout
 "$CONTROL" doctor
 "$CONTROL" browser goto --path /audit
+"$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/agent
+"$CONTROL" browser wait --role alert --has-text "Agent Session unavailable"
+"$CONTROL" mcp start
 "$CONTROL" fixture start            # optional; writes verify-flow.json into the verify dir
+"$CONTROL" reload --flow "$CONTINGENCY_VERIFY_DIR/verify-flow.json"
 "$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0
 "$CONTROL" cleanup
 ```
