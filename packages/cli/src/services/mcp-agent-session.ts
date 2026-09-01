@@ -75,7 +75,11 @@ const AgentTakeoverParameters = Schema.Struct({
   sessionId: AgentSessionTakeover.fields.sessionId,
 });
 
-const AgentSessionsGetParameters = Schema.Struct({});
+// `agent_sessions_get` takes no arguments. An empty `Schema.Struct({})` encodes
+// to `anyOf: [object, array]`, which MCP clients reject because `tools/list`
+// requires `inputSchema.type` to be `"object"` — one bad entry fails the whole
+// list. A `Record` of unconstrained keys encodes to a plain `{ type: "object" }`.
+const AgentSessionsGetParameters = Schema.Record(Schema.String, Schema.Unknown);
 
 /** MCP tool names use underscores; dots break common clients such as Cursor. */
 const AgentSessionsGetTool = Tool.make("agent_sessions_get", {
