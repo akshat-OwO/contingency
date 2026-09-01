@@ -15,6 +15,9 @@ node_modules
 # Testing
 coverage
 
+# Verification evidence (kept on disk for a run, not committed)
+.cursor/skills/verify-contingency/artifacts/
+
 # Turbo
 .turbo
 
