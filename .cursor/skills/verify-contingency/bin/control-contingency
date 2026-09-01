@@ -1,0 +1,1059 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+import { createServer as createHttpServer } from "node:http";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { createConnection, createServer as createNetServer } from "node:net";
+import { homedir, tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const skillRoot = path.resolve(here, "..");
+const repoRoot = path.resolve(skillRoot, "../../..");
+const defaultArtifacts = path.join(skillRoot, "artifacts");
+const ecommerceFixturesDir = path.join(skillRoot, "fixtures", "ecommerce");
+const instanceName = "instance.json";
+
+const fail = (message, code = 1) => {
+  process.stderr.write(`${message}\n`);
+  process.exit(code);
+};
+
+const usage = () => {
+  process.stdout.write(`control-contingency <command>
+
+Commands:
+  launch [--flow <path>]
+  doctor
+  reload --flow <path>
+  cleanup
+  browser goto --path <path> | --url <absolute-url>
+  browser click --role <role> --name <name> [--partial]
+  browser fill --role <role> --name <name> --value <value> [--partial]
+  browser press --key <key> [--role <role> --name <name> [--partial]]
+  browser wait --role <role> --name <name> [--has-text <substring>] [--timeout-ms <n>] [--partial]
+  browser wait --text <substring> [--timeout-ms <n>] [--partial]
+  mcp start
+  mcp stop
+  browser snapshot --aria --path <file>
+  browser screenshot --path <file>
+  browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>
+  browser download --role <role> --name <name> --path <file> [--partial]
+  cli -- <contingency args...>
+  ecommerce start
+  fixture start
+  fixture stop
+
+Environment:
+  CONTINGENCY_VERIFY_DIR   Isolated run directory (created by launch)
+  CONTINGENCY_VERIFY_PORT  Bind port; launch picks a free one otherwise
+`);
+};
+
+const parseArgs = (argv) => {
+  const flags = {};
+  const rest = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--") {
+      rest.push(...argv.slice(index + 1));
+      break;
+    }
+    if (token.startsWith("--")) {
+      const key = token.slice(2);
+      const next = argv[index + 1];
+      if (next === undefined || next.startsWith("--")) {
+        flags[key] = true;
+      } else {
+        flags[key] = next;
+        index += 1;
+      }
+      continue;
+    }
+    rest.push(token);
+  }
+  return { flags, rest };
+};
+
+const verifyDir = () => {
+  const configured = process.env.CONTINGENCY_VERIFY_DIR?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+  fail(
+    "CONTINGENCY_VERIFY_DIR is unset. Run launch first, then export the printed directory for later commands."
+  );
+};
+
+const instancePath = (directory = verifyDir()) =>
+  path.join(directory, instanceName);
+
+const readInstance = () => {
+  const file = instancePath();
+  if (!existsSync(file)) {
+    fail(`No instance at ${file}. Run launch first.`);
+  }
+  return JSON.parse(readFileSync(file, "utf8"));
+};
+
+const writeInstance = (directory, data) => {
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(instancePath(directory), `${JSON.stringify(data, null, 2)}\n`);
+};
+
+const pidAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const listenPid = async (port) => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  try {
+    const { stdout } = await execFileAsync(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+      { encoding: "utf8" }
+    );
+    const pid = Number(stdout.trim().split("\n")[0]);
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const portFree = (port, host = "127.0.0.1") =>
+  new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.once("error", () => {
+      resolve(true);
+    });
+  });
+
+const pickPort = async () => {
+  const requested = process.env.CONTINGENCY_VERIFY_PORT?.trim();
+  if (requested) {
+    const port = Number(requested);
+    if (!Number.isInteger(port) || port <= 0) {
+      fail(`CONTINGENCY_VERIFY_PORT is not a port: ${requested}`);
+    }
+    if (!(await portFree(port))) {
+      fail(
+        `Port ${port} is already listening. Pick another CONTINGENCY_VERIFY_PORT rather than driving a shared instance.`
+      );
+    }
+    return port;
+  }
+  return await new Promise((resolve, reject) => {
+    const server = createNetServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("Could not bind an ephemeral port."));
+        return;
+      }
+      const { port } = address;
+      server.close(() => resolve(port));
+    });
+  });
+};
+
+const playwrightModule = () => {
+  const require = createRequire(import.meta.url);
+  const candidates = [
+    path.join(repoRoot, "packages/cli/node_modules/playwright-core"),
+    path.join(repoRoot, "node_modules/playwright-core"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return require(candidate);
+    }
+  }
+  fail(
+    "playwright-core is not installed. From the repo root run: nub install"
+  );
+};
+
+const loadPlaywright = () => playwrightModule();
+
+const partialMatch = (flags) =>
+  flags.partial === true || flags.partial === "true";
+
+const locator = (page, flags) => {
+  const role = flags.role;
+  const name = flags.name;
+  if (typeof role !== "string" || typeof name !== "string") {
+    fail("browser actions that target a control need --role and --name.");
+  }
+  return page.getByRole(role, { exact: !partialMatch(flags), name });
+};
+
+const resolveEvidencePath = (filePath) => {
+  if (path.isAbsolute(filePath)) {
+    return filePath;
+  }
+  return path.join(defaultArtifacts, filePath);
+};
+
+const resolveInputFilePath = (filePath) => {
+  if (path.isAbsolute(filePath)) {
+    return filePath;
+  }
+  const configured = process.env.CONTINGENCY_VERIFY_DIR?.trim();
+  if (configured) {
+    const fromVerify = path.join(path.resolve(configured), filePath);
+    if (existsSync(fromVerify)) {
+      return fromVerify;
+    }
+  }
+  const fromArtifacts = path.join(defaultArtifacts, filePath);
+  if (existsSync(fromArtifacts)) {
+    return fromArtifacts;
+  }
+  return path.resolve(filePath);
+};
+
+const loadEcommercePages = () => {
+  if (!existsSync(ecommerceFixturesDir)) {
+    fail(`Ecommerce fixtures are missing at ${ecommerceFixturesDir}.`);
+  }
+  const pages = new Map();
+  for (const name of readdirSync(ecommerceFixturesDir)) {
+    if (!name.endsWith(".html")) {
+      continue;
+    }
+    pages.set(`/${name}`, readFileSync(path.join(ecommerceFixturesDir, name), "utf8"));
+  }
+  if (!pages.has("/shop.html")) {
+    fail(`Ecommerce fixtures must include shop.html under ${ecommerceFixturesDir}.`);
+  }
+  return pages;
+};
+
+const runPageAction = async (page, appUrl, action, flags) => {
+  switch (action) {
+    case "goto": {
+      const target =
+        typeof flags.url === "string"
+          ? flags.url
+          : new URL(
+              typeof flags.path === "string" ? flags.path : "/",
+              appUrl
+            ).href;
+      await page.goto(target, { waitUntil: "load" });
+      return page.url();
+    }
+    case "click": {
+      await locator(page, flags).click();
+      return "";
+    }
+    case "fill": {
+      if (typeof flags.value !== "string") {
+        throw new Error("browser fill needs --value.");
+      }
+      await locator(page, flags).fill(flags.value);
+      return "";
+    }
+    case "press": {
+      if (typeof flags.key !== "string") {
+        throw new Error("browser press needs --key.");
+      }
+      if (typeof flags.role === "string" && typeof flags.name === "string") {
+        await locator(page, flags).press(flags.key);
+      } else {
+        await page.keyboard.press(flags.key);
+      }
+      return "";
+    }
+    case "wait": {
+      const timeout =
+        typeof flags["timeout-ms"] === "string"
+          ? Number(flags["timeout-ms"])
+          : 10_000;
+      if (typeof flags.text === "string") {
+        await page
+          .getByText(flags.text, { exact: !partialMatch(flags) })
+          .waitFor({ state: "visible", timeout });
+        return "";
+      }
+      let target;
+      if (typeof flags["has-text"] === "string") {
+        if (typeof flags.role !== "string") {
+          throw new Error("browser wait --has-text needs --role.");
+        }
+        target = page
+          .getByRole(flags.role)
+          .filter({ hasText: flags["has-text"] });
+      } else {
+        target = locator(page, flags);
+      }
+      await target.waitFor({ state: "visible", timeout });
+      return "";
+    }
+    case "snapshot": {
+      if (flags.aria !== true && flags.aria !== "true") {
+        throw new Error("browser snapshot currently supports --aria only.");
+      }
+      if (typeof flags.path !== "string") {
+        throw new Error("browser snapshot needs --path.");
+      }
+      const snapshot = await page.locator("body").ariaSnapshot();
+      const destination = resolveEvidencePath(flags.path);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeFileSync(destination, `${snapshot}\n`);
+      return destination;
+    }
+    case "screenshot": {
+      if (typeof flags.path !== "string") {
+        throw new Error("browser screenshot needs --path.");
+      }
+      const destination = resolveEvidencePath(flags.path);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      await page.screenshot({ fullPage: true, path: destination });
+      return destination;
+    }
+    case "set-input-files": {
+      if (typeof flags.path !== "string") {
+        throw new Error("browser set-input-files needs --path.");
+      }
+      const filePath = resolveInputFilePath(flags.path);
+      if (!existsSync(filePath)) {
+        throw new Error(`browser set-input-files file does not exist: ${filePath}`);
+      }
+      const target =
+        typeof flags.label === "string"
+          ? page.getByLabel(flags.label, { exact: !partialMatch(flags) })
+          : locator(page, flags);
+      await target.setInputFiles(filePath);
+      return filePath;
+    }
+    case "download": {
+      if (typeof flags.path !== "string") {
+        throw new Error("browser download needs --path.");
+      }
+      const destination = resolveEvidencePath(flags.path);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      const timeout =
+        typeof flags["timeout-ms"] === "string"
+          ? Number(flags["timeout-ms"])
+          : 30_000;
+      const downloadPromise = page.waitForEvent("download", { timeout });
+      await locator(page, flags).click();
+      const download = await downloadPromise;
+      await download.saveAs(destination);
+      return destination;
+    }
+    default: {
+      throw new Error(`Unknown browser action: ${action}`);
+    }
+  }
+};
+
+const callDriver = async (instance, payload) => {
+  const response = await fetch(instance.driverUrl, {
+    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await response.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    fail(`Driver returned non-JSON (${response.status}): ${body}`);
+  }
+  if (!response.ok || parsed.ok !== true) {
+    fail(parsed.error ?? `Driver error (${response.status})`);
+  }
+  return parsed.output ?? "";
+};
+
+const ensureBuiltCli = () => {
+  const cli = path.join(repoRoot, "packages/cli/dist/index.js");
+  const web = path.join(repoRoot, "packages/cli/dist/web/index.html");
+  if (!existsSync(cli) || !existsSync(web)) {
+    fail(
+      "The CLI production build is missing. From the repo root run: nub exec turbo run build --filter=@contingency/cli"
+    );
+  }
+  return cli;
+};
+
+const waitForHttp = async (url, timeoutMs) => {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "not yet requested";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for ${url}: ${lastError}`);
+};
+
+const waitForFile = async (file, timeoutMs) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(file)) {
+      const contents = readFileSync(file, "utf8").trim();
+      if (contents.length > 0) {
+        return contents;
+      }
+    }
+    await delay(50);
+  }
+  throw new Error(`Timed out waiting for ${file}`);
+};
+
+const launchCli = async ({ directory, flow, port, stateDir }) => {
+  const cli = ensureBuiltCli();
+  const args = [cli, "web", "--no-browser"];
+  if (flow !== undefined) {
+    args.push(path.resolve(flow));
+  }
+  mkdirSync(directory, { recursive: true });
+  const logPath = path.join(directory, "server.log");
+  const logFd = openSync(logPath, "a");
+  const child = spawn(process.execPath, args, {
+    cwd: repoRoot,
+    detached: true,
+    env: {
+      ...process.env,
+      CONTINGENCY_STATE_DIR: stateDir,
+      CONTINGENCY_WEB_HOST: "127.0.0.1",
+      CONTINGENCY_WEB_PORT: String(port),
+      NODE_ENV: "production",
+    },
+    stdio: ["ignore", logFd, logFd],
+  });
+  closeSync(logFd);
+  child.unref();
+  if (child.pid === undefined) {
+    fail("Failed to spawn the Contingency CLI.");
+  }
+  try {
+    await waitForHttp(`http://127.0.0.1:${port}/`, 30_000);
+  } catch (error) {
+    child.kill("SIGTERM");
+    throw error;
+  }
+  return child;
+};
+
+const selfPath = fileURLToPath(import.meta.url);
+
+const spawnDetached = (args, extraEnv = {}) => {
+  const child = spawn(process.execPath, [selfPath, ...args], {
+    cwd: repoRoot,
+    detached: true,
+    env: { ...process.env, ...extraEnv },
+    stdio: "ignore",
+  });
+  child.unref();
+  return child;
+};
+
+const launchDriver = async (url, directory) => {
+  const userDataDir = path.join(directory, "browser-profile");
+  mkdirSync(userDataDir, { recursive: true });
+  const readyFile = path.join(userDataDir, "driver-url.txt");
+  rmSync(readyFile, { force: true });
+  const child = spawnDetached(["driver-serve", url, userDataDir]);
+  if (child.pid === undefined) {
+    fail("Failed to spawn the driver browser.");
+  }
+  const driverUrl = await waitForFile(readyFile, 60_000);
+  return { driverPid: child.pid, driverUrl };
+};
+
+const cmdDriverServe = async (url, userDataDir) => {
+  const { chromium } = loadPlaywright();
+  mkdirSync(userDataDir, { recursive: true });
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    viewport: { height: 900, width: 1440 },
+  });
+  const page = await context.newPage();
+  await page.goto(url, { waitUntil: "load" });
+  const server = createHttpServer((request, response) => {
+    if (request.method === "GET") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(`${JSON.stringify({ ok: true, url: page.url() })}\n`);
+      return;
+    }
+    if (request.method !== "POST") {
+      response.writeHead(405);
+      response.end();
+      return;
+    }
+    const chunks = [];
+    request.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      void (async () => {
+        try {
+          const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          const output = await runPageAction(
+            page,
+            url,
+            payload.action,
+            payload.flags ?? {}
+          );
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(`${JSON.stringify({ ok: true, output })}\n`);
+        } catch (error) {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end(
+            `${JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              ok: false,
+            })}\n`
+          );
+        }
+      })();
+    });
+  });
+  const port = await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("Could not bind the driver command server."));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+  writeFileSync(
+    path.join(userDataDir, "driver-url.txt"),
+    `http://127.0.0.1:${port}/\n`
+  );
+};
+
+const cmdLaunch = async (flags) => {
+  const flow = typeof flags.flow === "string" ? flags.flow : undefined;
+  if (flow !== undefined && !existsSync(flow)) {
+    fail(`Flow file does not exist: ${flow}`);
+  }
+  const stamp = `${Date.now()}-${process.pid}`;
+  const directory =
+    process.env.CONTINGENCY_VERIFY_DIR?.trim() ??
+    path.join(tmpdir(), `contingency-verify-${stamp}`);
+  if (existsSync(instancePath(directory))) {
+    const existing = JSON.parse(readFileSync(instancePath(directory), "utf8"));
+    if (pidAlive(existing.pid)) {
+      fail(
+        `Refusing to launch: ${directory} already has a live instance (pid ${existing.pid}). cleanup that run first.`
+      );
+    }
+  }
+  mkdirSync(directory, { recursive: true });
+  const stateDir = path.join(directory, "state");
+  mkdirSync(stateDir, { recursive: true });
+  const port = await pickPort();
+  const owner = await listenPid(port);
+  if (owner !== undefined) {
+    fail(
+      `Port ${port} is owned by pid ${owner}. Do not drive that instance; pick another port.`
+    );
+  }
+  const child = await launchCli({ directory, flow, port, stateDir });
+  const url = `http://127.0.0.1:${port}/`;
+  let driver;
+  try {
+    driver = await launchDriver(url, directory);
+  } catch (error) {
+    child.kill("SIGTERM");
+    fail(
+      `Started Contingency but could not open a driver browser: ${error instanceof Error ? error.message : String(error)}\nInstall Chromium with: nub exec --cwd packages/cli playwright-core install chromium`
+    );
+  }
+  writeInstance(directory, {
+    driverPid: driver.driverPid,
+    driverUrl: driver.driverUrl,
+    flow: flow === undefined ? null : path.resolve(flow),
+    pid: child.pid,
+    port,
+    repoRoot,
+    stateDir,
+    url,
+  });
+  process.stdout.write(
+    `CONTINGENCY_VERIFY_DIR=${directory}\nurl=${url}\npid=${child.pid}\ndriverPid=${driver.driverPid}\nport=${port}\nstate=${stateDir}\n`
+  );
+};
+
+const fetchText = async (url) => {
+  const response = await fetch(url);
+  const body = await response.text();
+  return { body, status: response.status };
+};
+
+const cmdDoctor = async () => {
+  const instance = readInstance();
+  const problems = [];
+  if (!pidAlive(instance.pid)) {
+    problems.push(`server pid ${instance.pid} is not running`);
+  }
+  const owner = await listenPid(instance.port);
+  if (owner !== instance.pid) {
+    problems.push(
+      owner === undefined
+        ? `nothing is listening on ${instance.port}`
+        : `port ${instance.port} is owned by pid ${owner}, not ${instance.pid}`
+    );
+  }
+  let page;
+  try {
+    page = await fetchText(instance.url);
+    if (page.status !== 200) {
+      problems.push(`GET ${instance.url} returned ${page.status}`);
+    }
+    if (!page.body.includes("Contingency")) {
+      problems.push(`GET ${instance.url} did not include the Contingency mark`);
+    }
+  } catch (error) {
+    problems.push(
+      `GET ${instance.url} failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (typeof instance.driverPid === "number" && !pidAlive(instance.driverPid)) {
+    problems.push(`driver pid ${instance.driverPid} is not running`);
+  }
+  try {
+    const driver = await fetchText(instance.driverUrl);
+    if (driver.status !== 200 || !driver.body.includes('"ok":true')) {
+      problems.push(`driver ${instance.driverUrl} is not healthy`);
+    }
+  } catch (error) {
+    problems.push(
+      `driver ${instance.driverUrl} is not reachable: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (problems.length > 0) {
+    fail(`doctor failed:\n- ${problems.join("\n- ")}`);
+  }
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: true,
+        pid: instance.pid,
+        port: instance.port,
+        stateDir: instance.stateDir,
+        url: instance.url,
+      },
+      null,
+      2
+    )}\n`
+  );
+};
+
+const cmdReload = async (flags) => {
+  const flow = flags.flow;
+  if (typeof flow !== "string" || !existsSync(flow)) {
+    fail("reload needs --flow pointing at an existing Flow file.");
+  }
+  const directory = verifyDir();
+  const instance = readInstance();
+  const stopPid = async (pid) => {
+    if (!pidAlive(pid)) {
+      return;
+    }
+    process.kill(pid, "SIGTERM");
+    const deadline = Date.now() + 10_000;
+    while (pidAlive(pid) && Date.now() < deadline) {
+      await delay(100);
+    }
+    if (pidAlive(pid)) {
+      process.kill(pid, "SIGKILL");
+    }
+  };
+  if (typeof instance.pid === "number") {
+    await stopPid(instance.pid);
+  }
+  const child = await launchCli({
+    directory,
+    flow: path.resolve(flow),
+    port: instance.port,
+    stateDir: instance.stateDir,
+  });
+  writeInstance(directory, {
+    ...instance,
+    flow: path.resolve(flow),
+    pid: child.pid,
+  });
+  await waitForHttp(instance.url, 30_000);
+  process.stdout.write(
+    `reloaded web pid=${child.pid} flow=${path.resolve(flow)}\n`
+  );
+};
+
+const cmdCleanup = async () => {
+  const directory = verifyDir();
+  const file = instancePath(directory);
+  if (!existsSync(file)) {
+    process.stdout.write(`No instance at ${file}.\n`);
+    return;
+  }
+  const instance = JSON.parse(readFileSync(file, "utf8"));
+  const stopPid = async (pid) => {
+    if (!pidAlive(pid)) {
+      return;
+    }
+    process.kill(pid, "SIGTERM");
+    const deadline = Date.now() + 10_000;
+    while (pidAlive(pid) && Date.now() < deadline) {
+      await delay(100);
+    }
+    if (pidAlive(pid)) {
+      process.kill(pid, "SIGKILL");
+    }
+  };
+  if (typeof instance.driverPid === "number") {
+    await stopPid(instance.driverPid);
+  }
+  if (typeof instance.pid === "number") {
+    await stopPid(instance.pid);
+  }
+  if (typeof instance.fixturePid === "number") {
+    await stopPid(instance.fixturePid);
+  }
+  if (typeof instance.mcpPid === "number") {
+    await stopPid(instance.mcpPid);
+  }
+  rmSync(path.join(directory, "browser-profile"), {
+    force: true,
+    recursive: true,
+  });
+  rmSync(instance.stateDir, { force: true, recursive: true });
+  rmSync(file, { force: true });
+  process.stdout.write(
+    `cleaned ${directory} (evidence under ${defaultArtifacts} is untouched)\n`
+  );
+};
+
+const cmdBrowser = async (action, flags) => {
+  const instance = readInstance();
+  const output = await callDriver(instance, { action, flags });
+  if (output.length > 0) {
+    process.stdout.write(`${output}\n`);
+  }
+};
+
+const cmdCli = async (rest) => {
+  if (rest.length === 0) {
+    fail("cli needs arguments after --, for example: cli -- run ./flow.json");
+  }
+  const instance = existsSync(instancePath()) ? readInstance() : undefined;
+  const cli = ensureBuiltCli();
+  const stateDir =
+    instance?.stateDir ??
+    path.join(verifyDir(), "state");
+  mkdirSync(stateDir, { recursive: true });
+  const child = spawn(process.execPath, [cli, ...rest], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      CONTINGENCY_STATE_DIR: stateDir,
+      HOME: instance === undefined ? homedir() : path.join(verifyDir(), "home"),
+      NODE_ENV: "production",
+    },
+    stdio: "inherit",
+  });
+  const code = await new Promise((resolve) => {
+    child.once("exit", (exitCode, signal) => {
+      resolve(exitCode ?? (signal === null ? 1 : 1));
+    });
+  });
+  process.exit(code ?? 1);
+};
+
+const cmdFixtureServe = async () => {
+  const directory = verifyDir();
+  const pages = loadEcommercePages();
+  const server = createHttpServer((request, response) => {
+    const url = request.url ?? "/";
+    const { pathname } = new URL(url, "http://127.0.0.1");
+    if (pathname === "/cart-added" || pathname === "/cart-viewed") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    const pagePath = pathname === "/" ? "/shop.html" : pathname;
+    const body = pages.get(pagePath);
+    if (body === undefined) {
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found\n");
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(body);
+  });
+  const port = await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("Could not bind the fixture server."));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+  const shopUrl = `http://127.0.0.1:${port}/shop.html`;
+  const readyFile = path.join(directory, "fixture-url.txt");
+  writeFileSync(readyFile, `${shopUrl}\n`);
+  await new Promise(() => {
+    // Stay alive until cleanup.
+  });
+};
+
+const cmdFixtureStart = async () => {
+  const directory = verifyDir();
+  mkdirSync(directory, { recursive: true });
+  const instance = existsSync(instancePath())
+    ? JSON.parse(readFileSync(instancePath(), "utf8"))
+    : {};
+  if (typeof instance.fixturePid === "number" && pidAlive(instance.fixturePid)) {
+    fail(`Fixture already running as pid ${instance.fixturePid}.`);
+  }
+  const readyFile = path.join(directory, "fixture-url.txt");
+  rmSync(readyFile, { force: true });
+  const child = spawnDetached(["fixture-serve"], {
+    CONTINGENCY_VERIFY_DIR: directory,
+  });
+  const shopUrl = await waitForFile(readyFile, 10_000);
+  const flowPath = path.join(directory, "verify-flow.json");
+  writeFileSync(
+    flowPath,
+    `${JSON.stringify(
+      {
+        steps: [{ type: "navigate", url: shopUrl }],
+        title: "Contingency Shop smoke",
+      },
+      null,
+      2
+    )}\n`
+  );
+  writeInstance(directory, {
+    ...instance,
+    ecommerceUrl: shopUrl,
+    fixturePid: child.pid,
+    fixtureUrl: shopUrl,
+    flowPath,
+  });
+  process.stdout.write(
+    `ecommerce=${shopUrl}\nfixture=${shopUrl}\nflow=${flowPath}\n`
+  );
+};
+
+const cmdMcpStart = async () => {
+  const directory = verifyDir();
+  const instance = readInstance();
+  if (typeof instance.mcpPid === "number" && pidAlive(instance.mcpPid)) {
+    fail(`MCP already running as pid ${instance.mcpPid}.`);
+  }
+  const port = await pickPort();
+  const owner = await listenPid(port);
+  if (owner !== undefined) {
+    fail(`Port ${port} is owned by pid ${owner}. Pick another port.`);
+  }
+  const cli = ensureBuiltCli();
+  const logPath = path.join(directory, "mcp.log");
+  const logFd = openSync(logPath, "a");
+  const child = spawn(process.execPath, [cli, "mcp"], {
+    cwd: repoRoot,
+    detached: true,
+    env: {
+      ...process.env,
+      CONTINGENCY_MCP_HOST: "127.0.0.1",
+      CONTINGENCY_MCP_PORT: String(port),
+      CONTINGENCY_STATE_DIR: instance.stateDir,
+      NODE_ENV: "production",
+    },
+    stdio: ["ignore", logFd, logFd],
+  });
+  closeSync(logFd);
+  child.unref();
+  if (child.pid === undefined) {
+    fail("Failed to spawn the Contingency MCP server.");
+  }
+  const mcpUrl = `http://127.0.0.1:${port}/`;
+  try {
+    await waitForHttp(mcpUrl, 30_000);
+    const ready = await fetchText(mcpUrl);
+    if (!ready.body.includes("Contingency")) {
+      throw new Error(`GET ${mcpUrl} did not include the Contingency mark`);
+    }
+  } catch (error) {
+    child.kill("SIGTERM");
+    fail(
+      `Started MCP but the Agent View endpoint did not become ready: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  writeInstance(directory, {
+    ...instance,
+    mcpPid: child.pid,
+    mcpPort: port,
+    mcpUrl,
+  });
+  process.stdout.write(
+    `mcpUrl=${mcpUrl}\nmcpPort=${port}\nmcpPid=${child.pid}\n`
+  );
+};
+
+const cmdMcpStop = async () => {
+  const instance = readInstance();
+  if (typeof instance.mcpPid !== "number" || !pidAlive(instance.mcpPid)) {
+    fail("No live MCP instance is recorded for this verify directory.");
+  }
+  process.kill(instance.mcpPid, "SIGTERM");
+  const deadline = Date.now() + 10_000;
+  while (pidAlive(instance.mcpPid) && Date.now() < deadline) {
+    await delay(100);
+  }
+  if (pidAlive(instance.mcpPid)) {
+    process.kill(instance.mcpPid, "SIGKILL");
+  }
+  const next = { ...instance };
+  delete next.mcpPid;
+  delete next.mcpPort;
+  delete next.mcpUrl;
+  writeInstance(verifyDir(), next);
+  process.stdout.write("mcp stopped\n");
+};
+
+const cmdFixtureStop = async () => {
+  const instance = readInstance();
+  if (typeof instance.fixturePid === "number" && pidAlive(instance.fixturePid)) {
+    process.kill(instance.fixturePid, "SIGTERM");
+  }
+  const next = { ...instance };
+  delete next.fixturePid;
+  delete next.fixturePort;
+  delete next.fixtureUrl;
+  writeInstance(verifyDir(), next);
+};
+
+const main = async () => {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv[0] === "-h" || argv[0] === "--help") {
+    usage();
+    return;
+  }
+  const command = argv[0];
+  if (command === "launch") {
+    await cmdLaunch(parseArgs(argv.slice(1)).flags);
+    return;
+  }
+  if (command === "doctor") {
+    await cmdDoctor();
+    return;
+  }
+  if (command === "reload") {
+    await cmdReload(parseArgs(argv.slice(1)).flags);
+    return;
+  }
+  if (command === "cleanup") {
+    await cmdCleanup();
+    return;
+  }
+  if (command === "browser") {
+    const action = argv[1];
+    if (action === undefined) {
+      fail("browser needs an action.");
+    }
+    await cmdBrowser(action, parseArgs(argv.slice(2)).flags);
+    return;
+  }
+  if (command === "cli") {
+    const dash = argv.indexOf("--");
+    const rest = dash === -1 ? argv.slice(1) : argv.slice(dash + 1);
+    await cmdCli(rest);
+    return;
+  }
+  if (command === "driver-serve") {
+    const url = argv[1];
+    const userDataDir = argv[2];
+    if (url === undefined || userDataDir === undefined) {
+      fail("driver-serve needs a url and user data directory.");
+    }
+    await cmdDriverServe(url, userDataDir);
+    return;
+  }
+  if (command === "fixture-serve") {
+    await cmdFixtureServe();
+    return;
+  }
+  if (command === "ecommerce") {
+    const action = argv[1];
+    if (action === "start") {
+      await cmdFixtureStart();
+      return;
+    }
+    if (action === "stop") {
+      await cmdFixtureStop();
+      return;
+    }
+    fail("ecommerce needs start or stop.");
+  }
+  if (command === "fixture") {
+    const action = argv[1];
+    if (action === "start") {
+      await cmdFixtureStart();
+      return;
+    }
+    if (action === "stop") {
+      await cmdFixtureStop();
+      return;
+    }
+    fail("fixture needs start or stop.");
+  }
+  if (command === "mcp") {
+    const action = argv[1];
+    if (action === "start") {
+      await cmdMcpStart();
+      return;
+    }
+    if (action === "stop") {
+      await cmdMcpStop();
+      return;
+    }
+    fail("mcp needs start or stop.");
+  }
+  fail(`Unknown command: ${command}`);
+};
+
+main().catch((error) => {
+  fail(error instanceof Error ? error.message : String(error));
+});

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cart — Contingency Shop</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      nav a {
+        margin-right: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <nav aria-label="Shop">
+      <a href="/shop.html">Home</a>
+      <a href="/catalog.html">Catalog</a>
+      <a href="/cart.html" aria-current="page">Cart</a>
+    </nav>
+    <main>
+      <h1>Cart</h1>
+      <ul id="cart-items"></ul>
+      <p id="cart-empty">Your cart is empty.</p>
+      <a href="/shop.html">Continue shopping</a>
+    </main>
+    <script>
+      const storageKey = "contingency-shop-cart";
+      const items = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]");
+      const list = document.getElementById("cart-items");
+      const empty = document.getElementById("cart-empty");
+      if (items.length === 0) {
+        list.hidden = true;
+      } else {
+        empty.hidden = true;
+        for (const sku of items) {
+          const entry = document.createElement("li");
+          entry.textContent = `SKU ${sku}`;
+          list.append(entry);
+        }
+      }
+      fetch("/cart-viewed").catch(() => {});
+    </script>
+  </body>
+</html>
