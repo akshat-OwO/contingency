@@ -12,15 +12,43 @@ import { afterEach, expect, test, vi } from "vitest";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined as string | undefined,
+  inputCalls: [] as unknown[],
+  navigateCalls: [] as unknown[],
+  returnControlCalls: [] as unknown[],
   sessionsResult: {
     _tag: "Initial" as const,
     waiting: true,
   } as unknown,
+  takeoverCalls: [] as unknown[],
 }));
 
 vi.mock("@/lib/rpc", () => ({
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
+  agentBrowserInputMutation: Atom.fn((payload: unknown) =>
+    Effect.sync(() => {
+      rpc.inputCalls.push(payload);
+      return {};
+    })
+  ),
+  agentBrowserNavigateMutation: Atom.fn((payload: unknown) =>
+    Effect.sync(() => {
+      rpc.navigateCalls.push(payload);
+      return {};
+    })
+  ),
+  agentReturnControlMutation: Atom.fn((payload: unknown) =>
+    Effect.sync(() => {
+      rpc.returnControlCalls.push(payload);
+      return {};
+    })
+  ),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
+  agentTakeoverMutation: Atom.fn((payload: unknown) =>
+    Effect.sync(() => {
+      rpc.takeoverCalls.push(payload);
+      return {};
+    })
+  ),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: () =>
     rpc.agentStreamFailureMessage === undefined
@@ -39,14 +67,18 @@ const session = {
   createdAt: "2026-08-31T00:00:00.000Z",
   currentUrl: "https://example.com/",
   id: "agent-one",
+  interruptedAction: null,
   ownerProcessId: "mcp-test",
   phase: "running",
   takeover: null,
+  timeline: [],
   updatedAt: "2026-08-31T00:00:00.000Z",
   viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
 } as const;
 
-const resultFor = (sessions: readonly (typeof session)[]) => ({
+type Session = typeof session;
+
+const resultFor = (sessions: readonly Session[]) => ({
   _tag: "Success" as const,
   value: {
     data: { sessions },
@@ -73,6 +105,10 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
 afterEach(() => {
   cleanup();
   rpc.agentStreamFailureMessage = undefined;
+  rpc.inputCalls = [];
+  rpc.navigateCalls = [];
+  rpc.returnControlCalls = [];
+  rpc.takeoverCalls = [];
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -107,7 +143,7 @@ test("opens an owned session and shows the live browser view", async () => {
     session.id
   );
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
-  expect(screen.getByText("Activity")).toBeVisible();
+  expect(screen.getByText("Control")).toBeVisible();
 });
 
 test("does not use a foreign URL session id", async () => {
@@ -166,5 +202,197 @@ test("keeps a selected Agent Session in the route query", async () => {
       session: secondSession.id,
     });
     expect(select).toHaveValue(secondSession.id);
+  });
+});
+
+test("shows the active controller and the action timeline", async () => {
+  renderWorkspace(
+    resultFor([
+      {
+        ...session,
+        timeline: [
+          {
+            actor: "agent",
+            at: "2026-08-31T00:00:01.000Z",
+            description: "Click e4",
+            dispatched: true,
+            id: "action-one",
+            outcome: "completed",
+          },
+          {
+            actor: "agent",
+            at: "2026-08-31T00:00:02.000Z",
+            description: "Fill e2",
+            dispatched: true,
+            id: "action-two",
+            outcome: "failed",
+          },
+        ],
+      } as unknown as Session,
+    ]),
+    session.id
+  );
+  expect(await screen.findByText("The agent has control")).toBeVisible();
+  const timeline = screen.getByRole("list", { name: "Action timeline" });
+  expect(timeline).toHaveTextContent("Click e4");
+  expect(timeline).toHaveTextContent("Fill e2");
+});
+
+test("takes control from Agent View and returns it explicitly", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([session]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Take control" }));
+  await waitFor(() => {
+    expect(rpc.takeoverCalls).toHaveLength(1);
+  });
+
+  cleanup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...session,
+        controller: "user",
+        interruptedAction: {
+          actor: "agent",
+          at: "2026-08-31T00:00:03.000Z",
+          description: "Click e4",
+          detail:
+            "Takeover interrupted this action. The browser may already have performed it.",
+          dispatched: true,
+          id: "action-three",
+          outcome: "interrupted",
+        },
+        phase: "takeover",
+        takeover: {
+          reason: "I will finish this myself.",
+          requestedAt: "2026-08-31T00:00:03.000Z",
+          requestedBy: "user",
+        },
+      } as unknown as Session,
+    ]),
+    session.id
+  );
+  expect(await screen.findByText("You have control")).toBeVisible();
+  expect(screen.getByText(/may already have performed it/u)).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Return control" }));
+  await waitFor(() => {
+    expect(rpc.returnControlCalls).toHaveLength(1);
+  });
+});
+
+test("forwards browser input only while the user holds the browser", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([session]), session.id);
+  const watching = await screen.findByLabelText("Live browser viewport");
+  expect(watching).toHaveAttribute("aria-readonly", "true");
+  await user.click(watching);
+  expect(rpc.inputCalls).toHaveLength(0);
+
+  cleanup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...session,
+        controller: "user",
+        phase: "takeover",
+        takeover: {
+          reason: "I will finish this myself.",
+          requestedAt: "2026-08-31T00:00:03.000Z",
+          requestedBy: "user",
+        },
+      } as unknown as Session,
+    ]),
+    session.id
+  );
+  const driving = await screen.findByLabelText("Live browser viewport");
+  expect(driving).toHaveAttribute("aria-readonly", "false");
+  await user.click(driving);
+  await waitFor(() => {
+    expect(rpc.inputCalls.length).toBeGreaterThan(0);
+  });
+});
+
+const takenOverSession = {
+  ...session,
+  controller: "user",
+  currentUrl: "https://example.com/dashboard",
+  phase: "takeover",
+  takeover: {
+    reason: "I will finish this myself.",
+    requestedAt: "2026-08-31T00:00:03.000Z",
+    requestedBy: "user",
+  },
+} as unknown as Session;
+
+test("offers browser navigation only while the user holds the browser", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([session]), session.id);
+  expect(await screen.findByLabelText("Go back")).toBeDisabled();
+  expect(screen.getByLabelText("Reload page")).toBeDisabled();
+  expect(screen.getByLabelText("Browser address")).toBeDisabled();
+
+  cleanup();
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const back = await screen.findByLabelText("Go back");
+  expect(back).toBeEnabled();
+  await user.click(back);
+  await waitFor(() => {
+    expect(rpc.navigateCalls).toHaveLength(1);
+  });
+  expect(rpc.navigateCalls.at(0)).toMatchObject({
+    payload: {
+      data: {
+        action: { action: "back", type: "history" },
+        sessionId: session.id,
+      },
+      type: "agent.browser.navigate",
+    },
+  });
+});
+
+test("navigates to a typed address during Takeover", async () => {
+  const user = userEvent.setup();
+  rpc.navigateCalls.length = 0;
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const address = await screen.findByLabelText("Browser address");
+  expect(address).toHaveValue("https://example.com/dashboard");
+  await user.clear(address);
+  await user.type(address, "example.org/pricing{Enter}");
+  await waitFor(() => {
+    expect(rpc.navigateCalls).toHaveLength(1);
+  });
+  expect(rpc.navigateCalls.at(0)).toMatchObject({
+    payload: {
+      data: {
+        action: { type: "navigate", url: "https://example.org/pricing" },
+      },
+    },
+  });
+});
+
+test("scrolls the browser with the wheel only during Takeover", async () => {
+  renderWorkspace(resultFor([session]), session.id);
+  const watching = await screen.findByLabelText("Live browser viewport");
+  rpc.inputCalls.length = 0;
+  watching.dispatchEvent(
+    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 })
+  );
+  expect(rpc.inputCalls).toHaveLength(0);
+
+  cleanup();
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const driving = await screen.findByLabelText("Live browser viewport");
+  driving.dispatchEvent(
+    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 })
+  );
+  await waitFor(() => {
+    expect(rpc.inputCalls).toHaveLength(1);
+  });
+  expect(rpc.inputCalls.at(0)).toMatchObject({
+    payload: {
+      data: {
+        input: { deltaY: 240, eventType: "mouseWheel", type: "input_mouse" },
+      },
+    },
   });
 });

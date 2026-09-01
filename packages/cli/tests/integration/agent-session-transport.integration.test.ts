@@ -536,7 +536,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
           url: `data:text/html,<title>${name}</title><main>${name}</main>`,
           viewport,
         },
-        name: "agent.session.start",
+        name: "agent_session_start",
       });
     const first = toolResult(yield* start(2, "child-start-first", "first"));
     const second = toolResult(yield* start(3, "child-start-second", "second"));
@@ -620,7 +620,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     const close = (id: number, operationId: string, sessionId: string) =>
       sendAndReceive(id, "tools/call", {
         arguments: { operationId, sessionId },
-        name: "agent.session.close",
+        name: "agent_session_close",
       });
     const firstClosed = toolResult(
       yield* close(4, "child-close-first", String(firstSessionId))
@@ -634,7 +634,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     const live = toolResult(
       yield* sendAndReceive(5, "tools/call", {
         arguments: {},
-        name: "agent.sessions.get",
+        name: "agent_sessions_get",
       })
     );
     if (!isRecord(live.structuredContent)) {
@@ -671,5 +671,59 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     expect(stopped.code).toBe(130);
     expect(yield* fileSystem.exists(liveLockPath)).toBe(false);
     expect(yield* fileSystem.exists(ownerMarker)).toBe(false);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("keeps MCP stdio up when the configured Agent View port is taken", () =>
+  Effect.gen(function* occupiedAgentViewPort() {
+    const occupiedPort = yield* reservePort;
+    const occupier = createServer();
+    yield* Effect.acquireRelease(
+      Effect.promise(
+        () =>
+          // oxlint-disable-next-line promise/avoid-new -- Bridges the Node listen callback.
+          new Promise<void>((resolve, reject) => {
+            occupier.once("error", reject);
+            occupier.listen(occupiedPort, "127.0.0.1", () => {
+              occupier.off("error", reject);
+              resolve();
+            });
+          })
+      ),
+      () =>
+        Effect.promise(
+          () =>
+            // oxlint-disable-next-line promise/avoid-new -- Bridges the Node close callback.
+            new Promise<void>((resolve, reject) => {
+              occupier.close((cause) =>
+                cause === undefined ? resolve() : reject(cause)
+              );
+            })
+        )
+    );
+    const mcp = spawnMcpChild(occupiedPort);
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(() => mcp.stop()).pipe(
+        Effect.timeout("15 seconds"),
+        Effect.ignore
+      )
+    );
+    yield* Effect.promise(() =>
+      mcp.waitForText("Agent View available at http://127.0.0.1:")
+    );
+    yield* Effect.promise(() =>
+      mcp.send({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: { name: "occupied-port-test", version: "1" },
+          protocolVersion: "2025-06-18",
+        },
+      })
+    );
+    const initialized = yield* Effect.promise(() => mcp.receive(1));
+    expect(initialized.error).toBeUndefined();
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

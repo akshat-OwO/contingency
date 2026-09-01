@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "contingency": {
+      "command": "node",
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/packages/cli/dist/index.js", "mcp"],
+      "env": {
+        "CONTINGENCY_MCP_HOST": "127.0.0.1",
+        "CONTINGENCY_MCP_PORT": "7781"
+      }
+    }
+  }
+}

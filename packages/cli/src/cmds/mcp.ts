@@ -1,6 +1,15 @@
-import { Config, Console, Effect, FileSystem, Layer, Logger } from "effect";
+import {
+  Config,
+  Console,
+  Effect,
+  FileSystem,
+  Layer,
+  Logger,
+  Result,
+} from "effect";
 import { McpProtocol, McpServer } from "effect/unstable/ai";
 import { Command } from "effect/unstable/cli";
+import { HttpServerError } from "effect/unstable/http";
 
 import {
   defaultAgentResourceDirectory,
@@ -11,6 +20,22 @@ import { makeHttpServerLayer } from "../services/http-server.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
+
+/** How many loopback ports to try after the configured Agent View port is taken. */
+const AGENT_VIEW_PORT_FALLBACKS = 16;
+
+const isListenAddressInUse = (error: unknown): boolean => {
+  if (!(error instanceof HttpServerError.ServeError)) {
+    return false;
+  }
+  const { cause } = error;
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    cause.code === "EADDRINUSE"
+  );
+};
 
 /**
  * Start one local MCP process. Its Agent Session layer is passed to both the
@@ -32,26 +57,27 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const browserUrl = new URL(`http://${config.host}:${config.port}`);
+    const { host, port: configuredPort } = config;
+    const boundOrigin = {
+      url: `http://${host}:${configuredPort}`,
+    };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
         const fileSystem = yield* FileSystem.FileSystem;
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
-        const agentSession = makeAgentSessionLayer({
-          baseUrl: browserUrl.origin,
-          resourceDirectory: ownerMarker,
-        });
-        const server = Layer.mergeAll(
-          makeHttpServerLayer({
-            agentSession,
-            allowedOrigins: resolveAllowedOrigins(browserUrl),
-            host: config.host,
-            port: config.port,
-            run: { flow: null, outputDirectory: defaultRunsDirectory() },
-            serveWebUi: true,
-          }),
+        const agentSession = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentSessionLayer({
+              get baseUrl() {
+                return boundOrigin.url;
+              },
+              resourceDirectory: ownerMarker,
+            })
+          )
+        );
+        const mcp = Layer.mergeAll(
           McpServer.layerStdio({
             name: "Contingency",
             protocols: [McpProtocol.v2025_06_18],
@@ -64,10 +90,40 @@ export const mcpCommand = Command.make(
             .remove(ownerMarker, { recursive: true })
             .pipe(Effect.ignore)
         );
-        yield* Layer.build(server);
-        yield* Console.error(
-          `Contingency MCP Agent View available at ${browserUrl.origin}/agent`
-        );
+        // Stdio must come up even when Agent View cannot bind. Cursor 3.19
+        // reloads this process while a sibling still holds the configured port;
+        // dying on EADDRINUSE is reported as MCP -32000 Connection closed.
+        yield* Layer.build(mcp);
+        const lastPort = configuredPort + AGENT_VIEW_PORT_FALLBACKS;
+        for (let port = configuredPort; port <= lastPort; port += 1) {
+          const browserUrl = new URL(`http://${host}:${port}`);
+          const outcome = yield* Layer.build(
+            makeHttpServerLayer({
+              agentSession,
+              allowedOrigins: resolveAllowedOrigins(browserUrl),
+              host,
+              port,
+              run: { flow: null, outputDirectory: defaultRunsDirectory() },
+              serveWebUi: true,
+            }).pipe(Layer.provide(agentSession))
+          ).pipe(Effect.result);
+          if (Result.isSuccess(outcome)) {
+            boundOrigin.url = browserUrl.origin;
+            yield* Console.error(
+              `Contingency MCP Agent View available at ${browserUrl.origin}/agent`
+            );
+            return yield* Effect.never;
+          }
+          if (!isListenAddressInUse(outcome.failure) || port === lastPort) {
+            if (isListenAddressInUse(outcome.failure)) {
+              yield* Console.error(
+                `Contingency MCP Agent View could not bind ${host}:${configuredPort}-${lastPort}; tools still run on stdio.`
+              );
+              return yield* Effect.never;
+            }
+            return yield* Effect.fail(outcome.failure);
+          }
+        }
         return yield* Effect.never;
       })
     ).pipe(Effect.provideService(Logger.LogToStderr, true));

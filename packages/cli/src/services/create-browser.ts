@@ -363,6 +363,11 @@ const makeService = (
         const session = yield* requireSession(sessionId);
         yield* acknowledgeFrame(session, sequence, streamId);
       }),
+    activePage: (sessionId) =>
+      Effect.gen(function* readActivePage() {
+        const session = yield* requireSession(sessionId);
+        return readSessionState(session).activePage;
+      }),
     clearStorage: storage.clear,
     close: closeSession,
     closeTab: (sessionId, tabId) =>

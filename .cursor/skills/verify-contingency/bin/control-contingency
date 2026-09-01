@@ -46,6 +46,7 @@ Commands:
   browser wait --role <role> --name <name> [--has-text <substring>] [--timeout-ms <n>] [--partial]
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
+  mcp call --tool <name> [--params <json>]
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
@@ -889,27 +890,43 @@ const cmdMcpStart = async () => {
     fail(`Port ${port} is owned by pid ${owner}. Pick another port.`);
   }
   const cli = ensureBuiltCli();
+  const brokerPort = await pickPort();
   const logPath = path.join(directory, "mcp.log");
   const logFd = openSync(logPath, "a");
-  const child = spawn(process.execPath, [cli, "mcp"], {
-    cwd: repoRoot,
-    detached: true,
-    env: {
-      ...process.env,
-      CONTINGENCY_MCP_HOST: "127.0.0.1",
-      CONTINGENCY_MCP_PORT: String(port),
-      CONTINGENCY_STATE_DIR: instance.stateDir,
-      NODE_ENV: "production",
-    },
-    stdio: ["ignore", logFd, logFd],
-  });
+  // The MCP server is spawned by a broker that holds one stdio conversation
+  // open, so `mcp call` can start Agent Sessions in the same process that
+  // serves Agent View. Sessions live in that process and nowhere else.
+  const child = spawn(
+    process.execPath,
+    [
+      path.join(here, "mcp-broker.mjs"),
+      "--cli",
+      cli,
+      "--port",
+      String(brokerPort),
+    ],
+    {
+      cwd: repoRoot,
+      detached: true,
+      env: {
+        ...process.env,
+        CONTINGENCY_MCP_HOST: "127.0.0.1",
+        CONTINGENCY_MCP_PORT: String(port),
+        CONTINGENCY_STATE_DIR: instance.stateDir,
+        NODE_ENV: "production",
+      },
+      stdio: ["ignore", logFd, logFd],
+    }
+  );
   closeSync(logFd);
   child.unref();
   if (child.pid === undefined) {
     fail("Failed to spawn the Contingency MCP server.");
   }
   const mcpUrl = `http://127.0.0.1:${port}/`;
+  const brokerUrl = `http://127.0.0.1:${brokerPort}/`;
   try {
+    await waitForHttp(`${brokerUrl}health`, 30_000);
     await waitForHttp(mcpUrl, 30_000);
     const ready = await fetchText(mcpUrl);
     if (!ready.body.includes("Contingency")) {
@@ -923,13 +940,60 @@ const cmdMcpStart = async () => {
   }
   writeInstance(directory, {
     ...instance,
+    brokerUrl,
     mcpPid: child.pid,
     mcpPort: port,
     mcpUrl,
   });
   process.stdout.write(
-    `mcpUrl=${mcpUrl}\nmcpPort=${port}\nmcpPid=${child.pid}\n`
+    `mcpUrl=${mcpUrl}\nmcpPort=${port}\nmcpPid=${child.pid}\nbrokerUrl=${brokerUrl}\n`
   );
+};
+
+/**
+ * Call one MCP tool on the running verification server. This is how a drive
+ * creates the Agent Sessions Agent View shows: they exist only inside the MCP
+ * process that owns them.
+ */
+const cmdMcpCall = async (flags) => {
+  const instance = readInstance();
+  if (typeof instance.brokerUrl !== "string") {
+    fail("No MCP instance is recorded. Run mcp start first.");
+  }
+  const tool = typeof flags.tool === "string" ? flags.tool : undefined;
+  if (tool === undefined) {
+    fail("mcp call needs --tool <name>.");
+  }
+  let params = {};
+  if (typeof flags.params === "string") {
+    try {
+      params = JSON.parse(flags.params);
+    } catch (error) {
+      fail(
+        `--params is not JSON: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+  const response = await fetch(`${instance.brokerUrl}call`, {
+    body: JSON.stringify({ params, tool }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    fail(`${tool} failed (${response.status}): ${body}`);
+  }
+  const result = JSON.parse(body);
+  // A tool refusal is an answer, not a transport failure: it is printed with a
+  // non-zero exit so a drive can assert on the reason it names.
+  const text = (result.content ?? [])
+    .filter((entry) => entry.type === "text")
+    .map((entry) => entry.text)
+    .join("\n");
+  process.stdout.write(`${text.length > 0 ? text : body}\n`);
+  if (result.isError === true) {
+    process.exit(2);
+  }
 };
 
 const cmdMcpStop = async () => {
@@ -946,6 +1010,7 @@ const cmdMcpStop = async () => {
     process.kill(instance.mcpPid, "SIGKILL");
   }
   const next = { ...instance };
+  delete next.brokerUrl;
   delete next.mcpPid;
   delete next.mcpPort;
   delete next.mcpUrl;
@@ -1045,11 +1110,15 @@ const main = async () => {
       await cmdMcpStart();
       return;
     }
+    if (action === "call") {
+      await cmdMcpCall(parseArgs(argv.slice(2)).flags);
+      return;
+    }
     if (action === "stop") {
       await cmdMcpStop();
       return;
     }
-    fail("mcp needs start or stop.");
+    fail("mcp needs start, call, or stop.");
   }
   fail(`Unknown command: ${command}`);
 };

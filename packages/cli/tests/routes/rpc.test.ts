@@ -174,6 +174,7 @@ const rpcStreamNotUnderTest = () => Stream.never;
 
 const genericBrowser: CreateBrowserService = {
   acknowledgeFrame: rpcNotUnderTest,
+  activePage: rpcNotUnderTest,
   clearStorage: rpcNotUnderTest,
   close: () =>
     Effect.sync(() => {
@@ -207,6 +208,7 @@ const agentSessionOwnership: AgentSessionService = {
     Effect.sync(() => {
       agentAcknowledgeCalls += 1;
     }),
+  act: rpcNotUnderTest,
   browserStream: rpcStreamNotUnderTest,
   changes: rpcStreamNotUnderTest,
   close: rpcNotUnderTest,
@@ -215,7 +217,14 @@ const agentSessionOwnership: AgentSessionService = {
   list: () => Effect.succeed([]),
   ownsBrowserSession: (ownedSessionId) =>
     Effect.succeed(ownedSessionId === genericPrivateSessionId),
+  requestTakeover: rpcNotUnderTest,
+  returnControl: rpcNotUnderTest,
+  screenshot: rpcNotUnderTest,
+  sendInput: rpcNotUnderTest,
+  snapshot: rpcNotUnderTest,
   start: rpcNotUnderTest,
+  takeover: rpcNotUnderTest,
+  userNavigate: rpcNotUnderTest,
 };
 
 it.effect("refuses to start a Run while a Recording is in progress", () =>

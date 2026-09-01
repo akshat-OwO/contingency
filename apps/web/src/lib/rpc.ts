@@ -108,6 +108,21 @@ export const agentSessionsAtom = ContingencyRpcClient.query(
 export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
   "agent.browser.frame.ack"
 );
+/** What the user sends to the browser while they hold it during Takeover. */
+export const agentBrowserInputMutation = ContingencyRpcClient.mutation(
+  "agent.browser.input.send"
+);
+/** History and address-bar navigation while the user holds the browser. */
+export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
+  "agent.browser.navigate"
+);
+/** Takeover is a direct user action: Agent View alone initiates it. */
+export const agentTakeoverMutation = ContingencyRpcClient.mutation(
+  "agent.session.takeover"
+);
+export const agentReturnControlMutation = ContingencyRpcClient.mutation(
+  "agent.session.control.return"
+);
 
 export const recordingAtom = ContingencyRpcClient.query("recording.get", {
   data: {},

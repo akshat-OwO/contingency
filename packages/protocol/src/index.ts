@@ -2,6 +2,11 @@ import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
 import {
+  AgentBrowserObserve,
+  AgentHistoryAction,
+  AgentNavigateAction,
+} from "./agent-browser.ts";
+import {
   AgentSessionClose,
   AgentSessionCloseResult,
   AgentSessionGet,
@@ -10,12 +15,15 @@ import {
   AgentSessionStart,
   AgentSessionStartResult,
   AgentSessionStreamSubscribe,
+  AgentSessionReturnControl,
+  AgentSessionTakeover,
 } from "./agent-session.ts";
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
   AuditKind,
+  DraftEmulation,
   Geolocation,
   PermissionDecisions,
   RecordingSnapshot,
@@ -37,7 +45,11 @@ export * from "./run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./storage.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-identifiers.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-session.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-browser.ts";
 export {
   BrowserTabId,
   SessionId,
@@ -328,6 +340,14 @@ export const BrandId = Schema.Literals([
   "agent.session.stream.subscribe",
   "agent.browser.stream.subscribe",
   "agent.browser.frame.ack",
+  "agent.session.takeover",
+  "agent.session.takeover.started",
+  "agent.session.control.return",
+  "agent.session.control.returned",
+  "agent.browser.input.send",
+  "agent.browser.input.sent",
+  "agent.browser.navigate",
+  "agent.browser.navigated",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -358,24 +378,6 @@ export const BrowserSessionClose = request("browser.session.close", {
   sessionId: SessionId,
 });
 export const BrowserSessionClosed = response("browser.session.closed", {});
-
-/**
- * One whole Emulation Create View has composed but no session applies yet: the
- * browser identity, its viewport, and the environment around it as a single
- * value. It travels with the first navigation so the session's first request
- * and document already carry it, rather than being patched in afterwards ([ADR
- * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
- */
-export const DraftEmulation = Schema.Struct({
-  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
-  geolocation: Schema.optional(Geolocation),
-  locale: Schema.optional(nonEmptyProtocolString),
-  permissions: PermissionDecisions,
-  timezoneId: Schema.optional(nonEmptyProtocolString),
-  userAgentProfile: UserAgentProfileId,
-  viewport: Viewport,
-});
-export type DraftEmulation = typeof DraftEmulation.Type;
 
 export const BrowserOpen = request("browser.open", {
   /** The whole Emulation to apply before the first request leaves. */
@@ -707,6 +709,7 @@ export const AgentSessionStartRequest = request("agent.session.start", {
   activity: AgentSessionStart.fields.activity,
   clientName: AgentSessionStart.fields.clientName,
   clientVersion: AgentSessionStart.fields.clientVersion,
+  emulation: AgentSessionStart.fields.emulation,
   name: AgentSessionStart.fields.name,
   operationId: AgentSessionStart.fields.operationId,
   url: AgentSessionStart.fields.url,
@@ -751,6 +754,58 @@ export const AgentBrowserFrameAck = request("agent.browser.frame.ack", {
   streamId: BrowserStreamId,
 });
 export const AgentBrowserFrameAcked = response("agent.browser.frame.acked", {});
+
+/**
+ * Takeover is exclusive and the user has priority. Agent View initiates it
+ * directly; the external agent may only request it, and that request returns
+ * the Agent View link immediately rather than holding a call open while the
+ * user acts ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ */
+export const AgentSessionTakeoverRequest = request("agent.session.takeover", {
+  operationId: AgentSessionTakeover.fields.operationId,
+  reason: AgentSessionTakeover.fields.reason,
+  sessionId: AgentSessionTakeover.fields.sessionId,
+});
+export const AgentSessionTakeoverStarted = response(
+  "agent.session.takeover.started",
+  { session: AgentSessionSnapshot }
+);
+
+export const AgentSessionControlReturnRequest = request(
+  "agent.session.control.return",
+  {
+    operationId: AgentSessionReturnControl.fields.operationId,
+    sessionId: AgentSessionReturnControl.fields.sessionId,
+  }
+);
+export const AgentSessionControlReturned = response(
+  "agent.session.control.returned",
+  { session: AgentSessionSnapshot }
+);
+
+/**
+ * What the user does with the browser during Takeover. It is deliberately not
+ * an MCP tool: raw input belongs to the person who took control, and control
+ * is exclusive, so the agent cannot send it at all.
+ */
+export const AgentBrowserInputSend = request("agent.browser.input.send", {
+  input: BrowserInput,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+export const AgentBrowserInputSent = response("agent.browser.input.sent", {});
+
+/**
+ * Address-bar and history navigation while the user holds the browser. It
+ * carries the same actions the agent may take, so a Takeover is a real
+ * browser, not a viewport: only the actor changes.
+ */
+export const AgentBrowserNavigate = request("agent.browser.navigate", {
+  action: Schema.Union([AgentNavigateAction, AgentHistoryAction]),
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+export const AgentBrowserNavigated = response("agent.browser.navigated", {
+  session: AgentSessionSnapshot,
+});
 
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
@@ -1041,6 +1096,26 @@ const AgentBrowserFrameAckRpc = Rpc.make("agent.browser.frame.ack", {
   payload: AgentBrowserFrameAck,
   success: AgentBrowserFrameAcked,
 });
+const AgentSessionTakeoverRpc = Rpc.make("agent.session.takeover", {
+  error: BrowserRpcError,
+  payload: AgentSessionTakeoverRequest,
+  success: AgentSessionTakeoverStarted,
+});
+const AgentSessionControlReturnRpc = Rpc.make("agent.session.control.return", {
+  error: BrowserRpcError,
+  payload: AgentSessionControlReturnRequest,
+  success: AgentSessionControlReturned,
+});
+const AgentBrowserInputSendRpc = Rpc.make("agent.browser.input.send", {
+  error: BrowserRpcError,
+  payload: AgentBrowserInputSend,
+  success: AgentBrowserInputSent,
+});
+const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
+  error: BrowserRpcError,
+  payload: AgentBrowserNavigate,
+  success: AgentBrowserNavigated,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -1096,5 +1171,9 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionCloseRpc,
   AgentSessionStreamSubscribeRpc,
   AgentBrowserStreamSubscribeRpc,
-  AgentBrowserFrameAckRpc
+  AgentBrowserFrameAckRpc,
+  AgentSessionTakeoverRpc,
+  AgentSessionControlReturnRpc,
+  AgentBrowserInputSendRpc,
+  AgentBrowserNavigateRpc
 ) {}

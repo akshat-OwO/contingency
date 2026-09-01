@@ -1,0 +1,7 @@
+[mcp_servers.contingency]
+command = "node"
+args = ["packages/cli/dist/index.js", "mcp"]
+
+[mcp_servers.contingency.env]
+CONTINGENCY_MCP_HOST = "127.0.0.1"
+CONTINGENCY_MCP_PORT = "7782"

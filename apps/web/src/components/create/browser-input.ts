@@ -1,6 +1,10 @@
-import type { BrowserStreamEvent, MouseButton } from "@contingency/protocol";
+import type {
+  BrowserInput,
+  BrowserStreamEvent,
+  MouseButton,
+} from "@contingency/protocol";
 import { Effect } from "effect";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, PointerEvent } from "react";
 
 export const keyboardKeyInfo: Readonly<
   Record<string, { readonly keyCode: number; readonly text?: string }>
@@ -56,6 +60,103 @@ export const mousePosition = (
   return {
     x: ((event.clientX - bounds.left) * canvas.width) / bounds.width,
     y: ((event.clientY - bounds.top) * canvas.height) / bounds.height,
+  };
+};
+
+/**
+ * The canvas events one interactive browser viewport forwards, built once so
+ * every interface that lets a person drive the browser sends the same input.
+ */
+/**
+ * Keeping the pointer on the canvas for the duration of a drag. It is a
+ * convenience of the real browser, not part of the input the page receives,
+ * so an environment that cannot capture pointers still forwards the event.
+ */
+const capturePointer = (
+  canvas: HTMLCanvasElement,
+  pointerId: number,
+  take: boolean
+): void => {
+  try {
+    if (take) {
+      canvas.setPointerCapture(pointerId);
+    } else if (canvas.hasPointerCapture(pointerId)) {
+      canvas.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // Pointer capture is unavailable here; the input still reaches the page.
+    canvas.blur();
+    canvas.focus();
+  }
+};
+
+export const makeBrowserInputHandlers = (
+  dispatchInput: (input: BrowserInput) => void
+) => {
+  const handlePointer = (
+    event: PointerEvent<HTMLCanvasElement>,
+    eventType: "mousePressed" | "mouseReleased"
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const canvas = event.currentTarget;
+    const position = mousePosition(canvas, event);
+    if (eventType === "mousePressed") {
+      canvas.focus();
+      capturePointer(canvas, event.pointerId, true);
+    } else {
+      capturePointer(canvas, event.pointerId, false);
+    }
+    dispatchInput({
+      ...position,
+      button: pointerButton(event.button),
+      clickCount: Math.max(1, event.detail),
+      eventType,
+      modifiers: keyboardModifiers(event),
+      type: "input_mouse",
+    });
+  };
+
+  return {
+    handleKey: (
+      event: KeyboardEvent<HTMLCanvasElement>,
+      eventType: "keyDown" | "keyUp"
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const info = keyboardKeyInfo[event.key];
+      const text =
+        eventType === "keyDown"
+          ? (info?.text ?? (event.key.length === 1 ? event.key : undefined))
+          : undefined;
+      const windowsVirtualKeyCode =
+        info?.keyCode ??
+        (event.key.length === 1 ? (event.key.codePointAt(0) ?? 0) : 0);
+      dispatchInput({
+        code: event.code,
+        eventType,
+        key: event.key,
+        modifiers: keyboardModifiers(event),
+        ...(text === undefined ? {} : { text }),
+        type: "input_keyboard",
+        windowsVirtualKeyCode,
+      });
+    },
+    handlePointerDown: (event: PointerEvent<HTMLCanvasElement>) => {
+      handlePointer(event, "mousePressed");
+    },
+    handlePointerMove: (event: PointerEvent<HTMLCanvasElement>) => {
+      dispatchInput({
+        ...mousePosition(event.currentTarget, event),
+        button: "none",
+        eventType: "mouseMoved",
+        modifiers: keyboardModifiers(event),
+        type: "input_mouse",
+      });
+    },
+    handlePointerUp: (event: PointerEvent<HTMLCanvasElement>) => {
+      handlePointer(event, "mouseReleased");
+    },
   };
 };
 

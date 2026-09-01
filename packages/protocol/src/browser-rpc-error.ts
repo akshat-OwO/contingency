@@ -30,6 +30,12 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "agent_session_invalid",
     "agent_session_not_found",
     "agent_session_unavailable",
+    // The element reference came from a Browser Snapshot the Page has since
+    // navigated away from or mutated, so acting on it would act on nothing.
+    "agent_element_stale",
+    // The user holds the browser during Takeover, so agent action tools are
+    // disabled until control is explicitly returned.
+    "agent_control_unavailable",
   ]),
   message: Schema.String,
 });

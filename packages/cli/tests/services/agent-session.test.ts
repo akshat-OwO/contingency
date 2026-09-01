@@ -2,8 +2,13 @@ import {
   makeBrowserRpcError,
   OperationId,
   SessionId,
+  UserAgentProfileId,
 } from "@contingency/protocol";
-import type { BrowserRpcErrorType } from "@contingency/protocol";
+import type {
+  BrowserRpcErrorType,
+  DraftEmulation,
+  Viewport,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect";
@@ -23,10 +28,24 @@ const viewport = {
   width: 640,
 } as const;
 
+/** One suspended `currentUrl` read: it reports entry, then waits. */
+interface HeldRead {
+  readonly entered: Deferred.Deferred<true>;
+  readonly release: Deferred.Deferred<true>;
+}
+
 interface FakeBrowser {
   readonly browser: CreateBrowserService;
   readonly closed: SessionId[];
   readonly created: SessionId[];
+  /** The Emulation each `open` was asked to apply, in order. */
+  readonly emulations: DraftEmulation[];
+  /** The viewport each session was created at, in order. */
+  readonly viewports: Viewport[];
+  /** Suspend the next `currentUrl` read, the way a real one can suspend. */
+  readonly holdNextCurrentUrl: (held: HeldRead) => void;
+  /** Move the fake Page the way a user click during Takeover would. */
+  readonly visit: (url: string) => void;
 }
 
 const notUnderTest = () => Effect.die("Not under test.");
@@ -42,14 +61,22 @@ const makeFakeBrowser = (options?: {
 }): FakeBrowser => {
   const created: SessionId[] = [];
   const closed: SessionId[] = [];
+  const emulations: DraftEmulation[] = [];
+  const viewports: Viewport[] = [];
+  let pageUrl = "about:blank";
   const blockClose = options?.blockClose;
   const blockCurrentUrl = options?.blockCurrentUrl;
+  /** Armed by a test to suspend the next `currentUrl` read. */
+  let hold: HeldRead | undefined;
   const failure = makeBrowserRpcError(
     "agent_browser_failed",
     "The fake browser failed."
   );
   const browser: CreateBrowserService = {
     acknowledgeFrame: notUnderTest,
+    // The fake has no real Page, so reaching the browser is observable as
+    // this failure rather than as a successful action.
+    activePage: () => Effect.fail(failure),
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {
@@ -64,13 +91,23 @@ const makeFakeBrowser = (options?: {
       });
     },
     closeTab: notUnderTest,
-    create: () =>
+    create: (_name, createdViewport) =>
       Effect.sync(() => {
         const sessionId = SessionId.make(`create-agent-${created.length + 1}`);
         created.push(sessionId);
+        viewports.push(createdViewport);
         return sessionId;
       }),
     currentUrl: () => {
+      if (hold !== undefined) {
+        const held = hold;
+        hold = undefined;
+        return Effect.gen(function* heldCurrentUrl() {
+          yield* Deferred.succeed(held.entered, true);
+          yield* Deferred.await(held.release);
+          return pageUrl;
+        });
+      }
       if (blockCurrentUrl !== undefined) {
         return Effect.gen(function* blockedCurrentUrl() {
           yield* Deferred.succeed(blockCurrentUrl, true);
@@ -79,7 +116,7 @@ const makeFakeBrowser = (options?: {
       }
       return options?.failCurrentUrl
         ? Effect.fail(failure)
-        : Effect.succeed("about:blank");
+        : Effect.succeed(pageUrl);
     },
     deleteStorage: notUnderTest,
     getEmulation: notUnderTest,
@@ -90,10 +127,12 @@ const makeFakeBrowser = (options?: {
     list: notUnderTest,
     navigate: notUnderTest,
     newTab: notUnderTest,
-    open: (sessionId, url) => {
+    open: (sessionId, url, emulation) => {
       if (options?.failOpen || sessionId === undefined) {
         return Effect.fail(failure);
       }
+      pageUrl = url;
+      emulations.push(emulation);
       return Effect.succeed({ sessionId, url });
     },
     recorderTarget: notUnderTest,
@@ -105,7 +144,19 @@ const makeFakeBrowser = (options?: {
     stream: () => Stream.never,
     switchTab: notUnderTest,
   };
-  return { browser, closed, created };
+  return {
+    browser,
+    closed,
+    created,
+    emulations,
+    holdNextCurrentUrl: (held) => {
+      hold = held;
+    },
+    viewports,
+    visit: (url: string) => {
+      pageUrl = url;
+    },
+  };
 };
 
 const startInput = (operationId: string): AgentSessionStartInput => ({
@@ -297,4 +348,178 @@ it.effect("refuses a non-loopback Agent View before opening a browser", () =>
     expect(failure.code).toBe("agent_session_invalid");
     expect(fake.created).toHaveLength(0);
   })
+);
+
+it.effect("refuses user navigation while the agent holds the browser", () =>
+  Effect.gen(function* refuseUserNavigation() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const started = yield* service.start(startInput("start-navigation"));
+
+    const refusal = yield* Effect.flip(
+      service.userNavigate(started.id, { action: "back", type: "history" })
+    );
+    expect(refusal.code).toBe("agent_control_unavailable");
+
+    yield* service.takeover(
+      started.id,
+      "I will finish this myself.",
+      OperationId.make("takeover-navigation")
+    );
+    // Control is the only gate: with it held, navigation reaches the browser
+    // rather than being refused.
+    const dispatched = yield* Effect.flip(
+      service.userNavigate(started.id, { action: "back", type: "history" })
+    );
+    expect(dispatched.code).toBe("agent_browser_failed");
+  })
+);
+
+it.effect("reads where the browser is, not where it was last driven", () =>
+  Effect.gen(function* trackUserNavigation() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const started = yield* service.start(startInput("start-url-tracking"));
+    expect(started.currentUrl).toBe("data:text/html,<main>test</main>");
+
+    yield* service.takeover(
+      started.id,
+      "I will finish this myself.",
+      OperationId.make("takeover-url-tracking")
+    );
+    // A click that navigates goes through raw input: no action path records
+    // it, so only re-reading the Page keeps the session honest.
+    fake.visit("https://example.com/pricing");
+
+    const read = yield* service.get(started.id);
+    expect(read.currentUrl).toBe("https://example.com/pricing");
+    const listed = yield* service.list();
+    expect(listed.map(({ currentUrl }) => currentUrl)).toEqual([
+      "https://example.com/pricing",
+    ]);
+  })
+);
+
+it.effect("runs a session under the Emulation it was started with", () =>
+  Effect.gen(function* mobileAgentSession() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const phone = {
+      permissions: [],
+      userAgentProfile: UserAgentProfileId.make("safari-iphone"),
+      viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
+    } as const;
+
+    yield* service.start({
+      ...startInput("start-mobile"),
+      emulation: phone,
+    });
+
+    // The browser is created at the Emulation's viewport, not the shorthand
+    // one, so the first document is laid out for the device.
+    expect(fake.viewports.at(0)).toEqual(phone.viewport);
+    expect(fake.emulations.at(0)).toEqual(phone);
+  })
+);
+
+it.effect("runs the default identity when no Emulation is given", () =>
+  Effect.gen(function* defaultAgentSession() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+
+    yield* service.start(startInput("start-default-identity"));
+
+    expect(fake.viewports.at(0)).toEqual(viewport);
+    expect(fake.emulations.at(0)).toEqual({
+      permissions: [],
+      userAgentProfile: UserAgentProfileId.make("default"),
+      viewport,
+    });
+  })
+);
+
+it.effect("refuses to return control that was never taken", () =>
+  Effect.gen(function* guardReturnControl() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const started = yield* service.start(startInput("start-return-guard"));
+
+    // Nothing to hand back: the agent is running and no one asked for help.
+    const refused = yield* Effect.flip(
+      service.returnControl(started.id, OperationId.make("return-guard"))
+    );
+    expect(refused.code).toBe("agent_control_unavailable");
+    const current = yield* service.get(started.id);
+    expect(current.controller).toBe("agent");
+    expect(current.timeline).toHaveLength(0);
+
+    // An agent that asked for help may be resumed without a Takeover, so a
+    // paused session still accepts the handover.
+    yield* service.requestTakeover(
+      started.id,
+      "The catalogue needs a signed-in account.",
+      OperationId.make("request-return-guard")
+    );
+    const resumed = yield* service.returnControl(
+      started.id,
+      OperationId.make("return-guard-resume")
+    );
+    expect(resumed.controller).toBe("agent");
+    expect(resumed.phase).toBe("running");
+  })
+);
+
+it.effect("applies the Emulation to a session started without a URL", () =>
+  Effect.gen(function* emulationWithoutUrl() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const phone = {
+      permissions: [],
+      userAgentProfile: UserAgentProfileId.make("safari-iphone"),
+      viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
+    } as const;
+
+    yield* service.start({
+      ...startInput("start-emulation-no-url"),
+      emulation: phone,
+      url: undefined,
+    });
+
+    // An Emulation reaches a document at its navigation, so a session with no
+    // URL still opens one rather than carrying an identity nothing applies.
+    expect(fake.emulations.at(0)).toEqual(phone);
+  })
+);
+
+it.effect(
+  "keeps a Takeover that lands while a snapshot read is in flight",
+  () =>
+    Effect.gen(function* takeoverSurvivesStaleWrite() {
+      const entered = yield* Deferred.make<true>();
+      const release = yield* Deferred.make<true>();
+      const fake = makeFakeBrowser();
+      const service = yield* serviceFor(fake);
+      const started = yield* service.start(startInput("start-stale-write"));
+      fake.visit("https://example.com/moved");
+      fake.holdNextCurrentUrl({ entered, release });
+
+      // The read suspends inside the browser, a Takeover completes, and only
+      // then does the read save what it found.
+      const reading = yield* Effect.forkChild(service.get(started.id));
+      yield* Deferred.await(entered);
+      const taken = yield* service.takeover(
+        started.id,
+        "I will finish this myself.",
+        OperationId.make("takeover-stale-write")
+      );
+      expect(taken.controller).toBe("user");
+      yield* Deferred.succeed(release, true);
+      const read = yield* Fiber.join(reading);
+
+      expect(read.currentUrl).toBe("https://example.com/moved");
+      expect(read.controller).toBe("user");
+      expect(read.phase).toBe("takeover");
+      const after = yield* service.get(started.id);
+      expect(after.controller).toBe("user");
+    })
 );
