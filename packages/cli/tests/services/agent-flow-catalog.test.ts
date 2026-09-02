@@ -180,6 +180,32 @@ it.effect("replays an operation id and refuses its reuse", () =>
   )
 );
 
+it.effect("replays a completed save after the catalog service restarts", () =>
+  withCatalog((catalog, root) =>
+    Effect.gen(function* restartSafeSave() {
+      const input = saveInput("Restart safe", "save-restart");
+      const saved = yield* catalog.saveDraft(input);
+      yield* Effect.scoped(
+        Effect.gen(function* useRestartedCatalog() {
+          const restartedContext = yield* Layer.build(
+            makeAgentFlowCatalogLayer({ root }).pipe(
+              Layer.provide(NodeServices.layer)
+            )
+          );
+          const restarted = Context.get(restartedContext, AgentFlowCatalog);
+          expect(yield* restarted.saveDraft(input)).toEqual(saved);
+
+          const conflict = yield* Effect.flip(
+            restarted.saveDraft({ ...input, proposal: proposal("Different") })
+          );
+          expect(conflict.code).toBe("agent_flow_conflict");
+          expect((yield* restarted.info()).agentFlowCount).toBe(1);
+        })
+      );
+    })
+  )
+);
+
 it.effect("revises a draft only from its current head", () =>
   withCatalog((catalog) =>
     Effect.gen(function* optimisticConcurrency() {

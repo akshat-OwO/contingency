@@ -18,6 +18,8 @@ import type { Demonstration } from "./agent-flow-compiler.ts";
 
 /** How many captured actions one Demonstration keeps. */
 const ACTION_LIMIT = 2000;
+/** How many relayed instructions one Demonstration keeps. */
+const INSTRUCTION_LIMIT = 200;
 /** How many Browser Snapshots one Demonstration keeps for evidence. */
 const SNAPSHOT_LIMIT = 400;
 /** How many URL transitions one Demonstration keeps. */
@@ -200,6 +202,7 @@ export const makeDemonstrationCapture = (
         text,
       };
       instructions.push(instruction);
+      trim(instructions, INSTRUCTION_LIMIT);
       return instruction;
     },
     recordScreenshot: (screenshot) => {

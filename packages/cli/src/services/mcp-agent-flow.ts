@@ -88,6 +88,7 @@ const AgentCatalogSearchTool = Tool.make("agent_catalog_search", {
     "Search the selected Agent Flow Catalog before teaching: deterministic filters (status, tag, host) plus local full-text search over titles, descriptions, tags, and Agent Step descriptions. Results label drafts separately from approved revisions; a draft match should be offered for continuation, never treated as approved coverage.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
+    archived: AgentFlowSearch.fields.archived,
     host: AgentFlowSearch.fields.host,
     limit: AgentFlowSearch.fields.limit,
     query: AgentFlowSearch.fields.query,

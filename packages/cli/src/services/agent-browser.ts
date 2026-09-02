@@ -29,6 +29,10 @@ const NAME_LIMIT = 160;
  */
 const REFERENCE_LIMIT = 1000;
 
+/** Inputs whose values are never copied into a Browser Snapshot. */
+const SENSITIVE_INPUT_SELECTOR =
+  'input[type="password"], input[autocomplete="one-time-code"], input[autocomplete^="cc-"], input[name*="otp" i], input[name*="token" i], input[name*="secret" i]';
+
 const browserFailure = (
   description: string,
   cause: unknown
@@ -91,9 +95,20 @@ const SNAPSHOT_SCRIPT = `(() => {
     search: "searchbox",
     submit: "button",
   };
+  const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
   const SELECTOR =
     "a[href],button,input,select,textarea,summary,[role],[onclick]," +
     "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,li,td,th,p,label,img";
+  const sensitiveValues = Array.from(
+    document.querySelectorAll(SENSITIVE_INPUT_SELECTOR)
+  )
+    .map((element) => element.value)
+    .filter((value) => typeof value === "string" && value.length > 0);
+  const redactSensitive = (text) =>
+    sensitiveValues.reduce(
+      (redacted, value) => redacted.split(value).join("[sensitive input]"),
+      text
+    );
   const isVisible = (element) => {
     const style = getComputedStyle(element);
     if (style.visibility === "hidden" || style.display === "none") {
@@ -138,7 +153,7 @@ const SNAPSHOT_SCRIPT = `(() => {
       ? INPUT_ROLES[element.type] || "textbox"
       : ROLE_BY_TAG[element.tagName] || element.tagName.toLowerCase();
     const role = element.getAttribute("role") || tagRole;
-    const name = accessibleName(element);
+    const name = redactSensitive(accessibleName(element));
     let depth = 0;
     for (
       let ancestor = element.parentElement;
@@ -156,7 +171,10 @@ const SNAPSHOT_SCRIPT = `(() => {
     if (typeof element.checked === "boolean") {
       node.checked = element.checked;
     }
-    if (typeof element.value === "string" && element.type !== "password") {
+    if (
+      typeof element.value === "string" &&
+      !element.matches(SENSITIVE_INPUT_SELECTOR)
+    ) {
       node.value = element.value.slice(0, ${NAME_LIMIT});
     }
     nodes.push(node);
@@ -384,11 +402,7 @@ export const captureAgentScreenshot = (
       page.screenshot({
         ...(maskSensitive
           ? {
-              mask: [
-                page.locator(
-                  'input[type="password"], input[autocomplete="one-time-code"], input[autocomplete^="cc-"], input[name*="otp" i], input[name*="token" i], input[name*="secret" i]'
-                ),
-              ],
+              mask: [page.locator(SENSITIVE_INPUT_SELECTOR)],
               maskColor: "#000000",
             }
           : {}),

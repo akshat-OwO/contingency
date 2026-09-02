@@ -5,21 +5,21 @@ import {
   AgentFlowHeads,
   AgentFlowId,
   AgentFlowManifest,
+  AgentFlowRevision,
   AgentFlowRevisionId,
   EvidenceHash,
   EvidenceSlice,
+  OperationId,
 } from "@contingency/protocol";
 import type {
   AgentCatalogInfo,
   AgentFlowCompiler,
   AgentFlowDraftProposal,
-  AgentFlowRevision,
   AgentFlowSearch,
   AgentFlowSearchHit,
   AgentFlowSearchResult,
   AgentSessionId,
   DraftEmulation,
-  OperationId,
 } from "@contingency/protocol";
 import {
   Context,
@@ -41,6 +41,7 @@ const HEADS_FILE = "agent-flow.json";
 const REVISIONS_DIRECTORY = "revisions";
 const EVIDENCE_DIRECTORY = "evidence";
 const MANIFEST_FILE = "manifest.json";
+const OPERATIONS_DIRECTORY = ".operations";
 const DEFAULT_SEARCH_LIMIT = 20;
 
 /** The workspace's `.contingency` directory unless the environment names one. */
@@ -96,6 +97,19 @@ const processIsStale = (pid: number): boolean => {
   }
 };
 
+const isWithinCatalogRoot = (catalogRoot: string, target: string): boolean => {
+  const relative = path.relative(
+    path.resolve(catalogRoot),
+    path.resolve(target)
+  );
+  return (
+    relative !== "" &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+};
+
 export interface SaveDraftInput {
   /** Revise this Agent Flow; a new identity is minted when omitted. */
   readonly agentFlowId?: AgentFlowId | undefined;
@@ -144,6 +158,14 @@ export interface AgentFlowCatalogOptions {
   readonly root: string;
 }
 
+const AgentFlowOperationRecord = Schema.Struct({
+  input: Schema.String,
+  operationId: OperationId,
+  result: AgentFlowRevision,
+  schemaVersion: Schema.Literal(1),
+});
+type AgentFlowOperationRecord = typeof AgentFlowOperationRecord.Type;
+
 /**
  * JSON with keys in a stable order, so one Evidence Slice always hashes to
  * one address regardless of how its object was assembled.
@@ -179,6 +201,7 @@ export const canonicalJson = (value: unknown): string =>
 const encodeSlice = Schema.encodeSync(EvidenceSlice);
 const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
+const encodeOperation = Schema.encodeSync(AgentFlowOperationRecord);
 
 export const evidenceHash = (slice: EvidenceSlice): EvidenceHash =>
   EvidenceHash.make(
@@ -275,6 +298,13 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
 
   const flowsDirectory = (catalogRoot: string) =>
     path.join(catalogRoot, AGENT_FLOWS_DIRECTORY);
+  const operationsDirectory = (catalogRoot: string) =>
+    path.join(flowsDirectory(catalogRoot), OPERATIONS_DIRECTORY);
+  const operationFile = (catalogRoot: string, operationId: string) =>
+    path.join(
+      operationsDirectory(catalogRoot),
+      `sha256-${createHash("sha256").update(operationId).digest("hex")}.json`
+    );
   const flowDirectory = (catalogRoot: string, id: AgentFlowId) =>
     path.join(flowsDirectory(catalogRoot), id);
   const revisionDirectory = (
@@ -323,6 +353,59 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         Effect.mapError(ioError(`Could not write ${what}`))
       );
   };
+
+  const readCompletedOperation = (
+    catalogRoot: string,
+    operationId: string
+  ): Effect.Effect<AgentFlowOperationRecord | null, AgentFlowCatalogError> => {
+    const file = operationFile(catalogRoot, operationId);
+    return fileSystem.exists(file).pipe(
+      Effect.mapError(ioError("Could not inspect the Agent Flow operation")),
+      Effect.flatMap((exists) =>
+        exists
+          ? readJson(
+              AgentFlowOperationRecord,
+              file,
+              "Agent Flow operation record"
+            )
+          : Effect.succeed(null)
+      )
+    );
+  };
+
+  const replayPersistedOperation = (
+    catalogRoot: string,
+    operationId: string,
+    requestInput: string
+  ): Effect.Effect<AgentFlowRevision | null, AgentFlowCatalogError> =>
+    readCompletedOperation(catalogRoot, operationId).pipe(
+      Effect.flatMap((persisted) => {
+        if (persisted === null) {
+          return Effect.succeed(null);
+        }
+        if (
+          persisted.operationId !== operationId ||
+          persisted.result.catalogRoot !== catalogRoot ||
+          !isWithinCatalogRoot(catalogRoot, persisted.result.path)
+        ) {
+          return Effect.fail(
+            catalogError(
+              "agent_catalog_invalid",
+              `The persisted Agent Flow operation ${operationId} is outside the selected Catalog Root.`
+            )
+          );
+        }
+        if (persisted.input === requestInput) {
+          return Effect.succeed(persisted.result);
+        }
+        return Effect.fail(
+          catalogError(
+            "agent_flow_conflict",
+            `Operation ${operationId} was already used to save a different draft.`
+          )
+        );
+      })
+    );
 
   const catalogLockConflict = (catalogRoot: string) =>
     catalogError(
@@ -642,6 +725,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       const requestInput = normalizedSaveInput(input);
       const operationKey =
         input.operationId === undefined ? undefined : String(input.operationId);
+      const catalogRoot = yield* Ref.get(root);
       const prior =
         operationKey === undefined ? undefined : operations.get(operationKey);
       if (prior !== undefined) {
@@ -655,6 +739,17 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           )
         );
       }
+      if (operationKey !== undefined) {
+        const replay = yield* replayPersistedOperation(
+          catalogRoot,
+          operationKey,
+          requestInput
+        );
+        if (replay !== null) {
+          operations.set(operationKey, { input: requestInput, result: replay });
+          return replay;
+        }
+      }
       if (input.slices.length !== input.proposal.steps.length) {
         return yield* Effect.fail(
           catalogError(
@@ -663,7 +758,6 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           )
         );
       }
-      const catalogRoot = yield* Ref.get(root);
       const at = now().toISOString();
       const agentFlowId =
         input.agentFlowId ?? AgentFlowId.make(`flow-${randomUUID()}`);
@@ -803,6 +897,23 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       );
       const saved = revision(catalogRoot, heads, manifest);
       if (operationKey !== undefined) {
+        yield* fileSystem
+          .makeDirectory(operationsDirectory(catalogRoot), { recursive: true })
+          .pipe(Effect.mapError(ioError("Could not create operation records")));
+        yield* writeJson(
+          operationFile(catalogRoot, operationKey),
+          JSON.stringify(
+            encodeOperation({
+              input: requestInput,
+              operationId: OperationId.make(operationKey),
+              result: saved,
+              schemaVersion: 1,
+            }),
+            null,
+            2
+          ),
+          "the Agent Flow operation record"
+        );
         operations.set(operationKey, { input: requestInput, result: saved });
       }
       return saved;

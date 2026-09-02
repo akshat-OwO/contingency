@@ -23,6 +23,7 @@ import {
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
+import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -176,6 +177,19 @@ const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
     baseUrl,
     processId: "test-owner",
   });
+
+it("bounds relayed Teaching instructions without retaining the oldest text", () => {
+  const capture = makeDemonstrationCapture("about:blank");
+  for (let index = 0; index < 201; index += 1) {
+    capture.recordInstruction(
+      `Instruction ${index}`,
+      "2026-09-01T00:00:00.000Z"
+    );
+  }
+  expect(capture.current().instructions).toHaveLength(200);
+  expect(capture.current().instructions[0]?.text).toBe("Instruction 1");
+  expect(capture.current().instructions.at(-1)?.text).toBe("Instruction 200");
+});
 
 it.effect("replays identical mutations and rejects operation-id reuse", () =>
   Effect.gen(function* idempotentAgentSession() {

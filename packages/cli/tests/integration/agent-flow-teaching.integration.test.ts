@@ -418,7 +418,14 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         instructionCount: 2,
       });
 
-      // A later conversation finds the draft, labelled as one.
+      yield* session("agent_session_close", {
+        operationId: OperationId.make("close-teaching"),
+        sessionId: started.id,
+      });
+      expect(yield* fileSystem.exists(traceFile)).toBe(true);
+      expect((yield* fileSystem.stat(traceFile)).size).toBeGreaterThan(0n);
+
+      // A later conversation finds the finalized draft, labelled as one.
       const found = yield* flow("agent_catalog_search", {
         query: "anvil cart",
       });
@@ -443,12 +450,69 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       });
       expect(read).toEqual(saved);
 
-      yield* session("agent_session_close", {
-        operationId: OperationId.make("close-teaching"),
+      // Archived state is explicit at the tool boundary, not silently lost.
+      const headsPath = path.join(
+        catalogRoot,
+        "agent-flows",
+        saved.manifest.agentFlowId,
+        "agent-flow.json"
+      );
+      const heads = JSON.parse(
+        yield* fileSystem.readFileString(headsPath)
+      ) as Record<string, unknown>;
+      yield* fileSystem.writeFileString(
+        headsPath,
+        JSON.stringify({ ...heads, archived: true })
+      );
+      const archived = yield* flow("agent_catalog_search", {
+        archived: true,
+        query: "anvil cart",
+      });
+      expect(archived.hits).toMatchObject([
+        { agentFlowId: saved.manifest.agentFlowId, archived: true },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("masks known-sensitive values from Browser Snapshots", () =>
+  Effect.gen(function* sensitiveSnapshotJourney() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const catalogRoot = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-sensitive-catalog-",
+    });
+    yield* Effect.gen(function* inspectSensitiveSnapshot() {
+      const fixtures = yield* fixtureServer;
+      const started = yield* session("agent_session_start", {
+        activity: "teaching",
+        clientName: "integration-agent",
+        clientVersion: "1.0.0",
+        operationId: OperationId.make("start-sensitive-teaching"),
+        url: fixtures.url("secret-echo.html"),
+        viewport,
+      });
+      const observed = yield* session("agent_browser_snapshot", {
         sessionId: started.id,
       });
-      expect(yield* fileSystem.exists(traceFile)).toBe(true);
-      expect((yield* fileSystem.stat(traceFile)).size).toBeGreaterThan(0n);
+      const token = findNode(observed.nodes, "textbox", "Token");
+      const filled = yield* session("agent_browser_act", {
+        action: { ref: token.ref, text: "top-secret", type: "fill" },
+        operationId: OperationId.make("fill-sensitive-input"),
+        sessionId: started.id,
+      });
+      const after = yield* session("agent_browser_snapshot", {
+        sessionId: started.id,
+      });
+      expect(findNode(filled.snapshot.nodes, "textbox", "Token").value).toBe(
+        undefined
+      );
+      expect(findNode(after.nodes, "textbox", "Token").value).toBeUndefined();
+      expect(JSON.stringify(after)).not.toContain("top-secret");
+
+      yield* session("agent_session_close", {
+        operationId: OperationId.make("close-sensitive-teaching"),
+        sessionId: started.id,
+      });
     }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
