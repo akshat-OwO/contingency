@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scripted rows</title>
+    <style>
+      /* The only signal that these rows are controls. A single-page
+         application styles them this way and attaches the handler in script,
+         so the markup itself declares nothing. */
+      .row {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Delivery area</h1>
+      <!--
+        Suggestion rows exactly as a framework renders them: plain divs with
+        no role, no href, and no onclick attribute, holding their label in
+        nested divs. Only the decorative icons carry a role, so a snapshot
+        that collects declared markup alone sees the icons and none of the
+        text that tells the rows apart.
+      -->
+      <div id="results">
+        <div class="row" data-area="gurugram">
+          <span class="pin" role="img" aria-label=""></span>
+          <div class="label">
+            <div class="title">Sector 14</div>
+            <div class="detail">Gurugram, Haryana, India</div>
+          </div>
+        </div>
+        <div class="row" data-area="noida">
+          <span class="pin" role="img" aria-label=""></span>
+          <div class="label">
+            <div class="title">Sector 144</div>
+            <div class="detail">Noida, Uttar Pradesh, India</div>
+          </div>
+        </div>
+      </div>
+      <p id="chosen">No area chosen</p>
+    </main>
+    <script>
+      for (const row of document.querySelectorAll(".row")) {
+        // addEventListener, not an onclick attribute: the distinction is the
+        // whole point of the fixture.
+        row.addEventListener("click", () => {
+          document.getElementById("chosen").textContent =
+            `Chosen: ${row.dataset.area}`;
+        });
+      }
+    </script>
+  </body>
+</html>

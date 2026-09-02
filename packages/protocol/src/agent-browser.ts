@@ -29,9 +29,15 @@ export type AgentSnapshotId = typeof AgentSnapshotId.Type;
  * an action names it by, and its depth in the accessibility tree. The tree is
  * flattened rather than nested so the whole observation stays compact and
  * decodes without a recursive schema.
+ *
+ * `clickable` marks an element the Page treats as a control without saying so
+ * in its markup — the unlabelled `div` rows a single-page application builds
+ * its menus and result lists from. Their handlers are attached in script, so
+ * neither a role nor an `onclick` attribute reveals them.
  */
 export const AgentSnapshotNode = Schema.Struct({
   checked: Schema.optional(Schema.Boolean),
+  clickable: Schema.optional(Schema.Boolean),
   depth: Schema.Int.check(Schema.isBetween({ maximum: 64, minimum: 0 })),
   disabled: Schema.optional(Schema.Boolean),
   name: Schema.String,

@@ -81,6 +81,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     ARTICLE: "article",
     ASIDE: "complementary",
     BUTTON: "button",
+    DIV: "generic",
     FOOTER: "contentinfo",
     FORM: "form",
     H1: "heading",
@@ -99,6 +100,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     P: "paragraph",
     SECTION: "region",
     SELECT: "combobox",
+    SPAN: "generic",
     SUMMARY: "button",
     TABLE: "table",
     TD: "cell",
@@ -119,9 +121,24 @@ const SNAPSHOT_SCRIPT = `(() => {
   const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
   const SENSITIVE_AUTOCOMPLETE = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, "iu");
   const SENSITIVE_FIELD_METADATA = new RegExp(${JSON.stringify(SENSITIVE_FIELD_METADATA.source)}, "iu");
-  const SELECTOR =
+  // Markup that declares itself a control or a landmark. An SPA row that
+  // carries its handler in script matches none of this, so it is found by
+  // cursor instead.
+  const DECLARED_SELECTOR =
     "a[href],button,input,select,textarea,summary,[role],[onclick]," +
+    "[tabindex],[contenteditable=''],[contenteditable='true']," +
     "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,li,td,th,p,label,img";
+  const SKIPPED_TAGS = new Set([
+    "BASE",
+    "HEAD",
+    "LINK",
+    "META",
+    "NOSCRIPT",
+    "SCRIPT",
+    "STYLE",
+    "TEMPLATE",
+    "TITLE",
+  ]);
   const isSensitive = (element) => {
     const metadata = [
       element.getAttribute("name"),
@@ -157,13 +174,43 @@ const SNAPSHOT_SCRIPT = `(() => {
       (redacted, value) => redacted.split(value).join("[sensitive input]"),
       text
     );
+  // One computed style per element: visibility and the cursor test below both
+  // read it, and the cursor test reads the parent's as well.
+  const styles = new Map();
+  const styleOf = (element) => {
+    let style = styles.get(element);
+    if (style === undefined) {
+      style = getComputedStyle(element);
+      styles.set(element, style);
+    }
+    return style;
+  };
   const isVisible = (element) => {
-    const style = getComputedStyle(element);
+    const style = styleOf(element);
     if (style.visibility === "hidden" || style.display === "none") {
       return false;
     }
     const rect = element.getBoundingClientRect();
     return rect.width > 0 || rect.height > 0;
+  };
+  // A pointer cursor inherits, so every descendant of a clickable row reports
+  // one too. Only the outermost element of such a run is the control.
+  const isPointerRoot = (element) => {
+    if (styleOf(element).cursor !== "pointer") {
+      return false;
+    }
+    const parent = element.parentElement;
+    return parent === null || styleOf(parent).cursor !== "pointer";
+  };
+  // The smallest element owning a run of text, so a label is reported once
+  // rather than once per wrapper on the way down to it.
+  const ownsText = (element) => {
+    for (const child of element.childNodes) {
+      if (child.nodeType === 3 && child.nodeValue.trim() !== "") {
+        return true;
+      }
+    }
+    return false;
   };
   const accessibleName = (element) => {
     const labelled = element.getAttribute("aria-labelledby");
@@ -189,9 +236,43 @@ const SNAPSHOT_SCRIPT = `(() => {
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
   };
-  const candidates = Array.from(document.querySelectorAll(SELECTOR))
-    .filter(isVisible)
-    .slice(0, ${SNAPSHOT_LIMIT});
+  // Controls come before prose when the budget runs out: a journey is driven
+  // by what it can act on, and a Page that overflows the limit is one whose
+  // text matters least.
+  const declared = [];
+  const clickable = new Set();
+  const textual = [];
+  for (const element of document.querySelectorAll("*")) {
+    if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
+      continue;
+    }
+    if (element.matches(DECLARED_SELECTOR)) {
+      declared.push(element);
+      continue;
+    }
+    if (isPointerRoot(element)) {
+      clickable.add(element);
+      declared.push(element);
+      continue;
+    }
+    if (ownsText(element)) {
+      textual.push(element);
+    }
+  }
+  const textBudget = Math.max(0, ${SNAPSHOT_LIMIT} - declared.length);
+  const kept = new Set(declared);
+  for (const element of textual.slice(0, textBudget)) {
+    kept.add(element);
+  }
+  const candidates = [];
+  for (const element of document.querySelectorAll("*")) {
+    if (candidates.length >= ${SNAPSHOT_LIMIT}) {
+      break;
+    }
+    if (kept.has(element)) {
+      candidates.push(element);
+    }
+  }
   const included = new Set(candidates);
   const elements = [];
   const nodes = [];
@@ -213,6 +294,9 @@ const SNAPSHOT_SCRIPT = `(() => {
       }
     }
     const node = { depth: Math.min(depth, 64), name, role };
+    if (clickable.has(element)) {
+      node.clickable = true;
+    }
     if (element.disabled === true) {
       node.disabled = true;
     }
@@ -232,6 +316,7 @@ const SNAPSHOT_SCRIPT = `(() => {
 const CollectedNodes = Schema.Array(
   Schema.Struct({
     checked: Schema.optional(Schema.Boolean),
+    clickable: Schema.optional(Schema.Boolean),
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
     name: Schema.String,
