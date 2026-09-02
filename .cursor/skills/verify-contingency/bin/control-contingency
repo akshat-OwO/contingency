@@ -910,6 +910,10 @@ const cmdMcpStart = async () => {
       detached: true,
       env: {
         ...process.env,
+        // The Agent Flow Catalog defaults to the working directory's
+        // `.contingency`; a verification drive must not write drafts into
+        // the repository, so it gets its own root under the isolated state.
+        CONTINGENCY_CATALOG_ROOT: path.join(instance.stateDir, "catalog"),
         CONTINGENCY_MCP_HOST: "127.0.0.1",
         CONTINGENCY_MCP_PORT: String(port),
         CONTINGENCY_STATE_DIR: instance.stateDir,

@@ -103,10 +103,13 @@ Stable handles in this repo:
 - Agent View on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
 - Agent View on `mcp` with no session: heading `No active Agent Sessions`.
 - Agent View with a live session: heading `Agent View`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`, and one control button that reads `Take control` or `Return control`.
+- Agent View with a Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, an alert `Draft saved: <title>` once `agent_flow_draft_save` succeeds, and the Teaching Feed disclosure paragraph. Absent for an Interactive Run.
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Agent View available at http://127.0.0.1:<port>/agent` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 
 `mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Agent View. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits `2`.
+
+`mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so drafts saved with `agent_flow_draft_save` land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.
 
 ## Evidence
 

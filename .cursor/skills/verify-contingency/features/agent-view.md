@@ -13,6 +13,8 @@ Agent View watches Teaching and Interactive Runs owned by one local MCP process,
 - `agent-takeover-controls` enables history, address, and canvas input once the user takes control.
 - `agent-takeover-timeline` records what the user did as `You`, and follows the browser's URL.
 - `agent-return-control` hands the browser back, and the toolbar goes quiet again.
+- `agent-teaching-details` shows a Teaching session's captured action and instruction counts, the Teaching Feed disclosure, and the saved draft once one exists.
+- `agent-teaching-draft` compiles a Teaching session into a draft Agent Flow through MCP, refuses invalid output with diagnostics, and finds the draft again by catalog search.
 
 ## How to get to it (user POV)
 
@@ -50,6 +52,19 @@ Preconditions:
 - **Proof (the view itself).** Run `control-contingency browser snapshot --aria --path agent-view/takeover-driving.aria.txt` and `control-contingency browser screenshot --path agent-view/takeover-driving.png`.
 - **Return control.** Run `control-contingency browser click --role button --name "Return control"`, then `control-contingency browser wait --role button --name "Take control" --timeout-ms 15000`. The toolbar is disabled again and the timeline gains `The user returned control to the agent`.
 
+### Teaching and the draft catalog
+
+`mcp start` points the Agent Flow Catalog at `$CONTINGENCY_VERIFY_DIR/state/catalog`, so drafts never land in the repository's `.contingency`.
+
+- **Start a Teaching session.** Same as above with `"activity":"teaching"` in the params. The snapshot carries `"teaching":{"actionCount":0,"draft":null,"instructionCount":0}`; a Run session carries `"teaching":null`.
+- **Relay an instruction.** Run `control-contingency mcp call --tool agent_teaching_instruction_record --params "{\"sessionId\":\"$sessionId\",\"operationId\":\"verify-instr-1\",\"text\":\"Add the first product to the cart.\"}"`. The timeline gains `The user gave an instruction` and `instructionCount` becomes 1.
+- **Demonstrate.** Take `agent_browser_snapshot`, then `agent_browser_act` a few times (fill the `Add by SKU` textbox with `ANVIL-001`, click `Add SKU to cart`, click `View cart`, `wait_for_text` `SKU ANVIL-001`). Every action, failed ones included, is captured with its actor and the Snapshot before and after.
+- **Read the feed.** Run `control-contingency mcp call --tool agent_teaching_feed_get --params "{\"sessionId\":\"$sessionId\"}"`. Stdout lists `instructions`, `actions` (each with `id`, `actor`, `outcome`, `snapshotBefore`, `snapshotAfter`, `urlBefore`, `urlAfter`), `urlTransitions`, and `observedHosts` (`127.0.0.1` for the fixture). `snapshots` is empty unless `"includeSnapshots":true`. Note the action `id`s for the next step.
+- **Refused draft.** Save with a Domain Scope the Demonstration never visited: `control-contingency mcp call --tool agent_flow_draft_save --params "{\"sessionId\":\"$sessionId\",\"operationId\":\"verify-save-bad\",\"basedOnRevisionId\":null,\"draft\":{\"title\":\"Add an anvil to the cart\",\"description\":\"Add the anvil by SKU and confirm the cart lists it.\",\"domainScope\":{\"hosts\":[\"shop.example.com\"]},\"steps\":[{\"name\":\"Enter the SKU\",\"description\":\"Type the SKU and add it.\",\"confirmation\":false,\"firstActionId\":\"<fill id>\",\"lastActionId\":\"<add id>\"}]}}"`. Exit `2`; stdout names `unobserved_domain` and `uncovered_host` with their JSON paths and ends in `(agent_flow_invalid)`. `agent_catalog_get` still reports `"agentFlowCount":0`.
+- **Saved draft.** Repeat with `"hosts":["127.0.0.1"]`, a fresh `operationId`, and two Steps whose spans are disjoint and in order. Stdout is the revision: `manifest.status` is `draft`, `heads.draftRevisionId` equals `manifest.revisionId`, and `path` is `…/state/catalog/agent-flows/<flow-id>/revisions/<rev-id>`. The directory holds `manifest.json`; `evidence/sha256-….json` beside `revisions/` holds one Evidence Slice per Step.
+- **Proof (Agent View).** Run `control-contingency browser goto --url "$viewUrl"`, `control-contingency browser wait --role heading --name "Teaching" --timeout-ms 20000`, then `control-contingency browser snapshot --aria --path agent-view/teaching-draft.aria.txt` and `control-contingency browser screenshot --path agent-view/teaching-draft.png`. The `Teaching` region shows `Captured actions`, `Instructions`, an alert `Draft saved: <title>` with the flow and revision ids, and the Teaching Feed disclosure.
+- **Proof (searchable later).** Run `control-contingency mcp stop`, `control-contingency mcp start`, then `control-contingency mcp call --tool agent_catalog_search --params "{\"query\":\"anvil\"}"`. `agent_sessions_get` is empty in the new process, yet the hit carries `"status":"draft"`, the title, `stepCount`, and `matchedFields`. `{"status":"approved"}` returns no hits.
+
 ## Gotchas
 
 - `Loading Agent Sessions…` is transient. Wait for the alert or the empty heading. Do not snapshot the spinner.
@@ -63,3 +78,7 @@ Preconditions:
 - `agent_browser_screenshot` and `agent_browser_snapshot` keep working while the user holds control. Observation is not gated on control; action is.
 - A failed tool call exits non-zero and prints the reason (`Element reference e12 is stale…`, `Could not find "X": Timeout…`). Assert on that text rather than on the exit code alone.
 - Element references expire when the Page navigates. Take a fresh `agent_browser_snapshot` after any navigation before acting on a `ref`.
+- Only `"activity":"teaching"` sessions carry a Demonstration. `agent_teaching_feed_get`, `agent_teaching_instruction_record`, and `agent_flow_draft_save` against a Run session exit `2` with `agent_session_invalid`.
+- Domain Scope is judged against the hosts the compiled Steps visit, not every URL the session saw. Exploration outside every span neither widens nor is required in the scope.
+- An instruction belongs to the Step whose span it falls before or inside. One given between two actions of the same Step lands in that Step's Evidence Slice, not the next one.
+- A saved draft is not approved coverage. `agent_catalog_search` labels it `"status":"draft"`, and `{"status":"approved"}` stays empty until Agent View approves a revision, which this slice does not do.
