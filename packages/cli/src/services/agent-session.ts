@@ -368,6 +368,42 @@ const sanitizeSensitiveAction = (
   }
 };
 
+const sanitizeActionFailure = (
+  failure: AgentSessionError,
+  action: AgentBrowserAction,
+  sensitive: boolean
+): AgentSessionError => {
+  if (failure._tag !== "BrowserRpcError") {
+    return failure;
+  }
+  if (sensitive) {
+    return makeBrowserRpcError(
+      failure.code,
+      "The browser action failed for a sensitive control."
+    );
+  }
+  return action.type === "navigate"
+    ? makeBrowserRpcError(
+        failure.code,
+        `Could not navigate to ${sanitizeTeachingUrl(action.url)}.`
+      )
+    : failure;
+};
+
+const sanitizeFailureDetail = (
+  action: AgentBrowserAction,
+  sensitive: boolean,
+  detail: string | undefined
+): string | undefined => {
+  if (sensitive) {
+    return "The browser action failed for a sensitive control.";
+  }
+  if (action.type === "navigate") {
+    return `Could not navigate to ${sanitizeTeachingUrl(action.url)}.`;
+  }
+  return detail;
+};
+
 /** How many attempts one Agent Session keeps in its action timeline. */
 const TIMELINE_LIMIT = 200;
 
@@ -1057,7 +1093,8 @@ const makeAgentSession = (
         action: AgentBrowserAction,
         capturedAction: AgentBrowserAction,
         description: string,
-        id: string
+        id: string,
+        sensitive: boolean
       ) {
         const current = yield* requireLiveRecord(sessionId);
         if (agentIsPaused(current.snapshot)) {
@@ -1126,7 +1163,11 @@ const makeAgentSession = (
           return yield* Effect.fail(refusal);
         }
         const cause = Cause.findErrorOption(exit.cause);
-        const detail = Option.isSome(cause) ? cause.value.message : undefined;
+        const detail = sanitizeFailureDetail(
+          action,
+          sensitive,
+          Option.isSome(cause) ? cause.value.message : undefined
+        );
         const failedAt = now().toISOString();
         // A failed action may still have moved the Page, so the session records
         // where the browser actually is rather than where it last succeeded.
@@ -1204,17 +1245,24 @@ const makeAgentSession = (
             const id = `action-${randomUUID()}`;
             // Concurrent agent actions would leave a fiber Takeover cannot
             // reach, so a second waits and re-reads control when it wakes.
-            return yield* record.control.lock.withPermit(
-              dispatch(
-                sessionId,
-                record,
-                page,
-                action,
-                capturedAction,
-                description,
-                id
+            return yield* record.control.lock
+              .withPermit(
+                dispatch(
+                  sessionId,
+                  record,
+                  page,
+                  action,
+                  capturedAction,
+                  description,
+                  id,
+                  sensitive
+                )
               )
-            );
+              .pipe(
+                Effect.mapError((failure) =>
+                  sanitizeActionFailure(failure, action, sensitive)
+                )
+              );
           })
         );
         if (Result.isSuccess(outcome)) {

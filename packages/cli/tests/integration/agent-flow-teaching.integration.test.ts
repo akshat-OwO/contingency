@@ -515,6 +515,18 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
         sessionId: started.id,
       });
       expect(screenshot.url).not.toContain("url-secret");
+      const failedPress = yield* Effect.flip(
+        session("agent_browser_act", {
+          action: {
+            key: "literal-secret-key",
+            ref: token.ref,
+            type: "press",
+          },
+          operationId: OperationId.make("fail-sensitive-press"),
+          sessionId: started.id,
+        })
+      );
+      expect(JSON.stringify(failedPress)).not.toContain("literal-secret-key");
       const feed = yield* flow("agent_teaching_feed_get", {
         includeSnapshots: true,
         sessionId: started.id,
@@ -529,6 +541,7 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       });
       expect(JSON.stringify(feed)).not.toContain("top-secret");
       expect(JSON.stringify(feed)).not.toContain("url-secret");
+      expect(JSON.stringify(feed)).not.toContain("literal-secret-key");
 
       yield* session("agent_session_close", {
         operationId: OperationId.make("close-sensitive-teaching"),

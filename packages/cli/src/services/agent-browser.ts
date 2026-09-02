@@ -585,8 +585,9 @@ export const performAgentAction = (
 ): Effect.Effect<void, BrowserRpcErrorType> => {
   switch (action.type) {
     case "navigate": {
-      return attempt(`Could not navigate to ${action.url}`, () =>
-        page.goto(action.url, { timeout: ACTION_TIMEOUT_MS })
+      return attempt(
+        `Could not navigate to ${sanitizeTeachingUrl(action.url)}`,
+        () => page.goto(action.url, { timeout: ACTION_TIMEOUT_MS })
       ).pipe(Effect.asVoid);
     }
     case "history": {
@@ -637,13 +638,13 @@ export const performAgentAction = (
     case "press": {
       const { ref } = action;
       return ref === undefined
-        ? attempt(`Could not press ${action.key}`, () =>
+        ? attempt("Could not press a key", () =>
             page.keyboard.press(action.key)
           )
         : onElement(
             registry,
             ref,
-            `Could not press ${action.key} on ${ref}`,
+            `Could not press a key on ${ref}`,
             (element) =>
               element.press(action.key, { timeout: ACTION_TIMEOUT_MS })
           );
