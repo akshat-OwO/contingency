@@ -382,7 +382,7 @@ const sanitizeActionFailure = (
       "The browser action failed for a sensitive control."
     );
   }
-  return action.type === "navigate"
+  return action.type === "navigate" && failure.code === "agent_browser_failed"
     ? makeBrowserRpcError(
         failure.code,
         `Could not navigate to ${sanitizeTeachingUrl(action.url)}.`
@@ -1635,7 +1635,7 @@ const makeAgentSession = (
         lock.withPermit(returnControlUnlocked(sessionId, operationId)),
       screenshot: (sessionId) =>
         observe(sessionId, (record, page) =>
-          captureAgentScreenshot(page, now, record.capture !== undefined).pipe(
+          captureAgentScreenshot(page, now, true).pipe(
             Effect.tap((screenshot) =>
               Effect.sync(() => {
                 record.capture?.recordScreenshot(screenshot);
@@ -1776,12 +1776,17 @@ const makeAgentSession = (
           );
           const at = now().toISOString();
           if (Result.isFailure(outcome)) {
+            const safeFailure = sanitizeActionFailure(
+              outcome.failure,
+              action,
+              false
+            );
             record.capture?.recordAction({
               action: capturedAction,
               actor: "user",
               at,
               description,
-              detail: outcome.failure.message,
+              detail: safeFailure.message,
               id,
               outcome: "failed",
               snapshotAfter: null,
@@ -1793,12 +1798,12 @@ const makeAgentSession = (
               actor: "user",
               at,
               description,
-              detail: outcome.failure.message,
+              detail: safeFailure.message,
               dispatched: true,
               id,
               outcome: "failed",
             });
-            return yield* Effect.fail(outcome.failure);
+            return yield* Effect.fail(safeFailure);
           }
           const url = page.url();
           if (record.capture !== undefined) {

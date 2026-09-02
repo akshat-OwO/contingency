@@ -60,8 +60,8 @@ const SENSITIVE_INPUT_SELECTOR = [
     `[aria-label*="${term}" i]`,
   ]),
   ...["4", "5", "6", "7", "8"].flatMap((length) => [
-    `input[inputmode="numeric"][maxlength="${length}"]`,
-    `input[inputmode="decimal"][maxlength="${length}"]`,
+    `[inputmode="numeric"][maxlength="${length}"]`,
+    `[inputmode="decimal"][maxlength="${length}"]`,
   ]),
 ].join(",");
 
