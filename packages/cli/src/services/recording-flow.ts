@@ -17,6 +17,7 @@ import type {
 import { Effect } from "effect";
 
 import type { CaptureFailure } from "./recorder-events.ts";
+import { SENSITIVE_QUERY_PARAMETER } from "./sensitive-data.ts";
 
 /**
  * How a Recording becomes a Flow: the document it derives, the snapshot Create
@@ -70,7 +71,6 @@ export interface RecordingState {
 }
 
 const FILE_PART_PATTERN = /[^a-z0-9]+/gu;
-const SENSITIVE_QUERY_PARAMETER = /(?:token|key|secret|code|password)/iu;
 const VARIABLE_REFERENCE_PATTERN = /\{\{(?<name>[A-Z][A-Z0-9_]*)\}\}/gu;
 
 /** How long after an action a navigation still belongs to that action. */

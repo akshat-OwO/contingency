@@ -1,0 +1,120 @@
+import {
+  AgentSessionId,
+  OperationId,
+  UserAgentProfileId,
+} from "@contingency/protocol";
+import type { AgentFlowDraftProposal } from "@contingency/protocol";
+import { NodeServices } from "@effect/platform-node";
+import { expect, it } from "@effect/vitest";
+import { Effect, FileSystem, Layer, Stream } from "effect";
+
+import {
+  AgentFlowCatalog,
+  makeAgentFlowCatalogLayer,
+} from "../../src/services/agent-flow-catalog.ts";
+import type { AgentSessionService } from "../../src/services/agent-session.ts";
+import { AgentSession } from "../../src/services/agent-session.ts";
+import {
+  AgentFlowToolHandlersLive,
+  AgentFlowTools,
+} from "../../src/services/mcp-agent-flow.ts";
+
+const at = "2026-09-01T00:00:00.000Z";
+const viewport = {
+  deviceScaleFactor: 1,
+  height: 480,
+  width: 640,
+} as const;
+
+const proposal: AgentFlowDraftProposal = {
+  description: "A replayable public journey.",
+  domainScope: { hosts: ["shop.example.com"] },
+  schemaVersion: 1,
+  steps: [
+    {
+      confirmation: false,
+      description: "Open the shop.",
+      firstActionId: "action-open",
+      lastActionId: "action-open",
+      name: "Open shop",
+    },
+  ],
+  title: "Replayable shop journey",
+};
+
+const slice = {
+  actions: [
+    {
+      action: { type: "navigate" as const, url: "https://shop.example.com/" },
+      actor: "agent" as const,
+      at,
+      description: "Navigate to the shop.",
+      id: "action-open",
+      outcome: "completed" as const,
+      snapshotAfter: null,
+      snapshotBefore: null,
+      urlAfter: "https://shop.example.com/",
+      urlBefore: "about:blank",
+    },
+  ],
+  after: null,
+  before: null,
+  endedAt: at,
+  instructions: [],
+  schemaVersion: 1 as const,
+  screenshots: [],
+  startedAt: at,
+  urlTransitions: [],
+};
+
+it.effect(
+  "replays draft-save through MCP before resolving its old session",
+  () =>
+    Effect.gen(function* replayBeforeSessionLookup() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-mcp-replay-",
+      });
+      const missingSession = {
+        teachingSource: () =>
+          Effect.die("teachingSource should not be called during replay"),
+      } as unknown as AgentSessionService;
+      const layer = AgentFlowToolHandlersLive.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            makeAgentFlowCatalogLayer({ now: () => new Date(at), root }),
+            Layer.succeed(AgentSession, missingSession)
+          ).pipe(Layer.provide(NodeServices.layer))
+        )
+      );
+      yield* Effect.gen(function* exerciseMcpReplay() {
+        const catalog = yield* AgentFlowCatalog;
+        const sessionId = AgentSessionId.make("agent-missing-after-restart");
+        const operationId = OperationId.make("mcp-replay-before-session");
+        const saved = yield* catalog.saveDraft({
+          basedOnRevisionId: null,
+          compiler: { clientName: "compiler", clientVersion: "1" },
+          emulation: {
+            permissions: [],
+            userAgentProfile: UserAgentProfileId.make("default"),
+            viewport,
+          },
+          operationId,
+          proposal,
+          slices: [slice],
+          sourceSessionId: sessionId,
+        });
+        const handlers = yield* AgentFlowTools;
+        const stream = yield* handlers.handle("agent_flow_draft_save", {
+          agentFlowId: undefined,
+          basedOnRevisionId: null,
+          draft: proposal,
+          operationId,
+          sessionId,
+        });
+        const results = yield* Stream.runCollect(stream);
+        expect(results).toHaveLength(1);
+        expect(results[0]?.result).toEqual(saved);
+      }).pipe(Effect.provide(layer));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

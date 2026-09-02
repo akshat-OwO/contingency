@@ -62,6 +62,7 @@ import type { AgentElementRegistry } from "./agent-browser.ts";
 import type { Demonstration } from "./agent-flow-compiler.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
 import { isLoopbackHost } from "./web-url.ts";
@@ -337,6 +338,12 @@ const describeTeachingInput = (input: BrowserInput): string =>
   input.type === "input_mouse"
     ? `The user sent a ${input.eventType} browser input`
     : `The user sent a ${input.eventType} keyboard input`;
+
+/** Keep public Teaching records free of credentials and sensitive URL values. */
+const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
+  action.type === "navigate"
+    ? ({ ...action, url: sanitizeTeachingUrl(action.url) } as A)
+    : action;
 
 /** How many attempts one Agent Session keeps in its action timeline. */
 const TIMELINE_LIMIT = 200;
@@ -1015,6 +1022,7 @@ const makeAgentSession = (
         record: SessionRecord,
         page: Page,
         action: AgentBrowserAction,
+        capturedAction: AgentBrowserAction,
         description: string,
         id: string,
         operationId: OperationId | string | undefined,
@@ -1049,7 +1057,7 @@ const makeAgentSession = (
           })
         );
         record.control.inFlight = {
-          action,
+          action: capturedAction,
           description,
           fiber,
           id,
@@ -1061,7 +1069,7 @@ const makeAgentSession = (
         if (Exit.isSuccess(exit)) {
           const result = exit.value;
           record.capture?.recordAction({
-            action,
+            action: capturedAction,
             actor: "agent",
             at: result.entry.at,
             description,
@@ -1101,7 +1109,7 @@ const makeAgentSession = (
         // where the browser actually is rather than where it last succeeded.
         const urlAfter = page.url();
         record.capture?.recordAction({
-          action,
+          action: capturedAction,
           actor: "agent",
           at: failedAt,
           description,
@@ -1162,7 +1170,19 @@ const makeAgentSession = (
           );
         }
         const page = yield* browser.activePage(record.browserSessionId);
-        const description = describeAgentAction(action);
+        const capturedAction =
+          action.type === "fill"
+            ? yield* record.registry
+                .isSensitive(action.ref)
+                .pipe(
+                  Effect.map((sensitive) =>
+                    sensitive
+                      ? { ...action, text: "[sensitive input]" }
+                      : action
+                  )
+                )
+            : sanitizeTeachingAction(action);
+        const description = describeAgentAction(capturedAction);
         const id = `action-${randomUUID()}`;
         // Concurrent agent actions would leave a fiber Takeover cannot reach,
         // so a second action waits here and re-reads control when it wakes.
@@ -1172,6 +1192,7 @@ const makeAgentSession = (
             record,
             page,
             action,
+            capturedAction,
             description,
             id,
             operationId,
@@ -1661,7 +1682,11 @@ const makeAgentSession = (
             );
           }
           const page = yield* browser.activePage(record.browserSessionId);
-          const description = describeAgentAction(action);
+          const capturedAction =
+            action.type === "navigate"
+              ? { ...action, url: sanitizeTeachingUrl(action.url) }
+              : action;
+          const description = describeAgentAction(capturedAction);
           const id = `user-${randomUUID()}`;
           const urlBefore = page.url();
           const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
@@ -1674,7 +1699,7 @@ const makeAgentSession = (
           const at = now().toISOString();
           if (Result.isFailure(outcome)) {
             record.capture?.recordAction({
-              action,
+              action: capturedAction,
               actor: "user",
               at,
               description,
@@ -1707,7 +1732,7 @@ const makeAgentSession = (
               record.registry
             ).pipe(Effect.option);
             record.capture.recordAction({
-              action,
+              action: capturedAction,
               actor: "user",
               at,
               description,

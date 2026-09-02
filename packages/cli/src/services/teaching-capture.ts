@@ -15,6 +15,7 @@ import type {
 
 import { observedHosts } from "./agent-flow-compiler.ts";
 import type { Demonstration } from "./agent-flow-compiler.ts";
+import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 
 /** How many captured actions one Demonstration keeps. */
 const ACTION_LIMIT = 2000;
@@ -87,7 +88,7 @@ export const makeDemonstrationCapture = (
   const snapshots = new Map<AgentSnapshotId, AgentBrowserSnapshot>();
   const urlTransitions: Demonstration["urlTransitions"][number][] = [];
   let latestSnapshot: AgentSnapshotId | null = null;
-  let currentUrl = initialUrl;
+  let currentUrl = sanitizeTeachingUrl(initialUrl);
   let lastEventAt = Number.NEGATIVE_INFINITY;
 
   /** Preserve capture order when several browser events share one clock tick. */
@@ -102,7 +103,10 @@ export const makeDemonstrationCapture = (
   };
 
   const recordSnapshot = (snapshot: AgentBrowserSnapshot): void => {
-    snapshots.set(snapshot.snapshotId, snapshot);
+    snapshots.set(snapshot.snapshotId, {
+      ...snapshot,
+      url: sanitizeTeachingUrl(snapshot.url),
+    });
     latestSnapshot = snapshot.snapshotId;
     while (snapshots.size > SNAPSHOT_LIMIT) {
       const oldest = snapshots.keys().next();
@@ -132,7 +136,10 @@ export const makeDemonstrationCapture = (
       recordSnapshot(input.snapshotAfter);
     }
     const captured: CapturedAction = {
-      action: input.action,
+      action:
+        input.action.type === "navigate"
+          ? { ...input.action, url: sanitizeTeachingUrl(input.action.url) }
+          : input.action,
       actor: input.actor,
       at,
       description: input.description,
@@ -141,13 +148,13 @@ export const makeDemonstrationCapture = (
       outcome: input.outcome,
       snapshotAfter: input.snapshotAfter?.snapshotId ?? null,
       snapshotBefore: input.snapshotBefore,
-      urlAfter: input.urlAfter,
-      urlBefore: input.urlBefore,
+      urlAfter: sanitizeTeachingUrl(input.urlAfter),
+      urlBefore: sanitizeTeachingUrl(input.urlBefore),
     };
     // The action is what moved the Page, so the transition it caused is
     // attributed to it even when the URL was noticed only afterwards.
-    transition(input.urlBefore, at, null);
-    transition(input.urlAfter, at, input.id);
+    transition(sanitizeTeachingUrl(input.urlBefore), at, null);
+    transition(sanitizeTeachingUrl(input.urlAfter), at, input.id);
     actions.push(captured);
     trim(actions, ACTION_LIMIT);
     return captured;
@@ -216,6 +223,7 @@ export const makeDemonstrationCapture = (
       return captured;
     },
     recordSnapshot,
-    recordUrl: (url, at) => transition(url, eventTime(at), null),
+    recordUrl: (url, at) =>
+      transition(sanitizeTeachingUrl(url), eventTime(at), null),
   };
 };

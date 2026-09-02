@@ -15,7 +15,10 @@ import {
 import { Effect, Layer, Result, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
-import { AgentFlowCatalog } from "./agent-flow-catalog.ts";
+import {
+  AgentFlowCatalog,
+  normalizedDraftSaveInput,
+} from "./agent-flow-catalog.ts";
 import type { AgentFlowCatalogError } from "./agent-flow-catalog.ts";
 import { compileAgentFlowDraft } from "./agent-flow-compiler.ts";
 import { AgentSession } from "./agent-session.ts";
@@ -188,8 +191,22 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
     }),
   agent_flow_draft_save: (params) =>
     Effect.gen(function* saveDraft() {
-      const session = yield* AgentSession;
       const catalog = yield* AgentFlowCatalog;
+      const requestInput = normalizedDraftSaveInput({
+        basedOnRevisionId: params.basedOnRevisionId,
+        proposal: params.draft,
+        sourceSessionId: params.sessionId,
+        ...(params.agentFlowId === undefined
+          ? {}
+          : { agentFlowId: params.agentFlowId }),
+      });
+      const replay = yield* catalog
+        .replayDraftSave(params.operationId, requestInput)
+        .pipe(Effect.mapError(failure));
+      if (replay !== null) {
+        return replay;
+      }
+      const session = yield* AgentSession;
       const source = yield* session
         .teachingSource(params.sessionId)
         .pipe(Effect.mapError(failure));

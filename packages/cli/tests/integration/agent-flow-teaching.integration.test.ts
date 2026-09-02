@@ -508,6 +508,19 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       );
       expect(findNode(after.nodes, "textbox", "Token").value).toBeUndefined();
       expect(JSON.stringify(after)).not.toContain("top-secret");
+      const feed = yield* flow("agent_teaching_feed_get", {
+        includeSnapshots: true,
+        sessionId: started.id,
+      });
+      const capturedFill = feed.actions.find(
+        ({ action }) => action.type === "fill"
+      );
+      expect(capturedFill?.action).toEqual({
+        ref: token.ref,
+        text: "[sensitive input]",
+        type: "fill",
+      });
+      expect(JSON.stringify(feed)).not.toContain("top-secret");
 
       yield* session("agent_session_close", {
         operationId: OperationId.make("close-sensitive-teaching"),

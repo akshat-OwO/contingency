@@ -13,6 +13,11 @@ import type {
 import { Effect, Schema } from "effect";
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
 
+import {
+  SENSITIVE_AUTOCOMPLETE,
+  SENSITIVE_FIELD_METADATA,
+} from "./sensitive-data.ts";
+
 /** How long one browser action or observation may take before it fails. */
 const ACTION_TIMEOUT_MS = 10_000;
 
@@ -30,8 +35,43 @@ const NAME_LIMIT = 160;
 const REFERENCE_LIMIT = 1000;
 
 /** Inputs whose values are never copied into a Browser Snapshot. */
-const SENSITIVE_INPUT_SELECTOR =
-  'input[type="password"], input[autocomplete="one-time-code"], input[autocomplete^="cc-"], input[name*="otp" i], input[name*="token" i], input[name*="secret" i]';
+const SENSITIVE_INPUT_SELECTOR = [
+  'input[type="password"]',
+  'input[autocomplete^="current-password"]',
+  'input[autocomplete^="new-password"]',
+  'input[autocomplete="one-time-code"]',
+  'input[autocomplete^="cc-"]',
+  'input[name*="token" i]',
+  'input[id*="token" i]',
+  'input[aria-label*="token" i]',
+  'input[name*="key" i]',
+  'input[id*="key" i]',
+  'input[aria-label*="key" i]',
+  'input[name*="secret" i]',
+  'input[id*="secret" i]',
+  'input[aria-label*="secret" i]',
+  'input[name*="code" i]',
+  'input[id*="code" i]',
+  'input[aria-label*="code" i]',
+  'input[name*="password" i]',
+  'input[id*="password" i]',
+  'input[aria-label*="password" i]',
+  'input[name*="otp" i]',
+  'input[id*="otp" i]',
+  'input[aria-label*="otp" i]',
+  'input[name*="pin" i]',
+  'input[id*="pin" i]',
+  'input[aria-label*="pin" i]',
+  'input[name*="cvv" i]',
+  'input[id*="cvv" i]',
+  'input[aria-label*="cvv" i]',
+  'input[name*="cvc" i]',
+  'input[id*="cvc" i]',
+  'input[aria-label*="cvc" i]',
+  'input[name*="ssn" i]',
+  'input[id*="ssn" i]',
+  'input[aria-label*="ssn" i]',
+].join(",");
 
 const browserFailure = (
   description: string,
@@ -96,12 +136,39 @@ const SNAPSHOT_SCRIPT = `(() => {
     submit: "button",
   };
   const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
+  const SENSITIVE_AUTOCOMPLETE = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, "iu");
+  const SENSITIVE_FIELD_METADATA = new RegExp(${JSON.stringify(SENSITIVE_FIELD_METADATA.source)}, "iu");
   const SELECTOR =
     "a[href],button,input,select,textarea,summary,[role],[onclick]," +
     "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,li,td,th,p,label,img";
+  const isSensitive = (element) => {
+    const metadata = [
+      element.getAttribute("name"),
+      element.getAttribute("id"),
+      element.getAttribute("aria-label"),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const inputMode = element.getAttribute("inputmode")?.toLowerCase();
+    const maxLength = Number(element.getAttribute("maxlength"));
+    const looksLikeUnlabelledCode =
+      (inputMode === "numeric" || inputMode === "decimal") &&
+      Number.isInteger(maxLength) &&
+      maxLength >= 4 &&
+      maxLength <= 8;
+    return (
+      element.getAttribute("type")?.toLowerCase() === "password" ||
+      SENSITIVE_AUTOCOMPLETE.test(
+        element.getAttribute("autocomplete") || ""
+      ) ||
+      SENSITIVE_FIELD_METADATA.test(metadata) ||
+      looksLikeUnlabelledCode
+    );
+  };
   const sensitiveValues = Array.from(
-    document.querySelectorAll(SENSITIVE_INPUT_SELECTOR)
+    document.querySelectorAll('input,textarea,select,[role="textbox"]')
   )
+    .filter(isSensitive)
     .map((element) => element.value)
     .filter((value) => typeof value === "string" && value.length > 0);
   const redactSensitive = (text) =>
@@ -171,10 +238,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     if (typeof element.checked === "boolean") {
       node.checked = element.checked;
     }
-    if (
-      typeof element.value === "string" &&
-      !element.matches(SENSITIVE_INPUT_SELECTOR)
-    ) {
+    if (typeof element.value === "string" && !isSensitive(element)) {
       node.value = element.value.slice(0, ${NAME_LIMIT});
     }
     nodes.push(node);
@@ -239,6 +303,10 @@ export interface AgentElementRegistry {
   readonly resolve: (
     ref: string
   ) => Effect.Effect<ElementHandle, BrowserRpcErrorType>;
+  /** Determine whether a referenced control is known to contain sensitive data. */
+  readonly isSensitive: (
+    ref: string
+  ) => Effect.Effect<boolean, BrowserRpcErrorType>;
   /** Read the Page and mint a new generation of references for it. */
   readonly snapshot: (
     page: Page
@@ -388,7 +456,49 @@ export const makeAgentElementRegistry = (
     );
   };
 
-  return { clear, resolve, snapshot };
+  const isSensitive = (
+    ref: string
+  ): Effect.Effect<boolean, BrowserRpcErrorType> =>
+    resolve(ref).pipe(
+      Effect.flatMap((element) =>
+        Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not inspect the referenced control", cause),
+          try: () =>
+            element.evaluate((candidate) => {
+              const metadata = [
+                candidate.getAttribute("name"),
+                candidate.getAttribute("id"),
+                candidate.getAttribute("aria-label"),
+              ]
+                .filter(Boolean)
+                .join(" ");
+              const autocomplete = candidate.getAttribute("autocomplete") ?? "";
+              const inputMode = candidate
+                .getAttribute("inputmode")
+                ?.toLowerCase();
+              const maxLength = Number(candidate.getAttribute("maxlength"));
+              const sensitiveMetadata =
+                /(?:token|key|secret|code|password|credential|passcode|pin|otp|one[\s_-]?time|cvv|cvc|social[\s_-]?security|ssn)/iu;
+              const sensitiveAutocomplete =
+                /^(?:current-password|new-password|one-time-code|cc-)/iu;
+              const looksLikeUnlabelledCode =
+                (inputMode === "numeric" || inputMode === "decimal") &&
+                Number.isInteger(maxLength) &&
+                maxLength >= 4 &&
+                maxLength <= 8;
+              return (
+                candidate.getAttribute("type")?.toLowerCase() === "password" ||
+                sensitiveAutocomplete.test(autocomplete) ||
+                sensitiveMetadata.test(metadata) ||
+                looksLikeUnlabelledCode
+              );
+            }),
+        })
+      )
+    );
+
+  return { clear, isSensitive, resolve, snapshot };
 };
 
 export const captureAgentScreenshot = (

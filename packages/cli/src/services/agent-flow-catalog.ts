@@ -137,6 +137,11 @@ export interface AgentFlowCatalogService {
   readonly saveDraft: (
     input: SaveDraftInput
   ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /** Replay or recover a save before a Teaching session is available. */
+  readonly replayDraftSave: (
+    operationId: OperationId | string,
+    requestInput: string
+  ) => Effect.Effect<AgentFlowRevision | null, AgentFlowCatalogError>;
   readonly search: (
     query: AgentFlowSearch
   ) => Effect.Effect<AgentFlowSearchResult, AgentFlowCatalogError>;
@@ -164,6 +169,7 @@ const AgentFlowOperationRecord = Schema.Struct({
   operationId: OperationId,
   result: AgentFlowRevision,
   schemaVersion: Schema.Literal(1),
+  slices: Schema.Array(EvidenceSlice),
   status: Schema.Literals(["pending", "completed"]),
 });
 type AgentFlowOperationRecord = typeof AgentFlowOperationRecord.Type;
@@ -200,6 +206,20 @@ const normalizeJson = (input: unknown): unknown => {
 export const canonicalJson = (value: unknown): string =>
   JSON.stringify(normalizeJson(value));
 
+/** The MCP-visible portion of a draft save request, stable across restarts. */
+export const normalizedDraftSaveInput = (input: {
+  readonly agentFlowId?: AgentFlowId | undefined;
+  readonly basedOnRevisionId: AgentFlowRevisionId | null;
+  readonly proposal: AgentFlowDraftProposal;
+  readonly sourceSessionId: AgentSessionId;
+}): string =>
+  canonicalJson({
+    agentFlowId: input.agentFlowId ?? null,
+    basedOnRevisionId: input.basedOnRevisionId,
+    proposal: input.proposal,
+    sessionId: input.sourceSessionId,
+  });
+
 const encodeSlice = Schema.encodeSync(EvidenceSlice);
 const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
@@ -210,13 +230,15 @@ const operationRecord = (
   operationId: string,
   input: string,
   expectedHeads: AgentFlowHeads | null,
-  result: AgentFlowRevision
+  result: AgentFlowRevision,
+  slices: readonly EvidenceSlice[]
 ): AgentFlowOperationRecord => ({
   expectedHeads,
   input,
   operationId: OperationId.make(operationId),
   result,
   schemaVersion: 1,
+  slices,
   status,
 });
 
@@ -237,6 +259,9 @@ const matchesExpectedHeads = (
   expected === null
     ? current === null
     : current !== null && sameHeads(current, expected);
+
+const operationCacheKey = (catalogRoot: string, operationId: string): string =>
+  `${catalogRoot}\u0000${operationId}`;
 
 const tokens = (text: string): string[] =>
   text
@@ -342,13 +367,79 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   ) =>
     path.join(flowDirectory(catalogRoot, id), REVISIONS_DIRECTORY, revisionId);
 
+  /** Resolve the nearest existing ancestor so symlinked catalog paths cannot
+   * redirect a write or read outside the selected root. */
+  const isPhysicallyWithinCatalogRoot = (
+    catalogRoot: string,
+    target: string
+  ): Effect.Effect<boolean, AgentFlowCatalogError> =>
+    Effect.gen(function* checkCatalogPath() {
+      const resolvePath = (value: string) =>
+        Effect.gen(function* resolveMissingPath() {
+          const missing: string[] = [];
+          let probe = path.resolve(value);
+          while (true) {
+            const exists = yield* fileSystem
+              .exists(probe)
+              .pipe(
+                Effect.mapError(ioError("Could not inspect the Catalog path"))
+              );
+            if (exists) {
+              const resolved = yield* fileSystem
+                .realPath(probe)
+                .pipe(
+                  Effect.mapError(ioError("Could not resolve the Catalog path"))
+                );
+              return path.join(resolved, ...missing);
+            }
+            const parent = path.dirname(probe);
+            if (parent === probe) {
+              return null;
+            }
+            missing.unshift(path.basename(probe));
+            probe = parent;
+          }
+        });
+      const rootPath = yield* resolvePath(catalogRoot);
+      const targetPath = yield* resolvePath(target);
+      return rootPath !== null && targetPath !== null
+        ? isWithinCatalogRoot(rootPath, targetPath)
+        : false;
+    });
+
+  const ensureCatalogPath = (
+    catalogRoot: string,
+    target: string,
+    what: string
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    isPhysicallyWithinCatalogRoot(catalogRoot, target).pipe(
+      Effect.flatMap((safe) =>
+        safe
+          ? Effect.void
+          : Effect.fail(
+              catalogError(
+                "agent_catalog_invalid",
+                `${what} resolves outside the selected Catalog Root.`
+              )
+            )
+      )
+    );
+
   const readJson = <S extends Schema.Top>(
     schema: S,
     file: string,
-    what: string
+    what: string,
+    catalogRoot?: string
   ): Effect.Effect<S["Type"], AgentFlowCatalogError, S["DecodingServices"]> =>
-    fileSystem.readFileString(file).pipe(
-      Effect.mapError(ioError(`Could not read ${what}`)),
+    (catalogRoot === undefined
+      ? Effect.void
+      : ensureCatalogPath(catalogRoot, file, what)
+    ).pipe(
+      Effect.andThen(
+        fileSystem
+          .readFileString(file)
+          .pipe(Effect.mapError(ioError(`Could not read ${what}`)))
+      ),
       Effect.flatMap((contents) =>
         Effect.try({
           catch: () =>
@@ -374,12 +465,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
    */
   const writeJson = (file: string, contents: string, what: string) => {
     const temporary = `${file}.${randomUUID()}.tmp`;
-    return fileSystem
-      .writeFileString(temporary, contents)
-      .pipe(
-        Effect.andThen(fileSystem.rename(temporary, file)),
-        Effect.mapError(ioError(`Could not write ${what}`))
-      );
+    return ensureCatalogPath(Ref.getUnsafe(root), file, what).pipe(
+      Effect.andThen(
+        fileSystem
+          .writeFileString(temporary, contents)
+          .pipe(
+            Effect.andThen(fileSystem.rename(temporary, file)),
+            Effect.mapError(ioError(`Could not write ${what}`))
+          )
+      )
+    );
   };
 
   const readCompletedOperation = (
@@ -394,7 +489,8 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           ? readJson(
               AgentFlowOperationRecord,
               file,
-              "Agent Flow operation record"
+              "Agent Flow operation record",
+              catalogRoot
             )
           : Effect.succeed(null)
       )
@@ -405,48 +501,66 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     catalogRoot: string,
     operationId: string,
     persisted: AgentFlowOperationRecord
-  ): Effect.Effect<void, AgentFlowCatalogError> => {
-    const { heads, manifest } = persisted.result;
-    const expectedPath = revisionDirectory(
-      catalogRoot,
-      manifest.agentFlowId,
-      manifest.revisionId
-    );
-    const expectedBasedOn = persisted.expectedHeads?.draftRevisionId ?? null;
-    const expectedResultHeads: AgentFlowHeads =
-      persisted.expectedHeads === null
-        ? {
-            approvedRevisionId: null,
-            archived: false,
-            createdAt: manifest.createdAt,
-            draftRevisionId: manifest.revisionId,
-            id: manifest.agentFlowId,
-            schemaVersion: 1,
-            updatedAt: manifest.createdAt,
-          }
-        : {
-            ...persisted.expectedHeads,
-            draftRevisionId: manifest.revisionId,
-            updatedAt: manifest.createdAt,
-          };
-    const valid =
-      persisted.operationId === operationId &&
-      persisted.result.catalogRoot === catalogRoot &&
-      persisted.result.path === expectedPath &&
-      isWithinCatalogRoot(catalogRoot, persisted.result.path) &&
-      sameHeads(heads, expectedResultHeads) &&
-      manifest.basedOnRevisionId === expectedBasedOn &&
-      (persisted.expectedHeads === null ||
-        persisted.expectedHeads.id === manifest.agentFlowId);
-    return valid
-      ? Effect.void
-      : Effect.fail(
-          catalogError(
-            "agent_catalog_invalid",
-            `The persisted Agent Flow operation ${operationId} is outside the selected Catalog Root or has an invalid head transition.`
-          )
-        );
-  };
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    Effect.gen(function* validatePersistedOperation() {
+      const { heads, manifest } = persisted.result;
+      const expectedPath = revisionDirectory(
+        catalogRoot,
+        manifest.agentFlowId,
+        manifest.revisionId
+      );
+      const expectedBasedOn = persisted.expectedHeads?.draftRevisionId ?? null;
+      const expectedResultHeads: AgentFlowHeads =
+        persisted.expectedHeads === null
+          ? {
+              approvedRevisionId: null,
+              archived: false,
+              createdAt: manifest.createdAt,
+              draftRevisionId: manifest.revisionId,
+              id: manifest.agentFlowId,
+              schemaVersion: 1,
+              updatedAt: manifest.createdAt,
+            }
+          : {
+              ...persisted.expectedHeads,
+              draftRevisionId: manifest.revisionId,
+              updatedAt: manifest.createdAt,
+            };
+      const slicesMatchManifest =
+        persisted.slices.length === manifest.steps.length &&
+        persisted.slices.every((slice, index) => {
+          const step = manifest.steps[index];
+          const hash = evidenceHash(slice);
+          return (
+            step !== undefined &&
+            step.evidence.hash === hash &&
+            step.evidence.path === `${EVIDENCE_DIRECTORY}/${hash}.json`
+          );
+        });
+      const pathIsSafe = yield* isPhysicallyWithinCatalogRoot(
+        catalogRoot,
+        expectedPath
+      );
+      const valid =
+        persisted.operationId === operationId &&
+        persisted.result.catalogRoot === catalogRoot &&
+        persisted.result.path === expectedPath &&
+        pathIsSafe &&
+        sameHeads(heads, expectedResultHeads) &&
+        manifest.basedOnRevisionId === expectedBasedOn &&
+        slicesMatchManifest &&
+        (persisted.expectedHeads === null ||
+          persisted.expectedHeads.id === manifest.agentFlowId);
+      if (valid) {
+        return;
+      }
+      return yield* Effect.fail(
+        catalogError(
+          "agent_catalog_invalid",
+          `The persisted Agent Flow operation ${operationId} is outside the selected Catalog Root or has an invalid head transition.`
+        )
+      );
+    });
 
   const writeOperationRecord = (
     catalogRoot: string,
@@ -454,6 +568,11 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     record: AgentFlowOperationRecord
   ) =>
     Effect.gen(function* writeOperation() {
+      yield* ensureCatalogPath(
+        catalogRoot,
+        operationsDirectory(catalogRoot),
+        "Agent Flow operation records"
+      );
       yield* fileSystem
         .makeDirectory(operationsDirectory(catalogRoot), { recursive: true })
         .pipe(Effect.mapError(ioError("Could not create operation records")));
@@ -474,26 +593,146 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       status: "completed",
     });
 
+  const writeDraftArtifacts = (
+    catalogRoot: string,
+    manifest: AgentFlowManifest,
+    slices: readonly EvidenceSlice[]
+  ) =>
+    Effect.gen(function* writeDraftPackage() {
+      if (slices.length !== manifest.steps.length) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_catalog_invalid",
+            "The persisted draft does not contain one Evidence Slice per Agent Step."
+          )
+        );
+      }
+      const directory = flowDirectory(catalogRoot, manifest.agentFlowId);
+      const revisionPath = revisionDirectory(
+        catalogRoot,
+        manifest.agentFlowId,
+        manifest.revisionId
+      );
+      yield* Effect.forEach(
+        [revisionPath, path.join(directory, EVIDENCE_DIRECTORY)],
+        (target) =>
+          ensureCatalogPath(catalogRoot, target, "Agent Flow package"),
+        { discard: true }
+      );
+      yield* Effect.forEach(
+        [revisionPath, path.join(directory, EVIDENCE_DIRECTORY)],
+        (target) =>
+          fileSystem
+            .makeDirectory(target, { recursive: true })
+            .pipe(Effect.mapError(ioError("Could not create the revision"))),
+        { discard: true }
+      );
+      for (const [index, slice] of slices.entries()) {
+        const step = manifest.steps[index];
+        const hash = evidenceHash(slice);
+        const relative = `${EVIDENCE_DIRECTORY}/${hash}.json`;
+        if (
+          step === undefined ||
+          step.evidence.hash !== hash ||
+          step.evidence.path !== relative
+        ) {
+          return yield* Effect.fail(
+            catalogError(
+              "agent_catalog_invalid",
+              `The persisted Evidence Slice ${index} does not match its Agent Step.`
+            )
+          );
+        }
+        const file = path.join(directory, relative);
+        const present = yield* fileSystem
+          .exists(file)
+          .pipe(Effect.mapError(ioError("Could not inspect evidence")));
+        if (present) {
+          const existing = yield* readJson(
+            EvidenceSlice,
+            file,
+            "Evidence Slice",
+            catalogRoot
+          );
+          if (evidenceHash(existing) !== hash) {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_catalog_invalid",
+                `The persisted Evidence Slice ${hash} does not match its content.`
+              )
+            );
+          }
+        } else {
+          yield* writeJson(
+            file,
+            JSON.stringify(encodeSlice(slice), null, 2),
+            "an Evidence Slice"
+          );
+        }
+      }
+      const manifestFile = path.join(revisionPath, MANIFEST_FILE);
+      const manifestPresent = yield* fileSystem
+        .exists(manifestFile)
+        .pipe(Effect.mapError(ioError("Could not inspect the revision")));
+      if (manifestPresent) {
+        const existing = yield* readJson(
+          AgentFlowManifest,
+          manifestFile,
+          "Agent Flow manifest",
+          catalogRoot
+        );
+        if (
+          canonicalJson(encodeManifest(existing)) !==
+          canonicalJson(encodeManifest(manifest))
+        ) {
+          return yield* Effect.fail(
+            catalogError(
+              "agent_catalog_invalid",
+              `The persisted Agent Flow manifest does not match its operation.`
+            )
+          );
+        }
+      } else {
+        yield* writeJson(
+          manifestFile,
+          JSON.stringify(encodeManifest(manifest), null, 2),
+          "the Agent Flow manifest"
+        );
+      }
+    });
+
+  const writePendingOperation = (
+    catalogRoot: string,
+    pending: AgentFlowOperationRecord | null
+  ) =>
+    pending === null
+      ? Effect.void
+      : writeOperationRecord(catalogRoot, pending.operationId, pending);
+
   const commitDraft = (
     catalogRoot: string,
     headsFile: string,
     heads: AgentFlowHeads,
     expectedHeads: AgentFlowHeads | null,
-    saved: AgentFlowRevision,
-    operationId: string | undefined,
-    requestInput: string
+    pending: AgentFlowOperationRecord | null
   ) =>
     Effect.gen(function* commitDraftWithReplay() {
-      if (operationId !== undefined) {
-        yield* writeOperationRecord(
-          catalogRoot,
-          operationId,
-          operationRecord(
-            "pending",
-            operationId,
-            requestInput,
-            expectedHeads,
-            saved
+      const currentExists = yield* fileSystem
+        .exists(headsFile)
+        .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
+      const current = currentExists
+        ? yield* readJson(
+            AgentFlowHeads,
+            headsFile,
+            "Agent Flow record",
+            catalogRoot
+          )
+        : null;
+      if (!matchesExpectedHeads(expectedHeads, current)) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_flow_conflict",
+            `Agent Flow ${heads.id} head moved while this draft was written. Reread it before proposing another revision.`
           )
         );
       }
@@ -502,17 +741,11 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         JSON.stringify(encodeHeads(heads), null, 2),
         "the Agent Flow record"
       );
-      if (operationId !== undefined) {
+      if (pending !== null) {
         yield* markOperationCompleted(
           catalogRoot,
-          operationId,
-          operationRecord(
-            "pending",
-            operationId,
-            requestInput,
-            expectedHeads,
-            saved
-          )
+          pending.operationId,
+          pending
         );
       }
     });
@@ -520,7 +753,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const replayPersistedOperation = (
     catalogRoot: string,
     operationId: string,
-    requestInput: string
+    requestInput?: string
   ): Effect.Effect<AgentFlowRevision | null, AgentFlowCatalogError> =>
     readCompletedOperation(catalogRoot, operationId).pipe(
       Effect.flatMap((persisted) => {
@@ -529,7 +762,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         }
         return Effect.gen(function* replayPendingOperation() {
           yield* validateOperationRecord(catalogRoot, operationId, persisted);
-          if (persisted.input !== requestInput) {
+          if (requestInput !== undefined && persisted.input !== requestInput) {
             return yield* Effect.fail(
               catalogError(
                 "agent_flow_conflict",
@@ -550,13 +783,19 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             .exists(headsFile)
             .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
           const current: AgentFlowHeads | null = exists
-            ? yield* readJson(AgentFlowHeads, headsFile, "Agent Flow record")
+            ? yield* readJson(
+                AgentFlowHeads,
+                headsFile,
+                "Agent Flow record",
+                catalogRoot
+              )
             : null;
           if (
             current !== null &&
             current.id === intendedHeads.id &&
             current.draftRevisionId === manifest.revisionId
           ) {
+            yield* writeDraftArtifacts(catalogRoot, manifest, persisted.slices);
             yield* markOperationCompleted(catalogRoot, operationId, persisted);
             return persisted.result;
           }
@@ -570,6 +809,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               )
             );
           }
+          yield* writeDraftArtifacts(catalogRoot, manifest, persisted.slices);
           yield* writeJson(
             headsFile,
             JSON.stringify(encodeHeads(intendedHeads), null, 2),
@@ -589,7 +829,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     if (operationId === undefined) {
       return Effect.succeed(null);
     }
-    const prior = operations.get(operationId);
+    const prior = operations.get(operationCacheKey(catalogRoot, operationId));
     if (prior === undefined) {
       return replayPersistedOperation(catalogRoot, operationId, requestInput);
     }
@@ -656,26 +896,50 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const listFlowIds = (
     catalogRoot: string
   ): Effect.Effect<AgentFlowId[], AgentFlowCatalogError> =>
-    fileSystem.exists(flowsDirectory(catalogRoot)).pipe(
-      Effect.flatMap((exists) =>
-        exists
-          ? fileSystem.readDirectory(flowsDirectory(catalogRoot))
-          : Effect.succeed([])
-      ),
-      Effect.mapError(ioError("Could not list the Agent Flow Catalog")),
-      Effect.map((entries) =>
-        entries
-          .filter((entry) => Schema.is(AgentFlowId)(entry))
-          .map((entry) => AgentFlowId.make(entry))
-          .toSorted()
-      )
-    );
+    Effect.gen(function* listCatalogFlows() {
+      const exists = yield* fileSystem
+        .exists(flowsDirectory(catalogRoot))
+        .pipe(
+          Effect.mapError(ioError("Could not inspect the Agent Flow Catalog"))
+        );
+      if (!exists) {
+        return [];
+      }
+      yield* ensureCatalogPath(
+        catalogRoot,
+        flowsDirectory(catalogRoot),
+        "Agent Flow Catalog"
+      );
+      const entries = yield* fileSystem
+        .readDirectory(flowsDirectory(catalogRoot))
+        .pipe(
+          Effect.mapError(ioError("Could not list the Agent Flow Catalog"))
+        );
+      const ids = entries
+        .filter((entry) => Schema.is(AgentFlowId)(entry))
+        .map((entry) => AgentFlowId.make(entry));
+      const present = yield* Effect.forEach(
+        ids,
+        (id) =>
+          fileSystem
+            .exists(path.join(flowDirectory(catalogRoot, id), HEADS_FILE))
+            .pipe(
+              Effect.mapError(ioError("Could not inspect the Agent Flow")),
+              Effect.map((headsExist) => (headsExist ? id : undefined))
+            ),
+        { discard: false }
+      );
+      return present
+        .filter((id): id is AgentFlowId => id !== undefined)
+        .toSorted();
+    });
 
   const readHeads = (catalogRoot: string, id: AgentFlowId) =>
     readJson(
       AgentFlowHeads,
       path.join(flowDirectory(catalogRoot, id), HEADS_FILE),
-      "Agent Flow record"
+      "Agent Flow record",
+      catalogRoot
     );
 
   const readManifest = (
@@ -686,7 +950,8 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     readJson(
       AgentFlowManifest,
       path.join(revisionDirectory(catalogRoot, id, revisionId), MANIFEST_FILE),
-      "Agent Flow manifest"
+      "Agent Flow manifest",
+      catalogRoot
     );
 
   const revision = (
@@ -720,6 +985,8 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         : selectOperations.get(operationKey);
     if (prior !== undefined) {
       if (prior.input === requestInput) {
+        yield* Ref.set(root, prior.result.root);
+        options.onSelect?.(prior.result.root);
         return prior.result;
       }
       return yield* Effect.fail(
@@ -907,18 +1174,9 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     } satisfies AgentFlowSearchResult;
   });
 
-  const normalizedSaveInput = (input: SaveDraftInput): string =>
-    canonicalJson({
-      agentFlowId: input.agentFlowId ?? null,
-      basedOnRevisionId: input.basedOnRevisionId,
-      proposal: input.proposal,
-      sessionId: input.sourceSessionId,
-      slices: input.slices.map(evidenceHash),
-    });
-
   const saveDraftUnlocked = Effect.fn("AgentFlowCatalog.saveDraft")(
     function* saveDraft(input: SaveDraftInput) {
-      const requestInput = normalizedSaveInput(input);
+      const requestInput = normalizedDraftSaveInput(input);
       const operationKey =
         input.operationId === undefined ? undefined : String(input.operationId);
       const catalogRoot = yield* Ref.get(root);
@@ -929,7 +1187,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       );
       if (replay !== null) {
         if (operationKey !== undefined) {
-          operations.set(operationKey, { input: requestInput, result: replay });
+          operations.set(operationCacheKey(catalogRoot, operationKey), {
+            input: requestInput,
+            result: replay,
+          });
         }
         return replay;
       }
@@ -980,55 +1241,30 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         );
       }
       const revisionId = AgentFlowRevisionId.make(`rev-${randomUUID()}`);
-      const revisionPath = revisionDirectory(
-        catalogRoot,
-        agentFlowId,
-        revisionId
-      );
-      const evidenceDirectory = path.join(directory, EVIDENCE_DIRECTORY);
-      yield* Effect.forEach(
-        [revisionPath, evidenceDirectory],
-        (target) =>
-          fileSystem
-            .makeDirectory(target, { recursive: true })
-            .pipe(Effect.mapError(ioError("Could not create the revision"))),
-        { discard: true }
-      );
-      const writeSlice = (slice: EvidenceSlice, index: number) =>
-        Effect.gen(function* writeEvidenceSlice() {
-          const hash = evidenceHash(slice);
-          const relative = `${EVIDENCE_DIRECTORY}/${hash}.json`;
-          const file = path.join(directory, relative);
-          // Evidence is content-addressed: an unchanged slice from an earlier
-          // revision is the same file, so it is never rewritten.
-          const present = yield* fileSystem
-            .exists(file)
-            .pipe(Effect.mapError(ioError("Could not inspect evidence")));
-          if (!present) {
-            yield* writeJson(
-              file,
-              JSON.stringify(encodeSlice(slice), null, 2),
-              "an Evidence Slice"
-            );
-          }
+      const steps = yield* Effect.all(
+        input.slices.map((slice, index) => {
           const step = input.proposal.steps[index];
           if (step === undefined) {
-            return yield* Effect.fail(
+            return Effect.fail(
               catalogError(
                 "agent_catalog_invalid",
                 `Evidence Slice ${index} has no Agent Step.`
               )
             );
           }
-          return {
+          const hash = evidenceHash(slice);
+          return Effect.succeed({
             confirmation: step.confirmation,
             description: step.description,
-            evidence: { hash, path: relative },
+            evidence: {
+              hash,
+              path: `${EVIDENCE_DIRECTORY}/${hash}.json`,
+            },
             index,
             name: step.name,
-          };
-        });
-      const steps = yield* Effect.all(input.slices.map(writeSlice));
+          });
+        })
+      );
       const manifest: AgentFlowManifest = {
         agentFlowId,
         basedOnRevisionId: input.basedOnRevisionId,
@@ -1050,14 +1286,8 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         title: input.proposal.title,
         variables: input.proposal.variables ?? [],
       };
-      yield* writeJson(
-        path.join(revisionPath, MANIFEST_FILE),
-        JSON.stringify(encodeManifest(manifest), null, 2),
-        "the Agent Flow manifest"
-      );
       // Re-read the heads right before moving them: another process may have
-      // advanced the draft while the package was written. The package stays
-      // on disk either way; only the head decides what the catalog offers.
+      // advanced the draft before the write-ahead record is created.
       const currentExists = yield* fileSystem
         .exists(headsFile)
         .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
@@ -1078,17 +1308,25 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         updatedAt: at,
       };
       const saved = revision(catalogRoot, heads, manifest);
-      yield* commitDraft(
-        catalogRoot,
-        headsFile,
-        heads,
-        expectedHeads,
-        saved,
-        operationKey,
-        requestInput
-      );
+      const pending =
+        operationKey === undefined
+          ? null
+          : operationRecord(
+              "pending",
+              operationKey,
+              requestInput,
+              expectedHeads,
+              saved,
+              input.slices
+            );
+      yield* writePendingOperation(catalogRoot, pending);
+      yield* writeDraftArtifacts(catalogRoot, manifest, input.slices);
+      yield* commitDraft(catalogRoot, headsFile, heads, expectedHeads, pending);
       if (operationKey !== undefined) {
-        operations.set(operationKey, { input: requestInput, result: saved });
+        operations.set(operationCacheKey(catalogRoot, operationKey), {
+          input: requestInput,
+          result: saved,
+        });
       }
       return saved;
     }
@@ -1097,10 +1335,41 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const service: AgentFlowCatalogService = {
     get: (agentFlowId, revisionId) => get(agentFlowId, revisionId),
     info: () => Ref.get(root).pipe(Effect.flatMap(info)),
+    replayDraftSave: (operationId, requestInput) =>
+      writes.withPermit(
+        Effect.gen(function* replayDraftSaveWithCatalogLock() {
+          const catalogRoot = yield* Ref.get(root);
+          yield* ensureCatalogPath(
+            catalogRoot,
+            flowsDirectory(catalogRoot),
+            "Agent Flow Catalog"
+          );
+          yield* fileSystem
+            .makeDirectory(flowsDirectory(catalogRoot), { recursive: true })
+            .pipe(
+              Effect.mapError(
+                ioError("Could not create the Agent Flow Catalog")
+              )
+            );
+          return yield* withCatalogLock(
+            catalogRoot,
+            replayPersistedOperation(
+              catalogRoot,
+              String(operationId),
+              requestInput
+            )
+          );
+        })
+      ),
     saveDraft: (input) =>
       writes.withPermit(
         Effect.gen(function* saveDraftWithCatalogLock() {
           const catalogRoot = yield* Ref.get(root);
+          yield* ensureCatalogPath(
+            catalogRoot,
+            flowsDirectory(catalogRoot),
+            "Agent Flow Catalog"
+          );
           yield* fileSystem
             .makeDirectory(flowsDirectory(catalogRoot), { recursive: true })
             .pipe(

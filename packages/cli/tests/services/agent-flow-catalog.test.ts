@@ -230,6 +230,18 @@ it.effect("recovers a pending save before its head move after restart", () =>
         JSON.stringify({ ...record, status: "pending" })
       );
       yield* fileSystem.remove(headsFile);
+      yield* fileSystem.remove(saved.path, { recursive: true });
+      const [step] = saved.manifest.steps;
+      if (step !== undefined) {
+        yield* fileSystem.remove(
+          path.join(
+            root,
+            AGENT_FLOWS_DIRECTORY,
+            saved.manifest.agentFlowId,
+            step.evidence.path
+          )
+        );
+      }
 
       yield* Effect.scoped(
         Effect.gen(function* restart() {
@@ -243,6 +255,13 @@ it.effect("recovers a pending save before its head move after restart", () =>
           expect(
             JSON.parse(yield* fileSystem.readFileString(operationPath))
           ).toMatchObject({ status: "completed" });
+          expect(
+            yield* fileSystem.exists(path.join(saved.path, "manifest.json"))
+          ).toBe(true);
+          expect(yield* catalog.info()).toEqual({
+            agentFlowCount: 1,
+            root,
+          });
         })
       );
     })
@@ -486,6 +505,13 @@ it.effect("selects an explicit absolute Catalog Root", () =>
       const selected = yield* catalog.select(other);
       expect(selected).toEqual({ agentFlowCount: 0, root: other });
       expect(yield* catalog.select(other, "select-root")).toEqual(selected);
+      const third = path.join(root, "third");
+      expect(yield* catalog.select(third)).toEqual({
+        agentFlowCount: 0,
+        root: third,
+      });
+      expect(yield* catalog.select(other, "select-root")).toEqual(selected);
+      expect((yield* catalog.info()).root).toBe(other);
       const selectConflict = yield* Effect.flip(
         catalog.select(path.join(root, "another"), "select-root")
       );
@@ -494,6 +520,85 @@ it.effect("selects an explicit absolute Catalog Root", () =>
       expect(saved.catalogRoot).toBe(other);
       expect((yield* catalog.info()).agentFlowCount).toBe(1);
     })
+  )
+);
+
+it.effect("scopes save operation replay by Catalog Root", () =>
+  withCatalog((catalog, root) =>
+    Effect.gen(function* rootScopedOperationReplay() {
+      const operationId = "same-operation-id";
+      const first = yield* catalog.saveDraft(
+        saveInput("First root", operationId)
+      );
+      const other = path.join(root, "other-root");
+      yield* catalog.select(other);
+      const second = yield* catalog.saveDraft(
+        saveInput("Second root", operationId)
+      );
+
+      expect(first.catalogRoot).toBe(root);
+      expect(second.catalogRoot).toBe(other);
+      expect(second.manifest.title).toBe("Second root");
+      expect((yield* catalog.info()).agentFlowCount).toBe(1);
+    })
+  )
+);
+
+it.effect("rejects flow and operation paths that escape through symlinks", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.scoped(
+      Effect.gen(function* rejectSymlinkEscapes() {
+        const outsideFlows = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-outside-flows-",
+        });
+        const flows = path.join(root, AGENT_FLOWS_DIRECTORY);
+        yield* fileSystem.symlink(outsideFlows, flows);
+        const refusedFlow = yield* Effect.flip(
+          catalog.saveDraft(saveInput("Symlink flow", "symlink-flow"))
+        );
+        expect(refusedFlow.code).toBe("agent_catalog_invalid");
+        expect(yield* fileSystem.readDirectory(outsideFlows)).toEqual([]);
+
+        const validRoot = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-symlink-operation-root-",
+        });
+        const context = yield* Layer.build(
+          makeAgentFlowCatalogLayer({ root: validRoot }).pipe(
+            Layer.provide(NodeServices.layer)
+          )
+        );
+        const validCatalog = Context.get(context, AgentFlowCatalog);
+        const input = saveInput("Safe operation", "symlink-operation");
+        yield* validCatalog.saveDraft(input);
+        const operations = path.join(
+          validRoot,
+          AGENT_FLOWS_DIRECTORY,
+          ".operations"
+        );
+        const outsideOperations = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-outside-operations-",
+        });
+        const operationName = path.basename(
+          operationFile(validRoot, "symlink-operation")
+        );
+        yield* fileSystem.writeFileString(
+          path.join(outsideOperations, operationName),
+          yield* fileSystem.readFileString(
+            operationFile(validRoot, "symlink-operation")
+          )
+        );
+        yield* fileSystem.remove(operations, { recursive: true });
+        yield* fileSystem.symlink(outsideOperations, operations);
+        const restartedContext = yield* Layer.build(
+          makeAgentFlowCatalogLayer({ root: validRoot }).pipe(
+            Layer.provide(NodeServices.layer)
+          )
+        );
+        const restarted = Context.get(restartedContext, AgentFlowCatalog);
+        const refusedOperation = yield* Effect.flip(restarted.saveDraft(input));
+        expect(refusedOperation.code).toBe("agent_catalog_invalid");
+      })
+    )
   )
 );
 
