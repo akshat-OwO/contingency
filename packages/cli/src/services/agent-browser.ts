@@ -16,6 +16,7 @@ import type { ElementHandle, JSHandle, Page } from "playwright-core";
 import {
   SENSITIVE_AUTOCOMPLETE,
   SENSITIVE_FIELD_METADATA,
+  sanitizeTeachingUrl,
 } from "./sensitive-data.ts";
 
 /** How long one browser action or observation may take before it fails. */
@@ -37,40 +38,31 @@ const REFERENCE_LIMIT = 1000;
 /** Inputs whose values are never copied into a Browser Snapshot. */
 const SENSITIVE_INPUT_SELECTOR = [
   'input[type="password"]',
-  'input[autocomplete^="current-password"]',
-  'input[autocomplete^="new-password"]',
-  'input[autocomplete="one-time-code"]',
-  'input[autocomplete^="cc-"]',
-  'input[name*="token" i]',
-  'input[id*="token" i]',
-  'input[aria-label*="token" i]',
-  'input[name*="key" i]',
-  'input[id*="key" i]',
-  'input[aria-label*="key" i]',
-  'input[name*="secret" i]',
-  'input[id*="secret" i]',
-  'input[aria-label*="secret" i]',
-  'input[name*="code" i]',
-  'input[id*="code" i]',
-  'input[aria-label*="code" i]',
-  'input[name*="password" i]',
-  'input[id*="password" i]',
-  'input[aria-label*="password" i]',
-  'input[name*="otp" i]',
-  'input[id*="otp" i]',
-  'input[aria-label*="otp" i]',
-  'input[name*="pin" i]',
-  'input[id*="pin" i]',
-  'input[aria-label*="pin" i]',
-  'input[name*="cvv" i]',
-  'input[id*="cvv" i]',
-  'input[aria-label*="cvv" i]',
-  'input[name*="cvc" i]',
-  'input[id*="cvc" i]',
-  'input[aria-label*="cvc" i]',
-  'input[name*="ssn" i]',
-  'input[id*="ssn" i]',
-  'input[aria-label*="ssn" i]',
+  '[autocomplete^="current-password"]',
+  '[autocomplete^="new-password"]',
+  '[autocomplete="one-time-code"]',
+  '[autocomplete^="cc-"]',
+  ...[
+    "token",
+    "key",
+    "secret",
+    "code",
+    "password",
+    "credential",
+    "pin",
+    "otp",
+    "cvv",
+    "cvc",
+    "ssn",
+  ].flatMap((term) => [
+    `[name*="${term}" i]`,
+    `[id*="${term}" i]`,
+    `[aria-label*="${term}" i]`,
+  ]),
+  ...["4", "5", "6", "7", "8"].flatMap((length) => [
+    `input[inputmode="numeric"][maxlength="${length}"]`,
+    `input[inputmode="decimal"][maxlength="${length}"]`,
+  ]),
 ].join(",");
 
 const browserFailure = (
@@ -435,7 +427,7 @@ export const makeAgentElementRegistry = (
         nodes,
         snapshotId,
         title: identity.title,
-        url: identity.url,
+        url: sanitizeTeachingUrl(identity.url),
       };
     });
 
@@ -525,7 +517,7 @@ export const captureAgentScreenshot = (
       encoding: "base64" as const,
       format: "png" as const,
       image: image.toString("base64"),
-      url: page.url(),
+      url: sanitizeTeachingUrl(page.url()),
     }))
   );
 

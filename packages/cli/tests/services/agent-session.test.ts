@@ -38,6 +38,7 @@ interface HeldRead {
 }
 
 interface FakeBrowser {
+  readonly activePageCalls: () => number;
   readonly browser: CreateBrowserService;
   readonly closed: SessionId[];
   readonly created: SessionId[];
@@ -67,6 +68,7 @@ const makeFakeBrowser = (options?: {
   const emulations: DraftEmulation[] = [];
   const viewports: Viewport[] = [];
   let pageUrl = "about:blank";
+  let activePageCalls = 0;
   const blockClose = options?.blockClose;
   const blockCurrentUrl = options?.blockCurrentUrl;
   /** Armed by a test to suspend the next `currentUrl` read. */
@@ -79,7 +81,10 @@ const makeFakeBrowser = (options?: {
     acknowledgeFrame: notUnderTest,
     // The fake has no real Page, so reaching the browser is observable as
     // this failure rather than as a successful action.
-    activePage: () => Effect.fail(failure),
+    activePage: () => {
+      activePageCalls += 1;
+      return Effect.fail(failure);
+    },
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {
@@ -148,6 +153,7 @@ const makeFakeBrowser = (options?: {
     switchTab: notUnderTest,
   };
   return {
+    activePageCalls: () => activePageCalls,
     browser,
     closed,
     created,
@@ -366,6 +372,29 @@ it.effect("refuses a non-loopback Agent View before opening a browser", () =>
   })
 );
 
+it.effect(
+  "replays an ordinary browser-action failure without dispatching again",
+  () =>
+    Effect.gen(function* replayFailedAction() {
+      const fake = makeFakeBrowser();
+      const service = yield* serviceFor(fake);
+      const started = yield* service.start(startInput("start-failed-action"));
+      const operationId = OperationId.make("failed-action");
+      const action = { action: "reload" as const, type: "history" as const };
+
+      const first = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+      const repeated = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+
+      expect(first).toEqual(repeated);
+      expect(first.code).toBe("agent_browser_failed");
+      expect(fake.activePageCalls()).toBe(1);
+    })
+);
+
 it.effect("refuses user navigation while the agent holds the browser", () =>
   Effect.gen(function* refuseUserNavigation() {
     const fake = makeFakeBrowser();
@@ -405,13 +434,13 @@ it.effect("reads where the browser is, not where it was last driven", () =>
     );
     // A click that navigates goes through raw input: no action path records
     // it, so only re-reading the Page keeps the session honest.
-    fake.visit("https://example.com/pricing");
+    fake.visit("https://example.com/pricing?access_token=private-value");
 
     const read = yield* service.get(started.id);
-    expect(read.currentUrl).toBe("https://example.com/pricing");
+    expect(read.currentUrl).not.toContain("private-value");
     const listed = yield* service.list();
     expect(listed.map(({ currentUrl }) => currentUrl)).toEqual([
-      "https://example.com/pricing",
+      read.currentUrl,
     ]);
   })
 );

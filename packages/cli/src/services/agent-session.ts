@@ -345,6 +345,29 @@ const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
     ? ({ ...action, url: sanitizeTeachingUrl(action.url) } as A)
     : action;
 
+const sanitizeSensitiveAction = (
+  action: AgentBrowserAction,
+  sensitive: boolean
+): AgentBrowserAction => {
+  if (!sensitive) {
+    return sanitizeTeachingAction(action);
+  }
+  switch (action.type) {
+    case "fill": {
+      return { ...action, text: "[sensitive input]" };
+    }
+    case "select": {
+      return { ...action, values: ["[sensitive input]"] };
+    }
+    case "press": {
+      return { ...action, key: "[sensitive input]" };
+    }
+    default: {
+      return action;
+    }
+  }
+};
+
 /** How many attempts one Agent Session keeps in its action timeline. */
 const TIMELINE_LIMIT = 200;
 
@@ -409,7 +432,7 @@ type AgentOperationResult =
    * may already have performed it, so the id answers with the same refusal
    * rather than performing it a second time.
    */
-  | { readonly error: BrowserRpcErrorType; readonly kind: "act-unresolved" }
+  | { readonly error: AgentSessionError; readonly kind: "act-failure" }
   | { readonly kind: "session"; readonly result: AgentSessionSnapshot };
 
 interface ReplayRecord {
@@ -513,14 +536,15 @@ const makeAgentSession = (
       browser.currentUrl(record.browserSessionId).pipe(
         Effect.flatMap((currentUrl) =>
           mutate(sessionId, (snapshot) => {
-            if (snapshot.currentUrl === currentUrl) {
+            const safeCurrentUrl = sanitizeTeachingUrl(currentUrl);
+            if (snapshot.currentUrl === safeCurrentUrl) {
               return snapshot;
             }
             const at = now().toISOString();
             // A URL the user drove to during Takeover is part of the
             // Demonstration even though no action path recorded it.
             record.capture?.recordUrl(currentUrl, at);
-            return { ...snapshot, currentUrl, updatedAt: at };
+            return { ...snapshot, currentUrl: safeCurrentUrl, updatedAt: at };
           })
         ),
         Effect.map((next) => next ?? record.snapshot),
@@ -924,7 +948,9 @@ const makeAgentSession = (
                     input.url ?? "about:blank",
                     emulation
                   );
-                  const currentUrl = yield* browser.currentUrl(acquired);
+                  const currentUrl = sanitizeTeachingUrl(
+                    yield* browser.currentUrl(acquired)
+                  );
                   const startedAt = now().toISOString();
                   // The opening navigation is the Demonstration's first URL
                   // transition: the journey starts somewhere.
@@ -985,9 +1011,16 @@ const makeAgentSession = (
         // The entry joins the timeline as it stands now: an action that ran
         // while control changed hands records what it did without undoing the
         // change it raced.
+        const safePatch =
+          patch.currentUrl === undefined
+            ? patch
+            : {
+                ...patch,
+                currentUrl: sanitizeTeachingUrl(patch.currentUrl),
+              };
         const next = yield* mutate(sessionId, (snapshot) => ({
           ...snapshot,
-          ...patch,
+          ...safePatch,
           teaching: teachingOf(record, snapshot),
           timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
           updatedAt: now().toISOString(),
@@ -1024,9 +1057,7 @@ const makeAgentSession = (
         action: AgentBrowserAction,
         capturedAction: AgentBrowserAction,
         description: string,
-        id: string,
-        operationId: OperationId | string | undefined,
-        requestInput: string
+        id: string
       ) {
         const current = yield* requireLiveRecord(sessionId);
         if (agentIsPaused(current.snapshot)) {
@@ -1083,10 +1114,6 @@ const makeAgentSession = (
           yield* recordEntry(sessionId, result.entry, {
             currentUrl: result.url,
           });
-          yield* remember(operationId, "act", sessionId, requestInput, {
-            kind: "act",
-            result,
-          });
           return result;
         }
         if (Cause.hasInterrupts(exit.cause)) {
@@ -1096,10 +1123,6 @@ const makeAgentSession = (
           const refusal = takenOver(
             `${description} was interrupted and may already have happened.`
           );
-          yield* remember(operationId, "act", sessionId, requestInput, {
-            error: refusal,
-            kind: "act-unresolved",
-          });
           return yield* Effect.fail(refusal);
         }
         const cause = Cause.findErrorOption(exit.cause);
@@ -1153,7 +1176,7 @@ const makeAgentSession = (
           if (replayed.result.kind === "act") {
             return replayed.result.result;
           }
-          if (replayed.result.kind === "act-unresolved") {
+          if (replayed.result.kind === "act-failure") {
             return yield* Effect.fail(replayed.result.error);
           }
           return yield* Effect.fail(
@@ -1163,42 +1186,49 @@ const makeAgentSession = (
             )
           );
         }
-        const record = yield* requireLiveRecord(sessionId);
-        if (agentIsPaused(record.snapshot)) {
-          return yield* Effect.fail(
-            takenOver("This action was not dispatched.")
-          );
-        }
-        const page = yield* browser.activePage(record.browserSessionId);
-        const capturedAction =
-          action.type === "fill"
-            ? yield* record.registry
-                .isSensitive(action.ref)
-                .pipe(
-                  Effect.map((sensitive) =>
-                    sensitive
-                      ? { ...action, text: "[sensitive input]" }
-                      : action
-                  )
-                )
-            : sanitizeTeachingAction(action);
-        const description = describeAgentAction(capturedAction);
-        const id = `action-${randomUUID()}`;
-        // Concurrent agent actions would leave a fiber Takeover cannot reach,
-        // so a second action waits here and re-reads control when it wakes.
-        return yield* record.control.lock.withPermit(
-          dispatch(
-            sessionId,
-            record,
-            page,
-            action,
-            capturedAction,
-            description,
-            id,
-            operationId,
-            requestInput
-          )
+        const outcome = yield* Effect.result(
+          Effect.gen(function* attemptBrowserAction() {
+            const record = yield* requireLiveRecord(sessionId);
+            if (agentIsPaused(record.snapshot)) {
+              return yield* Effect.fail(
+                takenOver("This action was not dispatched.")
+              );
+            }
+            const page = yield* browser.activePage(record.browserSessionId);
+            const sensitive =
+              "ref" in action && action.ref !== undefined
+                ? yield* record.registry.isSensitive(action.ref)
+                : false;
+            const capturedAction = sanitizeSensitiveAction(action, sensitive);
+            const description = describeAgentAction(capturedAction);
+            const id = `action-${randomUUID()}`;
+            // Concurrent agent actions would leave a fiber Takeover cannot
+            // reach, so a second waits and re-reads control when it wakes.
+            return yield* record.control.lock.withPermit(
+              dispatch(
+                sessionId,
+                record,
+                page,
+                action,
+                capturedAction,
+                description,
+                id
+              )
+            );
+          })
         );
+        if (Result.isSuccess(outcome)) {
+          yield* remember(operationId, "act", sessionId, requestInput, {
+            kind: "act",
+            result: outcome.success,
+          });
+          return outcome.success;
+        }
+        yield* remember(operationId, "act", sessionId, requestInput, {
+          error: outcome.failure,
+          kind: "act-failure",
+        });
+        return yield* Effect.fail(outcome.failure);
       }
     );
 

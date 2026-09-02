@@ -488,12 +488,14 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
         clientName: "integration-agent",
         clientVersion: "1.0.0",
         operationId: OperationId.make("start-sensitive-teaching"),
-        url: fixtures.url("secret-echo.html"),
+        url: fixtures.url("secret-echo.html?access_token=url-secret"),
         viewport,
       });
+      expect(started.currentUrl).not.toContain("url-secret");
       const observed = yield* session("agent_browser_snapshot", {
         sessionId: started.id,
       });
+      expect(observed.url).not.toContain("url-secret");
       const token = findNode(observed.nodes, "textbox", "Token");
       const filled = yield* session("agent_browser_act", {
         action: { ref: token.ref, text: "top-secret", type: "fill" },
@@ -508,6 +510,11 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       );
       expect(findNode(after.nodes, "textbox", "Token").value).toBeUndefined();
       expect(JSON.stringify(after)).not.toContain("top-secret");
+      expect(filled.snapshot.url).not.toContain("url-secret");
+      const screenshot = yield* session("agent_browser_screenshot", {
+        sessionId: started.id,
+      });
+      expect(screenshot.url).not.toContain("url-secret");
       const feed = yield* flow("agent_teaching_feed_get", {
         includeSnapshots: true,
         sessionId: started.id,
@@ -521,6 +528,7 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
         type: "fill",
       });
       expect(JSON.stringify(feed)).not.toContain("top-secret");
+      expect(JSON.stringify(feed)).not.toContain("url-secret");
 
       yield* session("agent_session_close", {
         operationId: OperationId.make("close-sensitive-teaching"),
