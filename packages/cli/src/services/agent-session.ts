@@ -9,6 +9,7 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  AgentFlowDraftRef,
   DraftEmulation,
   AgentHistoryAction,
   AgentNavigateAction,
@@ -17,6 +18,7 @@ import type {
   AgentBrowserSnapshot,
   AgentScreenshot,
   AgentSessionActivity,
+  AgentSnapshotId,
   AgentTimelineEntry,
   AgentSessionSnapshot,
   AgentSessionStart,
@@ -26,6 +28,8 @@ import type {
   FrameSequence,
   OperationId,
   SessionId,
+  TeachingFeed,
+  TeachingInstruction,
 } from "@contingency/protocol";
 import {
   Cause,
@@ -53,8 +57,11 @@ import {
   snapshotAfterAction,
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
+import type { Demonstration } from "./agent-flow-compiler.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import { makeDemonstrationCapture } from "./teaching-capture.ts";
+import type { DemonstrationCapture } from "./teaching-capture.ts";
 import { isLoopbackHost } from "./web-url.ts";
 
 /** Options for the one process-owned Agent Session registry. */
@@ -114,6 +121,24 @@ export interface AgentSessionService {
     streamId: BrowserStreamId
   ) => Effect.Effect<void, AgentSessionError>;
   readonly list: () => Effect.Effect<readonly AgentSessionSnapshot[]>;
+  /**
+   * Note the draft a Teaching session was compiled into, so Agent View can
+   * show it. The catalog write itself happens elsewhere; this only records it.
+   */
+  readonly recordDraft: (
+    sessionId: AgentSessionId,
+    draft: AgentFlowDraftRef
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Record what the user told the agent to do, as the agent relayed it. The
+   * instruction joins the Demonstration and the Evidence Slice of the Step it
+   * falls in.
+   */
+  readonly recordInstruction: (
+    sessionId: AgentSessionId,
+    text: string,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Ask the user to take control, and answer immediately with the link. */
   readonly requestTakeover: (
     sessionId: AgentSessionId,
@@ -163,6 +188,31 @@ export interface AgentSessionService {
     reason: string,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * The bounded Teaching Feed of a Teaching session
+   * ([ADR 0032](../../../../docs/adr/0032-external-agents-receive-a-bounded-teaching-feed.md)).
+   * Snapshots are included only on request; the agent already saw each one
+   * when it acted.
+   */
+  readonly teachingFeed: (
+    sessionId: AgentSessionId,
+    includeSnapshots?: boolean
+  ) => Effect.Effect<TeachingFeed, AgentSessionError>;
+  /**
+   * The full Demonstration and the Emulation it ran under, for compilation.
+   * This stays inside the owning process: MCP hands out the Teaching Feed and
+   * never this.
+   */
+  readonly teachingSource: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<TeachingSource, AgentSessionError>;
+}
+
+/** What compilation reads from a Teaching session. */
+export interface TeachingSource {
+  readonly demonstration: Demonstration;
+  readonly emulation: DraftEmulation;
+  readonly session: AgentSessionSnapshot;
 }
 
 export const AgentSession = Context.Service<AgentSessionService>(
@@ -255,6 +305,15 @@ const takenOver = (description: string): BrowserRpcErrorType =>
 const isLive = (phase: AgentSessionSnapshot["phase"]): boolean =>
   phase === "starting" || phase === "running" || phase === "takeover";
 
+/** The Teaching progress a snapshot should carry, given what was captured. */
+const teachingOf = (
+  record: { readonly capture: DemonstrationCapture | undefined } | undefined,
+  snapshot: AgentSessionSnapshot
+): AgentSessionSnapshot["teaching"] =>
+  record?.capture === undefined
+    ? snapshot.teaching
+    : record.capture.progress(snapshot.teaching?.draft ?? null);
+
 /** How many attempts one Agent Session keeps in its action timeline. */
 const TIMELINE_LIMIT = 200;
 
@@ -264,9 +323,13 @@ const TIMELINE_LIMIT = 200;
  * browser may already have performed it, and Contingency cannot undo it.
  */
 interface InFlightAction {
+  readonly action: AgentBrowserAction;
   readonly description: string;
   readonly fiber: Fiber.Fiber<AgentActionResult, AgentSessionError>;
   readonly id: string;
+  /** The Page state when the action was dispatched, for the Demonstration. */
+  readonly snapshotBefore: AgentSnapshotId | null;
+  readonly urlBefore: string;
 }
 
 interface ActionControl {
@@ -287,14 +350,23 @@ type SnapshotWrite = readonly [
 interface SessionRecord {
   /** Private Create Browser handle. Never included in protocol snapshots. */
   readonly browserSessionId: SessionId;
+  /** The Demonstration recorder; only a Teaching session has one. */
+  readonly capture: DemonstrationCapture | undefined;
   readonly control: ActionControl;
+  readonly emulation: DraftEmulation;
   /** The Browser Snapshot references this session has minted. */
   readonly registry: AgentElementRegistry;
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
 }
 
-type AgentOperationKind = "act" | "close" | "control" | "start" | "takeover";
+type AgentOperationKind =
+  | "act"
+  | "close"
+  | "control"
+  | "instruction"
+  | "start"
+  | "takeover";
 
 /** What a replayed operation answers with, discriminated so no cast is needed. */
 type AgentOperationResult =
@@ -407,11 +479,16 @@ const makeAgentSession = (
     ): Effect.Effect<AgentSessionSnapshot> =>
       browser.currentUrl(record.browserSessionId).pipe(
         Effect.flatMap((currentUrl) =>
-          mutate(sessionId, (snapshot) =>
-            snapshot.currentUrl === currentUrl
-              ? snapshot
-              : { ...snapshot, currentUrl, updatedAt: now().toISOString() }
-          )
+          mutate(sessionId, (snapshot) => {
+            if (snapshot.currentUrl === currentUrl) {
+              return snapshot;
+            }
+            const at = now().toISOString();
+            // A URL the user drove to during Takeover is part of the
+            // Demonstration even though no action path recorded it.
+            record.capture?.recordUrl(currentUrl, at);
+            return { ...snapshot, currentUrl, updatedAt: at };
+          })
         ),
         Effect.map((next) => next ?? record.snapshot),
         Effect.orElseSucceed(() => record.snapshot)
@@ -719,6 +796,10 @@ const makeAgentSession = (
                   ownerProcessId: owner,
                   phase: "starting",
                   takeover: null,
+                  teaching:
+                    activity === "teaching"
+                      ? { actionCount: 0, draft: null, instructionCount: 0 }
+                      : null,
                   timeline: [],
                   updatedAt: at,
                   viewUrl: viewUrl(options.baseUrl, sessionId),
@@ -727,10 +808,15 @@ const makeAgentSession = (
                 yield* Scope.addFinalizer(sessionScope, registry.clear());
                 const record: SessionRecord = {
                   browserSessionId: acquired,
+                  capture:
+                    activity === "teaching"
+                      ? makeDemonstrationCapture(base.currentUrl)
+                      : undefined,
                   control: {
                     inFlight: undefined,
                     lock: Semaphore.makeUnsafe(1),
                   },
+                  emulation,
                   registry,
                   scope: sessionScope,
                   snapshot: base,
@@ -750,11 +836,15 @@ const makeAgentSession = (
                     emulation
                   );
                   const currentUrl = yield* browser.currentUrl(acquired);
+                  const startedAt = now().toISOString();
+                  // The opening navigation is the Demonstration's first URL
+                  // transition: the journey starts somewhere.
+                  record.capture?.recordUrl(currentUrl, startedAt);
                   const running: AgentSessionSnapshot = {
                     ...base,
                     currentUrl,
                     phase: "running",
-                    updatedAt: now().toISOString(),
+                    updatedAt: startedAt,
                   };
                   yield* save(sessionId, record, running);
                   yield* rememberSession(
@@ -802,12 +892,14 @@ const makeAgentSession = (
       patch: Partial<AgentSessionSnapshot> = {}
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
+        const record = Ref.getUnsafe(sessions).get(sessionId);
         // The entry joins the timeline as it stands now: an action that ran
         // while control changed hands records what it did without undoing the
         // change it raced.
         const next = yield* mutate(sessionId, (snapshot) => ({
           ...snapshot,
           ...patch,
+          teaching: teachingOf(record, snapshot),
           timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
           updatedAt: now().toISOString(),
         }));
@@ -852,6 +944,8 @@ const makeAgentSession = (
             takenOver("This action was not dispatched.")
           );
         }
+        const urlBefore = page.url();
+        const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
         // The action runs on a child fiber so a user Takeover can interrupt it
         // and wait for its cleanup rather than racing it.
         const fiber = yield* Effect.forkChild(
@@ -872,11 +966,30 @@ const makeAgentSession = (
             };
           })
         );
-        record.control.inFlight = { description, fiber, id };
+        record.control.inFlight = {
+          action,
+          description,
+          fiber,
+          id,
+          snapshotBefore,
+          urlBefore,
+        };
         const exit = yield* Fiber.await(fiber);
         record.control.inFlight = undefined;
         if (Exit.isSuccess(exit)) {
           const result = exit.value;
+          record.capture?.recordAction({
+            action,
+            actor: "agent",
+            at: result.entry.at,
+            description,
+            id,
+            outcome: "completed",
+            snapshotAfter: result.snapshot,
+            snapshotBefore,
+            urlAfter: result.url,
+            urlBefore,
+          });
           yield* recordEntry(sessionId, result.entry, {
             currentUrl: result.url,
           });
@@ -900,20 +1013,36 @@ const makeAgentSession = (
           return yield* Effect.fail(refusal);
         }
         const cause = Cause.findErrorOption(exit.cause);
+        const detail = Option.isSome(cause) ? cause.value.message : undefined;
+        const failedAt = now().toISOString();
         // A failed action may still have moved the Page, so the session records
         // where the browser actually is rather than where it last succeeded.
+        const urlAfter = page.url();
+        record.capture?.recordAction({
+          action,
+          actor: "agent",
+          at: failedAt,
+          description,
+          detail,
+          id,
+          outcome: "failed",
+          snapshotAfter: null,
+          snapshotBefore,
+          urlAfter,
+          urlBefore,
+        });
         yield* recordEntry(
           sessionId,
           {
             actor: "agent",
-            at: now().toISOString(),
+            at: failedAt,
             description,
-            detail: Option.isSome(cause) ? cause.value.message : undefined,
+            detail,
             dispatched: true,
             id,
             outcome: "failed",
           },
-          { currentUrl: page.url() }
+          { currentUrl: urlAfter }
         );
         return yield* Effect.failCause(exit.cause);
       }
@@ -1008,16 +1137,34 @@ const makeAgentSession = (
           // recorded as dispatched rather than as never having happened.
           yield* Fiber.interrupt(inFlight.fiber);
           record.control.inFlight = undefined;
+          const interruptedAt = now().toISOString();
+          const detail =
+            "Takeover interrupted this action. The browser may already have performed it.";
           interruptedAction = {
             actor: "agent",
-            at: now().toISOString(),
+            at: interruptedAt,
             description: inFlight.description,
-            detail:
-              "Takeover interrupted this action. The browser may already have performed it.",
+            detail,
             dispatched: true,
             id: inFlight.id,
             outcome: "interrupted",
           };
+          // The Demonstration keeps the attempt too: a compiler that never
+          // learns of it could place a Step boundary over an effect nobody
+          // can account for.
+          record.capture?.recordAction({
+            action: inFlight.action,
+            actor: "agent",
+            at: interruptedAt,
+            description: inFlight.description,
+            detail,
+            id: inFlight.id,
+            outcome: "interrupted",
+            snapshotAfter: null,
+            snapshotBefore: inFlight.snapshotBefore,
+            urlAfter: record.snapshot.currentUrl,
+            urlBefore: inFlight.urlBefore,
+          });
         }
         const at = now().toISOString();
         const entry: AgentTimelineEntry = {
@@ -1044,6 +1191,7 @@ const makeAgentSession = (
           interruptedAction,
           phase: "takeover",
           takeover: { reason, requestedAt: at, requestedBy: by },
+          teaching: teachingOf(current, current.snapshot),
           timeline,
           updatedAt: at,
         };
@@ -1119,6 +1267,82 @@ const makeAgentSession = (
         return next;
       }
     );
+
+    /** A session that carries a Demonstration: a Teaching session, live or not. */
+    const requireTeaching = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<
+      {
+        readonly capture: DemonstrationCapture;
+        readonly record: SessionRecord;
+      },
+      AgentSessionError
+    > =>
+      read(sessionId).pipe(
+        Effect.flatMap((record) =>
+          record.capture === undefined
+            ? Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  `Agent Session ${sessionId} is an Interactive Run and has no Demonstration. Start a session with activity "teaching" to teach a journey.`
+                )
+              )
+            : Effect.succeed({ capture: record.capture, record })
+        )
+      );
+
+    const recordInstructionUnlocked = Effect.fn(
+      "AgentSession.recordInstruction"
+    )(function* recordInstruction(
+      sessionId: AgentSessionId,
+      text: string,
+      operationId?: OperationId | string
+    ) {
+      const requestInput = JSON.stringify({ text });
+      const replayed = replaySession(
+        operationId,
+        "instruction",
+        sessionId,
+        requestInput
+      );
+      if (replayed?._tag === "conflict") {
+        return yield* Effect.fail(replayed.error);
+      }
+      if (replayed?._tag === "replay") {
+        return replayed.snapshot;
+      }
+      const { capture, record } = yield* requireTeaching(sessionId);
+      if (!isLive(record.snapshot.phase)) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Agent Session ${sessionId} is no longer running.`
+          )
+        );
+      }
+      const at = now().toISOString();
+      const instruction: TeachingInstruction = capture.recordInstruction(
+        text,
+        at
+      );
+      const next = yield* recordEntry(sessionId, {
+        actor: "user",
+        at,
+        description: "The user gave an instruction",
+        detail: instruction.text,
+        dispatched: false,
+        id: instruction.id,
+        outcome: "completed",
+      });
+      yield* rememberSession(
+        operationId,
+        "instruction",
+        sessionId,
+        requestInput,
+        next
+      );
+      return next;
+    });
 
     const service: AgentSessionService = {
       acknowledgeFrame: (sessionId, sequence, streamId) =>
@@ -1200,6 +1424,28 @@ const makeAgentSession = (
             ({ browserSessionId }) => browserSessionId === sessionId
           )
         ),
+      recordDraft: (sessionId, draft) =>
+        Effect.gen(function* recordSavedDraft() {
+          const { capture } = yield* requireTeaching(sessionId);
+          const next = yield* mutate(sessionId, (snapshot) => ({
+            ...snapshot,
+            teaching: capture.progress(draft),
+            updatedAt: now().toISOString(),
+          }));
+          if (next === undefined) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_not_found",
+                `Agent Session ${sessionId} was not found.`
+              )
+            );
+          }
+          return next;
+        }),
+      recordInstruction: (sessionId, text, operationId) =>
+        lock.withPermit(
+          recordInstructionUnlocked(sessionId, text, operationId)
+        ),
       requestTakeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
@@ -1224,11 +1470,33 @@ const makeAgentSession = (
           return yield* browser.sendInput(record.browserSessionId, input);
         }),
       snapshot: (sessionId) =>
-        observe(sessionId, (record, page) => record.registry.snapshot(page)),
+        observe(sessionId, (record, page) =>
+          record.registry.snapshot(page).pipe(
+            Effect.tap((snapshot) =>
+              Effect.sync(() => {
+                // An observation is the `before` state of the action that
+                // follows it, so the Demonstration keeps it.
+                record.capture?.recordSnapshot(snapshot);
+              })
+            )
+          )
+        ),
       start: (input) => lock.withPermit(startUnlocked(input)),
       takeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)
+        ),
+      teachingFeed: (sessionId, includeSnapshots = false) =>
+        requireTeaching(sessionId).pipe(
+          Effect.map(({ capture }) => capture.feed(sessionId, includeSnapshots))
+        ),
+      teachingSource: (sessionId) =>
+        requireTeaching(sessionId).pipe(
+          Effect.map(({ capture, record }): TeachingSource => ({
+            demonstration: capture.current(),
+            emulation: record.emulation,
+            session: record.snapshot,
+          }))
         ),
       userNavigate: (sessionId, action) =>
         Effect.gen(function* navigateAsUser() {
@@ -1244,6 +1512,8 @@ const makeAgentSession = (
           const page = yield* browser.activePage(record.browserSessionId);
           const description = describeAgentAction(action);
           const id = `user-${randomUUID()}`;
+          const urlBefore = page.url();
+          const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
           // One browser takes one navigation at a time. Without this permit a
           // second click races the first, and Playwright cancels the pending
           // navigation: both attempts report success and the page never moves.
@@ -1252,6 +1522,19 @@ const makeAgentSession = (
           );
           const at = now().toISOString();
           if (Result.isFailure(outcome)) {
+            record.capture?.recordAction({
+              action,
+              actor: "user",
+              at,
+              description,
+              detail: outcome.failure.message,
+              id,
+              outcome: "failed",
+              snapshotAfter: null,
+              snapshotBefore,
+              urlAfter: page.url(),
+              urlBefore,
+            });
             yield* recordEntry(sessionId, {
               actor: "user",
               at,
@@ -1264,6 +1547,27 @@ const makeAgentSession = (
             return yield* Effect.fail(outcome.failure);
           }
           const url = page.url();
+          if (record.capture !== undefined) {
+            // The user drove the browser, and the Demonstration captures the
+            // user's actions with the same fidelity as the agent's: a Snapshot
+            // of the Page the navigation reached.
+            const after = yield* snapshotAfterAction(
+              page,
+              record.registry
+            ).pipe(Effect.option);
+            record.capture.recordAction({
+              action,
+              actor: "user",
+              at,
+              description,
+              id,
+              outcome: "completed",
+              snapshotAfter: Option.getOrNull(after),
+              snapshotBefore,
+              urlAfter: url,
+              urlBefore,
+            });
+          }
           return yield* recordEntry(
             sessionId,
             {

@@ -12,11 +12,16 @@ import { Command } from "effect/unstable/cli";
 import { HttpServerError } from "effect/unstable/http";
 
 import {
+  defaultCatalogRoot,
+  makeAgentFlowCatalogLayer,
+} from "../services/agent-flow-catalog.ts";
+import {
   defaultAgentResourceDirectory,
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
+import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
@@ -77,14 +82,22 @@ export const mcpCommand = Command.make(
             })
           )
         );
+        // The catalog is durable and process-independent: it is selected per
+        // process but never part of shutdown cleanup.
+        const catalog = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentFlowCatalogLayer({ root: defaultCatalogRoot() })
+          )
+        );
         const mcp = Layer.mergeAll(
           McpServer.layerStdio({
             name: "Contingency",
             protocols: [McpProtocol.v2025_06_18],
             version: "0.0.1",
           }),
-          McpAgentSessionLayer
-        ).pipe(Layer.provide(agentSession));
+          McpAgentSessionLayer,
+          McpAgentFlowLayer
+        ).pipe(Layer.provide(Layer.mergeAll(agentSession, catalog)));
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })

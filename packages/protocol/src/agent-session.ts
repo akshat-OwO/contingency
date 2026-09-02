@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { AgentTimelineEntry } from "./agent-browser.ts";
+import { TeachingProgress } from "./agent-flow.ts";
 import {
   AgentProcessId,
   AgentSessionController,
@@ -56,6 +57,11 @@ export const AgentSessionSnapshot = Schema.Struct({
   ownerProcessId: AgentProcessId,
   phase: AgentSessionPhase,
   takeover: Schema.NullOr(AgentTakeoverRequest),
+  /**
+   * What a Teaching session has captured and whether a draft has been saved
+   * from it. `null` for an Interactive Run, which records no Demonstration.
+   */
+  teaching: Schema.NullOr(TeachingProgress),
   /** The most recent attempts, oldest first, in the order they were made. */
   timeline: Schema.Array(AgentTimelineEntry),
   updatedAt: nonEmptyString,

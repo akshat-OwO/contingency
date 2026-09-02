@@ -71,6 +71,7 @@ const session = {
   ownerProcessId: "mcp-test",
   phase: "running",
   takeover: null,
+  teaching: null,
   timeline: [],
   updatedAt: "2026-08-31T00:00:00.000Z",
   viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
@@ -236,6 +237,44 @@ test("shows the active controller and the action timeline", async () => {
   const timeline = screen.getByRole("list", { name: "Action timeline" });
   expect(timeline).toHaveTextContent("Click e4");
   expect(timeline).toHaveTextContent("Fill e2");
+});
+
+test("discloses the Teaching Feed and shows the saved draft", async () => {
+  renderWorkspace(
+    resultFor([
+      {
+        ...session,
+        activity: "teaching",
+        teaching: {
+          actionCount: 4,
+          draft: {
+            agentFlowId: "flow-one",
+            revisionId: "rev-one",
+            savedAt: "2026-08-31T00:00:05.000Z",
+            title: "Browse the catalogue",
+          },
+          instructionCount: 2,
+        },
+      } as unknown as Session,
+    ]),
+    session.id
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Teaching" })
+  ).toBeVisible();
+  expect(screen.getByText("Captured actions").nextSibling).toHaveTextContent(
+    "4"
+  );
+  expect(screen.getByText("Instructions").nextSibling).toHaveTextContent("2");
+  expect(screen.getByText("Draft saved: Browse the catalogue")).toBeVisible();
+  expect(screen.getByText("flow-one / rev-one")).toBeVisible();
+  expect(screen.getByText(/is shared with the connected agent/u)).toBeVisible();
+});
+
+test("does not show Teaching details for an Interactive Run", async () => {
+  renderWorkspace(resultFor([session]), session.id);
+  await screen.findByRole("heading", { name: "Agent View" });
+  expect(screen.queryByRole("heading", { name: "Teaching" })).toBeNull();
 });
 
 test("takes control from Agent View and returns it explicitly", async () => {
