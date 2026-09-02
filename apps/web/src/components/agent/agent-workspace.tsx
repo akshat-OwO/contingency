@@ -341,14 +341,30 @@ const TeachingDetails = ({
             <span className="font-mono text-xs wrap-anywhere">
               {teaching.draft.agentFlowId} / {teaching.draft.revisionId}
             </span>
+            <ol className="mt-2 list-decimal space-y-1 pl-4">
+              {teaching.draft.steps.map((step) => (
+                <li key={step.index}>
+                  <span className="font-medium">{step.name}</span> —{" "}
+                  {step.description}
+                  <span className="block font-mono text-xs wrap-anywhere">
+                    Evidence: {step.evidenceHash}
+                  </span>
+                  {step.confirmation ? (
+                    <span className="text-muted-foreground block text-xs">
+                      Confirmation required
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
           </AlertDescription>
         </Alert>
       )}
       <p className="text-muted-foreground text-xs">
         The Teaching Feed — your instructions, captured actions, Browser
-        Snapshots, and URL transitions — is shared with the connected agent so
-        it can compile a draft. The full Trace, video, cookies, and network
-        traffic stay on this machine.
+        Snapshots, masked screenshots, and URL transitions — is shared with the
+        connected agent so it can compile a draft. The full Trace, video,
+        cookies, and network traffic stay on this machine.
       </p>
     </div>
   </section>

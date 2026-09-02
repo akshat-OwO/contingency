@@ -6,6 +6,7 @@ import type {
   CapturedAction,
   EvidenceSlice,
   TeachingInstruction,
+  TeachingScreenshot,
   UrlTransition,
 } from "@contingency/protocol";
 import { Result } from "effect";
@@ -18,6 +19,7 @@ import { Result } from "effect";
 export interface Demonstration {
   readonly actions: readonly CapturedAction[];
   readonly instructions: readonly TeachingInstruction[];
+  readonly screenshots: readonly TeachingScreenshot[];
   readonly snapshots: ReadonlyMap<AgentSnapshotId, AgentBrowserSnapshot>;
   readonly urlTransitions: readonly UrlTransition[];
 }
@@ -25,6 +27,7 @@ export interface Demonstration {
 export const emptyDemonstration = (): Demonstration => ({
   actions: [],
   instructions: [],
+  screenshots: [],
   snapshots: new Map(),
   urlTransitions: [],
 });
@@ -284,8 +287,10 @@ const sliceFor = (
       between(at, previousEnd, endedAt)
     ),
     schemaVersion: 1,
+    screenshots: demonstration.screenshots.filter(({ capturedAt }) =>
+      between(capturedAt, previousEnd, endedAt)
+    ),
     startedAt: first.at,
-    step: { description: step.description, name: step.name },
     urlTransitions: demonstration.urlTransitions.filter(
       (transition) =>
         (transition.actionId !== null && actionIds.has(transition.actionId)) ||

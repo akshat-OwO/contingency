@@ -4,6 +4,7 @@ import type {
   AgentFlowDraftProposal,
   AgentStepProposal,
   CapturedAction,
+  TeachingScreenshot,
 } from "@contingency/protocol";
 import { Result } from "effect";
 import { describe, expect, it } from "vitest";
@@ -53,6 +54,15 @@ const shop = "https://shop.example.com/";
 const cart = "https://shop.example.com/cart";
 const pay = "https://pay.example.net/checkout";
 
+const screenshot: TeachingScreenshot = {
+  capturedAt: at(1),
+  encoding: "base64",
+  format: "png",
+  id: "screenshot-1",
+  image: "masked-image",
+  url: shop,
+};
+
 const demonstration: Demonstration = {
   actions: [
     action("a1", 1, "about:blank", shop),
@@ -64,6 +74,7 @@ const demonstration: Demonstration = {
     { at: at(0), id: "i0", text: "Open the shop" },
     { at: at(3), id: "i3", text: "Now pay for it" },
   ],
+  screenshots: [screenshot],
   snapshots: new Map([
     [AgentSnapshotId.make("s-a1"), snapshot("s-a1", shop)],
     [AgentSnapshotId.make("s-a2"), snapshot("s-a2", cart)],
@@ -95,6 +106,7 @@ const goToCheckout: AgentStepProposal = {
 const proposal: AgentFlowDraftProposal = {
   description: "Browse the shop and reach checkout.",
   domainScope: { hosts: ["shop.example.com", "pay.example.net"] },
+  schemaVersion: 1,
   steps: [fillTheCart, goToCheckout],
   tags: ["shop", "checkout"],
   title: "Shop checkout",
@@ -118,17 +130,13 @@ describe("compileAgentFlowDraft", () => {
     expect(first?.actions.map(({ id }) => id)).toEqual(["a1", "a2"]);
     expect(first?.before).toBeNull();
     expect(first?.after?.snapshotId).toBe("s-a2");
+    expect(first?.screenshots).toEqual([screenshot]);
     // Instructions given before any action belong to the first Step.
     expect(first?.instructions.map(({ id }) => id)).toEqual(["i0"]);
     expect(first?.urlTransitions.map(({ actionId }) => actionId)).toEqual([
       null,
       "a2",
     ]);
-    expect(first?.step).toEqual({
-      description: "Open the shop and add the item to the cart.",
-      name: "Fill the cart",
-    });
-
     // The failed attempt stays in the evidence: it happened.
     expect(second?.actions.map(({ id }) => id)).toEqual(["a3", "a4"]);
     expect(second?.instructions.map(({ id }) => id)).toEqual(["i3"]);

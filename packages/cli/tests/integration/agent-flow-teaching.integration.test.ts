@@ -12,7 +12,10 @@ import { Effect, FileSystem, Layer, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 
 import { makeAgentFlowCatalogLayer } from "../../src/services/agent-flow-catalog.ts";
-import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
+import {
+  AgentSession,
+  makeAgentSessionLayer,
+} from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import {
   AgentFlowToolHandlersLive,
@@ -95,29 +98,49 @@ const findNode = (
  * Root: the external agent drives the browser through MCP, reads the bounded
  * Teaching Feed, compiles a draft, and finds it again by search.
  */
-const teachingLayer = (catalogRoot: string) =>
-  Layer.mergeAll(AgentSessionToolHandlersLive, AgentFlowToolHandlersLive).pipe(
+const teachingLayer = (initialCatalogRoot: string) => {
+  let selectedCatalogRoot = initialCatalogRoot;
+  return Layer.mergeAll(
+    AgentSessionToolHandlersLive,
+    AgentFlowToolHandlersLive
+  ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
-        makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }),
-        makeAgentFlowCatalogLayer({ root: catalogRoot })
+        makeAgentSessionLayer({
+          baseUrl: "http://127.0.0.1:7777",
+          traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+        }),
+        makeAgentFlowCatalogLayer({
+          onSelect: (root) => {
+            selectedCatalogRoot = root;
+          },
+          root: initialCatalogRoot,
+        })
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
       )
     )
   );
+};
 
 it.live("teaches a public journey and saves a searchable draft", () =>
   Effect.gen(function* teachPublicJourney() {
     const fileSystem = yield* FileSystem.FileSystem;
-    const catalogRoot = yield* fileSystem.makeTempDirectoryScoped({
+    const initialCatalogRoot = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "contingency-catalog-",
     });
+    const catalogRoot = path.join(initialCatalogRoot, "selected");
     yield* Effect.gen(function* teach() {
       const fixtures = yield* fixtureServer;
       const shopUrl = fixtures.url("shop.html");
       const fixtureHost = new URL(shopUrl).hostname;
+
+      const selected = yield* flow("agent_catalog_select", {
+        operationId: OperationId.make("select-teaching-root"),
+        root: catalogRoot,
+      });
+      expect(selected).toEqual({ agentFlowCount: 0, root: catalogRoot });
 
       const started = yield* session("agent_session_start", {
         activity: "teaching",
@@ -127,6 +150,13 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         url: shopUrl,
         viewport,
       });
+      const localSession = yield* AgentSession;
+      const { traceFile } = yield* localSession.teachingSource(started.id);
+      expect(traceFile).toBeDefined();
+      if (traceFile === undefined) {
+        throw new Error("Teaching did not allocate a local Trace file.");
+      }
+      expect(yield* fileSystem.exists(traceFile)).toBe(false);
       expect(started.teaching).toEqual({
         actionCount: 0,
         draft: null,
@@ -142,6 +172,10 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       const observed = yield* session("agent_browser_snapshot", {
         sessionId: started.id,
       });
+      const visual = yield* session("agent_browser_screenshot", {
+        sessionId: started.id,
+      });
+      expect(visual.image.length).toBeGreaterThan(0);
       const search = findNode(
         observed.nodes,
         "textbox",
@@ -179,6 +213,23 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       );
       expect(failure.code).toBe("agent_browser_failed");
 
+      // A user input event during Takeover is part of the mixed-control
+      // Demonstration and is attributed to the user, not the agent.
+      yield* localSession.takeover(
+        started.id,
+        "Let me check the page.",
+        OperationId.make("takeover-input")
+      );
+      yield* localSession.sendInput(started.id, {
+        eventType: "keyDown",
+        key: "a",
+        type: "input_keyboard",
+      });
+      yield* localSession.returnControl(
+        started.id,
+        OperationId.make("return-after-input")
+      );
+
       // The bounded feed: instructions, actor-attributed actions, URL
       // transitions, and observed hosts. No cookies, headers, or network.
       const feed = yield* flow("agent_teaching_feed_get", {
@@ -194,12 +245,26 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         "completed",
         "completed",
         "failed",
+        "completed",
       ]);
-      expect(feed.actions.every(({ actor }) => actor === "agent")).toBe(true);
+      expect(
+        feed.actions.slice(0, 4).every(({ actor }) => actor === "agent")
+      ).toBe(true);
+      expect(feed.actions.at(-1)?.actor).toBe("user");
+      expect(feed.actions.at(-1)?.action).toEqual({
+        input: {
+          eventType: "keyDown",
+          inputType: "keyboard",
+          key: "[user input]",
+        },
+        type: "input",
+      });
       expect(feed.actions[0]?.snapshotBefore).toBe(observed.snapshotId);
       expect(feed.actions[0]?.snapshotAfter).toBe(filled.snapshot.snapshotId);
       expect(feed.actions[0]?.urlBefore).toBe(shopUrl);
       expect(feed.observedHosts).toEqual([fixtureHost]);
+      expect(feed.screenshots).toHaveLength(1);
+      expect(feed.screenshots[0]?.image).toBe(visual.image);
       expect(feed.urlTransitions).toEqual([
         expect.objectContaining({
           actionId: null,
@@ -237,6 +302,7 @@ it.live("teaches a public journey and saves a searchable draft", () =>
           draft: {
             description: "Search and open the cart.",
             domainScope: { hosts: ["shop.example.com"] },
+            schemaVersion: 1,
             steps: [
               {
                 confirmation: false,
@@ -265,6 +331,7 @@ it.live("teaches a public journey and saves a searchable draft", () =>
           description:
             "Search the catalogue and confirm the cart holds an item.",
           domainScope: { hosts: [fixtureHost] },
+          schemaVersion: 1,
           steps: [
             {
               confirmation: false,
@@ -334,11 +401,18 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         sessionId: started.id,
       });
       expect(current.teaching).toEqual({
-        actionCount: 4,
+        actionCount: 5,
         draft: {
           agentFlowId: saved.manifest.agentFlowId,
           revisionId: saved.manifest.revisionId,
           savedAt: saved.manifest.createdAt,
+          steps: saved.manifest.steps.map((step, index) => ({
+            confirmation: step.confirmation,
+            description: step.description,
+            evidenceHash: step.evidence.hash,
+            index,
+            name: step.name,
+          })),
           title: "Anvil Works cart check",
         },
         instructionCount: 2,
@@ -373,6 +447,8 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         operationId: OperationId.make("close-teaching"),
         sessionId: started.id,
       });
+      expect(yield* fileSystem.exists(traceFile)).toBe(true);
+      expect((yield* fileSystem.stat(traceFile)).size).toBeGreaterThan(0n);
     }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

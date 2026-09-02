@@ -375,11 +375,26 @@ export const makeAgentElementRegistry = (
 
 export const captureAgentScreenshot = (
   page: Page,
-  now: () => Date = () => new Date()
+  now: () => Date = () => new Date(),
+  maskSensitive = false
 ): Effect.Effect<AgentScreenshot, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not capture a screenshot", cause),
-    try: () => page.screenshot({ timeout: ACTION_TIMEOUT_MS, type: "png" }),
+    try: () =>
+      page.screenshot({
+        ...(maskSensitive
+          ? {
+              mask: [
+                page.locator(
+                  'input[type="password"], input[autocomplete="one-time-code"], input[autocomplete^="cc-"], input[name*="otp" i], input[name*="token" i], input[name*="secret" i]'
+                ),
+              ],
+              maskColor: "#000000",
+            }
+          : {}),
+        timeout: ACTION_TIMEOUT_MS,
+        type: "png",
+      }),
   }).pipe(
     Effect.map((image) => ({
       capturedAt: now().toISOString(),

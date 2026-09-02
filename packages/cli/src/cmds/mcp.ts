@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   Config,
   Console,
@@ -72,6 +74,7 @@ export const mcpCommand = Command.make(
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
+        let selectedCatalogRoot = defaultCatalogRoot();
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
@@ -79,6 +82,7 @@ export const mcpCommand = Command.make(
                 return boundOrigin.url;
               },
               resourceDirectory: ownerMarker,
+              traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
             })
           )
         );
@@ -86,7 +90,12 @@ export const mcpCommand = Command.make(
         // process but never part of shutdown cleanup.
         const catalog = Layer.succeedContext(
           yield* Layer.build(
-            makeAgentFlowCatalogLayer({ root: defaultCatalogRoot() })
+            makeAgentFlowCatalogLayer({
+              onSelect: (root) => {
+                selectedCatalogRoot = root;
+              },
+              root: selectedCatalogRoot,
+            })
           )
         );
         const mcp = Layer.mergeAll(

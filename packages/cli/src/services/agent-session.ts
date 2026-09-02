@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import {
   AgentProcessId,
@@ -25,6 +26,7 @@ import type {
   BrowserStreamEvent,
   BrowserRpcErrorType,
   BrowserStreamId,
+  CapturedUserInput,
   FrameSequence,
   OperationId,
   SessionId,
@@ -74,6 +76,8 @@ export interface AgentSessionServiceOptions {
   readonly now?: () => Date;
   /** Exact process-owner directory for per-session temporary resources. */
   readonly resourceDirectory?: string;
+  /** Durable local directory for Teaching Trace archives, resolved at start. */
+  readonly traceDirectory?: string | (() => string);
 }
 
 export interface AgentSessionStartInput {
@@ -213,6 +217,8 @@ export interface TeachingSource {
   readonly demonstration: Demonstration;
   readonly emulation: DraftEmulation;
   readonly session: AgentSessionSnapshot;
+  /** Local-only trace path; never included in a Teaching Feed. */
+  readonly traceFile: string | undefined;
 }
 
 export const AgentSession = Context.Service<AgentSessionService>(
@@ -314,6 +320,24 @@ const teachingOf = (
     ? snapshot.teaching
     : record.capture.progress(snapshot.teaching?.draft ?? null);
 
+/** Keep the control event useful to the compiler without persisting typed text. */
+const teachingInput = (input: BrowserInput): CapturedUserInput =>
+  input.type === "input_keyboard"
+    ? {
+        eventType: input.eventType,
+        inputType: "keyboard",
+        ...(input.key !== undefined && input.key.length === 1
+          ? { key: "[user input]" }
+          : {}),
+        ...(input.text === undefined ? {} : { text: "[user input]" }),
+      }
+    : { eventType: input.eventType, inputType: "mouse" };
+
+const describeTeachingInput = (input: BrowserInput): string =>
+  input.type === "input_mouse"
+    ? `The user sent a ${input.eventType} browser input`
+    : `The user sent a ${input.eventType} keyboard input`;
+
 /** How many attempts one Agent Session keeps in its action timeline. */
 const TIMELINE_LIMIT = 200;
 
@@ -354,6 +378,8 @@ interface SessionRecord {
   readonly capture: DemonstrationCapture | undefined;
   readonly control: ActionControl;
   readonly emulation: DraftEmulation;
+  /** A local Teaching Trace, finalized by the session scope. */
+  readonly traceFile: string | undefined;
   /** The Browser Snapshot references this session has minted. */
   readonly registry: AgentElementRegistry;
   readonly scope: Scope.Closeable;
@@ -771,6 +797,7 @@ const makeAgentSession = (
             const acquisitionAndSetup = Effect.gen(
               function* acquireAndSetupAgentSession() {
                 yield* sessionResource(sessionScope, sessionId);
+                const activity = input.activity ?? "run";
                 // One Emulation for the session: the browser is created at the
                 // viewport it will navigate under, so the first document is
                 // laid out for the device rather than resized into it.
@@ -782,8 +809,62 @@ const makeAgentSession = (
                       browser.close(browserSessionId).pipe(Effect.ignore)
                   )
                 );
+                const traceDirectory =
+                  typeof options.traceDirectory === "function"
+                    ? options.traceDirectory()
+                    : options.traceDirectory;
+                const traceFile =
+                  activity === "teaching" && traceDirectory !== undefined
+                    ? path.join(traceDirectory, `${sessionId}.trace.zip`)
+                    : undefined;
+                if (traceFile !== undefined) {
+                  if (traceDirectory === undefined) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_invalid",
+                        "A Teaching Trace needs a local directory."
+                      )
+                    );
+                  }
+                  if (fileSystem !== undefined) {
+                    yield* fileSystem
+                      .makeDirectory(traceDirectory, {
+                        recursive: true,
+                      })
+                      .pipe(
+                        Effect.mapError((cause) =>
+                          error(
+                            "agent_session_invalid",
+                            `Could not create the Teaching Trace directory: ${cause.message}`
+                          )
+                        )
+                      );
+                  }
+                  const target = yield* browser.recorderTarget(acquired);
+                  yield* Scope.provide(sessionScope)(
+                    Effect.acquireRelease(
+                      Effect.tryPromise({
+                        catch: (cause) =>
+                          error(
+                            "agent_session_invalid",
+                            `Could not start the Teaching Trace: ${cause instanceof Error ? cause.message : String(cause)}`
+                          ),
+                        try: () =>
+                          target.context.tracing.start({
+                            screenshots: true,
+                            snapshots: true,
+                          }),
+                      }),
+                      () =>
+                        Effect.tryPromise({
+                          catch: () => null,
+                          try: () =>
+                            target.context.tracing.stop({ path: traceFile }),
+                        }).pipe(Effect.ignore)
+                    )
+                  );
+                }
                 const at = now().toISOString();
-                const activity = input.activity ?? "run";
                 const base: AgentSessionSnapshot = {
                   activity,
                   clientName: input.clientName?.trim() || "unknown",
@@ -820,6 +901,7 @@ const makeAgentSession = (
                   registry,
                   scope: sessionScope,
                   snapshot: base,
+                  traceFile,
                 };
                 yield* Ref.update(sessions, (current) =>
                   new Map(current).set(sessionId, record)
@@ -1453,8 +1535,14 @@ const makeAgentSession = (
       returnControl: (sessionId, operationId) =>
         lock.withPermit(returnControlUnlocked(sessionId, operationId)),
       screenshot: (sessionId) =>
-        observe(sessionId, (_record, page) =>
-          captureAgentScreenshot(page, now)
+        observe(sessionId, (record, page) =>
+          captureAgentScreenshot(page, now, record.capture !== undefined).pipe(
+            Effect.tap((screenshot) =>
+              Effect.sync(() => {
+                record.capture?.recordScreenshot(screenshot);
+              })
+            )
+          )
         ),
       sendInput: (sessionId, input) =>
         Effect.gen(function* sendUserInput() {
@@ -1467,7 +1555,69 @@ const makeAgentSession = (
               )
             );
           }
-          return yield* browser.sendInput(record.browserSessionId, input);
+          const page = yield* browser.activePage(record.browserSessionId);
+          const urlBefore = page.url();
+          const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
+          const id = `user-input-${randomUUID()}`;
+          const action = {
+            input: teachingInput(input),
+            type: "input" as const,
+          };
+          const description = describeTeachingInput(input);
+          const outcome = yield* record.control.lock.withPermit(
+            Effect.result(browser.sendInput(record.browserSessionId, input))
+          );
+          const at = now().toISOString();
+          if (Result.isFailure(outcome)) {
+            record.capture?.recordAction({
+              action,
+              actor: "user",
+              at,
+              description,
+              detail: outcome.failure.message,
+              id,
+              outcome: "failed",
+              snapshotAfter: null,
+              snapshotBefore,
+              urlAfter: page.url(),
+              urlBefore,
+            });
+            yield* recordEntry(sessionId, {
+              actor: "user",
+              at,
+              description,
+              detail: outcome.failure.message,
+              dispatched: true,
+              id,
+              outcome: "failed",
+            });
+            return yield* Effect.fail(outcome.failure);
+          }
+          const urlAfter = page.url();
+          record.capture?.recordAction({
+            action,
+            actor: "user",
+            at,
+            description,
+            id,
+            outcome: "completed",
+            snapshotAfter: null,
+            snapshotBefore,
+            urlAfter,
+            urlBefore,
+          });
+          return yield* recordEntry(
+            sessionId,
+            {
+              actor: "user",
+              at,
+              description,
+              dispatched: true,
+              id,
+              outcome: "completed",
+            },
+            { currentUrl: urlAfter }
+          ).pipe(Effect.asVoid);
         }),
       snapshot: (sessionId) =>
         observe(sessionId, (record, page) =>
@@ -1496,6 +1646,7 @@ const makeAgentSession = (
             demonstration: capture.current(),
             emulation: record.emulation,
             session: record.snapshot,
+            traceFile: record.traceFile,
           }))
         ),
       userNavigate: (sessionId, action) =>

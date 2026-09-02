@@ -53,6 +53,23 @@ export type AgentFlowRevisionStatus = typeof AgentFlowRevisionStatus.Type;
 // Demonstration and Teaching Feed
 // ---------------------------------------------------------------------------
 
+/** Redacted, bounded observation of one user input event during Takeover. */
+export const CapturedUserInput = Schema.Struct({
+  eventType: Schema.Literals([
+    "char",
+    "keyDown",
+    "keyUp",
+    "mouseMoved",
+    "mousePressed",
+    "mouseReleased",
+    "mouseWheel",
+  ]),
+  inputType: Schema.Literals(["keyboard", "mouse"]),
+  key: Schema.optional(Schema.Literal("[user input]")),
+  text: Schema.optional(Schema.Literal("[user input]")),
+});
+export type CapturedUserInput = typeof CapturedUserInput.Type;
+
 /**
  * One browser action captured during Teaching, with who performed it and the
  * Page it left behind. Snapshot ids point into the Teaching Feed's snapshot
@@ -60,7 +77,14 @@ export type AgentFlowRevisionStatus = typeof AgentFlowRevisionStatus.Type;
  * accessibility tree for each of them.
  */
 export const CapturedAction = Schema.Struct({
-  action: AgentBrowserAction,
+  /** Agent actions, or a low-level input event captured during Takeover. */
+  action: Schema.Union([
+    AgentBrowserAction,
+    Schema.Struct({
+      input: CapturedUserInput,
+      type: Schema.Literal("input"),
+    }),
+  ]),
   actor: AgentSessionController,
   at: nonEmptyString,
   description: nonEmptyString,
@@ -73,6 +97,17 @@ export const CapturedAction = Schema.Struct({
   urlBefore: Schema.String,
 });
 export type CapturedAction = typeof CapturedAction.Type;
+
+/** A best-effort-masked screenshot included in a Teaching Feed or Evidence Slice. */
+export const TeachingScreenshot = Schema.Struct({
+  capturedAt: nonEmptyString,
+  encoding: Schema.Literal("base64"),
+  format: Schema.Literal("png"),
+  id: nonEmptyString,
+  image: nonEmptyString,
+  url: Schema.String,
+});
+export type TeachingScreenshot = typeof TeachingScreenshot.Type;
 
 /** What the user told the agent to do, as the agent relayed it. */
 export const TeachingInstruction = Schema.Struct({
@@ -103,6 +138,7 @@ export const TeachingFeed = Schema.Struct({
   instructions: Schema.Array(TeachingInstruction),
   /** Exact hosts the Demonstration visited: the proposed Domain Scope. */
   observedHosts: Schema.Array(nonEmptyString),
+  screenshots: Schema.Array(TeachingScreenshot),
   sessionId: AgentSessionId,
   /** The Browser Snapshots the actions reference, when the caller asked. */
   snapshots: Schema.Array(AgentBrowserSnapshot),
@@ -156,6 +192,7 @@ export type AgentStepProposal = typeof AgentStepProposal.Type;
 export const AgentFlowDraftProposal = Schema.Struct({
   description: nonEmptyString,
   domainScope: DomainScope,
+  schemaVersion: Schema.Literal(1),
   steps: Schema.Array(AgentStepProposal).check(Schema.isMinLength(1)),
   tags: Schema.optional(Schema.Array(nonEmptyString)),
   title: nonEmptyString,
@@ -189,11 +226,8 @@ export const EvidenceSlice = Schema.Struct({
   endedAt: nonEmptyString,
   instructions: Schema.Array(TeachingInstruction),
   schemaVersion: Schema.Literal(1),
+  screenshots: Schema.Array(TeachingScreenshot),
   startedAt: nonEmptyString,
-  step: Schema.Struct({
-    description: nonEmptyString,
-    name: nonEmptyString,
-  }),
   urlTransitions: Schema.Array(UrlTransition),
 });
 export type EvidenceSlice = typeof EvidenceSlice.Type;
@@ -271,6 +305,7 @@ export const AgentCatalogInfo = Schema.Struct({
 export type AgentCatalogInfo = typeof AgentCatalogInfo.Type;
 
 export const AgentCatalogSelect = Schema.Struct({
+  operationId: OperationId,
   root: nonEmptyString,
 });
 export type AgentCatalogSelect = typeof AgentCatalogSelect.Type;
@@ -282,6 +317,7 @@ export type AgentCatalogSelect = typeof AgentCatalogSelect.Type;
  * continuation, never mistaken for approved coverage.
  */
 export const AgentFlowSearch = Schema.Struct({
+  archived: Schema.optional(Schema.Boolean),
   host: Schema.optional(nonEmptyString),
   limit: Schema.optional(
     Schema.Int.check(Schema.isBetween({ maximum: 100, minimum: 1 }))
@@ -294,6 +330,7 @@ export type AgentFlowSearch = typeof AgentFlowSearch.Type;
 
 export const AgentFlowSearchHit = Schema.Struct({
   agentFlowId: AgentFlowId,
+  archived: Schema.Boolean,
   createdAt: nonEmptyString,
   description: nonEmptyString,
   hosts: Schema.Array(nonEmptyString),
@@ -346,10 +383,20 @@ export const AgentFlowDraftSave = Schema.Struct({
 export type AgentFlowDraftSave = typeof AgentFlowDraftSave.Type;
 
 /** The saved draft as Agent View and the session report it. */
+export const AgentFlowDraftStep = Schema.Struct({
+  confirmation: Schema.Boolean,
+  description: nonEmptyString,
+  evidenceHash: EvidenceHash,
+  index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  name: nonEmptyString,
+});
+export type AgentFlowDraftStep = typeof AgentFlowDraftStep.Type;
+
 export const AgentFlowDraftRef = Schema.Struct({
   agentFlowId: AgentFlowId,
   revisionId: AgentFlowRevisionId,
   savedAt: nonEmptyString,
+  steps: Schema.Array(AgentFlowDraftStep),
   title: nonEmptyString,
 });
 export type AgentFlowDraftRef = typeof AgentFlowDraftRef.Type;

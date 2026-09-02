@@ -251,6 +251,16 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
             agentFlowId: "flow-one",
             revisionId: "rev-one",
             savedAt: "2026-08-31T00:00:05.000Z",
+            steps: [
+              {
+                confirmation: false,
+                description: "Browse the catalogue.",
+                evidenceHash:
+                  "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                index: 0,
+                name: "Browse catalogue",
+              },
+            ],
             title: "Browse the catalogue",
           },
           instructionCount: 2,
@@ -268,6 +278,8 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
   expect(screen.getByText("Instructions").nextSibling).toHaveTextContent("2");
   expect(screen.getByText("Draft saved: Browse the catalogue")).toBeVisible();
   expect(screen.getByText("flow-one / rev-one")).toBeVisible();
+  expect(screen.getByText("Browse catalogue")).toBeVisible();
+  expect(screen.getByText(/Evidence: sha256-/u)).toBeVisible();
   expect(screen.getByText(/is shared with the connected agent/u)).toBeVisible();
 });
 

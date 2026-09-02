@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   AgentBrowserSnapshot,
+  AgentScreenshot,
   AgentFlowDraftRef,
   AgentSessionId,
   AgentSnapshotId,
@@ -9,6 +10,7 @@ import type {
   TeachingFeed,
   TeachingInstruction,
   TeachingProgress,
+  TeachingScreenshot,
 } from "@contingency/protocol";
 
 import { observedHosts } from "./agent-flow-compiler.ts";
@@ -59,6 +61,10 @@ export interface DemonstrationCapture {
   readonly recordInstruction: (text: string, at: string) => TeachingInstruction;
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
+  /** Record one best-effort-masked visual observation. */
+  readonly recordScreenshot: (
+    screenshot: AgentScreenshot
+  ) => TeachingScreenshot;
   /** Note where the Page is; a change with no action is a user transition. */
   readonly recordUrl: (url: string, at: string) => void;
 }
@@ -75,10 +81,23 @@ export const makeDemonstrationCapture = (
 ): DemonstrationCapture => {
   const actions: CapturedAction[] = [];
   const instructions: TeachingInstruction[] = [];
+  const screenshots: TeachingScreenshot[] = [];
   const snapshots = new Map<AgentSnapshotId, AgentBrowserSnapshot>();
   const urlTransitions: Demonstration["urlTransitions"][number][] = [];
   let latestSnapshot: AgentSnapshotId | null = null;
   let currentUrl = initialUrl;
+  let lastEventAt = Number.NEGATIVE_INFINITY;
+
+  /** Preserve capture order when several browser events share one clock tick. */
+  const eventTime = (at: string): string => {
+    const parsed = Date.parse(at);
+    if (!Number.isFinite(parsed)) {
+      return at;
+    }
+    const next = Math.max(parsed, lastEventAt + 1);
+    lastEventAt = next;
+    return new Date(next).toISOString();
+  };
 
   const recordSnapshot = (snapshot: AgentBrowserSnapshot): void => {
     snapshots.set(snapshot.snapshotId, snapshot);
@@ -106,13 +125,14 @@ export const makeDemonstrationCapture = (
   };
 
   const recordAction = (input: CapturedActionInput): CapturedAction => {
+    const at = eventTime(input.at);
     if (input.snapshotAfter !== null) {
       recordSnapshot(input.snapshotAfter);
     }
     const captured: CapturedAction = {
       action: input.action,
       actor: input.actor,
-      at: input.at,
+      at,
       description: input.description,
       ...(input.detail === undefined ? {} : { detail: input.detail }),
       id: input.id,
@@ -124,8 +144,8 @@ export const makeDemonstrationCapture = (
     };
     // The action is what moved the Page, so the transition it caused is
     // attributed to it even when the URL was noticed only afterwards.
-    transition(input.urlBefore, input.at, null);
-    transition(input.urlAfter, input.at, input.id);
+    transition(input.urlBefore, at, null);
+    transition(input.urlAfter, at, input.id);
     actions.push(captured);
     trim(actions, ACTION_LIMIT);
     return captured;
@@ -134,6 +154,7 @@ export const makeDemonstrationCapture = (
   const current = (): Demonstration => ({
     actions: [...actions],
     instructions: [...instructions],
+    screenshots: [...screenshots],
     snapshots: new Map(snapshots),
     urlTransitions: [...urlTransitions],
   });
@@ -155,6 +176,7 @@ export const makeDemonstrationCapture = (
         actions: demonstration.actions,
         instructions: demonstration.instructions,
         observedHosts: observedHosts(demonstration),
+        screenshots: demonstration.screenshots,
         sessionId,
         snapshots: includeSnapshots
           ? [...referenced]
@@ -173,14 +195,24 @@ export const makeDemonstrationCapture = (
     recordAction,
     recordInstruction: (text, at) => {
       const instruction: TeachingInstruction = {
-        at,
+        at: eventTime(at),
         id: `instruction-${randomUUID()}`,
         text,
       };
       instructions.push(instruction);
       return instruction;
     },
+    recordScreenshot: (screenshot) => {
+      const captured: TeachingScreenshot = {
+        ...screenshot,
+        capturedAt: eventTime(screenshot.capturedAt),
+        id: `screenshot-${randomUUID()}`,
+      };
+      screenshots.push(captured);
+      trim(screenshots, SNAPSHOT_LIMIT);
+      return captured;
+    },
     recordSnapshot,
-    recordUrl: (url, at) => transition(url, at, null),
+    recordUrl: (url, at) => transition(url, eventTime(at), null),
   };
 };

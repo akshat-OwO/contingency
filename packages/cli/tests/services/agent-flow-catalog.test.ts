@@ -50,8 +50,8 @@ const slice = (name: string, url: string): EvidenceSlice => ({
   endedAt: at,
   instructions: [],
   schemaVersion: 1,
+  screenshots: [],
   startedAt: at,
-  step: { description: `Reach ${url}`, name },
   urlTransitions: [],
 });
 
@@ -61,6 +61,7 @@ const proposal = (
 ): AgentFlowDraftProposal => ({
   description: `${title} across the public shop.`,
   domainScope: { hosts: ["shop.example.com"] },
+  schemaVersion: 1,
   steps: [
     {
       confirmation: false,
@@ -199,11 +200,23 @@ it.effect("revises a draft only from its current head", () =>
         saveInput("Shop front, renamed", "rev-2", {
           agentFlowId: id,
           basedOnRevisionId: first.manifest.revisionId,
+          proposal: proposal("Shop front, renamed", {
+            steps: [
+              {
+                confirmation: false,
+                description: "Start at the public storefront.",
+                firstActionId: "action-open",
+                lastActionId: "action-open",
+                name: "Visit storefront",
+              },
+            ],
+          }),
         })
       );
       expect(second.manifest.agentFlowId).toBe(id);
       expect(second.manifest.basedOnRevisionId).toBe(first.manifest.revisionId);
       expect(second.heads.draftRevisionId).toBe(second.manifest.revisionId);
+      expect(second.manifest.steps[0]?.name).toBe("Visit storefront");
       // Unchanged evidence is the same content-addressed file.
       expect(second.manifest.steps[0]?.evidence).toEqual(
         first.manifest.steps[0]?.evidence
@@ -333,9 +346,66 @@ it.effect("selects an explicit absolute Catalog Root", () =>
       const other = path.join(root, "other");
       const selected = yield* catalog.select(other);
       expect(selected).toEqual({ agentFlowCount: 0, root: other });
+      expect(yield* catalog.select(other, "select-root")).toEqual(selected);
+      const selectConflict = yield* Effect.flip(
+        catalog.select(path.join(root, "another"), "select-root")
+      );
+      expect(selectConflict.code).toBe("agent_flow_conflict");
       const saved = yield* catalog.saveDraft(saveInput("Shop front", "sel-1"));
       expect(saved.catalogRoot).toBe(other);
       expect((yield* catalog.info()).agentFlowCount).toBe(1);
+    })
+  )
+);
+
+it.effect(
+  "keeps archived heads out of normal search and labels them when requested",
+  () =>
+    withCatalog((catalog, root, fileSystem) =>
+      Effect.gen(function* searchArchived() {
+        const saved = yield* catalog.saveDraft(
+          saveInput("Retired shop", "archive-1")
+        );
+        const headsPath = path.join(
+          root,
+          AGENT_FLOWS_DIRECTORY,
+          saved.manifest.agentFlowId,
+          "agent-flow.json"
+        );
+        const heads = JSON.parse(
+          yield* fileSystem.readFileString(headsPath)
+        ) as Record<string, unknown>;
+        yield* fileSystem.writeFileString(
+          headsPath,
+          JSON.stringify({ ...heads, archived: true })
+        );
+
+        expect((yield* catalog.search({})).hits).toEqual([]);
+        expect((yield* catalog.search({ archived: true })).hits).toMatchObject([
+          { archived: true, title: "Retired shop" },
+        ]);
+      })
+    )
+);
+
+it.effect("recovers dead catalog locks but preserves foreign locks", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* recoverCatalogLock() {
+      const lockPath = path.join(root, AGENT_FLOWS_DIRECTORY, ".catalog.lock");
+      yield* fileSystem.makeDirectory(path.dirname(lockPath), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(lockPath, "999999999\n");
+      const saved = yield* catalog.saveDraft(saveInput("Recovered", "lock-1"));
+      expect(saved.manifest.title).toBe("Recovered");
+      expect(yield* fileSystem.exists(lockPath)).toBe(false);
+
+      yield* fileSystem.writeFileString(lockPath, "foreign lock\n");
+      const refused = yield* Effect.flip(
+        catalog.saveDraft(saveInput("Blocked", "lock-2"))
+      );
+      expect(refused.code).toBe("agent_flow_conflict");
+      expect(yield* fileSystem.readFileString(lockPath)).toBe("foreign lock\n");
     })
   )
 );

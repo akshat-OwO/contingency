@@ -27,6 +27,7 @@ import {
   FileSystem,
   Layer,
   Ref,
+  Result,
   Schema,
   Semaphore,
 } from "effect";
@@ -59,7 +60,7 @@ interface AgentFlowCatalogDomainError {
 }
 export type AgentFlowCatalogError = AgentFlowCatalogDomainError;
 
-const error = (
+const catalogError = (
   code: AgentFlowCatalogDomainError["code"],
   message: string
 ): AgentFlowCatalogDomainError => ({
@@ -69,7 +70,31 @@ const error = (
 });
 
 const ioError = (context: string) => (cause: PlatformError) =>
-  error("agent_catalog_io", `${context}: ${cause.message}`);
+  catalogError("agent_catalog_io", `${context}: ${cause.message}`);
+
+/** Only the exact format written by Contingency is eligible for recovery. */
+const lockOwnerPid = (contents: string): number | undefined => {
+  const match = /^(?<pid>[1-9][0-9]*)\n$/u.exec(contents);
+  if (match === null) {
+    return undefined;
+  }
+  const pid = Number(match.groups?.pid);
+  return Number.isSafeInteger(pid) ? pid : undefined;
+};
+
+/** EPERM means the owner is alive; only ESRCH is a stale owner. */
+const processIsStale = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? error.code
+        : undefined;
+    return code === "ESRCH";
+  }
+};
 
 export interface SaveDraftInput {
   /** Revise this Agent Flow; a new identity is minted when omitted. */
@@ -103,7 +128,8 @@ export interface AgentFlowCatalogService {
   ) => Effect.Effect<AgentFlowSearchResult, AgentFlowCatalogError>;
   /** Choose the Catalog Root explicitly. Never a user-global directory scan. */
   readonly select: (
-    root: string
+    root: string,
+    operationId?: OperationId | string
   ) => Effect.Effect<AgentCatalogInfo, AgentFlowCatalogError>;
 }
 
@@ -113,6 +139,8 @@ export const AgentFlowCatalog = Context.Service<AgentFlowCatalogService>(
 
 export interface AgentFlowCatalogOptions {
   readonly now?: () => Date;
+  /** Notify process-owned companions when this catalog changes roots. */
+  readonly onSelect?: (root: string) => void;
   readonly root: string;
 }
 
@@ -239,6 +267,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     string,
     { readonly input: string; readonly result: AgentFlowRevision }
   >();
+  const selectOperations = new Map<
+    string,
+    { readonly input: string; readonly result: AgentCatalogInfo }
+  >();
   const now = options.now ?? (() => new Date());
 
   const flowsDirectory = (catalogRoot: string) =>
@@ -262,14 +294,14 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       Effect.flatMap((contents) =>
         Effect.try({
           catch: () =>
-            error("agent_catalog_invalid", `${file} is not valid JSON.`),
+            catalogError("agent_catalog_invalid", `${file} is not valid JSON.`),
           try: () => JSON.parse(contents) as unknown,
         })
       ),
       Effect.flatMap((parsed) =>
         Schema.decodeUnknownEffect(schema)(parsed).pipe(
           Effect.mapError((cause) =>
-            error(
+            catalogError(
               "agent_catalog_invalid",
               `${file} is not a valid ${what}: ${cause.message}`
             )
@@ -290,6 +322,56 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         Effect.andThen(fileSystem.rename(temporary, file)),
         Effect.mapError(ioError(`Could not write ${what}`))
       );
+  };
+
+  const catalogLockConflict = (catalogRoot: string) =>
+    catalogError(
+      "agent_flow_conflict",
+      `The Agent Flow Catalog at ${catalogRoot} is being mutated by another process.`
+    );
+
+  /** Serialize catalog mutations across independent MCP processes. */
+  const withCatalogLock = <A>(
+    catalogRoot: string,
+    operation: Effect.Effect<A, AgentFlowCatalogError>
+  ): Effect.Effect<A, AgentFlowCatalogError> => {
+    const lockPath = path.join(flowsDirectory(catalogRoot), ".catalog.lock");
+    const conflict = catalogLockConflict(catalogRoot);
+    const create = fileSystem
+      .writeFileString(lockPath, `${process.pid}\n`, { flag: "wx" })
+      .pipe(Effect.mapError(() => conflict));
+    return Effect.gen(function* acquireCatalogLock() {
+      const firstAttempt = yield* Effect.result(create);
+      if (Result.isSuccess(firstAttempt)) {
+        return yield* operation.pipe(
+          Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+        );
+      }
+
+      // A process that died while holding the lock leaves only its PID behind.
+      // Preserve malformed/foreign locks and any lock whose owner is alive.
+      const observed = yield* fileSystem
+        .readFileString(lockPath)
+        .pipe(Effect.mapError(() => conflict));
+      const pid = lockOwnerPid(observed);
+      if (pid === undefined || !processIsStale(pid)) {
+        return yield* Effect.fail(conflict);
+      }
+      const confirmed = yield* fileSystem
+        .readFileString(lockPath)
+        .pipe(Effect.mapError(() => conflict));
+      if (confirmed !== observed) {
+        return yield* Effect.fail(conflict);
+      }
+      yield* fileSystem.remove(lockPath).pipe(Effect.mapError(() => conflict));
+      const retry = yield* Effect.result(create);
+      if (Result.isFailure(retry)) {
+        return yield* Effect.fail(conflict);
+      }
+      return yield* operation.pipe(
+        Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+      );
+    });
   };
 
   const listFlowIds = (
@@ -347,11 +429,30 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     );
 
   const select = Effect.fn("AgentFlowCatalog.select")(function* selectRoot(
-    requested: string
+    requested: string,
+    operationId?: OperationId | string
   ) {
+    const requestInput = canonicalJson({ root: requested });
+    const operationKey =
+      operationId === undefined ? undefined : String(operationId);
+    const prior =
+      operationKey === undefined
+        ? undefined
+        : selectOperations.get(operationKey);
+    if (prior !== undefined) {
+      if (prior.input === requestInput) {
+        return prior.result;
+      }
+      return yield* Effect.fail(
+        catalogError(
+          "agent_flow_conflict",
+          `Operation ${operationKey} was already used to select a different Catalog Root.`
+        )
+      );
+    }
     if (!path.isAbsolute(requested)) {
       return yield* Effect.fail(
-        error(
+        catalogError(
           "agent_catalog_invalid",
           `A Catalog Root must be an absolute path; received "${requested}".`
         )
@@ -367,7 +468,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         .pipe(Effect.mapError(ioError("Could not inspect the Catalog Root")));
       if (stat.type !== "Directory") {
         return yield* Effect.fail(
-          error(
+          catalogError(
             "agent_catalog_invalid",
             `${resolved} exists and is not a directory.`
           )
@@ -375,7 +476,15 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       }
     }
     yield* Ref.set(root, resolved);
-    return yield* info(resolved);
+    const selected = yield* info(resolved);
+    options.onSelect?.(resolved);
+    if (operationKey !== undefined) {
+      selectOperations.set(operationKey, {
+        input: requestInput,
+        result: selected,
+      });
+    }
+    return selected;
   });
 
   const get = Effect.fn("AgentFlowCatalog.get")(function* getRevision(
@@ -388,7 +497,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
     if (!exists) {
       return yield* Effect.fail(
-        error(
+        catalogError(
           "agent_flow_not_found",
           `Agent Flow ${agentFlowId} is not in the catalog at ${catalogRoot}.`
         )
@@ -399,7 +508,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       revisionId ?? heads.draftRevisionId ?? heads.approvedRevisionId;
     if (target === null) {
       return yield* Effect.fail(
-        error(
+        catalogError(
           "agent_flow_not_found",
           `Agent Flow ${agentFlowId} has no revision to read.`
         )
@@ -415,7 +524,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
     if (!manifestExists) {
       return yield* Effect.fail(
-        error(
+        catalogError(
           "agent_flow_not_found",
           `Agent Flow ${agentFlowId} has no revision ${target}.`
         )
@@ -425,24 +534,38 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     return revision(catalogRoot, heads, manifest);
   });
 
-  /** The live heads of one Agent Flow, skipping packages that fail to decode. */
+  /** The heads of one Agent Flow, skipping packages that fail to decode. */
   const liveManifests = (
     catalogRoot: string,
     id: AgentFlowId
-  ): Effect.Effect<AgentFlowManifest[], never> =>
+  ): Effect.Effect<
+    readonly {
+      readonly archived: boolean;
+      readonly manifest: AgentFlowManifest;
+    }[],
+    never
+  > =>
     Effect.gen(function* readLiveHeads() {
       const heads = yield* readHeads(catalogRoot, id);
-      if (heads.archived) {
-        return [];
-      }
       const ids = [heads.approvedRevisionId, heads.draftRevisionId].filter(
         (revisionId, index, all): revisionId is AgentFlowRevisionId =>
           revisionId !== null && all.indexOf(revisionId) === index
       );
-      return yield* Effect.all(
+      const manifests = yield* Effect.all(
         ids.map((revisionId) => readManifest(catalogRoot, id, revisionId))
       );
-    }).pipe(Effect.orElseSucceed((): AgentFlowManifest[] => []));
+      return manifests.map((manifest) => ({
+        archived: heads.archived,
+        manifest,
+      }));
+    }).pipe(
+      Effect.orElseSucceed(
+        (): readonly {
+          readonly archived: boolean;
+          readonly manifest: AgentFlowManifest;
+        }[] => []
+      )
+    );
 
   const search = Effect.fn("AgentFlowCatalog.search")(function* searchCatalog(
     query: AgentFlowSearch
@@ -453,7 +576,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       ids.map((id) => liveManifests(catalogRoot, id))
     );
     const hits: AgentFlowSearchHit[] = [];
-    for (const manifest of manifests.flat()) {
+    for (const { archived, manifest } of manifests.flat()) {
+      if (archived !== (query.archived ?? false)) {
+        continue;
+      }
       if (query.status !== undefined && manifest.status !== query.status) {
         continue;
       }
@@ -482,6 +608,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       }
       hits.push({
         agentFlowId: manifest.agentFlowId,
+        archived,
         createdAt: manifest.createdAt,
         description: manifest.description,
         hosts: manifest.domainScope.hosts,
@@ -522,7 +649,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           return prior.result;
         }
         return yield* Effect.fail(
-          error(
+          catalogError(
             "agent_flow_conflict",
             `Operation ${operationKey} was already used to save a different draft.`
           )
@@ -530,7 +657,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       }
       if (input.slices.length !== input.proposal.steps.length) {
         return yield* Effect.fail(
-          error(
+          catalogError(
             "agent_catalog_invalid",
             "Every Agent Step needs exactly one Evidence Slice."
           )
@@ -547,7 +674,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
       if (input.agentFlowId !== undefined && !headsExist) {
         return yield* Effect.fail(
-          error(
+          catalogError(
             "agent_flow_not_found",
             `Agent Flow ${agentFlowId} is not in the catalog at ${catalogRoot}.`
           )
@@ -566,7 +693,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           };
       if (existing.draftRevisionId !== input.basedOnRevisionId) {
         return yield* Effect.fail(
-          error(
+          catalogError(
             "agent_flow_conflict",
             existing.draftRevisionId === null
               ? `Agent Flow ${agentFlowId} has no draft revision; save a new draft with basedOnRevisionId null.`
@@ -609,7 +736,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           const step = input.proposal.steps[index];
           if (step === undefined) {
             return yield* Effect.fail(
-              error(
+              catalogError(
                 "agent_catalog_invalid",
                 `Evidence Slice ${index} has no Agent Step.`
               )
@@ -658,7 +785,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         : existing;
       if (current.draftRevisionId !== input.basedOnRevisionId) {
         return yield* Effect.fail(
-          error(
+          catalogError(
             "agent_flow_conflict",
             `Agent Flow ${agentFlowId} draft head moved to ${String(current.draftRevisionId)} while this draft was written. Reread it before proposing another revision.`
           )
@@ -685,9 +812,23 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const service: AgentFlowCatalogService = {
     get: (agentFlowId, revisionId) => get(agentFlowId, revisionId),
     info: () => Ref.get(root).pipe(Effect.flatMap(info)),
-    saveDraft: (input) => writes.withPermit(saveDraftUnlocked(input)),
+    saveDraft: (input) =>
+      writes.withPermit(
+        Effect.gen(function* saveDraftWithCatalogLock() {
+          const catalogRoot = yield* Ref.get(root);
+          yield* fileSystem
+            .makeDirectory(flowsDirectory(catalogRoot), { recursive: true })
+            .pipe(
+              Effect.mapError(
+                ioError("Could not create the Agent Flow Catalog")
+              )
+            );
+          return yield* withCatalogLock(catalogRoot, saveDraftUnlocked(input));
+        })
+      ),
     search: (query) => search(query),
-    select: (requested) => writes.withPermit(select(requested)),
+    select: (requested, operationId) =>
+      writes.withPermit(select(requested, operationId)),
   };
   return service;
 });

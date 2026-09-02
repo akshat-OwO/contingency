@@ -75,7 +75,10 @@ const AgentCatalogSelectTool = Tool.make("agent_catalog_select", {
   description:
     "Select the Catalog Root that bounds Agent Flow discovery and storage for this MCP process. `root` must be an absolute directory path.",
   failure: AgentFlowFailure,
-  parameters: Schema.Struct({ root: AgentCatalogSelect.fields.root }),
+  parameters: Schema.Struct({
+    operationId: AgentCatalogSelect.fields.operationId,
+    root: AgentCatalogSelect.fields.root,
+  }),
   success: AgentCatalogInfo,
 });
 
@@ -178,7 +181,9 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
   agent_catalog_select: (params) =>
     Effect.gen(function* selectCatalog() {
       const catalog = yield* AgentFlowCatalog;
-      return yield* catalog.select(params.root).pipe(Effect.mapError(failure));
+      return yield* catalog
+        .select(params.root, params.operationId)
+        .pipe(Effect.mapError(failure));
     }),
   agent_flow_draft_save: (params) =>
     Effect.gen(function* saveDraft() {
@@ -214,6 +219,13 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           agentFlowId: saved.manifest.agentFlowId,
           revisionId: saved.manifest.revisionId,
           savedAt: saved.manifest.createdAt,
+          steps: saved.manifest.steps.map((step, index) => ({
+            confirmation: step.confirmation,
+            description: step.description,
+            evidenceHash: step.evidence.hash,
+            index,
+            name: step.name,
+          })),
           title: saved.manifest.title,
         })
         .pipe(Effect.mapError(failure));

@@ -581,6 +581,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       agentFlowId: AgentFlowId.make("flow-one"),
       revisionId: AgentFlowRevisionId.make("rev-one"),
       savedAt: "2026-09-01T00:00:00.000Z",
+      steps: [],
       title: "Shop cart",
     });
     expect(withDraft.teaching?.draft?.title).toBe("Shop cart");
