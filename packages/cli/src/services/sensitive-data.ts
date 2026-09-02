@@ -6,8 +6,29 @@ export const SENSITIVE_AUTOCOMPLETE =
   /^(?:current-password|new-password|one-time-code|cc-)/iu;
 
 /** Names and accessible metadata commonly used by credential controls. */
-export const SENSITIVE_FIELD_METADATA =
-  /(?:token|key|secret|code|password|credential|passcode|pin|otp|one[\s_-]?time|cvv|cvc|social[\s_-]?security|ssn)/iu;
+export const SENSITIVE_FIELD_TERMS = [
+  "token",
+  "key",
+  "secret",
+  "code",
+  "password",
+  "credential",
+  "passcode",
+  "pin",
+  "otp",
+  "one",
+  "time",
+  "cvv",
+  "cvc",
+  "social",
+  "security",
+  "ssn",
+] as const;
+
+export const SENSITIVE_FIELD_METADATA = new RegExp(
+  SENSITIVE_FIELD_TERMS.join("|"),
+  "iu"
+);
 
 export interface SensitiveFieldMetadata {
   readonly ariaLabel?: string | null | undefined;

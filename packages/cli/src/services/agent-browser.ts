@@ -16,6 +16,7 @@ import type { ElementHandle, JSHandle, Page } from "playwright-core";
 import {
   SENSITIVE_AUTOCOMPLETE,
   SENSITIVE_FIELD_METADATA,
+  SENSITIVE_FIELD_TERMS,
   sanitizeTeachingUrl,
 } from "./sensitive-data.ts";
 
@@ -37,24 +38,12 @@ const REFERENCE_LIMIT = 1000;
 
 /** Inputs whose values are never copied into a Browser Snapshot. */
 const SENSITIVE_INPUT_SELECTOR = [
-  'input[type="password"]',
+  '[type="password" i]',
   '[autocomplete^="current-password"]',
   '[autocomplete^="new-password"]',
   '[autocomplete="one-time-code"]',
   '[autocomplete^="cc-"]',
-  ...[
-    "token",
-    "key",
-    "secret",
-    "code",
-    "password",
-    "credential",
-    "pin",
-    "otp",
-    "cvv",
-    "cvc",
-    "ssn",
-  ].flatMap((term) => [
+  ...SENSITIVE_FIELD_TERMS.flatMap((term) => [
     `[name*="${term}" i]`,
     `[id*="${term}" i]`,
     `[aria-label*="${term}" i]`,
