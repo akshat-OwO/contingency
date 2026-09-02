@@ -159,10 +159,12 @@ export interface AgentFlowCatalogOptions {
 }
 
 const AgentFlowOperationRecord = Schema.Struct({
+  expectedHeads: Schema.NullOr(AgentFlowHeads),
   input: Schema.String,
   operationId: OperationId,
   result: AgentFlowRevision,
   schemaVersion: Schema.Literal(1),
+  status: Schema.Literals(["pending", "completed"]),
 });
 type AgentFlowOperationRecord = typeof AgentFlowOperationRecord.Type;
 
@@ -203,12 +205,38 @@ const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
 const encodeOperation = Schema.encodeSync(AgentFlowOperationRecord);
 
+const operationRecord = (
+  status: AgentFlowOperationRecord["status"],
+  operationId: string,
+  input: string,
+  expectedHeads: AgentFlowHeads | null,
+  result: AgentFlowRevision
+): AgentFlowOperationRecord => ({
+  expectedHeads,
+  input,
+  operationId: OperationId.make(operationId),
+  result,
+  schemaVersion: 1,
+  status,
+});
+
 export const evidenceHash = (slice: EvidenceSlice): EvidenceHash =>
   EvidenceHash.make(
     `sha256-${createHash("sha256")
       .update(canonicalJson(encodeSlice(slice)))
       .digest("hex")}`
   );
+
+const sameHeads = (left: AgentFlowHeads, right: AgentFlowHeads): boolean =>
+  canonicalJson(encodeHeads(left)) === canonicalJson(encodeHeads(right));
+
+const matchesExpectedHeads = (
+  expected: AgentFlowHeads | null,
+  current: AgentFlowHeads | null
+): boolean =>
+  expected === null
+    ? current === null
+    : current !== null && sameHeads(current, expected);
 
 const tokens = (text: string): string[] =>
   text
@@ -373,6 +401,122 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     );
   };
 
+  const validateOperationRecord = (
+    catalogRoot: string,
+    operationId: string,
+    persisted: AgentFlowOperationRecord
+  ): Effect.Effect<void, AgentFlowCatalogError> => {
+    const { heads, manifest } = persisted.result;
+    const expectedPath = revisionDirectory(
+      catalogRoot,
+      manifest.agentFlowId,
+      manifest.revisionId
+    );
+    const expectedBasedOn = persisted.expectedHeads?.draftRevisionId ?? null;
+    const expectedResultHeads: AgentFlowHeads =
+      persisted.expectedHeads === null
+        ? {
+            approvedRevisionId: null,
+            archived: false,
+            createdAt: manifest.createdAt,
+            draftRevisionId: manifest.revisionId,
+            id: manifest.agentFlowId,
+            schemaVersion: 1,
+            updatedAt: manifest.createdAt,
+          }
+        : {
+            ...persisted.expectedHeads,
+            draftRevisionId: manifest.revisionId,
+            updatedAt: manifest.createdAt,
+          };
+    const valid =
+      persisted.operationId === operationId &&
+      persisted.result.catalogRoot === catalogRoot &&
+      persisted.result.path === expectedPath &&
+      isWithinCatalogRoot(catalogRoot, persisted.result.path) &&
+      sameHeads(heads, expectedResultHeads) &&
+      manifest.basedOnRevisionId === expectedBasedOn &&
+      (persisted.expectedHeads === null ||
+        persisted.expectedHeads.id === manifest.agentFlowId);
+    return valid
+      ? Effect.void
+      : Effect.fail(
+          catalogError(
+            "agent_catalog_invalid",
+            `The persisted Agent Flow operation ${operationId} is outside the selected Catalog Root or has an invalid head transition.`
+          )
+        );
+  };
+
+  const writeOperationRecord = (
+    catalogRoot: string,
+    operationId: string,
+    record: AgentFlowOperationRecord
+  ) =>
+    Effect.gen(function* writeOperation() {
+      yield* fileSystem
+        .makeDirectory(operationsDirectory(catalogRoot), { recursive: true })
+        .pipe(Effect.mapError(ioError("Could not create operation records")));
+      yield* writeJson(
+        operationFile(catalogRoot, operationId),
+        JSON.stringify(encodeOperation(record), null, 2),
+        "the Agent Flow operation record"
+      );
+    });
+
+  const markOperationCompleted = (
+    catalogRoot: string,
+    operationId: string,
+    record: AgentFlowOperationRecord
+  ) =>
+    writeOperationRecord(catalogRoot, operationId, {
+      ...record,
+      status: "completed",
+    });
+
+  const commitDraft = (
+    catalogRoot: string,
+    headsFile: string,
+    heads: AgentFlowHeads,
+    expectedHeads: AgentFlowHeads | null,
+    saved: AgentFlowRevision,
+    operationId: string | undefined,
+    requestInput: string
+  ) =>
+    Effect.gen(function* commitDraftWithReplay() {
+      if (operationId !== undefined) {
+        yield* writeOperationRecord(
+          catalogRoot,
+          operationId,
+          operationRecord(
+            "pending",
+            operationId,
+            requestInput,
+            expectedHeads,
+            saved
+          )
+        );
+      }
+      yield* writeJson(
+        headsFile,
+        JSON.stringify(encodeHeads(heads), null, 2),
+        "the Agent Flow record"
+      );
+      if (operationId !== undefined) {
+        yield* markOperationCompleted(
+          catalogRoot,
+          operationId,
+          operationRecord(
+            "pending",
+            operationId,
+            requestInput,
+            expectedHeads,
+            saved
+          )
+        );
+      }
+    });
+
   const replayPersistedOperation = (
     catalogRoot: string,
     operationId: string,
@@ -383,29 +527,81 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         if (persisted === null) {
           return Effect.succeed(null);
         }
-        if (
-          persisted.operationId !== operationId ||
-          persisted.result.catalogRoot !== catalogRoot ||
-          !isWithinCatalogRoot(catalogRoot, persisted.result.path)
-        ) {
-          return Effect.fail(
-            catalogError(
-              "agent_catalog_invalid",
-              `The persisted Agent Flow operation ${operationId} is outside the selected Catalog Root.`
-            )
+        return Effect.gen(function* replayPendingOperation() {
+          yield* validateOperationRecord(catalogRoot, operationId, persisted);
+          if (persisted.input !== requestInput) {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_flow_conflict",
+                `Operation ${operationId} was already used to save a different draft.`
+              )
+            );
+          }
+          if (persisted.status === "completed") {
+            return persisted.result;
+          }
+
+          const { heads: intendedHeads, manifest } = persisted.result;
+          const headsFile = path.join(
+            flowDirectory(catalogRoot, manifest.agentFlowId),
+            HEADS_FILE
           );
-        }
-        if (persisted.input === requestInput) {
-          return Effect.succeed(persisted.result);
-        }
-        return Effect.fail(
+          const exists = yield* fileSystem
+            .exists(headsFile)
+            .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
+          const current: AgentFlowHeads | null = exists
+            ? yield* readJson(AgentFlowHeads, headsFile, "Agent Flow record")
+            : null;
+          if (
+            current !== null &&
+            current.id === intendedHeads.id &&
+            current.draftRevisionId === manifest.revisionId
+          ) {
+            yield* markOperationCompleted(catalogRoot, operationId, persisted);
+            return persisted.result;
+          }
+
+          const expected = persisted.expectedHeads;
+          if (!matchesExpectedHeads(expected, current)) {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_flow_conflict",
+                `Operation ${operationId} cannot recover because the Agent Flow head changed.`
+              )
+            );
+          }
+          yield* writeJson(
+            headsFile,
+            JSON.stringify(encodeHeads(intendedHeads), null, 2),
+            "the Agent Flow record"
+          );
+          yield* markOperationCompleted(catalogRoot, operationId, persisted);
+          return persisted.result;
+        });
+      })
+    );
+
+  const replayOperation = (
+    catalogRoot: string,
+    operationId: string | undefined,
+    requestInput: string
+  ): Effect.Effect<AgentFlowRevision | null, AgentFlowCatalogError> => {
+    if (operationId === undefined) {
+      return Effect.succeed(null);
+    }
+    const prior = operations.get(operationId);
+    if (prior === undefined) {
+      return replayPersistedOperation(catalogRoot, operationId, requestInput);
+    }
+    return prior.input === requestInput
+      ? Effect.succeed(prior.result)
+      : Effect.fail(
           catalogError(
             "agent_flow_conflict",
             `Operation ${operationId} was already used to save a different draft.`
           )
         );
-      })
-    );
+  };
 
   const catalogLockConflict = (catalogRoot: string) =>
     catalogError(
@@ -726,29 +922,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       const operationKey =
         input.operationId === undefined ? undefined : String(input.operationId);
       const catalogRoot = yield* Ref.get(root);
-      const prior =
-        operationKey === undefined ? undefined : operations.get(operationKey);
-      if (prior !== undefined) {
-        if (prior.input === requestInput) {
-          return prior.result;
-        }
-        return yield* Effect.fail(
-          catalogError(
-            "agent_flow_conflict",
-            `Operation ${operationKey} was already used to save a different draft.`
-          )
-        );
-      }
-      if (operationKey !== undefined) {
-        const replay = yield* replayPersistedOperation(
-          catalogRoot,
-          operationKey,
-          requestInput
-        );
-        if (replay !== null) {
+      const replay = yield* replayOperation(
+        catalogRoot,
+        operationKey,
+        requestInput
+      );
+      if (replay !== null) {
+        if (operationKey !== undefined) {
           operations.set(operationKey, { input: requestInput, result: replay });
-          return replay;
         }
+        return replay;
       }
       if (input.slices.length !== input.proposal.steps.length) {
         return yield* Effect.fail(
@@ -785,6 +968,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             schemaVersion: 1,
             updatedAt: at,
           };
+      const expectedHeads = headsExist ? existing : null;
       if (existing.draftRevisionId !== input.basedOnRevisionId) {
         return yield* Effect.fail(
           catalogError(
@@ -874,46 +1058,36 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       // Re-read the heads right before moving them: another process may have
       // advanced the draft while the package was written. The package stays
       // on disk either way; only the head decides what the catalog offers.
-      const current: AgentFlowHeads = headsExist
+      const currentExists = yield* fileSystem
+        .exists(headsFile)
+        .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
+      const current = currentExists
         ? yield* readHeads(catalogRoot, agentFlowId)
-        : existing;
-      if (current.draftRevisionId !== input.basedOnRevisionId) {
+        : null;
+      if (!matchesExpectedHeads(expectedHeads, current)) {
         return yield* Effect.fail(
           catalogError(
             "agent_flow_conflict",
-            `Agent Flow ${agentFlowId} draft head moved to ${String(current.draftRevisionId)} while this draft was written. Reread it before proposing another revision.`
+            `Agent Flow ${agentFlowId} head moved while this draft was written. Reread it before proposing another revision.`
           )
         );
       }
       const heads: AgentFlowHeads = {
-        ...current,
+        ...(expectedHeads ?? existing),
         draftRevisionId: revisionId,
         updatedAt: at,
       };
-      yield* writeJson(
-        headsFile,
-        JSON.stringify(encodeHeads(heads), null, 2),
-        "the Agent Flow record"
-      );
       const saved = revision(catalogRoot, heads, manifest);
+      yield* commitDraft(
+        catalogRoot,
+        headsFile,
+        heads,
+        expectedHeads,
+        saved,
+        operationKey,
+        requestInput
+      );
       if (operationKey !== undefined) {
-        yield* fileSystem
-          .makeDirectory(operationsDirectory(catalogRoot), { recursive: true })
-          .pipe(Effect.mapError(ioError("Could not create operation records")));
-        yield* writeJson(
-          operationFile(catalogRoot, operationKey),
-          JSON.stringify(
-            encodeOperation({
-              input: requestInput,
-              operationId: OperationId.make(operationKey),
-              result: saved,
-              schemaVersion: 1,
-            }),
-            null,
-            2
-          ),
-          "the Agent Flow operation record"
-        );
         operations.set(operationKey, { input: requestInput, result: saved });
       }
       return saved;

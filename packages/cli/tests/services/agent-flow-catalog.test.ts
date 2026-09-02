@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 import {
@@ -94,6 +95,14 @@ const saveInput = (
   sourceSessionId: AgentSessionId.make("agent-teaching"),
   ...overrides,
 });
+
+const operationFile = (root: string, operationId: string): string =>
+  path.join(
+    root,
+    AGENT_FLOWS_DIRECTORY,
+    ".operations",
+    `sha256-${createHash("sha256").update(operationId).digest("hex")}.json`
+  );
 
 const withCatalog = <A, E>(
   use: (
@@ -200,6 +209,110 @@ it.effect("replays a completed save after the catalog service restarts", () =>
           );
           expect(conflict.code).toBe("agent_flow_conflict");
           expect((yield* restarted.info()).agentFlowCount).toBe(1);
+        })
+      );
+    })
+  )
+);
+
+it.effect("recovers a pending save before its head move after restart", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* pendingBeforeHeadMove() {
+      const input = saveInput("Pending before", "save-pending-before");
+      const saved = yield* catalog.saveDraft(input);
+      const headsFile = path.join(saved.path, "..", "..", "agent-flow.json");
+      const operationPath = operationFile(root, "save-pending-before");
+      const record = JSON.parse(
+        yield* fileSystem.readFileString(operationPath)
+      ) as Record<string, unknown>;
+      yield* fileSystem.writeFileString(
+        operationPath,
+        JSON.stringify({ ...record, status: "pending" })
+      );
+      yield* fileSystem.remove(headsFile);
+
+      yield* Effect.scoped(
+        Effect.gen(function* restart() {
+          const context = yield* Layer.build(
+            makeAgentFlowCatalogLayer({ root }).pipe(
+              Layer.provide(NodeServices.layer)
+            )
+          );
+          const restarted = Context.get(context, AgentFlowCatalog);
+          expect(yield* restarted.saveDraft(input)).toEqual(saved);
+          expect(
+            JSON.parse(yield* fileSystem.readFileString(operationPath))
+          ).toMatchObject({ status: "completed" });
+        })
+      );
+    })
+  )
+);
+
+it.effect("completes a pending save after its head move", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* pendingAfterHeadMove() {
+      const input = saveInput("Pending after", "save-pending-after");
+      const saved = yield* catalog.saveDraft(input);
+      const operationPath = operationFile(root, "save-pending-after");
+      const record = JSON.parse(
+        yield* fileSystem.readFileString(operationPath)
+      ) as Record<string, unknown>;
+      yield* fileSystem.writeFileString(
+        operationPath,
+        JSON.stringify({ ...record, status: "pending" })
+      );
+
+      yield* Effect.scoped(
+        Effect.gen(function* restart() {
+          const context = yield* Layer.build(
+            makeAgentFlowCatalogLayer({ root }).pipe(
+              Layer.provide(NodeServices.layer)
+            )
+          );
+          const restarted = Context.get(context, AgentFlowCatalog);
+          expect(yield* restarted.saveDraft(input)).toEqual(saved);
+          expect(
+            JSON.parse(yield* fileSystem.readFileString(operationPath))
+          ).toMatchObject({ status: "completed" });
+        })
+      );
+    })
+  )
+);
+
+it.effect("refuses a persisted operation with an invalid head transition", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* invalidPersistedTransition() {
+      const input = saveInput("Invalid transition", "save-invalid-transition");
+      yield* catalog.saveDraft(input);
+      const operationPath = operationFile(root, "save-invalid-transition");
+      const record = JSON.parse(
+        yield* fileSystem.readFileString(operationPath)
+      ) as {
+        result: { heads: Record<string, unknown> };
+      };
+      yield* fileSystem.writeFileString(
+        operationPath,
+        JSON.stringify({
+          ...record,
+          result: {
+            ...record.result,
+            heads: { ...record.result.heads, archived: true },
+          },
+        })
+      );
+
+      yield* Effect.scoped(
+        Effect.gen(function* restart() {
+          const restartedContext = yield* Layer.build(
+            makeAgentFlowCatalogLayer({ root }).pipe(
+              Layer.provide(NodeServices.layer)
+            )
+          );
+          const restarted = Context.get(restartedContext, AgentFlowCatalog);
+          const refused = yield* Effect.flip(restarted.saveDraft(input));
+          expect(refused.code).toBe("agent_catalog_invalid");
         })
       );
     })
