@@ -59,6 +59,7 @@ import {
   captureAgentScreenshot,
   makeAgentElementRegistry,
   performAgentAction,
+  performPrivateVariableInput,
   redactAgentSnapshot,
   snapshotAfterAction,
 } from "./agent-browser.ts";
@@ -1576,7 +1577,13 @@ const makeAgentSession = (
         // and wait for its cleanup rather than racing it.
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
-            yield* performAgentAction(page, record.registry, action);
+            yield* privateRegistration === undefined
+              ? performAgentAction(page, record.registry, action)
+              : performPrivateVariableInput(
+                  page,
+                  privateRegistration.selector,
+                  privateRegistration.value
+                );
             if (
               privateRegistration !== undefined &&
               record.capture !== undefined
@@ -1603,7 +1610,10 @@ const makeAgentSession = (
           })
         );
         record.control.inFlight = {
-          action: capturedAction,
+          action:
+            privateRegistration === undefined
+              ? capturedAction
+              : sanitizeSensitiveAction(action, true),
           description,
           fiber,
           id,
@@ -1651,7 +1661,10 @@ const makeAgentSession = (
         // where the browser actually is rather than where it last succeeded.
         const urlAfter = page.url();
         record.capture?.recordAction({
-          action: capturedAction,
+          action:
+            privateRegistration === undefined
+              ? capturedAction
+              : sanitizeSensitiveAction(action, true),
           actor: "agent",
           at: failedAt,
           description,
@@ -1750,7 +1763,8 @@ const makeAgentSession = (
                       ? undefined
                       : {
                           selector: yield* record.registry.privateSelector(
-                            action.ref
+                            action.ref,
+                            [...privateCapture.value].length
                           ),
                           value: privateCapture.value,
                           variable: privateCapture.variable,
@@ -1870,7 +1884,10 @@ const makeAgentSession = (
           const snapshotBefore = capture.latestSnapshotId();
           const executed = yield* record.control.lock.withPermit(
             Effect.gen(function* fillPrivateValue() {
-              const selector = yield* record.registry.privateSelector(ref);
+              const selector = yield* record.registry.privateSelector(
+                ref,
+                [...input.value].length
+              );
               if (
                 !capture.canRecordVariable(
                   input.variable,
@@ -1885,7 +1902,7 @@ const makeAgentSession = (
                   )
                 );
               }
-              yield* performAgentAction(page, record.registry, action);
+              yield* performPrivateVariableInput(page, selector, input.value);
               capture.recordVariable(input.variable, input.value, selector);
               const observed = yield* Effect.result(
                 snapshotAfter(record, page)

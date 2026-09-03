@@ -11,16 +11,62 @@
       <input id="account" name="account" type="text" />
       <label for="password">Password</label>
       <input id="password" name="password" type="password" />
-      <label for="otp">One-time code</label>
-      <input
-        autocomplete="one-time-code"
-        id="otp"
-        inputmode="numeric"
-        maxlength="6"
-        name="otp"
-        type="text"
-      />
+      <fieldset>
+        <legend>One-time code</legend>
+        <input
+          aria-label="otp-input 1 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 2 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 3 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 4 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 5 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 6 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+      </fieldset>
+      <p>Available in 1800+ cities.</p>
+      <p>Drugs and Cosmetics Act, 1940.</p>
       <button type="button">Sign in</button>
+      <output aria-live="polite" id="verification"></output>
     </main>
+    <script>
+      const otpInputs = [...document.querySelectorAll("fieldset input")];
+      const verification = document.getElementById("verification");
+      const update = () => {
+        const otp = otpInputs.map((input) => input.value).join("");
+        verification.textContent =
+          otp.length === otpInputs.length ? "Verification ready" : "";
+      };
+      otpInputs.forEach((input, index) => {
+        input.addEventListener("input", () => {
+          if (input.value.length > 1) {
+            input.value = "";
+          } else if (input.value.length === 1) {
+            otpInputs[index + 1]?.focus();
+          }
+          update();
+        });
+      });
+    </script>
   </body>
 </html>

@@ -584,7 +584,12 @@ it.live(
         const display = findNode(observed.nodes, "textbox", "Display name");
         const mobile = findNode(observed.nodes, "textbox", "Mobile number");
         const password = findNode(observed.nodes, "textbox", "Password");
-        const otp = findNode(observed.nodes, "textbox", "One-time code");
+        const rejected = findNode(
+          observed.nodes,
+          "textbox",
+          "Rejected private value"
+        );
+        const otp = findNode(observed.nodes, "textbox", "otp-input 1 of 6");
         const help = findNode(observed.nodes, "button", "Open help");
         yield* session("agent_browser_act", {
           action: { ref: display.ref, type: "click" },
@@ -653,6 +658,18 @@ it.live(
         });
 
         const passwordLiteral = "x5551234x";
+        const ignoredLiteral = "ignored-private-value";
+        const ignored = yield* Effect.flip(
+          session("agent_teaching_variable_input", {
+            operationId: OperationId.make("reject-private-input"),
+            ref: rejected.ref,
+            sessionId: started.id,
+            value: ignoredLiteral,
+            variable: { name: "IGNORED", runtime: false, secret: true },
+          })
+        );
+        expect(ignored.code).toBe("agent_browser_failed");
+        expect(JSON.stringify(ignored)).not.toContain(ignoredLiteral);
         const failed = yield* Effect.flip(
           session("agent_teaching_variable_input", {
             operationId: OperationId.make("fail-private-input"),
@@ -677,14 +694,18 @@ it.live(
         expect(
           yield* session("agent_teaching_variable_input", passwordInput)
         ).toEqual(enteredPassword);
-        const otpLiteral = "123410";
-        yield* session("agent_teaching_variable_input", {
+        const otpLiteral = "246801";
+        const enteredOtp = yield* session("agent_teaching_variable_input", {
           operationId: OperationId.make("enter-otp"),
           ref: otp.ref,
           sessionId: started.id,
           value: otpLiteral,
           variable: { name: "OTP", runtime: true, secret: true },
         });
+        expect(
+          findNode(enteredOtp.snapshot.nodes, "output", "Verification ready")
+            .name
+        ).toBe("Verification ready");
         yield* session("agent_browser_screenshot", { sessionId: started.id });
 
         const feed = yield* flow("agent_teaching_feed_get", {
@@ -693,9 +714,20 @@ it.live(
         });
         const literals = [mobileLiteral, passwordLiteral, otpLiteral];
         const exported = JSON.stringify(feed);
+        const snapshotExport = JSON.stringify({ ...feed, screenshots: [] });
         for (const literal of literals) {
           expect(exported).not.toContain(literal);
         }
+        expect(exported).toContain("Available in 1800+ cities.");
+        expect(exported).toContain("Drugs and Cosmetics Act, 1940.");
+        for (const literal of literals) {
+          for (let index = 0; index <= literal.length - 4; index += 1) {
+            expect(snapshotExport).not.toContain(
+              literal.slice(index, index + 4)
+            );
+          }
+        }
+        expect(snapshotExport).not.toContain("{{IGNORED}}");
         expect(feed.variables).toEqual([
           { name: "MOBILE", runtime: false, secret: true },
           { name: "PASSWORD", runtime: false, secret: true },

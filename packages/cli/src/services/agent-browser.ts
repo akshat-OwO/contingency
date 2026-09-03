@@ -184,7 +184,11 @@ const SNAPSHOT_SCRIPT = `(() => {
   )
     .filter(isSensitive)
     .map((element) => element.value)
-    .filter((value) => typeof value === "string" && value.length > 0);
+    // Short segmented-code values are not safe global redaction tokens. A
+    // one-character OTP box must not rewrite every matching digit in the
+    // Page before Contingency can redact the complete declared Variable.
+    .filter((value) => typeof value === "string" && value.length >= 4)
+    .sort((left, right) => right.length - left.length);
   const redactSensitive = (text) =>
     sensitiveValues.reduce(
       (redacted, value) => redacted.split(value).join("[sensitive input]"),
@@ -407,7 +411,8 @@ export interface AgentElementRegistry {
   ) => Effect.Effect<boolean, BrowserRpcErrorType>;
   /** A document-local selector for masking a field already marked private. */
   readonly privateSelector: (
-    ref: string
+    ref: string,
+    segmentCount?: number
   ) => Effect.Effect<string, BrowserRpcErrorType>;
   /** Resolve viewport coordinates through the most recent Snapshot. */
   readonly pointRef: (
@@ -663,7 +668,8 @@ export const makeAgentElementRegistry = (
       : Effect.succeed(focused);
 
   const privateSelector = (
-    ref: string
+    ref: string,
+    segmentCount = 1
   ): Effect.Effect<string, BrowserRpcErrorType> =>
     resolve(ref).pipe(
       Effect.flatMap((element) =>
@@ -671,25 +677,61 @@ export const makeAgentElementRegistry = (
           catch: (cause) =>
             browserFailure("Could not identify the private control", cause),
           try: () =>
-            element.evaluate((candidate) => {
-              const parts: string[] = [];
-              let current: typeof candidate | null = candidate;
+            element.evaluate((candidate, requestedCount) => {
+              const selectorFor = (target: typeof candidate) => {
+                const selectorParts: string[] = [];
+                let current: typeof candidate | null = target;
+                while (
+                  current !== null &&
+                  current !== current.ownerDocument.documentElement
+                ) {
+                  const parent = current.parentElement;
+                  if (parent === null) {
+                    break;
+                  }
+                  const siblings = [...parent.children];
+                  selectorParts.unshift(
+                    `${current.tagName.toLowerCase()}:nth-child(${siblings.indexOf(current) + 1})`
+                  );
+                  current = parent;
+                }
+                return `html > ${selectorParts.join(" > ")}`;
+              };
+              if (
+                requestedCount <= 1 ||
+                candidate.tagName !== "INPUT" ||
+                Number(candidate.getAttribute("maxlength")) !== 1
+              ) {
+                return selectorFor(candidate);
+              }
+              const compatible = (control: typeof candidate) =>
+                control.tagName === "INPUT" &&
+                !control.hasAttribute("disabled") &&
+                Number(control.getAttribute("maxlength")) === 1 &&
+                control.getAttribute("type") ===
+                  candidate.getAttribute("type") &&
+                control.getAttribute("inputmode") ===
+                  candidate.getAttribute("inputmode");
+              let current: typeof candidate | null = candidate.parentElement;
               while (
                 current !== null &&
                 current !== current.ownerDocument.documentElement
               ) {
-                const parent = current.parentElement;
-                if (parent === null) {
-                  break;
-                }
-                const siblings = [...parent.children];
-                parts.unshift(
-                  `${current.tagName.toLowerCase()}:nth-child(${siblings.indexOf(current) + 1})`
+                const controls = [...current.querySelectorAll("input")].filter(
+                  compatible
                 );
-                current = parent;
+                const start = controls.indexOf(candidate);
+                if (
+                  start !== -1 &&
+                  controls.length === requestedCount &&
+                  controls.length - start === requestedCount
+                ) {
+                  return controls.map(selectorFor).join(",");
+                }
+                current = current.parentElement;
               }
-              return `html > ${parts.join(" > ")}`;
-            }),
+              return selectorFor(candidate);
+            }, segmentCount),
         })
       )
     );
@@ -731,8 +773,14 @@ export const makeAgentElementRegistry = (
 };
 
 const redactKnownValues = (text: string, values: readonly string[]): string => {
+  if (values.includes(text)) {
+    return "[sensitive input]";
+  }
   let redacted = text;
   for (const value of values) {
+    if (value.length < 4) {
+      continue;
+    }
     redacted = redacted.split(value).join("[sensitive input]");
   }
   return redacted;
@@ -984,3 +1032,73 @@ export const performAgentAction = (
     }
   }
 };
+
+/**
+ * Enter one private Variable and prove that the target controls accepted it.
+ * A comma-separated selector represents a split input such as six OTP boxes.
+ */
+export const performPrivateVariableInput = (
+  page: Page,
+  selector: string,
+  value: string
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  attempt("Could not enter the private Variable", async () => {
+    const controls = page.locator(selector);
+    const count = await controls.count();
+    const characters = [...value];
+    if (count === 0) {
+      throw new Error("The private control is no longer available.");
+    }
+    if (count > 1 && count !== characters.length) {
+      throw new Error(
+        "The split private control does not match the Variable length."
+      );
+    }
+
+    const readValues = async (): Promise<readonly string[] | undefined> => {
+      if ((await controls.count()) === 0) {
+        return undefined;
+      }
+      return controls.evaluateAll((elements) =>
+        elements.map((element) =>
+          "value" in element
+            ? String(element.value)
+            : (element.textContent ?? "")
+        )
+      );
+    };
+    const fillEach = async (
+      values: readonly string[],
+      index = 0
+    ): Promise<void> => {
+      const next = values[index];
+      if (next === undefined) {
+        return;
+      }
+      await controls.nth(index).fill(next, { timeout: ACTION_TIMEOUT_MS });
+      await fillEach(values, index + 1);
+    };
+    await controls.first().fill(value, { timeout: ACTION_TIMEOUT_MS });
+    const initiallyAccepted = await readValues();
+    if (initiallyAccepted === undefined) {
+      return;
+    }
+    let accepted = initiallyAccepted.join("");
+    if (accepted === value) {
+      return;
+    }
+    if (count === 1) {
+      throw new Error("The private control did not accept the value.");
+    }
+
+    await fillEach(Array.from({ length: count }, () => ""));
+    await fillEach(characters);
+    const finallyAccepted = await readValues();
+    if (finallyAccepted === undefined) {
+      return;
+    }
+    accepted = finallyAccepted.join("");
+    if (accepted !== value) {
+      throw new Error("The split private control did not accept the value.");
+    }
+  }).pipe(Effect.asVoid);
