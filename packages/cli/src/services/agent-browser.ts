@@ -13,6 +13,14 @@ import type {
 import { Effect, Schema } from "effect";
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
 
+import {
+  SENSITIVE_AUTOCOMPLETE,
+  SENSITIVE_EXACT_FIELD_NAMES,
+  SENSITIVE_FIELD_METADATA,
+  SENSITIVE_FIELD_PHRASES,
+  sanitizeTeachingUrl,
+} from "./sensitive-data.ts";
+
 /** How long one browser action or observation may take before it fails. */
 const ACTION_TIMEOUT_MS = 10_000;
 
@@ -28,6 +36,29 @@ const NAME_LIMIT = 160;
  * holds a browser-side handle, so the oldest are released once past this.
  */
 const REFERENCE_LIMIT = 1000;
+
+/** Inputs whose values are never copied into a Browser Snapshot. */
+const SENSITIVE_INPUT_SELECTOR = [
+  '[type="password" i]',
+  '[autocomplete^="current-password"]',
+  '[autocomplete^="new-password"]',
+  '[autocomplete="one-time-code"]',
+  '[autocomplete^="cc-"]',
+  ...SENSITIVE_FIELD_PHRASES.flatMap((term) => [
+    `[name*="${term}" i]`,
+    `[id*="${term}" i]`,
+    `[aria-label*="${term}" i]`,
+  ]),
+  ...SENSITIVE_EXACT_FIELD_NAMES.flatMap((name) => [
+    `[name="${name}" i]`,
+    `[id="${name}" i]`,
+    `[aria-label="${name}" i]`,
+  ]),
+  ...["4", "5", "6", "7", "8"].flatMap((length) => [
+    `[inputmode="numeric"][maxlength="${length}"]`,
+    `[inputmode="decimal"][maxlength="${length}"]`,
+  ]),
+].join(",");
 
 const browserFailure = (
   description: string,
@@ -56,6 +87,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     ARTICLE: "article",
     ASIDE: "complementary",
     BUTTON: "button",
+    DIV: "generic",
     FOOTER: "contentinfo",
     FORM: "form",
     H1: "heading",
@@ -74,6 +106,7 @@ const SNAPSHOT_SCRIPT = `(() => {
     P: "paragraph",
     SECTION: "region",
     SELECT: "combobox",
+    SPAN: "generic",
     SUMMARY: "button",
     TABLE: "table",
     TD: "cell",
@@ -91,16 +124,109 @@ const SNAPSHOT_SCRIPT = `(() => {
     search: "searchbox",
     submit: "button",
   };
-  const SELECTOR =
-    "a[href],button,input,select,textarea,summary,[role],[onclick]," +
+  const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
+  const SENSITIVE_AUTOCOMPLETE = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, "iu");
+  const SENSITIVE_FIELD_METADATA = new RegExp(${JSON.stringify(SENSITIVE_FIELD_METADATA.source)}, "iu");
+  const SENSITIVE_EXACT_FIELD_NAMES = new Set(${JSON.stringify(SENSITIVE_EXACT_FIELD_NAMES)});
+  // Markup that declares itself a control or a landmark. An SPA row that
+  // carries its handler in script matches none of this, so it is found by
+  // cursor instead.
+  const CONTROL_SELECTOR =
+    "a[href],button,input,select,textarea,summary,[onclick]," +
+    "[tabindex],[contenteditable=''],[contenteditable='true']," +
+    "[role='button'],[role='link'],[role='checkbox'],[role='radio']," +
+    "[role='switch'],[role='combobox'],[role='listbox'],[role='option']," +
+    "[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']," +
+    "[role='slider'],[role='spinbutton'],[role='textbox']," +
+    "[role='searchbox'],[role='tab'],[role='treeitem']";
+  const CONTEXT_SELECTOR =
+    "[role]," +
     "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,li,td,th,p,label,img";
+  const SKIPPED_TAGS = new Set([
+    "BASE",
+    "HEAD",
+    "LINK",
+    "META",
+    "NOSCRIPT",
+    "SCRIPT",
+    "STYLE",
+    "TEMPLATE",
+    "TITLE",
+  ]);
+  const isSensitive = (element) => {
+    const metadataFields = [
+      element.getAttribute("name"),
+      element.getAttribute("id"),
+      element.getAttribute("aria-label"),
+    ]
+      .filter(Boolean)
+      .map((value) => value.trim().toLowerCase());
+    const metadata = metadataFields.join(" ");
+    const inputMode = element.getAttribute("inputmode")?.toLowerCase();
+    const maxLength = Number(element.getAttribute("maxlength"));
+    const looksLikeUnlabelledCode =
+      (inputMode === "numeric" || inputMode === "decimal") &&
+      Number.isInteger(maxLength) &&
+      maxLength >= 4 &&
+      maxLength <= 8;
+    return (
+      element.getAttribute("type")?.toLowerCase() === "password" ||
+      SENSITIVE_AUTOCOMPLETE.test(
+        element.getAttribute("autocomplete") || ""
+      ) ||
+      SENSITIVE_FIELD_METADATA.test(metadata) ||
+      metadataFields.some((value) => SENSITIVE_EXACT_FIELD_NAMES.has(value)) ||
+      looksLikeUnlabelledCode
+    );
+  };
+  const sensitiveValues = Array.from(
+    document.querySelectorAll('input,textarea,select,[role="textbox"]')
+  )
+    .filter(isSensitive)
+    .map((element) => element.value)
+    .filter((value) => typeof value === "string" && value.length > 0);
+  const redactSensitive = (text) =>
+    sensitiveValues.reduce(
+      (redacted, value) => redacted.split(value).join("[sensitive input]"),
+      text
+    );
+  // One computed style per element: visibility and the cursor test below both
+  // read it, and the cursor test reads the parent's as well.
+  const styles = new Map();
+  const styleOf = (element) => {
+    let style = styles.get(element);
+    if (style === undefined) {
+      style = getComputedStyle(element);
+      styles.set(element, style);
+    }
+    return style;
+  };
   const isVisible = (element) => {
-    const style = getComputedStyle(element);
+    const style = styleOf(element);
     if (style.visibility === "hidden" || style.display === "none") {
       return false;
     }
     const rect = element.getBoundingClientRect();
     return rect.width > 0 || rect.height > 0;
+  };
+  // A pointer cursor inherits, so every descendant of a clickable row reports
+  // one too. Only the outermost element of such a run is the control.
+  const isPointerRoot = (element) => {
+    if (styleOf(element).cursor !== "pointer") {
+      return false;
+    }
+    const parent = element.parentElement;
+    return parent === null || styleOf(parent).cursor !== "pointer";
+  };
+  // The smallest element owning a run of text, so a label is reported once
+  // rather than once per wrapper on the way down to it.
+  const ownsText = (element) => {
+    for (const child of element.childNodes) {
+      if (child.nodeType === 3 && child.nodeValue.trim() !== "") {
+        return true;
+      }
+    }
+    return false;
   };
   const accessibleName = (element) => {
     const labelled = element.getAttribute("aria-labelledby");
@@ -126,9 +252,39 @@ const SNAPSHOT_SCRIPT = `(() => {
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
   };
-  const candidates = Array.from(document.querySelectorAll(SELECTOR))
-    .filter(isVisible)
-    .slice(0, ${SNAPSHOT_LIMIT});
+  // Controls come before prose when the budget runs out: a journey is driven
+  // by what it can act on, and a Page that overflows the limit is one whose
+  // text matters least.
+  const controls = [];
+  const contextual = [];
+  const clickable = new Set();
+  const textual = [];
+  for (const element of document.querySelectorAll("*")) {
+    if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
+      continue;
+    }
+    if (element.matches(CONTROL_SELECTOR)) {
+      controls.push(element);
+      continue;
+    }
+    if (isPointerRoot(element)) {
+      clickable.add(element);
+      controls.push(element);
+      continue;
+    }
+    if (element.matches(CONTEXT_SELECTOR)) {
+      contextual.push(element);
+      continue;
+    }
+    if (ownsText(element)) {
+      textual.push(element);
+    }
+  }
+  const candidates = controls.slice(0, ${SNAPSHOT_LIMIT});
+  const contextBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
+  candidates.push(...contextual.slice(0, contextBudget));
+  const textBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
+  candidates.push(...textual.slice(0, textBudget));
   const included = new Set(candidates);
   const elements = [];
   const nodes = [];
@@ -138,7 +294,7 @@ const SNAPSHOT_SCRIPT = `(() => {
       ? INPUT_ROLES[element.type] || "textbox"
       : ROLE_BY_TAG[element.tagName] || element.tagName.toLowerCase();
     const role = element.getAttribute("role") || tagRole;
-    const name = accessibleName(element);
+    const name = redactSensitive(accessibleName(element));
     let depth = 0;
     for (
       let ancestor = element.parentElement;
@@ -150,13 +306,16 @@ const SNAPSHOT_SCRIPT = `(() => {
       }
     }
     const node = { depth: Math.min(depth, 64), name, role };
+    if (clickable.has(element)) {
+      node.clickable = true;
+    }
     if (element.disabled === true) {
       node.disabled = true;
     }
     if (typeof element.checked === "boolean") {
       node.checked = element.checked;
     }
-    if (typeof element.value === "string" && element.type !== "password") {
+    if (typeof element.value === "string" && !isSensitive(element)) {
       node.value = element.value.slice(0, ${NAME_LIMIT});
     }
     nodes.push(node);
@@ -169,6 +328,7 @@ const SNAPSHOT_SCRIPT = `(() => {
 const CollectedNodes = Schema.Array(
   Schema.Struct({
     checked: Schema.optional(Schema.Boolean),
+    clickable: Schema.optional(Schema.Boolean),
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
     name: Schema.String,
@@ -221,6 +381,10 @@ export interface AgentElementRegistry {
   readonly resolve: (
     ref: string
   ) => Effect.Effect<ElementHandle, BrowserRpcErrorType>;
+  /** Determine whether a referenced control is known to contain sensitive data. */
+  readonly isSensitive: (
+    ref: string
+  ) => Effect.Effect<boolean, BrowserRpcErrorType>;
   /** Read the Page and mint a new generation of references for it. */
   readonly snapshot: (
     page: Page
@@ -349,7 +513,7 @@ export const makeAgentElementRegistry = (
         nodes,
         snapshotId,
         title: identity.title,
-        url: identity.url,
+        url: sanitizeTeachingUrl(identity.url),
       };
     });
 
@@ -370,23 +534,89 @@ export const makeAgentElementRegistry = (
     );
   };
 
-  return { clear, resolve, snapshot };
+  const isSensitive = (
+    ref: string
+  ): Effect.Effect<boolean, BrowserRpcErrorType> =>
+    resolve(ref).pipe(
+      Effect.flatMap((element) =>
+        Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not inspect the referenced control", cause),
+          try: () =>
+            element.evaluate(
+              (candidate, patterns) => {
+                const metadataFields = [
+                  candidate.getAttribute("name"),
+                  candidate.getAttribute("id"),
+                  candidate.getAttribute("aria-label"),
+                ]
+                  .filter(Boolean)
+                  .map((value) => value.trim().toLowerCase());
+                const metadata = metadataFields.join(" ");
+                const autocomplete =
+                  candidate.getAttribute("autocomplete") ?? "";
+                const inputMode = candidate
+                  .getAttribute("inputmode")
+                  ?.toLowerCase();
+                const maxLength = Number(candidate.getAttribute("maxlength"));
+                const sensitiveMetadata = new RegExp(patterns.metadata, "iu");
+                const sensitiveAutocomplete = new RegExp(
+                  patterns.autocomplete,
+                  "iu"
+                );
+                const exactNames = new Set(patterns.exactNames);
+                const looksLikeUnlabelledCode =
+                  (inputMode === "numeric" || inputMode === "decimal") &&
+                  Number.isInteger(maxLength) &&
+                  maxLength >= 4 &&
+                  maxLength <= 8;
+                return (
+                  candidate.getAttribute("type")?.toLowerCase() ===
+                    "password" ||
+                  sensitiveAutocomplete.test(autocomplete) ||
+                  sensitiveMetadata.test(metadata) ||
+                  metadataFields.some((value) => exactNames.has(value)) ||
+                  looksLikeUnlabelledCode
+                );
+              },
+              {
+                autocomplete: SENSITIVE_AUTOCOMPLETE.source,
+                exactNames: [...SENSITIVE_EXACT_FIELD_NAMES],
+                metadata: SENSITIVE_FIELD_METADATA.source,
+              }
+            ),
+        })
+      )
+    );
+
+  return { clear, isSensitive, resolve, snapshot };
 };
 
 export const captureAgentScreenshot = (
   page: Page,
-  now: () => Date = () => new Date()
+  now: () => Date = () => new Date(),
+  maskSensitive = false
 ): Effect.Effect<AgentScreenshot, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not capture a screenshot", cause),
-    try: () => page.screenshot({ timeout: ACTION_TIMEOUT_MS, type: "png" }),
+    try: () =>
+      page.screenshot({
+        ...(maskSensitive
+          ? {
+              mask: [page.locator(SENSITIVE_INPUT_SELECTOR)],
+              maskColor: "#000000",
+            }
+          : {}),
+        timeout: ACTION_TIMEOUT_MS,
+        type: "png",
+      }),
   }).pipe(
     Effect.map((image) => ({
       capturedAt: now().toISOString(),
       encoding: "base64" as const,
       format: "png" as const,
       image: image.toString("base64"),
-      url: page.url(),
+      url: sanitizeTeachingUrl(page.url()),
     }))
   );
 
@@ -454,8 +684,9 @@ export const performAgentAction = (
 ): Effect.Effect<void, BrowserRpcErrorType> => {
   switch (action.type) {
     case "navigate": {
-      return attempt(`Could not navigate to ${action.url}`, () =>
-        page.goto(action.url, { timeout: ACTION_TIMEOUT_MS })
+      return attempt(
+        `Could not navigate to ${sanitizeTeachingUrl(action.url)}`,
+        () => page.goto(action.url, { timeout: ACTION_TIMEOUT_MS })
       ).pipe(Effect.asVoid);
     }
     case "history": {
@@ -506,13 +737,13 @@ export const performAgentAction = (
     case "press": {
       const { ref } = action;
       return ref === undefined
-        ? attempt(`Could not press ${action.key}`, () =>
+        ? attempt("Could not press a key", () =>
             page.keyboard.press(action.key)
           )
         : onElement(
             registry,
             ref,
-            `Could not press ${action.key} on ${ref}`,
+            `Could not press a key on ${ref}`,
             (element) =>
               element.press(action.key, { timeout: ACTION_TIMEOUT_MS })
           );

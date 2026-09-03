@@ -217,6 +217,8 @@ const agentSessionOwnership: AgentSessionService = {
   list: () => Effect.succeed([]),
   ownsBrowserSession: (ownedSessionId) =>
     Effect.succeed(ownedSessionId === genericPrivateSessionId),
+  recordDraft: rpcNotUnderTest,
+  recordInstruction: rpcNotUnderTest,
   requestTakeover: rpcNotUnderTest,
   returnControl: rpcNotUnderTest,
   screenshot: rpcNotUnderTest,
@@ -224,6 +226,8 @@ const agentSessionOwnership: AgentSessionService = {
   snapshot: rpcNotUnderTest,
   start: rpcNotUnderTest,
   takeover: rpcNotUnderTest,
+  teachingFeed: rpcNotUnderTest,
+  teachingSource: rpcNotUnderTest,
   userNavigate: rpcNotUnderTest,
 };
 

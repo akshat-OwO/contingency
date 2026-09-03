@@ -1,4 +1,6 @@
 import {
+  AgentFlowId,
+  AgentFlowRevisionId,
   makeBrowserRpcError,
   OperationId,
   SessionId,
@@ -21,6 +23,7 @@ import {
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
+import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -35,6 +38,7 @@ interface HeldRead {
 }
 
 interface FakeBrowser {
+  readonly activePageCalls: () => number;
   readonly browser: CreateBrowserService;
   readonly closed: SessionId[];
   readonly created: SessionId[];
@@ -64,6 +68,7 @@ const makeFakeBrowser = (options?: {
   const emulations: DraftEmulation[] = [];
   const viewports: Viewport[] = [];
   let pageUrl = "about:blank";
+  let activePageCalls = 0;
   const blockClose = options?.blockClose;
   const blockCurrentUrl = options?.blockCurrentUrl;
   /** Armed by a test to suspend the next `currentUrl` read. */
@@ -76,7 +81,10 @@ const makeFakeBrowser = (options?: {
     acknowledgeFrame: notUnderTest,
     // The fake has no real Page, so reaching the browser is observable as
     // this failure rather than as a successful action.
-    activePage: () => Effect.fail(failure),
+    activePage: () => {
+      activePageCalls += 1;
+      return Effect.fail(failure);
+    },
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {
@@ -145,6 +153,7 @@ const makeFakeBrowser = (options?: {
     switchTab: notUnderTest,
   };
   return {
+    activePageCalls: () => activePageCalls,
     browser,
     closed,
     created,
@@ -174,6 +183,19 @@ const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
     baseUrl,
     processId: "test-owner",
   });
+
+it("bounds relayed Teaching instructions without retaining the oldest text", () => {
+  const capture = makeDemonstrationCapture("about:blank");
+  for (let index = 0; index < 201; index += 1) {
+    capture.recordInstruction(
+      `Instruction ${index}`,
+      "2026-09-01T00:00:00.000Z"
+    );
+  }
+  expect(capture.current().instructions).toHaveLength(200);
+  expect(capture.current().instructions[0]?.text).toBe("Instruction 1");
+  expect(capture.current().instructions.at(-1)?.text).toBe("Instruction 200");
+});
 
 it.effect("replays identical mutations and rejects operation-id reuse", () =>
   Effect.gen(function* idempotentAgentSession() {
@@ -350,6 +372,29 @@ it.effect("refuses a non-loopback Agent View before opening a browser", () =>
   })
 );
 
+it.effect(
+  "replays an ordinary browser-action failure without dispatching again",
+  () =>
+    Effect.gen(function* replayFailedAction() {
+      const fake = makeFakeBrowser();
+      const service = yield* serviceFor(fake);
+      const started = yield* service.start(startInput("start-failed-action"));
+      const operationId = OperationId.make("failed-action");
+      const action = { action: "reload" as const, type: "history" as const };
+
+      const first = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+      const repeated = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+
+      expect(first).toEqual(repeated);
+      expect(first.code).toBe("agent_browser_failed");
+      expect(fake.activePageCalls()).toBe(1);
+    })
+);
+
 it.effect("refuses user navigation while the agent holds the browser", () =>
   Effect.gen(function* refuseUserNavigation() {
     const fake = makeFakeBrowser();
@@ -389,13 +434,13 @@ it.effect("reads where the browser is, not where it was last driven", () =>
     );
     // A click that navigates goes through raw input: no action path records
     // it, so only re-reading the Page keeps the session honest.
-    fake.visit("https://example.com/pricing");
+    fake.visit("https://example.com/pricing?access_token=private-value");
 
     const read = yield* service.get(started.id);
-    expect(read.currentUrl).toBe("https://example.com/pricing");
+    expect(read.currentUrl).not.toContain("private-value");
     const listed = yield* service.list();
     expect(listed.map(({ currentUrl }) => currentUrl)).toEqual([
-      "https://example.com/pricing",
+      read.currentUrl,
     ]);
   })
 );
@@ -488,6 +533,102 @@ it.effect("applies the Emulation to a session started without a URL", () =>
     // An Emulation reaches a document at its navigation, so a session with no
     // URL still opens one rather than carrying an identity nothing applies.
     expect(fake.emulations.at(0)).toEqual(phone);
+  })
+);
+
+it.effect("records a Demonstration only for a Teaching session", () =>
+  Effect.gen(function* teachingDemonstration() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const run = yield* service.start(startInput("start-run-no-feed"));
+    expect(run.teaching).toBeNull();
+    const refused = yield* Effect.flip(service.teachingFeed(run.id));
+    expect(refused.code).toBe("agent_session_invalid");
+    const refusedInstruction = yield* Effect.flip(
+      service.recordInstruction(run.id, "Open the shop")
+    );
+    expect(refusedInstruction.code).toBe("agent_session_invalid");
+
+    const teaching = yield* service.start({
+      ...startInput("start-teaching"),
+      activity: "teaching",
+      url: "https://shop.example.com/",
+    });
+    expect(teaching.teaching).toEqual({
+      actionCount: 0,
+      draft: null,
+      instructionCount: 0,
+    });
+
+    const instructed = yield* service.recordInstruction(
+      teaching.id,
+      "Add the first item to the cart.",
+      OperationId.make("instruction-1")
+    );
+    expect(instructed.teaching?.instructionCount).toBe(1);
+    expect(instructed.timeline.at(-1)).toMatchObject({
+      actor: "user",
+      description: "The user gave an instruction",
+      detail: "Add the first item to the cart.",
+    });
+    const replayed = yield* service.recordInstruction(
+      teaching.id,
+      "Add the first item to the cart.",
+      OperationId.make("instruction-1")
+    );
+    expect(replayed).toEqual(instructed);
+    const conflict = yield* Effect.flip(
+      service.recordInstruction(
+        teaching.id,
+        "Something else.",
+        OperationId.make("instruction-1")
+      )
+    );
+    expect(conflict.code).toBe("agent_session_conflict");
+
+    // A URL the user reaches during Takeover is a transition with no action.
+    yield* service.takeover(
+      teaching.id,
+      "I will pick the item.",
+      OperationId.make("takeover-teaching")
+    );
+    fake.visit("https://shop.example.com/cart");
+    yield* service.get(teaching.id);
+
+    const feed = yield* service.teachingFeed(teaching.id);
+    expect(feed.sessionId).toBe(teaching.id);
+    expect(feed.instructions.map(({ text }) => text)).toEqual([
+      "Add the first item to the cart.",
+    ]);
+    expect(feed.actions).toEqual([]);
+    expect(feed.snapshots).toEqual([]);
+    expect(feed.observedHosts).toEqual([]);
+    expect(feed.urlTransitions).toEqual([
+      expect.objectContaining({
+        actionId: null,
+        from: "about:blank",
+        to: "https://shop.example.com/",
+      }),
+      expect.objectContaining({
+        actionId: null,
+        from: "https://shop.example.com/",
+        to: "https://shop.example.com/cart",
+      }),
+    ]);
+
+    const source = yield* service.teachingSource(teaching.id);
+    expect(source.emulation.viewport).toEqual(viewport);
+    expect(source.demonstration.instructions).toHaveLength(1);
+
+    const withDraft = yield* service.recordDraft(teaching.id, {
+      agentFlowId: AgentFlowId.make("flow-one"),
+      revisionId: AgentFlowRevisionId.make("rev-one"),
+      savedAt: "2026-09-01T00:00:00.000Z",
+      steps: [],
+      title: "Shop cart",
+    });
+    expect(withDraft.teaching?.draft?.title).toBe("Shop cart");
+    expect(withDraft.teaching?.instructionCount).toBe(1);
   })
 );
 

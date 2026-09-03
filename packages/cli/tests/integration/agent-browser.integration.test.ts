@@ -213,6 +213,48 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live("reports rows a Page makes clickable only in script", () =>
+  Effect.gen(function* scriptedRows() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("scripted-rows.html"),
+      "start-scripted-rows"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(observed.nodes.length).toBeLessThanOrEqual(300);
+
+    // The row declares nothing: no role, no href, no onclick attribute. Its
+    // pointer cursor is what marks it a control, and its text is what tells
+    // it from the row below it.
+    const row = findNode(observed.nodes, "generic", "Sector 14");
+    expect(row.clickable).toBe(true);
+    expect(row.name).toContain("Gurugram");
+    const other = findNode(observed.nodes, "generic", "Sector 144");
+    expect(other.ref).not.toBe(row.ref);
+
+    // Only the outermost element of an inherited-pointer run is the control,
+    // so the row is reported once rather than once per descendant.
+    const clickable = observed.nodes.filter((node) => node.clickable === true);
+    expect(clickable).toHaveLength(2);
+
+    yield* callTool("agent_browser_act", {
+      action: { ref: row.ref, type: "click" },
+      operationId: OperationId.make("act-scripted-row"),
+      sessionId: session.id,
+    });
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(findNode(after.nodes, "paragraph", "Chosen").name).toContain(
+      "gurugram"
+    );
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("expires element references when the Page navigates", () =>
   Effect.gen(function* staleReferences() {
     const fixtures = yield* fixtureServer;

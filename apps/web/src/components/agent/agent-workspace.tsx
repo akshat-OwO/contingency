@@ -5,6 +5,7 @@ import type {
   AgentSessionSnapshot,
   BrowserInput,
   BrowserStreamEvent,
+  TeachingProgress,
 } from "@contingency/protocol";
 import { isBrowserRpcError, OperationId } from "@contingency/protocol";
 import {
@@ -303,6 +304,72 @@ const AgentBrowserToolbar = ({
   </>
 );
 
+/**
+ * What Teaching has captured, and the disclosure ADR 0032 requires: the
+ * Teaching Feed leaves this machine for the connected agent, and ordinary
+ * visible page content can itself be sensitive.
+ */
+const TeachingDetails = ({
+  teaching,
+}: {
+  readonly teaching: TeachingProgress;
+}) => (
+  <section aria-labelledby="agent-teaching" className="space-y-2">
+    <h2 className="text-sm font-semibold" id="agent-teaching">
+      Teaching
+    </h2>
+    <div className="space-y-3 rounded-lg border p-3 text-sm">
+      <dl className="grid grid-cols-2 gap-3">
+        <div>
+          <dt className="text-muted-foreground text-xs">Captured actions</dt>
+          <dd className="font-medium">{teaching.actionCount}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground text-xs">Instructions</dt>
+          <dd className="font-medium">{teaching.instructionCount}</dd>
+        </div>
+      </dl>
+      {teaching.draft === null ? (
+        <p className="text-muted-foreground text-xs">
+          No draft has been saved from this Demonstration yet.
+        </p>
+      ) : (
+        <Alert>
+          <CircleCheckIcon aria-hidden="true" />
+          <AlertTitle>Draft saved: {teaching.draft.title}</AlertTitle>
+          <AlertDescription>
+            <span className="font-mono text-xs wrap-anywhere">
+              {teaching.draft.agentFlowId} / {teaching.draft.revisionId}
+            </span>
+            <ol className="mt-2 list-decimal space-y-1 pl-4">
+              {teaching.draft.steps.map((step) => (
+                <li key={step.index}>
+                  <span className="font-medium">{step.name}</span> —{" "}
+                  {step.description}
+                  <span className="block font-mono text-xs wrap-anywhere">
+                    Evidence: {step.evidenceHash}
+                  </span>
+                  {step.confirmation ? (
+                    <span className="text-muted-foreground block text-xs">
+                      Confirmation required
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          </AlertDescription>
+        </Alert>
+      )}
+      <p className="text-muted-foreground text-xs">
+        The Teaching Feed — your instructions, captured actions, Browser
+        Snapshots, masked screenshots, and URL transitions — is shared with the
+        connected agent so it can compile a draft. The full Trace, video,
+        cookies, and network traffic stay on this machine.
+      </p>
+    </div>
+  </section>
+);
+
 const SessionDetails = ({
   controlError,
   controlPending,
@@ -394,6 +461,10 @@ const SessionDetails = ({
             )}
           </div>
         </section>
+
+        {session.teaching === null ? null : (
+          <TeachingDetails teaching={session.teaching} />
+        )}
 
         <section aria-labelledby="agent-timeline" className="space-y-2">
           <h2 className="text-sm font-semibold" id="agent-timeline">

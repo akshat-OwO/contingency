@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   Config,
   Console,
@@ -12,11 +14,16 @@ import { Command } from "effect/unstable/cli";
 import { HttpServerError } from "effect/unstable/http";
 
 import {
+  defaultCatalogRoot,
+  makeAgentFlowCatalogLayer,
+} from "../services/agent-flow-catalog.ts";
+import {
   defaultAgentResourceDirectory,
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
+import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
@@ -67,6 +74,7 @@ export const mcpCommand = Command.make(
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
+        let selectedCatalogRoot = defaultCatalogRoot();
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
@@ -74,6 +82,19 @@ export const mcpCommand = Command.make(
                 return boundOrigin.url;
               },
               resourceDirectory: ownerMarker,
+              traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+            })
+          )
+        );
+        // The catalog is durable and process-independent: it is selected per
+        // process but never part of shutdown cleanup.
+        const catalog = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentFlowCatalogLayer({
+              onSelect: (root) => {
+                selectedCatalogRoot = root;
+              },
+              root: selectedCatalogRoot,
             })
           )
         );
@@ -83,8 +104,9 @@ export const mcpCommand = Command.make(
             protocols: [McpProtocol.v2025_06_18],
             version: "0.0.1",
           }),
-          McpAgentSessionLayer
-        ).pipe(Layer.provide(agentSession));
+          McpAgentSessionLayer,
+          McpAgentFlowLayer
+        ).pipe(Layer.provide(Layer.mergeAll(agentSession, catalog)));
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })

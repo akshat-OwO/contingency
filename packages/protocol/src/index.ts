@@ -50,6 +50,8 @@ export * from "./agent-identifiers.ts";
 export * from "./agent-session.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-browser.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-flow.ts";
 export {
   BrowserTabId,
   SessionId,
