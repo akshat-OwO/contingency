@@ -121,6 +121,7 @@ export const mcpCommand = Command.make(
           const browserUrl = new URL(`http://${host}:${port}`);
           const outcome = yield* Layer.build(
             makeHttpServerLayer({
+              agentFlowCatalog: catalog,
               agentSession,
               allowedOrigins: resolveAllowedOrigins(browserUrl),
               host,

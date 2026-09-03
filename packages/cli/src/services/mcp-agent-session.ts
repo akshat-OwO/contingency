@@ -10,6 +10,7 @@ import {
   AgentSessionStart,
   AgentSessions,
   AgentSessionTakeover,
+  AgentVariableEnter,
   TeachingVariableInput,
 } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
@@ -169,6 +170,20 @@ const TeachingVariableInputTool = Tool.make("agent_teaching_variable_input", {
   success: AgentActionResult,
 });
 
+const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
+  dependencies: [AgentSession],
+  description:
+    "Enter a Variable the user supplied to this Run into one element from the latest Browser Snapshot. You name the Variable and the element; the literal value stays inside Contingency and never reaches you or the Run's artifacts. Fails until the user has supplied that Variable in Agent View.",
+  failure: AgentSessionFailure,
+  parameters: Schema.Struct({
+    name: AgentVariableEnter.fields.name,
+    operationId: AgentVariableEnter.fields.operationId,
+    ref: AgentVariableEnter.fields.ref,
+    sessionId: AgentVariableEnter.fields.sessionId,
+  }),
+  success: AgentActionResult,
+});
+
 /**
  * The external agent's whole surface. Observation, action, and the Takeover
  * request are MCP tools and nothing else: Agent View's loopback RPC exposes
@@ -183,7 +198,8 @@ export const AgentSessionTools = Toolkit.make(
   AgentBrowserScreenshotTool,
   AgentBrowserActTool,
   AgentTakeoverRequestTool,
-  TeachingVariableInputTool
+  TeachingVariableInputTool,
+  AgentVariableEnterTool
 );
 
 /** The handlers behind those tools, shared by MCP and its tests. */
@@ -260,6 +276,18 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
             value: params.value,
             variable: params.variable,
           },
+          params.operationId
+        )
+        .pipe(Effect.mapError(failure));
+    }),
+  agent_variable_enter: (params) =>
+    Effect.gen(function* enterSuppliedVariable() {
+      const service = yield* AgentSession;
+      return yield* service
+        .enterSuppliedVariable(
+          params.sessionId,
+          params.name,
+          params.ref,
           params.operationId
         )
         .pipe(Effect.mapError(failure));

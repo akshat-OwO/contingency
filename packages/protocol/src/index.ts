@@ -7,7 +7,15 @@ import {
   AgentHistoryAction,
   AgentNavigateAction,
 } from "./agent-browser.ts";
-import { TeachingVariableInput } from "./agent-flow.ts";
+import {
+  AgentFlowApprove,
+  AgentFlowDraftUpdate,
+  AgentFlowGet,
+  AgentFlowRevisionDetail,
+  AgentFlowVerificationAuthorize,
+  AgentSessionVariableSupply,
+  TeachingVariableInput,
+} from "./agent-flow.ts";
 import {
   AgentSessionClose,
   AgentSessionCloseResult,
@@ -354,6 +362,13 @@ export const BrandId = Schema.Literals([
   "agent.teaching.variable.input.result",
   "agent.browser.navigate",
   "agent.browser.navigated",
+  "agent.session.variable.supply",
+  "agent.session.variable.supplied",
+  "agent.flow.revision.get",
+  "agent.flow.revision.result",
+  "agent.flow.draft.update",
+  "agent.flow.verification.authorize",
+  "agent.flow.approve",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -829,6 +844,63 @@ export const AgentBrowserNavigated = response("agent.browser.navigated", {
   session: AgentSessionSnapshot,
 });
 
+/** Agent View supplies one runtime Variable to a Verification Run. */
+export const AgentSessionVariableSupplyRequest = request(
+  "agent.session.variable.supply",
+  {
+    name: AgentSessionVariableSupply.fields.name,
+    operationId: AgentSessionVariableSupply.fields.operationId,
+    sessionId: AgentSessionVariableSupply.fields.sessionId,
+    value: AgentSessionVariableSupply.fields.value,
+  }
+);
+export const AgentSessionVariableSupplied = response(
+  "agent.session.variable.supplied",
+  { session: AgentSessionSnapshot }
+);
+
+/** Reading the draft under review. Agent View shows what verification covers. */
+export const AgentFlowRevisionGet = request("agent.flow.revision.get", {
+  agentFlowId: AgentFlowGet.fields.agentFlowId,
+  revisionId: AgentFlowGet.fields.revisionId,
+});
+export const AgentFlowRevisionResult = response("agent.flow.revision.result", {
+  evidence: AgentFlowRevisionDetail.fields.evidence,
+  revision: AgentFlowRevisionDetail.fields.revision,
+});
+
+/**
+ * The user's correction of the proposed Agent Steps, Domain Scope, and
+ * Confirmation markers. It saves another draft revision, which spends any
+ * authorization the previous draft held.
+ */
+export const AgentFlowDraftUpdateRequest = request("agent.flow.draft.update", {
+  agentFlowId: AgentFlowDraftUpdate.fields.agentFlowId,
+  basedOnRevisionId: AgentFlowDraftUpdate.fields.basedOnRevisionId,
+  draft: AgentFlowDraftUpdate.fields.draft,
+  operationId: AgentFlowDraftUpdate.fields.operationId,
+  sessionId: AgentFlowDraftUpdate.fields.sessionId,
+});
+
+/**
+ * The two gestures the external agent may ask for but never perform. They
+ * exist only on Agent View's loopback RPC
+ * ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ */
+export const AgentFlowVerificationAuthorizeRequest = request(
+  "agent.flow.verification.authorize",
+  {
+    agentFlowId: AgentFlowVerificationAuthorize.fields.agentFlowId,
+    operationId: AgentFlowVerificationAuthorize.fields.operationId,
+    revisionId: AgentFlowVerificationAuthorize.fields.revisionId,
+  }
+);
+export const AgentFlowApproveRequest = request("agent.flow.approve", {
+  agentFlowId: AgentFlowApprove.fields.agentFlowId,
+  operationId: AgentFlowApprove.fields.operationId,
+  revisionId: AgentFlowApprove.fields.revisionId,
+});
+
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
   payload: BrowserSessionsGet,
@@ -1146,6 +1218,37 @@ const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   payload: AgentBrowserNavigate,
   success: AgentBrowserNavigated,
 });
+const AgentSessionVariableSupplyRpc = Rpc.make(
+  "agent.session.variable.supply",
+  {
+    error: BrowserRpcError,
+    payload: AgentSessionVariableSupplyRequest,
+    success: AgentSessionVariableSupplied,
+  }
+);
+const AgentFlowRevisionGetRpc = Rpc.make("agent.flow.revision.get", {
+  error: BrowserRpcError,
+  payload: AgentFlowRevisionGet,
+  success: AgentFlowRevisionResult,
+});
+const AgentFlowDraftUpdateRpc = Rpc.make("agent.flow.draft.update", {
+  error: BrowserRpcError,
+  payload: AgentFlowDraftUpdateRequest,
+  success: AgentFlowRevisionResult,
+});
+const AgentFlowVerificationAuthorizeRpc = Rpc.make(
+  "agent.flow.verification.authorize",
+  {
+    error: BrowserRpcError,
+    payload: AgentFlowVerificationAuthorizeRequest,
+    success: AgentFlowRevisionResult,
+  }
+);
+const AgentFlowApproveRpc = Rpc.make("agent.flow.approve", {
+  error: BrowserRpcError,
+  payload: AgentFlowApproveRequest,
+  success: AgentFlowRevisionResult,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -1206,5 +1309,10 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionControlReturnRpc,
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
-  AgentBrowserNavigateRpc
+  AgentBrowserNavigateRpc,
+  AgentSessionVariableSupplyRpc,
+  AgentFlowRevisionGetRpc,
+  AgentFlowDraftUpdateRpc,
+  AgentFlowVerificationAuthorizeRpc,
+  AgentFlowApproveRpc
 ) {}

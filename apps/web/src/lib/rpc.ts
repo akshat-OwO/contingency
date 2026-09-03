@@ -127,6 +127,26 @@ export const agentTakeoverMutation = ContingencyRpcClient.mutation(
 export const agentReturnControlMutation = ContingencyRpcClient.mutation(
   "agent.session.control.return"
 );
+/** Supply one runtime Variable to a Verification Run, from the user only. */
+export const agentVariableSupplyMutation = ContingencyRpcClient.mutation(
+  "agent.session.variable.supply"
+);
+/** The draft under review, with the Evidence Slice summaries behind its Steps. */
+export const agentFlowRevisionMutation = ContingencyRpcClient.mutation(
+  "agent.flow.revision.get"
+);
+/** The user's correction of the proposed Agent Steps and Domain Scope. */
+export const agentFlowDraftUpdateMutation = ContingencyRpcClient.mutation(
+  "agent.flow.draft.update"
+);
+/**
+ * The two gestures the external agent may ask for but never perform. They live
+ * on Agent View's loopback RPC and have no MCP tool.
+ */
+export const agentFlowVerificationAuthorizeMutation =
+  ContingencyRpcClient.mutation("agent.flow.verification.authorize");
+export const agentFlowApproveMutation =
+  ContingencyRpcClient.mutation("agent.flow.approve");
 
 export const recordingAtom = ContingencyRpcClient.query("recording.get", {
   data: {},

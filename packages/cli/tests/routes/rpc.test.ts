@@ -214,6 +214,7 @@ const agentSessionOwnership: AgentSessionService = {
   close: rpcNotUnderTest,
   closeAll: () => Effect.void,
   enterAgentVariable: rpcNotUnderTest,
+  enterSuppliedVariable: rpcNotUnderTest,
   enterUserVariable: rpcNotUnderTest,
   get: rpcNotUnderTest,
   list: () => Effect.succeed([]),
@@ -221,16 +222,19 @@ const agentSessionOwnership: AgentSessionService = {
     Effect.succeed(ownedSessionId === genericPrivateSessionId),
   recordDraft: rpcNotUnderTest,
   recordInstruction: rpcNotUnderTest,
+  recordVerificationOutcome: rpcNotUnderTest,
   requestTakeover: rpcNotUnderTest,
   returnControl: rpcNotUnderTest,
   screenshot: rpcNotUnderTest,
   sendInput: rpcNotUnderTest,
   snapshot: rpcNotUnderTest,
   start: rpcNotUnderTest,
+  supplyVariable: rpcNotUnderTest,
   takeover: rpcNotUnderTest,
   teachingFeed: rpcNotUnderTest,
   teachingSource: rpcNotUnderTest,
   userNavigate: rpcNotUnderTest,
+  verification: rpcNotUnderTest,
 };
 
 it.effect("refuses to start a Run while a Recording is in progress", () =>

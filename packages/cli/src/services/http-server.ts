@@ -8,6 +8,7 @@ import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import { makeRunArtifactRoutes } from "../routes/run-artifacts.ts";
+import type { AgentFlowCatalogService } from "./agent-flow-catalog.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { makeRunSessionLayer } from "./run-session.ts";
@@ -23,6 +24,11 @@ export const resolveWebRoot = (moduleDirectory: string): string =>
 const webRoot = resolveWebRoot(import.meta.dirname);
 
 export interface HttpServerOptions {
+  /**
+   * The durable Agent Flow Catalog behind Agent View's draft review. It is the
+   * same value MCP reads, so the user reviews the draft the agent saved.
+   */
+  readonly agentFlowCatalog?: Layer.Layer<AgentFlowCatalogService>;
   readonly allowedOrigins: ReadonlySet<string>;
   /** A shared process-owned registry for MCP and Agent View, when supplied. */
   readonly agentSession?: Layer.Layer<
@@ -38,6 +44,7 @@ export interface HttpServerOptions {
 }
 
 export const makeHttpServerLayer = ({
+  agentFlowCatalog,
   allowedOrigins,
   agentSession,
   host,
@@ -58,10 +65,14 @@ export const makeHttpServerLayer = ({
   // web server answer a typed `agent_session_unavailable` error rather than
   // accidentally launching Chromium on behalf of an HTTP caller.
   const rpcRoutes = makeRpcRoutes({ allowedOrigins, runSession });
-  const agentRpcRoutes =
+  const sessionRpcRoutes =
     agentSession === undefined
       ? rpcRoutes
       : rpcRoutes.pipe(Layer.provide(agentSession));
+  const agentRpcRoutes =
+    agentFlowCatalog === undefined
+      ? sessionRpcRoutes
+      : sessionRpcRoutes.pipe(Layer.provide(agentFlowCatalog));
   const runRoutes = Layer.mergeAll(
     agentRpcRoutes,
     makeRunArtifactRoutes({ allowedOrigins })

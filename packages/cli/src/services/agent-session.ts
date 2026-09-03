@@ -12,6 +12,8 @@ import {
 import type {
   AgentActionResult,
   AgentFlowDraftRef,
+  AgentFlowVerificationOutcome,
+  AgentSessionVerification,
   DraftEmulation,
   AgentHistoryAction,
   AgentNavigateAction,
@@ -88,6 +90,11 @@ export interface AgentSessionServiceOptions {
 
 export interface AgentSessionStartInput {
   readonly activity?: AgentSessionActivity | undefined;
+  /**
+   * The exact draft revision this session verifies, under the authorization
+   * the user already gave. Present only for a Verification Run.
+   */
+  readonly verification?: AgentSessionVerification | undefined;
   /** The whole Emulation to run under, viewport included. */
   readonly emulation?: DraftEmulation | undefined;
   readonly clientName?: string | undefined;
@@ -199,6 +206,36 @@ export interface AgentSessionService {
   readonly ownsBrowserSession: (sessionId: SessionId) => Effect.Effect<boolean>;
   readonly start: (
     input: AgentSessionStartInput
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Supply one runtime Variable to a Verification Run. Only the user does
+   * this, and only the declaration reaches the snapshot: the literal stays in
+   * this process and never enters a Run artifact or the agent's tools.
+   */
+  readonly supplyVariable: (
+    sessionId: AgentSessionId,
+    name: string,
+    value: string,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Enter a Variable the user supplied to this Run into one element. The agent
+   * names the Variable, never the value.
+   */
+  readonly enterSuppliedVariable: (
+    sessionId: AgentSessionId,
+    name: string,
+    ref: string,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentActionResult, AgentSessionError>;
+  /** What this session is verifying, for the catalog write that follows. */
+  readonly verification: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<AgentSessionVerification, AgentSessionError>;
+  /** Note how the Verification Run ended, so Agent View can offer approval. */
+  readonly recordVerificationOutcome: (
+    sessionId: AgentSessionId,
+    outcome: AgentFlowVerificationOutcome
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * Take control away from the agent. User initiation has priority: the
@@ -337,6 +374,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
     url: input.url ?? null,
+    verification: input.verification ?? null,
     viewport: {
       deviceScaleFactor: input.viewport.deviceScaleFactor,
       height: input.viewport.height,
@@ -358,11 +396,22 @@ const privateInputFingerprint = (
 
 const variableReference = (name: string): string => `{{${name}}}`;
 
+/**
+ * Every private value this session knows: what the Demonstration captured
+ * during Teaching, and what the user supplied to a Verification Run. A Run
+ * keeps no Demonstration, so without the supplied literals its Snapshots would
+ * hand the agent back the value the user typed privately.
+ */
+const sessionSensitiveValues = (record: SessionRecord): readonly string[] => [
+  ...(record.capture?.sensitiveValues() ?? []),
+  ...record.supplied.values(),
+];
+
 const redactCapturedSnapshot = (
-  capture: DemonstrationCapture | undefined,
+  record: SessionRecord,
   snapshot: AgentBrowserSnapshot
 ): AgentBrowserSnapshot =>
-  redactAgentSnapshot(snapshot, capture?.sensitiveValues() ?? []);
+  redactAgentSnapshot(snapshot, sessionSensitiveValues(record));
 
 /**
  * Whether agent action tools are disabled. They are while the user holds the
@@ -534,6 +583,11 @@ interface SessionRecord {
   readonly registry: AgentElementRegistry;
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
+  /**
+   * Runtime Variable values the user supplied to this Verification Run. They
+   * live for the session and are never published, persisted, or returned.
+   */
+  readonly supplied: Map<string, string>;
   /** The local sensitive-artifact retention manifest. */
   readonly retentionFile: string | undefined;
 }
@@ -551,7 +605,8 @@ type AgentOperationKind =
   | "instruction"
   | "private-input"
   | "start"
-  | "takeover";
+  | "takeover"
+  | "variable-supply";
 
 /** What a replayed operation answers with, discriminated so no cast is needed. */
 type AgentOperationResult =
@@ -1176,6 +1231,7 @@ const makeAgentSession = (
                       : null,
                   timeline: [],
                   updatedAt: at,
+                  verification: input.verification ?? null,
                   viewUrl: viewUrl(options.baseUrl, sessionId),
                 };
                 const registry = makeAgentElementRegistry(now);
@@ -1195,6 +1251,7 @@ const makeAgentSession = (
                   retentionFile,
                   scope: sessionScope,
                   snapshot: base,
+                  supplied: new Map<string, string>(),
                   traceFile,
                   videoFile,
                 };
@@ -1247,6 +1304,48 @@ const makeAgentSession = (
         );
       }
     );
+
+    const notVerifying = (sessionId: AgentSessionId) =>
+      error(
+        "agent_session_invalid",
+        `Agent Session ${sessionId} is not verifying an Agent Flow draft.`
+      );
+
+    /**
+     * The Variable a Verification Run declares under this name. A Run may only
+     * be asked for the Variables its draft revision declares, so a name the
+     * draft never mentioned is refused rather than invented.
+     */
+    const requireDeclaredVariable = (
+      record: SessionRecord,
+      name: string
+    ):
+      | { readonly _tag: "error"; readonly error: AgentSessionError }
+      | { readonly _tag: "ok"; readonly variable: Variable } => {
+      const { verification } = record.snapshot;
+      if (verification === null) {
+        return { _tag: "error", error: notVerifying(record.snapshot.id) };
+      }
+      const declared = verification.variables.find(
+        (variable) => variable.name === name
+      );
+      return declared === undefined
+        ? {
+            _tag: "error",
+            error: error(
+              "agent_session_invalid",
+              `Agent Flow revision ${verification.revisionId} does not declare Variable ${name}.`
+            ),
+          }
+        : {
+            _tag: "ok",
+            variable: {
+              name: declared.name,
+              runtime: declared.runtime,
+              secret: declared.secret,
+            },
+          };
+    };
 
     const requireLiveRecord = (
       sessionId: AgentSessionId
@@ -1318,15 +1417,13 @@ const makeAgentSession = (
       page: Page
     ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
       snapshotAfterAction(page, record.registry).pipe(
-        Effect.map((snapshot) =>
-          redactCapturedSnapshot(record.capture, snapshot)
-        )
+        Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot))
       );
 
     const observeFocusedTextControl = (record: SessionRecord, page: Page) =>
       Effect.gen(function* observeFocusedControl() {
         const snapshot = redactCapturedSnapshot(
-          record.capture,
+          record,
           yield* record.registry.snapshot(page)
         );
         record.capture?.recordSnapshot(snapshot);
@@ -1357,7 +1454,7 @@ const makeAgentSession = (
     ) =>
       Effect.gen(function* observeUserClickTarget() {
         const snapshot = redactCapturedSnapshot(
-          record.capture,
+          record,
           yield* record.registry.snapshot(page)
         );
         record.capture?.recordSnapshot(snapshot);
@@ -1865,7 +1962,7 @@ const makeAgentSession = (
           const page = yield* browser.activePage(record.browserSessionId);
           if (input.ref === undefined) {
             const observed = redactCapturedSnapshot(
-              record.capture,
+              record,
               yield* record.registry.snapshot(page)
             );
             capture.recordSnapshot(observed);
@@ -2281,6 +2378,45 @@ const makeAgentSession = (
             variable: input.variable,
           });
         }),
+      enterSuppliedVariable: (sessionId, name, ref, operationId) =>
+        Effect.gen(function* enterSuppliedVerificationVariable() {
+          const record = yield* requireLiveRecord(sessionId);
+          const declared = requireDeclaredVariable(record, name);
+          if (declared._tag === "error") {
+            return yield* Effect.fail(declared.error);
+          }
+          if (agentIsPaused(record.snapshot)) {
+            return yield* Effect.fail(
+              takenOver("This private input was not dispatched.")
+            );
+          }
+          const value = record.supplied.get(name);
+          if (value === undefined) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_invalid",
+                `Variable ${name} has not been supplied for this Run. Ask the user to enter it in Agent View.`
+              )
+            );
+          }
+          const action = {
+            ref: AgentElementRef.make(ref),
+            text: value,
+            type: "fill" as const,
+          };
+          return yield* actUnlocked(sessionId, action, operationId, {
+            action: { ...action, text: variableReference(name) },
+            // The fingerprint names the Variable, not its value: a retry of
+            // the same request is the same request whatever the user typed.
+            requestInput: JSON.stringify({
+              kind: "supplied-variable",
+              name,
+              ref,
+            }),
+            value,
+            variable: declared.variable,
+          });
+        }),
       enterUserVariable: (sessionId, input, operationId) =>
         enterUserVariableUnlocked(sessionId, input, operationId),
       get: (sessionId) =>
@@ -2322,6 +2458,23 @@ const makeAgentSession = (
         lock.withPermit(
           recordInstructionUnlocked(sessionId, text, operationId)
         ),
+      recordVerificationOutcome: (sessionId, outcome) =>
+        Effect.gen(function* noteVerificationOutcome() {
+          const record = yield* read(sessionId);
+          if (record.snapshot.verification === null) {
+            return yield* Effect.fail(notVerifying(sessionId));
+          }
+          const next = yield* mutate(sessionId, (snapshot) =>
+            snapshot.verification === null
+              ? snapshot
+              : {
+                  ...snapshot,
+                  updatedAt: now().toISOString(),
+                  verification: { ...snapshot.verification, outcome },
+                }
+          );
+          return next ?? record.snapshot;
+        }),
       requestTakeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
@@ -2334,7 +2487,7 @@ const makeAgentSession = (
             page,
             now,
             true,
-            record.capture?.sensitiveValues() ?? [],
+            sessionSensitiveValues(record),
             record.capture?.sensitiveSelectors() ?? []
           ).pipe(
             Effect.tap((screenshot) =>
@@ -2441,9 +2594,7 @@ const makeAgentSession = (
       snapshot: (sessionId) =>
         observe(sessionId, (record, page) =>
           record.registry.snapshot(page).pipe(
-            Effect.map((snapshot) =>
-              redactCapturedSnapshot(record.capture, snapshot)
-            ),
+            Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
             Effect.tap((snapshot) =>
               Effect.sync(() => {
                 // An observation is the `before` state of the action that
@@ -2454,6 +2605,57 @@ const makeAgentSession = (
           )
         ),
       start: (input) => lock.withPermit(startUnlocked(input)),
+      supplyVariable: (sessionId, name, value, operationId) =>
+        Effect.gen(function* supplyRuntimeVariable() {
+          const requestInput = JSON.stringify({
+            name,
+            valueHash: createHash("sha256").update(value).digest("hex"),
+          });
+          const replayed = replaySession(
+            operationId,
+            "variable-supply",
+            sessionId,
+            requestInput
+          );
+          if (replayed?._tag === "conflict") {
+            return yield* Effect.fail(replayed.error);
+          }
+          if (replayed?._tag === "replay") {
+            return replayed.snapshot;
+          }
+          const record = yield* requireLiveRecord(sessionId);
+          const declared = requireDeclaredVariable(record, name);
+          if (declared._tag === "error") {
+            return yield* Effect.fail(declared.error);
+          }
+          record.supplied.set(name, value);
+          const next = yield* mutate(sessionId, (snapshot) =>
+            snapshot.verification === null
+              ? snapshot
+              : {
+                  ...snapshot,
+                  updatedAt: now().toISOString(),
+                  verification: {
+                    ...snapshot.verification,
+                    variables: snapshot.verification.variables.map(
+                      (variable) =>
+                        variable.name === name
+                          ? { ...variable, supplied: true }
+                          : variable
+                    ),
+                  },
+                }
+          );
+          const saved = next ?? record.snapshot;
+          yield* rememberSession(
+            operationId,
+            "variable-supply",
+            sessionId,
+            requestInput,
+            saved
+          );
+          return saved;
+        }),
       takeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)
@@ -2565,6 +2767,14 @@ const makeAgentSession = (
             { currentUrl: url }
           );
         }),
+      verification: (sessionId) =>
+        read(sessionId).pipe(
+          Effect.flatMap((record) =>
+            record.snapshot.verification === null
+              ? Effect.fail(notVerifying(sessionId))
+              : Effect.succeed(record.snapshot.verification)
+          )
+        ),
     };
 
     return service;

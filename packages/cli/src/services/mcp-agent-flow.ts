@@ -7,11 +7,14 @@ import {
   AgentFlowRevision,
   AgentFlowSearch,
   AgentFlowSearchResult,
+  AgentFlowVerificationComplete,
+  AgentFlowVerificationStart,
   AgentSessionSnapshot,
   TeachingFeed,
   TeachingFeedGet,
   TeachingInstructionRecord,
 } from "@contingency/protocol";
+import type { AgentSessionVerification } from "@contingency/protocol";
 import { Effect, Layer, Result, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
@@ -156,9 +159,45 @@ const AgentFlowDraftSaveTool = Tool.make("agent_flow_draft_save", {
   success: AgentFlowRevision,
 });
 
+const AgentFlowVerificationStartTool = Tool.make(
+  "agent_flow_verification_start",
+  {
+    dependencies: [AgentSession, AgentFlowCatalog],
+    description:
+      "Start the Verification Run the user authorized in Agent View for one exact draft revision. It opens a fresh browser context under the draft's Emulation, inheriting nothing Teaching prepared, and its runtime Variables must be supplied again by the user. Fails when the user has not authorized this exact revision or has already spent the authorization; ask the user to authorize verification in Agent View rather than retrying.",
+    failure: AgentFlowFailure,
+    parameters: Schema.Struct({
+      agentFlowId: AgentFlowVerificationStart.fields.agentFlowId,
+      clientName: AgentFlowVerificationStart.fields.clientName,
+      clientVersion: AgentFlowVerificationStart.fields.clientVersion,
+      operationId: AgentFlowVerificationStart.fields.operationId,
+      revisionId: AgentFlowVerificationStart.fields.revisionId,
+    }),
+    success: AgentSessionSnapshot,
+  }
+);
+
+const AgentFlowVerificationCompleteTool = Tool.make(
+  "agent_flow_verification_complete",
+  {
+    dependencies: [AgentSession, AgentFlowCatalog],
+    description:
+      "Report how the Verification Run ended, with an explanation grounded in what you observed. A failure leaves any existing Approved Agent Flow untouched and lets you propose a changed draft, which the user must authorize again. Only the user can approve a passed revision.",
+    failure: AgentFlowFailure,
+    parameters: Schema.Struct({
+      operationId: AgentFlowVerificationComplete.fields.operationId,
+      outcome: AgentFlowVerificationComplete.fields.outcome,
+      sessionId: AgentFlowVerificationComplete.fields.sessionId,
+      summary: AgentFlowVerificationComplete.fields.summary,
+    }),
+    success: AgentFlowRevision,
+  }
+);
+
 /**
- * Catalog, Teaching Feed, and compilation tools. Approval and verification are
- * absent on purpose: Agent View alone authorizes those
+ * Catalog, Teaching Feed, compilation, and Verification Run tools. Authorizing
+ * verification and approving a revision are absent on purpose: Agent View
+ * alone grants those
  * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
  */
 export const AgentFlowTools = Toolkit.make(
@@ -168,7 +207,9 @@ export const AgentFlowTools = Toolkit.make(
   AgentFlowGetTool,
   TeachingInstructionRecordTool,
   TeachingFeedGetTool,
-  AgentFlowDraftSaveTool
+  AgentFlowDraftSaveTool,
+  AgentFlowVerificationStartTool,
+  AgentFlowVerificationCompleteTool
 );
 
 export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
@@ -241,7 +282,9 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
             confirmation: step.confirmation,
             description: step.description,
             evidenceHash: step.evidence.hash,
+            firstActionId: step.firstActionId,
             index,
+            lastActionId: step.lastActionId,
             name: step.name,
           })),
           title: saved.manifest.title,
@@ -255,6 +298,100 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
       return yield* catalog
         .get(params.agentFlowId, params.revisionId)
         .pipe(Effect.mapError(failure));
+    }),
+  agent_flow_verification_complete: (params) =>
+    Effect.gen(function* completeVerificationRun() {
+      const catalog = yield* AgentFlowCatalog;
+      const session = yield* AgentSession;
+      const verifying = yield* session
+        .verification(params.sessionId)
+        .pipe(Effect.mapError(failure));
+      const recorded = yield* catalog
+        .completeVerification({
+          agentFlowId: verifying.agentFlowId,
+          operationId: params.operationId,
+          outcome: params.outcome,
+          revisionId: verifying.revisionId,
+          summary: params.summary,
+        })
+        .pipe(Effect.mapError(failure));
+      yield* session
+        .recordVerificationOutcome(params.sessionId, params.outcome)
+        .pipe(Effect.mapError(failure));
+      return recorded;
+    }),
+  agent_flow_verification_start: (params) =>
+    Effect.gen(function* startVerificationRun() {
+      const catalog = yield* AgentFlowCatalog;
+      const session = yield* AgentSession;
+      const draft = yield* catalog
+        .get(params.agentFlowId, params.revisionId)
+        .pipe(Effect.mapError(failure));
+      // Read the authorization before opening a browser, so an unauthorized
+      // agent never costs the user a Chromium process.
+      const authorization = draft.heads.verification;
+      if (
+        authorization === null ||
+        authorization.revisionId !== params.revisionId ||
+        authorization.status !== "authorized"
+      ) {
+        return yield* Effect.fail(
+          new AgentFlowFailure({
+            code: "agent_flow_conflict",
+            diagnostics: [],
+            message: `Revision ${params.revisionId} has no unspent Verification Run authorization. Ask the user to authorize verification in Agent View. (agent_flow_conflict)`,
+          })
+        );
+      }
+      const verification: AgentSessionVerification = {
+        agentFlowId: params.agentFlowId,
+        authorizationId: authorization.authorizationId,
+        outcome: null,
+        revisionId: params.revisionId,
+        steps: draft.manifest.steps.map((step) => ({
+          confirmation: step.confirmation,
+          description: step.description,
+          evidenceHash: step.evidence.hash,
+          firstActionId: step.firstActionId,
+          index: step.index,
+          lastActionId: step.lastActionId,
+          name: step.name,
+        })),
+        title: draft.manifest.title,
+        // Verification asks for the declared Variables again: preconfigured
+        // Teaching state must not be able to produce a false success.
+        variables: draft.manifest.variables.map((variable) => ({
+          name: variable.name,
+          runtime: variable.runtime,
+          secret: variable.secret,
+          supplied: false,
+        })),
+      };
+      const started = yield* session
+        .start({
+          activity: "run",
+          clientName: params.clientName,
+          clientVersion: params.clientVersion,
+          emulation: draft.manifest.emulation,
+          operationId: params.operationId,
+          verification,
+          viewport: draft.manifest.emulation.viewport,
+        })
+        .pipe(Effect.mapError(failure));
+      // Spending the authorization can still lose a race with another writer.
+      // The browser this call opened is closed rather than left running.
+      return yield* catalog
+        .startVerification({
+          agentFlowId: params.agentFlowId,
+          operationId: params.operationId,
+          revisionId: params.revisionId,
+          sessionId: started.id,
+        })
+        .pipe(
+          Effect.mapError(failure),
+          Effect.onError(() => session.close(started.id).pipe(Effect.ignore)),
+          Effect.as(started)
+        );
     }),
   agent_teaching_feed_get: (params) =>
     Effect.gen(function* readTeachingFeed() {

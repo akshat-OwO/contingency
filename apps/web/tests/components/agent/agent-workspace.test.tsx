@@ -37,6 +37,10 @@ vi.mock("@/lib/rpc", () => ({
       return {};
     })
   ),
+  agentFlowApproveMutation: Atom.fn(() => Effect.never),
+  agentFlowDraftUpdateMutation: Atom.fn(() => Effect.never),
+  agentFlowRevisionMutation: Atom.fn(() => Effect.never),
+  agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),
   agentReturnControlMutation: Atom.fn((payload: unknown) =>
     Effect.sync(() => {
       rpc.returnControlCalls.push(payload);
@@ -56,6 +60,7 @@ vi.mock("@/lib/rpc", () => ({
       return {};
     })
   ),
+  agentVariableSupplyMutation: Atom.fn(() => Effect.never),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: () =>
     rpc.agentStreamFailureMessage === undefined
@@ -81,6 +86,7 @@ const session = {
   teaching: null,
   timeline: [],
   updatedAt: "2026-08-31T00:00:00.000Z",
+  verification: null,
   viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
 } as const;
 

@@ -679,3 +679,276 @@ it("defaults the Catalog Root to the workspace's .contingency directory", () => 
     process.env.CONTINGENCY_CATALOG_ROOT = previous;
   }
 });
+
+it.effect("binds one verification authorization to one exact draft", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* authorizeOneExactDraft() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "verify-save")
+      );
+      const { agentFlowId } = saved.manifest;
+
+      const stale = yield* Effect.flip(
+        catalog.authorizeVerification({
+          agentFlowId,
+          operationId: OperationId.make("verify-stale"),
+          revisionId: AgentFlowRevisionId.make("rev-not-the-head"),
+        })
+      );
+      expect(stale.code).toBe("agent_flow_conflict");
+
+      const authorized = yield* catalog.authorizeVerification({
+        agentFlowId,
+        operationId: OperationId.make("verify-authorize"),
+        revisionId: saved.manifest.revisionId,
+      });
+      expect(authorized.heads.verification?.status).toBe("authorized");
+      expect(authorized.heads.verification?.revisionId).toBe(
+        saved.manifest.revisionId
+      );
+
+      // A corrected draft is a different draft, so the gesture does not travel.
+      const corrected = yield* catalog.saveDraft(
+        saveInput("Shop front", "verify-correct", {
+          agentFlowId,
+          basedOnRevisionId: saved.manifest.revisionId,
+          proposal: proposal("Shop front", {
+            steps: [
+              {
+                confirmation: true,
+                description: "Open the shop front page and check it renders.",
+                firstActionId: "action-open",
+                lastActionId: "action-open",
+                name: "Open the shop front",
+              },
+            ],
+          }),
+        })
+      );
+      expect(corrected.heads.verification).toBeNull();
+
+      const spent = yield* Effect.flip(
+        catalog.startVerification({
+          agentFlowId,
+          operationId: OperationId.make("verify-start-stale"),
+          revisionId: corrected.manifest.revisionId,
+          sessionId: AgentSessionId.make("agent-verification"),
+        })
+      );
+      expect(spent.code).toBe("agent_flow_conflict");
+    })
+  )
+);
+
+it.effect("spends one authorization on one Verification Run", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* spendAuthorizationOnce() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "spend-save")
+      );
+      const { agentFlowId } = saved.manifest;
+      const { revisionId } = saved.manifest;
+      yield* catalog.authorizeVerification({
+        agentFlowId,
+        operationId: OperationId.make("spend-authorize"),
+        revisionId,
+      });
+      const running = yield* catalog.startVerification({
+        agentFlowId,
+        operationId: OperationId.make("spend-start"),
+        revisionId,
+        sessionId: AgentSessionId.make("agent-verification"),
+      });
+      expect(running.heads.verification?.status).toBe("running");
+      expect(running.heads.verification?.sessionId).toBe("agent-verification");
+
+      const second = yield* Effect.flip(
+        catalog.startVerification({
+          agentFlowId,
+          operationId: OperationId.make("spend-start-again"),
+          revisionId,
+          sessionId: AgentSessionId.make("agent-verification-2"),
+        })
+      );
+      expect(second.code).toBe("agent_flow_conflict");
+    })
+  )
+);
+
+it.effect(
+  "leaves the approved revision untouched when verification fails",
+  () =>
+    withCatalog((catalog) =>
+      Effect.gen(function* keepApprovedOnFailure() {
+        const first = yield* catalog.saveDraft(
+          saveInput("Shop front", "fail-save")
+        );
+        const { agentFlowId } = first.manifest;
+        yield* catalog.authorizeVerification({
+          agentFlowId,
+          operationId: OperationId.make("fail-authorize-1"),
+          revisionId: first.manifest.revisionId,
+        });
+        yield* catalog.startVerification({
+          agentFlowId,
+          operationId: OperationId.make("fail-start-1"),
+          revisionId: first.manifest.revisionId,
+          sessionId: AgentSessionId.make("agent-verify-1"),
+        });
+        yield* catalog.completeVerification({
+          agentFlowId,
+          operationId: OperationId.make("fail-complete-1"),
+          outcome: "passed",
+          revisionId: first.manifest.revisionId,
+          summary: "Every Agent Step worked.",
+        });
+        const approved = yield* catalog.approve({
+          agentFlowId,
+          operationId: OperationId.make("fail-approve-1"),
+          revisionId: first.manifest.revisionId,
+        });
+        expect(approved.manifest.status).toBe("approved");
+        expect(approved.heads.approvedRevisionId).toBe(
+          first.manifest.revisionId
+        );
+        expect(approved.heads.draftRevisionId).toBeNull();
+
+        const second = yield* catalog.saveDraft(
+          saveInput("Shop front", "fail-save-2", {
+            agentFlowId,
+            basedOnRevisionId: null,
+          })
+        );
+        yield* catalog.authorizeVerification({
+          agentFlowId,
+          operationId: OperationId.make("fail-authorize-2"),
+          revisionId: second.manifest.revisionId,
+        });
+        yield* catalog.startVerification({
+          agentFlowId,
+          operationId: OperationId.make("fail-start-2"),
+          revisionId: second.manifest.revisionId,
+          sessionId: AgentSessionId.make("agent-verify-2"),
+        });
+        const failed = yield* catalog.completeVerification({
+          agentFlowId,
+          operationId: OperationId.make("fail-complete-2"),
+          outcome: "failed",
+          revisionId: second.manifest.revisionId,
+          summary: "The basket never showed the added item.",
+        });
+        expect(failed.heads.verification?.status).toBe("failed");
+        expect(failed.heads.approvedRevisionId).toBe(first.manifest.revisionId);
+
+        const refused = yield* Effect.flip(
+          catalog.approve({
+            agentFlowId,
+            operationId: OperationId.make("fail-approve-2"),
+            revisionId: second.manifest.revisionId,
+          })
+        );
+        expect(refused.code).toBe("agent_flow_conflict");
+        const stillApproved = yield* catalog.get(
+          agentFlowId,
+          first.manifest.revisionId
+        );
+        expect(stillApproved.manifest.status).toBe("approved");
+      })
+    )
+);
+
+it.effect("refuses to approve a draft that never passed verification", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* refuseUnverifiedApproval() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "unverified-save")
+      );
+      const refused = yield* Effect.flip(
+        catalog.approve({
+          agentFlowId: saved.manifest.agentFlowId,
+          operationId: OperationId.make("unverified-approve"),
+          revisionId: saved.manifest.revisionId,
+        })
+      );
+      expect(refused.code).toBe("agent_flow_conflict");
+      const read = yield* catalog.get(saved.manifest.agentFlowId);
+      expect(read.manifest.status).toBe("draft");
+    })
+  )
+);
+
+it.effect("replays authorization and approval by operation id", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* replayHeadMutations() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "replay-save")
+      );
+      const { agentFlowId } = saved.manifest;
+      const { revisionId } = saved.manifest;
+      const first = yield* catalog.authorizeVerification({
+        agentFlowId,
+        operationId: OperationId.make("replay-authorize"),
+        revisionId,
+      });
+      const again = yield* catalog.authorizeVerification({
+        agentFlowId,
+        operationId: OperationId.make("replay-authorize"),
+        revisionId,
+      });
+      // A retry answers with the original authorization rather than minting a
+      // second one, so one gesture still funds exactly one Run.
+      expect(again.heads.verification?.authorizationId).toBe(
+        first.heads.verification?.authorizationId
+      );
+
+      const reused = yield* Effect.flip(
+        catalog.authorizeVerification({
+          agentFlowId,
+          operationId: OperationId.make("replay-authorize"),
+          revisionId: AgentFlowRevisionId.make("rev-other"),
+        })
+      );
+      expect(reused.code).toBe("agent_flow_conflict");
+
+      yield* catalog.startVerification({
+        agentFlowId,
+        operationId: OperationId.make("replay-start"),
+        revisionId,
+        sessionId: AgentSessionId.make("agent-replay"),
+      });
+      yield* catalog.completeVerification({
+        agentFlowId,
+        operationId: OperationId.make("replay-complete"),
+        outcome: "passed",
+        revisionId,
+        summary: "It worked.",
+      });
+      const approved = yield* catalog.approve({
+        agentFlowId,
+        operationId: OperationId.make("replay-approve"),
+        revisionId,
+      });
+      const approvedAgain = yield* catalog.approve({
+        agentFlowId,
+        operationId: OperationId.make("replay-approve"),
+        revisionId,
+      });
+      expect(approvedAgain).toEqual(approved);
+      expect(approvedAgain.heads.approvedRevisionId).toBe(revisionId);
+    })
+  )
+);
+
+it.effect("reads the Evidence Slices behind a revision in Step order", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* readRevisionEvidence() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "evidence-save")
+      );
+      const slices = yield* catalog.evidence(saved.manifest.agentFlowId);
+      expect(slices).toEqual([
+        slice("Open the shop", "https://shop.example.com/"),
+      ]);
+    })
+  )
+);

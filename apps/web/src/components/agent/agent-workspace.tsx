@@ -38,6 +38,10 @@ import {
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import {
+  DraftReview,
+  VerificationDetails,
+} from "@/components/agent/draft-review";
+import {
   keyboardModifiers,
   makeBrowserInputHandlers,
   mousePosition,
@@ -612,6 +616,21 @@ const SessionDetails = ({
         {session.teaching === null ? null : (
           <TeachingDetails teaching={session.teaching} />
         )}
+
+        {/*
+          The draft review appears as soon as Teaching has compiled one, so the
+          user reviews and corrects the proposal before authorizing anything.
+        */}
+        {session.teaching?.draft ? (
+          <DraftReview
+            agentFlowId={session.teaching.draft.agentFlowId}
+            refreshToken={session.updatedAt}
+            revisionId={session.teaching.draft.revisionId}
+            sessionId={session.id}
+          />
+        ) : null}
+
+        <VerificationDetails session={session} />
 
         <section aria-labelledby="agent-timeline" className="space-y-2">
           <h2 className="text-sm font-semibold" id="agent-timeline">
