@@ -47,5 +47,5 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Ecommerce end-to-end drive](./ecommerce-drive.md) is the canonical proof: browse the local shop, switch sessions, record a cart Flow, download JSON, audit-run it, and scrub/play derived frames.
 - [Create View](./create-view.md) covers the authoring workspace, session picker, address bar, Recording start, and captured Steps.
 - [Audit View](./audit-view.md) covers the empty state, loading a Flow from the process argument or file picker, starting a Run, and derived-frame playback.
-- [Agent View](./agent-view.md) covers the unavailable state on `web`, the empty state when MCP has no session, a live session's Takeover (the browser toolbar, the canvas, and the action timeline), and Teaching: relaying instructions, reading the Teaching Feed, saving a draft Agent Flow, and finding it by catalog search.
+- [Agent View](./agent-view.md) covers the unavailable state on `web`, the empty state when MCP has no session, a live session's Takeover (the browser toolbar, the canvas, and the action timeline), and Teaching: relaying instructions, entering private Variables, reading the Teaching Feed, saving a draft Agent Flow, and finding it by catalog search.
 - [Headless Run](./cli-run.md) covers `contingency run` against the ecommerce smoke Flow.

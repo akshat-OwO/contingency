@@ -184,7 +184,11 @@ const SNAPSHOT_SCRIPT = `(() => {
   )
     .filter(isSensitive)
     .map((element) => element.value)
-    .filter((value) => typeof value === "string" && value.length > 0);
+    // Short segmented-code values are not safe global redaction tokens. A
+    // one-character OTP box must not rewrite every matching digit in the
+    // Page before Contingency can redact the complete declared Variable.
+    .filter((value) => typeof value === "string" && value.length >= 4)
+    .sort((left, right) => right.length - left.length);
   const redactSensitive = (text) =>
     sensitiveValues.reduce(
       (redacted, value) => redacted.split(value).join("[sensitive input]"),
@@ -305,7 +309,16 @@ const SNAPSHOT_SCRIPT = `(() => {
         depth += 1;
       }
     }
-    const node = { depth: Math.min(depth, 64), name, role };
+    const bounds = element.getBoundingClientRect();
+    const node = {
+      depth: Math.min(depth, 64),
+      height: bounds.height,
+      name,
+      role,
+      width: bounds.width,
+      x: bounds.x,
+      y: bounds.y,
+    };
     if (clickable.has(element)) {
       node.clickable = true;
     }
@@ -321,7 +334,13 @@ const SNAPSHOT_SCRIPT = `(() => {
     nodes.push(node);
     elements.push(element);
   }
-  return { elements, nodes, title: document.title, url: location.href };
+  return {
+    elements,
+    focusedIndex: elements.indexOf(document.activeElement),
+    nodes,
+    title: document.title,
+    url: location.href,
+  };
 })()`;
 
 /** The page is untrusted, so everything it answers with is decoded on arrival. */
@@ -331,12 +350,17 @@ const CollectedNodes = Schema.Array(
     clickable: Schema.optional(Schema.Boolean),
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
+    height: Schema.Finite,
     name: Schema.String,
     role: Schema.String,
     value: Schema.optional(Schema.String),
+    width: Schema.Finite,
+    x: Schema.Finite,
+    y: Schema.Finite,
   })
 );
 const CollectedPage = Schema.Struct({
+  focusedIndex: Schema.Int,
   title: Schema.String,
   url: Schema.String,
 });
@@ -385,6 +409,21 @@ export interface AgentElementRegistry {
   readonly isSensitive: (
     ref: string
   ) => Effect.Effect<boolean, BrowserRpcErrorType>;
+  /** A document-local selector for masking a field already marked private. */
+  readonly privateSelector: (
+    ref: string,
+    segmentCount?: number
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  /** Resolve viewport coordinates through the most recent Snapshot. */
+  readonly pointRef: (
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentElementRef, BrowserRpcErrorType>;
+  /** Resolve the currently focused element to one minted reference. */
+  readonly focusedRef: () => Effect.Effect<
+    AgentElementRef,
+    BrowserRpcErrorType
+  >;
   /** Read the Page and mint a new generation of references for it. */
   readonly snapshot: (
     page: Page
@@ -395,16 +434,29 @@ export const makeAgentElementRegistry = (
   now: () => Date = () => new Date()
 ): AgentElementRegistry => {
   const elements = new Map<string, ElementHandle>();
+  const bounds = new Map<
+    string,
+    {
+      readonly height: number;
+      readonly width: number;
+      readonly x: number;
+      readonly y: number;
+    }
+  >();
   let generation = 0;
   /** Never reset: a reference names one element of one Snapshot, forever. */
   let minted = 0;
   /** The document the live references were read in. */
   let documentUrl: string | undefined;
+  /** The focused reference minted by the most recent Snapshot. */
+  let focused: AgentElementRef | undefined;
 
   const clear = (): Effect.Effect<void> => {
     const handles = [...elements.values()];
     elements.clear();
+    bounds.clear();
     documentUrl = undefined;
+    focused = undefined;
     return disposeHandles(handles);
   };
 
@@ -421,6 +473,7 @@ export const makeAgentElementRegistry = (
       }
       released.push(handle);
       elements.delete(ref);
+      bounds.delete(ref);
     }
     return disposeHandles(released);
   };
@@ -453,10 +506,12 @@ export const makeAgentElementRegistry = (
             });
             const titleHandle = yield* property(handle, "title");
             const urlHandle = yield* property(handle, "url");
+            const focusedIndexHandle = yield* property(handle, "focusedIndex");
             const rawPage = yield* Effect.tryPromise({
               catch: (cause) =>
                 browserFailure("Could not read the Browser Snapshot", cause),
               try: async () => ({
+                focusedIndex: await focusedIndexHandle.jsonValue(),
                 title: await titleHandle.jsonValue(),
                 url: await urlHandle.jsonValue(),
               }),
@@ -468,6 +523,7 @@ export const makeAgentElementRegistry = (
             });
             yield* disposeHandles([
               elementsHandle,
+              focusedIndexHandle,
               nodesHandle,
               titleHandle,
               urlHandle,
@@ -488,21 +544,33 @@ export const makeAgentElementRegistry = (
       );
       const identity = yield* Schema.decodeUnknownEffect(CollectedPage)(
         collected.rawPage
-      ).pipe(Effect.orElseSucceed(() => ({ title: "", url: page.url() })));
+      ).pipe(
+        Effect.orElseSucceed(() => ({
+          focusedIndex: -1,
+          title: "",
+          url: page.url(),
+        }))
+      );
       const nodes: AgentSnapshotNode[] = [];
       const orphaned: JSHandle<unknown>[] = [];
+      focused = undefined;
       let index = 0;
       for (const [, entry] of collected.handles) {
         const element = entry.asElement();
-        const node = decodedNodes[index];
+        const collectedNode = decodedNodes[index];
         index += 1;
-        if (element === null || node === undefined) {
+        if (element === null || collectedNode === undefined) {
           orphaned.push(entry);
           continue;
         }
+        const { height, width, x, y, ...node } = collectedNode;
         minted += 1;
         const ref = AgentElementRef.make(`e${minted}`);
         elements.set(ref, element);
+        bounds.set(ref, { height, width, x, y });
+        if (index - 1 === identity.focusedIndex) {
+          focused = ref;
+        }
         nodes.push({ ...node, ref });
       }
       yield* disposeHandles(orphaned);
@@ -589,27 +657,236 @@ export const makeAgentElementRegistry = (
       )
     );
 
-  return { clear, isSensitive, resolve, snapshot };
+  const focusedRef = (): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
+    focused === undefined
+      ? Effect.fail(
+          makeBrowserRpcError(
+            "agent_element_stale",
+            "No focused control has a current element reference. Focus the private field and try again."
+          )
+        )
+      : Effect.succeed(focused);
+
+  const privateSelector = (
+    ref: string,
+    segmentCount = 1
+  ): Effect.Effect<string, BrowserRpcErrorType> =>
+    resolve(ref).pipe(
+      Effect.flatMap((element) =>
+        Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not identify the private control", cause),
+          try: () =>
+            element.evaluate((candidate, requestedCount) => {
+              const selectorFor = (target: typeof candidate) => {
+                const selectorParts: string[] = [];
+                let current: typeof candidate | null = target;
+                while (
+                  current !== null &&
+                  current !== current.ownerDocument.documentElement
+                ) {
+                  const parent = current.parentElement;
+                  if (parent === null) {
+                    break;
+                  }
+                  const siblings = [...parent.children];
+                  selectorParts.unshift(
+                    `${current.tagName.toLowerCase()}:nth-child(${siblings.indexOf(current) + 1})`
+                  );
+                  current = parent;
+                }
+                return `html > ${selectorParts.join(" > ")}`;
+              };
+              if (
+                requestedCount <= 1 ||
+                candidate.tagName !== "INPUT" ||
+                Number(candidate.getAttribute("maxlength")) !== 1
+              ) {
+                return selectorFor(candidate);
+              }
+              const compatible = (control: typeof candidate) =>
+                control.tagName === "INPUT" &&
+                !control.hasAttribute("disabled") &&
+                Number(control.getAttribute("maxlength")) === 1 &&
+                control.getAttribute("type") ===
+                  candidate.getAttribute("type") &&
+                control.getAttribute("inputmode") ===
+                  candidate.getAttribute("inputmode");
+              let current: typeof candidate | null = candidate.parentElement;
+              while (
+                current !== null &&
+                current !== current.ownerDocument.documentElement
+              ) {
+                const controls = [...current.querySelectorAll("input")].filter(
+                  compatible
+                );
+                const start = controls.indexOf(candidate);
+                if (
+                  start !== -1 &&
+                  controls.length === requestedCount &&
+                  controls.length - start === requestedCount
+                ) {
+                  return controls.map(selectorFor).join(",");
+                }
+                current = current.parentElement;
+              }
+              return selectorFor(candidate);
+            }, segmentCount),
+        })
+      )
+    );
+
+  const pointRef = (
+    x: number,
+    y: number
+  ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> => {
+    const matches = [...bounds].filter(
+      ([, rectangle]) =>
+        x >= rectangle.x &&
+        x <= rectangle.x + rectangle.width &&
+        y >= rectangle.y &&
+        y <= rectangle.y + rectangle.height
+    );
+    const [closest] = matches.toSorted(
+      ([, left], [, right]) =>
+        left.width * left.height - right.width * right.height
+    );
+    return closest === undefined
+      ? Effect.fail(
+          makeBrowserRpcError(
+            "agent_element_stale",
+            "No control in the current Browser Snapshot contains that point."
+          )
+        )
+      : Effect.succeed(AgentElementRef.make(closest[0]));
+  };
+
+  return {
+    clear,
+    focusedRef,
+    isSensitive,
+    pointRef,
+    privateSelector,
+    resolve,
+    snapshot,
+  };
 };
+
+const REDACTED = "[sensitive input]";
+
+const redactKnownValues = (text: string, values: readonly string[]): string => {
+  if (values.includes(text)) {
+    return REDACTED;
+  }
+  let redacted = text;
+  for (const value of values) {
+    if (value.length < 4) {
+      continue;
+    }
+    redacted = redacted.split(value).join(REDACTED);
+  }
+  return redacted;
+};
+
+/**
+ * A control's own value is redacted whenever it is any part of a known private
+ * value, not only the whole of it. Split one-time-code inputs hold one
+ * character each, so the digit-per-box form of a declared Variable is
+ * reassembleable from Snapshot values that the length-bounded rewrite above
+ * deliberately refuses to apply to free page text. Over-redacting a public
+ * control that happens to hold a segment of a secret is the safe direction.
+ */
+const redactControlValue = (
+  value: string,
+  values: readonly string[]
+): string => {
+  if (value.length === 0) {
+    return value;
+  }
+  return values.some((known) => known.includes(value))
+    ? REDACTED
+    : redactKnownValues(value, values);
+};
+
+/** Remove session-known private values from every textual Snapshot field. */
+export const redactAgentSnapshot = (
+  snapshot: AgentBrowserSnapshot,
+  values: readonly string[]
+): AgentBrowserSnapshot => ({
+  ...snapshot,
+  nodes: snapshot.nodes.map((node) => ({
+    ...node,
+    name: redactKnownValues(node.name, values),
+    ...(node.value === undefined
+      ? {}
+      : { value: redactControlValue(node.value, values) }),
+  })),
+  title: redactKnownValues(snapshot.title, values),
+});
 
 export const captureAgentScreenshot = (
   page: Page,
   now: () => Date = () => new Date(),
-  maskSensitive = false
+  maskSensitive = false,
+  privateValues: readonly string[] = [],
+  privateSelectors: readonly string[] = []
 ): Effect.Effect<AgentScreenshot, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not capture a screenshot", cause),
-    try: () =>
-      page.screenshot({
+    try: async () => {
+      const controls = page.locator(
+        'input,textarea,select,[contenteditable=""],[contenteditable="true"],[role="textbox"]'
+      );
+      const privateIndexes =
+        privateValues.length === 0
+          ? []
+          : await controls.evaluateAll((elements, values) => {
+              const known = new Set(values);
+              return elements.flatMap((element, index) => {
+                const value =
+                  "value" in element
+                    ? String(element.value)
+                    : (element.textContent ?? "");
+                return known.has(value) ? [index] : [];
+              });
+            }, privateValues);
+      const textElements = page.locator("body *");
+      // Free page text is scanned only for values long enough to be a
+      // meaningful match. A one-character Variable would otherwise black out
+      // most of a Teaching screenshot; its control is already masked above.
+      const textValues = privateValues.filter((value) => value.length >= 4);
+      const privateTextIndexes =
+        textValues.length === 0
+          ? []
+          : await textElements.evaluateAll(
+              (elements, values) =>
+                elements.flatMap((element, index) => {
+                  const ownText = [...element.childNodes]
+                    .filter((node) => node.nodeType === 3)
+                    .map((node) => node.textContent ?? "")
+                    .join(" ");
+                  return values.some((value) => ownText.includes(value))
+                    ? [index]
+                    : [];
+                }),
+              textValues
+            );
+      return page.screenshot({
         ...(maskSensitive
           ? {
-              mask: [page.locator(SENSITIVE_INPUT_SELECTOR)],
+              mask: [
+                page.locator(SENSITIVE_INPUT_SELECTOR),
+                ...privateSelectors.map((selector) => page.locator(selector)),
+                ...privateIndexes.map((index) => controls.nth(index)),
+                ...privateTextIndexes.map((index) => textElements.nth(index)),
+              ],
               maskColor: "#000000",
             }
           : {}),
         timeout: ACTION_TIMEOUT_MS,
         type: "png",
-      }),
+      });
+    },
   }).pipe(
     Effect.map((image) => ({
       capturedAt: now().toISOString(),
@@ -781,3 +1058,73 @@ export const performAgentAction = (
     }
   }
 };
+
+/**
+ * Enter one private Variable and prove that the target controls accepted it.
+ * A comma-separated selector represents a split input such as six OTP boxes.
+ */
+export const performPrivateVariableInput = (
+  page: Page,
+  selector: string,
+  value: string
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  attempt("Could not enter the private Variable", async () => {
+    const controls = page.locator(selector);
+    const count = await controls.count();
+    const characters = [...value];
+    if (count === 0) {
+      throw new Error("The private control is no longer available.");
+    }
+    if (count > 1 && count !== characters.length) {
+      throw new Error(
+        "The split private control does not match the Variable length."
+      );
+    }
+
+    const readValues = async (): Promise<readonly string[] | undefined> => {
+      if ((await controls.count()) === 0) {
+        return undefined;
+      }
+      return controls.evaluateAll((elements) =>
+        elements.map((element) =>
+          "value" in element
+            ? String(element.value)
+            : (element.textContent ?? "")
+        )
+      );
+    };
+    const fillEach = async (
+      values: readonly string[],
+      index = 0
+    ): Promise<void> => {
+      const next = values[index];
+      if (next === undefined) {
+        return;
+      }
+      await controls.nth(index).fill(next, { timeout: ACTION_TIMEOUT_MS });
+      await fillEach(values, index + 1);
+    };
+    await controls.first().fill(value, { timeout: ACTION_TIMEOUT_MS });
+    const initiallyAccepted = await readValues();
+    if (initiallyAccepted === undefined) {
+      return;
+    }
+    let accepted = initiallyAccepted.join("");
+    if (accepted === value) {
+      return;
+    }
+    if (count === 1) {
+      throw new Error("The private control did not accept the value.");
+    }
+
+    await fillEach(Array.from({ length: count }, () => ""));
+    await fillEach(characters);
+    const finallyAccepted = await readValues();
+    if (finallyAccepted === undefined) {
+      return;
+    }
+    accepted = finallyAccepted.join("");
+    if (accepted !== value) {
+      throw new Error("The split private control did not accept the value.");
+    }
+  }).pipe(Effect.asVoid);

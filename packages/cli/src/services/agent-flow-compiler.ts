@@ -8,6 +8,7 @@ import type {
   TeachingInstruction,
   TeachingScreenshot,
   UrlTransition,
+  Variable,
 } from "@contingency/protocol";
 import { Result } from "effect";
 
@@ -22,6 +23,7 @@ export interface Demonstration {
   readonly screenshots: readonly TeachingScreenshot[];
   readonly snapshots: ReadonlyMap<AgentSnapshotId, AgentBrowserSnapshot>;
   readonly urlTransitions: readonly UrlTransition[];
+  readonly variables: readonly Variable[];
 }
 
 export const emptyDemonstration = (): Demonstration => ({
@@ -30,6 +32,7 @@ export const emptyDemonstration = (): Demonstration => ({
   screenshots: [],
   snapshots: new Map(),
   urlTransitions: [],
+  variables: [],
 });
 
 /** The host of a web URL, or nothing for `about:blank`, `data:`, and the like. */
@@ -246,6 +249,41 @@ const validateUnique = (
   return diagnostics;
 };
 
+const validateDemonstratedVariables = (
+  proposal: AgentFlowDraftProposal,
+  demonstration: Demonstration
+): AgentFlowDiagnostic[] => {
+  const diagnostics: AgentFlowDiagnostic[] = [];
+  for (const variable of demonstration.variables) {
+    const proposed = proposal.variables?.find(
+      ({ name }) => name === variable.name
+    );
+    if (proposed === undefined) {
+      diagnostics.push(
+        diagnostic(
+          "missing_variable",
+          `The Demonstration uses Variable ${variable.name}, but the draft does not declare it.`,
+          ["variables"]
+        )
+      );
+      continue;
+    }
+    if (
+      proposed.runtime !== variable.runtime ||
+      proposed.secret !== variable.secret
+    ) {
+      diagnostics.push(
+        diagnostic(
+          "variable_mismatch",
+          `Variable ${variable.name} must keep the secret and runtime properties demonstrated by the user.`,
+          ["variables"]
+        )
+      );
+    }
+  }
+  return diagnostics;
+};
+
 const between = (
   at: string,
   afterExclusive: number,
@@ -319,6 +357,7 @@ export const compileAgentFlowDraft = (
       "duplicate_variable",
       "Variable"
     ),
+    ...validateDemonstratedVariables(proposal, demonstration),
   ];
   // Domain Scope is judged against the hosts the compiled Steps actually
   // visit. Exploration the agent left out of every span is not part of the

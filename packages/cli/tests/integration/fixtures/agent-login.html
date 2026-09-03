@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Private Variable sign in</title>
+  </head>
+  <body>
+    <main>
+      <h1>Sign in</h1>
+      <label for="display">Display name</label>
+      <input id="display" name="display" type="text" />
+      <label for="mobile">Mobile number</label>
+      <input id="mobile" name="mobile" type="tel" />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" />
+      <label for="rejected">Rejected private value</label>
+      <input id="rejected" name="rejected" type="text" />
+      <fieldset>
+        <legend>One-time code</legend>
+        <input aria-label="digit 1 of 6" inputmode="numeric" maxlength="1" />
+        <input aria-label="digit 2 of 6" inputmode="numeric" maxlength="1" />
+        <input aria-label="digit 3 of 6" inputmode="numeric" maxlength="1" />
+        <input aria-label="digit 4 of 6" inputmode="numeric" maxlength="1" />
+        <input aria-label="digit 5 of 6" inputmode="numeric" maxlength="1" />
+        <input aria-label="digit 6 of 6" inputmode="numeric" maxlength="1" />
+      </fieldset>
+      <p>Available in 1800+ cities.</p>
+      <p>Drugs and Cosmetics Act, 1940.</p>
+      <button
+        style="
+          height: 40px;
+          left: 20px;
+          position: fixed;
+          top: 200px;
+          width: 100px;
+        "
+        type="button"
+      >
+        Sign in
+      </button>
+      <button onclick="window.open('about:blank')" type="button">
+        Open help
+      </button>
+      <output aria-live="polite" id="echo"></output>
+      <output aria-live="polite" id="verification"></output>
+    </main>
+    <script>
+      const fields = ["display", "mobile", "password"].map((id) =>
+        document.getElementById(id)
+      );
+      const otpInputs = [...document.querySelectorAll("fieldset input")];
+      const echo = document.getElementById("echo");
+      const verification = document.getElementById("verification");
+      document.getElementById("rejected").addEventListener("input", (event) => {
+        event.currentTarget.value = "";
+      });
+      const update = () => {
+        const otp = otpInputs.map((input) => input.value).join("");
+        echo.textContent = [...fields.map((input) => input.value), otp].join(
+          " / "
+        );
+        verification.textContent =
+          otp.length === otpInputs.length ? "Verification ready" : "";
+      };
+      for (const field of [...fields, ...otpInputs]) {
+        field.addEventListener("input", () => {
+          update();
+        });
+      }
+      otpInputs.forEach((input, index) => {
+        input.addEventListener("input", () => {
+          if (input.value.length > 1) {
+            input.value = "";
+          } else if (input.value.length === 1) {
+            otpInputs[index + 1]?.focus();
+          }
+          update();
+        });
+      });
+    </script>
+  </body>
+</html>

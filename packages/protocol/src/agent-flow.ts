@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import {
   AgentBrowserAction,
   AgentBrowserSnapshot,
+  AgentElementRef,
   AgentSnapshotId,
   AgentActionOutcome,
 } from "./agent-browser.ts";
@@ -143,6 +144,8 @@ export const TeachingFeed = Schema.Struct({
   /** The Browser Snapshots the actions reference, when the caller asked. */
   snapshots: Schema.Array(AgentBrowserSnapshot),
   urlTransitions: Schema.Array(UrlTransition),
+  /** Variables demonstrated through private input, never their values. */
+  variables: Schema.Array(Variable),
 });
 export type TeachingFeed = typeof TeachingFeed.Type;
 
@@ -158,6 +161,27 @@ export const TeachingInstructionRecord = Schema.Struct({
   text: nonEmptyString,
 });
 export type TeachingInstructionRecord = typeof TeachingInstructionRecord.Type;
+
+/**
+ * Enter one private value during Teaching. The value exists only for this
+ * browser action. Captured evidence stores `{{name}}` and the declaration.
+ */
+export const TeachingVariableInput = Schema.Struct({
+  operationId: OperationId,
+  /** Omit only in Agent View, where the currently focused control is used. */
+  ref: Schema.optional(AgentElementRef),
+  sessionId: AgentSessionId,
+  value: nonEmptyString,
+  variable: Schema.Struct({
+    name: Schema.String.check(
+      Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+      Schema.isMinLength(1)
+    ),
+    runtime: Variable.fields.runtime,
+    secret: Variable.fields.secret,
+  }),
+});
+export type TeachingVariableInput = typeof TeachingVariableInput.Type;
 
 // ---------------------------------------------------------------------------
 // Compiler input

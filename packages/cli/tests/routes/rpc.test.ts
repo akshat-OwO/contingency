@@ -213,6 +213,8 @@ const agentSessionOwnership: AgentSessionService = {
   changes: rpcStreamNotUnderTest,
   close: rpcNotUnderTest,
   closeAll: () => Effect.void,
+  enterAgentVariable: rpcNotUnderTest,
+  enterUserVariable: rpcNotUnderTest,
   get: rpcNotUnderTest,
   list: () => Effect.succeed([]),
   ownsBrowserSession: (ownedSessionId) =>

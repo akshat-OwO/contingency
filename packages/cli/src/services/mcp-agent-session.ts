@@ -10,6 +10,7 @@ import {
   AgentSessionStart,
   AgentSessions,
   AgentSessionTakeover,
+  TeachingVariableInput,
 } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
@@ -73,6 +74,14 @@ const AgentTakeoverParameters = Schema.Struct({
   operationId: AgentSessionTakeover.fields.operationId,
   reason: AgentSessionTakeover.fields.reason,
   sessionId: AgentSessionTakeover.fields.sessionId,
+});
+
+const TeachingVariableInputParameters = Schema.Struct({
+  operationId: TeachingVariableInput.fields.operationId,
+  ref: TeachingVariableInput.fields.ref,
+  sessionId: TeachingVariableInput.fields.sessionId,
+  value: TeachingVariableInput.fields.value,
+  variable: TeachingVariableInput.fields.variable,
 });
 
 // `agent_sessions_get` takes no arguments. An empty `Schema.Struct({})` encodes
@@ -151,6 +160,15 @@ const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
   success: AgentSessionSnapshot,
 });
 
+const TeachingVariableInputTool = Tool.make("agent_teaching_variable_input", {
+  dependencies: [AgentSession],
+  description:
+    "Enter a user-supplied private value into one current Teaching control. The value is used for this action only; captured actions and future Runs use the declared Variable reference. The ref is required when the agent has control.",
+  failure: AgentSessionFailure,
+  parameters: TeachingVariableInputParameters,
+  success: AgentActionResult,
+});
+
 /**
  * The external agent's whole surface. Observation, action, and the Takeover
  * request are MCP tools and nothing else: Agent View's loopback RPC exposes
@@ -164,7 +182,8 @@ export const AgentSessionTools = Toolkit.make(
   AgentBrowserSnapshotTool,
   AgentBrowserScreenshotTool,
   AgentBrowserActTool,
-  AgentTakeoverRequestTool
+  AgentTakeoverRequestTool,
+  TeachingVariableInputTool
 );
 
 /** The handlers behind those tools, shared by MCP and its tests. */
@@ -220,6 +239,30 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
     Effect.gen(function* listAgentSessions() {
       const service = yield* AgentSession;
       return { sessions: yield* service.list() };
+    }),
+  agent_teaching_variable_input: (params) =>
+    Effect.gen(function* enterTeachingVariable() {
+      const service = yield* AgentSession;
+      if (params.ref === undefined) {
+        return yield* Effect.fail(
+          new AgentSessionFailure({
+            code: "agent_session_invalid",
+            message:
+              "An agent must name the current element reference for private input. (agent_session_invalid)",
+          })
+        );
+      }
+      return yield* service
+        .enterAgentVariable(
+          params.sessionId,
+          {
+            ref: params.ref,
+            value: params.value,
+            variable: params.variable,
+          },
+          params.operationId
+        )
+        .pipe(Effect.mapError(failure));
     }),
 });
 

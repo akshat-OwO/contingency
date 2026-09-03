@@ -25,6 +25,15 @@ export interface AgentViewState {
   /** A navigation is in flight, so the toolbar does not dispatch it twice. */
   readonly navigationPending: boolean;
   readonly phase: AgentViewPhase;
+  readonly privateVariable: {
+    readonly error: string | undefined;
+    readonly name: string;
+    readonly open: boolean;
+    readonly pending: boolean;
+    readonly runtime: boolean;
+    readonly secret: boolean;
+    readonly value: string;
+  };
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
   readonly streamConnected: boolean;
@@ -41,6 +50,15 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   navigationError: undefined,
   navigationPending: false,
   phase: "loading",
+  privateVariable: {
+    error: undefined,
+    name: "",
+    open: false,
+    pending: false,
+    runtime: false,
+    secret: true,
+    value: "",
+  },
   selectedSessionId: undefined,
   session: undefined,
   streamConnected: false,

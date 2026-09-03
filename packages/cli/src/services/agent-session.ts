@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
   AgentProcessId,
+  AgentElementRef,
   AgentSessionId,
   describeAgentAction,
   makeBrowserRpcError,
@@ -32,6 +33,8 @@ import type {
   SessionId,
   TeachingFeed,
   TeachingInstruction,
+  TeachingVariableInput,
+  Variable,
 } from "@contingency/protocol";
 import {
   Cause,
@@ -56,6 +59,8 @@ import {
   captureAgentScreenshot,
   makeAgentElementRegistry,
   performAgentAction,
+  performPrivateVariableInput,
+  redactAgentSnapshot,
   snapshotAfterAction,
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
@@ -115,6 +120,18 @@ export interface AgentSessionService {
   readonly get: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /** Enter one conversation-supplied Variable while the agent has control. */
+  readonly enterAgentVariable: (
+    sessionId: AgentSessionId,
+    input: PrivateVariableInput,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentActionResult, AgentSessionError>;
+  /** Enter one Variable into the focused control during exclusive Takeover. */
+  readonly enterUserVariable: (
+    sessionId: AgentSessionId,
+    input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string },
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   /** Stream browser events through the Agent Session boundary. */
   readonly browserStream: (
     sessionId: AgentSessionId
@@ -215,11 +232,26 @@ export interface AgentSessionService {
 
 /** What compilation reads from a Teaching session. */
 export interface TeachingSource {
+  /** Retention classification for the unredacted local artifacts. */
+  readonly artifactRetention: {
+    readonly location: "local";
+    readonly sensitive: true;
+  };
   readonly demonstration: Demonstration;
   readonly emulation: DraftEmulation;
   readonly session: AgentSessionSnapshot;
+  /** Durable local metadata a retention worker can inspect without the Feed. */
+  readonly retentionFile: string | undefined;
   /** Local-only trace path; never included in a Teaching Feed. */
   readonly traceFile: string | undefined;
+  /** Local-only unredacted Demonstration video; never included in a Feed. */
+  readonly videoFile: string | undefined;
+}
+
+export interface PrivateVariableInput {
+  readonly ref: NonNullable<TeachingVariableInput["ref"]>;
+  readonly value: string;
+  readonly variable: Variable;
 }
 
 export const AgentSession = Context.Service<AgentSessionService>(
@@ -242,6 +274,24 @@ const error = (
   code: AgentSessionDomainError["code"],
   message: string
 ): AgentSessionDomainError => ({ _tag: "AgentSessionError", code, message });
+
+const teachingVideoFile = (
+  page: Page
+): Effect.Effect<string | undefined, AgentSessionError> =>
+  Effect.gen(function* locateTeachingVideo() {
+    const video = page.video();
+    if (video === null) {
+      return;
+    }
+    return yield* Effect.tryPromise({
+      catch: (cause) =>
+        error(
+          "agent_session_invalid",
+          `Could not locate the Teaching video: ${cause instanceof Error ? cause.message : String(cause)}`
+        ),
+      try: () => video.path(),
+    });
+  });
 
 const processId = (configured: string | undefined): string =>
   configured?.trim() || `mcp-${process.pid}-${randomUUID()}`;
@@ -294,6 +344,26 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     },
   });
 
+/** Compare retries without retaining a conversation-supplied private value. */
+const privateInputFingerprint = (
+  actor: AgentSessionSnapshot["controller"],
+  input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string }
+): string =>
+  JSON.stringify({
+    actor,
+    ref: input.ref ?? null,
+    valueHash: createHash("sha256").update(input.value).digest("hex"),
+    variable: input.variable,
+  });
+
+const variableReference = (name: string): string => `{{${name}}}`;
+
+const redactCapturedSnapshot = (
+  capture: DemonstrationCapture | undefined,
+  snapshot: AgentBrowserSnapshot
+): AgentBrowserSnapshot =>
+  redactAgentSnapshot(snapshot, capture?.sensitiveValues() ?? []);
+
 /**
  * Whether agent action tools are disabled. They are while the user holds the
  * browser, and also while a Takeover the agent itself asked for is pending: an
@@ -338,6 +408,18 @@ const describeTeachingInput = (input: BrowserInput): string =>
   input.type === "input_mouse"
     ? `The user sent a ${input.eventType} browser input`
     : `The user sent a ${input.eventType} keyboard input`;
+
+const isTextEdit = (input: BrowserInput): boolean =>
+  input.type === "input_keyboard" &&
+  (input.eventType === "char" ||
+    (input.eventType === "keyDown" &&
+      (input.text !== undefined ||
+        input.key === "Backspace" ||
+        input.key === "Delete")));
+
+const shouldCaptureRawInput = (input: BrowserInput): boolean =>
+  (input.type === "input_keyboard" && input.eventType !== "keyUp") ||
+  (input.type === "input_mouse" && input.eventType === "mouseWheel");
 
 /** Keep public Teaching records free of credentials and sensitive URL values. */
 const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
@@ -446,10 +528,20 @@ interface SessionRecord {
   readonly emulation: DraftEmulation;
   /** A local Teaching Trace, finalized by the session scope. */
   readonly traceFile: string | undefined;
+  /** The sensitive local video Playwright finalizes when the session closes. */
+  readonly videoFile: string | undefined;
   /** The Browser Snapshot references this session has minted. */
   readonly registry: AgentElementRegistry;
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
+  /** The local sensitive-artifact retention manifest. */
+  readonly retentionFile: string | undefined;
+}
+
+interface TeachingArtifacts {
+  readonly retentionFile: string | undefined;
+  readonly traceFile: string | undefined;
+  readonly videoFile: string | undefined;
 }
 
 type AgentOperationKind =
@@ -457,6 +549,7 @@ type AgentOperationKind =
   | "close"
   | "control"
   | "instruction"
+  | "private-input"
   | "start"
   | "takeover";
 
@@ -509,6 +602,29 @@ const makeAgentSession = (
           )
         : Effect.succeed(record);
     };
+
+    /** A session that carries a Demonstration: a Teaching session, live or not. */
+    const requireTeaching = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<
+      {
+        readonly capture: DemonstrationCapture;
+        readonly record: SessionRecord;
+      },
+      AgentSessionError
+    > =>
+      read(sessionId).pipe(
+        Effect.flatMap((record) =>
+          record.capture === undefined
+            ? Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  `Agent Session ${sessionId} is an Interactive Run and has no Demonstration. Start a session with activity "teaching" to teach a journey.`
+                )
+              )
+            : Effect.succeed({ capture: record.capture, record })
+        )
+      );
 
     const publish = (snapshot: AgentSessionSnapshot): Effect.Effect<void> =>
       Effect.sync(() => PubSub.publishUnsafe(events, snapshot));
@@ -816,6 +932,131 @@ const makeAgentSession = (
       }
     );
 
+    const prepareTeachingDirectory = (
+      activity: AgentSessionActivity
+    ): Effect.Effect<string | undefined, AgentSessionError> =>
+      Effect.gen(function* prepareLocalTeachingDirectory() {
+        if (activity !== "teaching") {
+          return;
+        }
+        const directory =
+          typeof options.traceDirectory === "function"
+            ? options.traceDirectory()
+            : options.traceDirectory;
+        if (directory !== undefined && fileSystem !== undefined) {
+          yield* fileSystem
+            .makeDirectory(directory, { recursive: true })
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_invalid",
+                  `Could not create the Teaching artifact directory: ${cause.message}`
+                )
+              )
+            );
+        }
+        return directory;
+      });
+
+    const writeTeachingRetentionManifest = (
+      directory: string,
+      sessionId: AgentSessionId,
+      traceFile: string,
+      videoFiles: readonly string[]
+    ): Effect.Effect<string | undefined, AgentSessionError> =>
+      Effect.gen(function* writeSensitiveArtifactMetadata() {
+        if (fileSystem === undefined) {
+          return;
+        }
+        const retentionFile = path.join(
+          directory,
+          `${sessionId}.artifacts.json`
+        );
+        yield* fileSystem
+          .writeFileString(
+            retentionFile,
+            `${JSON.stringify(
+              {
+                files: {
+                  trace: path.basename(traceFile),
+                  videos: videoFiles
+                    .map((file) => path.basename(file))
+                    .toSorted(),
+                },
+                retention: "local",
+                sensitive: true,
+              },
+              null,
+              2
+            )}\n`
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              error(
+                "agent_session_invalid",
+                `Could not write Teaching artifact retention metadata: ${cause.message}`
+              )
+            )
+          );
+        return retentionFile;
+      });
+
+    const startTeachingArtifacts = (
+      directory: string | undefined,
+      browserSessionId: SessionId,
+      sessionId: AgentSessionId,
+      sessionScope: Scope.Closeable,
+      videoPaths: Set<Promise<string>>
+    ): Effect.Effect<TeachingArtifacts, AgentSessionError> =>
+      Effect.gen(function* startLocalTeachingArtifacts() {
+        if (directory === undefined) {
+          return {
+            retentionFile: undefined,
+            traceFile: undefined,
+            videoFile: undefined,
+          };
+        }
+        const traceFile = path.join(directory, `${sessionId}.trace.zip`);
+        const target = yield* browser.recorderTarget(browserSessionId);
+        const rememberVideo = (page: Page): void => {
+          const video = page.video();
+          if (video !== null) {
+            videoPaths.add(video.path());
+          }
+        };
+        rememberVideo(target.page);
+        target.context.on("page", rememberVideo);
+        yield* Scope.provide(sessionScope)(
+          Effect.acquireRelease(
+            Effect.tryPromise({
+              catch: (cause) =>
+                error(
+                  "agent_session_invalid",
+                  `Could not start the Teaching Trace: ${cause instanceof Error ? cause.message : String(cause)}`
+                ),
+              try: () =>
+                target.context.tracing.start({
+                  screenshots: true,
+                  snapshots: true,
+                }),
+            }),
+            () =>
+              Effect.tryPromise({
+                catch: () => null,
+                try: () => target.context.tracing.stop({ path: traceFile }),
+              }).pipe(Effect.ignore)
+          )
+        );
+        const videoFile = yield* teachingVideoFile(target.page);
+        const retentionFile = yield* writeTeachingRetentionManifest(
+          directory,
+          sessionId,
+          traceFile,
+          videoFile === undefined ? [] : [videoFile]
+        );
+        return { retentionFile, traceFile, videoFile };
+      });
+
     const startUnlocked = Effect.fn("AgentSession.start")(
       function* startSession(input: AgentSessionStartInput) {
         const requestInput = normalizedStartInput(input);
@@ -869,68 +1110,53 @@ const makeAgentSession = (
                 // viewport it will navigate under, so the first document is
                 // laid out for the device rather than resized into it.
                 const emulation = sessionEmulation(input);
+                const artifactDirectory =
+                  yield* prepareTeachingDirectory(activity);
+                const videoPaths = new Set<Promise<string>>();
+                if (artifactDirectory !== undefined) {
+                  const traceFile = path.join(
+                    artifactDirectory,
+                    `${sessionId}.trace.zip`
+                  );
+                  // Registered before browser acquisition so it runs after
+                  // context close has finalized every owned Page video.
+                  yield* Scope.addFinalizer(
+                    sessionScope,
+                    Effect.gen(function* catalogueOwnedTeachingVideos() {
+                      const settled = yield* Effect.promise(() =>
+                        Promise.allSettled(videoPaths)
+                      );
+                      const owned = settled.flatMap((result) =>
+                        result.status === "fulfilled" ? [result.value] : []
+                      );
+                      yield* writeTeachingRetentionManifest(
+                        artifactDirectory,
+                        sessionId,
+                        traceFile,
+                        owned
+                      );
+                    }).pipe(Effect.ignore)
+                  );
+                }
                 const acquired = yield* Scope.provide(sessionScope)(
                   Effect.acquireRelease(
-                    browser.create(browserName, emulation.viewport),
+                    browser.create(
+                      browserName,
+                      emulation.viewport,
+                      artifactDirectory
+                    ),
                     (browserSessionId) =>
                       browser.close(browserSessionId).pipe(Effect.ignore)
                   )
                 );
-                const traceDirectory =
-                  typeof options.traceDirectory === "function"
-                    ? options.traceDirectory()
-                    : options.traceDirectory;
-                const traceFile =
-                  activity === "teaching" && traceDirectory !== undefined
-                    ? path.join(traceDirectory, `${sessionId}.trace.zip`)
-                    : undefined;
-                if (traceFile !== undefined) {
-                  if (traceDirectory === undefined) {
-                    return yield* Effect.fail(
-                      error(
-                        "agent_session_invalid",
-                        "A Teaching Trace needs a local directory."
-                      )
-                    );
-                  }
-                  if (fileSystem !== undefined) {
-                    yield* fileSystem
-                      .makeDirectory(traceDirectory, {
-                        recursive: true,
-                      })
-                      .pipe(
-                        Effect.mapError((cause) =>
-                          error(
-                            "agent_session_invalid",
-                            `Could not create the Teaching Trace directory: ${cause.message}`
-                          )
-                        )
-                      );
-                  }
-                  const target = yield* browser.recorderTarget(acquired);
-                  yield* Scope.provide(sessionScope)(
-                    Effect.acquireRelease(
-                      Effect.tryPromise({
-                        catch: (cause) =>
-                          error(
-                            "agent_session_invalid",
-                            `Could not start the Teaching Trace: ${cause instanceof Error ? cause.message : String(cause)}`
-                          ),
-                        try: () =>
-                          target.context.tracing.start({
-                            screenshots: true,
-                            snapshots: true,
-                          }),
-                      }),
-                      () =>
-                        Effect.tryPromise({
-                          catch: () => null,
-                          try: () =>
-                            target.context.tracing.stop({ path: traceFile }),
-                        }).pipe(Effect.ignore)
-                    )
+                const { retentionFile, traceFile, videoFile } =
+                  yield* startTeachingArtifacts(
+                    artifactDirectory,
+                    acquired,
+                    sessionId,
+                    sessionScope,
+                    videoPaths
                   );
-                }
                 const at = now().toISOString();
                 const base: AgentSessionSnapshot = {
                   activity,
@@ -966,9 +1192,11 @@ const makeAgentSession = (
                   },
                   emulation,
                   registry,
+                  retentionFile,
                   scope: sessionScope,
                   snapshot: base,
                   traceFile,
+                  videoFile,
                 };
                 yield* Ref.update(sessions, (current) =>
                   new Map(current).set(sessionId, record)
@@ -1085,6 +1313,242 @@ const makeAgentSession = (
         return yield* read_(record, page);
       });
 
+    const snapshotAfter = (
+      record: SessionRecord,
+      page: Page
+    ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
+      snapshotAfterAction(page, record.registry).pipe(
+        Effect.map((snapshot) =>
+          redactCapturedSnapshot(record.capture, snapshot)
+        )
+      );
+
+    const observeFocusedTextControl = (record: SessionRecord, page: Page) =>
+      Effect.gen(function* observeFocusedControl() {
+        const snapshot = redactCapturedSnapshot(
+          record.capture,
+          yield* record.registry.snapshot(page)
+        );
+        record.capture?.recordSnapshot(snapshot);
+        const ref = yield* record.registry.focusedRef();
+        const node = snapshot.nodes.find((candidate) => candidate.ref === ref);
+        if (node === undefined) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_element_stale",
+              "The focused control was not in the Browser Snapshot."
+            )
+          );
+        }
+        return {
+          description: `${node.role}:${node.name}`,
+          key: yield* record.registry.privateSelector(ref),
+          ref,
+          sensitive: yield* record.registry.isSensitive(ref),
+          snapshot,
+        };
+      });
+
+    const observePointedControl = (
+      record: SessionRecord,
+      page: Page,
+      x: number,
+      y: number
+    ) =>
+      Effect.gen(function* observeUserClickTarget() {
+        const snapshot = redactCapturedSnapshot(
+          record.capture,
+          yield* record.registry.snapshot(page)
+        );
+        record.capture?.recordSnapshot(snapshot);
+        return {
+          ref: yield* record.registry.pointRef(x, y),
+          snapshot,
+        };
+      });
+
+    const semanticUserEdit = (
+      record: SessionRecord,
+      page: Page,
+      focused: {
+        readonly description: string;
+        readonly key: string;
+        readonly ref: AgentElementRef;
+        readonly sensitive: boolean;
+      }
+    ) =>
+      Effect.gen(function* captureSemanticUserEdit() {
+        if (focused.sensitive || record.capture === undefined) {
+          return;
+        }
+        const observed = yield* snapshotAfter(record, page);
+        record.capture.recordSnapshot(observed);
+        const focusedAfter = yield* Effect.result(record.registry.focusedRef());
+        const value = Result.isSuccess(focusedAfter)
+          ? observed.nodes.find(
+              (candidate) => candidate.ref === focusedAfter.success
+            )?.value
+          : undefined;
+        return value === undefined
+          ? undefined
+          : {
+              action: { ref: focused.ref, text: value, type: "fill" as const },
+              description: `Fill ${focused.description}`,
+              observed,
+            };
+      });
+
+    const semanticUserClick = (record: SessionRecord, page: Page) =>
+      snapshotAfter(record, page).pipe(
+        Effect.tap((snapshot) =>
+          Effect.sync(() => record.capture?.recordSnapshot(snapshot))
+        )
+      );
+
+    const observeUserInputTarget = (
+      record: SessionRecord,
+      page: Page,
+      input: BrowserInput
+    ) =>
+      Effect.gen(function* observeSemanticInputTarget() {
+        const focusedResult =
+          record.capture === undefined || !isTextEdit(input)
+            ? undefined
+            : yield* Effect.result(observeFocusedTextControl(record, page));
+        const pointedResult =
+          record.capture === undefined ||
+          input.type !== "input_mouse" ||
+          input.eventType !== "mouseReleased"
+            ? undefined
+            : yield* Effect.result(
+                observePointedControl(record, page, input.x, input.y)
+              );
+        const focused =
+          focusedResult !== undefined && Result.isSuccess(focusedResult)
+            ? focusedResult.success
+            : undefined;
+        const pointed =
+          pointedResult !== undefined && Result.isSuccess(pointedResult)
+            ? pointedResult.success
+            : undefined;
+        return {
+          focused,
+          pointed,
+          snapshotBefore:
+            focused?.snapshot.snapshotId ??
+            pointed?.snapshot.snapshotId ??
+            record.capture?.latestSnapshotId() ??
+            null,
+        };
+      });
+
+    const completeSemanticUserClick = (input: {
+      readonly at: string;
+      readonly id: string;
+      readonly page: Page;
+      readonly pointed:
+        | {
+            readonly ref: AgentElementRef;
+            readonly snapshot: AgentBrowserSnapshot;
+          }
+        | undefined;
+      readonly record: SessionRecord;
+      readonly sessionId: AgentSessionId;
+      readonly snapshotBefore: AgentSnapshotId | null;
+      readonly urlAfter: string;
+      readonly urlBefore: string;
+    }): Effect.Effect<boolean, AgentSessionError> =>
+      Effect.gen(function* recordSemanticUserClick() {
+        if (input.pointed === undefined || input.record.capture === undefined) {
+          return false;
+        }
+        const observed = yield* semanticUserClick(input.record, input.page);
+        const description = `Click ${input.pointed.ref}`;
+        input.record.capture.recordAction({
+          action: { ref: input.pointed.ref, type: "click" },
+          actor: "user",
+          at: input.at,
+          description,
+          id: input.id,
+          outcome: "completed",
+          snapshotAfter: observed,
+          snapshotBefore: input.snapshotBefore,
+          urlAfter: input.urlAfter,
+          urlBefore: input.urlBefore,
+        });
+        yield* recordEntry(
+          input.sessionId,
+          {
+            actor: "user",
+            at: input.at,
+            description,
+            dispatched: true,
+            id: input.id,
+            outcome: "completed",
+          },
+          { currentUrl: input.urlAfter }
+        );
+        return true;
+      });
+
+    const completeSemanticUserEdit = (input: {
+      readonly at: string;
+      readonly focused:
+        | {
+            readonly description: string;
+            readonly key: string;
+            readonly ref: AgentElementRef;
+            readonly sensitive: boolean;
+          }
+        | undefined;
+      readonly id: string;
+      readonly page: Page;
+      readonly record: SessionRecord;
+      readonly sessionId: AgentSessionId;
+      readonly snapshotBefore: AgentSnapshotId | null;
+      readonly urlAfter: string;
+      readonly urlBefore: string;
+    }): Effect.Effect<boolean, AgentSessionError> =>
+      Effect.gen(function* recordSemanticUserEdit() {
+        if (input.focused === undefined) {
+          return false;
+        }
+        const semantic = yield* semanticUserEdit(
+          input.record,
+          input.page,
+          input.focused
+        );
+        if (semantic === undefined || input.record.capture === undefined) {
+          return false;
+        }
+        input.record.capture.recordAction({
+          action: semantic.action,
+          actor: "user",
+          at: input.at,
+          coalesceKey: input.focused.key,
+          description: semantic.description,
+          id: input.id,
+          outcome: "completed",
+          snapshotAfter: semantic.observed,
+          snapshotBefore: input.snapshotBefore,
+          urlAfter: input.urlAfter,
+          urlBefore: input.urlBefore,
+        });
+        yield* recordEntry(
+          input.sessionId,
+          {
+            actor: "user",
+            at: input.at,
+            description: semantic.description,
+            dispatched: true,
+            id: input.id,
+            outcome: "completed",
+          },
+          { currentUrl: input.urlAfter }
+        );
+        return true;
+      });
+
     const dispatch = Effect.fn("AgentSession.dispatch")(
       function* dispatchAgentBrowserAction(
         sessionId: AgentSessionId,
@@ -1094,7 +1558,12 @@ const makeAgentSession = (
         capturedAction: AgentBrowserAction,
         description: string,
         id: string,
-        sensitive: boolean
+        sensitive: boolean,
+        privateRegistration?: {
+          readonly selector: string;
+          readonly value: string;
+          readonly variable: Variable;
+        }
       ) {
         const current = yield* requireLiveRecord(sessionId);
         if (agentIsPaused(current.snapshot)) {
@@ -1108,8 +1577,24 @@ const makeAgentSession = (
         // and wait for its cleanup rather than racing it.
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
-            yield* performAgentAction(page, record.registry, action);
-            const snapshot = yield* snapshotAfterAction(page, record.registry);
+            yield* privateRegistration === undefined
+              ? performAgentAction(page, record.registry, action)
+              : performPrivateVariableInput(
+                  page,
+                  privateRegistration.selector,
+                  privateRegistration.value
+                );
+            if (
+              privateRegistration !== undefined &&
+              record.capture !== undefined
+            ) {
+              record.capture.recordVariable(
+                privateRegistration.variable,
+                privateRegistration.value,
+                privateRegistration.selector
+              );
+            }
+            const snapshot = yield* snapshotAfter(record, page);
             return {
               entry: {
                 actor: "agent" as const,
@@ -1125,7 +1610,10 @@ const makeAgentSession = (
           })
         );
         record.control.inFlight = {
-          action: capturedAction,
+          action:
+            privateRegistration === undefined
+              ? capturedAction
+              : sanitizeSensitiveAction(action, true),
           description,
           fiber,
           id,
@@ -1173,7 +1661,10 @@ const makeAgentSession = (
         // where the browser actually is rather than where it last succeeded.
         const urlAfter = page.url();
         record.capture?.recordAction({
-          action: capturedAction,
+          action:
+            privateRegistration === undefined
+              ? capturedAction
+              : sanitizeSensitiveAction(action, true),
           actor: "agent",
           at: failedAt,
           description,
@@ -1206,10 +1697,24 @@ const makeAgentSession = (
       function* performAgentBrowserAction(
         sessionId: AgentSessionId,
         action: AgentBrowserAction,
-        operationId?: OperationId | string
+        operationId?: OperationId | string,
+        privateCapture?: {
+          readonly action: AgentBrowserAction;
+          readonly requestInput: string;
+          readonly value: string;
+          readonly variable: Variable;
+        }
       ) {
-        const requestInput = JSON.stringify(action);
-        const replayed = replay(operationId, "act", sessionId, requestInput);
+        const operationKind =
+          privateCapture === undefined ? "act" : "private-input";
+        const requestInput =
+          privateCapture?.requestInput ?? JSON.stringify(action);
+        const replayed = replay(
+          operationId,
+          operationKind,
+          sessionId,
+          requestInput
+        );
         if (replayed?._tag === "conflict") {
           return yield* Effect.fail(replayed.error);
         }
@@ -1237,26 +1742,61 @@ const makeAgentSession = (
             }
             const page = yield* browser.activePage(record.browserSessionId);
             const sensitive =
-              "ref" in action && action.ref !== undefined
+              privateCapture !== undefined ||
+              ("ref" in action && action.ref !== undefined
                 ? yield* record.registry.isSensitive(action.ref)
-                : false;
-            const capturedAction = sanitizeSensitiveAction(action, sensitive);
+                : false);
+            const capturedAction =
+              privateCapture?.action ??
+              sanitizeSensitiveAction(action, sensitive);
             const description = describeAgentAction(capturedAction);
             const id = `action-${randomUUID()}`;
             // Concurrent agent actions would leave a fiber Takeover cannot
             // reach, so a second waits and re-reads control when it wakes.
             return yield* record.control.lock
               .withPermit(
-                dispatch(
-                  sessionId,
-                  record,
-                  page,
-                  action,
-                  capturedAction,
-                  description,
-                  id,
-                  sensitive
-                )
+                Effect.gen(function* dispatchSerially() {
+                  const privateRegistration =
+                    privateCapture === undefined ||
+                    !("ref" in action) ||
+                    action.ref === undefined
+                      ? undefined
+                      : {
+                          selector: yield* record.registry.privateSelector(
+                            action.ref,
+                            [...privateCapture.value].length
+                          ),
+                          value: privateCapture.value,
+                          variable: privateCapture.variable,
+                        };
+                  if (
+                    privateRegistration !== undefined &&
+                    record.capture !== undefined &&
+                    !record.capture.canRecordVariable(
+                      privateRegistration.variable,
+                      privateRegistration.value,
+                      privateRegistration.selector
+                    )
+                  ) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_invalid",
+                        `Variable ${privateRegistration.variable.name} conflicts with the Demonstration or its private-input limit.`
+                      )
+                    );
+                  }
+                  return yield* dispatch(
+                    sessionId,
+                    record,
+                    page,
+                    action,
+                    capturedAction,
+                    description,
+                    id,
+                    sensitive,
+                    privateRegistration
+                  );
+                })
               )
               .pipe(
                 Effect.mapError((failure) =>
@@ -1266,19 +1806,172 @@ const makeAgentSession = (
           })
         );
         if (Result.isSuccess(outcome)) {
-          yield* remember(operationId, "act", sessionId, requestInput, {
+          yield* remember(operationId, operationKind, sessionId, requestInput, {
             kind: "act",
             result: outcome.success,
           });
           return outcome.success;
         }
-        yield* remember(operationId, "act", sessionId, requestInput, {
+        yield* remember(operationId, operationKind, sessionId, requestInput, {
           error: outcome.failure,
           kind: "act-failure",
         });
         return yield* Effect.fail(outcome.failure);
       }
     );
+
+    const enterUserVariableUnlocked = Effect.fn(
+      "AgentSession.enterUserVariable"
+    )(function* enterPrivateVariableAsUser(
+      sessionId: AgentSessionId,
+      input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string },
+      operationId?: OperationId | string
+    ) {
+      const requestInput = privateInputFingerprint("user", input);
+      const replayed = replay(
+        operationId,
+        "private-input",
+        sessionId,
+        requestInput
+      );
+      if (replayed?._tag === "conflict") {
+        return yield* Effect.fail(replayed.error);
+      }
+      if (replayed?._tag === "replay") {
+        if (replayed.result.kind === "act") {
+          return replayed.result.result;
+        }
+        if (replayed.result.kind === "act-failure") {
+          return yield* Effect.fail(replayed.result.error);
+        }
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Operation ${String(operationId)} was already used for a session mutation.`
+          )
+        );
+      }
+      const outcome = yield* Effect.result(
+        Effect.gen(function* enterFocusedPrivateValue() {
+          const { capture, record } = yield* requireTeaching(sessionId);
+          if (record.snapshot.controller !== "user") {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_control_unavailable",
+                "The agent holds the browser. Take control before entering a private Variable."
+              )
+            );
+          }
+          const page = yield* browser.activePage(record.browserSessionId);
+          if (input.ref === undefined) {
+            const observed = redactCapturedSnapshot(
+              record.capture,
+              yield* record.registry.snapshot(page)
+            );
+            capture.recordSnapshot(observed);
+          }
+          const ref = AgentElementRef.make(
+            input.ref ?? (yield* record.registry.focusedRef())
+          );
+          const action = { ref, text: input.value, type: "fill" as const };
+          const capturedAction = {
+            ...action,
+            text: variableReference(input.variable.name),
+          };
+          const description = `Enter Variable ${input.variable.name} in ${ref}`;
+          const id = `user-variable-${randomUUID()}`;
+          const urlBefore = page.url();
+          const snapshotBefore = capture.latestSnapshotId();
+          const executed = yield* record.control.lock.withPermit(
+            Effect.gen(function* fillPrivateValue() {
+              const selector = yield* record.registry.privateSelector(
+                ref,
+                [...input.value].length
+              );
+              if (
+                !capture.canRecordVariable(
+                  input.variable,
+                  input.value,
+                  selector
+                )
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    `Variable ${input.variable.name} conflicts with the Demonstration or its private-input limit.`
+                  )
+                );
+              }
+              yield* performPrivateVariableInput(page, selector, input.value);
+              capture.recordVariable(input.variable, input.value, selector);
+              const observed = yield* Effect.result(
+                snapshotAfter(record, page)
+              );
+              if (Result.isFailure(observed)) {
+                capture.recordAction({
+                  action: capturedAction,
+                  actor: "user",
+                  at: now().toISOString(),
+                  description,
+                  detail:
+                    "The private value was entered, but the following Browser Snapshot failed.",
+                  id,
+                  outcome: "failed",
+                  snapshotAfter: null,
+                  snapshotBefore,
+                  urlAfter: page.url(),
+                  urlBefore,
+                });
+                return yield* Effect.fail(observed.failure);
+              }
+              return observed.success;
+            })
+          );
+          const at = now().toISOString();
+          const entry: AgentTimelineEntry = {
+            actor: "user",
+            at,
+            description,
+            dispatched: true,
+            id,
+            outcome: "completed",
+          };
+          capture.recordAction({
+            action: capturedAction,
+            actor: "user",
+            at,
+            description,
+            id,
+            outcome: "completed",
+            snapshotAfter: executed,
+            snapshotBefore,
+            urlAfter: executed.url,
+            urlBefore,
+          });
+          yield* recordEntry(sessionId, entry, { currentUrl: executed.url });
+          return { entry, snapshot: executed, url: executed.url };
+        })
+      );
+      if (Result.isSuccess(outcome)) {
+        yield* remember(operationId, "private-input", sessionId, requestInput, {
+          kind: "act",
+          result: outcome.success,
+        });
+        return outcome.success;
+      }
+      const safeFailure =
+        outcome.failure._tag === "BrowserRpcError"
+          ? makeBrowserRpcError(
+              outcome.failure.code,
+              "Could not enter the private Variable."
+            )
+          : outcome.failure;
+      yield* remember(operationId, "private-input", sessionId, requestInput, {
+        error: safeFailure,
+        kind: "act-failure",
+      });
+      return yield* Effect.fail(safeFailure);
+    });
 
     /**
      * Enter Takeover. A user initiation takes control immediately and has
@@ -1449,29 +2142,6 @@ const makeAgentSession = (
       }
     );
 
-    /** A session that carries a Demonstration: a Teaching session, live or not. */
-    const requireTeaching = (
-      sessionId: AgentSessionId
-    ): Effect.Effect<
-      {
-        readonly capture: DemonstrationCapture;
-        readonly record: SessionRecord;
-      },
-      AgentSessionError
-    > =>
-      read(sessionId).pipe(
-        Effect.flatMap((record) =>
-          record.capture === undefined
-            ? Effect.fail(
-                error(
-                  "agent_session_invalid",
-                  `Agent Session ${sessionId} is an Interactive Run and has no Demonstration. Start a session with activity "teaching" to teach a journey.`
-                )
-              )
-            : Effect.succeed({ capture: record.capture, record })
-        )
-      );
-
     const recordInstructionUnlocked = Effect.fn(
       "AgentSession.recordInstruction"
     )(function* recordInstruction(
@@ -1588,6 +2258,31 @@ const makeAgentSession = (
             { discard: true }
           )
         ),
+      enterAgentVariable: (sessionId, input, operationId) =>
+        Effect.gen(function* enterPrivateVariableAsAgent() {
+          const { record } = yield* requireTeaching(sessionId);
+          if (agentIsPaused(record.snapshot)) {
+            return yield* Effect.fail(
+              takenOver("This private input was not dispatched.")
+            );
+          }
+          const action = {
+            ref: input.ref,
+            text: input.value,
+            type: "fill" as const,
+          };
+          return yield* actUnlocked(sessionId, action, operationId, {
+            action: {
+              ...action,
+              text: variableReference(input.variable.name),
+            },
+            requestInput: privateInputFingerprint("agent", input),
+            value: input.value,
+            variable: input.variable,
+          });
+        }),
+      enterUserVariable: (sessionId, input, operationId) =>
+        enterUserVariableUnlocked(sessionId, input, operationId),
       get: (sessionId) =>
         read(sessionId).pipe(
           Effect.flatMap((record) => refreshedSnapshot(sessionId, record))
@@ -1635,7 +2330,13 @@ const makeAgentSession = (
         lock.withPermit(returnControlUnlocked(sessionId, operationId)),
       screenshot: (sessionId) =>
         observe(sessionId, (record, page) =>
-          captureAgentScreenshot(page, now, true).pipe(
+          captureAgentScreenshot(
+            page,
+            now,
+            true,
+            record.capture?.sensitiveValues() ?? [],
+            record.capture?.sensitiveSelectors() ?? []
+          ).pipe(
             Effect.tap((screenshot) =>
               Effect.sync(() => {
                 record.capture?.recordScreenshot(screenshot);
@@ -1656,7 +2357,8 @@ const makeAgentSession = (
           }
           const page = yield* browser.activePage(record.browserSessionId);
           const urlBefore = page.url();
-          const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
+          const { focused, pointed, snapshotBefore } =
+            yield* observeUserInputTarget(record, page, input);
           const id = `user-input-${randomUUID()}`;
           const action = {
             input: teachingInput(input),
@@ -1693,18 +2395,36 @@ const makeAgentSession = (
             return yield* Effect.fail(outcome.failure);
           }
           const urlAfter = page.url();
-          record.capture?.recordAction({
-            action,
-            actor: "user",
+          const common = {
             at,
-            description,
             id,
-            outcome: "completed",
-            snapshotAfter: null,
+            page,
+            record,
+            sessionId,
             snapshotBefore,
             urlAfter,
             urlBefore,
-          });
+          };
+          if (yield* completeSemanticUserClick({ ...common, pointed })) {
+            return;
+          }
+          if (yield* completeSemanticUserEdit({ ...common, focused })) {
+            return;
+          }
+          if (shouldCaptureRawInput(input)) {
+            record.capture?.recordAction({
+              action,
+              actor: "user",
+              at,
+              description,
+              id,
+              outcome: "completed",
+              snapshotAfter: null,
+              snapshotBefore,
+              urlAfter,
+              urlBefore,
+            });
+          }
           return yield* recordEntry(
             sessionId,
             {
@@ -1721,6 +2441,9 @@ const makeAgentSession = (
       snapshot: (sessionId) =>
         observe(sessionId, (record, page) =>
           record.registry.snapshot(page).pipe(
+            Effect.map((snapshot) =>
+              redactCapturedSnapshot(record.capture, snapshot)
+            ),
             Effect.tap((snapshot) =>
               Effect.sync(() => {
                 // An observation is the `before` state of the action that
@@ -1742,10 +2465,13 @@ const makeAgentSession = (
       teachingSource: (sessionId) =>
         requireTeaching(sessionId).pipe(
           Effect.map(({ capture, record }): TeachingSource => ({
+            artifactRetention: { location: "local", sensitive: true },
             demonstration: capture.current(),
             emulation: record.emulation,
+            retentionFile: record.retentionFile,
             session: record.snapshot,
             traceFile: record.traceFile,
+            videoFile: record.videoFile,
           }))
         ),
       userNavigate: (sessionId, action) =>
@@ -1810,10 +2536,9 @@ const makeAgentSession = (
             // The user drove the browser, and the Demonstration captures the
             // user's actions with the same fidelity as the agent's: a Snapshot
             // of the Page the navigation reached.
-            const after = yield* snapshotAfterAction(
-              page,
-              record.registry
-            ).pipe(Effect.option);
+            const after = yield* snapshotAfter(record, page).pipe(
+              Effect.option
+            );
             record.capture.recordAction({
               action: capturedAction,
               actor: "user",

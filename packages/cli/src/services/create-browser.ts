@@ -120,6 +120,7 @@ const makeService = (
     function* createSession(
       name: string,
       viewport: Viewport,
+      recordVideoDirectory?: string,
       environment?: SessionEnvironment
     ) {
       const browser = yield* getBrowser;
@@ -147,6 +148,9 @@ const makeService = (
             // The same translation a Run applies, so a session authored here
             // and a headless Run present one environment (ADR 0013).
             ...environmentContextOptions(environment),
+            ...(recordVideoDirectory === undefined
+              ? {}
+              : { recordVideo: { dir: recordVideoDirectory } }),
             viewport: { height: viewport.height, width: viewport.width },
           })
       );
@@ -202,8 +206,12 @@ const makeService = (
   const create = (
     name: string,
     viewport: Viewport,
+    recordVideoDirectory?: string,
     environment?: SessionEnvironment
-  ) => registryLock.withPermit(createUnlocked(name, viewport, environment));
+  ) =>
+    registryLock.withPermit(
+      createUnlocked(name, viewport, recordVideoDirectory, environment)
+    );
 
   const setViewport = Effect.fn("CreateBrowser.setViewport")(
     function* setSessionViewport(sessionId: SessionId, viewport: Viewport) {
@@ -346,7 +354,12 @@ const makeService = (
       return yield* finishOpen(requestedSessionId);
     }
     return yield* Effect.acquireUseRelease(
-      create(`create-${randomUUID()}`, emulation.viewport, emulation),
+      create(
+        `create-${randomUUID()}`,
+        emulation.viewport,
+        undefined,
+        emulation
+      ),
       finishOpen,
       (sessionId, exit) =>
         Exit.isSuccess(exit)
