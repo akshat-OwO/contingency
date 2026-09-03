@@ -15,8 +15,9 @@ import type { ElementHandle, JSHandle, Page } from "playwright-core";
 
 import {
   SENSITIVE_AUTOCOMPLETE,
+  SENSITIVE_EXACT_FIELD_NAMES,
   SENSITIVE_FIELD_METADATA,
-  SENSITIVE_FIELD_TERMS,
+  SENSITIVE_FIELD_PHRASES,
   sanitizeTeachingUrl,
 } from "./sensitive-data.ts";
 
@@ -43,10 +44,15 @@ const SENSITIVE_INPUT_SELECTOR = [
   '[autocomplete^="new-password"]',
   '[autocomplete="one-time-code"]',
   '[autocomplete^="cc-"]',
-  ...SENSITIVE_FIELD_TERMS.flatMap((term) => [
+  ...SENSITIVE_FIELD_PHRASES.flatMap((term) => [
     `[name*="${term}" i]`,
     `[id*="${term}" i]`,
     `[aria-label*="${term}" i]`,
+  ]),
+  ...SENSITIVE_EXACT_FIELD_NAMES.flatMap((name) => [
+    `[name="${name}" i]`,
+    `[id="${name}" i]`,
+    `[aria-label="${name}" i]`,
   ]),
   ...["4", "5", "6", "7", "8"].flatMap((length) => [
     `[inputmode="numeric"][maxlength="${length}"]`,
@@ -121,12 +127,20 @@ const SNAPSHOT_SCRIPT = `(() => {
   const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
   const SENSITIVE_AUTOCOMPLETE = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, "iu");
   const SENSITIVE_FIELD_METADATA = new RegExp(${JSON.stringify(SENSITIVE_FIELD_METADATA.source)}, "iu");
+  const SENSITIVE_EXACT_FIELD_NAMES = new Set(${JSON.stringify(SENSITIVE_EXACT_FIELD_NAMES)});
   // Markup that declares itself a control or a landmark. An SPA row that
   // carries its handler in script matches none of this, so it is found by
   // cursor instead.
-  const DECLARED_SELECTOR =
-    "a[href],button,input,select,textarea,summary,[role],[onclick]," +
+  const CONTROL_SELECTOR =
+    "a[href],button,input,select,textarea,summary,[onclick]," +
     "[tabindex],[contenteditable=''],[contenteditable='true']," +
+    "[role='button'],[role='link'],[role='checkbox'],[role='radio']," +
+    "[role='switch'],[role='combobox'],[role='listbox'],[role='option']," +
+    "[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']," +
+    "[role='slider'],[role='spinbutton'],[role='textbox']," +
+    "[role='searchbox'],[role='tab'],[role='treeitem']";
+  const CONTEXT_SELECTOR =
+    "[role]," +
     "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,li,td,th,p,label,img";
   const SKIPPED_TAGS = new Set([
     "BASE",
@@ -140,13 +154,14 @@ const SNAPSHOT_SCRIPT = `(() => {
     "TITLE",
   ]);
   const isSensitive = (element) => {
-    const metadata = [
+    const metadataFields = [
       element.getAttribute("name"),
       element.getAttribute("id"),
       element.getAttribute("aria-label"),
     ]
       .filter(Boolean)
-      .join(" ");
+      .map((value) => value.trim().toLowerCase());
+    const metadata = metadataFields.join(" ");
     const inputMode = element.getAttribute("inputmode")?.toLowerCase();
     const maxLength = Number(element.getAttribute("maxlength"));
     const looksLikeUnlabelledCode =
@@ -160,6 +175,7 @@ const SNAPSHOT_SCRIPT = `(() => {
         element.getAttribute("autocomplete") || ""
       ) ||
       SENSITIVE_FIELD_METADATA.test(metadata) ||
+      metadataFields.some((value) => SENSITIVE_EXACT_FIELD_NAMES.has(value)) ||
       looksLikeUnlabelledCode
     );
   };
@@ -239,40 +255,36 @@ const SNAPSHOT_SCRIPT = `(() => {
   // Controls come before prose when the budget runs out: a journey is driven
   // by what it can act on, and a Page that overflows the limit is one whose
   // text matters least.
-  const declared = [];
+  const controls = [];
+  const contextual = [];
   const clickable = new Set();
   const textual = [];
   for (const element of document.querySelectorAll("*")) {
     if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
       continue;
     }
-    if (element.matches(DECLARED_SELECTOR)) {
-      declared.push(element);
+    if (element.matches(CONTROL_SELECTOR)) {
+      controls.push(element);
       continue;
     }
     if (isPointerRoot(element)) {
       clickable.add(element);
-      declared.push(element);
+      controls.push(element);
+      continue;
+    }
+    if (element.matches(CONTEXT_SELECTOR)) {
+      contextual.push(element);
       continue;
     }
     if (ownsText(element)) {
       textual.push(element);
     }
   }
-  const textBudget = Math.max(0, ${SNAPSHOT_LIMIT} - declared.length);
-  const kept = new Set(declared);
-  for (const element of textual.slice(0, textBudget)) {
-    kept.add(element);
-  }
-  const candidates = [];
-  for (const element of document.querySelectorAll("*")) {
-    if (candidates.length >= ${SNAPSHOT_LIMIT}) {
-      break;
-    }
-    if (kept.has(element)) {
-      candidates.push(element);
-    }
-  }
+  const candidates = controls.slice(0, ${SNAPSHOT_LIMIT});
+  const contextBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
+  candidates.push(...contextual.slice(0, contextBudget));
+  const textBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
+  candidates.push(...textual.slice(0, textBudget));
   const included = new Set(candidates);
   const elements = [];
   const nodes = [];
@@ -531,35 +543,48 @@ export const makeAgentElementRegistry = (
           catch: (cause) =>
             browserFailure("Could not inspect the referenced control", cause),
           try: () =>
-            element.evaluate((candidate) => {
-              const metadata = [
-                candidate.getAttribute("name"),
-                candidate.getAttribute("id"),
-                candidate.getAttribute("aria-label"),
-              ]
-                .filter(Boolean)
-                .join(" ");
-              const autocomplete = candidate.getAttribute("autocomplete") ?? "";
-              const inputMode = candidate
-                .getAttribute("inputmode")
-                ?.toLowerCase();
-              const maxLength = Number(candidate.getAttribute("maxlength"));
-              const sensitiveMetadata =
-                /(?:token|key|secret|code|password|credential|passcode|pin|otp|one[\s_-]?time|cvv|cvc|social[\s_-]?security|ssn)/iu;
-              const sensitiveAutocomplete =
-                /^(?:current-password|new-password|one-time-code|cc-)/iu;
-              const looksLikeUnlabelledCode =
-                (inputMode === "numeric" || inputMode === "decimal") &&
-                Number.isInteger(maxLength) &&
-                maxLength >= 4 &&
-                maxLength <= 8;
-              return (
-                candidate.getAttribute("type")?.toLowerCase() === "password" ||
-                sensitiveAutocomplete.test(autocomplete) ||
-                sensitiveMetadata.test(metadata) ||
-                looksLikeUnlabelledCode
-              );
-            }),
+            element.evaluate(
+              (candidate, patterns) => {
+                const metadataFields = [
+                  candidate.getAttribute("name"),
+                  candidate.getAttribute("id"),
+                  candidate.getAttribute("aria-label"),
+                ]
+                  .filter(Boolean)
+                  .map((value) => value.trim().toLowerCase());
+                const metadata = metadataFields.join(" ");
+                const autocomplete =
+                  candidate.getAttribute("autocomplete") ?? "";
+                const inputMode = candidate
+                  .getAttribute("inputmode")
+                  ?.toLowerCase();
+                const maxLength = Number(candidate.getAttribute("maxlength"));
+                const sensitiveMetadata = new RegExp(patterns.metadata, "iu");
+                const sensitiveAutocomplete = new RegExp(
+                  patterns.autocomplete,
+                  "iu"
+                );
+                const exactNames = new Set(patterns.exactNames);
+                const looksLikeUnlabelledCode =
+                  (inputMode === "numeric" || inputMode === "decimal") &&
+                  Number.isInteger(maxLength) &&
+                  maxLength >= 4 &&
+                  maxLength <= 8;
+                return (
+                  candidate.getAttribute("type")?.toLowerCase() ===
+                    "password" ||
+                  sensitiveAutocomplete.test(autocomplete) ||
+                  sensitiveMetadata.test(metadata) ||
+                  metadataFields.some((value) => exactNames.has(value)) ||
+                  looksLikeUnlabelledCode
+                );
+              },
+              {
+                autocomplete: SENSITIVE_AUTOCOMPLETE.source,
+                exactNames: [...SENSITIVE_EXACT_FIELD_NAMES],
+                metadata: SENSITIVE_FIELD_METADATA.source,
+              }
+            ),
         })
       )
     );

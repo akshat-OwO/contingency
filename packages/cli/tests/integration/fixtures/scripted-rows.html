@@ -15,6 +15,8 @@
   <body>
     <main>
       <h1>Delivery area</h1>
+      <p id="chosen">No area chosen</p>
+      <div id="prose"></div>
       <!--
         Suggestion rows exactly as a framework renders them: plain divs with
         no role, no href, and no onclick attribute, holding their label in
@@ -38,9 +40,14 @@
           </div>
         </div>
       </div>
-      <p id="chosen">No area chosen</p>
     </main>
     <script>
+      const prose = document.getElementById("prose");
+      for (let index = 0; index < 320; index += 1) {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = `Background paragraph ${index + 1}`;
+        prose.append(paragraph);
+      }
       for (const row of document.querySelectorAll(".row")) {
         // addEventListener, not an onclick attribute: the distinction is the
         // whole point of the fixture.

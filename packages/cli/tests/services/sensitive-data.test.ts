@@ -12,6 +12,11 @@ it("recognizes credential and token metadata across field attributes", () => {
   expect(isSensitiveField({ autocomplete: "current-password" })).toBe(true);
   expect(isSensitiveField({ inputMode: "numeric", maxLength: 6 })).toBe(true);
   expect(isSensitiveField({ name: "display-name", type: "text" })).toBe(false);
+  expect(isSensitiveField({ name: "phone" })).toBe(false);
+  expect(isSensitiveField({ id: "timezone" })).toBe(false);
+  expect(isSensitiveField({ ariaLabel: "Postal code" })).toBe(false);
+  expect(isSensitiveField({ name: "keyboard-layout" })).toBe(false);
+  expect(isSensitiveField({ ariaLabel: "Spinbutton value" })).toBe(false);
 });
 
 it("sanitizes credentials, fragments, and sensitive query values", () => {

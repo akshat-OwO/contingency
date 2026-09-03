@@ -225,6 +225,7 @@ it.live("reports rows a Page makes clickable only in script", () =>
     const observed = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,
     });
+    expect(observed.nodes.length).toBeLessThanOrEqual(300);
 
     // The row declares nothing: no role, no href, no onclick attribute. Its
     // pointer cursor is what marks it a control, and its text is what tells

@@ -5,30 +5,54 @@ export const SENSITIVE_QUERY_PARAMETER = /(?:token|key|secret|code|password)/iu;
 export const SENSITIVE_AUTOCOMPLETE =
   /^(?:current-password|new-password|one-time-code|cc-)/iu;
 
-/** Names and accessible metadata commonly used by credential controls. */
-export const SENSITIVE_FIELD_TERMS = [
+/** Phrases whose presence identifies credential-control metadata. */
+export const SENSITIVE_FIELD_PHRASES = [
   "token",
-  "key",
   "secret",
-  "code",
   "password",
   "credential",
   "passcode",
-  "pin",
   "otp",
-  "one",
-  "time",
   "cvv",
   "cvc",
-  "social",
-  "security",
   "ssn",
+  "api key",
+  "api-key",
+  "api_key",
+  "apikey",
+  "auth code",
+  "auth-code",
+  "auth_code",
+  "authcode",
+  "authorization code",
+  "authorization-code",
+  "authorization_code",
+  "authorizationcode",
+  "client secret",
+  "client-secret",
+  "client_secret",
+  "clientsecret",
+  "one time",
+  "one-time",
+  "one_time",
+  "onetime",
+  "private key",
+  "private-key",
+  "private_key",
+  "privatekey",
+  "social security",
+  "social-security",
+  "social_security",
+  "socialsecurity",
 ] as const;
 
 export const SENSITIVE_FIELD_METADATA = new RegExp(
-  SENSITIVE_FIELD_TERMS.join("|"),
+  SENSITIVE_FIELD_PHRASES.join("|"),
   "iu"
 );
+
+/** Short names are sensitive only when the whole field name is the match. */
+export const SENSITIVE_EXACT_FIELD_NAMES = ["code", "key", "pin"] as const;
 
 export interface SensitiveFieldMetadata {
   readonly ariaLabel?: string | null | undefined;
@@ -49,7 +73,10 @@ export const isSensitiveField = ({
   name,
   type,
 }: SensitiveFieldMetadata): boolean => {
-  const metadata = [name, id, ariaLabel].filter(Boolean).join(" ");
+  const metadataFields = [name, id, ariaLabel].flatMap((value) =>
+    value === null || value === undefined ? [] : [value.trim().toLowerCase()]
+  );
+  const metadata = metadataFields.join(" ");
   const normalizedAutocomplete = autocomplete?.trim() ?? "";
   const normalizedInputMode = inputMode?.toLowerCase();
   const looksLikeUnlabelledCode =
@@ -63,6 +90,9 @@ export const isSensitiveField = ({
     type?.toLowerCase() === "password" ||
     SENSITIVE_AUTOCOMPLETE.test(normalizedAutocomplete) ||
     SENSITIVE_FIELD_METADATA.test(metadata) ||
+    metadataFields.some((value) =>
+      SENSITIVE_EXACT_FIELD_NAMES.some((exactName) => exactName === value)
+    ) ||
     looksLikeUnlabelledCode
   );
 };
