@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Private Variable sign in</title>
+  </head>
+  <body>
+    <main>
+      <h1>Sign in</h1>
+      <label for="display">Display name</label>
+      <input id="display" name="display" type="text" />
+      <label for="mobile">Mobile number</label>
+      <input id="mobile" name="mobile" type="tel" />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" />
+      <label for="otp">One-time code</label>
+      <input
+        autocomplete="one-time-code"
+        id="otp"
+        inputmode="numeric"
+        maxlength="6"
+        name="otp"
+        type="text"
+      />
+      <button
+        style="
+          height: 40px;
+          left: 20px;
+          position: fixed;
+          top: 200px;
+          width: 100px;
+        "
+        type="button"
+      >
+        Sign in
+      </button>
+      <button onclick="window.open('about:blank')" type="button">
+        Open help
+      </button>
+      <output aria-live="polite" id="echo"></output>
+    </main>
+    <script>
+      const fields = ["display", "mobile", "password", "otp"].map((id) =>
+        document.getElementById(id)
+      );
+      const echo = document.getElementById("echo");
+      for (const field of fields) {
+        field.addEventListener("input", () => {
+          echo.textContent = fields.map((input) => input.value).join(" / ");
+        });
+      }
+    </script>
+  </body>
+</html>

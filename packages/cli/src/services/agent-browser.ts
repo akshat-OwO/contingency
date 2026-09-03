@@ -305,7 +305,16 @@ const SNAPSHOT_SCRIPT = `(() => {
         depth += 1;
       }
     }
-    const node = { depth: Math.min(depth, 64), name, role };
+    const bounds = element.getBoundingClientRect();
+    const node = {
+      depth: Math.min(depth, 64),
+      height: bounds.height,
+      name,
+      role,
+      width: bounds.width,
+      x: bounds.x,
+      y: bounds.y,
+    };
     if (clickable.has(element)) {
       node.clickable = true;
     }
@@ -321,7 +330,13 @@ const SNAPSHOT_SCRIPT = `(() => {
     nodes.push(node);
     elements.push(element);
   }
-  return { elements, nodes, title: document.title, url: location.href };
+  return {
+    elements,
+    focusedIndex: elements.indexOf(document.activeElement),
+    nodes,
+    title: document.title,
+    url: location.href,
+  };
 })()`;
 
 /** The page is untrusted, so everything it answers with is decoded on arrival. */
@@ -331,12 +346,17 @@ const CollectedNodes = Schema.Array(
     clickable: Schema.optional(Schema.Boolean),
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
+    height: Schema.Finite,
     name: Schema.String,
     role: Schema.String,
     value: Schema.optional(Schema.String),
+    width: Schema.Finite,
+    x: Schema.Finite,
+    y: Schema.Finite,
   })
 );
 const CollectedPage = Schema.Struct({
+  focusedIndex: Schema.Int,
   title: Schema.String,
   url: Schema.String,
 });
@@ -385,6 +405,20 @@ export interface AgentElementRegistry {
   readonly isSensitive: (
     ref: string
   ) => Effect.Effect<boolean, BrowserRpcErrorType>;
+  /** A document-local selector for masking a field already marked private. */
+  readonly privateSelector: (
+    ref: string
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  /** Resolve viewport coordinates through the most recent Snapshot. */
+  readonly pointRef: (
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentElementRef, BrowserRpcErrorType>;
+  /** Resolve the currently focused element to one minted reference. */
+  readonly focusedRef: () => Effect.Effect<
+    AgentElementRef,
+    BrowserRpcErrorType
+  >;
   /** Read the Page and mint a new generation of references for it. */
   readonly snapshot: (
     page: Page
@@ -395,16 +429,29 @@ export const makeAgentElementRegistry = (
   now: () => Date = () => new Date()
 ): AgentElementRegistry => {
   const elements = new Map<string, ElementHandle>();
+  const bounds = new Map<
+    string,
+    {
+      readonly height: number;
+      readonly width: number;
+      readonly x: number;
+      readonly y: number;
+    }
+  >();
   let generation = 0;
   /** Never reset: a reference names one element of one Snapshot, forever. */
   let minted = 0;
   /** The document the live references were read in. */
   let documentUrl: string | undefined;
+  /** The focused reference minted by the most recent Snapshot. */
+  let focused: AgentElementRef | undefined;
 
   const clear = (): Effect.Effect<void> => {
     const handles = [...elements.values()];
     elements.clear();
+    bounds.clear();
     documentUrl = undefined;
+    focused = undefined;
     return disposeHandles(handles);
   };
 
@@ -421,6 +468,7 @@ export const makeAgentElementRegistry = (
       }
       released.push(handle);
       elements.delete(ref);
+      bounds.delete(ref);
     }
     return disposeHandles(released);
   };
@@ -453,10 +501,12 @@ export const makeAgentElementRegistry = (
             });
             const titleHandle = yield* property(handle, "title");
             const urlHandle = yield* property(handle, "url");
+            const focusedIndexHandle = yield* property(handle, "focusedIndex");
             const rawPage = yield* Effect.tryPromise({
               catch: (cause) =>
                 browserFailure("Could not read the Browser Snapshot", cause),
               try: async () => ({
+                focusedIndex: await focusedIndexHandle.jsonValue(),
                 title: await titleHandle.jsonValue(),
                 url: await urlHandle.jsonValue(),
               }),
@@ -468,6 +518,7 @@ export const makeAgentElementRegistry = (
             });
             yield* disposeHandles([
               elementsHandle,
+              focusedIndexHandle,
               nodesHandle,
               titleHandle,
               urlHandle,
@@ -488,21 +539,33 @@ export const makeAgentElementRegistry = (
       );
       const identity = yield* Schema.decodeUnknownEffect(CollectedPage)(
         collected.rawPage
-      ).pipe(Effect.orElseSucceed(() => ({ title: "", url: page.url() })));
+      ).pipe(
+        Effect.orElseSucceed(() => ({
+          focusedIndex: -1,
+          title: "",
+          url: page.url(),
+        }))
+      );
       const nodes: AgentSnapshotNode[] = [];
       const orphaned: JSHandle<unknown>[] = [];
+      focused = undefined;
       let index = 0;
       for (const [, entry] of collected.handles) {
         const element = entry.asElement();
-        const node = decodedNodes[index];
+        const collectedNode = decodedNodes[index];
         index += 1;
-        if (element === null || node === undefined) {
+        if (element === null || collectedNode === undefined) {
           orphaned.push(entry);
           continue;
         }
+        const { height, width, x, y, ...node } = collectedNode;
         minted += 1;
         const ref = AgentElementRef.make(`e${minted}`);
         elements.set(ref, element);
+        bounds.set(ref, { height, width, x, y });
+        if (index - 1 === identity.focusedIndex) {
+          focused = ref;
+        }
         nodes.push({ ...node, ref });
       }
       yield* disposeHandles(orphaned);
@@ -589,27 +652,167 @@ export const makeAgentElementRegistry = (
       )
     );
 
-  return { clear, isSensitive, resolve, snapshot };
+  const focusedRef = (): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
+    focused === undefined
+      ? Effect.fail(
+          makeBrowserRpcError(
+            "agent_element_stale",
+            "No focused control has a current element reference. Focus the private field and try again."
+          )
+        )
+      : Effect.succeed(focused);
+
+  const privateSelector = (
+    ref: string
+  ): Effect.Effect<string, BrowserRpcErrorType> =>
+    resolve(ref).pipe(
+      Effect.flatMap((element) =>
+        Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not identify the private control", cause),
+          try: () =>
+            element.evaluate((candidate) => {
+              const parts: string[] = [];
+              let current: typeof candidate | null = candidate;
+              while (
+                current !== null &&
+                current !== current.ownerDocument.documentElement
+              ) {
+                const parent = current.parentElement;
+                if (parent === null) {
+                  break;
+                }
+                const siblings = [...parent.children];
+                parts.unshift(
+                  `${current.tagName.toLowerCase()}:nth-child(${siblings.indexOf(current) + 1})`
+                );
+                current = parent;
+              }
+              return `html > ${parts.join(" > ")}`;
+            }),
+        })
+      )
+    );
+
+  const pointRef = (
+    x: number,
+    y: number
+  ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> => {
+    const matches = [...bounds].filter(
+      ([, rectangle]) =>
+        x >= rectangle.x &&
+        x <= rectangle.x + rectangle.width &&
+        y >= rectangle.y &&
+        y <= rectangle.y + rectangle.height
+    );
+    const [closest] = matches.toSorted(
+      ([, left], [, right]) =>
+        left.width * left.height - right.width * right.height
+    );
+    return closest === undefined
+      ? Effect.fail(
+          makeBrowserRpcError(
+            "agent_element_stale",
+            "No control in the current Browser Snapshot contains that point."
+          )
+        )
+      : Effect.succeed(AgentElementRef.make(closest[0]));
+  };
+
+  return {
+    clear,
+    focusedRef,
+    isSensitive,
+    pointRef,
+    privateSelector,
+    resolve,
+    snapshot,
+  };
 };
+
+const redactKnownValues = (text: string, values: readonly string[]): string => {
+  let redacted = text;
+  for (const value of values) {
+    redacted = redacted.split(value).join("[sensitive input]");
+  }
+  return redacted;
+};
+
+/** Remove session-known private values from every textual Snapshot field. */
+export const redactAgentSnapshot = (
+  snapshot: AgentBrowserSnapshot,
+  values: readonly string[]
+): AgentBrowserSnapshot => ({
+  ...snapshot,
+  nodes: snapshot.nodes.map((node) => ({
+    ...node,
+    name: redactKnownValues(node.name, values),
+    ...(node.value === undefined
+      ? {}
+      : { value: redactKnownValues(node.value, values) }),
+  })),
+  title: redactKnownValues(snapshot.title, values),
+});
 
 export const captureAgentScreenshot = (
   page: Page,
   now: () => Date = () => new Date(),
-  maskSensitive = false
+  maskSensitive = false,
+  privateValues: readonly string[] = [],
+  privateSelectors: readonly string[] = []
 ): Effect.Effect<AgentScreenshot, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not capture a screenshot", cause),
-    try: () =>
-      page.screenshot({
+    try: async () => {
+      const controls = page.locator(
+        'input,textarea,select,[contenteditable=""],[contenteditable="true"],[role="textbox"]'
+      );
+      const privateIndexes =
+        privateValues.length === 0
+          ? []
+          : await controls.evaluateAll((elements, values) => {
+              const known = new Set(values);
+              return elements.flatMap((element, index) => {
+                const value =
+                  "value" in element
+                    ? String(element.value)
+                    : (element.textContent ?? "");
+                return known.has(value) ? [index] : [];
+              });
+            }, privateValues);
+      const textElements = page.locator("body *");
+      const privateTextIndexes =
+        privateValues.length === 0
+          ? []
+          : await textElements.evaluateAll(
+              (elements, values) =>
+                elements.flatMap((element, index) => {
+                  const ownText = [...element.childNodes]
+                    .filter((node) => node.nodeType === 3)
+                    .map((node) => node.textContent ?? "")
+                    .join(" ");
+                  return values.some((value) => ownText.includes(value))
+                    ? [index]
+                    : [];
+                }),
+              privateValues
+            );
+      return page.screenshot({
         ...(maskSensitive
           ? {
-              mask: [page.locator(SENSITIVE_INPUT_SELECTOR)],
+              mask: [
+                page.locator(SENSITIVE_INPUT_SELECTOR),
+                ...privateSelectors.map((selector) => page.locator(selector)),
+                ...privateIndexes.map((index) => controls.nth(index)),
+                ...privateTextIndexes.map((index) => textElements.nth(index)),
+              ],
               maskColor: "#000000",
             }
           : {}),
         timeout: ACTION_TIMEOUT_MS,
         type: "png",
-      }),
+      });
+    },
   }).pipe(
     Effect.map((image) => ({
       capturedAt: now().toISOString(),

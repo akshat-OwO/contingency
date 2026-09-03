@@ -2,10 +2,12 @@ import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 
 import {
+  AgentActionResult,
   AgentBrowserObserve,
   AgentHistoryAction,
   AgentNavigateAction,
 } from "./agent-browser.ts";
+import { TeachingVariableInput } from "./agent-flow.ts";
 import {
   AgentSessionClose,
   AgentSessionCloseResult,
@@ -348,6 +350,8 @@ export const BrandId = Schema.Literals([
   "agent.session.control.returned",
   "agent.browser.input.send",
   "agent.browser.input.sent",
+  "agent.teaching.variable.input",
+  "agent.teaching.variable.input.result",
   "agent.browser.navigate",
   "agent.browser.navigated",
 ]);
@@ -796,6 +800,22 @@ export const AgentBrowserInputSend = request("agent.browser.input.send", {
 });
 export const AgentBrowserInputSent = response("agent.browser.input.sent", {});
 
+/** Agent View enters one private Variable into the currently focused field. */
+export const AgentTeachingVariableInput = request(
+  "agent.teaching.variable.input",
+  {
+    operationId: TeachingVariableInput.fields.operationId,
+    ref: TeachingVariableInput.fields.ref,
+    sessionId: TeachingVariableInput.fields.sessionId,
+    value: TeachingVariableInput.fields.value,
+    variable: TeachingVariableInput.fields.variable,
+  }
+);
+export const AgentTeachingVariableInputResult = response(
+  "agent.teaching.variable.input.result",
+  { action: AgentActionResult }
+);
+
 /**
  * Address-bar and history navigation while the user holds the browser. It
  * carries the same actions the agent may take, so a Takeover is a real
@@ -1113,6 +1133,14 @@ const AgentBrowserInputSendRpc = Rpc.make("agent.browser.input.send", {
   payload: AgentBrowserInputSend,
   success: AgentBrowserInputSent,
 });
+const AgentTeachingVariableInputRpc = Rpc.make(
+  "agent.teaching.variable.input",
+  {
+    error: BrowserRpcError,
+    payload: AgentTeachingVariableInput,
+    success: AgentTeachingVariableInputResult,
+  }
+);
 const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   error: BrowserRpcError,
   payload: AgentBrowserNavigate,
@@ -1177,5 +1205,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionTakeoverRpc,
   AgentSessionControlReturnRpc,
   AgentBrowserInputSendRpc,
+  AgentTeachingVariableInputRpc,
   AgentBrowserNavigateRpc
 ) {}

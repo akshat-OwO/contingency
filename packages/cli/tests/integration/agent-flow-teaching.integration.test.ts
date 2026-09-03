@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { OperationId } from "@contingency/protocol";
+import { AgentElementRef, OperationId } from "@contingency/protocol";
 import type {
   AgentFlowDiagnostic,
   AgentSnapshotNode,
@@ -549,4 +549,292 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       });
     }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "teaches a login with private Variables without exporting literals",
+  () =>
+    Effect.gen(function* teachPrivateLogin() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const catalogRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-private-teaching-",
+      });
+      yield* Effect.gen(function* teach() {
+        const fixtures = yield* fixtureServer;
+        const started = yield* session("agent_session_start", {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          operationId: OperationId.make("start-private-teaching"),
+          url: fixtures.url("agent-login.html"),
+          viewport,
+        });
+        const localSession = yield* AgentSession;
+        const artifacts = yield* localSession.teachingSource(started.id);
+        expect(artifacts.artifactRetention).toEqual({
+          location: "local",
+          sensitive: true,
+        });
+        expect(artifacts.traceFile).toBeDefined();
+        expect(artifacts.videoFile).toBeDefined();
+        expect(artifacts.retentionFile).toBeDefined();
+        const observed = yield* session("agent_browser_snapshot", {
+          sessionId: started.id,
+        });
+        const display = findNode(observed.nodes, "textbox", "Display name");
+        const mobile = findNode(observed.nodes, "textbox", "Mobile number");
+        const password = findNode(observed.nodes, "textbox", "Password");
+        const otp = findNode(observed.nodes, "textbox", "One-time code");
+        const help = findNode(observed.nodes, "button", "Open help");
+        yield* session("agent_browser_act", {
+          action: { ref: display.ref, type: "click" },
+          operationId: OperationId.make("focus-display"),
+          sessionId: started.id,
+        });
+        yield* localSession.takeover(
+          started.id,
+          "Enter the public display name.",
+          OperationId.make("takeover-display")
+        );
+        for (const text of ["A", "B"]) {
+          yield* localSession.sendInput(started.id, {
+            eventType: "keyDown",
+            key: text,
+            text,
+            type: "input_keyboard",
+          });
+          yield* localSession.sendInput(started.id, {
+            eventType: "keyUp",
+            key: text,
+            type: "input_keyboard",
+          });
+        }
+        for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+          yield* localSession.sendInput(started.id, {
+            button: "left",
+            clickCount: 1,
+            eventType,
+            type: "input_mouse",
+            x: 30,
+            y: 210,
+          });
+        }
+        yield* localSession.returnControl(
+          started.id,
+          OperationId.make("return-display")
+        );
+        yield* session("agent_browser_act", {
+          action: { ref: mobile.ref, type: "click" },
+          operationId: OperationId.make("focus-mobile"),
+          sessionId: started.id,
+        });
+        yield* localSession.takeover(
+          started.id,
+          "Enter the reusable mobile identifier privately.",
+          OperationId.make("takeover-mobile")
+        );
+        const mobileLiteral = "5551234";
+        yield* localSession.enterUserVariable(
+          started.id,
+          {
+            value: mobileLiteral,
+            variable: { name: "MOBILE", runtime: false, secret: true },
+          },
+          OperationId.make("enter-mobile")
+        );
+        yield* localSession.returnControl(
+          started.id,
+          OperationId.make("return-mobile")
+        );
+        yield* session("agent_browser_act", {
+          action: { ref: help.ref, type: "click" },
+          operationId: OperationId.make("open-login-help"),
+          sessionId: started.id,
+        });
+
+        const passwordLiteral = "x5551234x";
+        const failed = yield* Effect.flip(
+          session("agent_teaching_variable_input", {
+            operationId: OperationId.make("fail-private-input"),
+            ref: AgentElementRef.make("e999999"),
+            sessionId: started.id,
+            value: "must-not-register",
+            variable: { name: "FAILED", runtime: false, secret: true },
+          })
+        );
+        expect(failed.code).toBe("agent_element_stale");
+        const passwordInput = {
+          operationId: OperationId.make("enter-password"),
+          ref: password.ref,
+          sessionId: started.id,
+          value: passwordLiteral,
+          variable: { name: "PASSWORD", runtime: false, secret: true },
+        } as const;
+        const enteredPassword = yield* session(
+          "agent_teaching_variable_input",
+          passwordInput
+        );
+        expect(
+          yield* session("agent_teaching_variable_input", passwordInput)
+        ).toEqual(enteredPassword);
+        const otpLiteral = "123410";
+        yield* session("agent_teaching_variable_input", {
+          operationId: OperationId.make("enter-otp"),
+          ref: otp.ref,
+          sessionId: started.id,
+          value: otpLiteral,
+          variable: { name: "OTP", runtime: true, secret: true },
+        });
+        yield* session("agent_browser_screenshot", { sessionId: started.id });
+
+        const feed = yield* flow("agent_teaching_feed_get", {
+          includeSnapshots: true,
+          sessionId: started.id,
+        });
+        const literals = [mobileLiteral, passwordLiteral, otpLiteral];
+        const exported = JSON.stringify(feed);
+        for (const literal of literals) {
+          expect(exported).not.toContain(literal);
+        }
+        expect(feed.variables).toEqual([
+          { name: "MOBILE", runtime: false, secret: true },
+          { name: "PASSWORD", runtime: false, secret: true },
+          { name: "OTP", runtime: true, secret: true },
+        ]);
+        const publicFills = feed.actions.filter(
+          ({ action }) => action.type === "fill" && action.text === "AB"
+        );
+        expect(publicFills).toHaveLength(1);
+        expect(
+          feed.actions.filter(
+            ({ action, actor }) => actor === "user" && action.type === "click"
+          )
+        ).toHaveLength(1);
+        expect(
+          feed.actions.some(
+            ({ action }) =>
+              action.type === "input" && action.input.inputType === "mouse"
+          )
+        ).toBe(false);
+        const privateActions = feed.actions.filter(
+          ({ action }) => action.type === "fill" && action.text.startsWith("{{")
+        );
+        expect(privateActions.map(({ actor }) => actor)).toEqual([
+          "user",
+          "agent",
+          "agent",
+        ]);
+        expect(
+          privateActions.map(({ action }) =>
+            action.type === "fill" ? action.text : ""
+          )
+        ).toEqual(["{{MOBILE}}", "{{PASSWORD}}", "{{OTP}}"]);
+
+        const [first] = privateActions;
+        const last = privateActions.at(-1);
+        if (first === undefined || last === undefined) {
+          throw new Error("Private Teaching actions were not captured.");
+        }
+        const draft = {
+          description: "Sign in with a reusable identity and a one-time code.",
+          domainScope: { hosts: [new URL(started.currentUrl).hostname] },
+          schemaVersion: 1 as const,
+          steps: [
+            {
+              confirmation: false,
+              description: "Enter the private sign-in values.",
+              firstActionId: first.id,
+              lastActionId: last.id,
+              name: "Enter sign-in values",
+            },
+          ],
+          title: "Private Variable sign in",
+        };
+        const refused = yield* Effect.flip(
+          flow("agent_flow_draft_save", {
+            basedOnRevisionId: null,
+            draft,
+            operationId: OperationId.make("refuse-missing-variables"),
+            sessionId: started.id,
+          })
+        );
+        for (const literal of literals) {
+          expect(JSON.stringify(refused)).not.toContain(literal);
+        }
+        expect(refused.diagnostics?.map(({ code }) => code)).toEqual([
+          "missing_variable",
+          "missing_variable",
+          "missing_variable",
+        ]);
+
+        const saved = yield* flow("agent_flow_draft_save", {
+          basedOnRevisionId: null,
+          draft: { ...draft, variables: feed.variables },
+          operationId: OperationId.make("save-private-variables"),
+          sessionId: started.id,
+        });
+        expect(saved.manifest.variables).toEqual(feed.variables);
+        const flowRoot = path.join(
+          catalogRoot,
+          "agent-flows",
+          saved.manifest.agentFlowId
+        );
+        const evidence = yield* Effect.all(
+          saved.manifest.steps.map((step) =>
+            fileSystem.readFileString(path.join(flowRoot, step.evidence.path))
+          )
+        );
+        const persisted = [
+          yield* fileSystem.readFileString(
+            path.join(
+              flowRoot,
+              "revisions",
+              saved.manifest.revisionId,
+              "manifest.json"
+            )
+          ),
+          ...evidence,
+        ].join("\n");
+        for (const literal of literals) {
+          expect(persisted).not.toContain(literal);
+        }
+        yield* session("agent_session_close", {
+          operationId: OperationId.make("close-private-teaching"),
+          sessionId: started.id,
+        });
+        if (
+          artifacts.traceFile === undefined ||
+          artifacts.videoFile === undefined ||
+          artifacts.retentionFile === undefined
+        ) {
+          throw new Error("Teaching did not allocate local artifacts.");
+        }
+        expect(yield* fileSystem.exists(artifacts.traceFile)).toBe(true);
+        expect(yield* fileSystem.exists(artifacts.videoFile)).toBe(true);
+        const retention = JSON.parse(
+          yield* fileSystem.readFileString(artifacts.retentionFile)
+        ) as {
+          readonly files: {
+            readonly trace: string;
+            readonly videos: readonly string[];
+          };
+          readonly retention: string;
+          readonly sensitive: boolean;
+        };
+        expect(retention).toMatchObject({
+          files: {
+            trace: path.basename(artifacts.traceFile),
+          },
+          retention: "local",
+          sensitive: true,
+        });
+        expect(retention.files.videos).toContain(
+          path.basename(artifacts.videoFile)
+        );
+        expect(retention.files.videos).toHaveLength(2);
+        expect(
+          (yield* fileSystem.stat(artifacts.videoFile)).size
+        ).toBeGreaterThan(0n);
+      }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

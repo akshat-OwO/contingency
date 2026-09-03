@@ -20,6 +20,7 @@ const rpc = vi.hoisted(() => ({
     waiting: true,
   } as unknown,
   takeoverCalls: [] as unknown[],
+  variableInputCalls: [] as unknown[],
 }));
 
 vi.mock("@/lib/rpc", () => ({
@@ -46,6 +47,12 @@ vi.mock("@/lib/rpc", () => ({
   agentTakeoverMutation: Atom.fn((payload: unknown) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
+      return {};
+    })
+  ),
+  agentTeachingVariableInputMutation: Atom.fn((payload: unknown) =>
+    Effect.sync(() => {
+      rpc.variableInputCalls.push(payload);
       return {};
     })
   ),
@@ -110,6 +117,7 @@ afterEach(() => {
   rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
   rpc.takeoverCalls = [];
+  rpc.variableInputCalls = [];
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -374,6 +382,45 @@ const takenOverSession = {
     requestedBy: "user",
   },
 } as unknown as Session;
+
+test("enters a private Variable during Teaching Takeover", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...takenOverSession,
+        activity: "teaching",
+        teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+      } as unknown as Session,
+    ]),
+    session.id
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Enter private value" })
+  );
+  expect(
+    screen.getByRole("heading", { name: "Enter a private Variable" })
+  ).toBeVisible();
+  await user.type(screen.getByLabelText("Variable name"), "otp");
+  await user.type(screen.getByLabelText("Value"), "246810");
+  await user.click(
+    screen.getByRole("checkbox", { name: /Ask during each Run/u })
+  );
+  await user.click(screen.getByRole("button", { name: "Enter private value" }));
+  await waitFor(() => {
+    expect(rpc.variableInputCalls).toHaveLength(1);
+  });
+  expect(rpc.variableInputCalls[0]).toMatchObject({
+    payload: {
+      data: {
+        sessionId: session.id,
+        value: "246810",
+        variable: { name: "OTP", runtime: true, secret: true },
+      },
+      type: "agent.teaching.variable.input",
+    },
+  });
+});
 
 test("offers browser navigation only while the user holds the browser", async () => {
   const user = userEvent.setup();

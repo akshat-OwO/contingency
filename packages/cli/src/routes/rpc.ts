@@ -569,6 +569,23 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.browser.input.sent" as const,
           })
         ),
+      "agent.teaching.variable.input": ({ data }) =>
+        agentUnavailable((service) =>
+          service.enterUserVariable(
+            data.sessionId,
+            {
+              ...(data.ref === undefined ? {} : { ref: data.ref }),
+              value: data.value,
+              variable: data.variable,
+            },
+            data.operationId
+          )
+        ).pipe(
+          Effect.map((action) => ({
+            data: { action },
+            type: "agent.teaching.variable.input.result" as const,
+          }))
+        ),
       "agent.browser.navigate": ({ data }) =>
         agentUnavailable((service) =>
           service.userNavigate(data.sessionId, data.action)

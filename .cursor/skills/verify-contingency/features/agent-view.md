@@ -15,6 +15,7 @@ Agent View watches Teaching and Interactive Runs owned by one local MCP process,
 - `agent-return-control` hands the browser back, and the toolbar goes quiet again.
 - `agent-teaching-details` shows a Teaching session's captured action and instruction counts, the Teaching Feed disclosure, and the saved draft once one exists.
 - `agent-teaching-draft` compiles a Teaching session into a draft Agent Flow through MCP, refuses invalid output with diagnostics, and finds the draft again by catalog search.
+- `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Feed or draft.
 
 ## How to get to it (user POV)
 
@@ -67,6 +68,17 @@ Preconditions:
 - **Proof (local Trace).** Close the Teaching session with `agent_session_close`, then require `test -s "$CONTINGENCY_VERIFY_DIR/state/catalog/teaching/$sessionId.trace.zip"`. The Trace stays under isolated state and is not copied into proof artifacts.
 - **Proof (searchable later).** Run `control-contingency mcp stop`, `control-contingency mcp start`, then `control-contingency mcp call --tool agent_catalog_search --params "{\"query\":\"anvil\"}"`. `agent_sessions_get` is empty in the new process, yet the hit carries `"status":"draft"`, the title, `stepCount`, and `matchedFields`. `{"status":"approved"}` returns no hits.
 
+### Teaching private Variables
+
+- **Start on the login fixture.** Start a Teaching session at `${ECOMMERCE_URL%/*}/login.html`, open its `viewUrl`, and take control. Use `agent_browser_snapshot` first and note the refs for `Account ID`, `Password`, and `One-time code`.
+- **Focus without entering the literal.** Before Takeover, call `agent_browser_act` with `{"action":{"type":"click","ref":"<account ref>"}}`. In Agent View click `Take control`, then click `Enter private value`.
+- **Enter the reusable account in Agent View.** In the `Enter a private Variable` dialog fill `Variable name` with `ACCOUNT_ID`, fill `Value` with a disposable literal, leave `Secret` checked, leave `Ask during each Run` unchecked, and submit `Enter private value`. The dialog closes and the page receives the value once.
+- **Enter agent-conversation values.** Return control. Call `agent_teaching_variable_input` for the password ref with `{"variable":{"name":"PASSWORD","secret":true,"runtime":false},"value":"<disposable password>"}` and for the OTP ref with `{"variable":{"name":"OTP","secret":true,"runtime":true},"value":"<disposable otp>"}`. Use a fresh `operationId` for each.
+- **Prove the feed boundary.** Call `agent_browser_screenshot`, then `agent_teaching_feed_get` with `includeSnapshots:true`. `variables` declares `ACCOUNT_ID`, `PASSWORD`, and `OTP`; the three captured fills contain `{{ACCOUNT_ID}}`, `{{PASSWORD}}`, and `{{OTP}}`. Search the complete stdout for all three disposable literals and require zero matches. The screenshot masks the known fields on a best-effort basis; cookies, authorization data, network bodies, Trace, and video are absent.
+- **Prove draft enforcement.** Try `agent_flow_draft_save` over the three fills without `variables`; it exits `2` with one `missing_variable` diagnostic per declaration. Retry with the feed's declarations. Read `manifest.json` and every Evidence Slice under the saved revision and require the disposable literals to be absent while the Step actions retain the three Variable references.
+- **Proof (Agent View).** Capture `agent-view/private-variables.aria.txt` and `private-variables.png` while the private dialog is open. The proof shows the best-effort masking disclosure and the independent `Secret` / `Ask during each Run` controls, but never the Value literal.
+- **Proof (local sensitive artifacts).** Close the session and require non-empty `$CONTINGENCY_VERIFY_DIR/state/catalog/teaching/$sessionId.trace.zip` plus a `.webm` file in the same directory. Read `$sessionId.artifacts.json`: it marks the named Trace and video with `"sensitive":true` and `"retention":"local"`. Do not copy the unredacted artifacts into `artifacts/`.
+
 ## Gotchas
 
 - `Loading Agent Sessions…` is transient. Wait for the alert or the empty heading. Do not snapshot the spinner.
@@ -76,7 +88,7 @@ Preconditions:
 - Closing Agent View does not pause a real session. That sentence appears only on the live view, which this `web` launch cannot show.
 - Do not start `mcp` on 7777 if the user already has Contingency there. `mcp start` picks its own port.
 - Only the user returns control. There is no MCP tool for it by design; an agent may only ask with `agent_session_takeover_request`. A drive that needs the agent driving again must click `Return control`.
-- Raw input during Takeover is recorded as redacted user input in Teaching. The low-level event identifies mouse or keyboard input without preserving typed characters; use the before and after Browser Snapshots to understand its effect.
+- Consecutive ordinary text edits during Takeover are coalesced into one semantic `fill`. Other low-level user input remains a redacted mouse or keyboard event.
 - `agent_browser_screenshot` and `agent_browser_snapshot` keep working while the user holds control. Observation is not gated on control; action is.
 - A failed tool call exits non-zero and prints the reason (`Element reference e12 is stale…`, `Could not find "X": Timeout…`). Assert on that text rather than on the exit code alone.
 - Element references expire when the Page navigates. Take a fresh `agent_browser_snapshot` after any navigation before acting on a `ref`.

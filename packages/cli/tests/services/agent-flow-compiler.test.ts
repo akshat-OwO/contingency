@@ -85,6 +85,7 @@ const demonstration: Demonstration = {
     { actionId: "a2", at: at(2), from: shop, to: cart },
     { actionId: "a4", at: at(4), from: cart, to: pay },
   ],
+  variables: [],
 };
 
 const fillTheCart: AgentStepProposal = {
@@ -257,6 +258,31 @@ describe("compileAgentFlowDraft", () => {
       "duplicate_tag",
       "duplicate_variable",
     ]);
+  });
+
+  it("requires every demonstrated private Variable in the draft", () => {
+    const compiled = compileAgentFlowDraft(proposal, {
+      ...demonstration,
+      variables: [{ name: "PASSWORD", runtime: false, secret: true }],
+    });
+    expect(failureCodes(compiled)).toEqual(["missing_variable"]);
+    expect(Result.isFailure(compiled) && compiled.failure[0]).toMatchObject({
+      message:
+        "The Demonstration uses Variable PASSWORD, but the draft does not declare it.",
+      path: ["variables"],
+    });
+
+    const changed = compileAgentFlowDraft(
+      {
+        ...proposal,
+        variables: [{ name: "PASSWORD", runtime: true, secret: false }],
+      },
+      {
+        ...demonstration,
+        variables: [{ name: "PASSWORD", runtime: false, secret: true }],
+      }
+    );
+    expect(failureCodes(changed)).toEqual(["variable_mismatch"]);
   });
 });
 
