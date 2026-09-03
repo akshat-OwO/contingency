@@ -772,18 +772,40 @@ export const makeAgentElementRegistry = (
   };
 };
 
+const REDACTED = "[sensitive input]";
+
 const redactKnownValues = (text: string, values: readonly string[]): string => {
   if (values.includes(text)) {
-    return "[sensitive input]";
+    return REDACTED;
   }
   let redacted = text;
   for (const value of values) {
     if (value.length < 4) {
       continue;
     }
-    redacted = redacted.split(value).join("[sensitive input]");
+    redacted = redacted.split(value).join(REDACTED);
   }
   return redacted;
+};
+
+/**
+ * A control's own value is redacted whenever it is any part of a known private
+ * value, not only the whole of it. Split one-time-code inputs hold one
+ * character each, so the digit-per-box form of a declared Variable is
+ * reassembleable from Snapshot values that the length-bounded rewrite above
+ * deliberately refuses to apply to free page text. Over-redacting a public
+ * control that happens to hold a segment of a secret is the safe direction.
+ */
+const redactControlValue = (
+  value: string,
+  values: readonly string[]
+): string => {
+  if (value.length === 0) {
+    return value;
+  }
+  return values.some((known) => known.includes(value))
+    ? REDACTED
+    : redactKnownValues(value, values);
 };
 
 /** Remove session-known private values from every textual Snapshot field. */
@@ -797,7 +819,7 @@ export const redactAgentSnapshot = (
     name: redactKnownValues(node.name, values),
     ...(node.value === undefined
       ? {}
-      : { value: redactKnownValues(node.value, values) }),
+      : { value: redactControlValue(node.value, values) }),
   })),
   title: redactKnownValues(snapshot.title, values),
 });
@@ -829,8 +851,12 @@ export const captureAgentScreenshot = (
               });
             }, privateValues);
       const textElements = page.locator("body *");
+      // Free page text is scanned only for values long enough to be a
+      // meaningful match. A one-character Variable would otherwise black out
+      // most of a Teaching screenshot; its control is already masked above.
+      const textValues = privateValues.filter((value) => value.length >= 4);
       const privateTextIndexes =
-        privateValues.length === 0
+        textValues.length === 0
           ? []
           : await textElements.evaluateAll(
               (elements, values) =>
@@ -843,7 +869,7 @@ export const captureAgentScreenshot = (
                     ? [index]
                     : [];
                 }),
-              privateValues
+              textValues
             );
       return page.screenshot({
         ...(maskSensitive

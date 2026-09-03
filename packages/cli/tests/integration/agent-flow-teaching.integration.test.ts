@@ -589,7 +589,7 @@ it.live(
           "textbox",
           "Rejected private value"
         );
-        const otp = findNode(observed.nodes, "textbox", "otp-input 1 of 6");
+        const otp = findNode(observed.nodes, "textbox", "digit 1 of 6");
         const help = findNode(observed.nodes, "button", "Open help");
         yield* session("agent_browser_act", {
           action: { ref: display.ref, type: "click" },
@@ -706,6 +706,17 @@ it.live(
           findNode(enteredOtp.snapshot.nodes, "output", "Verification ready")
             .name
         ).toBe("Verification ready");
+        // The fixture's split boxes carry no one-time-code metadata, so the
+        // Snapshot heuristic keeps their values. Each one holds a single
+        // character of the declared Variable and must still be redacted.
+        const otpBoxes = enteredOtp.snapshot.nodes.filter(({ name }) =>
+          name.endsWith(" of 6")
+        );
+        expect(otpBoxes).toHaveLength(6);
+        for (const box of otpBoxes) {
+          expect(box.value).not.toBe("");
+          expect(box.value).toBe("[sensitive input]");
+        }
         yield* session("agent_browser_screenshot", { sessionId: started.id });
 
         const feed = yield* flow("agent_teaching_feed_get", {
@@ -714,7 +725,14 @@ it.live(
         });
         const literals = [mobileLiteral, passwordLiteral, otpLiteral];
         const exported = JSON.stringify(feed);
-        const snapshotExport = JSON.stringify({ ...feed, screenshots: [] });
+        // The fixture server binds an ephemeral port, so its digits would
+        // otherwise collide at random with a slice of a numeric literal.
+        const snapshotExport = JSON.stringify({
+          ...feed,
+          screenshots: [],
+        })
+          .split(new URL(started.currentUrl).origin)
+          .join("http://fixture");
         for (const literal of literals) {
           expect(exported).not.toContain(literal);
         }
@@ -728,6 +746,15 @@ it.live(
           }
         }
         expect(snapshotExport).not.toContain("{{IGNORED}}");
+        const feedOtpBoxes = feed.snapshots.flatMap(({ nodes }) =>
+          nodes.filter(({ name }) => name.endsWith(" of 6"))
+        );
+        expect(feedOtpBoxes.length).toBeGreaterThan(0);
+        for (const box of feedOtpBoxes) {
+          // Snapshots taken before private entry hold an empty box; every
+          // filled one must be redacted rather than carrying its digit.
+          expect(["", "[sensitive input]", undefined]).toContain(box.value);
+        }
         expect(feed.variables).toEqual([
           { name: "MOBILE", runtime: false, secret: true },
           { name: "PASSWORD", runtime: false, secret: true },
