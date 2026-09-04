@@ -1,5 +1,11 @@
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -541,4 +547,48 @@ test("keeps unsaved corrections when the draft is reread", async () => {
       "Sign in as the demo shopper"
     );
   });
+});
+
+test("offers the merged span's later actions as split points", async () => {
+  const user = userEvent.setup();
+  renderReview(detailWith(null), "agent-one");
+
+  await user.click(
+    await screen.findByRole("button", { name: "Merge with next Step" })
+  );
+
+  // The merged objective covers both demonstrated Steps, so the user can split
+  // it anywhere after its first action — including inside what was Step 2.
+  const split = screen.getByLabelText("Split Agent Step 1 before");
+  expect(
+    within(split).getByRole("option", { name: "Enter Variable PASSWORD in e3" })
+  ).toBeInTheDocument();
+  expect(
+    within(split).getByRole("option", { name: "Click Place order" })
+  ).toBeInTheDocument();
+});
+
+test("shows each split Step the actions its own span covers", async () => {
+  const user = userEvent.setup();
+  renderReview(detailWith(null), "agent-one");
+
+  await user.selectOptions(
+    await screen.findByLabelText("Split Agent Step 1 before"),
+    "action-2"
+  );
+  const [split] = screen.getAllByRole("button", { name: "Split Step" });
+  if (split === undefined) {
+    throw new Error("Agent View offered no way to split an Agent Step.");
+  }
+  await user.click(split);
+
+  expect(
+    screen.getByRole("list", { name: "Agent Step 1 evidence" })
+  ).toHaveTextContent("Navigate to the sign-in page");
+  const second = screen.getByRole("list", { name: "Agent Step 2 evidence" });
+  expect(second).toHaveTextContent("Enter Variable PASSWORD in e3");
+  expect(second).not.toHaveTextContent("Click Place order");
+  expect(
+    screen.getByRole("list", { name: "Agent Step 3 evidence" })
+  ).toHaveTextContent("Click Place order");
 });

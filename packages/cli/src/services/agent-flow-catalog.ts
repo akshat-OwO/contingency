@@ -10,6 +10,7 @@ import {
   EvidenceHash,
   EvidenceSlice,
   OperationId,
+  StoredAgentFlowManifest,
 } from "@contingency/protocol";
 import type {
   AgentCatalogInfo,
@@ -21,7 +22,9 @@ import type {
   AgentFlowVerification,
   AgentFlowVerificationOutcome,
   AgentSessionId,
+  AgentStep,
   DraftEmulation,
+  StoredAgentStep,
 } from "@contingency/protocol";
 import {
   Context,
@@ -1036,16 +1039,67 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       catalogRoot
     );
 
+  /**
+   * Recover the demonstrated span of a Step stored before Contingency kept
+   * one. The Evidence Slice the Step already names was cut from exactly that
+   * span, so its first and last captured actions are its boundaries — an
+   * explicit, non-destructive migration of what the Catalog Root holds
+   * (ADR 0033).
+   */
+  const stepWithSpan = (
+    catalogRoot: string,
+    id: AgentFlowId,
+    step: StoredAgentStep
+  ): Effect.Effect<AgentStep, AgentFlowCatalogError> => {
+    if (step.firstActionId !== undefined && step.lastActionId !== undefined) {
+      return Effect.succeed({
+        ...step,
+        firstActionId: step.firstActionId,
+        lastActionId: step.lastActionId,
+      });
+    }
+    return readJson(
+      EvidenceSlice,
+      path.join(flowDirectory(catalogRoot, id), step.evidence.path),
+      "Evidence Slice",
+      catalogRoot
+    ).pipe(
+      Effect.flatMap((slice) => {
+        const [first] = slice.actions;
+        const last = slice.actions.at(-1);
+        if (first === undefined || last === undefined) {
+          return Effect.fail(
+            catalogError(
+              "agent_catalog_invalid",
+              `Agent Step ${step.index + 1} of ${id} names no demonstrated actions, so its span cannot be recovered.`
+            )
+          );
+        }
+        return Effect.succeed({
+          ...step,
+          firstActionId: first.id,
+          lastActionId: last.id,
+        });
+      })
+    );
+  };
+
   const readManifest = (
     catalogRoot: string,
     id: AgentFlowId,
     revisionId: AgentFlowRevisionId
-  ) =>
+  ): Effect.Effect<AgentFlowManifest, AgentFlowCatalogError> =>
     readJson(
-      AgentFlowManifest,
+      StoredAgentFlowManifest,
       path.join(revisionDirectory(catalogRoot, id, revisionId), MANIFEST_FILE),
       "Agent Flow manifest",
       catalogRoot
+    ).pipe(
+      Effect.flatMap((stored) =>
+        Effect.all(
+          stored.steps.map((step) => stepWithSpan(catalogRoot, id, step))
+        ).pipe(Effect.map((steps) => ({ ...stored, steps })))
+      )
     );
 
   const revision = (

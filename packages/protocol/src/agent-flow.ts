@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   AgentBrowserAction,
@@ -314,6 +314,27 @@ export const AgentFlowManifest = Schema.Struct({
 export type AgentFlowManifest = typeof AgentFlowManifest.Type;
 
 /**
+ * One Agent Step as older Catalog Roots stored it, before a Step carried the
+ * demonstrated span it was cut from. The span is recovered from the Evidence
+ * Slice the Step already names, so a manifest written by an earlier version
+ * still opens for review
+ * ([ADR 0033](../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+ */
+export const StoredAgentStep = Schema.Struct({
+  ...AgentStep.fields,
+  firstActionId: Schema.optionalKey(nonEmptyString),
+  lastActionId: Schema.optionalKey(nonEmptyString),
+});
+export type StoredAgentStep = typeof StoredAgentStep.Type;
+
+/** A manifest as it is on disk, before its Steps' spans are recovered. */
+export const StoredAgentFlowManifest = Schema.Struct({
+  ...AgentFlowManifest.fields,
+  steps: Schema.Array(StoredAgentStep).check(Schema.isMinLength(1)),
+});
+export type StoredAgentFlowManifest = typeof StoredAgentFlowManifest.Type;
+
+/**
  * Where one Verification Run stands. `authorized` is spent by starting the
  * Run, so one direct user gesture funds one attempt rather than unlimited
  * agent retries
@@ -362,8 +383,16 @@ export const AgentFlowHeads = Schema.Struct({
   id: AgentFlowId,
   schemaVersion: Schema.Literal(1),
   updatedAt: nonEmptyString,
-  /** The current draft's verification, or `null` when none is authorized. */
-  verification: Schema.NullOr(AgentFlowVerification),
+  /**
+   * The current draft's verification, or `null` when none is authorized. A
+   * record written before Contingency verified drafts has no such key, and an
+   * absent authorization is exactly no authorization, so it reads as `null`
+   * rather than making the Agent Flow unreadable
+   * ([ADR 0033](../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+   */
+  verification: Schema.NullOr(AgentFlowVerification).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
 });
 export type AgentFlowHeads = typeof AgentFlowHeads.Type;
 

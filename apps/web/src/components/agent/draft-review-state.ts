@@ -159,14 +159,49 @@ export const draftIsEdited = (
     draftProposalFrom(manifest, draftEditFromManifest(manifest))
   ) !== JSON.stringify(draftProposalFrom(manifest, edit));
 
-/** The captured action ids one Step covers, in the order they happened. */
-export const stepActionIds = (
-  evidence: readonly AgentFlowEvidenceSummary[],
-  index: number
-): readonly string[] =>
+/** One captured action as the evidence summaries describe it. */
+export type DemonstratedAction = AgentFlowEvidenceSummary["actions"][number];
+
+/**
+ * Every captured action behind the draft, in the order it was demonstrated.
+ * Corrections move Step boundaries across this one sequence, so the actions a
+ * Step covers follow from the span it names — never from where the Step sits
+ * in a list the user has since merged or split.
+ */
+export const demonstratedActions = (
+  evidence: readonly AgentFlowEvidenceSummary[]
+): readonly DemonstratedAction[] =>
   evidence
-    .find((summary) => summary.stepIndex === index)
-    ?.actions.map((action) => action.id) ?? [];
+    .toSorted((one, other) => one.stepIndex - other.stepIndex)
+    .flatMap((summary) => summary.actions);
+
+/** The captured actions one edited Step covers, in the order they happened. */
+export const spanActions = (
+  actions: readonly DemonstratedAction[],
+  step: DraftStepEdit
+): readonly DemonstratedAction[] => {
+  const from = actions.findIndex(({ id }) => id === step.firstActionId);
+  const to = actions.findIndex(({ id }) => id === step.lastActionId);
+  if (from === -1 || to < from) {
+    return [];
+  }
+  return actions.slice(from, to + 1);
+};
+
+/**
+ * The compiled Evidence Slice for exactly this span, when one exists. A merged
+ * or split Step has no slice until the correction is saved, because
+ * Contingency derives every slice from the span the saved proposal names.
+ */
+export const spanEvidence = (
+  evidence: readonly AgentFlowEvidenceSummary[],
+  step: DraftStepEdit
+): AgentFlowEvidenceSummary | undefined =>
+  evidence.find(
+    (summary) =>
+      summary.actions[0]?.id === step.firstActionId &&
+      summary.actions.at(-1)?.id === step.lastActionId
+  );
 
 export interface AuthorizationPresentation {
   /** What the one verification button does next, or nothing when it is hidden. */

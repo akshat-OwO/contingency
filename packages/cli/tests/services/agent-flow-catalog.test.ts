@@ -952,3 +952,55 @@ it.effect("reads the Evidence Slices behind a revision in Step order", () =>
     })
   )
 );
+
+it.effect("reads a Catalog Root written before drafts were verified", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* readOlderCatalogRoot() {
+      const saved = yield* catalog.saveDraft(saveInput("Shop front", "old-1"));
+      const flowDirectory = path.join(
+        root,
+        AGENT_FLOWS_DIRECTORY,
+        saved.manifest.agentFlowId
+      );
+
+      // What an earlier Contingency wrote: heads with no verification key, and
+      // Agent Steps with no demonstrated span.
+      const heads = JSON.parse(
+        yield* fileSystem.readFileString(
+          path.join(flowDirectory, "agent-flow.json")
+        )
+      ) as Record<string, unknown>;
+      delete heads.verification;
+      yield* fileSystem.writeFileString(
+        path.join(flowDirectory, "agent-flow.json"),
+        JSON.stringify(heads)
+      );
+
+      const manifestFile = path.join(saved.path, "manifest.json");
+      const manifest = JSON.parse(
+        yield* fileSystem.readFileString(manifestFile)
+      ) as { steps: Record<string, unknown>[] };
+      for (const step of manifest.steps) {
+        delete step.firstActionId;
+        delete step.lastActionId;
+      }
+      yield* fileSystem.writeFileString(manifestFile, JSON.stringify(manifest));
+
+      const read = yield* catalog.get(saved.manifest.agentFlowId);
+      expect(read.heads.verification).toBeNull();
+      // The Evidence Slice the Step names was cut from exactly its span, so
+      // its first and last captured actions are the span's boundaries.
+      const [recovered] = read.manifest.steps;
+      const [captured] = slice(
+        "Open the shop",
+        "https://shop.example.com/"
+      ).actions;
+      expect(recovered?.firstActionId).toBe(captured?.id);
+      expect(recovered?.lastActionId).toBe(captured?.id);
+      expect({ ...read.manifest, steps: [] }).toEqual({
+        ...saved.manifest,
+        steps: [],
+      });
+    })
+  )
+);

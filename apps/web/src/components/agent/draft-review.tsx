@@ -1,6 +1,7 @@
 import type {
   AgentFlowEvidenceSummary,
   AgentFlowId,
+  AgentFlowManifest,
   AgentFlowRevisionId,
   AgentSessionId,
   AgentSessionSnapshot,
@@ -30,12 +31,16 @@ import {
   editStep,
   mergeStepWithNext,
   parseHosts,
+  demonstratedActions,
   refusal,
   shownRevision,
+  spanActions,
+  spanEvidence,
   splitStepAt,
-  stepActionIds,
 } from "@/components/agent/draft-review-state";
 import type {
+  AuthorizationPresentation,
+  DemonstratedAction,
   DraftReviewEdit,
   DraftReviewKey,
 } from "@/components/agent/draft-review-state";
@@ -61,7 +66,7 @@ import {
 const operationId = () => OperationId.make(crypto.randomUUID());
 
 const StepEditor = ({
-  actionIds,
+  actions,
   canEdit,
   evidence,
   index,
@@ -72,7 +77,8 @@ const StepEditor = ({
   reviewKey,
   step,
 }: {
-  readonly actionIds: readonly string[];
+  /** The captured actions this Step's span covers, in demonstrated order. */
+  readonly actions: readonly DemonstratedAction[];
   readonly canEdit: boolean;
   readonly evidence: AgentFlowEvidenceSummary | undefined;
   readonly index: number;
@@ -90,7 +96,7 @@ const StepEditor = ({
   const [splitAt, setSplitAt] = useAtom(draftSplitAtom(reviewKey)(index));
   // A Step always covers at least one action, so its first action can never
   // start the second half of a split.
-  const splitPoints = actionIds.slice(1);
+  const splitPoints = actions.slice(1);
   return (
     <li className="space-y-3 p-3">
       <div className="space-y-2">
@@ -129,21 +135,31 @@ const StepEditor = ({
           {`Agent Step ${index + 1} Confirmation Step: ask me before each irreversible attempt`}
         </Label>
       </div>
-      {evidence === undefined ? null : (
+      {actions.length === 0 ? null : (
         <div className="text-muted-foreground space-y-1 text-xs">
-          <p>
-            Evidence: {evidence.actions.length} captured action
-            {evidence.actions.length === 1 ? "" : "s"},{" "}
-            {evidence.instructions.length} instruction
-            {evidence.instructions.length === 1 ? "" : "s"},{" "}
-            {evidence.screenshotCount} screenshot
-            {evidence.screenshotCount === 1 ? "" : "s"},{" "}
-            {evidence.urlTransitionCount} URL transition
-            {evidence.urlTransitionCount === 1 ? "" : "s"}.
-          </p>
-          <p className="font-mono wrap-anywhere">{evidence.hash}</p>
+          {evidence === undefined ? (
+            <p>
+              {actions.length} captured action
+              {actions.length === 1 ? "" : "s"}. Contingency derives this Step's
+              Evidence Slice from the span when you save the correction.
+            </p>
+          ) : (
+            <>
+              <p>
+                Evidence: {evidence.actions.length} captured action
+                {evidence.actions.length === 1 ? "" : "s"},{" "}
+                {evidence.instructions.length} instruction
+                {evidence.instructions.length === 1 ? "" : "s"},{" "}
+                {evidence.screenshotCount} screenshot
+                {evidence.screenshotCount === 1 ? "" : "s"},{" "}
+                {evidence.urlTransitionCount} URL transition
+                {evidence.urlTransitionCount === 1 ? "" : "s"}.
+              </p>
+              <p className="font-mono wrap-anywhere">{evidence.hash}</p>
+            </>
+          )}
           <ul aria-label={`Agent Step ${index + 1} evidence`}>
-            {evidence.actions.map((action) => (
+            {actions.map((action) => (
               <li key={action.id}>
                 {action.actor === "user" ? "You" : "The agent"}:{" "}
                 {action.description} · {action.outcome}
@@ -173,10 +189,9 @@ const StepEditor = ({
                   <NativeSelectOption value="">
                     Choose an action
                   </NativeSelectOption>
-                  {splitPoints.map((actionId) => (
-                    <NativeSelectOption key={actionId} value={actionId}>
-                      {evidence?.actions.find(({ id }) => id === actionId)
-                        ?.description ?? actionId}
+                  {splitPoints.map((action) => (
+                    <NativeSelectOption key={action.id} value={action.id}>
+                      {action.description}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
@@ -286,6 +301,96 @@ const VariableSupply = ({
   );
 };
 
+/** What the draft declares beyond its Steps: its Variables and its Emulation. */
+const DraftFacts = ({ manifest }: { readonly manifest: AgentFlowManifest }) => (
+  <>
+    <div className="space-y-1">
+      <h3 className="text-xs font-semibold">Variables</h3>
+      {manifest.variables.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          This journey declares no Variables.
+        </p>
+      ) : (
+        <ul aria-label="Variables" className="text-muted-foreground text-xs">
+          {manifest.variables.map((variable) => (
+            <li key={variable.name}>
+              {variable.name}
+              {variable.secret ? " · secret" : ""}
+              {variable.runtime ? " · asked for at run time" : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+
+    <div className="space-y-1">
+      <h3 className="text-xs font-semibold">Emulation</h3>
+      <p className="text-muted-foreground text-xs">
+        {manifest.emulation.userAgentProfile} ·{" "}
+        {manifest.emulation.viewport.width} ×{" "}
+        {manifest.emulation.viewport.height}
+      </p>
+    </div>
+  </>
+);
+
+/**
+ * The two gestures no MCP tool can reach. They are buttons in Agent View and
+ * nowhere else
+ * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ */
+const VerificationGestures = ({
+  authorization,
+  failure,
+  onApprove,
+  onAuthorize,
+  pending,
+}: {
+  readonly authorization: AuthorizationPresentation;
+  /** Why the last gesture did not take effect, when one was refused. */
+  readonly failure: string | undefined;
+  readonly onApprove: () => void;
+  readonly onAuthorize: () => void;
+  readonly pending: boolean;
+}) => (
+  <div className="space-y-2 border-t pt-3">
+    <h3 className="text-xs font-semibold">Verification</h3>
+    <p className="text-muted-foreground text-xs">{authorization.detail}</p>
+    {authorization.action === undefined ? null : (
+      <Button disabled={pending} onClick={onAuthorize} size="sm" type="button">
+        {authorization.action}
+      </Button>
+    )}
+    {authorization.canApprove ? (
+      <Alert>
+        <CircleCheckIcon aria-hidden="true" />
+        <AlertTitle>This draft passed verification</AlertTitle>
+        <AlertDescription>
+          <span>
+            Approving makes this exact revision the Approved Agent Flow. It
+            cannot be edited afterwards; a change creates a new draft.
+          </span>
+          <Button
+            disabled={pending}
+            onClick={onApprove}
+            size="sm"
+            type="button"
+          >
+            Approve Agent Flow
+          </Button>
+        </AlertDescription>
+      </Alert>
+    ) : null}
+    {failure === undefined ? null : (
+      <Alert variant="destructive">
+        <CircleAlertIcon aria-hidden="true" />
+        <AlertTitle>That action was refused</AlertTitle>
+        <AlertDescription>{failure}</AlertDescription>
+      </Alert>
+    )}
+  </div>
+);
+
 /**
  * The draft under review. The user reads what verification would authorize,
  * corrects the agent's proposed objectives and Domain Scope, and performs the
@@ -381,6 +486,8 @@ export const DraftReview = ({
   const correct = (change: (current: DraftReviewEdit) => DraftReviewEdit) => {
     setCorrections({ edit: change(edit), hostsText });
   };
+  /** Every demonstrated action behind the draft, whatever the edit did. */
+  const actions = demonstratedActions(detail.evidence);
   const edited = draftIsEdited(manifest, edit);
   const canEdit = sessionId !== undefined && manifest.status === "draft";
   const authorization = authorizationPresentation(
@@ -388,6 +495,34 @@ export const DraftReview = ({
     manifest.revisionId,
     edited
   );
+
+  const authorizeRun = () => {
+    setGesture("authorize");
+    authorize({
+      payload: {
+        data: {
+          agentFlowId: manifest.agentFlowId,
+          operationId: operationId(),
+          revisionId: manifest.revisionId,
+        },
+        type: "agent.flow.verification.authorize",
+      },
+    });
+  };
+
+  const approveRevision = () => {
+    setGesture("approve");
+    approve({
+      payload: {
+        data: {
+          agentFlowId: manifest.agentFlowId,
+          operationId: operationId(),
+          revisionId: manifest.revisionId,
+        },
+        type: "agent.flow.approve",
+      },
+    });
+  };
 
   const saveCorrections = () => {
     if (sessionId === undefined) {
@@ -432,36 +567,40 @@ export const DraftReview = ({
         </div>
 
         <ul aria-label="Agent Steps" className="divide-y rounded-lg border">
-          {edit.steps.map((step, index) => (
-            <StepEditor
-              actionIds={stepActionIds(detail.evidence, index)}
-              canEdit={canEdit}
-              evidence={detail.evidence[index]}
-              index={index}
-              isLast={index === edit.steps.length - 1}
-              // Steps are reordered by merging and splitting, so the demonstrated
-              // span they cover is what identifies one across an edit.
-              key={`${step.firstActionId}-${step.lastActionId}`}
-              onChange={(patch) =>
-                correct((current) => editStep(current, index, patch))
-              }
-              onMerge={() =>
-                correct((current) => mergeStepWithNext(current, index))
-              }
-              onSplit={(actionId) =>
-                correct((current) =>
-                  splitStepAt(
-                    current,
-                    index,
-                    stepActionIds(detail.evidence, index),
-                    actionId
+          {edit.steps.map((step, index) => {
+            const covered = spanActions(actions, step);
+            return (
+              <StepEditor
+                actions={covered}
+                canEdit={canEdit}
+                evidence={spanEvidence(detail.evidence, step)}
+                index={index}
+                isLast={index === edit.steps.length - 1}
+                // Steps are reordered by merging and splitting, so the
+                // demonstrated span they cover is what identifies one across
+                // an edit.
+                key={`${step.firstActionId}-${step.lastActionId}`}
+                onChange={(patch) =>
+                  correct((current) => editStep(current, index, patch))
+                }
+                onMerge={() =>
+                  correct((current) => mergeStepWithNext(current, index))
+                }
+                onSplit={(actionId) =>
+                  correct((current) =>
+                    splitStepAt(
+                      current,
+                      index,
+                      covered.map(({ id }) => id),
+                      actionId
+                    )
                   )
-                )
-              }
-              reviewKey={reviewKey}
-              step={step}
-            />
-          ))}
+                }
+                reviewKey={reviewKey}
+                step={step}
+              />
+            );
+          })}
         </ul>
 
         <div className="space-y-2">
@@ -485,36 +624,7 @@ export const DraftReview = ({
           />
         </div>
 
-        <div className="space-y-1">
-          <h3 className="text-xs font-semibold">Variables</h3>
-          {manifest.variables.length === 0 ? (
-            <p className="text-muted-foreground text-xs">
-              This journey declares no Variables.
-            </p>
-          ) : (
-            <ul
-              aria-label="Variables"
-              className="text-muted-foreground text-xs"
-            >
-              {manifest.variables.map((variable) => (
-                <li key={variable.name}>
-                  {variable.name}
-                  {variable.secret ? " · secret" : ""}
-                  {variable.runtime ? " · asked for at run time" : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="space-y-1">
-          <h3 className="text-xs font-semibold">Emulation</h3>
-          <p className="text-muted-foreground text-xs">
-            {manifest.emulation.userAgentProfile} ·{" "}
-            {manifest.emulation.viewport.width} ×{" "}
-            {manifest.emulation.viewport.height}
-          </p>
-        </div>
+        <DraftFacts manifest={manifest} />
 
         {canEdit ? (
           <Button
@@ -527,73 +637,13 @@ export const DraftReview = ({
           </Button>
         ) : null}
 
-        <div className="space-y-2 border-t pt-3">
-          <h3 className="text-xs font-semibold">Verification</h3>
-          <p className="text-muted-foreground text-xs">
-            {authorization.detail}
-          </p>
-          {authorization.action === undefined ? null : (
-            <Button
-              disabled={pending}
-              onClick={() => {
-                setGesture("authorize");
-                authorize({
-                  payload: {
-                    data: {
-                      agentFlowId: manifest.agentFlowId,
-                      operationId: operationId(),
-                      revisionId: manifest.revisionId,
-                    },
-                    type: "agent.flow.verification.authorize",
-                  },
-                });
-              }}
-              size="sm"
-              type="button"
-            >
-              {authorization.action}
-            </Button>
-          )}
-          {authorization.canApprove ? (
-            <Alert>
-              <CircleCheckIcon aria-hidden="true" />
-              <AlertTitle>This draft passed verification</AlertTitle>
-              <AlertDescription>
-                <span>
-                  Approving makes this exact revision the Approved Agent Flow.
-                  It cannot be edited afterwards; a change creates a new draft.
-                </span>
-                <Button
-                  disabled={pending}
-                  onClick={() => {
-                    setGesture("approve");
-                    approve({
-                      payload: {
-                        data: {
-                          agentFlowId: manifest.agentFlowId,
-                          operationId: operationId(),
-                          revisionId: manifest.revisionId,
-                        },
-                        type: "agent.flow.approve",
-                      },
-                    });
-                  }}
-                  size="sm"
-                  type="button"
-                >
-                  Approve Agent Flow
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          {failure === undefined ? null : (
-            <Alert variant="destructive">
-              <CircleAlertIcon aria-hidden="true" />
-              <AlertTitle>That action was refused</AlertTitle>
-              <AlertDescription>{failure}</AlertDescription>
-            </Alert>
-          )}
-        </div>
+        <VerificationGestures
+          authorization={authorization}
+          failure={failure}
+          onApprove={approveRevision}
+          onAuthorize={authorizeRun}
+          pending={pending}
+        />
       </div>
     </section>
   );
