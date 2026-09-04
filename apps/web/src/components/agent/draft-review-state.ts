@@ -4,6 +4,7 @@ import type {
   AgentFlowRevisionId,
   AgentSessionId,
   AgentFlowEvidenceSummary,
+  AgentFlowHeads,
   AgentFlowManifest,
   AgentFlowRevisionStatus,
   AgentFlowVerification,
@@ -312,7 +313,7 @@ export interface DraftReviewKey {
 export interface DraftRevisionDetail {
   readonly evidence: readonly AgentFlowEvidenceSummary[];
   readonly revision: {
-    readonly heads: { readonly verification: AgentFlowVerification | null };
+    readonly heads: AgentFlowHeads;
     readonly manifest: AgentFlowManifest;
   };
 }
@@ -340,7 +341,7 @@ export const draftCorrectionsAtom = perRevision(() =>
  * The gesture this review last asked for. Its own RPC result — and no other
  * gesture's — is what the review reports as pending or refused.
  */
-export type DraftGesture = "approve" | "authorize" | "update";
+export type DraftGesture = "approve" | "archive" | "authorize" | "update";
 
 export const draftGestureAtom = perRevision(() =>
   Atom.make<DraftGesture | null>(null)
@@ -350,6 +351,9 @@ export const draftGestureAtom = perRevision(() =>
 export const draftSplitAtom = perRevision(() =>
   Atom.family((_index: number) => Atom.make(""))
 );
+
+/** Exact phrase the user types before Agent View enables permanent deletion. */
+export const draftDeletionConfirmationAtom = perRevision(() => Atom.make(""));
 
 /** The runtime Variable values typed into one Verification Run, by name. */
 export const draftVariableDraftAtom = Atom.family(

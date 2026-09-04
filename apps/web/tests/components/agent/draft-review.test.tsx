@@ -13,7 +13,9 @@ import { afterEach, expect, test, vi } from "vitest";
 
 const rpc = vi.hoisted(() => ({
   approveCalls: [] as unknown[],
+  archiveCalls: [] as unknown[],
   authorizeCalls: [] as unknown[],
+  deleteCalls: [] as unknown[],
   detail: undefined as unknown,
   readError: undefined as string | undefined,
   updateCalls: [] as unknown[],
@@ -44,6 +46,20 @@ vi.mock("@/lib/rpc", () => ({
     Effect.suspend(() => {
       rpc.approveCalls.push(payload);
       return answer();
+    })
+  ),
+  agentFlowArchiveMutation: Atom.fn((payload: unknown) =>
+    Effect.suspend(() => {
+      rpc.archiveCalls.push(payload);
+      return answer();
+    })
+  ),
+  agentFlowDeleteMutation: Atom.fn((payload: unknown) =>
+    Effect.suspend(() => {
+      rpc.deleteCalls.push(payload);
+      return Effect.succeed({
+        data: { agentFlowId: "flow-shop", deleted: true as const },
+      });
     })
   ),
   agentFlowDraftUpdateMutation: Atom.fn((payload: unknown) =>
@@ -222,7 +238,9 @@ const renderReview = (
 afterEach(() => {
   cleanup();
   rpc.approveCalls = [];
+  rpc.archiveCalls = [];
   rpc.authorizeCalls = [];
+  rpc.deleteCalls = [];
   rpc.readError = undefined;
   rpc.updateCalls = [];
   rpc.writeError = undefined;
@@ -246,6 +264,161 @@ test("shows the Agent Steps, evidence, Variables, Domain Scope, and Emulation", 
   expect(
     screen.getByRole("list", { name: "Agent Step 1 evidence" })
   ).toHaveTextContent("Navigate to the sign-in page");
+});
+
+test("archives an Agent Flow against the heads being reviewed", async () => {
+  const user = userEvent.setup();
+  renderReview(detailWith(null), "agent-one");
+
+  await user.click(
+    await screen.findByRole("button", { name: "Archive Agent Flow" })
+  );
+
+  await waitFor(() => {
+    expect(rpc.archiveCalls).toHaveLength(1);
+  });
+  const [call] = rpc.archiveCalls as [
+    {
+      readonly payload: {
+        readonly data: {
+          readonly agentFlowId: string;
+          readonly archived: boolean;
+          readonly expectedHeads: {
+            readonly approvedRevisionId: string | null;
+            readonly archived: boolean;
+            readonly draftRevisionId: string | null;
+          };
+        };
+      };
+    },
+  ];
+  expect(call.payload.data).toMatchObject({
+    agentFlowId: "flow-shop",
+    archived: true,
+    expectedHeads: {
+      approvedRevisionId: null,
+      archived: false,
+      draftRevisionId: "rev-1",
+    },
+  });
+});
+
+test("requires typed confirmation before permanently deleting an Agent Flow", async () => {
+  const user = userEvent.setup();
+  renderReview(detailWith(null), "agent-one");
+
+  const deleteButton = await screen.findByRole("button", {
+    name: "Permanently delete Agent Flow",
+  });
+  expect(deleteButton).toBeDisabled();
+
+  await user.type(
+    screen.getByLabelText(
+      "Type permanently-delete to confirm permanent deletion"
+    ),
+    "permanently-delete"
+  );
+  await user.click(deleteButton);
+
+  await waitFor(() => {
+    expect(rpc.deleteCalls).toHaveLength(1);
+  });
+  const [call] = rpc.deleteCalls as [
+    {
+      readonly payload: {
+        readonly data: {
+          readonly agentFlowId: string;
+          readonly confirmation: string;
+          readonly expectedHeads: {
+            readonly approvedRevisionId: string | null;
+            readonly archived: boolean;
+            readonly draftRevisionId: string | null;
+          };
+        };
+      };
+    },
+  ];
+  expect(call.payload.data).toMatchObject({
+    agentFlowId: "flow-shop",
+    confirmation: "permanently-delete",
+    expectedHeads: {
+      approvedRevisionId: null,
+      archived: false,
+      draftRevisionId: "rev-1",
+    },
+  });
+});
+
+test("does not carry deletion success into another Agent Flow review", async () => {
+  const user = userEvent.setup();
+  rpc.detail = detailWith(null);
+  const view = render(
+    <RegistryProvider>
+      <DraftReview
+        agentFlowId={"flow-shop" as never}
+        refreshToken={at}
+        revisionId={"rev-1" as never}
+        sessionId={"agent-one" as never}
+      />
+    </RegistryProvider>
+  );
+
+  await user.type(
+    await screen.findByLabelText(
+      "Type permanently-delete to confirm permanent deletion"
+    ),
+    "permanently-delete"
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Permanently delete Agent Flow" })
+  );
+  expect(
+    await screen.findByText("This Agent Flow was permanently deleted.")
+  ).toBeInTheDocument();
+
+  rpc.detail = detailWith(null, {
+    agentFlowId: "flow-other" as never,
+    revisionId: "rev-other" as never,
+  });
+  view.rerender(
+    <RegistryProvider>
+      <DraftReview
+        agentFlowId={"flow-other" as never}
+        refreshToken={at}
+        revisionId={"rev-other" as never}
+        sessionId={"agent-two" as never}
+      />
+    </RegistryProvider>
+  );
+
+  expect(
+    await screen.findByRole("button", { name: "Archive Agent Flow" })
+  ).toBeEnabled();
+  expect(
+    screen.queryByText("This Agent Flow was permanently deleted.")
+  ).not.toBeInTheDocument();
+});
+
+test("shows archive conflicts with the retirement controls", async () => {
+  const user = userEvent.setup();
+  rpc.writeError = "The Agent Flow changed before it could be archived.";
+  renderReview(detailWith(null), "agent-one");
+
+  await user.click(
+    await screen.findByRole("button", { name: "Archive Agent Flow" })
+  );
+
+  const retirement = screen.getByRole("heading", {
+    name: "Retire Agent Flow",
+  }).parentElement;
+  if (retirement === null) {
+    throw new Error("The retirement controls were not rendered.");
+  }
+  expect(
+    await within(retirement).findByText(
+      "The Agent Flow changed before it could be archived."
+    )
+  ).toBeInTheDocument();
 });
 
 test("renames a Step, edits Domain Scope, and saves one corrected proposal", async () => {

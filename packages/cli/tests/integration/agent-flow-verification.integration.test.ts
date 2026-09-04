@@ -7,7 +7,7 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Stream } from "effect";
+import { Effect, FileSystem, Layer, Result, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 
 import {
@@ -460,6 +460,51 @@ it.live(
         });
         expect(found.hits).toMatchObject([{ agentFlowId, status: "approved" }]);
 
+        // Two edits of the Approved Agent Flow start from the same immutable
+        // approved head. One becomes the new draft; the other gets a conflict.
+        const edit = (operationId: string, title: string) =>
+          flow("agent_flow_draft_save", {
+            agentFlowId,
+            basedOnRevisionId: correctedRevisionId,
+            draft: {
+              description: "Sign in with the account password.",
+              domainScope: { hosts: [fixtureHost] },
+              schemaVersion: 1 as const,
+              steps: [
+                {
+                  confirmation: true,
+                  description: "Enter the password, then confirm the sign-in.",
+                  firstActionId: fillAction.id,
+                  lastActionId: clickAction.id,
+                  name: title,
+                },
+              ],
+              title,
+              variables: feed.variables,
+            },
+            operationId: OperationId.make(operationId),
+            sessionId: taught.id,
+          });
+        const edits = yield* Effect.all(
+          [
+            Effect.result(edit("edit-approved-left", "Private login left")),
+            Effect.result(edit("edit-approved-right", "Private login right")),
+          ],
+          { concurrency: "unbounded" }
+        );
+        expect(edits.filter(Result.isSuccess)).toHaveLength(1);
+        const conflict = edits.find(Result.isFailure);
+        expect(conflict?.failure.code).toBe("agent_flow_conflict");
+        const afterEdit = yield* catalog.get(agentFlowId);
+        expect(afterEdit.heads.approvedRevisionId).toBe(correctedRevisionId);
+        expect(afterEdit.heads.draftRevisionId).not.toBeNull();
+        expect(
+          (yield* catalog.get(agentFlowId, correctedRevisionId)).manifest.status
+        ).toBe("approved");
+        expect(
+          (yield* flow("agent_catalog_search", { status: "approved" })).hits
+        ).toMatchObject([{ revisionId: correctedRevisionId }]);
+
         // No literal reached the persisted package.
         const persisted = yield* fileSystem.readFileString(
           path.join(
@@ -478,6 +523,15 @@ it.live(
           operationId: OperationId.make("close-teaching"),
           sessionId: taught.id,
         });
+        const retainedFiles = yield* fileSystem.readDirectory(
+          path.join(catalogRoot, "sessions"),
+          { recursive: true }
+        );
+        expect(
+          retainedFiles.some(
+            (file) => file.endsWith(".zip") || file.endsWith(".webm")
+          )
+        ).toBe(false);
       }).pipe(Effect.scoped, Effect.provide(verificationLayer(catalogRoot)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

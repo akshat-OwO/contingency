@@ -1,5 +1,6 @@
 import type {
   AgentFlowEvidenceSummary,
+  AgentFlowHeads,
   AgentFlowId,
   AgentFlowManifest,
   AgentFlowRevisionId,
@@ -21,6 +22,7 @@ import { useEffect, useRef } from "react";
 import {
   authorizationPresentation,
   draftCorrectionsAtom,
+  draftDeletionConfirmationAtom,
   draftEditFromManifest,
   draftGestureAtom,
   draftIsEdited,
@@ -41,6 +43,7 @@ import {
 import type {
   AuthorizationPresentation,
   DemonstratedAction,
+  DraftRevisionDetail,
   DraftReviewEdit,
   DraftReviewKey,
 } from "@/components/agent/draft-review-state";
@@ -57,6 +60,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   agentFlowApproveMutation,
+  agentFlowArchiveMutation,
+  agentFlowDeleteMutation,
   agentFlowDraftUpdateMutation,
   agentFlowRevisionAtom,
   agentFlowVerificationAuthorizeMutation,
@@ -64,6 +69,12 @@ import {
 } from "@/lib/rpc";
 
 const operationId = () => OperationId.make(crypto.randomUUID());
+
+const headsForMutation = (heads: AgentFlowHeads) => ({
+  approvedRevisionId: heads.approvedRevisionId,
+  archived: heads.archived,
+  draftRevisionId: heads.draftRevisionId,
+});
 
 /**
  * What one Step was demonstrated by. A merged or split span has no compiled
@@ -436,6 +447,249 @@ const VerificationGestures = ({
   </div>
 );
 
+const RetirementControls = ({
+  archiveFailure,
+  archived,
+  confirmation,
+  deleteFailure,
+  deleted,
+  onArchive,
+  onConfirmationChange,
+  onDelete,
+  pending,
+}: {
+  readonly archiveFailure: string | undefined;
+  readonly archived: boolean;
+  readonly confirmation: string;
+  readonly deleteFailure: string | undefined;
+  readonly deleted: boolean;
+  readonly onArchive: () => void;
+  readonly onConfirmationChange: (value: string) => void;
+  readonly onDelete: () => void;
+  readonly pending: boolean;
+}) => (
+  <div className="space-y-3 border-t pt-3">
+    <h3 className="text-xs font-semibold">Retire Agent Flow</h3>
+    <p className="text-muted-foreground text-xs">
+      Archive hides this Agent Flow from normal search without removing its
+      revisions. Permanent deletion cannot be undone.
+    </p>
+    <Button
+      disabled={pending || deleted}
+      onClick={onArchive}
+      size="sm"
+      type="button"
+      variant="outline"
+    >
+      {archived ? "Restore Agent Flow" : "Archive Agent Flow"}
+    </Button>
+    <div className="space-y-2">
+      <Label htmlFor="agent-flow-delete-confirmation">
+        Type permanently-delete to confirm permanent deletion
+      </Label>
+      <Input
+        autoComplete="off"
+        disabled={pending || deleted}
+        id="agent-flow-delete-confirmation"
+        onChange={(event) => onConfirmationChange(event.target.value)}
+        value={confirmation}
+      />
+      <Button
+        disabled={pending || deleted || confirmation !== "permanently-delete"}
+        onClick={onDelete}
+        size="sm"
+        type="button"
+        variant="destructive"
+      >
+        Permanently delete Agent Flow
+      </Button>
+    </div>
+    {deleted ? (
+      <p className="text-muted-foreground text-xs">
+        This Agent Flow was permanently deleted.
+      </p>
+    ) : null}
+    {archiveFailure === undefined ? null : (
+      <p className="text-destructive text-xs">{archiveFailure}</p>
+    )}
+    {deleteFailure === undefined ? null : (
+      <p className="text-destructive text-xs">{deleteFailure}</p>
+    )}
+  </div>
+);
+
+const DraftReviewLoading = ({ message }: { readonly message: string }) => (
+  <section aria-labelledby="agent-draft" className="space-y-2">
+    <h2 className="text-sm font-semibold" id="agent-draft">
+      Draft review
+    </h2>
+    <p className="text-muted-foreground text-xs">{message}</p>
+  </section>
+);
+
+const DraftReviewContent = ({
+  actions,
+  archiveFailure,
+  authorization,
+  canEdit,
+  confirmation,
+  deleteFailure,
+  deleted,
+  detail,
+  edit,
+  edited,
+  failure,
+  hostsText,
+  onApprove,
+  onArchive,
+  onAuthorize,
+  onConfirmationChange,
+  onCorrect,
+  onDelete,
+  onHostsChange,
+  onSave,
+  pending,
+  retirementPending,
+  reviewKey,
+}: {
+  readonly actions: readonly DemonstratedAction[];
+  readonly archiveFailure: string | undefined;
+  readonly authorization: AuthorizationPresentation;
+  readonly canEdit: boolean;
+  readonly confirmation: string;
+  readonly deleteFailure: string | undefined;
+  readonly deleted: boolean;
+  readonly detail: DraftRevisionDetail;
+  readonly edit: DraftReviewEdit;
+  readonly edited: boolean;
+  readonly failure: string | undefined;
+  readonly hostsText: string;
+  readonly onApprove: () => void;
+  readonly onArchive: () => void;
+  readonly onAuthorize: () => void;
+  readonly onConfirmationChange: (value: string) => void;
+  readonly onCorrect: (
+    change: (current: DraftReviewEdit) => DraftReviewEdit
+  ) => void;
+  readonly onDelete: () => void;
+  readonly onHostsChange: (value: string) => void;
+  readonly onSave: () => void;
+  readonly pending: boolean;
+  readonly retirementPending: boolean;
+  readonly reviewKey: DraftReviewKey;
+}) => {
+  const { manifest } = detail.revision;
+  return (
+    <section aria-labelledby="agent-draft" className="space-y-3">
+      <h2 className="text-sm font-semibold" id="agent-draft">
+        Draft review
+      </h2>
+      <div className="space-y-4 rounded-lg border p-3 text-sm">
+        <div className="space-y-1">
+          <p className="font-medium">{manifest.title}</p>
+          <p className="text-muted-foreground text-xs">
+            {manifest.description}
+          </p>
+          <p className="font-mono text-xs wrap-anywhere">
+            {manifest.agentFlowId} / {manifest.revisionId}
+          </p>
+          <Badge
+            variant={manifest.status === "approved" ? "default" : "secondary"}
+          >
+            {manifest.status === "approved"
+              ? "Approved Agent Flow"
+              : "Draft revision"}
+          </Badge>
+        </div>
+
+        <ul aria-label="Agent Steps" className="divide-y rounded-lg border">
+          {edit.steps.map((step, index) => {
+            const covered = spanActions(actions, step);
+            return (
+              <StepEditor
+                actions={covered}
+                canEdit={canEdit}
+                evidence={spanEvidence(detail.evidence, step)}
+                index={index}
+                isLast={index === edit.steps.length - 1}
+                // Steps are reordered by merging and splitting, so the
+                // demonstrated span they cover is what identifies one across
+                // an edit.
+                key={`${step.firstActionId}-${step.lastActionId}`}
+                onChange={(patch) =>
+                  onCorrect((current) => editStep(current, index, patch))
+                }
+                onMerge={() =>
+                  onCorrect((current) => mergeStepWithNext(current, index))
+                }
+                onSplit={(actionId) =>
+                  onCorrect((current) =>
+                    splitStepAt(
+                      current,
+                      index,
+                      covered.map(({ id }) => id),
+                      actionId
+                    )
+                  )
+                }
+                reviewKey={reviewKey}
+                step={step}
+              />
+            );
+          })}
+        </ul>
+
+        <div className="space-y-2">
+          <Label htmlFor="agent-domain-scope">Domain Scope</Label>
+          <p className="text-muted-foreground text-xs">
+            One exact host or explicit <code>*.example.com</code> pattern per
+            line. The agent may not visit anything else.
+          </p>
+          <Textarea
+            disabled={!canEdit}
+            id="agent-domain-scope"
+            onChange={(event) => onHostsChange(event.target.value)}
+            rows={3}
+            value={hostsText}
+          />
+        </div>
+
+        <DraftFacts manifest={manifest} />
+
+        {canEdit ? (
+          <Button
+            disabled={pending || !edited}
+            onClick={onSave}
+            size="sm"
+            type="button"
+          >
+            Save corrections
+          </Button>
+        ) : null}
+
+        <VerificationGestures
+          authorization={authorization}
+          failure={failure}
+          onApprove={onApprove}
+          onAuthorize={onAuthorize}
+          pending={pending}
+        />
+        <RetirementControls
+          archiveFailure={archiveFailure}
+          archived={detail.revision.heads.archived}
+          confirmation={confirmation}
+          deleteFailure={deleteFailure}
+          deleted={deleted}
+          onArchive={onArchive}
+          onConfirmationChange={onConfirmationChange}
+          onDelete={onDelete}
+          pending={retirementPending}
+        />
+      </div>
+    </section>
+  );
+};
+
 /**
  * The draft under review. The user reads what verification would authorize,
  * corrects the agent's proposed objectives and Domain Scope, and performs the
@@ -470,7 +724,12 @@ export const DraftReview = ({
     agentFlowVerificationAuthorizeMutation
   );
   const [approveResult, approve] = useAtom(agentFlowApproveMutation);
+  const [archiveResult, archive] = useAtom(agentFlowArchiveMutation);
+  const [deleteResult, deleteAgentFlow] = useAtom(agentFlowDeleteMutation);
   const [gesture, setGesture] = useAtom(draftGestureAtom(reviewKey));
+  const [deleteConfirmation, setDeleteConfirmation] = useAtom(
+    draftDeletionConfirmationAtom(reviewKey)
+  );
   const [corrections, setCorrections] = useAtom(
     draftCorrectionsAtom(reviewKey)
   );
@@ -496,23 +755,27 @@ export const DraftReview = ({
     if (gesture === "authorize") {
       return authorizeResult;
     }
+    if (gesture === "archive") {
+      return archiveResult;
+    }
     return gesture === "update" ? updateResult : undefined;
   })();
   const detail = shownRevision(revisionResult, gestureResult);
   const pending =
     gestureResult !== undefined && AsyncResult.isWaiting(gestureResult);
-  const failure = refusal(gestureResult);
+  const failure = gesture === "archive" ? undefined : refusal(gestureResult);
+  const archiveFailure =
+    gesture === "archive" ? refusal(archiveResult) : undefined;
+  const deleteFailure = refusal(deleteResult);
+  const deleted =
+    AsyncResult.isSuccess(deleteResult) &&
+    deleteResult.value.data.agentFlowId === agentFlowId;
 
   if (detail === undefined) {
     return (
-      <section aria-labelledby="agent-draft" className="space-y-2">
-        <h2 className="text-sm font-semibold" id="agent-draft">
-          Draft review
-        </h2>
-        <p className="text-muted-foreground text-xs">
-          {refusal(revisionResult) ?? "Loading the draft Agent Flow."}
-        </p>
-      </section>
+      <DraftReviewLoading
+        message={refusal(revisionResult) ?? "Loading the draft Agent Flow."}
+      />
     );
   }
 
@@ -589,109 +852,75 @@ export const DraftReview = ({
     });
   };
 
+  const setArchiveState = () => {
+    setGesture("archive");
+    archive({
+      payload: {
+        data: {
+          agentFlowId: manifest.agentFlowId,
+          archived: !detail.revision.heads.archived,
+          expectedHeads: headsForMutation(detail.revision.heads),
+          operationId: operationId(),
+        },
+        type: "agent.flow.archive",
+      },
+    });
+  };
+
+  const permanentlyDelete = () => {
+    if (deleteConfirmation !== "permanently-delete") {
+      return;
+    }
+    deleteAgentFlow({
+      payload: {
+        data: {
+          agentFlowId: manifest.agentFlowId,
+          confirmation: deleteConfirmation,
+          expectedHeads: headsForMutation(detail.revision.heads),
+          operationId: operationId(),
+        },
+        type: "agent.flow.delete",
+      },
+    });
+  };
+
+  const changeHosts = (text: string) => {
+    setCorrections({
+      edit: editHosts(edit, parseHosts(text)),
+      hostsText: text,
+    });
+  };
+
   return (
-    <section aria-labelledby="agent-draft" className="space-y-3">
-      <h2 className="text-sm font-semibold" id="agent-draft">
-        Draft review
-      </h2>
-      <div className="space-y-4 rounded-lg border p-3 text-sm">
-        <div className="space-y-1">
-          <p className="font-medium">{manifest.title}</p>
-          <p className="text-muted-foreground text-xs">
-            {manifest.description}
-          </p>
-          <p className="font-mono text-xs wrap-anywhere">
-            {manifest.agentFlowId} / {manifest.revisionId}
-          </p>
-          <Badge
-            variant={manifest.status === "approved" ? "default" : "secondary"}
-          >
-            {manifest.status === "approved"
-              ? "Approved Agent Flow"
-              : "Draft revision"}
-          </Badge>
-        </div>
-
-        <ul aria-label="Agent Steps" className="divide-y rounded-lg border">
-          {edit.steps.map((step, index) => {
-            const covered = spanActions(actions, step);
-            return (
-              <StepEditor
-                actions={covered}
-                canEdit={canEdit}
-                evidence={spanEvidence(detail.evidence, step)}
-                index={index}
-                isLast={index === edit.steps.length - 1}
-                // Steps are reordered by merging and splitting, so the
-                // demonstrated span they cover is what identifies one across
-                // an edit.
-                key={`${step.firstActionId}-${step.lastActionId}`}
-                onChange={(patch) =>
-                  correct((current) => editStep(current, index, patch))
-                }
-                onMerge={() =>
-                  correct((current) => mergeStepWithNext(current, index))
-                }
-                onSplit={(actionId) =>
-                  correct((current) =>
-                    splitStepAt(
-                      current,
-                      index,
-                      covered.map(({ id }) => id),
-                      actionId
-                    )
-                  )
-                }
-                reviewKey={reviewKey}
-                step={step}
-              />
-            );
-          })}
-        </ul>
-
-        <div className="space-y-2">
-          <Label htmlFor="agent-domain-scope">Domain Scope</Label>
-          <p className="text-muted-foreground text-xs">
-            One exact host or explicit <code>*.example.com</code> pattern per
-            line. The agent may not visit anything else.
-          </p>
-          <Textarea
-            disabled={!canEdit}
-            id="agent-domain-scope"
-            onChange={(event) => {
-              const text = event.target.value;
-              setCorrections({
-                edit: editHosts(edit, parseHosts(text)),
-                hostsText: text,
-              });
-            }}
-            rows={3}
-            value={hostsText}
-          />
-        </div>
-
-        <DraftFacts manifest={manifest} />
-
-        {canEdit ? (
-          <Button
-            disabled={pending || !edited}
-            onClick={saveCorrections}
-            size="sm"
-            type="button"
-          >
-            Save corrections
-          </Button>
-        ) : null}
-
-        <VerificationGestures
-          authorization={authorization}
-          failure={failure}
-          onApprove={approveRevision}
-          onAuthorize={authorizeRun}
-          pending={pending}
-        />
-      </div>
-    </section>
+    <DraftReviewContent
+      actions={actions}
+      archiveFailure={archiveFailure}
+      authorization={authorization}
+      canEdit={canEdit}
+      confirmation={deleteConfirmation}
+      deleteFailure={deleteFailure}
+      deleted={deleted}
+      detail={detail}
+      edit={edit}
+      edited={edited}
+      failure={failure}
+      hostsText={hostsText}
+      onApprove={approveRevision}
+      onArchive={setArchiveState}
+      onAuthorize={authorizeRun}
+      onConfirmationChange={setDeleteConfirmation}
+      onCorrect={correct}
+      onDelete={permanentlyDelete}
+      onHostsChange={changeHosts}
+      onSave={saveCorrections}
+      pending={pending}
+      retirementPending={
+        pending ||
+        AsyncResult.isWaiting(deleteResult) ||
+        AsyncResult.isWaiting(archiveResult)
+      }
+      reviewKey={reviewKey}
+    />
   );
 };
 

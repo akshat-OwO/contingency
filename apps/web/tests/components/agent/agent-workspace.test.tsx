@@ -41,6 +41,8 @@ vi.mock("@/lib/rpc", () => ({
     })
   ),
   agentFlowApproveMutation: Atom.fn(() => Effect.never),
+  agentFlowArchiveMutation: Atom.fn(() => Effect.never),
+  agentFlowDeleteMutation: Atom.fn(() => Effect.never),
   agentFlowDraftUpdateMutation: Atom.fn(() => Effect.never),
   agentFlowRevisionAtom: () => pendingRevisionAtom,
   agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),

@@ -7,6 +7,7 @@ import {
   AgentFlowManifest,
   AgentFlowRevision,
   AgentFlowRevisionId,
+  AgentFlowDeleteResult,
   EvidenceHash,
   EvidenceSlice,
   OperationId,
@@ -16,6 +17,7 @@ import type {
   AgentCatalogInfo,
   AgentFlowCompiler,
   AgentFlowDraftProposal,
+  AgentFlowExpectedHeads,
   AgentFlowSearch,
   AgentFlowSearchHit,
   AgentFlowSearchResult,
@@ -24,7 +26,7 @@ import type {
   AgentSessionId,
   AgentStep,
   DraftEmulation,
-  StoredAgentStep,
+  StoredAgentStepV1,
 } from "@contingency/protocol";
 import {
   Context,
@@ -46,8 +48,10 @@ const HEADS_FILE = "agent-flow.json";
 const REVISIONS_DIRECTORY = "revisions";
 const EVIDENCE_DIRECTORY = "evidence";
 const MANIFEST_FILE = "manifest.json";
+const SOURCE_ARTIFACTS_FILE = "source-artifacts.json";
 const OPERATIONS_DIRECTORY = ".operations";
 const DEFAULT_SEARCH_LIMIT = 20;
+export const CATALOG_CONFIG_FILE = "agent-flow-catalog.json";
 
 /** The workspace's `.contingency` directory unless the environment names one. */
 export const defaultCatalogRoot = (cwd: string = process.cwd()): string => {
@@ -102,6 +106,26 @@ const processIsStale = (pid: number): boolean => {
   }
 };
 
+const retentionDeadline = (contents: string): number | null => {
+  try {
+    const metadata = JSON.parse(contents) as unknown;
+    if (
+      typeof metadata !== "object" ||
+      metadata === null ||
+      !("retention" in metadata) ||
+      metadata.retention !== "retain-for-days" ||
+      !("deleteAfter" in metadata) ||
+      typeof metadata.deleteAfter !== "string"
+    ) {
+      return null;
+    }
+    const deadline = Date.parse(metadata.deleteAfter);
+    return Number.isNaN(deadline) ? null : deadline;
+  } catch {
+    return null;
+  }
+};
+
 const isWithinCatalogRoot = (catalogRoot: string, target: string): boolean => {
   const relative = path.relative(
     path.resolve(catalogRoot),
@@ -124,6 +148,14 @@ export interface SaveDraftInput {
   readonly operationId?: OperationId | string | undefined;
   readonly proposal: AgentFlowDraftProposal;
   readonly slices: readonly EvidenceSlice[];
+  /** Local-only sensitive Teaching artifacts governed when this draft passes. */
+  readonly sourceArtifacts?:
+    | {
+        readonly retentionFile?: string | undefined;
+        readonly traceFile?: string | undefined;
+        readonly videoFile?: string | undefined;
+      }
+    | undefined;
   readonly sourceSessionId: AgentSessionId;
 }
 
@@ -141,6 +173,20 @@ export interface StartVerificationInput extends RevisionOperationInput {
 export interface CompleteVerificationInput extends RevisionOperationInput {
   readonly outcome: AgentFlowVerificationOutcome;
   readonly summary: string;
+}
+
+export interface SetArchivedInput {
+  readonly agentFlowId: AgentFlowId;
+  readonly archived: boolean;
+  readonly expectedHeads: AgentFlowExpectedHeads;
+  readonly operationId: OperationId | string;
+}
+
+export interface DeleteAgentFlowInput {
+  readonly agentFlowId: AgentFlowId;
+  readonly confirmation: string;
+  readonly expectedHeads: AgentFlowExpectedHeads;
+  readonly operationId: OperationId | string;
 }
 
 export interface AgentFlowCatalogService {
@@ -177,6 +223,17 @@ export interface AgentFlowCatalogService {
   readonly approve: (
     input: RevisionOperationInput
   ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /** Archive is recoverable and is the normal way to retire an Agent Flow. */
+  readonly setArchived: (
+    input: SetArchivedInput
+  ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /**
+   * Irreversible removal. Only Agent View exposes this capability, and the
+   * direct user request must carry the exact confirmation phrase.
+   */
+  readonly deletePermanently: (
+    input: DeleteAgentFlowInput
+  ) => Effect.Effect<AgentFlowDeleteResult, AgentFlowCatalogError>;
   /** Read one revision: the named one, or the current draft head. */
   readonly get: (
     agentFlowId: AgentFlowId,
@@ -228,8 +285,18 @@ const AgentFlowHeadOperationRecord = Schema.Struct({
   operationId: OperationId,
   result: AgentFlowRevision,
   schemaVersion: Schema.Literal(1),
+  writeManifest: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(true))
+  ),
 });
 type AgentFlowHeadOperationRecord = typeof AgentFlowHeadOperationRecord.Type;
+
+const SourceArtifacts = Schema.Struct({
+  retentionFile: Schema.optional(Schema.String),
+  traceFile: Schema.optional(Schema.String),
+  videoFile: Schema.optional(Schema.String),
+});
+type SourceArtifacts = typeof SourceArtifacts.Type;
 
 const AgentFlowOperationRecord = Schema.Struct({
   expectedHeads: Schema.NullOr(AgentFlowHeads),
@@ -238,9 +305,37 @@ const AgentFlowOperationRecord = Schema.Struct({
   result: AgentFlowRevision,
   schemaVersion: Schema.Literal(1),
   slices: Schema.Array(EvidenceSlice),
+  sourceArtifacts: Schema.optional(SourceArtifacts),
   status: Schema.Literals(["pending", "completed"]),
 });
 type AgentFlowOperationRecord = typeof AgentFlowOperationRecord.Type;
+
+const ApprovalArtifactRetention = Schema.Union([
+  Schema.Struct({ mode: Schema.Literal("delete-immediately") }),
+  Schema.Struct({
+    days: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+    mode: Schema.Literal("retain-for-days"),
+  }),
+]);
+type ApprovalArtifactRetention = typeof ApprovalArtifactRetention.Type;
+
+const CatalogConfiguration = Schema.Struct({
+  approvalArtifactRetention: ApprovalArtifactRetention,
+  schemaVersion: Schema.Literal(1),
+});
+
+const AgentFlowDeletionRecord = Schema.Struct({
+  expectedHeads: Schema.Struct({
+    approvedRevisionId: AgentFlowHeads.fields.approvedRevisionId,
+    archived: AgentFlowHeads.fields.archived,
+    draftRevisionId: AgentFlowHeads.fields.draftRevisionId,
+  }),
+  input: Schema.String,
+  operationId: OperationId,
+  result: AgentFlowDeleteResult,
+  schemaVersion: Schema.Literal(1),
+  status: Schema.Literals(["pending", "completed"]),
+});
 
 /**
  * JSON with keys in a stable order, so one Evidence Slice always hashes to
@@ -293,6 +388,8 @@ const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
 const encodeOperation = Schema.encodeSync(AgentFlowOperationRecord);
 const encodeHeadOperation = Schema.encodeSync(AgentFlowHeadOperationRecord);
+const encodeSourceArtifacts = Schema.encodeSync(SourceArtifacts);
+const encodeDeletionRecord = Schema.encodeSync(AgentFlowDeletionRecord);
 
 const operationRecord = (
   status: AgentFlowOperationRecord["status"],
@@ -300,7 +397,8 @@ const operationRecord = (
   input: string,
   expectedHeads: AgentFlowHeads | null,
   result: AgentFlowRevision,
-  slices: readonly EvidenceSlice[]
+  slices: readonly EvidenceSlice[],
+  sourceArtifacts: SourceArtifacts | undefined
 ): AgentFlowOperationRecord => ({
   expectedHeads,
   input,
@@ -308,6 +406,7 @@ const operationRecord = (
   result,
   schemaVersion: 1,
   slices,
+  ...(sourceArtifacts === undefined ? {} : { sourceArtifacts }),
   status,
 });
 
@@ -328,6 +427,14 @@ const matchesExpectedHeads = (
   expected === null
     ? current === null
     : current !== null && sameHeads(current, expected);
+
+const expectedHeadsMatch = (
+  expected: AgentFlowExpectedHeads,
+  current: AgentFlowHeads
+): boolean =>
+  expected.approvedRevisionId === current.approvedRevisionId &&
+  expected.archived === current.archived &&
+  expected.draftRevisionId === current.draftRevisionId;
 
 const operationCacheKey = (catalogRoot: string, operationId: string): string =>
   `${catalogRoot}\u0000${operationId}`;
@@ -452,6 +559,11 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     path.join(
       operationsDirectory(catalogRoot),
       `head-sha256-${createHash("sha256").update(operationId).digest("hex")}.json`
+    );
+  const deletionOperationFile = (catalogRoot: string, operationId: string) =>
+    path.join(
+      operationsDirectory(catalogRoot),
+      `delete-sha256-${createHash("sha256").update(operationId).digest("hex")}.json`
     );
   const flowDirectory = (catalogRoot: string, id: AgentFlowId) =>
     path.join(flowsDirectory(catalogRoot), id);
@@ -604,7 +716,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         manifest.agentFlowId,
         manifest.revisionId
       );
-      const expectedBasedOn = persisted.expectedHeads?.draftRevisionId ?? null;
+      const expectedBasedOn =
+        persisted.expectedHeads?.draftRevisionId ??
+        persisted.expectedHeads?.approvedRevisionId ??
+        null;
       const expectedResultHeads: AgentFlowHeads =
         persisted.expectedHeads === null
           ? {
@@ -693,7 +808,8 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const writeDraftArtifacts = (
     catalogRoot: string,
     manifest: AgentFlowManifest,
-    slices: readonly EvidenceSlice[]
+    slices: readonly EvidenceSlice[],
+    sourceArtifacts?: SourceArtifacts
   ) =>
     Effect.gen(function* writeDraftPackage() {
       if (slices.length !== manifest.steps.length) {
@@ -796,6 +912,13 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           "the Agent Flow manifest"
         );
       }
+      if (sourceArtifacts !== undefined) {
+        yield* writeJson(
+          path.join(revisionPath, SOURCE_ARTIFACTS_FILE),
+          JSON.stringify(encodeSourceArtifacts(sourceArtifacts), null, 2),
+          "the Teaching artifact record"
+        );
+      }
     });
 
   const writePendingOperation = (
@@ -892,7 +1015,12 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             current.id === intendedHeads.id &&
             current.draftRevisionId === manifest.revisionId
           ) {
-            yield* writeDraftArtifacts(catalogRoot, manifest, persisted.slices);
+            yield* writeDraftArtifacts(
+              catalogRoot,
+              manifest,
+              persisted.slices,
+              persisted.sourceArtifacts
+            );
             yield* markOperationCompleted(catalogRoot, operationId, persisted);
             return persisted.result;
           }
@@ -906,7 +1034,12 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               )
             );
           }
-          yield* writeDraftArtifacts(catalogRoot, manifest, persisted.slices);
+          yield* writeDraftArtifacts(
+            catalogRoot,
+            manifest,
+            persisted.slices,
+            persisted.sourceArtifacts
+          );
           yield* writeJson(
             headsFile,
             JSON.stringify(encodeHeads(intendedHeads), null, 2),
@@ -1049,7 +1182,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const stepWithSpan = (
     catalogRoot: string,
     id: AgentFlowId,
-    step: StoredAgentStep
+    step: StoredAgentStepV1 | AgentStep
   ): Effect.Effect<AgentStep, AgentFlowCatalogError> => {
     if (step.firstActionId !== undefined && step.lastActionId !== undefined) {
       return Effect.succeed({
@@ -1098,7 +1231,13 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       Effect.flatMap((stored) =>
         Effect.all(
           stored.steps.map((step) => stepWithSpan(catalogRoot, id, step))
-        ).pipe(Effect.map((steps) => ({ ...stored, steps })))
+        ).pipe(
+          Effect.map((steps) => ({
+            ...stored,
+            schemaVersion: 2 as const,
+            steps,
+          }))
+        )
       )
     );
 
@@ -1379,13 +1518,15 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             verification: null,
           };
       const expectedHeads = headsExist ? existing : null;
-      if (existing.draftRevisionId !== input.basedOnRevisionId) {
+      const currentBaseRevisionId =
+        existing.draftRevisionId ?? existing.approvedRevisionId;
+      if (currentBaseRevisionId !== input.basedOnRevisionId) {
         return yield* Effect.fail(
           catalogError(
             "agent_flow_conflict",
-            existing.draftRevisionId === null
-              ? `Agent Flow ${agentFlowId} has no draft revision; save a new draft with basedOnRevisionId null.`
-              : `Agent Flow ${agentFlowId} draft head is ${existing.draftRevisionId}, not ${String(input.basedOnRevisionId)}. Reread it before proposing another revision.`
+            currentBaseRevisionId === null
+              ? `Agent Flow ${agentFlowId} has no revision; save a new draft with basedOnRevisionId null.`
+              : `Agent Flow ${agentFlowId} current head is ${currentBaseRevisionId}, not ${String(input.basedOnRevisionId)}. Reread it before proposing another revision.`
           )
         );
       }
@@ -1429,7 +1570,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         },
         emulation: input.emulation,
         revisionId,
-        schemaVersion: 1,
+        schemaVersion: 2,
         sourceSessionId: input.sourceSessionId,
         status: "draft",
         steps,
@@ -1471,10 +1612,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               requestInput,
               expectedHeads,
               saved,
-              input.slices
+              input.slices,
+              input.sourceArtifacts
             );
       yield* writePendingOperation(catalogRoot, pending);
-      yield* writeDraftArtifacts(catalogRoot, manifest, input.slices);
+      yield* writeDraftArtifacts(
+        catalogRoot,
+        manifest,
+        input.slices,
+        input.sourceArtifacts
+      );
       yield* commitDraft(catalogRoot, headsFile, heads, expectedHeads, pending);
       if (operationKey !== undefined) {
         operations.set(operationCacheKey(catalogRoot, operationKey), {
@@ -1490,6 +1637,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   interface HeadMutation {
     readonly heads: AgentFlowHeads;
     readonly manifest: AgentFlowManifest;
+    readonly writeManifest?: boolean;
   }
 
   /**
@@ -1561,18 +1709,24 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         // it left them. A world that moved on keeps its own state and the
         // retry answers with the result the id already produced.
         if (sameHeads(current, persisted.expectedHeads)) {
-          yield* writeJson(
-            path.join(
-              revisionDirectory(
-                catalogRoot,
-                agentFlowId,
-                persisted.result.manifest.revisionId
+          if (persisted.writeManifest) {
+            yield* writeJson(
+              path.join(
+                revisionDirectory(
+                  catalogRoot,
+                  agentFlowId,
+                  persisted.result.manifest.revisionId
+                ),
+                MANIFEST_FILE
               ),
-              MANIFEST_FILE
-            ),
-            JSON.stringify(encodeManifest(persisted.result.manifest), null, 2),
-            "the Agent Flow manifest"
-          );
+              JSON.stringify(
+                encodeManifest(persisted.result.manifest),
+                null,
+                2
+              ),
+              "the Agent Flow manifest"
+            );
+          }
           yield* writeJson(
             headsFile,
             JSON.stringify(encodeHeads(persisted.result.heads), null, 2),
@@ -1604,24 +1758,27 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             operationId: OperationId.make(operationId),
             result,
             schemaVersion: 1,
+            writeManifest: decided.writeManifest ?? true,
           }),
           null,
           2
         ),
         "the Agent Flow operation record"
       );
-      yield* writeJson(
-        path.join(
-          revisionDirectory(
-            catalogRoot,
-            agentFlowId,
-            decided.manifest.revisionId
+      if (decided.writeManifest ?? true) {
+        yield* writeJson(
+          path.join(
+            revisionDirectory(
+              catalogRoot,
+              agentFlowId,
+              decided.manifest.revisionId
+            ),
+            MANIFEST_FILE
           ),
-          MANIFEST_FILE
-        ),
-        JSON.stringify(encodeManifest(decided.manifest), null, 2),
-        "the Agent Flow manifest"
-      );
+          JSON.stringify(encodeManifest(decided.manifest), null, 2),
+          "the Agent Flow manifest"
+        );
+      }
       yield* writeJson(
         headsFile,
         JSON.stringify(encodeHeads(decided.heads), null, 2),
@@ -1685,6 +1842,453 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           )
         );
 
+  const approvalRetention = (
+    catalogRoot: string
+  ): Effect.Effect<ApprovalArtifactRetention, AgentFlowCatalogError> =>
+    Effect.gen(function* readApprovalRetention() {
+      const configurationFile = path.join(catalogRoot, CATALOG_CONFIG_FILE);
+      const exists = yield* fileSystem
+        .exists(configurationFile)
+        .pipe(
+          Effect.mapError(ioError("Could not inspect Catalog retention policy"))
+        );
+      if (!exists) {
+        return { mode: "delete-immediately" as const };
+      }
+      const configured = yield* Effect.result(
+        readJson(
+          CatalogConfiguration,
+          configurationFile,
+          "Agent Flow Catalog configuration",
+          catalogRoot
+        )
+      );
+      if (Result.isFailure(configured)) {
+        yield* Effect.logWarning(
+          "Catalog retention configuration is invalid; sensitive Teaching artifacts will use immediate deletion.",
+          configured.failure
+        );
+        return { mode: "delete-immediately" as const };
+      }
+      return configured.success.approvalArtifactRetention;
+    });
+
+  const readSourceArtifacts = (
+    catalogRoot: string,
+    agentFlowId: AgentFlowId,
+    revisionId: AgentFlowRevisionId
+  ): Effect.Effect<SourceArtifacts | null, AgentFlowCatalogError> => {
+    const file = path.join(
+      revisionDirectory(catalogRoot, agentFlowId, revisionId),
+      SOURCE_ARTIFACTS_FILE
+    );
+    return fileSystem.exists(file).pipe(
+      Effect.mapError(ioError("Could not inspect Teaching artifacts")),
+      Effect.flatMap((exists) =>
+        exists
+          ? readJson(
+              SourceArtifacts,
+              file,
+              "Teaching artifact record",
+              catalogRoot
+            )
+          : Effect.succeed(null)
+      )
+    );
+  };
+
+  /**
+   * Sensitive artifact paths originate in the Contingency-owned Teaching
+   * session. Revalidate that every file is a sibling of its retention record
+   * before deleting or scheduling it, so a modified package cannot target an
+   * unrelated path.
+   */
+  const validateSourceArtifacts = (
+    artifacts: SourceArtifacts
+  ): Effect.Effect<readonly string[], AgentFlowCatalogError> =>
+    Effect.gen(function* validateArtifactPaths() {
+      const files = [
+        artifacts.retentionFile,
+        artifacts.traceFile,
+        artifacts.videoFile,
+      ].filter((file): file is string => file !== undefined);
+      if (files.length === 0) {
+        return [];
+      }
+      const artifactDirectory = path.dirname(
+        artifacts.retentionFile ?? files[0] ?? ""
+      );
+      const safe = yield* Effect.forEach(
+        files,
+        (file) => isPhysicallyWithinCatalogRoot(artifactDirectory, file),
+        { discard: false }
+      );
+      if (safe.every(Boolean)) {
+        return files;
+      }
+      return yield* Effect.fail(
+        catalogError(
+          "agent_catalog_invalid",
+          "A Teaching artifact resolves outside its retention directory."
+        )
+      );
+    });
+
+  const applyApprovalRetention = (
+    approved: AgentFlowRevision
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    Effect.gen(function* retainApprovedArtifacts() {
+      const artifacts = yield* readSourceArtifacts(
+        approved.catalogRoot,
+        approved.manifest.agentFlowId,
+        approved.manifest.revisionId
+      );
+      if (artifacts === null) {
+        return;
+      }
+      const files = yield* validateSourceArtifacts(artifacts);
+      const policy = yield* approvalRetention(approved.catalogRoot);
+      if (policy.mode === "delete-immediately") {
+        if (artifacts.retentionFile !== undefined) {
+          yield* fileSystem
+            .writeFileString(
+              artifacts.retentionFile,
+              `${JSON.stringify(
+                {
+                  approvedAt: now().toISOString(),
+                  retention: "delete-on-approval",
+                },
+                null,
+                2
+              )}\n`
+            )
+            .pipe(
+              Effect.mapError(
+                ioError("Could not update Teaching retention metadata")
+              )
+            );
+        }
+        yield* Effect.forEach(
+          files.filter((file) => file !== artifacts.retentionFile),
+          (file) =>
+            fileSystem
+              .remove(file, { force: true })
+              .pipe(
+                Effect.mapError(ioError("Could not remove a Teaching artifact"))
+              ),
+          { discard: true }
+        );
+        return;
+      }
+      if (artifacts.retentionFile === undefined) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_catalog_invalid",
+            "A retained Teaching artifact package has no retention record."
+          )
+        );
+      }
+      const current = yield* fileSystem
+        .readFileString(artifacts.retentionFile)
+        .pipe(
+          Effect.mapError(ioError("Could not read Teaching retention metadata"))
+        );
+      const parsed = yield* Effect.try({
+        catch: () =>
+          catalogError(
+            "agent_catalog_invalid",
+            "Teaching retention metadata is not valid JSON."
+          ),
+        try: () => JSON.parse(current) as unknown,
+      });
+      const metadata =
+        typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+          ? parsed
+          : {};
+      const deleteAfter = new Date(
+        now().getTime() + policy.days * 86_400_000
+      ).toISOString();
+      yield* fileSystem
+        .writeFileString(
+          artifacts.retentionFile,
+          `${JSON.stringify(
+            {
+              ...metadata,
+              deleteAfter,
+              retention: "retain-for-days",
+            },
+            null,
+            2
+          )}\n`
+        )
+        .pipe(
+          Effect.mapError(
+            ioError("Could not update Teaching retention metadata")
+          )
+        );
+    });
+
+  /**
+   * A Catalog startup is the durable retention worker: schedules survive
+   * process exits because their deadline and artifact paths live on disk.
+   */
+  const removeExpiredApprovalArtifacts = (
+    catalogRoot: string
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    Effect.gen(function* removeExpiredArtifacts() {
+      const agentFlowIds = yield* listFlowIds(catalogRoot);
+      yield* Effect.forEach(
+        agentFlowIds,
+        (agentFlowId) =>
+          Effect.gen(function* removeExpiredFlowArtifacts() {
+            const revisions = path.join(
+              flowDirectory(catalogRoot, agentFlowId),
+              REVISIONS_DIRECTORY
+            );
+            const revisionsExist = yield* fileSystem
+              .exists(revisions)
+              .pipe(
+                Effect.mapError(
+                  ioError(
+                    "Could not inspect Agent Flow revisions for retention"
+                  )
+                )
+              );
+            if (!revisionsExist) {
+              return;
+            }
+            const revisionIds = yield* fileSystem
+              .readDirectory(revisions)
+              .pipe(
+                Effect.mapError(
+                  ioError("Could not list Agent Flow revisions for retention")
+                )
+              );
+            yield* Effect.forEach(
+              revisionIds,
+              (revisionId) =>
+                Effect.gen(function* removeExpiredRevisionArtifacts() {
+                  const sourceFile = path.join(
+                    revisions,
+                    revisionId,
+                    SOURCE_ARTIFACTS_FILE
+                  );
+                  const sourceExists = yield* fileSystem
+                    .exists(sourceFile)
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not inspect Teaching artifact metadata")
+                      )
+                    );
+                  if (!sourceExists) {
+                    return;
+                  }
+                  const artifacts = yield* readJson(
+                    SourceArtifacts,
+                    sourceFile,
+                    "Teaching artifact record",
+                    catalogRoot
+                  );
+                  if (artifacts.retentionFile === undefined) {
+                    return;
+                  }
+                  const retentionExists = yield* fileSystem
+                    .exists(artifacts.retentionFile)
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not inspect Teaching retention metadata")
+                      )
+                    );
+                  if (!retentionExists) {
+                    return;
+                  }
+                  const metadata = yield* fileSystem
+                    .readFileString(artifacts.retentionFile)
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not read Teaching retention metadata")
+                      )
+                    );
+                  const deadline = retentionDeadline(metadata);
+                  if (deadline === null || deadline > now().getTime()) {
+                    return;
+                  }
+                  const files = yield* validateSourceArtifacts(artifacts);
+                  yield* Effect.forEach(
+                    files.filter((file) => file !== artifacts.retentionFile),
+                    (file) =>
+                      fileSystem
+                        .remove(file, { force: true })
+                        .pipe(
+                          Effect.mapError(
+                            ioError(
+                              "Could not remove an expired Teaching artifact"
+                            )
+                          )
+                        ),
+                    { discard: true }
+                  );
+                  yield* fileSystem
+                    .writeFileString(
+                      artifacts.retentionFile,
+                      `${JSON.stringify(
+                        {
+                          deleteAfter: new Date(deadline).toISOString(),
+                          expiredAt: now().toISOString(),
+                          retention: "expired",
+                        },
+                        null,
+                        2
+                      )}\n`
+                    )
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not update Teaching retention metadata")
+                      )
+                    );
+                }),
+              { discard: true }
+            );
+          }),
+        { discard: true }
+      );
+    });
+
+  const deletePermanentlyUnlocked = Effect.fn(
+    "AgentFlowCatalog.deletePermanently"
+  )(function* deleteAgentFlow(
+    catalogRoot: string,
+    input: DeleteAgentFlowInput
+  ) {
+    if (input.confirmation !== "permanently-delete") {
+      return yield* Effect.fail(
+        catalogError(
+          "agent_catalog_invalid",
+          "Permanent deletion requires direct confirmation in Agent View."
+        )
+      );
+    }
+    const operationId = String(input.operationId);
+    const requestInput = canonicalJson({
+      agentFlowId: input.agentFlowId,
+      confirmation: input.confirmation,
+      expectedHeads: input.expectedHeads,
+    });
+    const recordFile = deletionOperationFile(catalogRoot, operationId);
+    const recordExists = yield* fileSystem
+      .exists(recordFile)
+      .pipe(
+        Effect.mapError(ioError("Could not inspect the deletion operation"))
+      );
+    if (recordExists) {
+      const record = yield* readJson(
+        AgentFlowDeletionRecord,
+        recordFile,
+        "Agent Flow deletion record",
+        catalogRoot
+      );
+      if (record.input !== requestInput) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_flow_conflict",
+            `Operation ${operationId} was already used for a different Agent Flow deletion.`
+          )
+        );
+      }
+      if (record.status === "pending") {
+        yield* fileSystem
+          .remove(flowDirectory(catalogRoot, input.agentFlowId), {
+            force: true,
+            recursive: true,
+          })
+          .pipe(
+            Effect.mapError(
+              ioError("Could not finish permanently deleting the Agent Flow")
+            )
+          );
+        yield* writeJson(
+          recordFile,
+          JSON.stringify(
+            encodeDeletionRecord({ ...record, status: "completed" }),
+            null,
+            2
+          ),
+          "the Agent Flow deletion record"
+        );
+      }
+      return record.result;
+    }
+
+    const directory = flowDirectory(catalogRoot, input.agentFlowId);
+    const headsFile = path.join(directory, HEADS_FILE);
+    const exists = yield* fileSystem
+      .exists(headsFile)
+      .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
+    if (!exists) {
+      return yield* Effect.fail(
+        catalogError(
+          "agent_flow_not_found",
+          `Agent Flow ${input.agentFlowId} is not in the catalog at ${catalogRoot}.`
+        )
+      );
+    }
+    const heads = yield* readHeads(catalogRoot, input.agentFlowId);
+    if (!expectedHeadsMatch(input.expectedHeads, heads)) {
+      return yield* Effect.fail(
+        catalogError(
+          "agent_flow_conflict",
+          `Agent Flow ${input.agentFlowId} changed before it could be permanently deleted. Reread it before asking the user again.`
+        )
+      );
+    }
+    const result: AgentFlowDeleteResult = {
+      agentFlowId: input.agentFlowId,
+      deleted: true,
+    };
+    yield* fileSystem
+      .makeDirectory(operationsDirectory(catalogRoot), { recursive: true })
+      .pipe(Effect.mapError(ioError("Could not create operation records")));
+    yield* writeJson(
+      recordFile,
+      JSON.stringify(
+        encodeDeletionRecord({
+          expectedHeads: input.expectedHeads,
+          input: requestInput,
+          operationId: OperationId.make(operationId),
+          result,
+          schemaVersion: 1,
+          status: "pending",
+        }),
+        null,
+        2
+      ),
+      "the Agent Flow deletion record"
+    );
+    yield* ensureCatalogPath(catalogRoot, directory, "Agent Flow package");
+    yield* fileSystem
+      .remove(directory, { recursive: true })
+      .pipe(
+        Effect.mapError(ioError("Could not permanently delete the Agent Flow"))
+      );
+    yield* writeJson(
+      recordFile,
+      JSON.stringify(
+        encodeDeletionRecord({
+          expectedHeads: input.expectedHeads,
+          input: requestInput,
+          operationId: OperationId.make(operationId),
+          result,
+          schemaVersion: 1,
+          status: "completed",
+        }),
+        null,
+        2
+      ),
+      "the Agent Flow deletion record"
+    );
+    return result;
+  });
+
   const service: AgentFlowCatalogService = {
     approve: (input) =>
       mutateHeads("approve", input, {}, (heads, at) =>
@@ -1714,6 +2318,19 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             manifest: { ...manifest, status: "approved" as const },
           };
         })
+      ).pipe(
+        Effect.tap((approved) =>
+          applyApprovalRetention(approved).pipe(
+            // Effect error recovery is callback-based by design.
+            // oxlint-disable-next-line promise/prefer-await-to-callbacks, promise/prefer-await-to-then
+            Effect.catch((retentionError) =>
+              Effect.logWarning(
+                "Approval committed, but Teaching artifact retention could not be applied.",
+                retentionError
+              )
+            )
+          )
+        )
       ),
     authorizeVerification: (input) =>
       mutateHeads("verification.authorize", input, {}, (heads, at) =>
@@ -1757,6 +2374,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               },
             },
             manifest,
+            writeManifest: false,
           };
         })
       ),
@@ -1794,8 +2412,19 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                 },
               },
               manifest,
+              writeManifest: false,
             };
           })
+      ),
+    deletePermanently: (input) =>
+      writes.withPermit(
+        Effect.gen(function* deleteWithCatalogLock() {
+          const catalogRoot = yield* Ref.get(root);
+          return yield* withCatalogLock(
+            catalogRoot,
+            deletePermanentlyUnlocked(catalogRoot, input)
+          );
+        })
       ),
     evidence: (agentFlowId, revisionId) =>
       get(agentFlowId, revisionId).pipe(
@@ -1865,6 +2494,50 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     search: (query) => search(query),
     select: (requested, operationId) =>
       writes.withPermit(select(requested, operationId)),
+    setArchived: (input) => {
+      const revisionId =
+        input.expectedHeads.draftRevisionId ??
+        input.expectedHeads.approvedRevisionId;
+      if (revisionId === null) {
+        return Effect.fail(
+          catalogError(
+            "agent_catalog_invalid",
+            `Agent Flow ${input.agentFlowId} has no head to archive.`
+          )
+        );
+      }
+      return mutateHeads(
+        "archive",
+        {
+          agentFlowId: input.agentFlowId,
+          operationId: input.operationId,
+          revisionId,
+        },
+        { archived: input.archived, expectedHeads: input.expectedHeads },
+        (heads, at) =>
+          Effect.gen(function* archiveAgentFlow() {
+            if (!expectedHeadsMatch(input.expectedHeads, heads)) {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_flow_conflict",
+                  `Agent Flow ${input.agentFlowId} changed before its archive state could be updated. Reread it before retrying.`
+                )
+              );
+            }
+            const catalogRoot = yield* Ref.get(root);
+            const manifest = yield* readManifest(
+              catalogRoot,
+              input.agentFlowId,
+              revisionId
+            );
+            return {
+              heads: { ...heads, archived: input.archived, updatedAt: at },
+              manifest,
+              writeManifest: false,
+            };
+          })
+      );
+    },
     startVerification: (input) =>
       mutateHeads(
         "verification.start",
@@ -1899,10 +2572,22 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                 },
               },
               manifest,
+              writeManifest: false,
             };
           })
       ),
   };
+  const catalogRoot = yield* Ref.get(root);
+  yield* removeExpiredApprovalArtifacts(catalogRoot).pipe(
+    // Effect error recovery is callback-based by design.
+    // oxlint-disable-next-line promise/prefer-await-to-callbacks, promise/prefer-await-to-then
+    Effect.catch((retentionError) =>
+      Effect.logWarning(
+        "Expired Teaching artifacts could not be removed.",
+        retentionError
+      )
+    )
+  );
   return service;
 });
 

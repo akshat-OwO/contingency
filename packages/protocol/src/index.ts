@@ -9,6 +9,9 @@ import {
 } from "./agent-browser.ts";
 import {
   AgentFlowApprove,
+  AgentFlowArchive,
+  AgentFlowDelete,
+  AgentFlowDeleteResult,
   AgentFlowDraftUpdate,
   AgentFlowGet,
   AgentFlowRevisionDetail,
@@ -900,6 +903,22 @@ export const AgentFlowApproveRequest = request("agent.flow.approve", {
   operationId: AgentFlowApprove.fields.operationId,
   revisionId: AgentFlowApprove.fields.revisionId,
 });
+export const AgentFlowArchiveRequest = request("agent.flow.archive", {
+  agentFlowId: AgentFlowArchive.fields.agentFlowId,
+  archived: AgentFlowArchive.fields.archived,
+  expectedHeads: AgentFlowArchive.fields.expectedHeads,
+  operationId: AgentFlowArchive.fields.operationId,
+});
+export const AgentFlowDeleteRequest = request("agent.flow.delete", {
+  agentFlowId: AgentFlowDelete.fields.agentFlowId,
+  confirmation: AgentFlowDelete.fields.confirmation,
+  expectedHeads: AgentFlowDelete.fields.expectedHeads,
+  operationId: AgentFlowDelete.fields.operationId,
+});
+export const AgentFlowDeleted = response("agent.flow.deleted", {
+  agentFlowId: AgentFlowDeleteResult.fields.agentFlowId,
+  deleted: AgentFlowDeleteResult.fields.deleted,
+});
 
 const BrowserSessionsGetRpc = Rpc.make("browser.sessions.get", {
   error: BrowserRpcError,
@@ -1249,6 +1268,16 @@ const AgentFlowApproveRpc = Rpc.make("agent.flow.approve", {
   payload: AgentFlowApproveRequest,
   success: AgentFlowRevisionResult,
 });
+const AgentFlowArchiveRpc = Rpc.make("agent.flow.archive", {
+  error: BrowserRpcError,
+  payload: AgentFlowArchiveRequest,
+  success: AgentFlowRevisionResult,
+});
+const AgentFlowDeleteRpc = Rpc.make("agent.flow.delete", {
+  error: BrowserRpcError,
+  payload: AgentFlowDeleteRequest,
+  success: AgentFlowDeleted,
+});
 
 export class ContingencyRpcs extends RpcGroup.make(
   BrowserSessionsGetRpc,
@@ -1314,5 +1343,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentFlowRevisionGetRpc,
   AgentFlowDraftUpdateRpc,
   AgentFlowVerificationAuthorizeRpc,
-  AgentFlowApproveRpc
+  AgentFlowApproveRpc,
+  AgentFlowArchiveRpc,
+  AgentFlowDeleteRpc
 ) {}

@@ -121,6 +121,7 @@ it.effect(
 
 it("exposes no MCP tool that authorizes verification or approves a revision", () => {
   const names = Object.keys(AgentFlowTools.tools);
+  expect(names).toContain("agent_flow_archive");
   expect(names).toContain("agent_flow_verification_start");
   expect(names).toContain("agent_flow_verification_complete");
   // Both gestures belong to the user. An agent that could call them would be
@@ -130,6 +131,7 @@ it("exposes no MCP tool that authorizes verification or approves a revision", ()
       (name) => name.includes("approve") || name.includes("authorize")
     )
   ).toEqual([]);
+  expect(names.filter((name) => name.includes("delete"))).toEqual([]);
 });
 
 it.effect("refuses to start a Verification Run the user never authorized", () =>
