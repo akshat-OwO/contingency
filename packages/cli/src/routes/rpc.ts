@@ -9,12 +9,13 @@ import {
   STORAGE_LOCKED_MESSAGE,
 } from "@contingency/protocol";
 import type {
+  AgentFlowRevision,
   BrowserRpcErrorType,
   RecordingSnapshot,
   RunSnapshot,
   SessionId,
 } from "@contingency/protocol";
-import { Effect, Layer, Option, Stream } from "effect";
+import { Effect, Layer, Option, Result, Stream } from "effect";
 import type { FileSystem } from "effect";
 import {
   HttpRouter,
@@ -23,6 +24,12 @@ import {
 } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
+import { AgentFlowCatalog } from "../services/agent-flow-catalog.ts";
+import type {
+  AgentFlowCatalogError,
+  AgentFlowCatalogService,
+} from "../services/agent-flow-catalog.ts";
+import { compileAgentFlowDraft } from "../services/agent-flow-compiler.ts";
 import { AgentSession } from "../services/agent-session.ts";
 import type {
   AgentSessionError,
@@ -57,6 +64,16 @@ export const storageMutationIsLocked = (
   snapshot: Pick<RecordingSnapshot, "phase" | "sessionId"> | null,
   sessionId: string
 ): boolean => recordingLocksStorageMutations(snapshot, sessionId);
+
+/**
+ * Catalog failures Agent View shows the user. An IO failure is reported as an
+ * invalid Catalog Root because that is what the user can actually act on.
+ */
+const catalogRpcError = (cause: AgentFlowCatalogError): BrowserRpcErrorType =>
+  makeBrowserRpcError(
+    cause.code === "agent_catalog_io" ? "agent_catalog_invalid" : cause.code,
+    cause.message
+  );
 
 const agentError = (cause: AgentSessionError): BrowserRpcErrorType =>
   isBrowserRpcError(cause)
@@ -155,6 +172,89 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               )
         )
       );
+    /**
+     * Agent Flow Catalog operations only Agent View performs. The catalog is
+     * optional in a process that serves Audit View alone, so its absence is a
+     * refusal rather than a crash.
+     */
+    const catalogUnavailable = <A>(
+      operation: (
+        service: AgentFlowCatalogService
+      ) => Effect.Effect<A, AgentFlowCatalogError>
+    ): Effect.Effect<A, BrowserRpcErrorType> =>
+      Effect.serviceOption(AgentFlowCatalog).pipe(
+        Effect.flatMap((service) =>
+          Option.isSome(service)
+            ? operation(service.value).pipe(Effect.mapError(catalogRpcError))
+            : Effect.fail(
+                makeBrowserRpcError(
+                  "agent_catalog_invalid",
+                  "No Agent Flow Catalog is available in this server process."
+                )
+              )
+        )
+      );
+
+    /**
+     * Every draft-review answer carries the revision and the bounded evidence
+     * summaries beside it, so Agent View always shows what the Steps under
+     * review are actually backed by.
+     */
+    const revisionResult = (
+      operation: Effect.Effect<AgentFlowRevision, BrowserRpcErrorType>
+    ) =>
+      operation.pipe(
+        Effect.flatMap((revision) =>
+          catalogUnavailable((catalog) =>
+            catalog.evidence(
+              revision.manifest.agentFlowId,
+              revision.manifest.revisionId
+            )
+          ).pipe(
+            // The catalog derives one Slice per Step in Step order. A Step
+            // whose Slice is missing is a broken evidence package, not a Step
+            // to review quietly without it.
+            Effect.flatMap((slices) =>
+              Effect.all(
+                revision.manifest.steps.map((step, stepIndex) => {
+                  const slice = slices[stepIndex];
+                  return slice === undefined
+                    ? Effect.fail(
+                        makeBrowserRpcError(
+                          "agent_flow_invalid",
+                          `Agent Flow ${revision.manifest.agentFlowId} revision ${revision.manifest.revisionId} has no Evidence Slice for Agent Step ${stepIndex + 1}.`
+                        )
+                      )
+                    : Effect.succeed({
+                        actions: slice.actions.map((action) => ({
+                          actor: action.actor,
+                          description: action.description,
+                          id: action.id,
+                          outcome: action.outcome,
+                          urlAfter: action.urlAfter,
+                        })),
+                        endedAt: slice.endedAt,
+                        hash: step.evidence.hash,
+                        instructions: slice.instructions.map(
+                          ({ text }) => text
+                        ),
+                        screenshotCount: slice.screenshots.length,
+                        startedAt: slice.startedAt,
+                        stepIndex,
+                        urlTransitionCount: slice.urlTransitions.length,
+                      });
+                })
+              ).pipe(
+                Effect.map((evidence) => ({
+                  data: { evidence, revision },
+                  type: "agent.flow.revision.result" as const,
+                }))
+              )
+            )
+          )
+        )
+      );
+
     const agentStream = <A>(
       operation: (
         service: AgentSessionService
@@ -612,6 +712,115 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             data: { session },
             type: "agent.session.control.returned" as const,
           }))
+        ),
+      "agent.session.variable.supply": ({ data }) =>
+        agentUnavailable((service) =>
+          service.supplyVariable(
+            data.sessionId,
+            data.name,
+            data.value,
+            data.operationId
+          )
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.variable.supplied" as const,
+          }))
+        ),
+      "agent.flow.revision.get": ({ data }) =>
+        revisionResult(
+          catalogUnavailable((catalog) =>
+            catalog.get(data.agentFlowId, data.revisionId)
+          )
+        ),
+      /**
+       * The user's correction of the agent's proposal. It compiles against the
+       * same Demonstration the agent compiled from, so merging, splitting,
+       * renaming, and clarifying still produce Contingency-derived Evidence
+       * Slices — and the resulting draft revision holds no authorization.
+       */
+      "agent.flow.draft.update": ({ data }) =>
+        revisionResult(
+          Effect.gen(function* updateDraftFromAgentView() {
+            const source = yield* agentUnavailable((service) =>
+              service.teachingSource(data.sessionId)
+            );
+            const compiled = compileAgentFlowDraft(
+              data.draft,
+              source.demonstration
+            );
+            if (Result.isFailure(compiled)) {
+              return yield* Effect.fail(
+                makeBrowserRpcError(
+                  "agent_flow_invalid",
+                  `This correction was not saved: ${compiled.failure
+                    .map(
+                      (diagnostic) =>
+                        `${diagnostic.message} (${diagnostic.path.join(".") || "the draft"})`
+                    )
+                    .join(" ")}`
+                )
+              );
+            }
+            const saved = yield* catalogUnavailable((catalog) =>
+              catalog.saveDraft({
+                agentFlowId: data.agentFlowId,
+                basedOnRevisionId: data.basedOnRevisionId,
+                compiler: {
+                  clientName: source.session.clientName,
+                  clientVersion: source.session.clientVersion,
+                },
+                emulation: source.emulation,
+                operationId: data.operationId,
+                proposal: data.draft,
+                slices: compiled.success,
+                sourceSessionId: data.sessionId,
+              })
+            );
+            yield* agentUnavailable((service) =>
+              service.recordDraft(data.sessionId, {
+                agentFlowId: saved.manifest.agentFlowId,
+                revisionId: saved.manifest.revisionId,
+                savedAt: saved.manifest.createdAt,
+                steps: saved.manifest.steps.map((step, index) => ({
+                  confirmation: step.confirmation,
+                  description: step.description,
+                  evidenceHash: step.evidence.hash,
+                  firstActionId: step.firstActionId,
+                  index,
+                  lastActionId: step.lastActionId,
+                  name: step.name,
+                })),
+                title: saved.manifest.title,
+              })
+            );
+            return saved;
+          })
+        ),
+      /**
+       * The two gestures no MCP tool can reach. They are handlers on Agent
+       * View's loopback RPC and nowhere else
+       * (ADR 0027).
+       */
+      "agent.flow.verification.authorize": ({ data }) =>
+        revisionResult(
+          catalogUnavailable((catalog) =>
+            catalog.authorizeVerification({
+              agentFlowId: data.agentFlowId,
+              operationId: data.operationId,
+              revisionId: data.revisionId,
+            })
+          )
+        ),
+      "agent.flow.approve": ({ data }) =>
+        revisionResult(
+          catalogUnavailable((catalog) =>
+            catalog.approve({
+              agentFlowId: data.agentFlowId,
+              operationId: data.operationId,
+              revisionId: data.revisionId,
+            })
+          )
         ),
     };
   })

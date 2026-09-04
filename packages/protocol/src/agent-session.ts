@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
 import { AgentTimelineEntry } from "./agent-browser.ts";
-import { TeachingProgress } from "./agent-flow.ts";
+import { AgentSessionVerification, TeachingProgress } from "./agent-flow.ts";
 import {
   AgentProcessId,
   AgentSessionController,
@@ -65,6 +65,11 @@ export const AgentSessionSnapshot = Schema.Struct({
   /** The most recent attempts, oldest first, in the order they were made. */
   timeline: Schema.Array(AgentTimelineEntry),
   updatedAt: nonEmptyString,
+  /**
+   * The exact draft revision this session is verifying under one spent user
+   * authorization. `null` for Teaching and for an ordinary Interactive Run.
+   */
+  verification: Schema.NullOr(AgentSessionVerification),
   viewUrl: nonEmptyString,
 });
 export type AgentSessionSnapshot = typeof AgentSessionSnapshot.Type;

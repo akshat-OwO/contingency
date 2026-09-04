@@ -1,5 +1,7 @@
 import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
 import type {
+  AgentFlowId,
+  AgentFlowRevisionId,
   AgentSessionId,
   AgentSessionSnapshot,
   BrowserStreamEvent,
@@ -8,7 +10,7 @@ import type {
   SessionId,
 } from "@contingency/protocol";
 import { Duration, Effect, Layer, Schedule, Stream } from "effect";
-import { AtomRpc } from "effect/unstable/reactivity";
+import { Atom, AtomRpc } from "effect/unstable/reactivity";
 import {
   RpcClient,
   RpcClientError,
@@ -127,6 +129,39 @@ export const agentTakeoverMutation = ContingencyRpcClient.mutation(
 export const agentReturnControlMutation = ContingencyRpcClient.mutation(
   "agent.session.control.return"
 );
+/** Supply one runtime Variable to a Verification Run, from the user only. */
+export const agentVariableSupplyMutation = ContingencyRpcClient.mutation(
+  "agent.session.variable.supply"
+);
+/**
+ * The draft under review, with the Evidence Slice summaries behind its Steps.
+ * One atom per revision, so a review reads its own draft and nothing else's.
+ */
+const agentFlowRevisionFamily = Atom.family((agentFlowId: AgentFlowId) =>
+  Atom.family((revisionId: AgentFlowRevisionId) =>
+    ContingencyRpcClient.query("agent.flow.revision.get", {
+      data: { agentFlowId, revisionId },
+      type: "agent.flow.revision.get",
+    })
+  )
+);
+
+export const agentFlowRevisionAtom = (
+  agentFlowId: AgentFlowId,
+  revisionId: AgentFlowRevisionId
+) => agentFlowRevisionFamily(agentFlowId)(revisionId);
+/** The user's correction of the proposed Agent Steps and Domain Scope. */
+export const agentFlowDraftUpdateMutation = ContingencyRpcClient.mutation(
+  "agent.flow.draft.update"
+);
+/**
+ * The two gestures the external agent may ask for but never perform. They live
+ * on Agent View's loopback RPC and have no MCP tool.
+ */
+export const agentFlowVerificationAuthorizeMutation =
+  ContingencyRpcClient.mutation("agent.flow.verification.authorize");
+export const agentFlowApproveMutation =
+  ContingencyRpcClient.mutation("agent.flow.approve");
 
 export const recordingAtom = ContingencyRpcClient.query("recording.get", {
   data: {},

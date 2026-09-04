@@ -10,6 +10,7 @@ import {
   EvidenceHash,
   EvidenceSlice,
   OperationId,
+  StoredAgentFlowManifest,
 } from "@contingency/protocol";
 import type {
   AgentCatalogInfo,
@@ -18,8 +19,12 @@ import type {
   AgentFlowSearch,
   AgentFlowSearchHit,
   AgentFlowSearchResult,
+  AgentFlowVerification,
+  AgentFlowVerificationOutcome,
   AgentSessionId,
+  AgentStep,
   DraftEmulation,
+  StoredAgentStep,
 } from "@contingency/protocol";
 import {
   Context,
@@ -122,7 +127,56 @@ export interface SaveDraftInput {
   readonly sourceSessionId: AgentSessionId;
 }
 
+/** What a head mutation names. Every one of them is one exact revision. */
+export interface RevisionOperationInput {
+  readonly agentFlowId: AgentFlowId;
+  readonly operationId: OperationId | string;
+  readonly revisionId: AgentFlowRevisionId;
+}
+
+export interface StartVerificationInput extends RevisionOperationInput {
+  readonly sessionId: AgentSessionId;
+}
+
+export interface CompleteVerificationInput extends RevisionOperationInput {
+  readonly outcome: AgentFlowVerificationOutcome;
+  readonly summary: string;
+}
+
 export interface AgentFlowCatalogService {
+  /**
+   * The Evidence Slices behind one revision's Agent Steps, in Step order.
+   * Draft review reads them to show what verification would authorize.
+   */
+  readonly evidence: (
+    agentFlowId: AgentFlowId,
+    revisionId?: AgentFlowRevisionId
+  ) => Effect.Effect<readonly EvidenceSlice[], AgentFlowCatalogError>;
+  /**
+   * Record one direct user authorization of one Verification Run for one exact
+   * draft revision. Every draft mutation clears it, so a corrected draft is
+   * authorized again rather than inheriting the previous gesture
+   * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+   */
+  readonly authorizeVerification: (
+    input: RevisionOperationInput
+  ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /** Spend the authorization on one Verification Run. */
+  readonly startVerification: (
+    input: StartVerificationInput
+  ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /** Record how that Run ended. A failure leaves the approved revision alone. */
+  readonly completeVerification: (
+    input: CompleteVerificationInput
+  ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /**
+   * Turn one successfully verified draft revision into the Approved Agent
+   * Flow. Only a direct Agent View gesture reaches this
+   * ([ADR 0028](../../../../docs/adr/0028-approved-agent-flows-are-immutable-revisions.md)).
+   */
+  readonly approve: (
+    input: RevisionOperationInput
+  ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
   /** Read one revision: the named one, or the current draft head. */
   readonly get: (
     agentFlowId: AgentFlowId,
@@ -162,6 +216,20 @@ export interface AgentFlowCatalogOptions {
   readonly onSelect?: (root: string) => void;
   readonly root: string;
 }
+
+/**
+ * A head mutation's write-ahead record: what it was asked to do, the heads it
+ * expected to move, and the result it produced. A repeated operation id
+ * answers with that result instead of moving the heads a second time.
+ */
+const AgentFlowHeadOperationRecord = Schema.Struct({
+  expectedHeads: AgentFlowHeads,
+  input: Schema.String,
+  operationId: OperationId,
+  result: AgentFlowRevision,
+  schemaVersion: Schema.Literal(1),
+});
+type AgentFlowHeadOperationRecord = typeof AgentFlowHeadOperationRecord.Type;
 
 const AgentFlowOperationRecord = Schema.Struct({
   expectedHeads: Schema.NullOr(AgentFlowHeads),
@@ -224,6 +292,7 @@ const encodeSlice = Schema.encodeSync(EvidenceSlice);
 const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
 const encodeOperation = Schema.encodeSync(AgentFlowOperationRecord);
+const encodeHeadOperation = Schema.encodeSync(AgentFlowHeadOperationRecord);
 
 const operationRecord = (
   status: AgentFlowOperationRecord["status"],
@@ -333,6 +402,18 @@ const compareHits = (left: AgentFlowSearchHit, right: AgentFlowSearchHit) => {
   return left.title.localeCompare(right.title);
 };
 
+/**
+ * The verification of one exact revision. An authorization recorded for any
+ * other revision is not this revision's authorization.
+ */
+const verificationOf = (
+  heads: AgentFlowHeads,
+  revisionId: AgentFlowRevisionId
+): AgentFlowVerification | null =>
+  heads.verification !== null && heads.verification.revisionId === revisionId
+    ? heads.verification
+    : null;
+
 const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   options: AgentFlowCatalogOptions
 ) {
@@ -347,6 +428,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     string,
     { readonly input: string; readonly result: AgentCatalogInfo }
   >();
+  const headOperations = new Map<
+    string,
+    { readonly input: string; readonly result: AgentFlowRevision }
+  >();
   const now = options.now ?? (() => new Date());
 
   const flowsDirectory = (catalogRoot: string) =>
@@ -357,6 +442,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     path.join(
       operationsDirectory(catalogRoot),
       `sha256-${createHash("sha256").update(operationId).digest("hex")}.json`
+    );
+  /**
+   * Head mutations keep their own record namespace: a draft save and an
+   * approval are different effects, so one operation id used for both is a
+   * conflict in each namespace rather than a silent replay across them.
+   */
+  const headOperationFile = (catalogRoot: string, operationId: string) =>
+    path.join(
+      operationsDirectory(catalogRoot),
+      `head-sha256-${createHash("sha256").update(operationId).digest("hex")}.json`
     );
   const flowDirectory = (catalogRoot: string, id: AgentFlowId) =>
     path.join(flowsDirectory(catalogRoot), id);
@@ -520,11 +615,13 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               id: manifest.agentFlowId,
               schemaVersion: 1,
               updatedAt: manifest.createdAt,
+              verification: null,
             }
           : {
               ...persisted.expectedHeads,
               draftRevisionId: manifest.revisionId,
               updatedAt: manifest.createdAt,
+              verification: null,
             };
       const slicesMatchManifest =
         persisted.slices.length === manifest.steps.length &&
@@ -942,16 +1039,67 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       catalogRoot
     );
 
+  /**
+   * Recover the demonstrated span of a Step stored before Contingency kept
+   * one. The Evidence Slice the Step already names was cut from exactly that
+   * span, so its first and last captured actions are its boundaries — an
+   * explicit, non-destructive migration of what the Catalog Root holds
+   * (ADR 0033).
+   */
+  const stepWithSpan = (
+    catalogRoot: string,
+    id: AgentFlowId,
+    step: StoredAgentStep
+  ): Effect.Effect<AgentStep, AgentFlowCatalogError> => {
+    if (step.firstActionId !== undefined && step.lastActionId !== undefined) {
+      return Effect.succeed({
+        ...step,
+        firstActionId: step.firstActionId,
+        lastActionId: step.lastActionId,
+      });
+    }
+    return readJson(
+      EvidenceSlice,
+      path.join(flowDirectory(catalogRoot, id), step.evidence.path),
+      "Evidence Slice",
+      catalogRoot
+    ).pipe(
+      Effect.flatMap((slice) => {
+        const [first] = slice.actions;
+        const last = slice.actions.at(-1);
+        if (first === undefined || last === undefined) {
+          return Effect.fail(
+            catalogError(
+              "agent_catalog_invalid",
+              `Agent Step ${step.index + 1} of ${id} names no demonstrated actions, so its span cannot be recovered.`
+            )
+          );
+        }
+        return Effect.succeed({
+          ...step,
+          firstActionId: first.id,
+          lastActionId: last.id,
+        });
+      })
+    );
+  };
+
   const readManifest = (
     catalogRoot: string,
     id: AgentFlowId,
     revisionId: AgentFlowRevisionId
-  ) =>
+  ): Effect.Effect<AgentFlowManifest, AgentFlowCatalogError> =>
     readJson(
-      AgentFlowManifest,
+      StoredAgentFlowManifest,
       path.join(revisionDirectory(catalogRoot, id, revisionId), MANIFEST_FILE),
       "Agent Flow manifest",
       catalogRoot
+    ).pipe(
+      Effect.flatMap((stored) =>
+        Effect.all(
+          stored.steps.map((step) => stepWithSpan(catalogRoot, id, step))
+        ).pipe(Effect.map((steps) => ({ ...stored, steps })))
+      )
     );
 
   const revision = (
@@ -1228,6 +1376,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             id: agentFlowId,
             schemaVersion: 1,
             updatedAt: at,
+            verification: null,
           };
       const expectedHeads = headsExist ? existing : null;
       if (existing.draftRevisionId !== input.basedOnRevisionId) {
@@ -1260,7 +1409,9 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               hash,
               path: `${EVIDENCE_DIRECTORY}/${hash}.json`,
             },
+            firstActionId: step.firstActionId,
             index,
+            lastActionId: step.lastActionId,
             name: step.name,
           });
         })
@@ -1306,6 +1457,9 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         ...(expectedHeads ?? existing),
         draftRevisionId: revisionId,
         updatedAt: at,
+        // A changed draft is a different draft. The previous authorization
+        // covered one exact revision and does not travel to this one.
+        verification: null,
       };
       const saved = revision(catalogRoot, heads, manifest);
       const pending =
@@ -1332,7 +1486,335 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     }
   );
 
+  /** What one head mutation decided to write. */
+  interface HeadMutation {
+    readonly heads: AgentFlowHeads;
+    readonly manifest: AgentFlowManifest;
+  }
+
+  /**
+   * Apply one head mutation under the catalog lock, exactly once per operation
+   * id. The record is written before the heads move, so a transport retry that
+   * lands after a crash answers with the original result rather than deciding
+   * the transition again.
+   */
+  const mutateHeadsUnlocked = Effect.fn("AgentFlowCatalog.mutateHeads")(
+    function* applyHeadMutation(
+      catalogRoot: string,
+      agentFlowId: AgentFlowId,
+      operationId: string,
+      requestInput: string,
+      decide: (
+        heads: AgentFlowHeads
+      ) => Effect.Effect<HeadMutation, AgentFlowCatalogError>
+    ) {
+      const cacheKey = operationCacheKey(catalogRoot, operationId);
+      const cached = headOperations.get(cacheKey);
+      if (cached !== undefined) {
+        return cached.input === requestInput
+          ? cached.result
+          : yield* Effect.fail(
+              catalogError(
+                "agent_flow_conflict",
+                `Operation ${operationId} was already used for a different Agent Flow mutation.`
+              )
+            );
+      }
+      const recordFile = headOperationFile(catalogRoot, operationId);
+      const recordExists = yield* fileSystem
+        .exists(recordFile)
+        .pipe(
+          Effect.mapError(ioError("Could not inspect the Agent Flow operation"))
+        );
+      const headsFile = path.join(
+        flowDirectory(catalogRoot, agentFlowId),
+        HEADS_FILE
+      );
+      const headsExist = yield* fileSystem
+        .exists(headsFile)
+        .pipe(Effect.mapError(ioError("Could not inspect the Agent Flow")));
+      if (!headsExist) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_flow_not_found",
+            `Agent Flow ${agentFlowId} is not in the catalog at ${catalogRoot}.`
+          )
+        );
+      }
+      const current = yield* readHeads(catalogRoot, agentFlowId);
+      if (recordExists) {
+        const persisted = yield* readJson(
+          AgentFlowHeadOperationRecord,
+          recordFile,
+          "Agent Flow operation record",
+          catalogRoot
+        );
+        if (persisted.input !== requestInput) {
+          return yield* Effect.fail(
+            catalogError(
+              "agent_flow_conflict",
+              `Operation ${operationId} was already used for a different Agent Flow mutation.`
+            )
+          );
+        }
+        // Finish an interrupted write only while the heads still stand where
+        // it left them. A world that moved on keeps its own state and the
+        // retry answers with the result the id already produced.
+        if (sameHeads(current, persisted.expectedHeads)) {
+          yield* writeJson(
+            path.join(
+              revisionDirectory(
+                catalogRoot,
+                agentFlowId,
+                persisted.result.manifest.revisionId
+              ),
+              MANIFEST_FILE
+            ),
+            JSON.stringify(encodeManifest(persisted.result.manifest), null, 2),
+            "the Agent Flow manifest"
+          );
+          yield* writeJson(
+            headsFile,
+            JSON.stringify(encodeHeads(persisted.result.heads), null, 2),
+            "the Agent Flow record"
+          );
+        }
+        headOperations.set(cacheKey, {
+          input: requestInput,
+          result: persisted.result,
+        });
+        return persisted.result;
+      }
+      const decided = yield* decide(current);
+      const result = revision(catalogRoot, decided.heads, decided.manifest);
+      yield* ensureCatalogPath(
+        catalogRoot,
+        operationsDirectory(catalogRoot),
+        "Agent Flow operation records"
+      );
+      yield* fileSystem
+        .makeDirectory(operationsDirectory(catalogRoot), { recursive: true })
+        .pipe(Effect.mapError(ioError("Could not create operation records")));
+      yield* writeJson(
+        recordFile,
+        JSON.stringify(
+          encodeHeadOperation({
+            expectedHeads: current,
+            input: requestInput,
+            operationId: OperationId.make(operationId),
+            result,
+            schemaVersion: 1,
+          }),
+          null,
+          2
+        ),
+        "the Agent Flow operation record"
+      );
+      yield* writeJson(
+        path.join(
+          revisionDirectory(
+            catalogRoot,
+            agentFlowId,
+            decided.manifest.revisionId
+          ),
+          MANIFEST_FILE
+        ),
+        JSON.stringify(encodeManifest(decided.manifest), null, 2),
+        "the Agent Flow manifest"
+      );
+      yield* writeJson(
+        headsFile,
+        JSON.stringify(encodeHeads(decided.heads), null, 2),
+        "the Agent Flow record"
+      );
+      headOperations.set(cacheKey, { input: requestInput, result });
+      return result;
+    }
+  );
+
+  const mutateHeads = (
+    kind: string,
+    input: RevisionOperationInput,
+    extra: Record<string, unknown>,
+    decide: (
+      heads: AgentFlowHeads,
+      at: string
+    ) => Effect.Effect<HeadMutation, AgentFlowCatalogError>
+  ) =>
+    writes.withPermit(
+      Effect.gen(function* mutateHeadsWithCatalogLock() {
+        const catalogRoot = yield* Ref.get(root);
+        yield* ensureCatalogPath(
+          catalogRoot,
+          flowsDirectory(catalogRoot),
+          "Agent Flow Catalog"
+        );
+        const requestInput = canonicalJson({
+          agentFlowId: input.agentFlowId,
+          kind,
+          revisionId: input.revisionId,
+          ...extra,
+        });
+        return yield* withCatalogLock(
+          catalogRoot,
+          mutateHeadsUnlocked(
+            catalogRoot,
+            input.agentFlowId,
+            String(input.operationId),
+            requestInput,
+            (heads) => decide(heads, now().toISOString())
+          )
+        );
+      })
+    );
+
+  /** The draft under review, refused when the caller named a stale revision. */
+  const requireDraftHead = (
+    catalogRoot: string,
+    heads: AgentFlowHeads,
+    revisionId: AgentFlowRevisionId
+  ): Effect.Effect<AgentFlowManifest, AgentFlowCatalogError> =>
+    heads.draftRevisionId === revisionId
+      ? readManifest(catalogRoot, heads.id, revisionId)
+      : Effect.fail(
+          catalogError(
+            "agent_flow_conflict",
+            heads.draftRevisionId === null
+              ? `Agent Flow ${heads.id} has no draft revision to act on.`
+              : `Agent Flow ${heads.id} draft head is ${heads.draftRevisionId}, not ${revisionId}. Reread the draft before acting on it.`
+          )
+        );
+
   const service: AgentFlowCatalogService = {
+    approve: (input) =>
+      mutateHeads("approve", input, {}, (heads, at) =>
+        Effect.gen(function* approveRevision() {
+          const catalogRoot = yield* Ref.get(root);
+          const manifest = yield* requireDraftHead(
+            catalogRoot,
+            heads,
+            input.revisionId
+          );
+          const verification = verificationOf(heads, input.revisionId);
+          if (verification === null || verification.status !== "passed") {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_flow_conflict",
+                `Agent Flow ${heads.id} revision ${input.revisionId} has no successful Verification Run, so it cannot be approved.`
+              )
+            );
+          }
+          return {
+            heads: {
+              ...heads,
+              approvedRevisionId: input.revisionId,
+              draftRevisionId: null,
+              updatedAt: at,
+            },
+            manifest: { ...manifest, status: "approved" as const },
+          };
+        })
+      ),
+    authorizeVerification: (input) =>
+      mutateHeads("verification.authorize", input, {}, (heads, at) =>
+        Effect.gen(function* authorizeVerificationRun() {
+          const catalogRoot = yield* Ref.get(root);
+          const manifest = yield* requireDraftHead(
+            catalogRoot,
+            heads,
+            input.revisionId
+          );
+          const verification = verificationOf(heads, input.revisionId);
+          if (verification?.status === "running") {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_flow_conflict",
+                `A Verification Run of ${input.revisionId} is already in progress.`
+              )
+            );
+          }
+          if (verification?.status === "passed") {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_flow_conflict",
+                `Revision ${input.revisionId} already passed verification and is waiting for your approval.`
+              )
+            );
+          }
+          return {
+            heads: {
+              ...heads,
+              updatedAt: at,
+              verification: {
+                authorizationId: `auth-${randomUUID()}`,
+                authorizedAt: at,
+                completedAt: null,
+                revisionId: input.revisionId,
+                sessionId: null,
+                startedAt: null,
+                status: "authorized" as const,
+                summary: null,
+              },
+            },
+            manifest,
+          };
+        })
+      ),
+    completeVerification: (input) =>
+      mutateHeads(
+        "verification.complete",
+        input,
+        { outcome: input.outcome, summary: input.summary },
+        (heads, at) =>
+          Effect.gen(function* completeVerificationRun() {
+            const catalogRoot = yield* Ref.get(root);
+            const manifest = yield* requireDraftHead(
+              catalogRoot,
+              heads,
+              input.revisionId
+            );
+            const verification = verificationOf(heads, input.revisionId);
+            if (verification === null || verification.status !== "running") {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_flow_conflict",
+                  `No Verification Run of ${input.revisionId} is in progress.`
+                )
+              );
+            }
+            return {
+              heads: {
+                ...heads,
+                updatedAt: at,
+                verification: {
+                  ...verification,
+                  completedAt: at,
+                  status: input.outcome,
+                  summary: input.summary,
+                },
+              },
+              manifest,
+            };
+          })
+      ),
+    evidence: (agentFlowId, revisionId) =>
+      get(agentFlowId, revisionId).pipe(
+        Effect.flatMap((found) =>
+          Effect.all(
+            found.manifest.steps.map((step) =>
+              readJson(
+                EvidenceSlice,
+                path.join(
+                  flowDirectory(found.catalogRoot, found.manifest.agentFlowId),
+                  step.evidence.path
+                ),
+                "Evidence Slice",
+                found.catalogRoot
+              )
+            )
+          )
+        )
+      ),
     get: (agentFlowId, revisionId) => get(agentFlowId, revisionId),
     info: () => Ref.get(root).pipe(Effect.flatMap(info)),
     replayDraftSave: (operationId, requestInput) =>
@@ -1383,6 +1865,43 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     search: (query) => search(query),
     select: (requested, operationId) =>
       writes.withPermit(select(requested, operationId)),
+    startVerification: (input) =>
+      mutateHeads(
+        "verification.start",
+        input,
+        { sessionId: input.sessionId },
+        (heads, at) =>
+          Effect.gen(function* startVerificationRun() {
+            const catalogRoot = yield* Ref.get(root);
+            const manifest = yield* requireDraftHead(
+              catalogRoot,
+              heads,
+              input.revisionId
+            );
+            const verification = verificationOf(heads, input.revisionId);
+            if (verification === null || verification.status !== "authorized") {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_flow_conflict",
+                  `Revision ${input.revisionId} has no unspent Verification Run authorization. Ask the user to authorize verification in Agent View.`
+                )
+              );
+            }
+            return {
+              heads: {
+                ...heads,
+                updatedAt: at,
+                verification: {
+                  ...verification,
+                  sessionId: input.sessionId,
+                  startedAt: at,
+                  status: "running" as const,
+                },
+              },
+              manifest,
+            };
+          })
+      ),
   };
   return service;
 });

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   AgentBrowserAction,
@@ -15,6 +15,12 @@ import {
 import { DraftEmulation, Variable } from "./flow.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
+
+/** Variable names are shouty snake case, so `{{NAME}}` is unambiguous. */
+const variableName = Schema.String.check(
+  Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+  Schema.isMinLength(1)
+);
 
 // ---------------------------------------------------------------------------
 // Identities
@@ -173,10 +179,7 @@ export const TeachingVariableInput = Schema.Struct({
   sessionId: AgentSessionId,
   value: nonEmptyString,
   variable: Schema.Struct({
-    name: Schema.String.check(
-      Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
-      Schema.isMinLength(1)
-    ),
+    name: variableName,
     runtime: Variable.fields.runtime,
     secret: Variable.fields.secret,
   }),
@@ -267,7 +270,15 @@ export const AgentStep = Schema.Struct({
   confirmation: Schema.Boolean,
   description: nonEmptyString,
   evidence: EvidenceSliceRef,
+  /**
+   * The inclusive span of captured action ids this objective was demonstrated
+   * by. The manifest keeps it so a user correction — merge, split, rename, or
+   * clarify — is expressed as another proposal over the same Demonstration
+   * rather than as a hand edit of derived evidence.
+   */
+  firstActionId: nonEmptyString,
   index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  lastActionId: nonEmptyString,
   name: nonEmptyString,
 });
 export type AgentStep = typeof AgentStep.Type;
@@ -303,6 +314,63 @@ export const AgentFlowManifest = Schema.Struct({
 export type AgentFlowManifest = typeof AgentFlowManifest.Type;
 
 /**
+ * One Agent Step as older Catalog Roots stored it, before a Step carried the
+ * demonstrated span it was cut from. The span is recovered from the Evidence
+ * Slice the Step already names, so a manifest written by an earlier version
+ * still opens for review
+ * ([ADR 0033](../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+ */
+export const StoredAgentStep = Schema.Struct({
+  ...AgentStep.fields,
+  firstActionId: Schema.optionalKey(nonEmptyString),
+  lastActionId: Schema.optionalKey(nonEmptyString),
+});
+export type StoredAgentStep = typeof StoredAgentStep.Type;
+
+/** A manifest as it is on disk, before its Steps' spans are recovered. */
+export const StoredAgentFlowManifest = Schema.Struct({
+  ...AgentFlowManifest.fields,
+  steps: Schema.Array(StoredAgentStep).check(Schema.isMinLength(1)),
+});
+export type StoredAgentFlowManifest = typeof StoredAgentFlowManifest.Type;
+
+/**
+ * Where one Verification Run stands. `authorized` is spent by starting the
+ * Run, so one direct user gesture funds one attempt rather than unlimited
+ * agent retries
+ * ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ */
+export const AgentFlowVerificationStatus = Schema.Literals([
+  "authorized",
+  "running",
+  "passed",
+  "failed",
+]);
+export type AgentFlowVerificationStatus =
+  typeof AgentFlowVerificationStatus.Type;
+
+/**
+ * One user authorization of one Verification Run, bound to one exact draft
+ * revision. Any draft mutation replaces the draft head, and the authorization
+ * does not travel with it: the changed draft must be authorized again.
+ */
+export const AgentFlowVerification = Schema.Struct({
+  /** Identifies this authorization so a replayed approval names the same one. */
+  authorizationId: nonEmptyString,
+  authorizedAt: nonEmptyString,
+  completedAt: Schema.NullOr(nonEmptyString),
+  /** The exact draft revision this authorization covers, and nothing else. */
+  revisionId: AgentFlowRevisionId,
+  /** The Agent Session that performed the Run, once one started. */
+  sessionId: Schema.NullOr(AgentSessionId),
+  startedAt: Schema.NullOr(nonEmptyString),
+  status: AgentFlowVerificationStatus,
+  /** The agent's account of why verification worked or failed. */
+  summary: Schema.NullOr(nonEmptyString),
+});
+export type AgentFlowVerification = typeof AgentFlowVerification.Type;
+
+/**
  * The stable identity record beside the revisions: which revision is the
  * current draft and which is approved. Draft writes name the draft head they
  * started from, so a stale write is a conflict rather than a silent merge.
@@ -315,6 +383,16 @@ export const AgentFlowHeads = Schema.Struct({
   id: AgentFlowId,
   schemaVersion: Schema.Literal(1),
   updatedAt: nonEmptyString,
+  /**
+   * The current draft's verification, or `null` when none is authorized. A
+   * record written before Contingency verified drafts has no such key, and an
+   * absent authorization is exactly no authorization, so it reads as `null`
+   * rather than making the Agent Flow unreadable
+   * ([ADR 0033](../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+   */
+  verification: Schema.NullOr(AgentFlowVerification).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
 });
 export type AgentFlowHeads = typeof AgentFlowHeads.Type;
 
@@ -411,7 +489,9 @@ export const AgentFlowDraftStep = Schema.Struct({
   confirmation: Schema.Boolean,
   description: nonEmptyString,
   evidenceHash: EvidenceHash,
+  firstActionId: nonEmptyString,
   index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  lastActionId: nonEmptyString,
   name: nonEmptyString,
 });
 export type AgentFlowDraftStep = typeof AgentFlowDraftStep.Type;
@@ -432,3 +512,158 @@ export const TeachingProgress = Schema.Struct({
   instructionCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 export type TeachingProgress = typeof TeachingProgress.Type;
+
+// ---------------------------------------------------------------------------
+// Draft review, verification, and approval
+// ---------------------------------------------------------------------------
+
+/**
+ * The bounded summary of one Agent Step's Evidence Slice, as Agent View shows
+ * it during draft review. The captured action ids travel because they are the
+ * boundaries a user splits a Step on; the accessibility trees and screenshots
+ * behind them do not.
+ */
+export const AgentFlowEvidenceSummary = Schema.Struct({
+  actions: Schema.Array(
+    Schema.Struct({
+      actor: AgentSessionController,
+      description: nonEmptyString,
+      id: nonEmptyString,
+      outcome: AgentActionOutcome,
+      urlAfter: Schema.String,
+    })
+  ),
+  endedAt: nonEmptyString,
+  hash: EvidenceHash,
+  instructions: Schema.Array(nonEmptyString),
+  screenshotCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  startedAt: nonEmptyString,
+  stepIndex: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  urlTransitionCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type AgentFlowEvidenceSummary = typeof AgentFlowEvidenceSummary.Type;
+
+/** One revision with the evidence summaries the draft review reads. */
+export const AgentFlowRevisionDetail = Schema.Struct({
+  evidence: Schema.Array(AgentFlowEvidenceSummary),
+  revision: AgentFlowRevision,
+});
+export type AgentFlowRevisionDetail = typeof AgentFlowRevisionDetail.Type;
+
+/**
+ * The user's correction of the agent's proposal, applied through Agent View.
+ * It is the same shape the compiler produces, so merging, splitting, renaming,
+ * clarifying, and editing Domain Scope all resolve to Evidence Slices
+ * Contingency derives from the demonstrated spans — never to hand-edited
+ * evidence ([ADR 0025](../../../docs/adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
+ */
+export const AgentFlowDraftUpdate = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  basedOnRevisionId: AgentFlowRevisionId,
+  draft: AgentFlowDraftProposal,
+  operationId: OperationId,
+  sessionId: AgentSessionId,
+});
+export type AgentFlowDraftUpdate = typeof AgentFlowDraftUpdate.Type;
+
+/**
+ * A direct Agent View gesture authorizing one Verification Run of one exact
+ * draft revision. There is deliberately no MCP tool for it: an agent may ask,
+ * but it cannot authorize the activity it proposed.
+ */
+export const AgentFlowVerificationAuthorize = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  operationId: OperationId,
+  revisionId: AgentFlowRevisionId,
+});
+export type AgentFlowVerificationAuthorize =
+  typeof AgentFlowVerificationAuthorize.Type;
+
+/** The external agent starting the Verification Run the user authorized. */
+export const AgentFlowVerificationStart = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  clientName: Schema.optional(nonEmptyString),
+  clientVersion: Schema.optional(nonEmptyString),
+  operationId: OperationId,
+  revisionId: AgentFlowRevisionId,
+});
+export type AgentFlowVerificationStart = typeof AgentFlowVerificationStart.Type;
+
+export const AgentFlowVerificationOutcome = Schema.Literals([
+  "passed",
+  "failed",
+]);
+export type AgentFlowVerificationOutcome =
+  typeof AgentFlowVerificationOutcome.Type;
+
+/** The agent's evidence-backed report of the Verification Run it performed. */
+export const AgentFlowVerificationComplete = Schema.Struct({
+  operationId: OperationId,
+  outcome: AgentFlowVerificationOutcome,
+  sessionId: AgentSessionId,
+  summary: nonEmptyString,
+});
+export type AgentFlowVerificationComplete =
+  typeof AgentFlowVerificationComplete.Type;
+
+/**
+ * A direct Agent View gesture turning one verified draft into the Approved
+ * Agent Flow. Like authorization, it has no MCP tool
+ * ([ADR 0028](../../../docs/adr/0028-approved-agent-flows-are-immutable-revisions.md)).
+ */
+export const AgentFlowApprove = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  operationId: OperationId,
+  revisionId: AgentFlowRevisionId,
+});
+export type AgentFlowApprove = typeof AgentFlowApprove.Type;
+
+/**
+ * One Variable a Verification Run needs. The declaration travels; the literal
+ * never does, so Agent View reports only whether a value has been supplied.
+ */
+export const AgentSessionVariableState = Schema.Struct({
+  name: variableName,
+  runtime: Variable.fields.runtime,
+  secret: Variable.fields.secret,
+  supplied: Schema.Boolean,
+});
+export type AgentSessionVariableState = typeof AgentSessionVariableState.Type;
+
+/**
+ * What an Agent Session is verifying. A Verification Run runs one exact draft
+ * revision under one spent authorization, in a browser context that Teaching
+ * never touched, with its runtime Variables supplied again.
+ */
+export const AgentSessionVerification = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  authorizationId: nonEmptyString,
+  outcome: Schema.NullOr(AgentFlowVerificationOutcome),
+  revisionId: AgentFlowRevisionId,
+  steps: Schema.Array(AgentFlowDraftStep),
+  title: nonEmptyString,
+  variables: Schema.Array(AgentSessionVariableState),
+});
+export type AgentSessionVerification = typeof AgentSessionVerification.Type;
+
+/** Agent View supplying one runtime Variable value to a Verification Run. */
+export const AgentSessionVariableSupply = Schema.Struct({
+  name: variableName,
+  operationId: OperationId,
+  sessionId: AgentSessionId,
+  value: nonEmptyString,
+});
+export type AgentSessionVariableSupply = typeof AgentSessionVariableSupply.Type;
+
+/**
+ * The agent entering a Variable the user supplied to this Run. It names the
+ * Variable and the element, never the value: the literal stays inside
+ * Contingency.
+ */
+export const AgentVariableEnter = Schema.Struct({
+  name: variableName,
+  operationId: OperationId,
+  ref: AgentElementRef,
+  sessionId: AgentSessionId,
+});
+export type AgentVariableEnter = typeof AgentVariableEnter.Type;
