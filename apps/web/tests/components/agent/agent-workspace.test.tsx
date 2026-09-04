@@ -23,6 +23,9 @@ const rpc = vi.hoisted(() => ({
   variableInputCalls: [] as unknown[],
 }));
 
+/** The draft review is not what this test reads, so its revision never lands. */
+const pendingRevisionAtom = Atom.make(Effect.never);
+
 vi.mock("@/lib/rpc", () => ({
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn((payload: unknown) =>
@@ -39,7 +42,7 @@ vi.mock("@/lib/rpc", () => ({
   ),
   agentFlowApproveMutation: Atom.fn(() => Effect.never),
   agentFlowDraftUpdateMutation: Atom.fn(() => Effect.never),
-  agentFlowRevisionMutation: Atom.fn(() => Effect.never),
+  agentFlowRevisionAtom: () => pendingRevisionAtom,
   agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),
   agentReturnControlMutation: Atom.fn((payload: unknown) =>
     Effect.sync(() => {

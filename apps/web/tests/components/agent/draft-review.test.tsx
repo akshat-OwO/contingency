@@ -19,6 +19,20 @@ const answer = () =>
     ? Effect.succeed({ data: rpc.detail })
     : Effect.fail(new Error(rpc.writeError));
 
+/** One atom per revision, as `@/lib/rpc` builds them, so a reread refetches. */
+const revisionOf = Atom.family((_key: string) =>
+  Atom.make(
+    Effect.suspend(() =>
+      rpc.readError === undefined
+        ? Effect.succeed({ data: rpc.detail })
+        : Effect.fail(new Error(rpc.readError))
+    )
+  )
+);
+
+const revisionFamily = (agentFlowId: string, revisionId: string) =>
+  revisionOf(`${agentFlowId}\u0000${revisionId}`);
+
 vi.mock("@/lib/rpc", () => ({
   agentFlowApproveMutation: Atom.fn((payload: unknown) =>
     Effect.suspend(() => {
@@ -32,13 +46,7 @@ vi.mock("@/lib/rpc", () => ({
       return answer();
     })
   ),
-  agentFlowRevisionMutation: Atom.fn(() =>
-    Effect.suspend(() =>
-      rpc.readError === undefined
-        ? Effect.succeed({ data: rpc.detail })
-        : Effect.fail(new Error(rpc.readError))
-    )
-  ),
+  agentFlowRevisionAtom: revisionFamily,
   agentFlowVerificationAuthorizeMutation: Atom.fn((payload: unknown) =>
     Effect.suspend(() => {
       rpc.authorizeCalls.push(payload);

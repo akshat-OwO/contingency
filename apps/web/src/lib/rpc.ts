@@ -1,5 +1,7 @@
 import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
 import type {
+  AgentFlowId,
+  AgentFlowRevisionId,
   AgentSessionId,
   AgentSessionSnapshot,
   BrowserStreamEvent,
@@ -8,7 +10,7 @@ import type {
   SessionId,
 } from "@contingency/protocol";
 import { Duration, Effect, Layer, Schedule, Stream } from "effect";
-import { AtomRpc } from "effect/unstable/reactivity";
+import { Atom, AtomRpc } from "effect/unstable/reactivity";
 import {
   RpcClient,
   RpcClientError,
@@ -131,10 +133,23 @@ export const agentReturnControlMutation = ContingencyRpcClient.mutation(
 export const agentVariableSupplyMutation = ContingencyRpcClient.mutation(
   "agent.session.variable.supply"
 );
-/** The draft under review, with the Evidence Slice summaries behind its Steps. */
-export const agentFlowRevisionMutation = ContingencyRpcClient.mutation(
-  "agent.flow.revision.get"
+/**
+ * The draft under review, with the Evidence Slice summaries behind its Steps.
+ * One atom per revision, so a review reads its own draft and nothing else's.
+ */
+const agentFlowRevisionFamily = Atom.family((agentFlowId: AgentFlowId) =>
+  Atom.family((revisionId: AgentFlowRevisionId) =>
+    ContingencyRpcClient.query("agent.flow.revision.get", {
+      data: { agentFlowId, revisionId },
+      type: "agent.flow.revision.get",
+    })
+  )
 );
+
+export const agentFlowRevisionAtom = (
+  agentFlowId: AgentFlowId,
+  revisionId: AgentFlowRevisionId
+) => agentFlowRevisionFamily(agentFlowId)(revisionId);
 /** The user's correction of the proposed Agent Steps and Domain Scope. */
 export const agentFlowDraftUpdateMutation = ContingencyRpcClient.mutation(
   "agent.flow.draft.update"

@@ -4,28 +4,41 @@ import type {
   AgentFlowRevisionId,
   AgentSessionId,
   AgentSessionSnapshot,
-  AgentFlowManifest,
-  AgentFlowVerification,
 } from "@contingency/protocol";
 import { OperationId } from "@contingency/protocol";
-import { useAtomSet } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSubscribe,
+  useAtomValue,
+} from "@effect/atom-react";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { CircleAlertIcon, CircleCheckIcon, KeyRoundIcon } from "lucide-react";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   authorizationPresentation,
+  draftCorrectionsAtom,
   draftEditFromManifest,
+  draftGestureAtom,
   draftIsEdited,
   draftProposalFrom,
+  draftSplitAtom,
+  draftVariableDraftAtom,
   editHosts,
   editStep,
   mergeStepWithNext,
   parseHosts,
+  refusal,
+  shownRevision,
   splitStepAt,
   stepActionIds,
 } from "@/components/agent/draft-review-state";
-import type { DraftReviewEdit } from "@/components/agent/draft-review-state";
+import type {
+  DraftReviewEdit,
+  DraftReviewKey,
+} from "@/components/agent/draft-review-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,23 +53,12 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   agentFlowApproveMutation,
   agentFlowDraftUpdateMutation,
-  agentFlowRevisionMutation,
+  agentFlowRevisionAtom,
   agentFlowVerificationAuthorizeMutation,
   agentVariableSupplyMutation,
 } from "@/lib/rpc";
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 const operationId = () => OperationId.make(crypto.randomUUID());
-
-interface RevisionDetail {
-  readonly evidence: readonly AgentFlowEvidenceSummary[];
-  readonly revision: {
-    readonly heads: { readonly verification: AgentFlowVerification | null };
-    readonly manifest: AgentFlowManifest;
-  };
-}
 
 const StepEditor = ({
   actionIds,
@@ -67,6 +69,7 @@ const StepEditor = ({
   onChange,
   onMerge,
   onSplit,
+  reviewKey,
   step,
 }: {
   readonly actionIds: readonly string[];
@@ -81,9 +84,10 @@ const StepEditor = ({
   }) => void;
   readonly onMerge: () => void;
   readonly onSplit: (actionId: string) => void;
+  readonly reviewKey: DraftReviewKey;
   readonly step: DraftReviewEdit["steps"][number];
 }) => {
-  const [splitAt, setSplitAt] = useState("");
+  const [splitAt, setSplitAt] = useAtom(draftSplitAtom(reviewKey)(index));
   // A Step always covers at least one action, so its first action can never
   // start the second half of a split.
   const splitPoints = actionIds.slice(1);
@@ -199,9 +203,19 @@ const VariableSupply = ({
 }: {
   readonly session: AgentSessionSnapshot;
 }) => {
-  const supply = useAtomSet(agentVariableSupplyMutation, { mode: "promise" });
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [failure, setFailure] = useState<string | undefined>();
+  const [supplyResult, supply] = useAtom(agentVariableSupplyMutation);
+  const [values, setValues] = useAtom(draftVariableDraftAtom(session.id));
+  /** Which Variable the Run is being told, so its field clears once it lands. */
+  const supplying = useRef<string | null>(null);
+  useAtomSubscribe(agentVariableSupplyMutation, (result) => {
+    const name = supplying.current;
+    if (name === null || !AsyncResult.isSuccess(result)) {
+      return;
+    }
+    supplying.current = null;
+    setValues((current) => ({ ...current, [name]: "" }));
+  });
+  const failure = refusal(supplyResult);
   const { verification } = session;
   if (verification === null) {
     return null;
@@ -212,25 +226,18 @@ const VariableSupply = ({
   }
   const submit = (name: string) => (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setFailure(undefined);
-    void (async function supplyVariable() {
-      try {
-        await supply({
-          payload: {
-            data: {
-              name,
-              operationId: operationId(),
-              sessionId: session.id,
-              value: values[name] ?? "",
-            },
-            type: "agent.session.variable.supply",
-          },
-        });
-        setValues((current) => ({ ...current, [name]: "" }));
-      } catch (error) {
-        setFailure(errorMessage(error));
-      }
-    })();
+    supplying.current = name;
+    supply({
+      payload: {
+        data: {
+          name,
+          operationId: operationId(),
+          sessionId: session.id,
+          value: values[name] ?? "",
+        },
+        type: "agent.session.variable.supply",
+      },
+    });
   };
   return (
     <section
@@ -304,86 +311,76 @@ export const DraftReview = ({
   /** The Teaching session whose Demonstration corrections compile against. */
   readonly sessionId: AgentSessionId | undefined;
 }) => {
-  const readRevision = useAtomSet(agentFlowRevisionMutation, {
-    mode: "promise",
-  });
-  const updateDraft = useAtomSet(agentFlowDraftUpdateMutation, {
-    mode: "promise",
-  });
-  const authorize = useAtomSet(agentFlowVerificationAuthorizeMutation, {
-    mode: "promise",
-  });
-  const approve = useAtomSet(agentFlowApproveMutation, { mode: "promise" });
-  const [detail, setDetail] = useState<RevisionDetail | undefined>();
-  const [edit, setEdit] = useState<DraftReviewEdit | undefined>();
-  /**
-   * The Domain Scope textarea as typed. Parsing on every keystroke would eat a
-   * fresh line before the user names the host that follows it.
-   */
-  const [hostsText, setHostsText] = useState("");
-  const [failure, setFailure] = useState<string | undefined>();
-  const [pending, setPending] = useState(false);
-
-  /**
-   * Unsaved corrections outrank a reread: a refresh that arrives while the
-   * user is still editing updates what the draft is verified as, never what
-   * the user has typed.
-   */
-  const editing = useRef(false);
-  const apply = useCallback((next: RevisionDetail) => {
-    setDetail(next);
-    if (editing.current) {
-      return;
-    }
-    setEdit(draftEditFromManifest(next.revision.manifest));
-    setHostsText(next.revision.manifest.domainScope.hosts.join("\n"));
-  }, []);
-  const correct = useCallback(
-    (change: (current: DraftReviewEdit) => DraftReviewEdit) => {
-      editing.current = true;
-      setEdit((current) => (current === undefined ? current : change(current)));
-    },
-    []
+  const reviewKey: DraftReviewKey = { agentFlowId, revisionId };
+  const revisionAtom = agentFlowRevisionAtom(agentFlowId, revisionId);
+  const revisionResult = useAtomValue(revisionAtom);
+  const rereadRevision = useAtomRefresh(revisionAtom);
+  const [updateResult, updateDraft] = useAtom(agentFlowDraftUpdateMutation);
+  const [authorizeResult, authorize] = useAtom(
+    agentFlowVerificationAuthorizeMutation
+  );
+  const [approveResult, approve] = useAtom(agentFlowApproveMutation);
+  const [gesture, setGesture] = useAtom(draftGestureAtom(reviewKey));
+  const [corrections, setCorrections] = useAtom(
+    draftCorrectionsAtom(reviewKey)
   );
 
+  /**
+   * The session moving is the only signal that the revision may read
+   * differently now, because the agent — not Agent View — writes a
+   * Verification Run's outcome.
+   */
+  const rereadAt = useRef(refreshToken);
   useEffect(() => {
-    let live = true;
-    void (async function readDraftRevision() {
-      try {
-        const answer = await readRevision({
-          payload: {
-            data: { agentFlowId, revisionId },
-            type: "agent.flow.revision.get",
-          },
-        });
-        if (live) {
-          apply(answer.data);
-        }
-      } catch (error) {
-        if (live) {
-          setFailure(errorMessage(error));
-        }
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [agentFlowId, apply, readRevision, refreshToken, revisionId]);
+    if (rereadAt.current === refreshToken) {
+      return;
+    }
+    rereadAt.current = refreshToken;
+    rereadRevision();
+  }, [refreshToken, rereadRevision]);
 
-  if (detail === undefined || edit === undefined) {
+  const gestureResult = (() => {
+    if (gesture === "approve") {
+      return approveResult;
+    }
+    if (gesture === "authorize") {
+      return authorizeResult;
+    }
+    return gesture === "update" ? updateResult : undefined;
+  })();
+  const detail = shownRevision(revisionResult, gestureResult);
+  const pending =
+    gestureResult !== undefined && AsyncResult.isWaiting(gestureResult);
+  const failure = refusal(gestureResult);
+
+  if (detail === undefined) {
     return (
       <section aria-labelledby="agent-draft" className="space-y-2">
         <h2 className="text-sm font-semibold" id="agent-draft">
           Draft review
         </h2>
         <p className="text-muted-foreground text-xs">
-          {failure ?? "Loading the draft Agent Flow."}
+          {refusal(revisionResult) ?? "Loading the draft Agent Flow."}
         </p>
       </section>
     );
   }
 
   const { manifest } = detail.revision;
+  /**
+   * Unsaved corrections outrank a reread: a refresh that arrives while the
+   * user is still editing updates what the draft is verified as, never what
+   * the user has typed.
+   */
+  const edit =
+    corrections === null ? draftEditFromManifest(manifest) : corrections.edit;
+  const hostsText =
+    corrections === null
+      ? manifest.domainScope.hosts.join("\n")
+      : corrections.hostsText;
+  const correct = (change: (current: DraftReviewEdit) => DraftReviewEdit) => {
+    setCorrections({ edit: change(edit), hostsText });
+  };
   const edited = draftIsEdited(manifest, edit);
   const canEdit = sessionId !== undefined && manifest.status === "draft";
   const authorization = authorizationPresentation(
@@ -392,42 +389,23 @@ export const DraftReview = ({
     edited
   );
 
-  const run = (work: Promise<{ readonly data: RevisionDetail }>) => {
-    setPending(true);
-    setFailure(undefined);
-    void (async function awaitGesture() {
-      try {
-        const answer = await work;
-        // The gesture answered with the revision the catalog now holds, so
-        // the corrections it carried are no longer unsaved.
-        editing.current = false;
-        apply(answer.data);
-      } catch (error) {
-        setFailure(errorMessage(error));
-      } finally {
-        setPending(false);
-      }
-    })();
-  };
-
   const saveCorrections = () => {
     if (sessionId === undefined) {
       return;
     }
-    run(
-      updateDraft({
-        payload: {
-          data: {
-            agentFlowId: manifest.agentFlowId,
-            basedOnRevisionId: manifest.revisionId,
-            draft: draftProposalFrom(manifest, edit),
-            operationId: operationId(),
-            sessionId,
-          },
-          type: "agent.flow.draft.update",
+    setGesture("update");
+    updateDraft({
+      payload: {
+        data: {
+          agentFlowId: manifest.agentFlowId,
+          basedOnRevisionId: manifest.revisionId,
+          draft: draftProposalFrom(manifest, edit),
+          operationId: operationId(),
+          sessionId,
         },
-      })
-    );
+        type: "agent.flow.draft.update",
+      },
+    });
   };
 
   return (
@@ -480,6 +458,7 @@ export const DraftReview = ({
                   )
                 )
               }
+              reviewKey={reviewKey}
               step={step}
             />
           ))}
@@ -496,8 +475,10 @@ export const DraftReview = ({
             id="agent-domain-scope"
             onChange={(event) => {
               const text = event.target.value;
-              setHostsText(text);
-              correct((current) => editHosts(current, parseHosts(text)));
+              setCorrections({
+                edit: editHosts(edit, parseHosts(text)),
+                hostsText: text,
+              });
             }}
             rows={3}
             value={hostsText}
@@ -554,20 +535,19 @@ export const DraftReview = ({
           {authorization.action === undefined ? null : (
             <Button
               disabled={pending}
-              onClick={() =>
-                run(
-                  authorize({
-                    payload: {
-                      data: {
-                        agentFlowId: manifest.agentFlowId,
-                        operationId: operationId(),
-                        revisionId: manifest.revisionId,
-                      },
-                      type: "agent.flow.verification.authorize",
+              onClick={() => {
+                setGesture("authorize");
+                authorize({
+                  payload: {
+                    data: {
+                      agentFlowId: manifest.agentFlowId,
+                      operationId: operationId(),
+                      revisionId: manifest.revisionId,
                     },
-                  })
-                )
-              }
+                    type: "agent.flow.verification.authorize",
+                  },
+                });
+              }}
               size="sm"
               type="button"
             >
@@ -585,20 +565,19 @@ export const DraftReview = ({
                 </span>
                 <Button
                   disabled={pending}
-                  onClick={() =>
-                    run(
-                      approve({
-                        payload: {
-                          data: {
-                            agentFlowId: manifest.agentFlowId,
-                            operationId: operationId(),
-                            revisionId: manifest.revisionId,
-                          },
-                          type: "agent.flow.approve",
+                  onClick={() => {
+                    setGesture("approve");
+                    approve({
+                      payload: {
+                        data: {
+                          agentFlowId: manifest.agentFlowId,
+                          operationId: operationId(),
+                          revisionId: manifest.revisionId,
                         },
-                      })
-                    )
-                  }
+                        type: "agent.flow.approve",
+                      },
+                    });
+                  }}
                   size="sm"
                   type="button"
                 >
