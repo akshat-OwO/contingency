@@ -1,11 +1,11 @@
 import { AgentRunId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
-import { Schema } from "effect";
 import {
   createFileRoute,
   useNavigate,
   useSearch,
 } from "@tanstack/react-router";
+import { Schema } from "effect";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RunViewer } from "@/components/agent/run-view";
