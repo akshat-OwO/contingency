@@ -41,6 +41,7 @@ import {
   DraftReview,
   VerificationDetails,
 } from "@/components/agent/draft-review";
+import { RunDetails, RunSummaryPanel } from "@/components/agent/run-view";
 import {
   keyboardModifiers,
   makeBrowserInputHandlers,
@@ -631,6 +632,13 @@ const SessionDetails = ({
         ) : null}
 
         <VerificationDetails session={session} />
+
+        {/*
+          The live Run beside the browser, and the persisted Run Summary once
+          the Run has ended and the browser has been closed.
+        */}
+        <RunDetails session={session} />
+        <RunSummaryPanel session={session} />
 
         <section aria-labelledby="agent-timeline" className="space-y-2">
           <h2 className="text-sm font-semibold" id="agent-timeline">

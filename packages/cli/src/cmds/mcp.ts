@@ -17,6 +17,7 @@ import {
   defaultCatalogRoot,
   makeAgentFlowCatalogLayer,
 } from "../services/agent-flow-catalog.ts";
+import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
   defaultAgentResourceDirectory,
   prepareAgentResourceDirectory,
@@ -24,6 +25,7 @@ import {
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
+import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
@@ -98,6 +100,13 @@ export const mcpCommand = Command.make(
             })
           )
         );
+        // Run evidence is durable and lives beside the catalog it belongs to,
+        // so it follows the selected Catalog Root rather than this process.
+        const runStore = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
+          )
+        );
         const mcp = Layer.mergeAll(
           McpServer.layerStdio({
             name: "Contingency",
@@ -105,8 +114,9 @@ export const mcpCommand = Command.make(
             version: "0.0.1",
           }),
           McpAgentSessionLayer,
-          McpAgentFlowLayer
-        ).pipe(Layer.provide(Layer.mergeAll(agentSession, catalog)));
+          McpAgentFlowLayer,
+          McpAgentRunLayer
+        ).pipe(Layer.provide(Layer.mergeAll(agentSession, catalog, runStore)));
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })
@@ -122,6 +132,7 @@ export const mcpCommand = Command.make(
           const outcome = yield* Layer.build(
             makeHttpServerLayer({
               agentFlowCatalog: catalog,
+              agentRunStore: runStore,
               agentSession,
               allowedOrigins: resolveAllowedOrigins(browserUrl),
               host,

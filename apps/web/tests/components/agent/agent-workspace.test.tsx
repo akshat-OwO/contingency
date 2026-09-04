@@ -87,6 +87,7 @@ const session = {
   interruptedAction: null,
   ownerProcessId: "mcp-test",
   phase: "running",
+  run: null,
   takeover: null,
   teaching: null,
   timeline: [],

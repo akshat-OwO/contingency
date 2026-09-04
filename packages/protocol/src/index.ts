@@ -20,6 +20,12 @@ import {
   TeachingVariableInput,
 } from "./agent-flow.ts";
 import {
+  AgentRunCeilingExtend,
+  AgentRunOpen,
+  AgentRunSummary,
+  AgentRunViewer,
+} from "./agent-run.ts";
+import {
   AgentSessionClose,
   AgentSessionCloseResult,
   AgentSessionGet,
@@ -65,6 +71,8 @@ export * from "./agent-session.ts";
 export * from "./agent-browser.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-flow.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-run.ts";
 export {
   BrowserTabId,
   SessionId,
@@ -372,6 +380,9 @@ export const BrandId = Schema.Literals([
   "agent.flow.draft.update",
   "agent.flow.verification.authorize",
   "agent.flow.approve",
+  "agent.run.summary.get",
+  "agent.run.summary.result",
+  "agent.run.ceiling.extend",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -903,6 +914,34 @@ export const AgentFlowApproveRequest = request("agent.flow.approve", {
   operationId: AgentFlowApprove.fields.operationId,
   revisionId: AgentFlowApprove.fields.revisionId,
 });
+/**
+ * Reading a persisted Run Summary. Agent View uses it in summary mode, and a
+ * read-only viewer opened by `open_run` uses nothing else: no browser state is
+ * restored ([ADR 0030](../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
+ */
+export const AgentRunSummaryGet = request("agent.run.summary.get", {
+  runId: AgentRunOpen.fields.runId,
+});
+export const AgentRunSummaryResult = response("agent.run.summary.result", {
+  summary: AgentRunSummary,
+  viewUrl: AgentRunViewer.fields.viewUrl,
+});
+
+/**
+ * Extending an Agent Step or Run ceiling. It exists only here: the agent whose
+ * work the ceiling bounds may not raise its own budget
+ * ([ADR 0029](../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
+ */
+export const AgentRunCeilingExtendRequest = request(
+  "agent.run.ceiling.extend",
+  {
+    additionalMs: AgentRunCeilingExtend.fields.additionalMs,
+    operationId: AgentRunCeilingExtend.fields.operationId,
+    scope: AgentRunCeilingExtend.fields.scope,
+    sessionId: AgentRunCeilingExtend.fields.sessionId,
+  }
+);
+
 export const AgentFlowArchiveRequest = request("agent.flow.archive", {
   agentFlowId: AgentFlowArchive.fields.agentFlowId,
   archived: AgentFlowArchive.fields.archived,
@@ -1268,6 +1307,16 @@ const AgentFlowApproveRpc = Rpc.make("agent.flow.approve", {
   payload: AgentFlowApproveRequest,
   success: AgentFlowRevisionResult,
 });
+const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
+  error: BrowserRpcError,
+  payload: AgentRunSummaryGet,
+  success: AgentRunSummaryResult,
+});
+const AgentRunCeilingExtendRpc = Rpc.make("agent.run.ceiling.extend", {
+  error: BrowserRpcError,
+  payload: AgentRunCeilingExtendRequest,
+  success: AgentSessionResult,
+});
 const AgentFlowArchiveRpc = Rpc.make("agent.flow.archive", {
   error: BrowserRpcError,
   payload: AgentFlowArchiveRequest,
@@ -1345,5 +1394,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentFlowVerificationAuthorizeRpc,
   AgentFlowApproveRpc,
   AgentFlowArchiveRpc,
-  AgentFlowDeleteRpc
+  AgentFlowDeleteRpc,
+  AgentRunSummaryGetRpc,
+  AgentRunCeilingExtendRpc
 ) {}

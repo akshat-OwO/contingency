@@ -2,6 +2,7 @@ import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
 import type {
   AgentFlowId,
   AgentFlowRevisionId,
+  AgentRunId,
   AgentSessionId,
   AgentSessionSnapshot,
   BrowserStreamEvent,
@@ -133,6 +134,25 @@ export const agentReturnControlMutation = ContingencyRpcClient.mutation(
 export const agentVariableSupplyMutation = ContingencyRpcClient.mutation(
   "agent.session.variable.supply"
 );
+/**
+ * Raising an Agent Step or Run ceiling. It is a direct user action and has no
+ * MCP tool: the agent whose work a ceiling bounds cannot raise its own budget.
+ */
+export const agentRunCeilingExtendMutation = ContingencyRpcClient.mutation(
+  "agent.run.ceiling.extend"
+);
+
+/**
+ * One persisted Run Summary, read by Agent View in summary mode and by the
+ * read-only viewer. One atom per Run, so a viewer reads its own Run.
+ */
+export const agentRunSummaryAtom = Atom.family((runId: AgentRunId) =>
+  ContingencyRpcClient.query("agent.run.summary.get", {
+    data: { runId },
+    type: "agent.run.summary.get",
+  })
+);
+
 /**
  * The draft under review, with the Evidence Slice summaries behind its Steps.
  * One atom per revision, so a review reads its own draft and nothing else's.

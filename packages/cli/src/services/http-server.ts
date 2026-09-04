@@ -6,9 +6,11 @@ import { Layer } from "effect";
 import type { FileSystem } from "effect";
 import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
+import { makeAgentRunArtifactRoutes } from "../routes/agent-run-artifacts.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import { makeRunArtifactRoutes } from "../routes/run-artifacts.ts";
 import type { AgentFlowCatalogService } from "./agent-flow-catalog.ts";
+import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { makeRunSessionLayer } from "./run-session.ts";
@@ -29,6 +31,11 @@ export interface HttpServerOptions {
    * same value MCP reads, so the user reviews the draft the agent saved.
    */
   readonly agentFlowCatalog?: Layer.Layer<AgentFlowCatalogService>;
+  /**
+   * Persisted Interactive Run evidence, behind Agent View's summary mode and
+   * the read-only viewer. Absent in a process that serves Audit View alone.
+   */
+  readonly agentRunStore?: Layer.Layer<AgentRunStoreService>;
   readonly allowedOrigins: ReadonlySet<string>;
   /** A shared process-owned registry for MCP and Agent View, when supplied. */
   readonly agentSession?: Layer.Layer<
@@ -45,6 +52,7 @@ export interface HttpServerOptions {
 
 export const makeHttpServerLayer = ({
   agentFlowCatalog,
+  agentRunStore,
   allowedOrigins,
   agentSession,
   host,
@@ -69,18 +77,31 @@ export const makeHttpServerLayer = ({
     agentSession === undefined
       ? rpcRoutes
       : rpcRoutes.pipe(Layer.provide(agentSession));
-  const agentRpcRoutes =
+  const catalogRpcRoutes =
     agentFlowCatalog === undefined
       ? sessionRpcRoutes
       : sessionRpcRoutes.pipe(Layer.provide(agentFlowCatalog));
-  const runRoutes = Layer.mergeAll(
-    agentRpcRoutes,
-    makeRunArtifactRoutes({ allowedOrigins })
-  );
-  return HttpRouter.serve(Layer.merge(runRoutes, webRoutes)).pipe(
-    Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
-    // The artifact route reads the session per request, so it is provided to
-    // the served router rather than to the route layer.
-    Layer.provide(runSession)
-  );
+  const agentRpcRoutes =
+    agentRunStore === undefined
+      ? catalogRpcRoutes
+      : catalogRpcRoutes.pipe(Layer.provide(agentRunStore));
+  const artifactRoutes = makeRunArtifactRoutes({ allowedOrigins });
+  // The artifact routes read their stores per request, so those are provided
+  // to the served router rather than to the route layers.
+  const serveRoutes = <R>(routes: Layer.Layer<never, never, R>) =>
+    HttpRouter.serve(Layer.merge(routes, webRoutes)).pipe(
+      Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
+      Layer.provide(runSession)
+    );
+  // The Agent Run video route exists only where a Run store does: a process
+  // serving Audit View alone has no persisted Interactive Runs to serve.
+  return agentRunStore === undefined
+    ? serveRoutes(Layer.mergeAll(agentRpcRoutes, artifactRoutes))
+    : serveRoutes(
+        Layer.mergeAll(
+          agentRpcRoutes,
+          artifactRoutes,
+          makeAgentRunArtifactRoutes({ allowedOrigins })
+        )
+      ).pipe(Layer.provide(agentRunStore));
 };

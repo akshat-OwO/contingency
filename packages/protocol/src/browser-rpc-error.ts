@@ -42,6 +42,10 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "agent_flow_conflict",
     "agent_flow_invalid",
     "agent_flow_not_found",
+    // A persisted Run the read-only viewer could not read: absent, or written
+    // by a version whose Run Summary this one cannot decode.
+    "agent_run_invalid",
+    "agent_run_not_found",
   ]),
   message: Schema.String,
 });
