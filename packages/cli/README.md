@@ -13,3 +13,21 @@ Start Create View with `contingency web`. It serves the production web app from 
 Set `CONTINGENCY_STATE_DIR` to override the state directory that holds Run artifacts.
 
 Every Run keeps a Playwright Trace by default. Pass `--no-trace` to discard it. `--video` additionally generates a WebM slideshow from the Trace's per-Step screenshots, including the final settled state. Traces and videos are sensitive. Exact secret values are scrubbed from readable Trace entries where possible, but the scrub is best effort and does not make an artifact safe to share.
+
+## Agent Flow artifact retention
+
+An Agent Flow Catalog defaults to deleting a Teaching session's full Trace and video when its revision is approved. Evidence Slices and verification evidence remain in the catalog.
+
+To keep the full Teaching artifacts for a fixed period, add `agent-flow-catalog.json` at the Catalog Root:
+
+```json
+{
+  "approvalArtifactRetention": {
+    "days": 30,
+    "mode": "retain-for-days"
+  },
+  "schemaVersion": 1
+}
+```
+
+Contingency records the resulting `deleteAfter` timestamp in the Teaching artifact metadata for the local retention worker. This policy affects sensitive Teaching artifacts only. It does not delete Agent Flow revisions or Evidence Slices.

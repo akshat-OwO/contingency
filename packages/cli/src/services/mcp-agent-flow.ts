@@ -1,6 +1,7 @@
 import {
   AgentCatalogInfo,
   AgentCatalogSelect,
+  AgentFlowArchive,
   AgentFlowDiagnostic,
   AgentFlowDraftSave,
   AgentFlowGet,
@@ -116,6 +117,20 @@ const AgentFlowGetTool = Tool.make("agent_flow_get", {
   success: AgentFlowRevision,
 });
 
+const AgentFlowArchiveTool = Tool.make("agent_flow_archive", {
+  dependencies: [AgentFlowCatalog],
+  description:
+    "Archive or restore an Agent Flow after reading its current draft and approved heads. Archived Agent Flows stay recoverable but disappear from default search. A changed head returns a conflict. Permanent deletion is unavailable to agents and requires direct user confirmation in Agent View.",
+  failure: AgentFlowFailure,
+  parameters: Schema.Struct({
+    agentFlowId: AgentFlowArchive.fields.agentFlowId,
+    archived: AgentFlowArchive.fields.archived,
+    expectedHeads: AgentFlowArchive.fields.expectedHeads,
+    operationId: AgentFlowArchive.fields.operationId,
+  }),
+  success: AgentFlowRevision,
+});
+
 const TeachingInstructionRecordTool = Tool.make(
   "agent_teaching_instruction_record",
   {
@@ -147,7 +162,7 @@ const TeachingFeedGetTool = Tool.make("agent_teaching_feed_get", {
 const AgentFlowDraftSaveTool = Tool.make("agent_flow_draft_save", {
   dependencies: [AgentSession, AgentFlowCatalog],
   description:
-    "Compile a Teaching session's Demonstration into a draft Agent Flow revision and save it to the selected catalog. Each Agent Step names an inclusive span of captured action ids; Contingency derives the Evidence Slices. Domain Scope may only cover hosts the demonstrated Steps visited. Invalid output is refused with structured diagnostics and never enters the catalog. Pass agentFlowId and basedOnRevisionId to revise an existing draft; a moved head is a conflict.",
+    "Compile a Teaching session's Demonstration into a draft Agent Flow revision and save it to the selected catalog. Each Agent Step names an inclusive span of captured action ids; Contingency derives the Evidence Slices. Domain Scope may only cover hosts the demonstrated Steps visited. Invalid output is refused with structured diagnostics and never enters the catalog. Pass agentFlowId and basedOnRevisionId to revise the current draft or Approved Agent Flow; a moved head is a conflict.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     agentFlowId: AgentFlowDraftSave.fields.agentFlowId,
@@ -205,6 +220,7 @@ export const AgentFlowTools = Toolkit.make(
   AgentCatalogSelectTool,
   AgentCatalogSearchTool,
   AgentFlowGetTool,
+  AgentFlowArchiveTool,
   TeachingInstructionRecordTool,
   TeachingFeedGetTool,
   AgentFlowDraftSaveTool,
@@ -229,6 +245,11 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
       return yield* catalog
         .select(params.root, params.operationId)
         .pipe(Effect.mapError(failure));
+    }),
+  agent_flow_archive: (params) =>
+    Effect.gen(function* archiveAgentFlow() {
+      const catalog = yield* AgentFlowCatalog;
+      return yield* catalog.setArchived(params).pipe(Effect.mapError(failure));
     }),
   agent_flow_draft_save: (params) =>
     Effect.gen(function* saveDraft() {
@@ -270,6 +291,11 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           operationId: params.operationId,
           proposal: params.draft,
           slices: compiled.success,
+          sourceArtifacts: {
+            retentionFile: source.retentionFile,
+            traceFile: source.traceFile,
+            videoFile: source.videoFile,
+          },
           sourceSessionId: params.sessionId,
         })
         .pipe(Effect.mapError(failure));

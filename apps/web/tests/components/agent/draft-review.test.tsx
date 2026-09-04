@@ -13,7 +13,9 @@ import { afterEach, expect, test, vi } from "vitest";
 
 const rpc = vi.hoisted(() => ({
   approveCalls: [] as unknown[],
+  archiveCalls: [] as unknown[],
   authorizeCalls: [] as unknown[],
+  deleteCalls: [] as unknown[],
   detail: undefined as unknown,
   readError: undefined as string | undefined,
   updateCalls: [] as unknown[],
@@ -43,6 +45,18 @@ vi.mock("@/lib/rpc", () => ({
   agentFlowApproveMutation: Atom.fn((payload: unknown) =>
     Effect.suspend(() => {
       rpc.approveCalls.push(payload);
+      return answer();
+    })
+  ),
+  agentFlowArchiveMutation: Atom.fn((payload: unknown) =>
+    Effect.suspend(() => {
+      rpc.archiveCalls.push(payload);
+      return answer();
+    })
+  ),
+  agentFlowDeleteMutation: Atom.fn((payload: unknown) =>
+    Effect.suspend(() => {
+      rpc.deleteCalls.push(payload);
       return answer();
     })
   ),
@@ -222,7 +236,9 @@ const renderReview = (
 afterEach(() => {
   cleanup();
   rpc.approveCalls = [];
+  rpc.archiveCalls = [];
   rpc.authorizeCalls = [];
+  rpc.deleteCalls = [];
   rpc.readError = undefined;
   rpc.updateCalls = [];
   rpc.writeError = undefined;
@@ -246,6 +262,89 @@ test("shows the Agent Steps, evidence, Variables, Domain Scope, and Emulation", 
   expect(
     screen.getByRole("list", { name: "Agent Step 1 evidence" })
   ).toHaveTextContent("Navigate to the sign-in page");
+});
+
+test("archives an Agent Flow against the heads being reviewed", async () => {
+  const user = userEvent.setup();
+  renderReview(detailWith(null), "agent-one");
+
+  await user.click(
+    await screen.findByRole("button", { name: "Archive Agent Flow" })
+  );
+
+  await waitFor(() => {
+    expect(rpc.archiveCalls).toHaveLength(1);
+  });
+  const [call] = rpc.archiveCalls as [
+    {
+      readonly payload: {
+        readonly data: {
+          readonly agentFlowId: string;
+          readonly archived: boolean;
+          readonly expectedHeads: {
+            readonly approvedRevisionId: string | null;
+            readonly archived: boolean;
+            readonly draftRevisionId: string | null;
+          };
+        };
+      };
+    },
+  ];
+  expect(call.payload.data).toMatchObject({
+    agentFlowId: "flow-shop",
+    archived: true,
+    expectedHeads: {
+      approvedRevisionId: null,
+      archived: false,
+      draftRevisionId: "rev-1",
+    },
+  });
+});
+
+test("requires typed confirmation before permanently deleting an Agent Flow", async () => {
+  const user = userEvent.setup();
+  renderReview(detailWith(null), "agent-one");
+
+  const deleteButton = await screen.findByRole("button", {
+    name: "Permanently delete Agent Flow",
+  });
+  expect(deleteButton).toBeDisabled();
+
+  await user.type(
+    screen.getByLabelText(
+      "Type permanently-delete to confirm permanent deletion"
+    ),
+    "permanently-delete"
+  );
+  await user.click(deleteButton);
+
+  await waitFor(() => {
+    expect(rpc.deleteCalls).toHaveLength(1);
+  });
+  const [call] = rpc.deleteCalls as [
+    {
+      readonly payload: {
+        readonly data: {
+          readonly agentFlowId: string;
+          readonly confirmation: string;
+          readonly expectedHeads: {
+            readonly approvedRevisionId: string | null;
+            readonly archived: boolean;
+            readonly draftRevisionId: string | null;
+          };
+        };
+      };
+    },
+  ];
+  expect(call.payload.data).toMatchObject({
+    agentFlowId: "flow-shop",
+    confirmation: "permanently-delete",
+    expectedHeads: {
+      approvedRevisionId: null,
+      archived: false,
+      draftRevisionId: "rev-1",
+    },
+  });
 });
 
 test("renames a Step, edits Domain Scope, and saves one corrected proposal", async () => {

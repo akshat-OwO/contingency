@@ -303,7 +303,7 @@ export const AgentFlowManifest = Schema.Struct({
   domainScope: DomainScope,
   emulation: DraftEmulation,
   revisionId: AgentFlowRevisionId,
-  schemaVersion: Schema.Literal(1),
+  schemaVersion: Schema.Literal(2),
   sourceSessionId: AgentSessionId,
   status: AgentFlowRevisionStatus,
   steps: Schema.Array(AgentStep).check(Schema.isMinLength(1)),
@@ -320,18 +320,26 @@ export type AgentFlowManifest = typeof AgentFlowManifest.Type;
  * still opens for review
  * ([ADR 0033](../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
  */
-export const StoredAgentStep = Schema.Struct({
+export const StoredAgentStepV1 = Schema.Struct({
   ...AgentStep.fields,
   firstActionId: Schema.optionalKey(nonEmptyString),
   lastActionId: Schema.optionalKey(nonEmptyString),
 });
-export type StoredAgentStep = typeof StoredAgentStep.Type;
+export type StoredAgentStepV1 = typeof StoredAgentStepV1.Type;
 
-/** A manifest as it is on disk, before its Steps' spans are recovered. */
-export const StoredAgentFlowManifest = Schema.Struct({
+/** The first persisted package version, before Step spans were explicit. */
+export const StoredAgentFlowManifestV1 = Schema.Struct({
   ...AgentFlowManifest.fields,
-  steps: Schema.Array(StoredAgentStep).check(Schema.isMinLength(1)),
+  schemaVersion: Schema.Literal(1),
+  steps: Schema.Array(StoredAgentStepV1).check(Schema.isMinLength(1)),
 });
+export type StoredAgentFlowManifestV1 = typeof StoredAgentFlowManifestV1.Type;
+
+/** Every package version this release can migrate without rewriting it. */
+export const StoredAgentFlowManifest = Schema.Union([
+  StoredAgentFlowManifestV1,
+  AgentFlowManifest,
+]);
 export type StoredAgentFlowManifest = typeof StoredAgentFlowManifest.Type;
 
 /**
@@ -473,8 +481,9 @@ export const AgentFlowDraftSave = Schema.Struct({
   /** Revise an existing Agent Flow; a new identity is minted when omitted. */
   agentFlowId: Schema.optional(AgentFlowId),
   /**
-   * The draft head this proposal started from: `null` for a new draft. A
-   * write whose base is no longer the head is a conflict
+   * The current draft head this proposal started from, or the approved head
+   * when beginning a revision of an Approved Agent Flow. `null` is only for a
+   * new stable identity. A write whose base is no longer current is a conflict
    * ([ADR 0028](../../../docs/adr/0028-approved-agent-flows-are-immutable-revisions.md)).
    */
   basedOnRevisionId: Schema.NullOr(AgentFlowRevisionId),
@@ -617,6 +626,41 @@ export const AgentFlowApprove = Schema.Struct({
   revisionId: AgentFlowRevisionId,
 });
 export type AgentFlowApprove = typeof AgentFlowApprove.Type;
+
+/**
+ * Archive and deletion operate on the whole stable Agent Flow identity, so
+ * they name both heads the user or agent read. A change to either head makes
+ * the request stale.
+ */
+export const AgentFlowExpectedHeads = Schema.Struct({
+  approvedRevisionId: AgentFlowHeads.fields.approvedRevisionId,
+  archived: AgentFlowHeads.fields.archived,
+  draftRevisionId: AgentFlowHeads.fields.draftRevisionId,
+});
+export type AgentFlowExpectedHeads = typeof AgentFlowExpectedHeads.Type;
+
+export const AgentFlowArchive = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  archived: Schema.Boolean,
+  expectedHeads: AgentFlowExpectedHeads,
+  operationId: OperationId,
+});
+export type AgentFlowArchive = typeof AgentFlowArchive.Type;
+
+/** Permanent deletion exists only on Agent View's direct-user RPC boundary. */
+export const AgentFlowDelete = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  confirmation: Schema.Literal("permanently-delete"),
+  expectedHeads: AgentFlowExpectedHeads,
+  operationId: OperationId,
+});
+export type AgentFlowDelete = typeof AgentFlowDelete.Type;
+
+export const AgentFlowDeleteResult = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  deleted: Schema.Literal(true),
+});
+export type AgentFlowDeleteResult = typeof AgentFlowDeleteResult.Type;
 
 /**
  * One Variable a Verification Run needs. The declaration travels; the literal

@@ -14,11 +14,12 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Schema } from "effect";
+import { Context, Effect, FileSystem, Layer, Result, Schema } from "effect";
 
 import {
   AGENT_FLOWS_DIRECTORY,
   AgentFlowCatalog,
+  CATALOG_CONFIG_FILE,
   canonicalJson,
   defaultCatalogRoot,
   evidenceHash,
@@ -816,7 +817,7 @@ it.effect(
         const second = yield* catalog.saveDraft(
           saveInput("Shop front", "fail-save-2", {
             agentFlowId,
-            basedOnRevisionId: null,
+            basedOnRevisionId: first.manifest.revisionId,
           })
         );
         yield* catalog.authorizeVerification({
@@ -963,8 +964,8 @@ it.effect("reads a Catalog Root written before drafts were verified", () =>
         saved.manifest.agentFlowId
       );
 
-      // What an earlier Contingency wrote: heads with no verification key, and
-      // Agent Steps with no demonstrated span.
+      // What an earlier Contingency wrote: a v1 manifest whose Agent Steps had
+      // no demonstrated span, plus heads with no verification key.
       const heads = JSON.parse(
         yield* fileSystem.readFileString(
           path.join(flowDirectory, "agent-flow.json")
@@ -979,7 +980,8 @@ it.effect("reads a Catalog Root written before drafts were verified", () =>
       const manifestFile = path.join(saved.path, "manifest.json");
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(manifestFile)
-      ) as { steps: Record<string, unknown>[] };
+      ) as { schemaVersion: number; steps: Record<string, unknown>[] };
+      manifest.schemaVersion = 1;
       for (const step of manifest.steps) {
         delete step.firstActionId;
         delete step.lastActionId;
@@ -997,9 +999,321 @@ it.effect("reads a Catalog Root written before drafts were verified", () =>
       ).actions;
       expect(recovered?.firstActionId).toBe(captured?.id);
       expect(recovered?.lastActionId).toBe(captured?.id);
-      expect({ ...read.manifest, steps: [] }).toEqual({
-        ...saved.manifest,
-        steps: [],
+      expect(read.manifest.schemaVersion).toBe(2);
+      expect(read.manifest.agentFlowId).toBe(saved.manifest.agentFlowId);
+      expect(read.manifest.revisionId).toBe(saved.manifest.revisionId);
+      // Reading migrates in memory. The v1 package remains untouched on disk.
+      expect(
+        (
+          JSON.parse(yield* fileSystem.readFileString(manifestFile)) as Record<
+            string,
+            unknown
+          >
+        ).schemaVersion
+      ).toBe(1);
+      yield* catalog.setArchived({
+        agentFlowId: saved.manifest.agentFlowId,
+        archived: true,
+        expectedHeads: read.heads,
+        operationId: OperationId.make("archive-migrated-v1"),
+      });
+      expect(
+        (
+          JSON.parse(yield* fileSystem.readFileString(manifestFile)) as Record<
+            string,
+            unknown
+          >
+        ).schemaVersion
+      ).toBe(1);
+    })
+  )
+);
+
+it.effect(
+  "revises an approved head without replacing the usable approved revision",
+  () =>
+    withCatalog((catalog) =>
+      Effect.gen(function* reviseApprovedFlow() {
+        const first = yield* catalog.saveDraft(
+          saveInput("Shop front", "approved-save")
+        );
+        const { agentFlowId, revisionId } = first.manifest;
+        yield* catalog.authorizeVerification({
+          agentFlowId,
+          operationId: OperationId.make("approved-authorize"),
+          revisionId,
+        });
+        yield* catalog.startVerification({
+          agentFlowId,
+          operationId: OperationId.make("approved-start"),
+          revisionId,
+          sessionId: AgentSessionId.make("agent-approved"),
+        });
+        yield* catalog.completeVerification({
+          agentFlowId,
+          operationId: OperationId.make("approved-complete"),
+          outcome: "passed",
+          revisionId,
+          summary: "The approved revision worked.",
+        });
+        yield* catalog.approve({
+          agentFlowId,
+          operationId: OperationId.make("approved-approve"),
+          revisionId,
+        });
+
+        const edit = (operationId: string, title: string) =>
+          catalog.saveDraft(
+            saveInput(title, operationId, {
+              agentFlowId,
+              basedOnRevisionId: revisionId,
+              proposal: proposal(title),
+            })
+          );
+        const [left, right] = yield* Effect.all(
+          [
+            Effect.result(edit("approved-edit-left", "Left edit")),
+            Effect.result(edit("approved-edit-right", "Right edit")),
+          ],
+          { concurrency: "unbounded" }
+        );
+        const successes = [left, right].filter(Result.isSuccess);
+        const failures = [left, right].filter(Result.isFailure);
+        expect(successes).toHaveLength(1);
+        expect(failures).toHaveLength(1);
+        expect(failures[0]?.failure.code).toBe("agent_flow_conflict");
+
+        const current = yield* catalog.get(agentFlowId);
+        expect(current.heads.approvedRevisionId).toBe(revisionId);
+        expect(current.heads.draftRevisionId).toBe(
+          successes[0]?.success.manifest.revisionId
+        );
+        const approvedSearch = yield* catalog.search({ status: "approved" });
+        expect(approvedSearch.hits.map((hit) => hit.revisionId)).toEqual([
+          revisionId,
+        ]);
+        expect(
+          (yield* catalog.get(agentFlowId, revisionId)).manifest.status
+        ).toBe("approved");
+      })
+    )
+);
+
+it.effect("archives and restores only from the heads the caller read", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* archiveAndRestore() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "archive-save")
+      );
+      const archived = yield* catalog.setArchived({
+        agentFlowId: saved.manifest.agentFlowId,
+        archived: true,
+        expectedHeads: saved.heads,
+        operationId: OperationId.make("archive"),
+      });
+      expect(archived.heads.archived).toBe(true);
+      expect((yield* catalog.search({})).hits).toEqual([]);
+      expect((yield* catalog.search({ archived: true })).hits).toHaveLength(1);
+      expect(
+        (yield* catalog.get(saved.manifest.agentFlowId)).heads.archived
+      ).toBe(true);
+
+      const stale = yield* Effect.flip(
+        catalog.setArchived({
+          agentFlowId: saved.manifest.agentFlowId,
+          archived: false,
+          expectedHeads: saved.heads,
+          operationId: OperationId.make("restore-stale"),
+        })
+      );
+      expect(stale.code).toBe("agent_flow_conflict");
+
+      const restored = yield* catalog.setArchived({
+        agentFlowId: saved.manifest.agentFlowId,
+        archived: false,
+        expectedHeads: archived.heads,
+        operationId: OperationId.make("restore"),
+      });
+      expect(restored.heads.archived).toBe(false);
+      expect((yield* catalog.search({})).hits).toHaveLength(1);
+    })
+  )
+);
+
+it.effect("permanently deletes only after exact direct confirmation", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* confirmPermanentDeletion() {
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "delete-save")
+      );
+      const refused = yield* Effect.flip(
+        catalog.deletePermanently({
+          agentFlowId: saved.manifest.agentFlowId,
+          confirmation: "archive-instead",
+          expectedHeads: saved.heads,
+          operationId: OperationId.make("delete-refused"),
+        })
+      );
+      expect(refused.code).toBe("agent_catalog_invalid");
+      expect(yield* catalog.get(saved.manifest.agentFlowId)).toEqual(saved);
+
+      const deleted = yield* catalog.deletePermanently({
+        agentFlowId: saved.manifest.agentFlowId,
+        confirmation: "permanently-delete",
+        expectedHeads: saved.heads,
+        operationId: OperationId.make("delete-confirmed"),
+      });
+      expect(deleted).toEqual({
+        agentFlowId: saved.manifest.agentFlowId,
+        deleted: true,
+      });
+      expect(
+        yield* catalog.deletePermanently({
+          agentFlowId: saved.manifest.agentFlowId,
+          confirmation: "permanently-delete",
+          expectedHeads: saved.heads,
+          operationId: OperationId.make("delete-confirmed"),
+        })
+      ).toEqual(deleted);
+      const missing = yield* Effect.flip(
+        catalog.get(saved.manifest.agentFlowId)
+      );
+      expect(missing.code).toBe("agent_flow_not_found");
+    })
+  )
+);
+
+it.effect(
+  "deletes sensitive Teaching artifacts on approval and keeps catalog evidence",
+  () =>
+    withCatalog((catalog, root, fileSystem) =>
+      Effect.gen(function* applyDefaultApprovalRetention() {
+        const artifactDirectory = path.join(root, "teaching-artifacts");
+        yield* fileSystem.makeDirectory(artifactDirectory);
+        const traceFile = path.join(artifactDirectory, "teaching.trace.zip");
+        const videoFile = path.join(artifactDirectory, "teaching.webm");
+        const retentionFile = path.join(
+          artifactDirectory,
+          "teaching.artifacts.json"
+        );
+        yield* fileSystem.writeFileString(traceFile, "trace");
+        yield* fileSystem.writeFileString(videoFile, "video");
+        yield* fileSystem.writeFileString(retentionFile, "{}");
+        const saved = yield* catalog.saveDraft(
+          saveInput("Shop front", "retention-save", {
+            sourceArtifacts: {
+              retentionFile,
+              traceFile,
+              videoFile,
+            },
+          })
+        );
+        const { agentFlowId, revisionId } = saved.manifest;
+        yield* catalog.authorizeVerification({
+          agentFlowId,
+          operationId: OperationId.make("retention-authorize"),
+          revisionId,
+        });
+        yield* catalog.startVerification({
+          agentFlowId,
+          operationId: OperationId.make("retention-start"),
+          revisionId,
+          sessionId: AgentSessionId.make("agent-retention"),
+        });
+        yield* catalog.completeVerification({
+          agentFlowId,
+          operationId: OperationId.make("retention-complete"),
+          outcome: "passed",
+          revisionId,
+          summary: "It worked.",
+        });
+        const approved = yield* catalog.approve({
+          agentFlowId,
+          operationId: OperationId.make("retention-approve"),
+          revisionId,
+        });
+
+        expect(yield* fileSystem.exists(traceFile)).toBe(false);
+        expect(yield* fileSystem.exists(videoFile)).toBe(false);
+        expect(
+          JSON.parse(yield* fileSystem.readFileString(retentionFile))
+        ).toMatchObject({
+          approvedAt: at,
+          retention: "delete-on-approval",
+        });
+        expect(yield* fileSystem.exists(approved.path)).toBe(true);
+        expect(yield* catalog.evidence(agentFlowId, revisionId)).toHaveLength(
+          1
+        );
+        expect(approved.heads.verification?.status).toBe("passed");
+      })
+    )
+);
+
+it.effect("reads an approval retention duration from each Catalog Root", () =>
+  withCatalog((_catalog, root, fileSystem) =>
+    Effect.gen(function* retainByCatalogPolicy() {
+      yield* fileSystem.writeFileString(
+        path.join(root, CATALOG_CONFIG_FILE),
+        JSON.stringify({
+          approvalArtifactRetention: { days: 30, mode: "retain-for-days" },
+          schemaVersion: 1,
+        })
+      );
+      const context = yield* Layer.build(
+        makeAgentFlowCatalogLayer({ now: () => new Date(at), root }).pipe(
+          Layer.provide(NodeServices.layer)
+        )
+      ).pipe(Effect.scoped);
+      const catalog = Context.get(context, AgentFlowCatalog);
+      const artifactDirectory = path.join(root, "retained-artifacts");
+      yield* fileSystem.makeDirectory(artifactDirectory);
+      const traceFile = path.join(artifactDirectory, "teaching.trace.zip");
+      const videoFile = path.join(artifactDirectory, "teaching.webm");
+      const retentionFile = path.join(
+        artifactDirectory,
+        "teaching.artifacts.json"
+      );
+      yield* fileSystem.writeFileString(traceFile, "trace");
+      yield* fileSystem.writeFileString(videoFile, "video");
+      yield* fileSystem.writeFileString(retentionFile, "{}");
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "retained-save", {
+          sourceArtifacts: { retentionFile, traceFile, videoFile },
+        })
+      );
+      const { agentFlowId, revisionId } = saved.manifest;
+      yield* catalog.authorizeVerification({
+        agentFlowId,
+        operationId: OperationId.make("retained-authorize"),
+        revisionId,
+      });
+      yield* catalog.startVerification({
+        agentFlowId,
+        operationId: OperationId.make("retained-start"),
+        revisionId,
+        sessionId: AgentSessionId.make("agent-retained"),
+      });
+      yield* catalog.completeVerification({
+        agentFlowId,
+        operationId: OperationId.make("retained-complete"),
+        outcome: "passed",
+        revisionId,
+        summary: "It worked.",
+      });
+      yield* catalog.approve({
+        agentFlowId,
+        operationId: OperationId.make("retained-approve"),
+        revisionId,
+      });
+
+      expect(yield* fileSystem.exists(traceFile)).toBe(true);
+      expect(yield* fileSystem.exists(videoFile)).toBe(true);
+      expect(
+        JSON.parse(yield* fileSystem.readFileString(retentionFile))
+      ).toMatchObject({
+        deleteAfter: "2026-10-01T00:00:00.000Z",
+        retention: "retain-for-days",
       });
     })
   )

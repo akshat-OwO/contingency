@@ -626,6 +626,20 @@ interface ReplayRecord {
   readonly target: string;
 }
 
+const deletesTeachingArtifactsOnApproval = (contents: string): boolean => {
+  try {
+    const parsed = JSON.parse(contents) as unknown;
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "retention" in parsed &&
+      parsed.retention === "delete-on-approval"
+    );
+  } catch {
+    return false;
+  }
+};
+
 const makeAgentSession = (
   browser: CreateBrowserService,
   options: AgentSessionServiceOptions,
@@ -1027,6 +1041,27 @@ const makeAgentSession = (
           directory,
           `${sessionId}.artifacts.json`
         );
+        const existing = yield* Effect.result(
+          fileSystem.readFileString(retentionFile)
+        );
+        if (
+          Result.isSuccess(existing) &&
+          deletesTeachingArtifactsOnApproval(existing.success)
+        ) {
+          yield* Effect.forEach(
+            [traceFile, ...videoFiles],
+            (file) => fileSystem.remove(file, { force: true }),
+            { discard: true }
+          ).pipe(
+            Effect.mapError((cause) =>
+              error(
+                "agent_session_invalid",
+                `Could not remove an approved Teaching artifact: ${cause.message}`
+              )
+            )
+          );
+          return retentionFile;
+        }
         yield* fileSystem
           .writeFileString(
             retentionFile,

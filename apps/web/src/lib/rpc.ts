@@ -162,6 +162,11 @@ export const agentFlowVerificationAuthorizeMutation =
   ContingencyRpcClient.mutation("agent.flow.verification.authorize");
 export const agentFlowApproveMutation =
   ContingencyRpcClient.mutation("agent.flow.approve");
+export const agentFlowArchiveMutation =
+  ContingencyRpcClient.mutation("agent.flow.archive");
+/** Permanent deletion has no MCP counterpart. Only Agent View can call it. */
+export const agentFlowDeleteMutation =
+  ContingencyRpcClient.mutation("agent.flow.delete");
 
 export const recordingAtom = ContingencyRpcClient.query("recording.get", {
   data: {},

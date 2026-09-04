@@ -774,6 +774,11 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                 operationId: data.operationId,
                 proposal: data.draft,
                 slices: compiled.success,
+                sourceArtifacts: {
+                  retentionFile: source.retentionFile,
+                  traceFile: source.traceFile,
+                  videoFile: source.videoFile,
+                },
                 sourceSessionId: data.sessionId,
               })
             );
@@ -821,6 +826,31 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               revisionId: data.revisionId,
             })
           )
+        ),
+      "agent.flow.archive": ({ data }) =>
+        revisionResult(
+          catalogUnavailable((catalog) =>
+            catalog.setArchived({
+              agentFlowId: data.agentFlowId,
+              archived: data.archived,
+              expectedHeads: data.expectedHeads,
+              operationId: data.operationId,
+            })
+          )
+        ),
+      "agent.flow.delete": ({ data }) =>
+        catalogUnavailable((catalog) =>
+          catalog.deletePermanently({
+            agentFlowId: data.agentFlowId,
+            confirmation: data.confirmation,
+            expectedHeads: data.expectedHeads,
+            operationId: data.operationId,
+          })
+        ).pipe(
+          Effect.map((deleted) => ({
+            data: deleted,
+            type: "agent.flow.deleted" as const,
+          }))
         ),
     };
   })
