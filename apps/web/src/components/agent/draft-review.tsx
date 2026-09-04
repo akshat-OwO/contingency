@@ -535,11 +535,12 @@ export const DraftReview = ({
   const actions = demonstratedActions(detail.evidence);
   const edited = draftIsEdited(manifest, edit);
   const canEdit = sessionId !== undefined && manifest.status === "draft";
-  const authorization = authorizationPresentation(
-    detail.revision.heads.verification,
-    manifest.revisionId,
-    edited
-  );
+  const authorization = authorizationPresentation({
+    edited,
+    revisionId: manifest.revisionId,
+    revisionStatus: manifest.status,
+    verification: detail.revision.heads.verification,
+  });
 
   const authorizeRun = () => {
     setGesture("authorize");

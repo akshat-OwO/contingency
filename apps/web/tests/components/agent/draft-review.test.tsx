@@ -592,3 +592,21 @@ test("shows each split Step the actions its own span covers", async () => {
     screen.getByRole("list", { name: "Agent Step 3 evidence" })
   ).toHaveTextContent("Click Place order");
 });
+
+test("offers nothing more once the revision is the Approved Agent Flow", async () => {
+  renderReview(
+    detailWith(verificationOf("passed", "Both Agent Steps worked."), {
+      status: "approved",
+    })
+  );
+
+  expect(
+    await screen.findByText(/This revision is the Approved Agent Flow\./u)
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Approve Agent Flow" })
+  ).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Authorize Verification Run" })
+  ).toBeNull();
+});

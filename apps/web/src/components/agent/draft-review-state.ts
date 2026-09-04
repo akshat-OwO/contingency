@@ -5,6 +5,7 @@ import type {
   AgentSessionId,
   AgentFlowEvidenceSummary,
   AgentFlowManifest,
+  AgentFlowRevisionStatus,
   AgentFlowVerification,
   AgentFlowVerificationStatus,
 } from "@contingency/protocol";
@@ -217,11 +218,29 @@ export interface AuthorizationPresentation {
  * authorization for another revision is not this draft's authorization, so a
  * corrected draft always reads as unauthorized.
  */
-export const authorizationPresentation = (
-  verification: AgentFlowVerification | null,
-  revisionId: string,
-  edited: boolean
-): AuthorizationPresentation => {
+export const authorizationPresentation = ({
+  edited,
+  revisionId,
+  revisionStatus,
+  verification,
+}: {
+  readonly edited: boolean;
+  readonly revisionId: string;
+  readonly revisionStatus: AgentFlowRevisionStatus;
+  readonly verification: AgentFlowVerification | null;
+}): AuthorizationPresentation => {
+  // The passing Run stays on the record after approval, so what an approved
+  // revision offers follows from the revision, not from its verification.
+  if (revisionStatus === "approved") {
+    return {
+      action: undefined,
+      canApprove: false,
+      detail:
+        "This revision is the Approved Agent Flow. It cannot be edited or approved again; a change creates a new draft.",
+      status:
+        verification?.revisionId === revisionId ? verification.status : "none",
+    };
+  }
   if (edited) {
     return {
       action: undefined,
