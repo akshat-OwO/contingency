@@ -156,13 +156,23 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
       return summary;
     });
 
+  // The stored path is relative to the Run's own directory. A summary is
+  // written that way, but this store also reads files another process wrote,
+  // so containment is checked on read too: a path that escapes the Run
+  // directory resolves to no video rather than to a file elsewhere on disk.
   const videoFile = (runId: AgentRunId) =>
     read(runId).pipe(
-      Effect.map((summary) =>
-        summary.videoPath === null
+      Effect.map((summary) => {
+        if (summary.videoPath === null) {
+          return null;
+        }
+        const directory = runDirectory(runId);
+        const resolved = path.resolve(directory, summary.videoPath);
+        const relative = path.relative(directory, resolved);
+        return relative.startsWith("..") || path.isAbsolute(relative)
           ? null
-          : path.join(runDirectory(runId), summary.videoPath)
-      )
+          : resolved;
+      })
     );
 
   const ceilings = () =>

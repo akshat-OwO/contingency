@@ -2071,6 +2071,17 @@ const makeAgentSession = (
             takenOver("This action was not dispatched.")
           );
         }
+        // A waiter on the control lock can wake after a ceiling ended the Run
+        // and interrupted the action ahead of it, so the Run's state is
+        // re-read here, beside the Takeover re-check, not only before queuing.
+        if (runIsOver(current.snapshot)) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Run ${current.snapshot.run?.runId} has ended and accepts no further browser actions.`
+            )
+          );
+        }
         const urlBefore = page.url();
         const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
         // The action runs on a child fiber so a user Takeover can interrupt it
@@ -2810,33 +2821,43 @@ const makeAgentSession = (
      * The ceilings are wall clock, so they are watched rather than raced
      * against one action: an agent that stops calling tools altogether must
      * still lose its Run rather than hold a browser open forever.
+     *
+     * Each tick runs under the session lock — the same one `extendCeiling`,
+     * `assessStep`, and `completeRun` take — so a deadline is re-read after
+     * any user extension it raced, and a breach can never interleave with a
+     * Run mutation that already checked the outcome.
      */
     const watchRunCeilings = (sessionId: AgentSessionId): Effect.Effect<void> =>
-      Effect.gen(function* watchCeilings() {
-        const record = Ref.getUnsafe(sessions).get(sessionId);
-        const run = record?.snapshot.run ?? null;
-        if (record === undefined || run === null || run.outcome !== null) {
-          return;
-        }
-        const at = now().getTime();
-        if (at >= Date.parse(run.runDeadline)) {
-          yield* timeOutRun(sessionId, "The Run ceiling");
-          return;
-        }
-        if (
-          run.stepDeadline !== null &&
-          at >= Date.parse(run.stepDeadline) &&
-          // A paused agent is not a slow agent: the user holds the browser, so
-          // the Agent Step's budget is not being spent on the agent's work.
-          !agentIsPaused(record.snapshot)
-        ) {
-          yield* timeOutRun(sessionId, "The Agent Step ceiling");
-        }
-      }).pipe(
-        Effect.andThen(Effect.sleep(CEILING_POLL_INTERVAL)),
-        Effect.forever,
-        Effect.catchCause(() => Effect.void)
-      );
+      lock
+        .withPermit(
+          Effect.gen(function* watchCeilings() {
+            const record = Ref.getUnsafe(sessions).get(sessionId);
+            const run = record?.snapshot.run ?? null;
+            if (record === undefined || run === null || run.outcome !== null) {
+              return;
+            }
+            const at = now().getTime();
+            if (at >= Date.parse(run.runDeadline)) {
+              yield* timeOutRun(sessionId, "The Run ceiling");
+              return;
+            }
+            if (
+              run.stepDeadline !== null &&
+              at >= Date.parse(run.stepDeadline) &&
+              // A paused agent is not a slow agent: the user holds the
+              // browser, so the Agent Step's budget is not being spent on the
+              // agent's work.
+              !agentIsPaused(record.snapshot)
+            ) {
+              yield* timeOutRun(sessionId, "The Agent Step ceiling");
+            }
+          })
+        )
+        .pipe(
+          Effect.andThen(Effect.sleep(CEILING_POLL_INTERVAL)),
+          Effect.forever,
+          Effect.catchCause(() => Effect.void)
+        );
 
     /**
      * Start a session and, when it is performing a Run, watch its ceilings for
@@ -2848,11 +2869,12 @@ const makeAgentSession = (
         Effect.tap((snapshot) =>
           snapshot.run === null
             ? Effect.void
-            : read(snapshot.id).pipe(
+            : // A Run without its watcher would hold a browser unbounded, so a
+              // failure to attach it fails the start rather than being ignored.
+              read(snapshot.id).pipe(
                 Effect.flatMap((record) =>
                   Effect.forkIn(watchRunCeilings(snapshot.id), record.scope)
-                ),
-                Effect.ignore
+                )
               )
         )
       );
@@ -2928,6 +2950,12 @@ const makeAgentSession = (
         const nextIndex = activeIndex + 1;
         const hasNext = advance && nextIndex < run.steps.length;
         const next = yield* mutateRun(sessionId, (current, at) => {
+          // Checked above under the same lock; kept here so this callback can
+          // never dress a terminal outcome up as an Agent Assessment even if
+          // the locking around it changes.
+          if (current.outcome !== null) {
+            return current;
+          }
           const assessment = {
             attempts: current.steps[activeIndex]?.attempts ?? 0,
             evidence: input.evidence,
@@ -3095,35 +3123,45 @@ const makeAgentSession = (
         return yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* finalizeRun() {
             const at = now().toISOString();
-            const ending = Ref.getUnsafe(sessions).get(sessionId);
-            const live = ending?.snapshot.run ?? record.snapshot.run;
-            if (live === null) {
+            // A read-modify-write over the Run as it stands when the write
+            // lands: a `timed-out` outcome a ceiling recorded is kept, never
+            // clobbered by a snapshot this call built earlier.
+            const completed = yield* mutate(sessionId, (snapshot) => {
+              if (snapshot.run === null) {
+                return snapshot;
+              }
+              const steps = markRemainingUnexecuted(snapshot.run.steps);
+              return {
+                ...snapshot,
+                controller: "agent",
+                phase: "completed",
+                run: withDerivedRunTotals({
+                  ...snapshot.run,
+                  activeStepIndex: null,
+                  endedAt: snapshot.run.endedAt ?? at,
+                  // A Run the agent stopped while Agent Steps remained is not
+                  // a completed Run: the coverage it did not reach is visible
+                  // here.
+                  outcome:
+                    snapshot.run.outcome ??
+                    (steps.every((step) => step.execution === "assessed")
+                      ? ("completed" as const)
+                      : ("ended-early" as const)),
+                  stepDeadline: null,
+                  steps,
+                }),
+                takeover: null,
+                updatedAt: at,
+              };
+            });
+            const finished = completed?.run;
+            if (
+              completed === undefined ||
+              finished === null ||
+              finished === undefined
+            ) {
               return yield* Effect.fail(notRunning(sessionId));
             }
-            const steps = markRemainingUnexecuted(live.steps);
-            const finished = withDerivedRunTotals({
-              ...live,
-              activeStepIndex: null,
-              endedAt: live.endedAt ?? at,
-              // A Run the agent stopped while Agent Steps remained is not a
-              // completed Run: the coverage it did not reach is visible here.
-              outcome:
-                live.outcome ??
-                (steps.every((step) => step.execution === "assessed")
-                  ? ("completed" as const)
-                  : ("ended-early" as const)),
-              stepDeadline: null,
-              steps,
-            });
-            const completed: AgentSessionSnapshot = {
-              ...(ending?.snapshot ?? record.snapshot),
-              controller: "agent",
-              phase: "completed",
-              run: finished,
-              takeover: null,
-              updatedAt: at,
-            };
-            yield* save(sessionId, ending ?? record, completed);
             // Closing the session scope stops tracing and finalizes the video.
             // Nothing may write to the Run's artifacts after this point.
             yield* Scope.close(record.scope, Exit.void);
@@ -3147,12 +3185,11 @@ const makeAgentSession = (
               tracePath: yield* finalArtifactPath(record, record.traceFile),
               videoPath: yield* finalArtifactPath(record, record.videoFile),
             };
-            const closed: AgentSessionSnapshot = {
-              ...completed,
+            yield* mutate(sessionId, (snapshot) => ({
+              ...snapshot,
               phase: "closed",
               updatedAt: now().toISOString(),
-            };
-            yield* save(sessionId, ending ?? record, closed);
+            }));
             yield* rememberRunSummary(
               operationId,
               sessionId,
