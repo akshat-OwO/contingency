@@ -8,6 +8,7 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
+import { AgentRunState } from "./agent-run.ts";
 import { DraftEmulation } from "./flow.ts";
 import { Viewport } from "./viewport.ts";
 
@@ -56,6 +57,12 @@ export const AgentSessionSnapshot = Schema.Struct({
   interruptedAction: Schema.NullOr(AgentTimelineEntry),
   ownerProcessId: AgentProcessId,
   phase: AgentSessionPhase,
+  /**
+   * The Interactive Run this session is performing: its ordered Agent Steps,
+   * ceilings, assessments, and coverage. `null` for Teaching and for a bare
+   * session that is not running an Approved Agent Flow.
+   */
+  run: Schema.NullOr(AgentRunState),
   takeover: Schema.NullOr(AgentTakeoverRequest),
   /**
    * What a Teaching session has captured and whether a draft has been saved

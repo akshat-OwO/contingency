@@ -269,7 +269,12 @@ const StepEditor = ({
   </li>
 );
 
-const VariableSupply = ({
+/**
+ * Runtime Variables the live Run still needs. A Verification Run and an
+ * Interactive Run ask the same way and for the same reason: the literal is
+ * supplied again by the user and never reaches the agent or the artifacts.
+ */
+export const VariableSupply = ({
   session,
 }: {
   readonly session: AgentSessionSnapshot;
@@ -287,11 +292,11 @@ const VariableSupply = ({
     setValues((current) => ({ ...current, [name]: "" }));
   });
   const failure = refusal(supplyResult);
-  const { verification } = session;
-  if (verification === null) {
+  const declaring = session.verification ?? session.run;
+  if (declaring === null) {
     return null;
   }
-  const runtime = verification.variables.filter((variable) => variable.runtime);
+  const runtime = declaring.variables.filter((variable) => variable.runtime);
   if (runtime.length === 0) {
     return null;
   }
@@ -319,8 +324,8 @@ const VariableSupply = ({
         Runtime Variables
       </h2>
       <p className="text-muted-foreground text-xs">
-        Verification never reuses what Teaching prepared, so this Run asks for
-        these values again. They stay on this machine and never reach the agent.
+        A Run never reuses what Teaching prepared, so it asks for these values
+        again. They stay on this machine and never reach the agent.
       </p>
       <div className="space-y-3 rounded-lg border p-3">
         {runtime.map((variable) => (

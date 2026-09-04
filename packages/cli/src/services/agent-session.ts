@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  advancesAgentRun,
   AgentProcessId,
   AgentElementRef,
   AgentSessionId,
@@ -11,6 +12,13 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  AgentAssessmentEvidence,
+  AgentAssessmentOutcome,
+  AgentRunAssessmentCounts,
+  AgentRunCoverage,
+  AgentRunState,
+  AgentRunStep,
+  AgentRunSummary,
   AgentFlowDraftRef,
   AgentFlowVerificationOutcome,
   AgentSessionVerification,
@@ -26,6 +34,7 @@ import type {
   AgentTimelineEntry,
   AgentSessionSnapshot,
   AgentSessionStart,
+  AgentSessionVariableState,
   BrowserStreamEvent,
   BrowserRpcErrorType,
   BrowserStreamId,
@@ -95,6 +104,18 @@ export interface AgentSessionStartInput {
    * the user already gave. Present only for a Verification Run.
    */
   readonly verification?: AgentSessionVerification | undefined;
+  /**
+   * The Interactive Run this session performs, already resolved from an
+   * Approved Agent Flow. The session owns its ordered Agent Steps, ceilings,
+   * and evidence from the moment the browser opens.
+   */
+  readonly run?: AgentRunState | undefined;
+  /**
+   * Where this session's Trace and video are written. A Run names its own Run
+   * directory so its evidence is one self-contained package; Teaching falls
+   * back to the configured Teaching directory.
+   */
+  readonly artifactDirectory?: string | undefined;
   /** The whole Emulation to run under, viewport included. */
   readonly emulation?: DraftEmulation | undefined;
   readonly clientName?: string | undefined;
@@ -229,6 +250,42 @@ export interface AgentSessionService {
     operationId?: OperationId | string
   ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   /** What this session is verifying, for the catalog write that follows. */
+  /**
+   * The agent's evidence-backed judgment of the active Agent Step. Only
+   * `working` advances; anything else ends the ordered Steps and leaves the
+   * rest unexecuted
+   * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
+   */
+  readonly assessStep: (
+    sessionId: AgentSessionId,
+    input: {
+      readonly evidence: readonly AgentAssessmentEvidence[];
+      readonly explanation: string;
+      readonly outcome: AgentAssessmentOutcome;
+    },
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * End the Run: finalize the Trace and video, close the live browser, and
+   * answer with the persistent Run Summary. Agent View stays alive in summary
+   * mode; the browser does not.
+   */
+  readonly completeRun: (
+    sessionId: AgentSessionId,
+    summary?: string,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentRunSummary, AgentSessionError>;
+  /** A direct user action in Agent View raising one ceiling. */
+  readonly extendCeiling: (
+    sessionId: AgentSessionId,
+    scope: "run" | "step",
+    additionalMs: number,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /** The read-only Agent View link for one persisted Run. */
+  readonly runViewUrl: (
+    runId: string
+  ) => Effect.Effect<string, AgentSessionError>;
   readonly verification: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AgentSessionVerification, AgentSessionError>;
@@ -339,6 +396,17 @@ const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
   return url.href;
 };
 
+/**
+ * The read-only viewer's link. It selects a persisted Run rather than a live
+ * Agent Session, so it restores no browser state
+ * ([ADR 0030](../../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
+ */
+const runViewUrl = (baseUrl: string, runId: string): string => {
+  const url = new URL("/agent", baseUrl);
+  url.searchParams.set("run", runId);
+  return url.href;
+};
+
 /** Agent View is a local control surface and never receives a public URL. */
 export const isAllowedAgentSessionBaseUrl = (baseUrl: string): boolean => {
   try {
@@ -373,6 +441,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     clientVersion: input.clientVersion?.trim() || "unknown",
     emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
+    run: input.run?.runId ?? null,
     url: input.url ?? null,
     verification: input.verification ?? null,
     viewport: {
@@ -536,6 +605,116 @@ const sanitizeFailureDetail = (
 };
 
 /** How many attempts one Agent Session keeps in its action timeline. */
+
+// ---------------------------------------------------------------------------
+// Interactive Run bookkeeping
+// ---------------------------------------------------------------------------
+
+/**
+ * Assessment tallies. They are recomputed from the Agent Steps rather than
+ * incremented alongside them, so a count can never drift from the Steps it
+ * claims to summarize.
+ */
+const assessmentCountsOf = (
+  steps: readonly AgentRunStep[]
+): AgentRunAssessmentCounts => {
+  const counts = { blocked: 0, inconclusive: 0, notWorking: 0, working: 0 };
+  for (const step of steps) {
+    switch (step.assessment?.outcome) {
+      case "working": {
+        counts.working += 1;
+        break;
+      }
+      case "not-working": {
+        counts.notWorking += 1;
+        break;
+      }
+      case "inconclusive": {
+        counts.inconclusive += 1;
+        break;
+      }
+      case "blocked": {
+        counts.blocked += 1;
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+  return counts;
+};
+
+/**
+ * How much of the journey the Run actually reached. An executed Step is one
+ * the Runner ran to a terminal execution outcome, whatever the agent concluded
+ * about it: coverage answers "was this checked", not "did it work".
+ */
+const coverageOf = (steps: readonly AgentRunStep[]): AgentRunCoverage => {
+  const executed = steps.filter(
+    (step) => step.execution === "assessed" || step.execution === "timed-out"
+  ).length;
+  return {
+    complete: executed === steps.length,
+    executed,
+    total: steps.length,
+    unexecuted: steps.length - executed,
+  };
+};
+
+/** Every Agent Step the Run never reached is recorded as never reached. */
+const markRemainingUnexecuted = (
+  steps: readonly AgentRunStep[]
+): readonly AgentRunStep[] =>
+  steps.map((step) =>
+    step.execution === "pending" || step.execution === "active"
+      ? { ...step, execution: "unexecuted" as const }
+      : step
+  );
+
+/** Recompute the derived tallies after any change to the ordered Steps. */
+const withDerivedRunTotals = (run: AgentRunState): AgentRunState => ({
+  ...run,
+  assessmentCounts: assessmentCountsOf(run.steps),
+  coverage: coverageOf(run.steps),
+});
+
+/**
+ * Record what the Runner produced during the active Agent Step, so an
+ * assessment can be checked against real evidence.
+ */
+const noteRunEvidence = (
+  record: SessionRecord,
+  kind: "attempt" | "snapshot",
+  id: string
+): void => {
+  if (record.snapshot.run === null) {
+    return;
+  }
+  if (kind === "attempt") {
+    record.runEvidence.attempts.add(id);
+  } else {
+    record.runEvidence.snapshots.add(id);
+  }
+};
+
+/** How a Run that reached its last ordered Agent Step is recorded. */
+const endedRunOutcome = (advanced: boolean): "completed" | "ended-early" =>
+  advanced ? "completed" : "ended-early";
+
+const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
+  snapshot.run !== null && snapshot.run.outcome !== null;
+
+const deadlineFrom = (from: Date, ms: number): string =>
+  new Date(from.getTime() + ms).toISOString();
+
+/**
+ * How often the Runner re-reads the clock against a Run's ceilings. It is
+ * short enough that a breach interrupts the browser promptly and long enough
+ * that an idle Run costs nothing measurable.
+ */
+const CEILING_POLL_INTERVAL = "250 millis";
+
 const TIMELINE_LIMIT = 200;
 
 /**
@@ -568,6 +747,16 @@ type SnapshotWrite = readonly [
   ReadonlyMap<AgentSessionId, SessionRecord>,
 ];
 
+/**
+ * What the Runner recorded during the currently active Agent Step. An
+ * assessment may only cite these ids, so the agent cannot ground a conclusion
+ * in evidence Contingency never produced. Reset at every Step boundary.
+ */
+interface RunStepEvidence {
+  readonly attempts: Set<string>;
+  readonly snapshots: Set<string>;
+}
+
 interface SessionRecord {
   /** Private Create Browser handle. Never included in protocol snapshots. */
   readonly browserSessionId: SessionId;
@@ -581,6 +770,9 @@ interface SessionRecord {
   readonly videoFile: string | undefined;
   /** The Browser Snapshot references this session has minted. */
   readonly registry: AgentElementRegistry;
+  /** The Run directory this session's Trace and video were written into. */
+  readonly artifactDirectory: string | undefined;
+  readonly runEvidence: RunStepEvidence;
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
   /**
@@ -600,7 +792,10 @@ interface TeachingArtifacts {
 
 type AgentOperationKind =
   | "act"
+  | "assess"
+  | "ceiling"
   | "close"
+  | "complete"
   | "control"
   | "instruction"
   | "private-input"
@@ -617,6 +812,7 @@ type AgentOperationResult =
    * rather than performing it a second time.
    */
   | { readonly error: AgentSessionError; readonly kind: "act-failure" }
+  | { readonly kind: "run-summary"; readonly result: AgentRunSummary }
   | { readonly kind: "session"; readonly result: AgentSessionSnapshot };
 
 interface ReplayRecord {
@@ -811,6 +1007,17 @@ const makeAgentSession = (
         result: snapshot,
       });
 
+    const rememberRunSummary = (
+      operationId: OperationId | string | undefined,
+      target: string,
+      input: string,
+      summary: AgentRunSummary
+    ): Effect.Effect<void> =>
+      remember(operationId, "complete", target, input, {
+        kind: "run-summary",
+        result: summary,
+      });
+
     /**
      * What a repeated operation id means. An identical request answers with
      * the recorded result and performs no effect; a different request under a
@@ -871,6 +1078,58 @@ const makeAgentSession = (
               `Operation ${String(operationId)} was already used for a browser action.`
             ),
           };
+    };
+
+    /**
+     * Completing a Run is a mutation like any other: a transport retry answers
+     * with the Run Summary the first call produced rather than finalizing a
+     * second time over an already-closed browser.
+     */
+    const replayRunSummary = (
+      operationId: OperationId | string | undefined,
+      target: string,
+      input: string
+    ):
+      | { readonly _tag: "conflict"; readonly error: AgentSessionDomainError }
+      | { readonly _tag: "replay"; readonly summary: AgentRunSummary }
+      | undefined => {
+      const replayed = replay(operationId, "complete", target, input);
+      if (replayed === undefined || replayed._tag === "conflict") {
+        return replayed;
+      }
+      return replayed.result.kind === "run-summary"
+        ? { _tag: "replay", summary: replayed.result.result }
+        : {
+            _tag: "conflict",
+            error: error(
+              "agent_session_conflict",
+              `Operation ${String(operationId)} was already used for a session mutation.`
+            ),
+          };
+    };
+
+    /**
+     * Where a finished artifact sits inside the Run's own directory. The Run
+     * Summary stores the relative name so the package can be moved or read
+     * from another process without rewriting absolute paths.
+     */
+    const finalArtifactPath = (
+      record: SessionRecord,
+      file: string | undefined
+    ): Effect.Effect<string | null> => {
+      if (file === undefined || record.artifactDirectory === undefined) {
+        return Effect.succeed(null);
+      }
+      const relative = path.relative(record.artifactDirectory, file);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        return Effect.succeed(null);
+      }
+      return fileSystem === undefined
+        ? Effect.succeed(relative)
+        : fileSystem.exists(file).pipe(
+            Effect.map((exists) => (exists ? relative : null)),
+            Effect.orElseSucceed(() => null)
+          );
     };
 
     const sessionResource = (
@@ -966,6 +1225,20 @@ const makeAgentSession = (
               ...record.snapshot,
               controller: "agent",
               phase: "closed",
+              // A Run whose session is closed before it was completed did not
+              // end on a judgment. Its remaining Agent Steps are unexecuted.
+              run:
+                record.snapshot.run === null ||
+                record.snapshot.run.outcome !== null
+                  ? record.snapshot.run
+                  : withDerivedRunTotals({
+                      ...record.snapshot.run,
+                      activeStepIndex: null,
+                      endedAt: at,
+                      outcome: "interrupted",
+                      stepDeadline: null,
+                      steps: markRemainingUnexecuted(record.snapshot.run.steps),
+                    }),
               takeover: null,
               updatedAt: at,
             };
@@ -1010,17 +1283,24 @@ const makeAgentSession = (
       }
     );
 
-    const prepareTeachingDirectory = (
-      activity: AgentSessionActivity
+    /**
+     * Where this session captures. A Run names its own Run directory, so its
+     * Trace and video land beside the Run Summary that cites them; Teaching
+     * uses the configured Teaching directory; a bare session captures nothing.
+     */
+    const prepareArtifactDirectory = (
+      activity: AgentSessionActivity,
+      requested: string | undefined
     ): Effect.Effect<string | undefined, AgentSessionError> =>
-      Effect.gen(function* prepareLocalTeachingDirectory() {
-        if (activity !== "teaching") {
+      Effect.gen(function* prepareLocalArtifactDirectory() {
+        if (requested === undefined && activity !== "teaching") {
           return;
         }
         const directory =
-          typeof options.traceDirectory === "function"
+          requested ??
+          (typeof options.traceDirectory === "function"
             ? options.traceDirectory()
-            : options.traceDirectory;
+            : options.traceDirectory);
         if (directory !== undefined && fileSystem !== undefined) {
           yield* fileSystem
             .makeDirectory(directory, { recursive: true })
@@ -1028,7 +1308,7 @@ const makeAgentSession = (
               Effect.mapError((cause) =>
                 error(
                   "agent_session_invalid",
-                  `Could not create the Teaching artifact directory: ${cause.message}`
+                  `Could not create the artifact directory: ${cause.message}`
                 )
               )
             );
@@ -1108,7 +1388,8 @@ const makeAgentSession = (
       browserSessionId: SessionId,
       sessionId: AgentSessionId,
       sessionScope: Scope.Closeable,
-      videoPaths: Set<Promise<string>>
+      videoPaths: Set<Promise<string>>,
+      retention: boolean
     ): Effect.Effect<TeachingArtifacts, AgentSessionError> =>
       Effect.gen(function* startLocalTeachingArtifacts() {
         if (directory === undefined) {
@@ -1150,12 +1431,16 @@ const makeAgentSession = (
           )
         );
         const videoFile = yield* teachingVideoFile(target.page);
-        const retentionFile = yield* writeTeachingRetentionManifest(
-          directory,
-          sessionId,
-          traceFile,
-          videoFile === undefined ? [] : [videoFile]
-        );
+        // A Run's artifacts are governed by its own Run directory, not by the
+        // Teaching retention policy, so no retention manifest is written for it.
+        const retentionFile = retention
+          ? yield* writeTeachingRetentionManifest(
+              directory,
+              sessionId,
+              traceFile,
+              videoFile === undefined ? [] : [videoFile]
+            )
+          : undefined;
         return { retentionFile, traceFile, videoFile };
       });
 
@@ -1212,10 +1497,15 @@ const makeAgentSession = (
                 // viewport it will navigate under, so the first document is
                 // laid out for the device rather than resized into it.
                 const emulation = sessionEmulation(input);
-                const artifactDirectory =
-                  yield* prepareTeachingDirectory(activity);
+                const artifactDirectory = yield* prepareArtifactDirectory(
+                  activity,
+                  input.artifactDirectory
+                );
                 const videoPaths = new Set<Promise<string>>();
-                if (artifactDirectory !== undefined) {
+                if (
+                  artifactDirectory !== undefined &&
+                  activity === "teaching"
+                ) {
                   const traceFile = path.join(
                     artifactDirectory,
                     `${sessionId}.trace.zip`
@@ -1257,7 +1547,8 @@ const makeAgentSession = (
                     acquired,
                     sessionId,
                     sessionScope,
-                    videoPaths
+                    videoPaths,
+                    activity === "teaching"
                   );
                 const at = now().toISOString();
                 const base: AgentSessionSnapshot = {
@@ -1271,6 +1562,7 @@ const makeAgentSession = (
                   interruptedAction: null,
                   ownerProcessId: owner,
                   phase: "starting",
+                  run: input.run ?? null,
                   takeover: null,
                   teaching:
                     activity === "teaching"
@@ -1284,6 +1576,7 @@ const makeAgentSession = (
                 const registry = makeAgentElementRegistry(now);
                 yield* Scope.addFinalizer(sessionScope, registry.clear());
                 const record: SessionRecord = {
+                  artifactDirectory,
                   browserSessionId: acquired,
                   capture:
                     activity === "teaching"
@@ -1296,6 +1589,7 @@ const makeAgentSession = (
                   emulation,
                   registry,
                   retentionFile,
+                  runEvidence: { attempts: new Set(), snapshots: new Set() },
                   scope: sessionScope,
                   snapshot: base,
                   supplied: new Map<string, string>(),
@@ -1319,14 +1613,44 @@ const makeAgentSession = (
                   const currentUrl = sanitizeTeachingUrl(
                     yield* browser.currentUrl(acquired)
                   );
-                  const startedAt = now().toISOString();
+                  const startedNow = now();
+                  const startedAt = startedNow.toISOString();
                   // The opening navigation is the Demonstration's first URL
                   // transition: the journey starts somewhere.
                   record.capture?.recordUrl(currentUrl, startedAt);
+                  // Both ceilings start when the browser is actually ready, not
+                  // when the request arrived: browser acquisition must not eat
+                  // the budget the user granted the agent's work.
+                  const run =
+                    base.run === null
+                      ? null
+                      : withDerivedRunTotals({
+                          ...base.run,
+                          activeStepIndex: 0,
+                          runDeadline: deadlineFrom(
+                            startedNow,
+                            base.run.ceilings.runMs
+                          ),
+                          startedAt,
+                          stepDeadline: deadlineFrom(
+                            startedNow,
+                            base.run.ceilings.stepMs
+                          ),
+                          steps: base.run.steps.map((step, index) =>
+                            index === 0
+                              ? {
+                                  ...step,
+                                  execution: "active" as const,
+                                  startedAt,
+                                }
+                              : step
+                          ),
+                        });
                   const running: AgentSessionSnapshot = {
                     ...base,
                     currentUrl,
                     phase: "running",
+                    run,
                     updatedAt: startedAt,
                   };
                   yield* save(sessionId, record, running);
@@ -1355,7 +1679,7 @@ const makeAgentSession = (
     const notVerifying = (sessionId: AgentSessionId) =>
       error(
         "agent_session_invalid",
-        `Agent Session ${sessionId} is not verifying an Agent Flow draft.`
+        `Agent Session ${sessionId} is not running an Agent Flow revision, so it declares no Variables.`
       );
 
     /**
@@ -1369,11 +1693,14 @@ const makeAgentSession = (
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
-      const { verification } = record.snapshot;
-      if (verification === null) {
+      // A Verification Run and an Interactive Run declare their Variables the
+      // same way, because they run the same revision under the same rule: the
+      // literal is supplied again and never travels.
+      const declaring = record.snapshot.verification ?? record.snapshot.run;
+      if (declaring === null) {
         return { _tag: "error", error: notVerifying(record.snapshot.id) };
       }
-      const declared = verification.variables.find(
+      const declared = declaring.variables.find(
         (variable) => variable.name === name
       );
       return declared === undefined
@@ -1381,7 +1708,7 @@ const makeAgentSession = (
             _tag: "error",
             error: error(
               "agent_session_invalid",
-              `Agent Flow revision ${verification.revisionId} does not declare Variable ${name}.`
+              `Agent Flow revision ${declaring.revisionId} does not declare Variable ${name}.`
             ),
           }
         : {
@@ -1428,9 +1755,27 @@ const makeAgentSession = (
                 ...patch,
                 currentUrl: sanitizeTeachingUrl(patch.currentUrl),
               };
+        if (record !== undefined && entry.dispatched) {
+          noteRunEvidence(record, "attempt", entry.id);
+        }
         const next = yield* mutate(sessionId, (snapshot) => ({
           ...snapshot,
           ...safePatch,
+          // An attempt inside an Agent Step is what the assessment's `attempts`
+          // count reports, so it is counted where the attempt is recorded.
+          run:
+            snapshot.run === null ||
+            snapshot.run.activeStepIndex === null ||
+            !entry.dispatched
+              ? snapshot.run
+              : {
+                  ...snapshot.run,
+                  steps: snapshot.run.steps.map((step) =>
+                    step.index === snapshot.run?.activeStepIndex
+                      ? { ...step, attempts: step.attempts + 1 }
+                      : step
+                  ),
+                },
           teaching: teachingOf(record, snapshot),
           timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
           updatedAt: now().toISOString(),
@@ -1464,7 +1809,12 @@ const makeAgentSession = (
       page: Page
     ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
       snapshotAfterAction(page, record.registry).pipe(
-        Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot))
+        Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
+        Effect.tap((snapshot) =>
+          Effect.sync(() =>
+            noteRunEvidence(record, "snapshot", snapshot.snapshotId)
+          )
+        )
       );
 
     const observeFocusedTextControl = (record: SessionRecord, page: Page) =>
@@ -1882,6 +2232,16 @@ const makeAgentSession = (
             if (agentIsPaused(record.snapshot)) {
               return yield* Effect.fail(
                 takenOver("This action was not dispatched.")
+              );
+            }
+            // A Run that hit a ceiling or ended on a terminal assessment is
+            // over. Its browser is still open only so the Run can be finalized.
+            if (runIsOver(record.snapshot)) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Run ${record.snapshot.run?.runId} has ended and accepts no further browser actions.`
+                )
               );
             }
             const page = yield* browser.activePage(record.browserSessionId);
@@ -2339,6 +2699,466 @@ const makeAgentSession = (
       return next;
     });
 
+    // -----------------------------------------------------------------------
+    // Interactive Run
+    // -----------------------------------------------------------------------
+
+    const notRunning = (sessionId: AgentSessionId) =>
+      error(
+        "agent_session_invalid",
+        `Agent Session ${sessionId} is not performing an Interactive Run.`
+      );
+
+    /**
+     * Rewrite the Run on the current snapshot under the session's own
+     * read-modify-write, so a Run change never clobbers a control change it
+     * did not see.
+     */
+    const mutateRun = (
+      sessionId: AgentSessionId,
+      change: (run: AgentRunState, at: string) => AgentRunState
+    ): Effect.Effect<AgentSessionSnapshot | undefined> => {
+      const at = now().toISOString();
+      return mutate(sessionId, (snapshot) =>
+        snapshot.run === null
+          ? snapshot
+          : {
+              ...snapshot,
+              run: withDerivedRunTotals(change(snapshot.run, at)),
+              updatedAt: at,
+            }
+      );
+    };
+
+    /**
+     * A hard ceiling. It interrupts whatever the browser was asked to do,
+     * records `timed-out` as an execution outcome, and stops: the Runner does
+     * not invent an Agent Assessment on the agent's behalf
+     * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
+     */
+    const timeOutRun = Effect.fn("AgentSession.timeOutRun")(
+      function* endRunOnCeiling(sessionId: AgentSessionId, breached: string) {
+        const record = Ref.getUnsafe(sessions).get(sessionId);
+        if (record === undefined || runIsOver(record.snapshot)) {
+          return;
+        }
+        const { inFlight } = record.control;
+        let interrupted: AgentTimelineEntry | null = null;
+        if (inFlight !== undefined) {
+          yield* Fiber.interrupt(inFlight.fiber);
+          record.control.inFlight = undefined;
+          interrupted = {
+            actor: "agent",
+            at: now().toISOString(),
+            description: inFlight.description,
+            detail: `${breached} interrupted this action. The browser may already have performed it.`,
+            dispatched: true,
+            id: inFlight.id,
+            outcome: "interrupted",
+          };
+        }
+        yield* mutate(sessionId, (snapshot) => {
+          if (snapshot.run === null || snapshot.run.outcome !== null) {
+            return snapshot;
+          }
+          const at = now().toISOString();
+          const steps = markRemainingUnexecuted(
+            snapshot.run.steps.map((step) =>
+              step.execution === "active"
+                ? { ...step, endedAt: at, execution: "timed-out" as const }
+                : step
+            )
+          );
+          return {
+            ...snapshot,
+            interruptedAction: interrupted ?? snapshot.interruptedAction,
+            run: withDerivedRunTotals({
+              ...snapshot.run,
+              activeStepIndex: null,
+              endedAt: at,
+              outcome: "timed-out",
+              stepDeadline: null,
+              steps,
+            }),
+            timeline: [
+              ...snapshot.timeline,
+              ...(interrupted === null ? [] : [interrupted]),
+              {
+                actor: "agent" as const,
+                at,
+                description: `${breached} was reached`,
+                detail:
+                  "The Runner recorded a timed-out execution outcome. No Agent Assessment was produced for the interrupted Agent Step.",
+                dispatched: false,
+                id: `ceiling-${randomUUID()}`,
+                outcome: "interrupted" as const,
+              },
+            ].slice(-TIMELINE_LIMIT),
+            updatedAt: at,
+          };
+        });
+      }
+    );
+
+    /**
+     * The ceilings are wall clock, so they are watched rather than raced
+     * against one action: an agent that stops calling tools altogether must
+     * still lose its Run rather than hold a browser open forever.
+     */
+    const watchRunCeilings = (sessionId: AgentSessionId): Effect.Effect<void> =>
+      Effect.gen(function* watchCeilings() {
+        const record = Ref.getUnsafe(sessions).get(sessionId);
+        const run = record?.snapshot.run ?? null;
+        if (record === undefined || run === null || run.outcome !== null) {
+          return;
+        }
+        const at = now().getTime();
+        if (at >= Date.parse(run.runDeadline)) {
+          yield* timeOutRun(sessionId, "The Run ceiling");
+          return;
+        }
+        if (
+          run.stepDeadline !== null &&
+          at >= Date.parse(run.stepDeadline) &&
+          // A paused agent is not a slow agent: the user holds the browser, so
+          // the Agent Step's budget is not being spent on the agent's work.
+          !agentIsPaused(record.snapshot)
+        ) {
+          yield* timeOutRun(sessionId, "The Agent Step ceiling");
+        }
+      }).pipe(
+        Effect.andThen(Effect.sleep(CEILING_POLL_INTERVAL)),
+        Effect.forever,
+        Effect.catchCause(() => Effect.void)
+      );
+
+    /**
+     * Start a session and, when it is performing a Run, watch its ceilings for
+     * as long as it owns a browser. The watcher lives in the session's own
+     * scope, so closing the session stops it.
+     */
+    const startAndWatch = (input: AgentSessionStartInput) =>
+      startUnlocked(input).pipe(
+        Effect.tap((snapshot) =>
+          snapshot.run === null
+            ? Effect.void
+            : read(snapshot.id).pipe(
+                Effect.flatMap((record) =>
+                  Effect.forkIn(watchRunCeilings(snapshot.id), record.scope)
+                ),
+                Effect.ignore
+              )
+        )
+      );
+
+    const assessStepUnlocked = Effect.fn("AgentSession.assessStep")(
+      function* assessAgentStep(
+        sessionId: AgentSessionId,
+        input: {
+          readonly evidence: readonly AgentAssessmentEvidence[];
+          readonly explanation: string;
+          readonly outcome: AgentAssessmentOutcome;
+        },
+        operationId?: OperationId | string
+      ) {
+        const requestInput = JSON.stringify(input);
+        const replayed = replaySession(
+          operationId,
+          "assess",
+          sessionId,
+          requestInput
+        );
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        const record = yield* requireLiveRecord(sessionId);
+        const { run } = record.snapshot;
+        if (run === null) {
+          return yield* Effect.fail(notRunning(sessionId));
+        }
+        if (run.outcome !== null) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Run ${run.runId} has already ended as ${run.outcome} and accepts no further Agent Assessments.`
+            )
+          );
+        }
+        const activeIndex = run.activeStepIndex;
+        const active =
+          activeIndex === null ? undefined : run.steps[activeIndex];
+        if (activeIndex === null || active === undefined) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Run ${run.runId} has no active Agent Step to assess.`
+            )
+          );
+        }
+        // Evidence must name something this Agent Step actually produced.
+        // Otherwise an explanation could cite an observation that was never
+        // made ([ADR 0025](../../../../docs/adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
+        const unknown = input.evidence.filter((reference) =>
+          reference.kind === "snapshot"
+            ? !record.runEvidence.snapshots.has(reference.id)
+            : !record.runEvidence.attempts.has(reference.id)
+        );
+        if (unknown.length > 0) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_invalid",
+              `Agent Step ${activeIndex + 1} recorded no ${unknown
+                .map((reference) => `${reference.kind} ${reference.id}`)
+                .join(
+                  ", "
+                )}. Cite a Browser Snapshot or an attempt from this Agent Step.`
+            )
+          );
+        }
+        const advance = advancesAgentRun(input.outcome);
+        const nextIndex = activeIndex + 1;
+        const hasNext = advance && nextIndex < run.steps.length;
+        const next = yield* mutateRun(sessionId, (current, at) => {
+          const assessment = {
+            attempts: current.steps[activeIndex]?.attempts ?? 0,
+            evidence: input.evidence,
+            explanation: input.explanation,
+            outcome: input.outcome,
+            submittedAt: at,
+          };
+          const assessed = current.steps.map((step, index) => {
+            if (index === activeIndex) {
+              return {
+                ...step,
+                assessment,
+                endedAt: at,
+                execution: "assessed" as const,
+              };
+            }
+            if (hasNext && index === nextIndex) {
+              return { ...step, execution: "active" as const, startedAt: at };
+            }
+            return step;
+          });
+          return {
+            ...current,
+            activeStepIndex: hasNext ? nextIndex : null,
+            endedAt: hasNext ? null : at,
+            // A terminal assessment ends the ordered Steps and leaves the rest
+            // unexecuted; `completed` means every Step was reached.
+            outcome: hasNext ? null : endedRunOutcome(advance),
+            stepDeadline: hasNext
+              ? deadlineFrom(now(), current.ceilings.stepMs)
+              : null,
+            steps: hasNext ? assessed : markRemainingUnexecuted(assessed),
+          };
+        });
+        if (next === undefined) {
+          return yield* Effect.fail(notRunning(sessionId));
+        }
+        // Each Agent Step is judged on its own evidence, so the record of what
+        // the Runner produced starts empty at every boundary.
+        record.runEvidence.attempts.clear();
+        record.runEvidence.snapshots.clear();
+        const withEntry = yield* recordEntry(sessionId, {
+          actor: "agent",
+          at: now().toISOString(),
+          description: `Assessed "${active.name}" as ${input.outcome}`,
+          detail: input.explanation,
+          dispatched: false,
+          id: `assessment-${randomUUID()}`,
+          outcome: "completed",
+        });
+        yield* rememberSession(
+          operationId,
+          "assess",
+          sessionId,
+          requestInput,
+          withEntry
+        );
+        return withEntry;
+      }
+    );
+
+    const extendCeilingUnlocked = Effect.fn("AgentSession.extendCeiling")(
+      function* extendRunCeiling(
+        sessionId: AgentSessionId,
+        ceilingScope: "run" | "step",
+        additionalMs: number,
+        operationId?: OperationId | string
+      ) {
+        const requestInput = JSON.stringify({ additionalMs, ceilingScope });
+        const replayed = replaySession(
+          operationId,
+          "ceiling",
+          sessionId,
+          requestInput
+        );
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        const record = yield* requireLiveRecord(sessionId);
+        if (record.snapshot.run === null) {
+          return yield* Effect.fail(notRunning(sessionId));
+        }
+        if (record.snapshot.run.outcome !== null) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Run ${record.snapshot.run.runId} has already ended; its ceilings cannot be extended.`
+            )
+          );
+        }
+        const next = yield* mutateRun(sessionId, (current) => ({
+          ...current,
+          ceilings: {
+            ...current.ceilings,
+            extensions: current.ceilings.extensions + 1,
+            ...(ceilingScope === "run"
+              ? { runMs: current.ceilings.runMs + additionalMs }
+              : { stepMs: current.ceilings.stepMs + additionalMs }),
+          },
+          ...(ceilingScope === "run"
+            ? {
+                runDeadline: deadlineFrom(
+                  new Date(Date.parse(current.runDeadline)),
+                  additionalMs
+                ),
+              }
+            : {
+                stepDeadline:
+                  current.stepDeadline === null
+                    ? null
+                    : deadlineFrom(
+                        new Date(Date.parse(current.stepDeadline)),
+                        additionalMs
+                      ),
+              }),
+        }));
+        if (next === undefined) {
+          return yield* Effect.fail(notRunning(sessionId));
+        }
+        const withEntry = yield* recordEntry(sessionId, {
+          actor: "user",
+          at: now().toISOString(),
+          description: `The user extended the ${ceilingScope === "run" ? "Run" : "Agent Step"} ceiling`,
+          detail: `by ${Math.round(additionalMs / 1000)}s`,
+          dispatched: false,
+          id: `ceiling-extend-${randomUUID()}`,
+          outcome: "completed",
+        });
+        yield* rememberSession(
+          operationId,
+          "ceiling",
+          sessionId,
+          requestInput,
+          withEntry
+        );
+        return withEntry;
+      }
+    );
+
+    const completeRunUnlocked = Effect.fn("AgentSession.completeRun")(
+      function* completeInteractiveRun(
+        sessionId: AgentSessionId,
+        summaryText?: string,
+        operationId?: OperationId | string
+      ) {
+        const requestInput = JSON.stringify({ summary: summaryText ?? null });
+        const replayedSummary = replayRunSummary(
+          operationId,
+          sessionId,
+          requestInput
+        );
+        if (replayedSummary?._tag === "conflict") {
+          return yield* Effect.fail(replayedSummary.error);
+        }
+        if (replayedSummary?._tag === "replay") {
+          return replayedSummary.summary;
+        }
+        const record = yield* read(sessionId);
+        if (record.snapshot.run === null) {
+          return yield* Effect.fail(notRunning(sessionId));
+        }
+        return yield* Effect.uninterruptibleMask(() =>
+          Effect.gen(function* finalizeRun() {
+            const at = now().toISOString();
+            const ending = Ref.getUnsafe(sessions).get(sessionId);
+            const live = ending?.snapshot.run ?? record.snapshot.run;
+            if (live === null) {
+              return yield* Effect.fail(notRunning(sessionId));
+            }
+            const steps = markRemainingUnexecuted(live.steps);
+            const finished = withDerivedRunTotals({
+              ...live,
+              activeStepIndex: null,
+              endedAt: live.endedAt ?? at,
+              // A Run the agent stopped while Agent Steps remained is not a
+              // completed Run: the coverage it did not reach is visible here.
+              outcome:
+                live.outcome ??
+                (steps.every((step) => step.execution === "assessed")
+                  ? ("completed" as const)
+                  : ("ended-early" as const)),
+              stepDeadline: null,
+              steps,
+            });
+            const completed: AgentSessionSnapshot = {
+              ...(ending?.snapshot ?? record.snapshot),
+              controller: "agent",
+              phase: "completed",
+              run: finished,
+              takeover: null,
+              updatedAt: at,
+            };
+            yield* save(sessionId, ending ?? record, completed);
+            // Closing the session scope stops tracing and finalizes the video.
+            // Nothing may write to the Run's artifacts after this point.
+            yield* Scope.close(record.scope, Exit.void);
+            const summary: AgentRunSummary = {
+              agentFlowId: finished.agentFlowId,
+              assessmentCounts: finished.assessmentCounts,
+              attribution: finished.attribution,
+              ceilings: finished.ceilings,
+              coverage: finished.coverage,
+              endedAt: finished.endedAt ?? at,
+              outcome: finished.outcome ?? "ended-early",
+              revisionId: finished.revisionId,
+              runId: finished.runId,
+              schemaVersion: 1,
+              sessionId,
+              startedAt: finished.startedAt,
+              steps: finished.steps,
+              summary: summaryText ?? null,
+              timeline: completed.timeline,
+              title: finished.title,
+              tracePath: yield* finalArtifactPath(record, record.traceFile),
+              videoPath: yield* finalArtifactPath(record, record.videoFile),
+            };
+            const closed: AgentSessionSnapshot = {
+              ...completed,
+              phase: "closed",
+              updatedAt: now().toISOString(),
+            };
+            yield* save(sessionId, ending ?? record, closed);
+            yield* rememberRunSummary(
+              operationId,
+              sessionId,
+              requestInput,
+              summary
+            );
+            return summary;
+          })
+        );
+      }
+    );
+
     const service: AgentSessionService = {
       acknowledgeFrame: (sessionId, sequence, streamId) =>
         Effect.gen(function* acknowledgeAgentFrame() {
@@ -2359,6 +3179,8 @@ const makeAgentSession = (
         }),
       act: (sessionId, action, operationId) =>
         actUnlocked(sessionId, action, operationId),
+      assessStep: (sessionId, input, operationId) =>
+        lock.withPermit(assessStepUnlocked(sessionId, input, operationId)),
       browserStream: (sessionId) =>
         Stream.unwrap(
           read(sessionId).pipe(
@@ -2401,6 +3223,10 @@ const makeAgentSession = (
             (sessionId) => interruptUnlocked(sessionId).pipe(Effect.ignore),
             { discard: true }
           )
+        ),
+      completeRun: (sessionId, summaryText, operationId) =>
+        lock.withPermit(
+          completeRunUnlocked(sessionId, summaryText, operationId)
         ),
       enterAgentVariable: (sessionId, input, operationId) =>
         Effect.gen(function* enterPrivateVariableAsAgent() {
@@ -2466,6 +3292,15 @@ const makeAgentSession = (
         }),
       enterUserVariable: (sessionId, input, operationId) =>
         enterUserVariableUnlocked(sessionId, input, operationId),
+      extendCeiling: (sessionId, ceilingScope, additionalMs, operationId) =>
+        lock.withPermit(
+          extendCeilingUnlocked(
+            sessionId,
+            ceilingScope,
+            additionalMs,
+            operationId
+          )
+        ),
       get: (sessionId) =>
         read(sessionId).pipe(
           Effect.flatMap((record) => refreshedSnapshot(sessionId, record))
@@ -2528,6 +3363,15 @@ const makeAgentSession = (
         ),
       returnControl: (sessionId, operationId) =>
         lock.withPermit(returnControlUnlocked(sessionId, operationId)),
+      runViewUrl: (runId) =>
+        isAllowedAgentSessionBaseUrl(options.baseUrl)
+          ? Effect.sync(() => runViewUrl(options.baseUrl, runId))
+          : Effect.fail(
+              error(
+                "agent_session_invalid",
+                "Agent View must be served from a loopback URL."
+              )
+            ),
       screenshot: (sessionId) =>
         observe(sessionId, (record, page) =>
           captureAgentScreenshot(
@@ -2647,11 +3491,12 @@ const makeAgentSession = (
                 // An observation is the `before` state of the action that
                 // follows it, so the Demonstration keeps it.
                 record.capture?.recordSnapshot(snapshot);
+                noteRunEvidence(record, "snapshot", snapshot.snapshotId);
               })
             )
           )
         ),
-      start: (input) => lock.withPermit(startUnlocked(input)),
+      start: (input) => lock.withPermit(startAndWatch(input)),
       supplyVariable: (sessionId, name, value, operationId) =>
         Effect.gen(function* supplyRuntimeVariable() {
           const requestInput = JSON.stringify({
@@ -2676,23 +3521,29 @@ const makeAgentSession = (
             return yield* Effect.fail(declared.error);
           }
           record.supplied.set(name, value);
-          const next = yield* mutate(sessionId, (snapshot) =>
-            snapshot.verification === null
-              ? snapshot
-              : {
-                  ...snapshot,
-                  updatedAt: now().toISOString(),
-                  verification: {
-                    ...snapshot.verification,
-                    variables: snapshot.verification.variables.map(
-                      (variable) =>
-                        variable.name === name
-                          ? { ...variable, supplied: true }
-                          : variable
-                    ),
-                  },
-                }
-          );
+          const markSupplied = <
+            T extends {
+              readonly variables: readonly AgentSessionVariableState[];
+            },
+          >(
+            state: T
+          ): T => ({
+            ...state,
+            variables: state.variables.map((variable) =>
+              variable.name === name
+                ? { ...variable, supplied: true }
+                : variable
+            ),
+          });
+          const next = yield* mutate(sessionId, (snapshot) => ({
+            ...snapshot,
+            run: snapshot.run === null ? null : markSupplied(snapshot.run),
+            updatedAt: now().toISOString(),
+            verification:
+              snapshot.verification === null
+                ? null
+                : markSupplied(snapshot.verification),
+          }));
           const saved = next ?? record.snapshot;
           yield* rememberSession(
             operationId,

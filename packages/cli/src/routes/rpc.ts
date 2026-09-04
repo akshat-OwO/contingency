@@ -30,6 +30,11 @@ import type {
   AgentFlowCatalogService,
 } from "../services/agent-flow-catalog.ts";
 import { compileAgentFlowDraft } from "../services/agent-flow-compiler.ts";
+import { AgentRunStore } from "../services/agent-run-store.ts";
+import type {
+  AgentRunStoreError,
+  AgentRunStoreService,
+} from "../services/agent-run-store.ts";
 import { AgentSession } from "../services/agent-session.ts";
 import type {
   AgentSessionError,
@@ -125,6 +130,38 @@ const filterGenericBrowserSessions = (sessions: readonly SessionId[]) =>
               visible.filter(
                 (sessionId): sessionId is SessionId => sessionId !== undefined
               )
+            )
+          )
+    )
+  );
+
+/**
+ * Persisted Run evidence, read by Agent View in summary mode and by the
+ * read-only viewer `open_run` returns. It is optional for the same reason
+ * the catalog is: a process serving Audit View alone has no Run store.
+ */
+const runStoreUnavailable = <A>(
+  operation: (
+    service: AgentRunStoreService
+  ) => Effect.Effect<A, AgentRunStoreError>
+): Effect.Effect<A, BrowserRpcErrorType> =>
+  Effect.serviceOption(AgentRunStore).pipe(
+    Effect.flatMap((service) =>
+      Option.isSome(service)
+        ? operation(service.value).pipe(
+            Effect.mapError((cause) =>
+              makeBrowserRpcError(
+                cause.code === "agent_run_io"
+                  ? "agent_run_invalid"
+                  : cause.code,
+                cause.message
+              )
+            )
+          )
+        : Effect.fail(
+            makeBrowserRpcError(
+              "agent_run_invalid",
+              "No Agent Run store is available in this server process."
             )
           )
     )
@@ -727,6 +764,38 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.session.variable.supplied" as const,
           }))
         ),
+      /**
+       * Raising a ceiling is a direct user action and exists nowhere else: the
+       * agent whose work a ceiling bounds may not extend its own budget
+       * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
+       */
+      "agent.run.ceiling.extend": ({ data }) =>
+        agentUnavailable((service) =>
+          service.extendCeiling(
+            data.sessionId,
+            data.scope,
+            data.additionalMs,
+            data.operationId
+          )
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.result" as const,
+          }))
+        ),
+      "agent.run.summary.get": ({ data }) =>
+        Effect.gen(function* readRunSummary() {
+          const summary = yield* runStoreUnavailable((store) =>
+            store.read(data.runId)
+          );
+          const viewUrl = yield* agentUnavailable((service) =>
+            service.runViewUrl(data.runId)
+          );
+          return {
+            data: { summary, viewUrl },
+            type: "agent.run.summary.result" as const,
+          };
+        }),
       "agent.flow.revision.get": ({ data }) =>
         revisionResult(
           catalogUnavailable((catalog) =>

@@ -45,7 +45,7 @@ const AppNavbar = () => {
             })}
             data-slot="button"
             to="/agent"
-            search={{ session: undefined }}
+            search={{ run: undefined, session: undefined }}
           >
             Agent
           </Link>
