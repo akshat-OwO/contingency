@@ -57,7 +57,9 @@ vi.mock("@/lib/rpc", () => ({
   agentFlowDeleteMutation: Atom.fn((payload: unknown) =>
     Effect.suspend(() => {
       rpc.deleteCalls.push(payload);
-      return answer();
+      return Effect.succeed({
+        data: { agentFlowId: "flow-shop", deleted: true as const },
+      });
     })
   ),
   agentFlowDraftUpdateMutation: Atom.fn((payload: unknown) =>
@@ -345,6 +347,78 @@ test("requires typed confirmation before permanently deleting an Agent Flow", as
       draftRevisionId: "rev-1",
     },
   });
+});
+
+test("does not carry deletion success into another Agent Flow review", async () => {
+  const user = userEvent.setup();
+  rpc.detail = detailWith(null);
+  const view = render(
+    <RegistryProvider>
+      <DraftReview
+        agentFlowId={"flow-shop" as never}
+        refreshToken={at}
+        revisionId={"rev-1" as never}
+        sessionId={"agent-one" as never}
+      />
+    </RegistryProvider>
+  );
+
+  await user.type(
+    await screen.findByLabelText(
+      "Type permanently-delete to confirm permanent deletion"
+    ),
+    "permanently-delete"
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Permanently delete Agent Flow" })
+  );
+  expect(
+    await screen.findByText("This Agent Flow was permanently deleted.")
+  ).toBeInTheDocument();
+
+  rpc.detail = detailWith(null, {
+    agentFlowId: "flow-other" as never,
+    revisionId: "rev-other" as never,
+  });
+  view.rerender(
+    <RegistryProvider>
+      <DraftReview
+        agentFlowId={"flow-other" as never}
+        refreshToken={at}
+        revisionId={"rev-other" as never}
+        sessionId={"agent-two" as never}
+      />
+    </RegistryProvider>
+  );
+
+  expect(
+    await screen.findByRole("button", { name: "Archive Agent Flow" })
+  ).toBeEnabled();
+  expect(
+    screen.queryByText("This Agent Flow was permanently deleted.")
+  ).not.toBeInTheDocument();
+});
+
+test("shows archive conflicts with the retirement controls", async () => {
+  const user = userEvent.setup();
+  rpc.writeError = "The Agent Flow changed before it could be archived.";
+  renderReview(detailWith(null), "agent-one");
+
+  await user.click(
+    await screen.findByRole("button", { name: "Archive Agent Flow" })
+  );
+
+  const retirement = screen.getByRole("heading", {
+    name: "Retire Agent Flow",
+  }).parentElement;
+  if (retirement === null) {
+    throw new Error("The retirement controls were not rendered.");
+  }
+  expect(
+    await within(retirement).findByText(
+      "The Agent Flow changed before it could be archived."
+    )
+  ).toBeInTheDocument();
 });
 
 test("renames a Step, edits Domain Scope, and saves one corrected proposal", async () => {

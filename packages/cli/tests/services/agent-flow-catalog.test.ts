@@ -1250,6 +1250,60 @@ it.effect(
     )
 );
 
+it.effect("does not report a committed approval as failed", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* keepApprovalResultAtomic() {
+      const artifactDirectory = path.join(root, "approval-failure-artifacts");
+      yield* fileSystem.makeDirectory(artifactDirectory);
+      const traceFile = path.join(artifactDirectory, "teaching.trace.zip");
+      const retentionFile = path.join(
+        artifactDirectory,
+        "teaching.artifacts.json"
+      );
+      yield* fileSystem.writeFileString(traceFile, "trace");
+      yield* fileSystem.writeFileString(retentionFile, "{}");
+      const saved = yield* catalog.saveDraft(
+        saveInput("Shop front", "approval-failure-save", {
+          sourceArtifacts: { retentionFile, traceFile },
+        })
+      );
+      const { agentFlowId, revisionId } = saved.manifest;
+      yield* catalog.authorizeVerification({
+        agentFlowId,
+        operationId: OperationId.make("approval-failure-authorize"),
+        revisionId,
+      });
+      yield* catalog.startVerification({
+        agentFlowId,
+        operationId: OperationId.make("approval-failure-start"),
+        revisionId,
+        sessionId: AgentSessionId.make("agent-approval-failure"),
+      });
+      yield* catalog.completeVerification({
+        agentFlowId,
+        operationId: OperationId.make("approval-failure-complete"),
+        outcome: "passed",
+        revisionId,
+        summary: "It worked.",
+      });
+      yield* fileSystem.writeFileString(
+        path.join(root, CATALOG_CONFIG_FILE),
+        "not valid JSON"
+      );
+
+      const approved = yield* catalog.approve({
+        agentFlowId,
+        operationId: OperationId.make("approval-failure-approve"),
+        revisionId,
+      });
+
+      expect(approved.heads.approvedRevisionId).toBe(revisionId);
+      expect(approved.heads.draftRevisionId).toBeNull();
+      expect(yield* fileSystem.exists(traceFile)).toBe(false);
+    })
+  )
+);
+
 it.effect("reads an approval retention duration from each Catalog Root", () =>
   withCatalog((_catalog, root, fileSystem) =>
     Effect.gen(function* retainByCatalogPolicy() {
@@ -1314,6 +1368,23 @@ it.effect("reads an approval retention duration from each Catalog Root", () =>
       ).toMatchObject({
         deleteAfter: "2026-10-01T00:00:00.000Z",
         retention: "retain-for-days",
+      });
+
+      yield* Layer.build(
+        makeAgentFlowCatalogLayer({
+          now: () => new Date("2026-10-02T00:00:00.000Z"),
+          root,
+        }).pipe(Layer.provide(NodeServices.layer))
+      ).pipe(Effect.scoped);
+
+      expect(yield* fileSystem.exists(traceFile)).toBe(false);
+      expect(yield* fileSystem.exists(videoFile)).toBe(false);
+      expect(
+        JSON.parse(yield* fileSystem.readFileString(retentionFile))
+      ).toMatchObject({
+        deleteAfter: "2026-10-01T00:00:00.000Z",
+        expiredAt: "2026-10-02T00:00:00.000Z",
+        retention: "expired",
       });
     })
   )

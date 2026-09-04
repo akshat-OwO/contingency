@@ -106,6 +106,26 @@ const processIsStale = (pid: number): boolean => {
   }
 };
 
+const retentionDeadline = (contents: string): number | null => {
+  try {
+    const metadata = JSON.parse(contents) as unknown;
+    if (
+      typeof metadata !== "object" ||
+      metadata === null ||
+      !("retention" in metadata) ||
+      metadata.retention !== "retain-for-days" ||
+      !("deleteAfter" in metadata) ||
+      typeof metadata.deleteAfter !== "string"
+    ) {
+      return null;
+    }
+    const deadline = Date.parse(metadata.deleteAfter);
+    return Number.isNaN(deadline) ? null : deadline;
+  } catch {
+    return null;
+  }
+};
+
 const isWithinCatalogRoot = (catalogRoot: string, target: string): boolean => {
   const relative = path.relative(
     path.resolve(catalogRoot),
@@ -1824,26 +1844,34 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
 
   const approvalRetention = (
     catalogRoot: string
-  ): Effect.Effect<ApprovalArtifactRetention, AgentFlowCatalogError> => {
-    const configurationFile = path.join(catalogRoot, CATALOG_CONFIG_FILE);
-    return fileSystem.exists(configurationFile).pipe(
-      Effect.mapError(ioError("Could not inspect Catalog retention policy")),
-      Effect.flatMap((exists) =>
-        exists
-          ? readJson(
-              CatalogConfiguration,
-              configurationFile,
-              "Agent Flow Catalog configuration",
-              catalogRoot
-            ).pipe(
-              Effect.map(
-                (configuration) => configuration.approvalArtifactRetention
-              )
-            )
-          : Effect.succeed({ mode: "delete-immediately" as const })
-      )
-    );
-  };
+  ): Effect.Effect<ApprovalArtifactRetention, AgentFlowCatalogError> =>
+    Effect.gen(function* readApprovalRetention() {
+      const configurationFile = path.join(catalogRoot, CATALOG_CONFIG_FILE);
+      const exists = yield* fileSystem
+        .exists(configurationFile)
+        .pipe(
+          Effect.mapError(ioError("Could not inspect Catalog retention policy"))
+        );
+      if (!exists) {
+        return { mode: "delete-immediately" as const };
+      }
+      const configured = yield* Effect.result(
+        readJson(
+          CatalogConfiguration,
+          configurationFile,
+          "Agent Flow Catalog configuration",
+          catalogRoot
+        )
+      );
+      if (Result.isFailure(configured)) {
+        yield* Effect.logWarning(
+          "Catalog retention configuration is invalid; sensitive Teaching artifacts will use immediate deletion.",
+          configured.failure
+        );
+        return { mode: "delete-immediately" as const };
+      }
+      return configured.success.approvalArtifactRetention;
+    });
 
   const readSourceArtifacts = (
     catalogRoot: string,
@@ -1921,16 +1949,6 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       const files = yield* validateSourceArtifacts(artifacts);
       const policy = yield* approvalRetention(approved.catalogRoot);
       if (policy.mode === "delete-immediately") {
-        yield* Effect.forEach(
-          files.filter((file) => file !== artifacts.retentionFile),
-          (file) =>
-            fileSystem
-              .remove(file, { force: true })
-              .pipe(
-                Effect.mapError(ioError("Could not remove a Teaching artifact"))
-              ),
-          { discard: true }
-        );
         if (artifacts.retentionFile !== undefined) {
           yield* fileSystem
             .writeFileString(
@@ -1950,6 +1968,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               )
             );
         }
+        yield* Effect.forEach(
+          files.filter((file) => file !== artifacts.retentionFile),
+          (file) =>
+            fileSystem
+              .remove(file, { force: true })
+              .pipe(
+                Effect.mapError(ioError("Could not remove a Teaching artifact"))
+              ),
+          { discard: true }
+        );
         return;
       }
       if (artifacts.retentionFile === undefined) {
@@ -1998,6 +2026,132 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             ioError("Could not update Teaching retention metadata")
           )
         );
+    });
+
+  /**
+   * A Catalog startup is the durable retention worker: schedules survive
+   * process exits because their deadline and artifact paths live on disk.
+   */
+  const removeExpiredApprovalArtifacts = (
+    catalogRoot: string
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    Effect.gen(function* removeExpiredArtifacts() {
+      const agentFlowIds = yield* listFlowIds(catalogRoot);
+      yield* Effect.forEach(
+        agentFlowIds,
+        (agentFlowId) =>
+          Effect.gen(function* removeExpiredFlowArtifacts() {
+            const revisions = path.join(
+              flowDirectory(catalogRoot, agentFlowId),
+              REVISIONS_DIRECTORY
+            );
+            const revisionsExist = yield* fileSystem
+              .exists(revisions)
+              .pipe(
+                Effect.mapError(
+                  ioError(
+                    "Could not inspect Agent Flow revisions for retention"
+                  )
+                )
+              );
+            if (!revisionsExist) {
+              return;
+            }
+            const revisionIds = yield* fileSystem
+              .readDirectory(revisions)
+              .pipe(
+                Effect.mapError(
+                  ioError("Could not list Agent Flow revisions for retention")
+                )
+              );
+            yield* Effect.forEach(
+              revisionIds,
+              (revisionId) =>
+                Effect.gen(function* removeExpiredRevisionArtifacts() {
+                  const sourceFile = path.join(
+                    revisions,
+                    revisionId,
+                    SOURCE_ARTIFACTS_FILE
+                  );
+                  const sourceExists = yield* fileSystem
+                    .exists(sourceFile)
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not inspect Teaching artifact metadata")
+                      )
+                    );
+                  if (!sourceExists) {
+                    return;
+                  }
+                  const artifacts = yield* readJson(
+                    SourceArtifacts,
+                    sourceFile,
+                    "Teaching artifact record",
+                    catalogRoot
+                  );
+                  if (artifacts.retentionFile === undefined) {
+                    return;
+                  }
+                  const retentionExists = yield* fileSystem
+                    .exists(artifacts.retentionFile)
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not inspect Teaching retention metadata")
+                      )
+                    );
+                  if (!retentionExists) {
+                    return;
+                  }
+                  const metadata = yield* fileSystem
+                    .readFileString(artifacts.retentionFile)
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not read Teaching retention metadata")
+                      )
+                    );
+                  const deadline = retentionDeadline(metadata);
+                  if (deadline === null || deadline > now().getTime()) {
+                    return;
+                  }
+                  const files = yield* validateSourceArtifacts(artifacts);
+                  yield* Effect.forEach(
+                    files.filter((file) => file !== artifacts.retentionFile),
+                    (file) =>
+                      fileSystem
+                        .remove(file, { force: true })
+                        .pipe(
+                          Effect.mapError(
+                            ioError(
+                              "Could not remove an expired Teaching artifact"
+                            )
+                          )
+                        ),
+                    { discard: true }
+                  );
+                  yield* fileSystem
+                    .writeFileString(
+                      artifacts.retentionFile,
+                      `${JSON.stringify(
+                        {
+                          deleteAfter: new Date(deadline).toISOString(),
+                          expiredAt: now().toISOString(),
+                          retention: "expired",
+                        },
+                        null,
+                        2
+                      )}\n`
+                    )
+                    .pipe(
+                      Effect.mapError(
+                        ioError("Could not update Teaching retention metadata")
+                      )
+                    );
+                }),
+              { discard: true }
+            );
+          }),
+        { discard: true }
+      );
     });
 
   const deletePermanentlyUnlocked = Effect.fn(
@@ -2164,7 +2318,20 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             manifest: { ...manifest, status: "approved" as const },
           };
         })
-      ).pipe(Effect.tap((approved) => applyApprovalRetention(approved))),
+      ).pipe(
+        Effect.tap((approved) =>
+          applyApprovalRetention(approved).pipe(
+            // Effect error recovery is callback-based by design.
+            // oxlint-disable-next-line promise/prefer-await-to-callbacks, promise/prefer-await-to-then
+            Effect.catch((retentionError) =>
+              Effect.logWarning(
+                "Approval committed, but Teaching artifact retention could not be applied.",
+                retentionError
+              )
+            )
+          )
+        )
+      ),
     authorizeVerification: (input) =>
       mutateHeads("verification.authorize", input, {}, (heads, at) =>
         Effect.gen(function* authorizeVerificationRun() {
@@ -2410,6 +2577,17 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           })
       ),
   };
+  const catalogRoot = yield* Ref.get(root);
+  yield* removeExpiredApprovalArtifacts(catalogRoot).pipe(
+    // Effect error recovery is callback-based by design.
+    // oxlint-disable-next-line promise/prefer-await-to-callbacks, promise/prefer-await-to-then
+    Effect.catch((retentionError) =>
+      Effect.logWarning(
+        "Expired Teaching artifacts could not be removed.",
+        retentionError
+      )
+    )
+  );
   return service;
 });
 

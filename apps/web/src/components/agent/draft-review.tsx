@@ -448,6 +448,7 @@ const VerificationGestures = ({
 );
 
 const RetirementControls = ({
+  archiveFailure,
   archived,
   confirmation,
   deleteFailure,
@@ -457,6 +458,7 @@ const RetirementControls = ({
   onDelete,
   pending,
 }: {
+  readonly archiveFailure: string | undefined;
   readonly archived: boolean;
   readonly confirmation: string;
   readonly deleteFailure: string | undefined;
@@ -507,6 +509,9 @@ const RetirementControls = ({
         This Agent Flow was permanently deleted.
       </p>
     ) : null}
+    {archiveFailure === undefined ? null : (
+      <p className="text-destructive text-xs">{archiveFailure}</p>
+    )}
     {deleteFailure === undefined ? null : (
       <p className="text-destructive text-xs">{deleteFailure}</p>
     )}
@@ -524,6 +529,7 @@ const DraftReviewLoading = ({ message }: { readonly message: string }) => (
 
 const DraftReviewContent = ({
   actions,
+  archiveFailure,
   authorization,
   canEdit,
   confirmation,
@@ -547,6 +553,7 @@ const DraftReviewContent = ({
   reviewKey,
 }: {
   readonly actions: readonly DemonstratedAction[];
+  readonly archiveFailure: string | undefined;
   readonly authorization: AuthorizationPresentation;
   readonly canEdit: boolean;
   readonly confirmation: string;
@@ -668,6 +675,7 @@ const DraftReviewContent = ({
           pending={pending}
         />
         <RetirementControls
+          archiveFailure={archiveFailure}
           archived={detail.revision.heads.archived}
           confirmation={confirmation}
           deleteFailure={deleteFailure}
@@ -755,9 +763,13 @@ export const DraftReview = ({
   const detail = shownRevision(revisionResult, gestureResult);
   const pending =
     gestureResult !== undefined && AsyncResult.isWaiting(gestureResult);
-  const failure = refusal(gestureResult);
+  const failure = gesture === "archive" ? undefined : refusal(gestureResult);
+  const archiveFailure =
+    gesture === "archive" ? refusal(archiveResult) : undefined;
   const deleteFailure = refusal(deleteResult);
-  const deleted = AsyncResult.isSuccess(deleteResult);
+  const deleted =
+    AsyncResult.isSuccess(deleteResult) &&
+    deleteResult.value.data.agentFlowId === agentFlowId;
 
   if (detail === undefined) {
     return (
@@ -882,6 +894,7 @@ export const DraftReview = ({
   return (
     <DraftReviewContent
       actions={actions}
+      archiveFailure={archiveFailure}
       authorization={authorization}
       canEdit={canEdit}
       confirmation={deleteConfirmation}

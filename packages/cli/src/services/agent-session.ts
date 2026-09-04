@@ -626,17 +626,26 @@ interface ReplayRecord {
   readonly target: string;
 }
 
-const deletesTeachingArtifactsOnApproval = (contents: string): boolean => {
+const catalogTeachingRetention = (
+  contents: string
+): "delete-on-approval" | "retain-for-days" | null => {
   try {
     const parsed = JSON.parse(contents) as unknown;
-    return (
+    if (
       typeof parsed === "object" &&
       parsed !== null &&
-      "retention" in parsed &&
-      parsed.retention === "delete-on-approval"
-    );
+      "retention" in parsed
+    ) {
+      if (parsed.retention === "delete-on-approval") {
+        return "delete-on-approval";
+      }
+      if (parsed.retention === "retain-for-days") {
+        return "retain-for-days";
+      }
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 };
 
@@ -1044,10 +1053,10 @@ const makeAgentSession = (
         const existing = yield* Effect.result(
           fileSystem.readFileString(retentionFile)
         );
-        if (
-          Result.isSuccess(existing) &&
-          deletesTeachingArtifactsOnApproval(existing.success)
-        ) {
+        const catalogRetention = Result.isSuccess(existing)
+          ? catalogTeachingRetention(existing.success)
+          : null;
+        if (catalogRetention === "delete-on-approval") {
           yield* Effect.forEach(
             [traceFile, ...videoFiles],
             (file) => fileSystem.remove(file, { force: true }),
@@ -1060,6 +1069,9 @@ const makeAgentSession = (
               )
             )
           );
+          return retentionFile;
+        }
+        if (catalogRetention === "retain-for-days") {
           return retentionFile;
         }
         yield* fileSystem

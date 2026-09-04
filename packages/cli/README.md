@@ -30,4 +30,4 @@ To keep the full Teaching artifacts for a fixed period, add `agent-flow-catalog.
 }
 ```
 
-Contingency records the resulting `deleteAfter` timestamp in the Teaching artifact metadata for the local retention worker. This policy affects sensitive Teaching artifacts only. It does not delete Agent Flow revisions or Evidence Slices.
+Contingency records the resulting `deleteAfter` timestamp in the Teaching artifact metadata. Catalog startup removes expired Trace and video files, so the schedule survives process exits. This policy affects sensitive Teaching artifacts only. It does not delete Agent Flow revisions or Evidence Slices.
