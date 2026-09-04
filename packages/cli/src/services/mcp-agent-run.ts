@@ -205,6 +205,10 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         endedAt: null,
         outcome: null,
         revisionId: found.manifest.revisionId,
+        // A placeholder, already in the past. The session re-derives both
+        // deadlines from the moment the browser is actually ready, so browser
+        // acquisition never eats the agent's budget — and a Run that somehow
+        // skipped that step times out immediately rather than running unbounded.
         runDeadline: startedAt,
         runId,
         startedAt,

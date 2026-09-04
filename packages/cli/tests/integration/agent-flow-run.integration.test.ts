@@ -36,7 +36,7 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { fixtureServer } from "./harness.ts";
+import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = { deviceScaleFactor: 1, height: 480, width: 640 } as const;
 
@@ -506,12 +506,28 @@ it.live(
           runCeilingMs: 120_000,
           stepCeilingMs: 1000,
         });
+        // The ceiling lands while an action is in flight — a navigation the
+        // fixture server deliberately never answers — so the breach must
+        // interrupt the active action rather than wait it out.
+        yield* Effect.forkChild(
+          session("agent_browser_act", {
+            action: {
+              type: "navigate",
+              url: `${fixtures.origin}${NEVER_ANSWERED}`,
+            },
+            operationId: OperationId.make("run-b-hanging-navigate"),
+            sessionId: bounded.id,
+          }).pipe(Effect.ignore)
+        );
         yield* Effect.sleep("4 seconds");
         const timedOut = yield* session("agent_session_get", {
           sessionId: bounded.id,
         });
         const breached = requireRun(timedOut);
         expect(breached.outcome).toBe("timed-out");
+        expect(timedOut.interruptedAction?.detail).toContain(
+          "interrupted this action"
+        );
         // A ceiling is a system fact, not a judgment the Runner made up.
         expect(breached.steps[0]?.execution).toBe("timed-out");
         expect(breached.steps[0]?.assessment).toBeNull();

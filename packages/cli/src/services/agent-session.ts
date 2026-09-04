@@ -16,6 +16,7 @@ import type {
   AgentAssessmentOutcome,
   AgentRunAssessmentCounts,
   AgentRunCoverage,
+  AgentRunId,
   AgentRunState,
   AgentRunStep,
   AgentRunSummary,
@@ -284,7 +285,7 @@ export interface AgentSessionService {
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** The read-only Agent View link for one persisted Run. */
   readonly runViewUrl: (
-    runId: string
+    runId: AgentRunId
   ) => Effect.Effect<string, AgentSessionError>;
   readonly verification: (
     sessionId: AgentSessionId
@@ -401,7 +402,7 @@ const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
  * Agent Session, so it restores no browser state
  * ([ADR 0030](../../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
-const runViewUrl = (baseUrl: string, runId: string): string => {
+const runViewUrl = (baseUrl: string, runId: AgentRunId): string => {
   const url = new URL("/agent", baseUrl);
   url.searchParams.set("run", runId);
   return url.href;
@@ -648,14 +649,19 @@ const assessmentCountsOf = (
 /**
  * How much of the journey the Run actually reached. An executed Step is one
  * the Runner ran to a terminal execution outcome, whatever the agent concluded
- * about it: coverage answers "was this checked", not "did it work".
+ * about it: coverage answers "was this checked", not "did it work". A
+ * `timed-out` Step counts as executed — the Run spent its budget there — but
+ * it was interrupted mid-check and produced no assessment, so coverage is
+ * complete only when every Step was assessed.
  */
-const coverageOf = (steps: readonly AgentRunStep[]): AgentRunCoverage => {
+export const coverageOf = (
+  steps: readonly AgentRunStep[]
+): AgentRunCoverage => {
   const executed = steps.filter(
     (step) => step.execution === "assessed" || step.execution === "timed-out"
   ).length;
   return {
-    complete: executed === steps.length,
+    complete: steps.every((step) => step.execution === "assessed"),
     executed,
     total: steps.length,
     unexecuted: steps.length - executed,

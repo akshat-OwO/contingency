@@ -86,26 +86,22 @@ export const makeHttpServerLayer = ({
       ? catalogRpcRoutes
       : catalogRpcRoutes.pipe(Layer.provide(agentRunStore));
   const artifactRoutes = makeRunArtifactRoutes({ allowedOrigins });
-  const httpServer = NodeHttpServer.layer(createServer, { host, port });
   // The artifact routes read their stores per request, so those are provided
   // to the served router rather than to the route layers.
-  if (agentRunStore === undefined) {
-    return HttpRouter.serve(
-      Layer.merge(Layer.mergeAll(agentRpcRoutes, artifactRoutes), webRoutes)
-    ).pipe(Layer.provide(httpServer), Layer.provide(runSession));
-  }
-  return HttpRouter.serve(
-    Layer.merge(
-      Layer.mergeAll(
-        agentRpcRoutes,
-        artifactRoutes,
-        makeAgentRunArtifactRoutes({ allowedOrigins })
-      ),
-      webRoutes
-    )
-  ).pipe(
-    Layer.provide(httpServer),
-    Layer.provide(runSession),
-    Layer.provide(agentRunStore)
-  );
+  const serveRoutes = <R>(routes: Layer.Layer<never, never, R>) =>
+    HttpRouter.serve(Layer.merge(routes, webRoutes)).pipe(
+      Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
+      Layer.provide(runSession)
+    );
+  // The Agent Run video route exists only where a Run store does: a process
+  // serving Audit View alone has no persisted Interactive Runs to serve.
+  return agentRunStore === undefined
+    ? serveRoutes(Layer.mergeAll(agentRpcRoutes, artifactRoutes))
+    : serveRoutes(
+        Layer.mergeAll(
+          agentRpcRoutes,
+          artifactRoutes,
+          makeAgentRunArtifactRoutes({ allowedOrigins })
+        )
+      ).pipe(Layer.provide(agentRunStore));
 };

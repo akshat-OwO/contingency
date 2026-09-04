@@ -146,15 +146,12 @@ export const agentRunCeilingExtendMutation = ContingencyRpcClient.mutation(
  * One persisted Run Summary, read by Agent View in summary mode and by the
  * read-only viewer. One atom per Run, so a viewer reads its own Run.
  */
-const agentRunSummaryFamily = Atom.family((runId: AgentRunId) =>
+export const agentRunSummaryAtom = Atom.family((runId: AgentRunId) =>
   ContingencyRpcClient.query("agent.run.summary.get", {
     data: { runId },
     type: "agent.run.summary.get",
   })
 );
-
-export const agentRunSummaryAtom = (runId: AgentRunId) =>
-  agentRunSummaryFamily(runId);
 
 /**
  * The draft under review, with the Evidence Slice summaries behind its Steps.

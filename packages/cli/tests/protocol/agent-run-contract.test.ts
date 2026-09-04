@@ -99,7 +99,9 @@ test("a timed-out Agent Step carries an execution outcome and no assessment", ()
       notWorking: 0,
       working: 0,
     },
-    coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
+    // A timed-out Step was reached but interrupted mid-check, so it counts
+    // as executed without making coverage complete.
+    coverage: { complete: false, executed: 1, total: 1, unexecuted: 0 },
     outcome: "timed-out",
     steps: [{ ...step, execution: "timed-out" }],
     summary: null,

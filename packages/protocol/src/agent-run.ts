@@ -112,6 +112,8 @@ export type AgentRunCeilings = typeof AgentRunCeilings.Type;
  * Which Agent Steps the Run actually reached. Coverage is deliberately not a
  * verdict about the website: a Run whose every executed Step was `not-working`
  * still has complete coverage, and a Run that stopped at Step one does not.
+ * A `timed-out` Step counts as executed but was interrupted mid-check, so
+ * coverage is complete only when every Step was assessed.
  */
 export const AgentRunCoverage = Schema.Struct({
   complete: Schema.Boolean,
