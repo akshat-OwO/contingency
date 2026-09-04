@@ -2862,16 +2862,16 @@ const makeAgentSession = (
     /**
      * Start a session and, when it is performing a Run, watch its ceilings for
      * as long as it owns a browser. The watcher lives in the session's own
-     * scope, so closing the session stops it.
+     * scope, so closing the session stops it. A Run without its watcher would
+     * hold a browser unbounded, so a failure to attach it fails the start
+     * rather than being ignored.
      */
     const startAndWatch = (input: AgentSessionStartInput) =>
       startUnlocked(input).pipe(
         Effect.tap((snapshot) =>
           snapshot.run === null
             ? Effect.void
-            : // A Run without its watcher would hold a browser unbounded, so a
-              // failure to attach it fails the start rather than being ignored.
-              read(snapshot.id).pipe(
+            : read(snapshot.id).pipe(
                 Effect.flatMap((record) =>
                   Effect.forkIn(watchRunCeilings(snapshot.id), record.scope)
                 )
