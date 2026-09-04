@@ -65,6 +65,120 @@ import {
 
 const operationId = () => OperationId.make(crypto.randomUUID());
 
+/**
+ * What one Step was demonstrated by. A merged or split span has no compiled
+ * Evidence Slice yet, because Contingency derives every slice from the span
+ * the saved proposal names
+ * ([ADR 0025](../../../../docs/adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
+ */
+const StepEvidence = ({
+  actions,
+  evidence,
+  index,
+}: {
+  readonly actions: readonly DemonstratedAction[];
+  readonly evidence: AgentFlowEvidenceSummary | undefined;
+  readonly index: number;
+}) => {
+  if (actions.length === 0) {
+    return null;
+  }
+  const plural = actions.length === 1 ? "" : "s";
+  return (
+    <div className="text-muted-foreground space-y-1 text-xs">
+      {evidence === undefined ? (
+        <p>
+          {actions.length} captured action{plural}. Contingency derives this
+          Step's Evidence Slice from the span when you save the correction.
+        </p>
+      ) : (
+        <>
+          <p>
+            Evidence: {evidence.actions.length} captured action
+            {evidence.actions.length === 1 ? "" : "s"},{" "}
+            {evidence.instructions.length} instruction
+            {evidence.instructions.length === 1 ? "" : "s"},{" "}
+            {evidence.screenshotCount} screenshot
+            {evidence.screenshotCount === 1 ? "" : "s"},{" "}
+            {evidence.urlTransitionCount} URL transition
+            {evidence.urlTransitionCount === 1 ? "" : "s"}.
+          </p>
+          <p className="font-mono wrap-anywhere">{evidence.hash}</p>
+        </>
+      )}
+      <ul aria-label={`Agent Step ${index + 1} evidence`}>
+        {actions.map((action) => (
+          <li key={action.id}>
+            {action.actor === "user" ? "You" : "The agent"}:{" "}
+            {action.description} · {action.outcome}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+/** Moving one Step's boundaries: merge it with the next, or split its span. */
+const StepSpanControls = ({
+  actions,
+  index,
+  isLast,
+  onMerge,
+  onSplit,
+  reviewKey,
+}: {
+  readonly actions: readonly DemonstratedAction[];
+  readonly index: number;
+  readonly isLast: boolean;
+  readonly onMerge: () => void;
+  readonly onSplit: (actionId: string) => void;
+  readonly reviewKey: DraftReviewKey;
+}) => {
+  const [splitAt, setSplitAt] = useAtom(draftSplitAtom(reviewKey)(index));
+  // A Step always covers at least one action, so its first action can never
+  // start the second half of a split.
+  const splitPoints = actions.slice(1);
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      {isLast ? null : (
+        <Button onClick={onMerge} size="sm" type="button" variant="outline">
+          Merge with next Step
+        </Button>
+      )}
+      {splitPoints.length === 0 ? null : (
+        <>
+          <div className="space-y-1">
+            <Label htmlFor={`agent-step-split-${index}`}>
+              Split Agent Step {index + 1} before
+            </Label>
+            <NativeSelect
+              id={`agent-step-split-${index}`}
+              onChange={(event) => setSplitAt(event.target.value)}
+              value={splitAt}
+            >
+              <NativeSelectOption value="">Choose an action</NativeSelectOption>
+              {splitPoints.map((action) => (
+                <NativeSelectOption key={action.id} value={action.id}>
+                  {action.description}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+          <Button
+            disabled={splitAt === ""}
+            onClick={() => onSplit(splitAt)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Split Step
+          </Button>
+        </>
+      )}
+    </div>
+  );
+};
+
 const StepEditor = ({
   actions,
   canEdit,
@@ -92,126 +206,57 @@ const StepEditor = ({
   readonly onSplit: (actionId: string) => void;
   readonly reviewKey: DraftReviewKey;
   readonly step: DraftReviewEdit["steps"][number];
-}) => {
-  const [splitAt, setSplitAt] = useAtom(draftSplitAtom(reviewKey)(index));
-  // A Step always covers at least one action, so its first action can never
-  // start the second half of a split.
-  const splitPoints = actions.slice(1);
-  return (
-    <li className="space-y-3 p-3">
-      <div className="space-y-2">
-        <Label htmlFor={`agent-step-name-${index}`}>
-          Agent Step {index + 1} name
-        </Label>
-        <Input
-          disabled={!canEdit}
-          id={`agent-step-name-${index}`}
-          onChange={(event) => onChange({ name: event.target.value })}
-          value={step.name}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor={`agent-step-description-${index}`}>
-          Agent Step {index + 1} description
-        </Label>
-        <Textarea
-          disabled={!canEdit}
-          id={`agent-step-description-${index}`}
-          onChange={(event) => onChange({ description: event.target.value })}
-          rows={2}
-          value={step.description}
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          checked={step.confirmation}
-          disabled={!canEdit}
-          id={`agent-step-confirmation-${index}`}
-          onCheckedChange={(checked) =>
-            onChange({ confirmation: checked === true })
-          }
-        />
-        <Label htmlFor={`agent-step-confirmation-${index}`}>
-          {`Agent Step ${index + 1} Confirmation Step: ask me before each irreversible attempt`}
-        </Label>
-      </div>
-      {actions.length === 0 ? null : (
-        <div className="text-muted-foreground space-y-1 text-xs">
-          {evidence === undefined ? (
-            <p>
-              {actions.length} captured action
-              {actions.length === 1 ? "" : "s"}. Contingency derives this Step's
-              Evidence Slice from the span when you save the correction.
-            </p>
-          ) : (
-            <>
-              <p>
-                Evidence: {evidence.actions.length} captured action
-                {evidence.actions.length === 1 ? "" : "s"},{" "}
-                {evidence.instructions.length} instruction
-                {evidence.instructions.length === 1 ? "" : "s"},{" "}
-                {evidence.screenshotCount} screenshot
-                {evidence.screenshotCount === 1 ? "" : "s"},{" "}
-                {evidence.urlTransitionCount} URL transition
-                {evidence.urlTransitionCount === 1 ? "" : "s"}.
-              </p>
-              <p className="font-mono wrap-anywhere">{evidence.hash}</p>
-            </>
-          )}
-          <ul aria-label={`Agent Step ${index + 1} evidence`}>
-            {actions.map((action) => (
-              <li key={action.id}>
-                {action.actor === "user" ? "You" : "The agent"}:{" "}
-                {action.description} · {action.outcome}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {canEdit ? (
-        <div className="flex flex-wrap items-end gap-2">
-          {isLast ? null : (
-            <Button onClick={onMerge} size="sm" type="button" variant="outline">
-              Merge with next Step
-            </Button>
-          )}
-          {splitPoints.length === 0 ? null : (
-            <>
-              <div className="space-y-1">
-                <Label htmlFor={`agent-step-split-${index}`}>
-                  Split Agent Step {index + 1} before
-                </Label>
-                <NativeSelect
-                  id={`agent-step-split-${index}`}
-                  onChange={(event) => setSplitAt(event.target.value)}
-                  value={splitAt}
-                >
-                  <NativeSelectOption value="">
-                    Choose an action
-                  </NativeSelectOption>
-                  {splitPoints.map((action) => (
-                    <NativeSelectOption key={action.id} value={action.id}>
-                      {action.description}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </div>
-              <Button
-                disabled={splitAt === ""}
-                onClick={() => onSplit(splitAt)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Split Step
-              </Button>
-            </>
-          )}
-        </div>
-      ) : null}
-    </li>
-  );
-};
+}) => (
+  <li className="space-y-3 p-3">
+    <div className="space-y-2">
+      <Label htmlFor={`agent-step-name-${index}`}>
+        Agent Step {index + 1} name
+      </Label>
+      <Input
+        disabled={!canEdit}
+        id={`agent-step-name-${index}`}
+        onChange={(event) => onChange({ name: event.target.value })}
+        value={step.name}
+      />
+    </div>
+    <div className="space-y-2">
+      <Label htmlFor={`agent-step-description-${index}`}>
+        Agent Step {index + 1} description
+      </Label>
+      <Textarea
+        disabled={!canEdit}
+        id={`agent-step-description-${index}`}
+        onChange={(event) => onChange({ description: event.target.value })}
+        rows={2}
+        value={step.description}
+      />
+    </div>
+    <div className="flex items-center gap-2">
+      <Checkbox
+        checked={step.confirmation}
+        disabled={!canEdit}
+        id={`agent-step-confirmation-${index}`}
+        onCheckedChange={(checked) =>
+          onChange({ confirmation: checked === true })
+        }
+      />
+      <Label htmlFor={`agent-step-confirmation-${index}`}>
+        {`Agent Step ${index + 1} Confirmation Step: ask me before each irreversible attempt`}
+      </Label>
+    </div>
+    <StepEvidence actions={actions} evidence={evidence} index={index} />
+    {canEdit ? (
+      <StepSpanControls
+        actions={actions}
+        index={index}
+        isLast={isLast}
+        onMerge={onMerge}
+        onSplit={onSplit}
+        reviewKey={reviewKey}
+      />
+    ) : null}
+  </li>
+);
 
 const VariableSupply = ({
   session,
