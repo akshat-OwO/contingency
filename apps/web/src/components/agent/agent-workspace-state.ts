@@ -102,6 +102,13 @@ export const agentControlPresentation = (
   if (session.controller === "user") {
     return { action: "Return control", holder: "You have control", reason };
   }
+  if (session.boundary !== undefined && session.boundary !== null) {
+    return {
+      action: "Take control",
+      holder: "The agent is waiting for confirmation",
+      reason,
+    };
+  }
   return {
     action: "Take control",
     holder:
@@ -121,6 +128,9 @@ export const agentStatusLabel = (
   }
   if (session.phase === "takeover") {
     return "Waiting for your control";
+  }
+  if (session.boundary !== undefined && session.boundary !== null) {
+    return "Waiting for confirmation";
   }
   if (session.phase === "starting") {
     return "Starting";

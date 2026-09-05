@@ -741,6 +741,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.session.takeover.started" as const,
           }))
         ),
+      "agent.boundary.resolve": ({ data }) =>
+        agentUnavailable((service) => service.resolveBoundary(data)).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.session.control.returned" as const,
+          }))
+        ),
       "agent.session.control.return": ({ data }) =>
         agentUnavailable((service) =>
           service.returnControl(data.sessionId, data.operationId)

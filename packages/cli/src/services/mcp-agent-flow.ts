@@ -398,6 +398,7 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           activity: "run",
           clientName: params.clientName,
           clientVersion: params.clientVersion,
+          domainScope: draft.manifest.domainScope,
           emulation: draft.manifest.emulation,
           operationId: params.operationId,
           verification,

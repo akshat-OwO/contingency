@@ -121,7 +121,8 @@ const makeService = (
       name: string,
       viewport: Viewport,
       recordVideoDirectory?: string,
-      environment?: SessionEnvironment
+      environment?: SessionEnvironment,
+      blockServiceWorkers = false
     ) {
       const browser = yield* getBrowser;
       const decoded = yield* Effect.try({
@@ -151,6 +152,7 @@ const makeService = (
             ...(recordVideoDirectory === undefined
               ? {}
               : { recordVideo: { dir: recordVideoDirectory } }),
+            serviceWorkers: blockServiceWorkers ? "block" : "allow",
             viewport: { height: viewport.height, width: viewport.width },
           })
       );
@@ -207,10 +209,17 @@ const makeService = (
     name: string,
     viewport: Viewport,
     recordVideoDirectory?: string,
-    environment?: SessionEnvironment
+    environment?: SessionEnvironment,
+    blockServiceWorkers = false
   ) =>
     registryLock.withPermit(
-      createUnlocked(name, viewport, recordVideoDirectory, environment)
+      createUnlocked(
+        name,
+        viewport,
+        recordVideoDirectory,
+        environment,
+        blockServiceWorkers
+      )
     );
 
   const setViewport = Effect.fn("CreateBrowser.setViewport")(
@@ -389,7 +398,8 @@ const makeService = (
         const page = yield* requirePage(session, tabId);
         yield* tryBrowser("Could not close browser tab", () => page.close());
       }),
-    create,
+    create: (name, viewport, directory, blockServiceWorkers) =>
+      create(name, viewport, directory, undefined, blockServiceWorkers),
     currentUrl: (sessionId) =>
       Effect.gen(function* readCurrentUrl() {
         const session = yield* requireSession(sessionId);

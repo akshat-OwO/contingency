@@ -84,7 +84,8 @@ export interface CreateBrowserService {
     name: string,
     viewport: Viewport,
     /** Local directory for Playwright's unredacted, sensitive Page videos. */
-    recordVideoDirectory?: string
+    recordVideoDirectory?: string,
+    blockServiceWorkers?: boolean
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly currentUrl: (
     sessionId: SessionId

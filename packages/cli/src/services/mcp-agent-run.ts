@@ -228,6 +228,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           artifactDirectory: directory,
           clientName: params.clientName,
           clientVersion: params.clientVersion,
+          domainScope: found.manifest.domainScope,
           emulation: found.manifest.emulation,
           operationId: params.operationId,
           run,

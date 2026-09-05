@@ -227,6 +227,7 @@ const agentSessionOwnership: AgentSessionService = {
   recordInstruction: rpcNotUnderTest,
   recordVerificationOutcome: rpcNotUnderTest,
   requestTakeover: rpcNotUnderTest,
+  resolveBoundary: rpcNotUnderTest,
   returnControl: rpcNotUnderTest,
   runViewUrl: rpcNotUnderTest,
   screenshot: rpcNotUnderTest,

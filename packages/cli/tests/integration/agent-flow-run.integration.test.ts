@@ -1,7 +1,8 @@
 import path from "node:path";
 
-import { OperationId } from "@contingency/protocol";
+import { ContingencyRpcs, OperationId } from "@contingency/protocol";
 import type {
+  AgentActionResult,
   AgentRunId,
   AgentSessionSnapshot,
   AgentSnapshotNode,
@@ -10,7 +11,9 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/unstable/ai";
+import { RpcTest } from "effect/unstable/rpc";
 
+import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import {
   AgentFlowCatalog,
   makeAgentFlowCatalogLayer,
@@ -36,6 +39,8 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import { RecordingLive } from "../../src/services/recorder.ts";
+import { RunSession } from "../../src/services/run-session.ts";
 import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = { deviceScaleFactor: 1, height: 480, width: 640 } as const;
@@ -95,6 +100,13 @@ const findNode = (
   return found;
 };
 
+const requireBoundary = (result: AgentActionResult) => {
+  if (result.intervention === undefined) {
+    throw new Error("Expected an Execution Boundary");
+  }
+  return result.intervention;
+};
+
 const requireRun = (snapshot: AgentSessionSnapshot) => {
   const state = snapshot.run;
   if (state === null) {
@@ -111,12 +123,14 @@ const requireRun = (snapshot: AgentSessionSnapshot) => {
  */
 const processLayer = (catalogRoot: string) =>
   Layer.mergeAll(
+    RpcHandlersLive,
     AgentSessionToolHandlersLive,
     AgentFlowToolHandlersLive,
     AgentRunToolHandlersLive
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
+        RecordingLive,
         makeAgentSessionLayer({
           baseUrl: "http://127.0.0.1:7777",
           traceDirectory: () => path.join(catalogRoot, "teaching"),
@@ -127,6 +141,16 @@ const processLayer = (catalogRoot: string) =>
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
       )
+    ),
+    Layer.provide(
+      Layer.succeed(RunSession, {
+        answerVariable: () => Effect.die("Not under test"),
+        artifactPath: () => Effect.die("Not under test"),
+        changes: () => Stream.never,
+        get: () => Effect.succeed(null),
+        loadFlow: () => Effect.die("Not under test"),
+        start: () => Effect.die("Not under test"),
+      })
     )
   );
 
@@ -134,7 +158,11 @@ const processLayer = (catalogRoot: string) =>
  * Teach, verify, and approve one three-Step journey, then end the whole MCP
  * process. What survives is the catalog on disk and nothing else.
  */
-const approveJourney = (loginUrl: string, fixtureHost: string) =>
+const approveJourney = (
+  loginUrl: string,
+  fixtureHost: string,
+  confirmation = false
+) =>
   Effect.gen(function* teachAndApprove() {
     const catalog = yield* AgentFlowCatalog;
     const taught = yield* session("agent_session_start", {
@@ -180,7 +208,7 @@ const approveJourney = (loginUrl: string, fixtureHost: string) =>
       schemaVersion: 1 as const,
       steps: [
         {
-          confirmation: false,
+          confirmation,
           description: "Enter the display name.",
           firstActionId: first.id,
           lastActionId: first.id,
@@ -222,6 +250,40 @@ const approveJourney = (loginUrl: string, fixtureHost: string) =>
       operationId: OperationId.make("verify"),
       revisionId,
     });
+    if (confirmation) {
+      const user = yield* RpcTest.makeClient(ContingencyRpcs, {
+        flatten: true,
+      });
+      const verificationPage = yield* session("agent_browser_act", {
+        action: { type: "navigate", url: loginUrl },
+        operationId: OperationId.make("verify-navigation"),
+        sessionId: verifying.id,
+      });
+      const { ref } = findNode(
+        verificationPage.snapshot.nodes,
+        "textbox",
+        "Display name"
+      );
+      const request = {
+        action: { ref, text: "Ada", type: "fill" as const },
+        operationId: OperationId.make("verify-confirmation"),
+        sessionId: verifying.id,
+      };
+      const refused = yield* session("agent_browser_act", request);
+      expect(requireBoundary(refused).reason).toBe("confirmation");
+      yield* user("agent.boundary.resolve", {
+        data: {
+          boundaryId: requireBoundary(refused).id,
+          decision: "allow",
+          operationId: OperationId.make("verify-user-confirm"),
+          sessionId: verifying.id,
+        },
+        type: "agent.boundary.resolve",
+      });
+      expect((yield* session("agent_browser_act", request)).entry.outcome).toBe(
+        "completed"
+      );
+    }
     // A Verification Run is not an Interactive Run of an Approved Agent Flow.
     expect(verifying.run).toBeNull();
     yield* flow("agent_flow_verification_complete", {
@@ -675,5 +737,248 @@ it.live(
       expect(Number((yield* fileSystem.stat(videoFile)).size)).toBeGreaterThan(
         0
       );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "enforces domain, objective, and one-attempt confirmation through MCP and user RPC",
+  () =>
+    Effect.gen(function* exerciseBoundary() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "boundary-",
+      });
+      const fixtures = yield* fixtureServer;
+      const approved = yield* approveJourney(
+        fixtures.url("agent-login.html"),
+        "127.0.0.1",
+        true
+      ).pipe(Effect.scoped, Effect.provide(processLayer(root)));
+      yield* Effect.gen(function* runBoundary() {
+        const user = yield* RpcTest.makeClient(ContingencyRpcs, {
+          flatten: true,
+        });
+        const local = yield* AgentSession;
+        const started = yield* run("agent_flow_run_start", {
+          agentFlowId: approved.agentFlowId,
+          operationId: OperationId.make("boundary-start"),
+        });
+        const sessionId = started.id;
+        let sequence = 0;
+        const decide = (boundaryId: string, decision: "allow" | "refuse") =>
+          user("agent.boundary.resolve", {
+            data: {
+              boundaryId,
+              decision,
+              operationId: OperationId.make(`decision-${(sequence += 1)}`),
+              sessionId,
+            },
+            type: "agent.boundary.resolve",
+          });
+        const act = (
+          operation: string,
+          action: Parameters<typeof local.act>[1],
+          intent?: Parameters<typeof local.act>[3]
+        ) =>
+          session("agent_browser_act", {
+            action,
+            intent,
+            operationId: OperationId.make(operation),
+            sessionId,
+          });
+        const opened = yield* act("open-boundary", {
+          type: "navigate",
+          url: fixtures.url("boundary-approved-redirect"),
+        });
+        expect(opened.url).toBe(fixtures.url("agent-boundary.html"));
+        const external = fixtures
+          .url("outside-boundary")
+          .replace("127.0.0.1", "localhost");
+        const domain = yield* act("outside", {
+          type: "navigate",
+          url: external,
+        });
+        expect(requireBoundary(domain).reason).toBe("domain");
+        expect(domain.entry.dispatched).toBe(false);
+        expect(fixtures.requests).not.toContain("/outside-boundary");
+        yield* decide(requireBoundary(domain).id, "refuse");
+        const target = findNode(
+          opened.snapshot.nodes,
+          "button",
+          "Submit purchase"
+        );
+        const objective = yield* act(
+          "new-objective",
+          { ref: target.ref, type: "hover" },
+          { objective: "Delete the account" }
+        );
+        expect(requireBoundary(objective).reason).toBe("objective");
+        yield* user("agent.session.takeover", {
+          data: {
+            operationId: OperationId.make("boundary-takeover"),
+            reason: "Inspect the paused request",
+            sessionId,
+          },
+          type: "agent.session.takeover",
+        });
+        yield* Effect.flip(decide(requireBoundary(objective).id, "allow"));
+        const paused = yield* local.get(sessionId);
+        expect(paused.controller).toBe("user");
+        expect(paused.boundary?.id).toBe(requireBoundary(objective).id);
+        yield* user("agent.session.control.return", {
+          data: { operationId: OperationId.make("boundary-return"), sessionId },
+          type: "agent.session.control.return",
+        });
+        yield* decide(requireBoundary(objective).id, "allow");
+        const resumed = yield* act(
+          "new-objective",
+          { ref: target.ref, type: "hover" },
+          { objective: "Delete the account" }
+        );
+        expect(resumed.entry.outcome).toBe("completed");
+        const purchase = { ref: target.ref, type: "click" as const };
+        const optedOut = yield* act("cannot-opt-out", purchase, {
+          irreversible: false,
+        });
+        expect(requireBoundary(optedOut).reason).toBe("confirmation");
+        yield* decide(requireBoundary(optedOut).id, "refuse");
+        expect(Object.keys(AgentSessionTools.tools)).not.toContain(
+          "agent_boundary_resolve"
+        );
+        const confirmation = yield* act("purchase", purchase);
+        expect(requireBoundary(confirmation).reason).toBe("confirmation");
+        expect(fixtures.requests).not.toContain("/boundary-submit");
+        yield* decide(requireBoundary(confirmation).id, "allow");
+        const [result, duplicate] = yield* Effect.all(
+          [act("purchase", purchase), act("purchase", purchase)],
+          { concurrency: "unbounded" }
+        );
+        expect(result).toEqual(duplicate);
+        expect(
+          fixtures.requests.filter((url) => url === "/boundary-submit")
+        ).toHaveLength(1);
+        const retry = yield* act("purchase-again", purchase);
+        expect(requireBoundary(retry).reason).toBe("confirmation");
+        yield* decide(requireBoundary(retry).id, "refuse");
+        const uncertain = findNode(
+          result.snapshot.nodes,
+          "button",
+          "Uncertain submission"
+        );
+        const submit = { ref: uncertain.ref, type: "click" as const };
+        const submitBoundary = yield* act("uncertain", submit);
+        yield* decide(requireBoundary(submitBoundary).id, "allow");
+        const timeout = yield* Effect.flip(act("uncertain", submit));
+        expect(
+          fixtures.requests.filter((url) => url === NEVER_ANSWERED)
+        ).toHaveLength(1);
+        expect(yield* Effect.flip(act("uncertain", submit))).toEqual(timeout);
+        const restored = yield* act("restore-after-uncertain", {
+          type: "navigate",
+          url: fixtures.url("agent-boundary.html"),
+        });
+        const retryRef = findNode(
+          restored.snapshot.nodes,
+          "button",
+          "Uncertain submission"
+        ).ref;
+        const uncertainRetry = yield* act("uncertain-retry", {
+          ref: retryRef,
+          type: "click",
+        });
+        expect(requireBoundary(uncertainRetry).reason).toBe("confirmation");
+        expect(
+          fixtures.requests.filter((url) => url === NEVER_ANSWERED)
+        ).toHaveLength(1);
+        yield* decide(requireBoundary(uncertainRetry).id, "refuse");
+        const redirect = yield* act("redirect", {
+          type: "navigate",
+          url: fixtures.url("boundary-redirect-chain"),
+        });
+        expect(requireBoundary(redirect).reason).toBe("domain");
+        expect(fixtures.requests).not.toContain("/outside-boundary");
+        yield* decide(requireBoundary(redirect).id, "refuse");
+        for (const [index, label] of [
+          "Outside link",
+          "Outside popup",
+        ].entries()) {
+          const fresh = yield* act(`link-page-${index}`, {
+            type: "navigate",
+            url: fixtures.url("agent-boundary.html"),
+          });
+          const link = findNode(fresh.snapshot.nodes, "link", label);
+          const click = { ref: link.ref, type: "click" as const };
+          const confirmedLink = yield* act(`link-${index}`, click);
+          yield* decide(requireBoundary(confirmedLink).id, "allow");
+          const refusedLink = yield* act(`link-${index}`, click);
+          const [navigationPaused] = yield* local.changes(sessionId).pipe(
+            Stream.filter(
+              (snapshot) =>
+                snapshot.boundary !== undefined && snapshot.boundary !== null
+            ),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.timeout("2 seconds")
+          );
+          expect(navigationPaused?.boundary?.reason).toBe("domain");
+          expect(fixtures.requests).not.toContain("/outside-boundary");
+          if (
+            navigationPaused?.boundary === undefined ||
+            navigationPaused.boundary === null
+          ) {
+            throw new Error("Missing navigation boundary");
+          }
+          expect(refusedLink.entry.dispatched).toBe(true);
+          yield* decide(navigationPaused.boundary.id, "refuse");
+        }
+        const second = yield* run("agent_flow_run_start", {
+          agentFlowId: approved.agentFlowId,
+          operationId: OperationId.make("second-boundary-run"),
+        });
+        const secondRequest = {
+          action: {
+            type: "navigate" as const,
+            url: fixtures
+              .url("agent-boundary.html")
+              .replace("127.0.0.1", "localhost"),
+          },
+          operationId: OperationId.make("second-domain"),
+          sessionId: second.id,
+        };
+        const secondBoundary = yield* session(
+          "agent_browser_act",
+          secondRequest
+        );
+        yield* user("agent.boundary.resolve", {
+          data: {
+            boundaryId: requireBoundary(secondBoundary).id,
+            decision: "allow",
+            operationId: OperationId.make("allow-second-domain"),
+            sessionId: second.id,
+          },
+          type: "agent.boundary.resolve",
+        });
+        expect((yield* session("agent_browser_act", secondRequest)).url).toBe(
+          secondRequest.action.url
+        );
+        const stillScoped = yield* act("outside", {
+          type: "navigate",
+          url: external,
+        });
+        expect(requireBoundary(stillScoped).reason).toBe("domain");
+        yield* decide(requireBoundary(stillScoped).id, "refuse");
+        yield* run("agent_run_complete", {
+          operationId: OperationId.make("complete-second-boundary-run"),
+          sessionId: second.id,
+        });
+        const summary = yield* run("agent_run_complete", {
+          operationId: OperationId.make("boundary-complete"),
+          sessionId,
+          summary: "Boundary refusals retained",
+        });
+        expect(
+          summary.timeline.filter((entry) => entry.outcome === "refused").length
+        ).toBeGreaterThanOrEqual(8);
+      }).pipe(Effect.scoped, Effect.provide(processLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

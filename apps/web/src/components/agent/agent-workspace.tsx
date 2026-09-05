@@ -77,6 +77,8 @@ import {
   runAgentSessionStream,
 } from "@/lib/rpc";
 
+import { ExecutionBoundary } from "./execution-boundary";
+
 const VARIABLE_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/u;
 
 const errorMessage = (error: unknown): string =>
@@ -613,6 +615,10 @@ const SessionDetails = ({
             )}
           </div>
         </section>
+
+        {session.boundary === null || session.boundary === undefined ? null : (
+          <ExecutionBoundary session={session} />
+        )}
 
         {session.teaching === null ? null : (
           <TeachingDetails teaching={session.teaching} />

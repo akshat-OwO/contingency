@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <title>Execution Boundary fixture</title>
+  <body>
+    <button id="submit" onclick="fetch('/boundary-submit', { method: 'POST' })">
+      Submit purchase
+    </button>
+    <form action="/never-answered.bin" method="post">
+      <button>Uncertain submission</button>
+    </form>
+    <a id="external">Outside link</a
+    ><a id="popup" target="_blank">Outside popup</a>
+    <script>
+      for (const id of ["external", "popup"]) {
+        const link = document.getElementById(id);
+        const url = new URL("/outside-boundary", location.href);
+        url.hostname = "localhost";
+        link.href = url.href;
+      }
+    </script>
+  </body>
+</html>

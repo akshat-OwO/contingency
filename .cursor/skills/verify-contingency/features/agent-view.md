@@ -15,6 +15,7 @@ Agent View watches Teaching and Interactive Runs owned by one local MCP process,
 - `agent-return-control` hands the browser back, and the toolbar goes quiet again.
 - `agent-teaching-details` shows a Teaching session's captured action and instruction counts, the Teaching Feed disclosure, and the saved draft once one exists.
 - `agent-teaching-draft` compiles a Teaching session into a draft Agent Flow through MCP, refuses invalid output with diagnostics, and finds the draft again by catalog search.
+- `agent-execution-boundary` shows refused domains, new objectives, and per-attempt confirmation while preserving priority Takeover.
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Feed or draft.
 
 ## How to get to it (user POV)
@@ -78,6 +79,15 @@ Preconditions:
 - **Prove draft enforcement.** Try `agent_flow_draft_save` over the three fills without `variables`; it exits `2` with one `missing_variable` diagnostic per declaration. Retry with the feed's declarations. Read `manifest.json` and every Evidence Slice under the saved revision and require the disposable literals to be absent while the Step actions retain the three Variable references.
 - **Proof (Agent View).** Capture `agent-view/private-variables.aria.txt` and `private-variables.png` while the private dialog is open. The proof shows the best-effort masking disclosure and the independent `Secret` / `Ask during each Run` controls, but never the Value literal.
 - **Proof (local sensitive artifacts).** Close the session and require non-empty `$CONTINGENCY_VERIFY_DIR/state/catalog/teaching/$sessionId.trace.zip` plus a `.webm` file in the same directory. Read `$sessionId.artifacts.json`: it marks the named Trace and video with `"sensitive":true` and `"retention":"local"`. Do not copy the unredacted artifacts into `artifacts/`.
+
+### Execution Boundary
+
+- **Prepare verification.** Save a draft using the Teaching recipe above and mark its Step as a Confirmation Step. Open its Agent View and click the button `Authorize Verification Run`. Call `agent_flow_verification_start` with that exact `agentFlowId`, `revisionId`, client metadata, and a fresh operation id. Open the returned `viewUrl`.
+- **Refuse a domain.** Call `agent_browser_act` with a navigate action whose URL replaces the fixture's `127.0.0.1` host with `localhost`. The result contains `intervention.reason: domain`; the browser stays on its previous page. Run `control-contingency browser wait --role heading --name "Waiting for confirmation"`. The region `Execution Boundary` shows the URL, action, operation id, `Allow host for this Run`, and `Refuse request`.
+- **Take priority control.** Run `control-contingency browser click --role button --name "Take control"`. The boundary remains visible and its allow button becomes disabled. Click `Return control`, then `Refuse request`. Read `agent_session_get` again: `boundary` is null and the timeline retains the refusal.
+- **Confirm one attempt.** Navigate to the approved fixture host, observe the page, and request a click on a current element reference. In a Confirmation Step this returns `intervention.reason: confirmation`. Click `Confirm this attempt`, then repeat the identical MCP operation id and action. It runs once. Replaying that id returns its original result; a new id requires another confirmation.
+- **Request a new objective.** Supply `intent.objective` with an objective outside the approved Step. It returns `intervention.reason: objective`. Confirming this request permits only that action attempt. A marked irreversible action still requires its own confirmation.
+- **Capture proof.** Save ARIA and screenshots under `agent-boundary/` while paused, during Takeover, and after confirmation. Re-read the session to prove the timeline and controller agree with the View. Approved Agent Flow Runs use the same controls.
 
 ## Gotchas
 

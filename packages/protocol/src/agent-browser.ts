@@ -114,8 +114,8 @@ export const AgentWaitForTextAction = Schema.Struct({
 });
 
 /**
- * Everything the agent may ask the browser to do. Every member is a reversible
- * observation-driven action: Playwright, CDP, and raw evaluation stay private
+ * Everything the agent may ask the browser to do. The Runner checks authority
+ * before dispatch. Playwright, CDP, and raw evaluation stay private
  * to Contingency ([ADR 0026](../../../docs/adr/0026-external-agents-control-agent-flows-through-mcp.md)).
  */
 export const AgentBrowserAction = Schema.Union([
@@ -131,10 +131,27 @@ export const AgentBrowserAction = Schema.Union([
 ]);
 export type AgentBrowserAction = typeof AgentBrowserAction.Type;
 
+export const AgentActionIntent = Schema.Struct({
+  irreversible: Schema.optional(Schema.Boolean),
+  objective: Schema.optional(nonEmptyString),
+});
+export type AgentActionIntent = typeof AgentActionIntent.Type;
+
+export const AgentExecutionBoundary = Schema.Struct({
+  action: AgentBrowserAction,
+  description: nonEmptyString,
+  id: nonEmptyString,
+  operationId: nonEmptyString,
+  reason: Schema.Literals(["domain", "objective", "confirmation"]),
+  requested: nonEmptyString,
+});
+export type AgentExecutionBoundary = typeof AgentExecutionBoundary.Type;
+
 export const AgentActionOutcome = Schema.Literals([
   "completed",
   "failed",
   "interrupted",
+  "refused",
 ]);
 export type AgentActionOutcome = typeof AgentActionOutcome.Type;
 
@@ -156,6 +173,7 @@ export type AgentTimelineEntry = typeof AgentTimelineEntry.Type;
 
 export const AgentActionResult = Schema.Struct({
   entry: AgentTimelineEntry,
+  intervention: Schema.optional(AgentExecutionBoundary),
   snapshot: AgentBrowserSnapshot,
   url: Schema.String,
 });
@@ -168,6 +186,7 @@ export type AgentBrowserObserve = typeof AgentBrowserObserve.Type;
 
 export const AgentBrowserAct = Schema.Struct({
   action: AgentBrowserAction,
+  intent: Schema.optional(AgentActionIntent),
   operationId: OperationId,
   sessionId: AgentSessionId,
 });
