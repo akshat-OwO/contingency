@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { AgentTimelineEntry } from "./agent-browser.ts";
+import { AgentExecutionBoundary, AgentTimelineEntry } from "./agent-browser.ts";
 import { AgentSessionVerification, TeachingProgress } from "./agent-flow.ts";
 import {
   AgentProcessId,
@@ -42,6 +42,7 @@ export type AgentTakeoverRequest = typeof AgentTakeoverRequest.Type;
  */
 export const AgentSessionSnapshot = Schema.Struct({
   activity: AgentSessionActivity,
+  boundary: Schema.optional(Schema.NullOr(AgentExecutionBoundary)),
   clientName: nonEmptyString,
   clientVersion: nonEmptyString,
   controller: AgentSessionController,
@@ -136,6 +137,14 @@ export const AgentSessionTakeover = Schema.Struct({
   sessionId: AgentSessionId,
 });
 export type AgentSessionTakeover = typeof AgentSessionTakeover.Type;
+
+export const AgentBoundaryResolve = Schema.Struct({
+  boundaryId: nonEmptyString,
+  decision: Schema.Literals(["allow", "refuse"]),
+  operationId: OperationId,
+  sessionId: AgentSessionId,
+});
+export type AgentBoundaryResolve = typeof AgentBoundaryResolve.Type;
 
 export const AgentSessionReturnControl = Schema.Struct({
   operationId: OperationId,

@@ -218,9 +218,25 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
           url,
         });
         const { pathname } = new URL(url, "http://fixtures");
+        if (pathname === "/boundary-redirect-chain") {
+          response.writeHead(302, { location: "/boundary-redirect" }).end();
+          return;
+        }
+        if (pathname === "/boundary-approved-redirect") {
+          response.writeHead(302, { location: "/agent-boundary.html" }).end();
+          return;
+        }
         // Answered by nothing at all, so a Run that asks for it waits: the
         // only way to test what an interrupted Run leaves behind is to have
         // one still running when the signal arrives.
+        if (pathname === "/boundary-redirect") {
+          response
+            .writeHead(302, {
+              location: `http://localhost:${String(created.address() && typeof created.address() === "object" ? (created.address() as AddressInfo).port : 0)}/outside-boundary`,
+            })
+            .end();
+          return;
+        }
         if (pathname === NEVER_ANSWERED) {
           return;
         }

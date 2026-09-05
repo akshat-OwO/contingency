@@ -12,6 +12,10 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  AgentActionIntent,
+  AgentBoundaryResolve,
+  AgentExecutionBoundary,
+  DomainScope,
   AgentAssessmentEvidence,
   AgentAssessmentOutcome,
   AgentRunAssessmentCounts,
@@ -76,7 +80,9 @@ import {
   snapshotAfterAction,
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
+import { domainScopeCovers } from "./agent-flow-compiler.ts";
 import type { Demonstration } from "./agent-flow-compiler.ts";
+import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
@@ -99,6 +105,7 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  readonly domainScope?: DomainScope | undefined;
   readonly activity?: AgentSessionActivity | undefined;
   /**
    * The exact draft revision this session verifies, under the authorization
@@ -128,6 +135,9 @@ export interface AgentSessionStartInput {
 }
 
 export interface AgentSessionService {
+  readonly resolveBoundary: (
+    input: AgentBoundaryResolve
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * Perform one agent browser action. The action is dispatched on a child
    * fiber so a user Takeover can interrupt it and wait for its cleanup; a
@@ -136,7 +146,8 @@ export interface AgentSessionService {
   readonly act: (
     sessionId: AgentSessionId,
     action: AgentBrowserAction,
-    operationId?: OperationId | string
+    operationId?: OperationId | string,
+    intent?: AgentActionIntent
   ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   readonly changes: (
     sessionId: AgentSessionId
@@ -440,6 +451,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     activity: input.activity ?? "run",
     clientName: input.clientName?.trim() || "unknown",
     clientVersion: input.clientVersion?.trim() || "unknown",
+    domainScope: input.domainScope ?? null,
     emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
     run: input.run?.runId ?? null,
@@ -731,6 +743,7 @@ const TIMELINE_LIMIT = 200;
 interface InFlightAction {
   readonly action: AgentBrowserAction;
   readonly description: string;
+  readonly operationId: string;
   readonly fiber: Fiber.Fiber<AgentActionResult, AgentSessionError>;
   readonly id: string;
   /** The Page state when the action was dispatched, for the Demonstration. */
@@ -763,7 +776,20 @@ interface RunStepEvidence {
   readonly snapshots: Set<string>;
 }
 
+interface BoundaryControl {
+  readonly hosts: Set<string>;
+  readonly grants: Set<string>;
+  readonly evidence: AgentTimelineEntry[];
+  pending:
+    | {
+        readonly boundary: AgentExecutionBoundary;
+        readonly fingerprint: string;
+      }
+    | undefined;
+}
+
 interface SessionRecord {
+  readonly boundaryControl: BoundaryControl | undefined;
   /** Private Create Browser handle. Never included in protocol snapshots. */
   readonly browserSessionId: SessionId;
   /** The Demonstration recorder; only a Teaching session has one. */
@@ -790,6 +816,86 @@ interface SessionRecord {
   readonly retentionFile: string | undefined;
 }
 
+const domainAllowed = (record: SessionRecord, url: string): boolean => {
+  if (record.boundaryControl === undefined) {
+    return true;
+  }
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      [...record.boundaryControl.hosts].some((host) =>
+        domainScopeCovers(host.toLowerCase(), parsed.hostname.toLowerCase())
+      )
+    );
+  } catch {
+    return false;
+  }
+};
+
+const actionBoundaryReasons = (
+  record: SessionRecord,
+  action: AgentBrowserAction,
+  intent: AgentActionIntent
+): AgentExecutionBoundary["reason"][] => {
+  const step = record.snapshot.run?.steps.find(
+    (candidate) => candidate.index === record.snapshot.run?.activeStepIndex
+  );
+  const { objective } = intent;
+  const knownObjective =
+    objective === undefined ||
+    (step === undefined
+      ? record.snapshot.verification?.steps.some(
+          (candidate) =>
+            candidate.description === objective || candidate.name === objective
+        )
+      : objective === step.description || objective === step.name);
+  const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
+    action.type
+  );
+  // An explicit approved verification objective scopes the marker to that Step.
+  // Without one, retain the conservative guard so omission cannot bypass it.
+  const verificationConfirmation =
+    objective === undefined
+      ? record.snapshot.verification?.steps.some(
+          (candidate) => candidate.confirmation
+        )
+      : record.snapshot.verification?.steps.some(
+          (candidate) =>
+            candidate.confirmation &&
+            (candidate.description === objective ||
+              candidate.name === objective)
+        );
+  const needsConfirmation =
+    intent.irreversible === true ||
+    (mutating &&
+      (step?.confirmation === true || (verificationConfirmation ?? false)));
+  const reasons: AgentExecutionBoundary["reason"][] = [];
+  if (action.type === "navigate" && !domainAllowed(record, action.url)) {
+    reasons.push("domain");
+  }
+  if (!knownObjective) {
+    reasons.push("objective");
+  }
+  if (needsConfirmation) {
+    reasons.push("confirmation");
+  }
+
+  return reasons;
+};
+
+const boundaryObjective = (
+  record: SessionRecord,
+  intent: AgentActionIntent
+): string =>
+  intent.objective ??
+  record.snapshot.run?.steps.find(
+    (step) => step.index === record.snapshot.run?.activeStepIndex
+  )?.description ??
+  record.snapshot.verification?.steps.find((step) => step.confirmation)
+    ?.description ??
+  "Confirmation Step action";
+
 interface TeachingArtifacts {
   readonly retentionFile: string | undefined;
   readonly traceFile: string | undefined;
@@ -798,6 +904,7 @@ interface TeachingArtifacts {
 
 type AgentOperationKind =
   | "act"
+  | "boundary"
   | "assess"
   | "ceiling"
   | "close"
@@ -1229,6 +1336,7 @@ const makeAgentSession = (
             const at = now().toISOString();
             const closed: AgentSessionSnapshot = {
               ...record.snapshot,
+              boundary: null,
               controller: "agent",
               phase: "closed",
               // A Run whose session is closed before it was completed did not
@@ -1450,6 +1558,241 @@ const makeAgentSession = (
         return { retentionFile, traceFile, videoFile };
       });
 
+    const notVerifying = (sessionId: AgentSessionId) =>
+      error(
+        "agent_session_invalid",
+        `Agent Session ${sessionId} is not running an Agent Flow revision, so it declares no Variables.`
+      );
+
+    /**
+     * The Variable a Verification Run declares under this name. A Run may only
+     * be asked for the Variables its draft revision declares, so a name the
+     * draft never mentioned is refused rather than invented.
+     */
+    const requireDeclaredVariable = (
+      record: SessionRecord,
+      name: string
+    ):
+      | { readonly _tag: "error"; readonly error: AgentSessionError }
+      | { readonly _tag: "ok"; readonly variable: Variable } => {
+      // A Verification Run and an Interactive Run declare their Variables the
+      // same way, because they run the same revision under the same rule: the
+      // literal is supplied again and never travels.
+      const declaring = record.snapshot.verification ?? record.snapshot.run;
+      if (declaring === null) {
+        return { _tag: "error", error: notVerifying(record.snapshot.id) };
+      }
+      const declared = declaring.variables.find(
+        (variable) => variable.name === name
+      );
+      return declared === undefined
+        ? {
+            _tag: "error",
+            error: error(
+              "agent_session_invalid",
+              `Agent Flow revision ${declaring.revisionId} does not declare Variable ${name}.`
+            ),
+          }
+        : {
+            _tag: "ok",
+            variable: {
+              name: declared.name,
+              runtime: declared.runtime,
+              secret: declared.secret,
+            },
+          };
+    };
+
+    const requireLiveRecord = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<SessionRecord, AgentSessionError> =>
+      read(sessionId).pipe(
+        Effect.flatMap((record) =>
+          isLive(record.snapshot.phase)
+            ? Effect.succeed(record)
+            : Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Agent Session ${sessionId} is no longer running.`
+                )
+              )
+        )
+      );
+
+    /** Append one attempt to the timeline and publish the new state. */
+    const recordEntry = (
+      sessionId: AgentSessionId,
+      entry: AgentTimelineEntry,
+      patch: Partial<AgentSessionSnapshot> = {}
+    ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
+      Effect.gen(function* appendTimelineEntry() {
+        const record = Ref.getUnsafe(sessions).get(sessionId);
+        // The entry joins the timeline as it stands now: an action that ran
+        // while control changed hands records what it did without undoing the
+        // change it raced.
+        const safePatch =
+          patch.currentUrl === undefined
+            ? patch
+            : {
+                ...patch,
+                currentUrl: sanitizeTeachingUrl(patch.currentUrl),
+              };
+        if (record !== undefined && entry.dispatched) {
+          noteRunEvidence(record, "attempt", entry.id);
+        }
+        record?.boundaryControl?.evidence.push(entry);
+        if (
+          record?.boundaryControl !== undefined &&
+          record.artifactDirectory !== undefined &&
+          fileSystem !== undefined
+        ) {
+          yield* fileSystem
+            .writeFileString(
+              path.join(
+                record.artifactDirectory,
+                `${sessionId}.timeline.jsonl`
+              ),
+              `${JSON.stringify(entry)}\n`,
+              { flag: "a", mode: 0o600 }
+            )
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_invalid",
+                  `Could not persist Run action evidence: ${cause.message}`
+                )
+              )
+            );
+        }
+        const next = yield* mutate(sessionId, (snapshot) => ({
+          ...snapshot,
+          ...safePatch,
+          // An attempt inside an Agent Step is what the assessment's `attempts`
+          // count reports, so it is counted where the attempt is recorded.
+          run:
+            snapshot.run === null ||
+            snapshot.run.activeStepIndex === null ||
+            !entry.dispatched
+              ? snapshot.run
+              : {
+                  ...snapshot.run,
+                  steps: snapshot.run.steps.map((step) =>
+                    step.index === snapshot.run?.activeStepIndex
+                      ? { ...step, attempts: step.attempts + 1 }
+                      : step
+                  ),
+                },
+          teaching: teachingOf(record, snapshot),
+          timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
+          updatedAt: now().toISOString(),
+        }));
+        if (next === undefined) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_not_found",
+              `Agent Session ${sessionId} was not found.`
+            )
+          );
+        }
+        return next;
+      });
+
+    const pauseBoundary = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      boundary: AgentExecutionBoundary,
+      fingerprint: string
+    ) =>
+      Effect.gen(function* pauseAtExecutionBoundary() {
+        const control = record.boundaryControl;
+        if (control === undefined || control.pending !== undefined) {
+          return;
+        }
+        control.pending = { boundary, fingerprint };
+        yield* recordEntry(
+          sessionId,
+          {
+            actor: "agent",
+            at: now().toISOString(),
+            description: boundary.description,
+            detail: `${boundary.reason}: ${boundary.requested}`,
+            dispatched: false,
+            id: boundary.id,
+            outcome: "refused",
+          },
+          { boundary }
+        );
+      });
+
+    const pauseNavigation = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      url: string
+    ) =>
+      pauseBoundary(
+        sessionId,
+        record,
+        {
+          action: { type: "navigate", url: sanitizeTeachingUrl(url) },
+          description: "Navigation outside the approved Domain Scope",
+          id: randomUUID(),
+          operationId:
+            record.control.inFlight?.operationId ?? "browser-navigation",
+          reason: "domain",
+          requested: sanitizeTeachingUrl(url),
+        },
+        "navigation"
+      );
+
+    const observe = <A>(
+      sessionId: AgentSessionId,
+      read_: (
+        record: SessionRecord,
+        page: Page
+      ) => Effect.Effect<A, AgentSessionError>
+    ): Effect.Effect<A, AgentSessionError> =>
+      Effect.gen(function* observeAgentBrowser() {
+        const record = yield* requireLiveRecord(sessionId);
+        const page = yield* browser.activePage(record.browserSessionId);
+        return yield* read_(record, page);
+      });
+
+    const snapshotAfter = (
+      record: SessionRecord,
+      page: Page
+    ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
+      snapshotAfterAction(page, record.registry).pipe(
+        Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
+        Effect.tap((snapshot) =>
+          Effect.sync(() =>
+            noteRunEvidence(record, "snapshot", snapshot.snapshotId)
+          )
+        )
+      );
+
+    const boundaryResult = (
+      record: SessionRecord,
+      page: Page,
+      boundary: AgentExecutionBoundary
+    ) =>
+      Effect.gen(function* readBoundaryResult() {
+        const snapshot = yield* snapshotAfter(record, page);
+        return {
+          entry: {
+            actor: "agent" as const,
+            at: now().toISOString(),
+            description: boundary.description,
+            detail: `${boundary.reason}: ${boundary.requested}`,
+            dispatched: false,
+            id: boundary.id,
+            outcome: "refused" as const,
+          },
+          intervention: boundary,
+          snapshot,
+          url: snapshot.url,
+        };
+      });
+
     const startUnlocked = Effect.fn("AgentSession.start")(
       function* startSession(input: AgentSessionStartInput) {
         const requestInput = normalizedStartInput(input);
@@ -1541,7 +1884,8 @@ const makeAgentSession = (
                     browser.create(
                       browserName,
                       emulation.viewport,
-                      artifactDirectory
+                      artifactDirectory,
+                      input.domainScope !== undefined
                     ),
                     (browserSessionId) =>
                       browser.close(browserSessionId).pipe(Effect.ignore)
@@ -1559,6 +1903,7 @@ const makeAgentSession = (
                 const at = now().toISOString();
                 const base: AgentSessionSnapshot = {
                   activity,
+                  boundary: null,
                   clientName: input.clientName?.trim() || "unknown",
                   clientVersion: input.clientVersion?.trim() || "unknown",
                   controller: "agent",
@@ -1583,6 +1928,15 @@ const makeAgentSession = (
                 yield* Scope.addFinalizer(sessionScope, registry.clear());
                 const record: SessionRecord = {
                   artifactDirectory,
+                  boundaryControl:
+                    input.domainScope === undefined
+                      ? undefined
+                      : {
+                          evidence: [],
+                          grants: new Set(),
+                          hosts: new Set(input.domainScope.hosts),
+                          pending: undefined,
+                        },
                   browserSessionId: acquired,
                   capture:
                     activity === "teaching"
@@ -1611,6 +1965,18 @@ const makeAgentSession = (
                   // session always opens one — `about:blank` when the caller
                   // named no URL. Otherwise an identity asked for here would
                   // never apply to the pages the agent later visits.
+                  if (record.boundaryControl !== undefined) {
+                    const target = yield* browser.recorderTarget(acquired);
+                    yield* installAgentNavigationBoundary(
+                      target.context,
+                      target.page,
+                      {
+                        allows: (url) => domainAllowed(record, url),
+                        refuse: (url) =>
+                          pauseNavigation(sessionId, record, url),
+                      }
+                    );
+                  }
                   yield* browser.open(
                     acquired,
                     input.url ?? "about:blank",
@@ -1681,147 +2047,6 @@ const makeAgentSession = (
         );
       }
     );
-
-    const notVerifying = (sessionId: AgentSessionId) =>
-      error(
-        "agent_session_invalid",
-        `Agent Session ${sessionId} is not running an Agent Flow revision, so it declares no Variables.`
-      );
-
-    /**
-     * The Variable a Verification Run declares under this name. A Run may only
-     * be asked for the Variables its draft revision declares, so a name the
-     * draft never mentioned is refused rather than invented.
-     */
-    const requireDeclaredVariable = (
-      record: SessionRecord,
-      name: string
-    ):
-      | { readonly _tag: "error"; readonly error: AgentSessionError }
-      | { readonly _tag: "ok"; readonly variable: Variable } => {
-      // A Verification Run and an Interactive Run declare their Variables the
-      // same way, because they run the same revision under the same rule: the
-      // literal is supplied again and never travels.
-      const declaring = record.snapshot.verification ?? record.snapshot.run;
-      if (declaring === null) {
-        return { _tag: "error", error: notVerifying(record.snapshot.id) };
-      }
-      const declared = declaring.variables.find(
-        (variable) => variable.name === name
-      );
-      return declared === undefined
-        ? {
-            _tag: "error",
-            error: error(
-              "agent_session_invalid",
-              `Agent Flow revision ${declaring.revisionId} does not declare Variable ${name}.`
-            ),
-          }
-        : {
-            _tag: "ok",
-            variable: {
-              name: declared.name,
-              runtime: declared.runtime,
-              secret: declared.secret,
-            },
-          };
-    };
-
-    const requireLiveRecord = (
-      sessionId: AgentSessionId
-    ): Effect.Effect<SessionRecord, AgentSessionError> =>
-      read(sessionId).pipe(
-        Effect.flatMap((record) =>
-          isLive(record.snapshot.phase)
-            ? Effect.succeed(record)
-            : Effect.fail(
-                error(
-                  "agent_session_conflict",
-                  `Agent Session ${sessionId} is no longer running.`
-                )
-              )
-        )
-      );
-
-    /** Append one attempt to the timeline and publish the new state. */
-    const recordEntry = (
-      sessionId: AgentSessionId,
-      entry: AgentTimelineEntry,
-      patch: Partial<AgentSessionSnapshot> = {}
-    ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
-      Effect.gen(function* appendTimelineEntry() {
-        const record = Ref.getUnsafe(sessions).get(sessionId);
-        // The entry joins the timeline as it stands now: an action that ran
-        // while control changed hands records what it did without undoing the
-        // change it raced.
-        const safePatch =
-          patch.currentUrl === undefined
-            ? patch
-            : {
-                ...patch,
-                currentUrl: sanitizeTeachingUrl(patch.currentUrl),
-              };
-        if (record !== undefined && entry.dispatched) {
-          noteRunEvidence(record, "attempt", entry.id);
-        }
-        const next = yield* mutate(sessionId, (snapshot) => ({
-          ...snapshot,
-          ...safePatch,
-          // An attempt inside an Agent Step is what the assessment's `attempts`
-          // count reports, so it is counted where the attempt is recorded.
-          run:
-            snapshot.run === null ||
-            snapshot.run.activeStepIndex === null ||
-            !entry.dispatched
-              ? snapshot.run
-              : {
-                  ...snapshot.run,
-                  steps: snapshot.run.steps.map((step) =>
-                    step.index === snapshot.run?.activeStepIndex
-                      ? { ...step, attempts: step.attempts + 1 }
-                      : step
-                  ),
-                },
-          teaching: teachingOf(record, snapshot),
-          timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
-          updatedAt: now().toISOString(),
-        }));
-        if (next === undefined) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_not_found",
-              `Agent Session ${sessionId} was not found.`
-            )
-          );
-        }
-        return next;
-      });
-
-    const observe = <A>(
-      sessionId: AgentSessionId,
-      read_: (
-        record: SessionRecord,
-        page: Page
-      ) => Effect.Effect<A, AgentSessionError>
-    ): Effect.Effect<A, AgentSessionError> =>
-      Effect.gen(function* observeAgentBrowser() {
-        const record = yield* requireLiveRecord(sessionId);
-        const page = yield* browser.activePage(record.browserSessionId);
-        return yield* read_(record, page);
-      });
-
-    const snapshotAfter = (
-      record: SessionRecord,
-      page: Page
-    ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
-      snapshotAfterAction(page, record.registry).pipe(
-        Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
-        Effect.tap((snapshot) =>
-          Effect.sync(() =>
-            noteRunEvidence(record, "snapshot", snapshot.snapshotId)
-          )
-        )
-      );
 
     const observeFocusedTextControl = (record: SessionRecord, page: Page) =>
       Effect.gen(function* observeFocusedControl() {
@@ -2049,6 +2274,55 @@ const makeAgentSession = (
         return true;
       });
 
+    const checkActionBoundary = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      page: Page,
+      action: AgentBrowserAction,
+      capturedAction: AgentBrowserAction,
+      description: string,
+      attemptId: string,
+      intent: AgentActionIntent
+    ) =>
+      Effect.gen(function* checkBoundary() {
+        const { boundaryControl } = record;
+        if (boundaryControl === undefined) {
+          return;
+        }
+        const { pending } = boundaryControl;
+        if (pending !== undefined) {
+          return yield* boundaryResult(record, page, pending.boundary);
+        }
+        const fingerprint = JSON.stringify({
+          action,
+          intent,
+          operationId: attemptId,
+          stepIndex: record.snapshot.run?.activeStepIndex,
+        });
+        const reasons = actionBoundaryReasons(record, action, intent);
+        for (const reason of reasons) {
+          if (boundaryControl.grants.has(reason + fingerprint)) {
+            continue;
+          }
+          const boundary: AgentExecutionBoundary = {
+            action: capturedAction,
+            description,
+            id: randomUUID(),
+            operationId: attemptId,
+            reason,
+            requested:
+              reason === "domain" && action.type === "navigate"
+                ? sanitizeTeachingUrl(action.url)
+                : boundaryObjective(record, intent),
+          };
+          yield* pauseBoundary(sessionId, record, boundary, fingerprint);
+          return yield* boundaryResult(record, page, boundary);
+        }
+        for (const reason of reasons) {
+          boundaryControl.grants.delete(reason + fingerprint);
+        }
+      });
+
     const dispatch = Effect.fn("AgentSession.dispatch")(
       function* dispatchAgentBrowserAction(
         sessionId: AgentSessionId,
@@ -2059,6 +2333,10 @@ const makeAgentSession = (
         description: string,
         id: string,
         sensitive: boolean,
+        boundaryAttempt: {
+          readonly operationId: string;
+          readonly intent: AgentActionIntent;
+        },
         privateRegistration?: {
           readonly selector: string;
           readonly value: string;
@@ -2081,6 +2359,19 @@ const makeAgentSession = (
               `Run ${current.snapshot.run?.runId} has ended and accepts no further browser actions.`
             )
           );
+        }
+        const boundary = yield* checkActionBoundary(
+          sessionId,
+          current,
+          page,
+          action,
+          capturedAction,
+          description,
+          boundaryAttempt.operationId,
+          boundaryAttempt.intent
+        );
+        if (boundary !== undefined) {
+          return boundary;
         }
         const urlBefore = page.url();
         const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
@@ -2128,6 +2419,7 @@ const makeAgentSession = (
           description,
           fiber,
           id,
+          operationId: boundaryAttempt.operationId,
           snapshotBefore,
           urlBefore,
         };
@@ -2150,7 +2442,10 @@ const makeAgentSession = (
           yield* recordEntry(sessionId, result.entry, {
             currentUrl: result.url,
           });
-          return result;
+          const pending = record.boundaryControl?.pending;
+          return pending === undefined
+            ? result
+            : { ...result, intervention: pending.boundary };
         }
         if (Cause.hasInterrupts(exit.cause)) {
           // Takeover already recorded the dispatched attempt. The browser may
@@ -2200,11 +2495,19 @@ const makeAgentSession = (
           },
           { currentUrl: urlAfter }
         );
+        const pending = record.boundaryControl?.pending;
+        if (pending !== undefined) {
+          const result = yield* boundaryResult(record, page, pending.boundary);
+          return {
+            ...result,
+            entry: { ...result.entry, dispatched: true, id },
+          };
+        }
         return yield* Effect.failCause(exit.cause);
       }
     );
 
-    const actUnlocked = Effect.fn("AgentSession.act")(
+    const executeAction = Effect.fn("AgentSession.act")(
       function* performAgentBrowserAction(
         sessionId: AgentSessionId,
         action: AgentBrowserAction,
@@ -2214,12 +2517,13 @@ const makeAgentSession = (
           readonly requestInput: string;
           readonly value: string;
           readonly variable: Variable;
-        }
+        },
+        intent: AgentActionIntent = {}
       ) {
         const operationKind =
           privateCapture === undefined ? "act" : "private-input";
         const requestInput =
-          privateCapture?.requestInput ?? JSON.stringify(action);
+          privateCapture?.requestInput ?? JSON.stringify({ action, intent });
         const replayed = replay(
           operationId,
           operationKind,
@@ -2315,6 +2619,7 @@ const makeAgentSession = (
                     description,
                     id,
                     sensitive,
+                    { intent, operationId: String(operationId ?? id) },
                     privateRegistration
                   );
                 })
@@ -2327,6 +2632,12 @@ const makeAgentSession = (
           })
         );
         if (Result.isSuccess(outcome)) {
+          if (
+            "intervention" in outcome.success &&
+            !outcome.success.entry.dispatched
+          ) {
+            return outcome.success;
+          }
           yield* remember(operationId, operationKind, sessionId, requestInput, {
             kind: "act",
             result: outcome.success,
@@ -2340,6 +2651,38 @@ const makeAgentSession = (
         return yield* Effect.fail(outcome.failure);
       }
     );
+
+    const operationLocks = new Map<
+      string,
+      { readonly gate: Semaphore.Semaphore; readonly input: string }
+    >();
+    const actUnlocked = (...args: Parameters<typeof executeAction>) => {
+      const [sessionId, action, operationId, privateCapture, intent] = args;
+      if (operationId === undefined) {
+        return executeAction(...args);
+      }
+      const key = String(operationId);
+      const input = JSON.stringify({
+        request:
+          privateCapture?.requestInput ??
+          JSON.stringify({ action, intent: intent ?? {} }),
+        sessionId,
+      });
+      let entry = operationLocks.get(key);
+      if (entry !== undefined && entry.input !== input) {
+        return Effect.fail(
+          error(
+            "agent_session_conflict",
+            "This operation id is already bound to a different action attempt."
+          )
+        );
+      }
+      if (entry === undefined) {
+        entry = { gate: Semaphore.makeUnsafe(1), input };
+        operationLocks.set(key, entry);
+      }
+      return entry.gate.withPermit(executeAction(...args));
+    };
 
     const enterUserVariableUnlocked = Effect.fn(
       "AgentSession.enterUserVariable"
@@ -2524,6 +2867,7 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
+        record.boundaryControl?.grants.clear();
         const inFlight = by === "user" ? record.control.inFlight : undefined;
         let interruptedAction: AgentTimelineEntry | null = null;
         if (inFlight !== undefined) {
@@ -2903,6 +3247,14 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
+        if (record.boundaryControl?.pending !== undefined) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              "Resolve the Execution Boundary before assessing an Agent Step."
+            )
+          );
+        }
         const { run } = record.snapshot;
         if (run === null) {
           return yield* Effect.fail(notRunning(sessionId));
@@ -3133,6 +3485,7 @@ const makeAgentSession = (
               const steps = markRemainingUnexecuted(snapshot.run.steps);
               return {
                 ...snapshot,
+                boundary: null,
                 controller: "agent",
                 phase: "completed",
                 run: withDerivedRunTotals({
@@ -3180,7 +3533,14 @@ const makeAgentSession = (
               startedAt: finished.startedAt,
               steps: finished.steps,
               summary: summaryText ?? null,
-              timeline: completed.timeline,
+              timeline: [
+                ...new Map(
+                  [
+                    ...(record.boundaryControl?.evidence ?? []),
+                    ...completed.timeline,
+                  ].map((entry) => [entry.id, entry])
+                ).values(),
+              ].toSorted((left, right) => left.at.localeCompare(right.at)),
               title: finished.title,
               tracePath: yield* finalArtifactPath(record, record.traceFile),
               videoPath: yield* finalArtifactPath(record, record.videoFile),
@@ -3220,8 +3580,8 @@ const makeAgentSession = (
             streamId
           );
         }),
-      act: (sessionId, action, operationId) =>
-        actUnlocked(sessionId, action, operationId),
+      act: (sessionId, action, operationId, intent) =>
+        actUnlocked(sessionId, action, operationId, undefined, intent),
       assessStep: (sessionId, input, operationId) =>
         lock.withPermit(assessStepUnlocked(sessionId, input, operationId)),
       browserStream: (sessionId) =>
@@ -3403,6 +3763,87 @@ const makeAgentSession = (
       requestTakeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
+        ),
+      resolveBoundary: (input) =>
+        lock.withPermit(
+          Effect.gen(function* resolveExecutionBoundary() {
+            const requestInput = JSON.stringify(input);
+            const replayed = replaySession(
+              input.operationId,
+              "boundary",
+              input.sessionId,
+              requestInput
+            );
+            if (replayed?._tag === "conflict") {
+              return yield* Effect.fail(replayed.error);
+            }
+            if (replayed?._tag === "replay") {
+              return replayed.snapshot;
+            }
+            const record = yield* requireLiveRecord(input.sessionId);
+            const control = record.boundaryControl;
+            const pending = control?.pending;
+            if (
+              control === undefined ||
+              pending === undefined ||
+              pending.boundary.id !== input.boundaryId
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  "This boundary request is no longer pending."
+                )
+              );
+            }
+            if (input.decision === "allow" && agentIsPaused(record.snapshot)) {
+              return yield* Effect.fail(
+                takenOver("Return control before confirming an agent attempt.")
+              );
+            }
+            if (input.decision === "allow") {
+              if (pending.boundary.reason === "domain") {
+                const url = new URL(pending.boundary.requested);
+                if (url.protocol !== "http:" && url.protocol !== "https:") {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "Only HTTP and HTTPS domains can be approved."
+                    )
+                  );
+                }
+                control.hosts.add(url.hostname.toLowerCase());
+              } else {
+                control.grants.add(
+                  pending.boundary.reason + pending.fingerprint
+                );
+              }
+            }
+            control.pending = undefined;
+            const snapshot = yield* recordEntry(
+              input.sessionId,
+              {
+                actor: "user",
+                at: now().toISOString(),
+                description:
+                  input.decision === "allow"
+                    ? "Confirmed boundary request"
+                    : "Refused boundary request",
+                detail: `${pending.boundary.description}: ${pending.boundary.requested}`,
+                dispatched: false,
+                id: randomUUID(),
+                outcome: input.decision === "allow" ? "completed" : "refused",
+              },
+              { boundary: null }
+            );
+            yield* rememberSession(
+              input.operationId,
+              "boundary",
+              input.sessionId,
+              requestInput,
+              snapshot
+            );
+            return snapshot;
+          })
         ),
       returnControl: (sessionId, operationId) =>
         lock.withPermit(returnControlUnlocked(sessionId, operationId)),

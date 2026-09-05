@@ -67,6 +67,7 @@ const AgentBrowserObserveParameters = Schema.Struct({
 
 const AgentBrowserActParameters = Schema.Struct({
   action: AgentBrowserAct.fields.action,
+  intent: AgentBrowserAct.fields.intent,
   operationId: AgentBrowserAct.fields.operationId,
   sessionId: AgentBrowserAct.fields.sessionId,
 });
@@ -146,7 +147,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    "Perform one reversible browser action on an element from the latest Browser Snapshot. Requires an operation id; repeating that id returns the original result.",
+    "Perform one browser action. Name a new objective in intent.objective and declare known irreversible effects in intent.irreversible. Contingency enforces domain scope and Confirmation Steps. An intervention means the action was refused; direct user confirmation in Agent View is required before retrying that exact operation id. A new operation id needs fresh confirmation.",
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,
@@ -208,7 +209,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
     Effect.gen(function* actInAgentSession() {
       const service = yield* AgentSession;
       return yield* service
-        .act(params.sessionId, params.action, params.operationId)
+        .act(params.sessionId, params.action, params.operationId, params.intent)
         .pipe(Effect.mapError(failure));
     }),
   agent_browser_screenshot: (params) =>
