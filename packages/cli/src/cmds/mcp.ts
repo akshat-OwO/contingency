@@ -31,8 +31,6 @@ import { makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
 
-const DEFAULT_MCP_PORT = 7783;
-
 const mcpTools = Layer.mergeAll(
   McpAgentSessionLayer,
   McpAgentFlowLayer,
@@ -64,7 +62,7 @@ export const mcpCommand = Command.make(
   Effect.fnUntraced(function* runMcp() {
     const config = yield* Config.all({
       host: Config.string("HOST").pipe(Config.withDefault("127.0.0.1")),
-      port: Config.number("PORT").pipe(Config.withDefault(DEFAULT_MCP_PORT)),
+      port: Config.number("PORT").pipe(Config.withDefault(7777)),
     }).pipe(Config.nested("CONTINGENCY_MCP"));
     // This command is intentionally local-only. A non-loopback HOST is not
     // accepted even if an operator accidentally configures one in the shell.
