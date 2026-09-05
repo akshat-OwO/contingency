@@ -853,14 +853,23 @@ const actionBoundaryReasons = (
   const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
     action.type
   );
+  // An explicit approved verification objective scopes the marker to that Step.
+  // Without one, retain the conservative guard so omission cannot bypass it.
+  const verificationConfirmation =
+    objective === undefined
+      ? record.snapshot.verification?.steps.some(
+          (candidate) => candidate.confirmation
+        )
+      : record.snapshot.verification?.steps.some(
+          (candidate) =>
+            candidate.confirmation &&
+            (candidate.description === objective ||
+              candidate.name === objective)
+        );
   const needsConfirmation =
     intent.irreversible === true ||
     (mutating &&
-      (step?.confirmation === true ||
-        (record.snapshot.verification?.steps.some(
-          (candidate) => candidate.confirmation
-        ) ??
-          false)));
+      (step?.confirmation === true || (verificationConfirmation ?? false)));
   const reasons: AgentExecutionBoundary["reason"][] = [];
   if (action.type === "navigate" && !domainAllowed(record, action.url)) {
     reasons.push("domain");
@@ -1327,6 +1336,7 @@ const makeAgentSession = (
             const at = now().toISOString();
             const closed: AgentSessionSnapshot = {
               ...record.snapshot,
+              boundary: null,
               controller: "agent",
               phase: "closed",
               // A Run whose session is closed before it was completed did not
@@ -3475,6 +3485,7 @@ const makeAgentSession = (
               const steps = markRemainingUnexecuted(snapshot.run.steps);
               return {
                 ...snapshot,
+                boundary: null,
                 controller: "agent",
                 phase: "completed",
                 run: withDerivedRunTotals({

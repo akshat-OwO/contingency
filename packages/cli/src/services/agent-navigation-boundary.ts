@@ -33,7 +33,7 @@ const attempt = <A>(run: () => Promise<A>) =>
   });
 
 /** One coordinator per Runner browser keeps interceptors bound to their session contexts. */
-class NavigationCoordinator {
+export class NavigationCoordinator {
   readonly policies = new Map<string, NavigationPolicy>();
   readonly targets = new Map<string, Deferred.Deferred<Target, Error>>();
   readonly sessions = new Map<string, Target>();
@@ -52,34 +52,7 @@ class NavigationCoordinator {
     this.root = root;
     this.scope = scope;
     root.on("Target.receivedMessageFromTarget", ({ message, sessionId }) => {
-      const decoded = Schema.decodeUnknownSync(Message)(JSON.parse(message));
-      if (decoded.id !== undefined) {
-        const pending = this.commands.get(decoded.id);
-        if (pending !== undefined) {
-          Effect.runSync(
-            decoded.error === undefined
-              ? Deferred.succeed(pending.done, null)
-              : Deferred.fail(
-                  pending.done,
-                  new Error(JSON.stringify(decoded.error))
-                )
-          );
-        }
-        return;
-      }
-      if (decoded.method === "Fetch.requestPaused") {
-        const paused = Schema.decodeUnknownSync(PausedRequest)(decoded.params);
-        this.run(
-          this.handleRequest(sessionId, paused).pipe(
-            Effect.catchCause(() =>
-              this.send(sessionId, "Fetch.failRequest", {
-                errorReason: "BlockedByClient",
-                requestId: paused.requestId,
-              }).pipe(Effect.ignore)
-            )
-          )
-        );
-      }
+      this.run(this.handleMessage(sessionId, message));
     });
     root.on("Target.detachedFromTarget", ({ sessionId }) => {
       const target = this.sessions.get(sessionId);
@@ -95,6 +68,42 @@ class NavigationCoordinator {
         }
       }
     });
+  }
+
+  handleMessage(sessionId: string, message: string): Effect.Effect<void> {
+    return Effect.gen({ self: this }, function* receiveMessage() {
+      const raw: unknown = yield* Effect.try(() => JSON.parse(message));
+      const decoded = yield* Schema.decodeUnknownEffect(Message)(raw);
+      if (decoded.id !== undefined) {
+        const pending = this.commands.get(decoded.id);
+        if (pending !== undefined && pending.sessionId === sessionId) {
+          yield* decoded.error === undefined
+            ? Deferred.succeed(pending.done, null)
+            : Deferred.fail(
+                pending.done,
+                new Error(JSON.stringify(decoded.error))
+              );
+        }
+        return;
+      }
+      if (decoded.method !== "Fetch.requestPaused") {
+        return;
+      }
+      // Recover the request id before decoding the payload so malformed requests
+      // can still be released with a refusal instead of hanging in Fetch.
+      const { requestId } = yield* Schema.decodeUnknownEffect(
+        Schema.Struct({ requestId: Schema.String })
+      )(decoded.params);
+      yield* Schema.decodeUnknownEffect(PausedRequest)(decoded.params).pipe(
+        Effect.flatMap((paused) => this.handleRequest(sessionId, paused)),
+        Effect.catchCause(() =>
+          this.send(sessionId, "Fetch.failRequest", {
+            errorReason: "BlockedByClient",
+            requestId,
+          }).pipe(Effect.ignore)
+        )
+      );
+    }).pipe(Effect.catchCause(() => Effect.void));
   }
 
   run(effect: Effect.Effect<unknown>): void {

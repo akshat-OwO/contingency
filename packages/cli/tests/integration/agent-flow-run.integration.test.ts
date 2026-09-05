@@ -264,8 +264,25 @@ const approveJourney = (
         "textbox",
         "Display name"
       );
+      const unmarked = yield* session("agent_browser_act", {
+        action: {
+          ref: findNode(
+            verificationPage.snapshot.nodes,
+            "textbox",
+            "Mobile number"
+          ).ref,
+          text: "555",
+          type: "fill",
+        },
+        intent: { objective: "Enter the mobile number" },
+        operationId: OperationId.make("verify-unmarked-objective"),
+        sessionId: verifying.id,
+      });
+      expect(unmarked.entry.outcome).toBe("completed");
+      expect(unmarked.intervention).toBeUndefined();
       const request = {
         action: { ref, text: "Ada", type: "fill" as const },
+        intent: { objective: "Enter the display name" },
         operationId: OperationId.make("verify-confirmation"),
         sessionId: verifying.id,
       };
@@ -966,7 +983,6 @@ it.live(
           url: external,
         });
         expect(requireBoundary(stillScoped).reason).toBe("domain");
-        yield* decide(requireBoundary(stillScoped).id, "refuse");
         yield* run("agent_run_complete", {
           operationId: OperationId.make("complete-second-boundary-run"),
           sessionId: second.id,
@@ -976,6 +992,7 @@ it.live(
           sessionId,
           summary: "Boundary refusals retained",
         });
+        expect((yield* local.get(sessionId)).boundary).toBeNull();
         expect(
           summary.timeline.filter((entry) => entry.outcome === "refused").length
         ).toBeGreaterThanOrEqual(8);
