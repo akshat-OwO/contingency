@@ -511,6 +511,20 @@ it.live(
           location: "local",
           sensitive: true,
         });
+        const { retentionFile, traceFile, videoFile } = artifacts;
+        if (
+          retentionFile === undefined ||
+          traceFile === undefined ||
+          videoFile === undefined
+        ) {
+          throw new Error("Teaching allocated no local sensitive artifacts.");
+        }
+        // Both are on disk while Teaching is still live — the browser only
+        // flushes the recording on context close, so their size proves nothing
+        // yet, but their later absence is a deletion rather than a capture
+        // that never happened.
+        expect(yield* fileSystem.exists(videoFile)).toBe(true);
+        expect(yield* fileSystem.exists(retentionFile)).toBe(true);
 
         // The second direct user action: approval of the exact verified
         // immutable revision.
@@ -537,26 +551,25 @@ it.live(
           []
         );
 
-        return {
-          agentFlowId,
-          revisionId,
-          traceFile: artifacts.traceFile,
-          videoFile: artifacts.videoFile,
-        };
+        return { agentFlowId, retentionFile, revisionId, traceFile, videoFile };
       }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(catalogRoot)));
 
       const { agentFlowId, revisionId } = taughtArtifacts;
 
       // Default retention removed the full Demonstration Trace and its video
-      // once the revision was approved. The catalog package did not move.
+      // once the revision was approved, and said so in the record it keeps.
+      // The catalog package did not move.
       for (const file of [
         taughtArtifacts.traceFile,
         taughtArtifacts.videoFile,
       ]) {
-        if (file !== undefined) {
-          expect(yield* fileSystem.exists(file)).toBe(false);
-        }
+        expect(yield* fileSystem.exists(file)).toBe(false);
       }
+      expect(
+        JSON.parse(
+          yield* fileSystem.readFileString(taughtArtifacts.retentionFile)
+        )
+      ).toMatchObject({ retention: "delete-on-approval" });
       const revisionDirectory = path.join(
         catalogRoot,
         "agent-flows",
@@ -694,18 +707,31 @@ it.live(
           type: "agent.session.takeover",
         });
 
-        // The user closes Agent View and opens it again: the view is a window
-        // onto a process-owned session, not the session itself.
-        yield* user("agent.session.stream.subscribe", {
-          data: { sessionId },
-          type: "agent.session.stream.subscribe",
-        }).pipe(Stream.runHead, Effect.timeout("20 seconds"));
-        const reopened = yield* user("agent.session.get", {
-          data: { sessionId },
-          type: "agent.session.get",
-        });
+        // The user closes Agent View and opens it again. Each half is its own
+        // loopback client lifetime, so the session has to outlive a view that
+        // disconnected entirely rather than a second call on a live one: the
+        // view is a window onto a process-owned session, not the session.
+        yield* Effect.scoped(
+          Effect.gen(function* watchThenClose() {
+            const firstView = yield* agentView;
+            yield* firstView("agent.session.stream.subscribe", {
+              data: { sessionId },
+              type: "agent.session.stream.subscribe",
+            }).pipe(Stream.runHead, Effect.timeout("20 seconds"));
+          })
+        );
+        const reopened = yield* Effect.scoped(
+          Effect.gen(function* openAgain() {
+            const secondView = yield* agentView;
+            return yield* secondView("agent.session.get", {
+              data: { sessionId },
+              type: "agent.session.get",
+            });
+          })
+        );
         expect(reopened.data.session.controller).toBe("user");
         expect(requireRun(reopened.data.session).outcome).toBeNull();
+        expect(requireRun(reopened.data.session).activeStepIndex).toBe(1);
 
         yield* user("agent.session.variable.supply", {
           data: {
