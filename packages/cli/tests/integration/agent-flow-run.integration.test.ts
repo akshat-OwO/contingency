@@ -1,16 +1,10 @@
 import path from "node:path";
 
 import { ContingencyRpcs, OperationId } from "@contingency/protocol";
-import type {
-  AgentActionResult,
-  AgentRunId,
-  AgentSessionSnapshot,
-  AgentSnapshotNode,
-} from "@contingency/protocol";
+import type { AgentRunId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Stream } from "effect";
-import type { Tool, Toolkit } from "effect/unstable/ai";
 import { RpcTest } from "effect/unstable/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -41,79 +35,19 @@ import {
 } from "../../src/services/mcp-agent-session.ts";
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { RunSession } from "../../src/services/run-session.ts";
+import {
+  findNode,
+  makeCall,
+  requireBoundary,
+  requireRun,
+} from "./agent-harness.ts";
 import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = { deviceScaleFactor: 1, height: 480, width: 640 } as const;
 
-interface ToolFailure {
-  readonly code: string;
-  readonly message: string;
-}
-
-const isToolFailure = (value: unknown): value is ToolFailure =>
-  typeof value === "object" &&
-  value !== null &&
-  "code" in value &&
-  "message" in value;
-
-const makeCall =
-  <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
-  <Name extends keyof Tools>(
-    name: Name,
-    params: Tool.Parameters<Tools[Name]>
-  ) =>
-    Effect.gen(function* callTool() {
-      const handlers = yield* toolkit;
-      const results = yield* handlers
-        .handle(name, params)
-        .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
-      const last = results.at(-1);
-      if (last === undefined) {
-        return yield* Effect.die(`The ${String(name)} tool answered nothing.`);
-      }
-      const { result } = last;
-      if (isToolFailure(result)) {
-        return yield* Effect.fail(result);
-      }
-      return result as Tool.Success<Tools[Name]>;
-    });
-
 const session = makeCall(AgentSessionTools);
 const flow = makeCall(AgentFlowTools);
 const run = makeCall(AgentRunTools);
-
-const findNode = (
-  nodes: readonly AgentSnapshotNode[],
-  role: string,
-  name: string
-): AgentSnapshotNode => {
-  const found = nodes.find(
-    (node) => node.role === role && node.name.includes(name)
-  );
-  if (found === undefined) {
-    throw new Error(
-      `The Browser Snapshot had no ${role} named ${name}: ${nodes
-        .map((node) => `${node.role}/${node.name}`)
-        .join(", ")}`
-    );
-  }
-  return found;
-};
-
-const requireBoundary = (result: AgentActionResult) => {
-  if (result.intervention === undefined) {
-    throw new Error("Expected an Execution Boundary");
-  }
-  return result.intervention;
-};
-
-const requireRun = (snapshot: AgentSessionSnapshot) => {
-  const state = snapshot.run;
-  if (state === null) {
-    throw new Error("The Agent Session was not performing an Interactive Run.");
-  }
-  return state;
-};
 
 /**
  * One MCP process's whole surface over one Catalog Root. Each call builds a

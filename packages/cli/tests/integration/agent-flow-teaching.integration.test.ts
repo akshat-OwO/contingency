@@ -1,15 +1,10 @@
 import path from "node:path";
 
 import { AgentElementRef, OperationId } from "@contingency/protocol";
-import type {
-  AgentFlowDiagnostic,
-  AgentSnapshotNode,
-  EvidenceSlice,
-} from "@contingency/protocol";
+import type { EvidenceSlice } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Stream } from "effect";
-import type { Tool, Toolkit } from "effect/unstable/ai";
+import { Effect, FileSystem, Layer } from "effect";
 
 import { makeAgentFlowCatalogLayer } from "../../src/services/agent-flow-catalog.ts";
 import {
@@ -25,6 +20,7 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import { findNode, makeCall } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
 const viewport = {
@@ -33,65 +29,8 @@ const viewport = {
   width: 640,
 } as const;
 
-interface ToolFailure {
-  readonly code: string;
-  readonly diagnostics?: readonly AgentFlowDiagnostic[];
-  readonly message: string;
-}
-
-const isToolFailure = (value: unknown): value is ToolFailure =>
-  typeof value === "object" &&
-  value !== null &&
-  "code" in value &&
-  "message" in value;
-
-/**
- * One MCP tool call, as the external agent makes it: validated parameters in,
- * the tool's success value out, and a structured failure raised so a test
- * asserts on it with `Effect.flip`.
- */
-const makeCall =
-  <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
-  <Name extends keyof Tools>(
-    name: Name,
-    params: Tool.Parameters<Tools[Name]>
-  ) =>
-    Effect.gen(function* callTool() {
-      const handlers = yield* toolkit;
-      const results = yield* handlers
-        .handle(name, params)
-        .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
-      const last = results.at(-1);
-      if (last === undefined) {
-        return yield* Effect.die(`The ${String(name)} tool answered nothing.`);
-      }
-      const { result } = last;
-      if (isToolFailure(result)) {
-        return yield* Effect.fail(result);
-      }
-      return result as Tool.Success<Tools[Name]>;
-    });
-
 const session = makeCall(AgentSessionTools);
 const flow = makeCall(AgentFlowTools);
-
-const findNode = (
-  nodes: readonly AgentSnapshotNode[],
-  role: string,
-  name: string
-): AgentSnapshotNode => {
-  const found = nodes.find(
-    (node) => node.role === role && node.name.includes(name)
-  );
-  if (found === undefined) {
-    throw new Error(
-      `The Browser Snapshot had no ${role} named ${name}: ${nodes
-        .map((node) => `${node.role}/${node.name}`)
-        .join(", ")}`
-    );
-  }
-  return found;
-};
 
 /**
  * The whole Teaching surface over one real Chromium and one temporary Catalog

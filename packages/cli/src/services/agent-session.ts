@@ -884,6 +884,16 @@ const actionBoundaryReasons = (
   return reasons;
 };
 
+/**
+ * What the user is being asked to confirm. The agent's own objective when it
+ * named one, and the active Agent Step when it did not: during an Interactive
+ * Run the ordered Step really is what the action contributes to.
+ *
+ * A Verification Run has no active Step, so there is nothing truthful to fall
+ * back to. Naming a Confirmation Step here would put an unrelated Step's words
+ * on an action that is not it — the user reads `requested` to decide, so an
+ * unnamed action says so rather than borrowing a description.
+ */
 const boundaryObjective = (
   record: SessionRecord,
   intent: AgentActionIntent
@@ -892,9 +902,7 @@ const boundaryObjective = (
   record.snapshot.run?.steps.find(
     (step) => step.index === record.snapshot.run?.activeStepIndex
   )?.description ??
-  record.snapshot.verification?.steps.find((step) => step.confirmation)
-    ?.description ??
-  "Confirmation Step action";
+  "An action the agent did not name an objective for";
 
 interface TeachingArtifacts {
   readonly retentionFile: string | undefined;
