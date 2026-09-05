@@ -953,7 +953,7 @@ const makeOriginMiddleware = (allowedOrigins: ReadonlySet<string>) =>
  * bound to loopback can still receive a remote page's attacker-controlled
  * Host header, so the transport checks Host as well as browser Origin.
  */
-const makeHostMiddleware = (allowedOrigins: ReadonlySet<string>) =>
+export const makeHostMiddleware = (allowedOrigins: ReadonlySet<string>) =>
   HttpRouter.middleware(
     Effect.succeed((httpEffect) =>
       Effect.gen(function* validateRpcHost() {
