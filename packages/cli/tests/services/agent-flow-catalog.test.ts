@@ -1581,3 +1581,90 @@ it.effect("reads a package whose Evidence Slices embed their screenshots", () =>
     })
   )
 );
+
+/** Rewrite one slice into the shape that embedded its screenshots. */
+const legacySlice = (
+  current: Record<string, unknown>,
+  index: number
+): Record<string, unknown> => ({
+  ...current,
+  schemaVersion: 1,
+  screenshots: [
+    {
+      capturedAt: at,
+      encoding: "base64",
+      format: "png",
+      id: `screenshot-${index}`,
+      image: png.toString("base64"),
+      url: "https://shop.example.com/",
+    },
+  ],
+});
+
+it.effect(
+  "replays an operation record whose slices embed their screenshots",
+  () =>
+    withCatalog((catalog, root, fileSystem) =>
+      Effect.gen(function* replayLegacyOperationRecord() {
+        const saved = yield* catalog.saveDraft(
+          sharedScreenshotInput("screenshot-wal")
+        );
+        const flowDirectory = path.join(
+          root,
+          AGENT_FLOWS_DIRECTORY,
+          saved.manifest.agentFlowId
+        );
+
+        // What an earlier Contingency's write-ahead record held: the slices it
+        // saved, with the PNG inside each one.
+        const recordFile = operationFile(root, "screenshot-wal");
+        const record = JSON.parse(
+          yield* fileSystem.readFileString(recordFile)
+        ) as {
+          result: {
+            manifest: { steps: { evidence: Record<string, string> }[] };
+          };
+          slices: Record<string, unknown>[];
+        };
+        for (const [index, stored] of record.slices.entries()) {
+          const legacy = legacySlice(stored, index);
+          const hash = `sha256-${createHash("sha256")
+            .update(canonicalJson(legacy))
+            .digest("hex")}`;
+          yield* fileSystem.writeFileString(
+            path.join(flowDirectory, `evidence/${hash}.json`),
+            JSON.stringify(legacy)
+          );
+          record.slices[index] = legacy;
+          const step = record.result.manifest.steps[index];
+          if (step !== undefined) {
+            step.evidence = { hash, path: `evidence/${hash}.json` };
+          }
+        }
+        yield* fileSystem.writeFileString(recordFile, JSON.stringify(record));
+
+        // A restarted process reads the record from disk. The same operation id
+        // answers with the draft it already saved rather than refusing to read
+        // its own record.
+        yield* Effect.scoped(
+          Effect.gen(function* restart() {
+            const context = yield* Layer.build(
+              makeAgentFlowCatalogLayer({ root }).pipe(
+                Layer.provide(NodeServices.layer)
+              )
+            );
+            const restarted = Context.get(context, AgentFlowCatalog);
+            const replayed = yield* restarted.saveDraft(
+              sharedScreenshotInput("screenshot-wal")
+            );
+            expect(replayed.manifest.revisionId).toBe(
+              saved.manifest.revisionId
+            );
+            expect(replayed.manifest.steps[0]?.evidence.hash).toBe(
+              record.result.manifest.steps[0]?.evidence.hash
+            );
+          })
+        );
+      })
+    )
+);

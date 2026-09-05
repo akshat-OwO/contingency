@@ -14,6 +14,7 @@ import {
   OperationId,
   StoredAgentFlowManifest,
   StoredEvidenceSlice,
+  StoredEvidenceSliceV1,
 } from "@contingency/protocol";
 import type {
   AgentCatalogInfo,
@@ -316,7 +317,13 @@ const AgentFlowOperationRecord = Schema.Struct({
   operationId: OperationId,
   result: AgentFlowRevision,
   schemaVersion: Schema.Literal(1),
-  slices: Schema.Array(EvidenceSlice),
+  /**
+   * The slices the save produced, in whichever version wrote them. A record
+   * left by an earlier Contingency embeds its screenshots, and replaying it
+   * must answer with the draft it already saved rather than refusing to read
+   * itself ([ADR 0033](../../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+   */
+  slices: Schema.Array(StoredEvidenceSlice),
   sourceArtifacts: Schema.optional(SourceArtifacts),
   status: Schema.Literals(["pending", "completed"]),
 });
@@ -396,6 +403,15 @@ export const normalizedDraftSaveInput = (input: {
   });
 
 const encodeSlice = Schema.encodeSync(EvidenceSlice);
+const encodeSliceV1 = Schema.encodeSync(StoredEvidenceSliceV1);
+
+/**
+ * Encode a slice under the exact schema that wrote it. Discriminating here
+ * rather than leaning on union encoding keeps one stored slice at one address
+ * whichever version it belongs to.
+ */
+const encodeStoredSlice = (slice: StoredEvidenceSlice): unknown =>
+  slice.schemaVersion === 1 ? encodeSliceV1(slice) : encodeSlice(slice);
 const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
 const encodeOperation = Schema.encodeSync(AgentFlowOperationRecord);
@@ -409,7 +425,7 @@ const operationRecord = (
   input: string,
   expectedHeads: AgentFlowHeads | null,
   result: AgentFlowRevision,
-  slices: readonly EvidenceSlice[],
+  slices: readonly StoredEvidenceSlice[],
   sourceArtifacts: SourceArtifacts | undefined
 ): AgentFlowOperationRecord => ({
   expectedHeads,
@@ -422,10 +438,10 @@ const operationRecord = (
   status,
 });
 
-export const evidenceHash = (slice: EvidenceSlice): EvidenceHash =>
+export const evidenceHash = (slice: StoredEvidenceSlice): EvidenceHash =>
   EvidenceHash.make(
     `sha256-${createHash("sha256")
-      .update(canonicalJson(encodeSlice(slice)))
+      .update(canonicalJson(encodeStoredSlice(slice)))
       .digest("hex")}`
   );
 
@@ -851,11 +867,13 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const verifyScreenshots = (
     catalogRoot: string,
     directory: string,
-    slice: EvidenceSlice,
+    slice: StoredEvidenceSlice,
     index: number
   ): Effect.Effect<void, AgentFlowCatalogError> =>
+    // A slice written before screenshots were stored once embeds them, so
+    // there is nothing beside it to resolve.
     Effect.forEach(
-      slice.screenshots,
+      slice.schemaVersion === 1 ? [] : slice.screenshots,
       (screenshot) =>
         Effect.gen(function* verifyOneScreenshot() {
           const file = path.join(directory, screenshot.path);
@@ -883,13 +901,13 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const writeScreenshots = (
     catalogRoot: string,
     agentFlowId: AgentFlowId,
-    slices: readonly EvidenceSlice[],
+    slices: readonly StoredEvidenceSlice[],
     contents: readonly TeachingScreenshotContent[] = []
   ): Effect.Effect<void, AgentFlowCatalogError> =>
     Effect.gen(function* storeScreenshotBytes() {
       const referenced = new Map(
         slices.flatMap((slice) =>
-          slice.screenshots.map(
+          (slice.schemaVersion === 1 ? [] : slice.screenshots).map(
             (screenshot) => [screenshot.contentHash, screenshot.path] as const
           )
         )
@@ -948,7 +966,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   const writeDraftArtifacts = (
     catalogRoot: string,
     manifest: AgentFlowManifest,
-    slices: readonly EvidenceSlice[],
+    slices: readonly StoredEvidenceSlice[],
     sourceArtifacts?: SourceArtifacts
   ) =>
     Effect.gen(function* writeDraftPackage() {
@@ -1014,7 +1032,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         } else {
           yield* writeJson(
             file,
-            JSON.stringify(encodeSlice(slice), null, 2),
+            JSON.stringify(encodeStoredSlice(slice), null, 2),
             "an Evidence Slice"
           );
         }
