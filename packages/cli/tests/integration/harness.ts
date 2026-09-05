@@ -233,11 +233,18 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
           return;
         }
         if (pathname === SCROLL_READY_BEACON) {
-          setTimeout(() => {
+          // Answered on the next tick rather than after a long sleep. The
+          // Scroll readiness wait is bounded at two seconds by the Runner, and
+          // a test cannot raise that bound; every millisecond spent here is a
+          // millisecond a loaded CI runner cannot spend on the scroll
+          // animation and the quiet window that follow. The request is still
+          // in flight when readiness begins observing, which is what the
+          // "adopts finite Scroll-started work" test needs it to be.
+          setImmediate(() => {
             response
               .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
               .end("ready");
-          }, 300);
+          });
           return;
         }
         const page = pages.get(pathname);
