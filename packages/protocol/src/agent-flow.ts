@@ -48,6 +48,12 @@ export const EvidenceHash = Schema.String.check(
 ).pipe(Schema.brand("@contingency/EvidenceHash"));
 export type EvidenceHash = typeof EvidenceHash.Type;
 
+/** The content address of one stored screenshot's bytes. */
+export const ScreenshotHash = Schema.String.check(
+  Schema.isPattern(/^sha256-[a-f0-9]{64}$/u)
+).pipe(Schema.brand("@contingency/ScreenshotHash"));
+export type ScreenshotHash = typeof ScreenshotHash.Type;
+
 /**
  * Where a revision stands. Teaching produces a `draft`; only a direct Agent
  * View approval after a successful Verification Run produces `approved`, and
@@ -105,8 +111,61 @@ export const CapturedAction = Schema.Struct({
 });
 export type CapturedAction = typeof CapturedAction.Type;
 
-/** A best-effort-masked screenshot included in a Teaching Feed or Evidence Slice. */
+/**
+ * A reference to one best-effort-masked screenshot, as the Teaching Feed and
+ * an Evidence Slice carry it. The bytes are stored once under their content
+ * address and fetched on demand, so a projection over a whole Demonstration
+ * stays small enough for the agent that has to read it
+ * ([ADR 0032](../../../docs/adr/0032-external-agents-receive-a-bounded-teaching-feed.md)).
+ */
 export const TeachingScreenshot = Schema.Struct({
+  capturedAt: nonEmptyString,
+  contentHash: ScreenshotHash,
+  format: Schema.Literal("png"),
+  id: nonEmptyString,
+  url: Schema.String,
+});
+export type TeachingScreenshot = typeof TeachingScreenshot.Type;
+
+/**
+ * One screenshot's bytes, fetched by reference for one screenshot at a time.
+ * It is deliberately a superset of the reference rather than the same type:
+ * every bulk projection carries references, and only this deliberate,
+ * single-screenshot answer carries an image.
+ */
+export const TeachingScreenshotContent = Schema.Struct({
+  ...TeachingScreenshot.fields,
+  encoding: Schema.Literal("base64"),
+  image: nonEmptyString,
+});
+export type TeachingScreenshotContent = typeof TeachingScreenshotContent.Type;
+
+/** Fetch one Teaching screenshot's bytes from a live Agent Session. */
+export const TeachingScreenshotGet = Schema.Struct({
+  screenshotId: nonEmptyString,
+  sessionId: AgentSessionId,
+});
+export type TeachingScreenshotGet = typeof TeachingScreenshotGet.Type;
+
+/**
+ * A screenshot reference inside a stored Evidence Slice. It adds where the
+ * bytes live in the package, so a slice read outside a Teaching session still
+ * resolves its screenshots.
+ */
+export const EvidenceScreenshot = Schema.Struct({
+  ...TeachingScreenshot.fields,
+  /** Relative to the Agent Flow's directory. */
+  path: nonEmptyString,
+});
+export type EvidenceScreenshot = typeof EvidenceScreenshot.Type;
+
+/**
+ * A screenshot as older Catalog Roots stored it, with the PNG embedded in the
+ * slice. Such a package still loads and still resolves its screenshots; it is
+ * simply never written again
+ * ([ADR 0033](../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+ */
+export const StoredEvidenceScreenshotV1 = Schema.Struct({
   capturedAt: nonEmptyString,
   encoding: Schema.Literal("base64"),
   format: Schema.Literal("png"),
@@ -114,7 +173,7 @@ export const TeachingScreenshot = Schema.Struct({
   image: nonEmptyString,
   url: Schema.String,
 });
-export type TeachingScreenshot = typeof TeachingScreenshot.Type;
+export type StoredEvidenceScreenshotV1 = typeof StoredEvidenceScreenshotV1.Type;
 
 /** What the user told the agent to do, as the agent relayed it. */
 export const TeachingInstruction = Schema.Struct({
@@ -154,6 +213,15 @@ export const TeachingFeed = Schema.Struct({
   variables: Schema.Array(Variable),
 });
 export type TeachingFeed = typeof TeachingFeed.Type;
+
+/**
+ * The documented budget for one screenshot inside a Teaching Feed or an
+ * Evidence Slice: a reference of a few hundred characters, never an image. The
+ * feed is bounded in size as well as in content, so its cost tracks how much
+ * the user demonstrated rather than how large the Page's pixels are
+ * ([ADR 0032](../../../docs/adr/0032-external-agents-receive-a-bounded-teaching-feed.md)).
+ */
+export const TEACHING_SCREENSHOT_BUDGET_CHARACTERS = 512;
 
 export const TeachingFeedGet = Schema.Struct({
   includeSnapshots: Schema.optional(Schema.Boolean),
@@ -252,12 +320,27 @@ export const EvidenceSlice = Schema.Struct({
   before: Schema.NullOr(AgentBrowserSnapshot),
   endedAt: nonEmptyString,
   instructions: Schema.Array(TeachingInstruction),
-  schemaVersion: Schema.Literal(1),
-  screenshots: Schema.Array(TeachingScreenshot),
+  schemaVersion: Schema.Literal(2),
+  screenshots: Schema.Array(EvidenceScreenshot),
   startedAt: nonEmptyString,
   urlTransitions: Schema.Array(UrlTransition),
 });
 export type EvidenceSlice = typeof EvidenceSlice.Type;
+
+/** The first persisted slice version, before screenshots were stored once. */
+export const StoredEvidenceSliceV1 = Schema.Struct({
+  ...EvidenceSlice.fields,
+  schemaVersion: Schema.Literal(1),
+  screenshots: Schema.Array(StoredEvidenceScreenshotV1),
+});
+export type StoredEvidenceSliceV1 = typeof StoredEvidenceSliceV1.Type;
+
+/** Every Evidence Slice version this release can read without rewriting it. */
+export const StoredEvidenceSlice = Schema.Union([
+  StoredEvidenceSliceV1,
+  EvidenceSlice,
+]);
+export type StoredEvidenceSlice = typeof StoredEvidenceSlice.Type;
 
 export const EvidenceSliceRef = Schema.Struct({
   hash: EvidenceHash,

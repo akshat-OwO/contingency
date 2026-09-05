@@ -849,6 +849,9 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                 emulation: source.emulation,
                 operationId: data.operationId,
                 proposal: data.draft,
+                screenshots: [
+                  ...source.demonstration.screenshotContents.values(),
+                ],
                 slices: compiled.success,
                 sourceArtifacts: {
                   retentionFile: source.retentionFile,

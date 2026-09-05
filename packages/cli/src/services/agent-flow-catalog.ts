@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -12,6 +13,8 @@ import {
   EvidenceSlice,
   OperationId,
   StoredAgentFlowManifest,
+  StoredEvidenceSlice,
+  StoredEvidenceSliceV1,
 } from "@contingency/protocol";
 import type {
   AgentCatalogInfo,
@@ -27,6 +30,7 @@ import type {
   AgentStep,
   DraftEmulation,
   StoredAgentStepV1,
+  TeachingScreenshotContent,
 } from "@contingency/protocol";
 import {
   Context,
@@ -40,7 +44,10 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
-import { domainScopeCovers } from "./agent-flow-compiler.ts";
+import {
+  SCREENSHOTS_DIRECTORY,
+  domainScopeCovers,
+} from "./agent-flow-compiler.ts";
 
 /** The directory under a Catalog Root that holds Agent Flow packages. */
 export const AGENT_FLOWS_DIRECTORY = "agent-flows";
@@ -147,6 +154,12 @@ export interface SaveDraftInput {
   readonly emulation: DraftEmulation;
   readonly operationId?: OperationId | string | undefined;
   readonly proposal: AgentFlowDraftProposal;
+  /**
+   * The bytes behind the screenshots the slices reference. They are stored
+   * once under their content address; a hash the package already holds is not
+   * written again.
+   */
+  readonly screenshots?: readonly TeachingScreenshotContent[] | undefined;
   readonly slices: readonly EvidenceSlice[];
   /** Local-only sensitive Teaching artifacts governed when this draft passes. */
   readonly sourceArtifacts?:
@@ -197,7 +210,7 @@ export interface AgentFlowCatalogService {
   readonly evidence: (
     agentFlowId: AgentFlowId,
     revisionId?: AgentFlowRevisionId
-  ) => Effect.Effect<readonly EvidenceSlice[], AgentFlowCatalogError>;
+  ) => Effect.Effect<readonly StoredEvidenceSlice[], AgentFlowCatalogError>;
   /**
    * Record one direct user authorization of one Verification Run for one exact
    * draft revision. Every draft mutation clears it, so a corrected draft is
@@ -304,7 +317,13 @@ const AgentFlowOperationRecord = Schema.Struct({
   operationId: OperationId,
   result: AgentFlowRevision,
   schemaVersion: Schema.Literal(1),
-  slices: Schema.Array(EvidenceSlice),
+  /**
+   * The slices the save produced, in whichever version wrote them. A record
+   * left by an earlier Contingency embeds its screenshots, and replaying it
+   * must answer with the draft it already saved rather than refusing to read
+   * itself ([ADR 0033](../../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+   */
+  slices: Schema.Array(StoredEvidenceSlice),
   sourceArtifacts: Schema.optional(SourceArtifacts),
   status: Schema.Literals(["pending", "completed"]),
 });
@@ -384,6 +403,15 @@ export const normalizedDraftSaveInput = (input: {
   });
 
 const encodeSlice = Schema.encodeSync(EvidenceSlice);
+const encodeSliceV1 = Schema.encodeSync(StoredEvidenceSliceV1);
+
+/**
+ * Encode a slice under the exact schema that wrote it. Discriminating here
+ * rather than leaning on union encoding keeps one stored slice at one address
+ * whichever version it belongs to.
+ */
+const encodeStoredSlice = (slice: StoredEvidenceSlice): unknown =>
+  slice.schemaVersion === 1 ? encodeSliceV1(slice) : encodeSlice(slice);
 const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
 const encodeOperation = Schema.encodeSync(AgentFlowOperationRecord);
@@ -397,7 +425,7 @@ const operationRecord = (
   input: string,
   expectedHeads: AgentFlowHeads | null,
   result: AgentFlowRevision,
-  slices: readonly EvidenceSlice[],
+  slices: readonly StoredEvidenceSlice[],
   sourceArtifacts: SourceArtifacts | undefined
 ): AgentFlowOperationRecord => ({
   expectedHeads,
@@ -410,10 +438,10 @@ const operationRecord = (
   status,
 });
 
-export const evidenceHash = (slice: EvidenceSlice): EvidenceHash =>
+export const evidenceHash = (slice: StoredEvidenceSlice): EvidenceHash =>
   EvidenceHash.make(
     `sha256-${createHash("sha256")
-      .update(canonicalJson(encodeSlice(slice)))
+      .update(canonicalJson(encodeStoredSlice(slice)))
       .digest("hex")}`
   );
 
@@ -805,10 +833,140 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       status: "completed",
     });
 
+  /**
+   * The address of a slice exactly as it is stored, computed from the file's
+   * own JSON. A package written under an earlier schema version keeps the
+   * address its manifest names rather than being rehashed as if it had been
+   * written today.
+   */
+  const persistedEvidenceHash = (
+    catalogRoot: string,
+    file: string
+  ): Effect.Effect<EvidenceHash, AgentFlowCatalogError> =>
+    ensureCatalogPath(catalogRoot, file, "Evidence Slice").pipe(
+      Effect.andThen(
+        fileSystem
+          .readFileString(file)
+          .pipe(Effect.mapError(ioError("Could not read an Evidence Slice")))
+      ),
+      Effect.flatMap((contents) =>
+        Effect.try({
+          catch: () =>
+            catalogError("agent_catalog_invalid", `${file} is not valid JSON.`),
+          try: () =>
+            EvidenceHash.make(
+              `sha256-${createHash("sha256")
+                .update(canonicalJson(JSON.parse(contents) as unknown))
+                .digest("hex")}`
+            ),
+        })
+      )
+    );
+
+  /** Every slice screenshot must resolve to bytes the package already holds. */
+  const verifyScreenshots = (
+    catalogRoot: string,
+    directory: string,
+    slice: StoredEvidenceSlice,
+    index: number
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    // A slice written before screenshots were stored once embeds them, so
+    // there is nothing beside it to resolve.
+    Effect.forEach(
+      slice.schemaVersion === 1 ? [] : slice.screenshots,
+      (screenshot) =>
+        Effect.gen(function* verifyOneScreenshot() {
+          const file = path.join(directory, screenshot.path);
+          yield* ensureCatalogPath(catalogRoot, file, "a stored screenshot");
+          const present = yield* fileSystem
+            .exists(file)
+            .pipe(Effect.mapError(ioError("Could not inspect a screenshot")));
+          if (!present) {
+            return yield* Effect.fail(
+              catalogError(
+                "agent_catalog_invalid",
+                `Evidence Slice ${index} references screenshot ${screenshot.contentHash}, whose bytes were not supplied.`
+              )
+            );
+          }
+        }),
+      { discard: true }
+    );
+
+  /**
+   * Store the bytes the slices reference, once each, before anything names
+   * them. Content addressing makes the write idempotent, so a retry after a
+   * crash finds them already there rather than needing them again.
+   */
+  const writeScreenshots = (
+    catalogRoot: string,
+    agentFlowId: AgentFlowId,
+    slices: readonly StoredEvidenceSlice[],
+    contents: readonly TeachingScreenshotContent[] = []
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    Effect.gen(function* storeScreenshotBytes() {
+      const referenced = new Map(
+        slices.flatMap((slice) =>
+          (slice.schemaVersion === 1 ? [] : slice.screenshots).map(
+            (screenshot) => [screenshot.contentHash, screenshot.path] as const
+          )
+        )
+      );
+      if (referenced.size === 0) {
+        return;
+      }
+      const directory = flowDirectory(catalogRoot, agentFlowId);
+      const screenshotsDirectory = path.join(directory, SCREENSHOTS_DIRECTORY);
+      yield* ensureCatalogPath(
+        catalogRoot,
+        screenshotsDirectory,
+        "Agent Flow screenshots"
+      );
+      yield* fileSystem
+        .makeDirectory(screenshotsDirectory, { recursive: true })
+        .pipe(
+          Effect.mapError(ioError("Could not create the screenshot store"))
+        );
+      const supplied = new Map(
+        contents.map((content) => [content.contentHash, content] as const)
+      );
+      yield* Effect.forEach(
+        [...referenced],
+        ([contentHash, relative]) =>
+          Effect.gen(function* storeOneScreenshot() {
+            const file = path.join(directory, relative);
+            yield* ensureCatalogPath(catalogRoot, file, "a stored screenshot");
+            const present = yield* fileSystem
+              .exists(file)
+              .pipe(Effect.mapError(ioError("Could not inspect a screenshot")));
+            if (present) {
+              return;
+            }
+            const content = supplied.get(contentHash);
+            if (content === undefined) {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_catalog_invalid",
+                  `Screenshot ${contentHash} is referenced by an Agent Step but its bytes were not supplied.`
+                )
+              );
+            }
+            const temporary = `${file}.${randomUUID()}.tmp`;
+            yield* fileSystem
+              .writeFile(temporary, Buffer.from(content.image, "base64"))
+              .pipe(
+                Effect.andThen(fileSystem.rename(temporary, file)),
+                Effect.mapError(ioError("Could not write a screenshot"))
+              );
+          }),
+        { discard: true }
+      );
+    });
+
   const writeDraftArtifacts = (
     catalogRoot: string,
     manifest: AgentFlowManifest,
-    slices: readonly EvidenceSlice[],
+    slices: readonly StoredEvidenceSlice[],
     sourceArtifacts?: SourceArtifacts
   ) =>
     Effect.gen(function* writeDraftPackage() {
@@ -856,18 +1014,14 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             )
           );
         }
+        yield* verifyScreenshots(catalogRoot, directory, slice, index);
         const file = path.join(directory, relative);
         const present = yield* fileSystem
           .exists(file)
           .pipe(Effect.mapError(ioError("Could not inspect evidence")));
         if (present) {
-          const existing = yield* readJson(
-            EvidenceSlice,
-            file,
-            "Evidence Slice",
-            catalogRoot
-          );
-          if (evidenceHash(existing) !== hash) {
+          const existing = yield* persistedEvidenceHash(catalogRoot, file);
+          if (existing !== hash) {
             return yield* Effect.fail(
               catalogError(
                 "agent_catalog_invalid",
@@ -878,7 +1032,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         } else {
           yield* writeJson(
             file,
-            JSON.stringify(encodeSlice(slice), null, 2),
+            JSON.stringify(encodeStoredSlice(slice), null, 2),
             "an Evidence Slice"
           );
         }
@@ -1192,7 +1346,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       });
     }
     return readJson(
-      EvidenceSlice,
+      StoredEvidenceSlice,
       path.join(flowDirectory(catalogRoot, id), step.evidence.path),
       "Evidence Slice",
       catalogRoot
@@ -1615,6 +1769,12 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               input.slices,
               input.sourceArtifacts
             );
+      yield* writeScreenshots(
+        catalogRoot,
+        agentFlowId,
+        input.slices,
+        input.screenshots
+      );
       yield* writePendingOperation(catalogRoot, pending);
       yield* writeDraftArtifacts(
         catalogRoot,
@@ -2432,7 +2592,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           Effect.all(
             found.manifest.steps.map((step) =>
               readJson(
-                EvidenceSlice,
+                StoredEvidenceSlice,
                 path.join(
                   flowDirectory(found.catalogRoot, found.manifest.agentFlowId),
                   step.evidence.path

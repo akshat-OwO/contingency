@@ -49,6 +49,7 @@ import type {
   SessionId,
   TeachingFeed,
   TeachingInstruction,
+  TeachingScreenshotContent,
   TeachingVariableInput,
   Variable,
 } from "@contingency/protocol";
@@ -326,6 +327,15 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     includeSnapshots?: boolean
   ) => Effect.Effect<TeachingFeed, AgentSessionError>;
+  /**
+   * The bytes behind one screenshot the Teaching Feed referenced. Screenshots
+   * are fetched one at a time on purpose: the feed stays readable, and the
+   * agent pays for only the images it decides to look at.
+   */
+  readonly teachingScreenshot: (
+    sessionId: AgentSessionId,
+    screenshotId: string
+  ) => Effect.Effect<TeachingScreenshotContent, AgentSessionError>;
   /**
    * The full Demonstration and the Emulation it ran under, for compilation.
    * This stays inside the owning process: MCP hands out the Teaching Feed and
@@ -4053,6 +4063,20 @@ const makeAgentSession = (
       teachingFeed: (sessionId, includeSnapshots = false) =>
         requireTeaching(sessionId).pipe(
           Effect.map(({ capture }) => capture.feed(sessionId, includeSnapshots))
+        ),
+      teachingScreenshot: (sessionId, screenshotId) =>
+        requireTeaching(sessionId).pipe(
+          Effect.flatMap(({ capture }) => {
+            const content = capture.screenshotContent(screenshotId);
+            return content === undefined
+              ? Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    `This Teaching session has no screenshot ${screenshotId}. Read the Teaching Feed for the screenshot references it captured.`
+                  )
+                )
+              : Effect.succeed(content);
+          })
         ),
       teachingSource: (sessionId) =>
         requireTeaching(sessionId).pipe(

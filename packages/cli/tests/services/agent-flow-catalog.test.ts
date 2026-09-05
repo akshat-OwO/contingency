@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -6,6 +7,7 @@ import {
   AgentFlowRevisionId,
   AgentSessionId,
   OperationId,
+  ScreenshotHash,
   UserAgentProfileId,
 } from "@contingency/protocol";
 import type {
@@ -51,7 +53,7 @@ const slice = (name: string, url: string): EvidenceSlice => ({
   before: null,
   endedAt: at,
   instructions: [],
-  schemaVersion: 1,
+  schemaVersion: 2,
   screenshots: [],
   startedAt: at,
   urlTransitions: [],
@@ -1388,4 +1390,281 @@ it.effect("reads an approval retention duration from each Catalog Root", () =>
       });
     })
   )
+);
+
+const png = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+const screenshotHash = ScreenshotHash.make(
+  `sha256-${createHash("sha256").update(png).digest("hex")}`
+);
+const screenshotPath = `screenshots/${screenshotHash}.png`;
+
+const screenshotReference = (id: string) => ({
+  capturedAt: at,
+  contentHash: screenshotHash,
+  format: "png" as const,
+  id,
+  path: screenshotPath,
+  url: "https://shop.example.com/",
+});
+
+const screenshotContent = (id: string) => ({
+  capturedAt: at,
+  contentHash: screenshotHash,
+  encoding: "base64" as const,
+  format: "png" as const,
+  id,
+  image: png.toString("base64"),
+  url: "https://shop.example.com/",
+});
+
+/** Two Steps whose slices cite the same screenshot. */
+const sharedScreenshotInput = (operationId: string): SaveDraftInput => {
+  const first = slice("Open the shop", "https://shop.example.com/");
+  const second = slice("Open the cart", "https://shop.example.com/cart");
+  return saveInput("Shop front", operationId, {
+    proposal: proposal("Shop front", {
+      steps: [
+        {
+          confirmation: false,
+          description: "Open the shop front page.",
+          firstActionId: "action-Open the shop",
+          lastActionId: "action-Open the shop",
+          name: "Open the shop",
+        },
+        {
+          confirmation: false,
+          description: "Open the cart.",
+          firstActionId: "action-Open the cart",
+          lastActionId: "action-Open the cart",
+          name: "Open the cart",
+        },
+      ],
+    }),
+    screenshots: [screenshotContent("screenshot-1")],
+    slices: [
+      { ...first, screenshots: [screenshotReference("screenshot-1")] },
+      { ...second, screenshots: [screenshotReference("screenshot-1")] },
+    ],
+  });
+};
+
+it.effect(
+  "stores one screenshot's bytes once for every Step that cites it",
+  () =>
+    withCatalog((catalog, root, fileSystem) =>
+      Effect.gen(function* storeScreenshotsByReference() {
+        const saved = yield* catalog.saveDraft(
+          sharedScreenshotInput("screenshot-save")
+        );
+        const flowDirectory = path.join(
+          root,
+          AGENT_FLOWS_DIRECTORY,
+          saved.manifest.agentFlowId
+        );
+        const stored = path.join(flowDirectory, screenshotPath);
+        expect(yield* fileSystem.exists(stored)).toBe(true);
+        expect(Buffer.from(yield* fileSystem.readFile(stored))).toEqual(png);
+        expect(
+          yield* fileSystem.readDirectory(
+            path.join(flowDirectory, "screenshots")
+          )
+        ).toHaveLength(1);
+
+        // Two Steps, two distinct slices, one copy of the image.
+        const [firstStep, secondStep] = saved.manifest.steps;
+        expect(firstStep?.evidence.hash).not.toBe(secondStep?.evidence.hash);
+        for (const step of saved.manifest.steps) {
+          const contents = yield* fileSystem.readFileString(
+            path.join(flowDirectory, step.evidence.path)
+          );
+          expect(contents).toContain(screenshotPath);
+          expect(contents).not.toContain(png.toString("base64"));
+        }
+
+        // The replay record stores what the mutation returned, so it shrinks
+        // with the slices rather than needing a mechanism of its own.
+        const record = yield* fileSystem.readFileString(
+          operationFile(root, "screenshot-save")
+        );
+        expect(record).not.toContain(png.toString("base64"));
+        expect(record).toContain(screenshotHash);
+      })
+    )
+);
+
+it.effect("refuses a slice whose screenshot bytes were never supplied", () =>
+  withCatalog((catalog) =>
+    Effect.gen(function* refuseUnsuppliedScreenshot() {
+      const input = sharedScreenshotInput("screenshot-missing");
+      const failed = yield* Effect.flip(
+        catalog.saveDraft({ ...input, screenshots: [] })
+      );
+      expect(failed.code).toBe("agent_catalog_invalid");
+      expect(failed.message).toContain(screenshotHash);
+    })
+  )
+);
+
+it.effect("reads a package whose Evidence Slices embed their screenshots", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* readEmbeddedScreenshots() {
+      const saved = yield* catalog.saveDraft(
+        sharedScreenshotInput("screenshot-legacy")
+      );
+      const flowDirectory = path.join(
+        root,
+        AGENT_FLOWS_DIRECTORY,
+        saved.manifest.agentFlowId
+      );
+
+      // What an earlier Contingency wrote: the PNG inside the slice itself.
+      const manifestFile = path.join(saved.path, "manifest.json");
+      const manifest = JSON.parse(
+        yield* fileSystem.readFileString(manifestFile)
+      ) as {
+        steps: { evidence: { hash: string; path: string } }[];
+      };
+      for (const [index, step] of manifest.steps.entries()) {
+        const current = JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(flowDirectory, step.evidence.path)
+          )
+        ) as Record<string, unknown>;
+        const legacy = {
+          ...current,
+          schemaVersion: 1,
+          screenshots: [
+            {
+              capturedAt: at,
+              encoding: "base64",
+              format: "png",
+              id: `screenshot-${index}`,
+              image: png.toString("base64"),
+              url: "https://shop.example.com/",
+            },
+          ],
+        };
+        const contents = JSON.stringify(legacy);
+        const hash = `sha256-${createHash("sha256")
+          .update(canonicalJson(legacy))
+          .digest("hex")}`;
+        yield* fileSystem.writeFileString(
+          path.join(flowDirectory, `evidence/${hash}.json`),
+          contents
+        );
+        step.evidence = { hash, path: `evidence/${hash}.json` };
+      }
+      yield* fileSystem.writeFileString(manifestFile, JSON.stringify(manifest));
+      // The screenshot store the v1 package never had.
+      yield* fileSystem.remove(path.join(flowDirectory, "screenshots"), {
+        recursive: true,
+      });
+
+      const slices = yield* catalog.evidence(saved.manifest.agentFlowId);
+      expect(slices).toHaveLength(2);
+      for (const stored of slices) {
+        expect(stored.schemaVersion).toBe(1);
+        const [screenshot] = stored.screenshots;
+        expect(
+          screenshot !== undefined && "image" in screenshot
+            ? screenshot.image
+            : undefined
+        ).toBe(png.toString("base64"));
+      }
+      // Reading migrates nothing on disk: the v1 package stays as written.
+      const [firstStep] = (yield* catalog.get(saved.manifest.agentFlowId))
+        .manifest.steps;
+      expect(firstStep?.evidence.path).toBe(manifest.steps[0]?.evidence.path);
+    })
+  )
+);
+
+/** Rewrite one slice into the shape that embedded its screenshots. */
+const legacySlice = (
+  current: Record<string, unknown>,
+  index: number
+): Record<string, unknown> => ({
+  ...current,
+  schemaVersion: 1,
+  screenshots: [
+    {
+      capturedAt: at,
+      encoding: "base64",
+      format: "png",
+      id: `screenshot-${index}`,
+      image: png.toString("base64"),
+      url: "https://shop.example.com/",
+    },
+  ],
+});
+
+it.effect(
+  "replays an operation record whose slices embed their screenshots",
+  () =>
+    withCatalog((catalog, root, fileSystem) =>
+      Effect.gen(function* replayLegacyOperationRecord() {
+        const saved = yield* catalog.saveDraft(
+          sharedScreenshotInput("screenshot-wal")
+        );
+        const flowDirectory = path.join(
+          root,
+          AGENT_FLOWS_DIRECTORY,
+          saved.manifest.agentFlowId
+        );
+
+        // What an earlier Contingency's write-ahead record held: the slices it
+        // saved, with the PNG inside each one.
+        const recordFile = operationFile(root, "screenshot-wal");
+        const record = JSON.parse(
+          yield* fileSystem.readFileString(recordFile)
+        ) as {
+          result: {
+            manifest: { steps: { evidence: Record<string, string> }[] };
+          };
+          slices: Record<string, unknown>[];
+        };
+        for (const [index, stored] of record.slices.entries()) {
+          const legacy = legacySlice(stored, index);
+          const hash = `sha256-${createHash("sha256")
+            .update(canonicalJson(legacy))
+            .digest("hex")}`;
+          yield* fileSystem.writeFileString(
+            path.join(flowDirectory, `evidence/${hash}.json`),
+            JSON.stringify(legacy)
+          );
+          record.slices[index] = legacy;
+          const step = record.result.manifest.steps[index];
+          if (step !== undefined) {
+            step.evidence = { hash, path: `evidence/${hash}.json` };
+          }
+        }
+        yield* fileSystem.writeFileString(recordFile, JSON.stringify(record));
+
+        // A restarted process reads the record from disk. The same operation id
+        // answers with the draft it already saved rather than refusing to read
+        // its own record.
+        yield* Effect.scoped(
+          Effect.gen(function* restart() {
+            const context = yield* Layer.build(
+              makeAgentFlowCatalogLayer({ root }).pipe(
+                Layer.provide(NodeServices.layer)
+              )
+            );
+            const restarted = Context.get(context, AgentFlowCatalog);
+            const replayed = yield* restarted.saveDraft(
+              sharedScreenshotInput("screenshot-wal")
+            );
+            expect(replayed.manifest.revisionId).toBe(
+              saved.manifest.revisionId
+            );
+            expect(replayed.manifest.steps[0]?.evidence.hash).toBe(
+              record.result.manifest.steps[0]?.evidence.hash
+            );
+          })
+        );
+      })
+    )
 );

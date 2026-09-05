@@ -1,7 +1,15 @@
 import path from "node:path";
 
-import { AgentElementRef, OperationId } from "@contingency/protocol";
-import type { EvidenceSlice } from "@contingency/protocol";
+import {
+  AgentElementRef,
+  OperationId,
+  TEACHING_SCREENSHOT_BUDGET_CHARACTERS,
+} from "@contingency/protocol";
+import type {
+  EvidenceSlice,
+  TeachingFeed,
+  TeachingScreenshot,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
@@ -28,6 +36,15 @@ const viewport = {
   height: 480,
   width: 640,
 } as const;
+
+/** The screenshot reference a feed must have captured, or a loud failure. */
+const firstScreenshot = (feed: TeachingFeed): TeachingScreenshot => {
+  const [first] = feed.screenshots;
+  if (first === undefined) {
+    throw new Error("The Teaching Feed captured no screenshot.");
+  }
+  return first;
+};
 
 const session = makeCall(AgentSessionTools);
 const flow = makeCall(AgentFlowTools);
@@ -202,8 +219,17 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       expect(feed.actions[0]?.snapshotAfter).toBe(filled.snapshot.snapshotId);
       expect(feed.actions[0]?.urlBefore).toBe(shopUrl);
       expect(feed.observedHosts).toEqual([fixtureHost]);
+      // The feed carries a reference, never the bytes. The agent fetches one
+      // image at a time, and an unknown reference is refused.
       expect(feed.screenshots).toHaveLength(1);
-      expect(feed.screenshots[0]?.image).toBe(visual.image);
+      const reference = firstScreenshot(feed);
+      expect(JSON.stringify(feed)).not.toContain(visual.image);
+      const fetched = yield* flow("agent_teaching_screenshot_get", {
+        screenshotId: reference.id,
+        sessionId: started.id,
+      });
+      expect(fetched.image).toBe(visual.image);
+      expect(fetched.contentHash).toBe(reference.contentHash);
       expect(feed.urlTransitions).toEqual([
         expect.objectContaining({
           actionId: null,
@@ -835,6 +861,88 @@ it.live(
         expect(
           (yield* fileSystem.stat(artifacts.videoFile)).size
         ).toBeGreaterThan(0n);
+      }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "keeps the Teaching Feed readable however many screenshots a session took",
+  () =>
+    Effect.gen(function* boundTheTeachingFeed() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const catalogRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-catalog-",
+      });
+      yield* Effect.gen(function* teachWithScreenshots() {
+        const fixtures = yield* fixtureServer;
+        const started = yield* session("agent_session_start", {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          operationId: OperationId.make("start-bounded-teaching"),
+          url: fixtures.url("shop.html"),
+          // A realistic viewport: at 400x300 the bytes would be small enough
+          // to hide the problem this bound exists for.
+          viewport: { deviceScaleFactor: 2, height: 800, width: 1280 },
+        });
+
+        const captured: string[] = [];
+        for (let index = 0; index < 5; index += 1) {
+          const visual = yield* session("agent_browser_screenshot", {
+            sessionId: started.id,
+          });
+          captured.push(visual.image);
+          yield* session("agent_browser_act", {
+            action: { action: "reload", type: "history" },
+            operationId: OperationId.make(`bounded-reload-${index}`),
+            sessionId: started.id,
+          });
+        }
+        const embedded = captured.reduce(
+          (total, image) => total + image.length,
+          0
+        );
+        expect(embedded).toBeGreaterThan(200_000);
+
+        const feed = yield* flow("agent_teaching_feed_get", {
+          includeSnapshots: false,
+          sessionId: started.id,
+        });
+        expect(feed.screenshots).toHaveLength(5);
+        const serialized = JSON.stringify(feed);
+        for (const image of captured) {
+          expect(serialized).not.toContain(image);
+        }
+        // The whole feed costs less than one of the images it references, and
+        // each reference stays inside its documented budget.
+        expect(serialized.length).toBeLessThan(
+          captured[0]?.length ?? Number.POSITIVE_INFINITY
+        );
+        for (const reference of feed.screenshots) {
+          expect(JSON.stringify(reference).length).toBeLessThanOrEqual(
+            TEACHING_SCREENSHOT_BUDGET_CHARACTERS
+          );
+        }
+
+        // The bytes are still there, one deliberate fetch at a time, and an
+        // unknown reference is refused rather than answered with nothing.
+        const fetched = yield* flow("agent_teaching_screenshot_get", {
+          screenshotId: firstScreenshot(feed).id,
+          sessionId: started.id,
+        });
+        expect(fetched.image).toBe(captured[0]);
+        const unknown = yield* Effect.flip(
+          flow("agent_teaching_screenshot_get", {
+            screenshotId: "screenshot-missing",
+            sessionId: started.id,
+          })
+        );
+        expect(unknown.code).toBe("agent_session_invalid");
+
+        yield* session("agent_session_close", {
+          operationId: OperationId.make("close-bounded-teaching"),
+          sessionId: started.id,
+        });
       }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
