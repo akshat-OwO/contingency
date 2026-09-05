@@ -5,8 +5,10 @@ import type {
   AgentSnapshotId,
   CapturedAction,
   EvidenceSlice,
+  ScreenshotHash,
   TeachingInstruction,
   TeachingScreenshot,
+  TeachingScreenshotContent,
   UrlTransition,
   Variable,
 } from "@contingency/protocol";
@@ -20,6 +22,11 @@ import { Result } from "effect";
 export interface Demonstration {
   readonly actions: readonly CapturedAction[];
   readonly instructions: readonly TeachingInstruction[];
+  /** The bytes behind the screenshot references, addressed by content. */
+  readonly screenshotContents: ReadonlyMap<
+    ScreenshotHash,
+    TeachingScreenshotContent
+  >;
   readonly screenshots: readonly TeachingScreenshot[];
   readonly snapshots: ReadonlyMap<AgentSnapshotId, AgentBrowserSnapshot>;
   readonly urlTransitions: readonly UrlTransition[];
@@ -29,6 +36,7 @@ export interface Demonstration {
 export const emptyDemonstration = (): Demonstration => ({
   actions: [],
   instructions: [],
+  screenshotContents: new Map(),
   screenshots: [],
   snapshots: new Map(),
   urlTransitions: [],
@@ -284,6 +292,13 @@ const validateDemonstratedVariables = (
   return diagnostics;
 };
 
+/** The directory inside an Agent Flow package that holds screenshot bytes. */
+export const SCREENSHOTS_DIRECTORY = "screenshots";
+
+/** Where one screenshot's bytes live, relative to the Agent Flow directory. */
+export const evidenceScreenshotPath = (contentHash: ScreenshotHash): string =>
+  `${SCREENSHOTS_DIRECTORY}/${contentHash}.png`;
+
 const between = (
   at: string,
   afterExclusive: number,
@@ -324,10 +339,15 @@ const sliceFor = (
     instructions: demonstration.instructions.filter(({ at }) =>
       between(at, previousEnd, endedAt)
     ),
-    schemaVersion: 1,
-    screenshots: demonstration.screenshots.filter(({ capturedAt }) =>
-      between(capturedAt, previousEnd, endedAt)
-    ),
+    schemaVersion: 2,
+    // The slice names where the bytes live in the package rather than
+    // carrying them: one screenshot two Steps both cite is stored once.
+    screenshots: demonstration.screenshots
+      .filter(({ capturedAt }) => between(capturedAt, previousEnd, endedAt))
+      .map((screenshot) => ({
+        ...screenshot,
+        path: evidenceScreenshotPath(screenshot.contentHash),
+      })),
     startedAt: first.at,
     urlTransitions: demonstration.urlTransitions.filter(
       (transition) =>

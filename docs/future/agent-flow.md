@@ -45,7 +45,7 @@ Agent searches the selected Agent Flow Catalog
 
 Teaching is mixed-control. The user may act directly, tell the agent what to do, or mark a field for private input. Contingency records the actor, browser actions, Browser Snapshots, screenshots, URL transitions, timing, and the full Trace. Known entered secrets become Variable references rather than Agent Flow literals.
 
-The external agent receives a bounded **Teaching Feed**, not the raw Trace ([ADR 0032](../adr/0032-external-agents-receive-a-bounded-teaching-feed.md)). The feed excludes cookies, authorization headers, network bodies, the full video, and the full Trace. Screenshots mask known sensitive fields, but visible page content can still be sensitive, so Agent View discloses that the feed is sent to the selected agent.
+The external agent receives a bounded **Teaching Feed**, not the raw Trace ([ADR 0032](../adr/0032-external-agents-receive-a-bounded-teaching-feed.md)). The feed excludes cookies, authorization headers, network bodies, the full video, and the full Trace. Screenshots travel as references whose bytes the agent fetches one at a time, so the feed stays small enough to read. They mask known sensitive fields, but visible page content can still be sensitive, so Agent View discloses that the feed is sent to the selected agent.
 
 ### Agent Flow Revision
 

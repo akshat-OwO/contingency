@@ -61,7 +61,7 @@ const slice = {
   before: null,
   endedAt: at,
   instructions: [],
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
   screenshots: [],
   startedAt: at,
   urlTransitions: [],

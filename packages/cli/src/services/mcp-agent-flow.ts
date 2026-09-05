@@ -13,6 +13,8 @@ import {
   AgentSessionSnapshot,
   TeachingFeed,
   TeachingFeedGet,
+  TeachingScreenshotContent,
+  TeachingScreenshotGet,
   TeachingInstructionRecord,
 } from "@contingency/protocol";
 import type { AgentSessionVerification } from "@contingency/protocol";
@@ -150,13 +152,25 @@ const TeachingInstructionRecordTool = Tool.make(
 const TeachingFeedGetTool = Tool.make("agent_teaching_feed_get", {
   dependencies: [AgentSession],
   description:
-    "Read the bounded Teaching Feed of a Teaching session: user instructions, captured actions with actor and outcome, URL transitions, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Cookies, headers, network bodies, video, and the full Trace are never included.",
+    "Read the bounded Teaching Feed of a Teaching session: user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are never inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are never included.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     includeSnapshots: TeachingFeedGet.fields.includeSnapshots,
     sessionId: TeachingFeedGet.fields.sessionId,
   }),
   success: TeachingFeed,
+});
+
+const TeachingScreenshotGetTool = Tool.make("agent_teaching_screenshot_get", {
+  dependencies: [AgentSession],
+  description:
+    "Fetch the bytes of one screenshot the Teaching Feed referenced, as base64 PNG. The feed carries references so it stays readable; ask for an image only when you need to look at it. An unknown reference is refused.",
+  failure: AgentFlowFailure,
+  parameters: Schema.Struct({
+    screenshotId: TeachingScreenshotGet.fields.screenshotId,
+    sessionId: TeachingScreenshotGet.fields.sessionId,
+  }),
+  success: TeachingScreenshotContent,
 });
 
 const AgentFlowDraftSaveTool = Tool.make("agent_flow_draft_save", {
@@ -223,6 +237,7 @@ export const AgentFlowTools = Toolkit.make(
   AgentFlowArchiveTool,
   TeachingInstructionRecordTool,
   TeachingFeedGetTool,
+  TeachingScreenshotGetTool,
   AgentFlowDraftSaveTool,
   AgentFlowVerificationStartTool,
   AgentFlowVerificationCompleteTool
@@ -290,6 +305,7 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           emulation: source.emulation,
           operationId: params.operationId,
           proposal: params.draft,
+          screenshots: [...source.demonstration.screenshotContents.values()],
           slices: compiled.success,
           sourceArtifacts: {
             retentionFile: source.retentionFile,
@@ -432,6 +448,13 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
       const session = yield* AgentSession;
       return yield* session
         .recordInstruction(params.sessionId, params.text, params.operationId)
+        .pipe(Effect.mapError(failure));
+    }),
+  agent_teaching_screenshot_get: (params) =>
+    Effect.gen(function* readTeachingScreenshot() {
+      const session = yield* AgentSession;
+      return yield* session
+        .teachingScreenshot(params.sessionId, params.screenshotId)
         .pipe(Effect.mapError(failure));
     }),
 });

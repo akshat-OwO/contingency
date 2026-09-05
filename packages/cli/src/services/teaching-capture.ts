@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
+import { ScreenshotHash } from "@contingency/protocol";
 import type {
   AgentBrowserSnapshot,
   AgentScreenshot,
@@ -11,6 +12,7 @@ import type {
   TeachingInstruction,
   TeachingProgress,
   TeachingScreenshot,
+  TeachingScreenshotContent,
   Variable,
 } from "@contingency/protocol";
 
@@ -73,6 +75,10 @@ export interface DemonstrationCapture {
   readonly recordScreenshot: (
     screenshot: AgentScreenshot
   ) => TeachingScreenshot;
+  /** The bytes behind one recorded screenshot, fetched by its reference. */
+  readonly screenshotContent: (
+    screenshotId: string
+  ) => TeachingScreenshotContent | undefined;
   /** Check whether a declaration is compatible without retaining its value. */
   readonly canRecordVariable: (
     variable: Variable,
@@ -119,6 +125,11 @@ export const makeDemonstrationCapture = (
   const actions: CapturedAction[] = [];
   const instructions: TeachingInstruction[] = [];
   const screenshots: TeachingScreenshot[] = [];
+  /**
+   * The bytes behind the references, addressed by content so a Demonstration
+   * that photographed the same Page twice keeps one copy of it.
+   */
+  const screenshotBytes = new Map<ScreenshotHash, string>();
   const snapshots = new Map<AgentSnapshotId, AgentBrowserSnapshot>();
   const urlTransitions: Demonstration["urlTransitions"][number][] = [];
   const variables = new Map<string, Variable>();
@@ -212,9 +223,26 @@ export const makeDemonstrationCapture = (
     return captured;
   };
 
+  const contentOf = (
+    reference: TeachingScreenshot
+  ): TeachingScreenshotContent | undefined => {
+    const image = screenshotBytes.get(reference.contentHash);
+    return image === undefined
+      ? undefined
+      : { ...reference, encoding: "base64", image };
+  };
+
   const current = (): Demonstration => ({
     actions: [...actions],
     instructions: [...instructions],
+    screenshotContents: new Map(
+      screenshots.flatMap((reference) => {
+        const content = contentOf(reference);
+        return content === undefined
+          ? []
+          : [[reference.contentHash, content] as const];
+      })
+    ),
     screenshots: [...screenshots],
     snapshots: new Map(snapshots),
     urlTransitions: [...urlTransitions],
@@ -279,13 +307,27 @@ export const makeDemonstrationCapture = (
       return instruction;
     },
     recordScreenshot: (screenshot) => {
+      const contentHash = ScreenshotHash.make(
+        `sha256-${createHash("sha256").update(screenshot.image, "base64").digest("hex")}`
+      );
       const captured: TeachingScreenshot = {
-        ...screenshot,
         capturedAt: eventTime(screenshot.capturedAt),
+        contentHash,
+        format: screenshot.format,
         id: `screenshot-${randomUUID()}`,
+        url: screenshot.url,
       };
       screenshots.push(captured);
+      screenshotBytes.set(contentHash, screenshot.image);
       trim(screenshots, SNAPSHOT_LIMIT);
+      // Bytes outlive nothing: once the oldest references are trimmed away,
+      // the images only they named go with them.
+      const live = new Set(screenshots.map((one) => one.contentHash));
+      for (const hash of screenshotBytes.keys()) {
+        if (!live.has(hash)) {
+          screenshotBytes.delete(hash);
+        }
+      }
       return captured;
     },
     recordSnapshot,
@@ -295,6 +337,10 @@ export const makeDemonstrationCapture = (
       variables.set(variable.name, variable);
       privateValues.add(value);
       privateSelectors.add(selector);
+    },
+    screenshotContent: (screenshotId) => {
+      const reference = screenshots.find(({ id }) => id === screenshotId);
+      return reference === undefined ? undefined : contentOf(reference);
     },
     sensitiveSelectors: () => [...privateSelectors],
     sensitiveValues: () =>

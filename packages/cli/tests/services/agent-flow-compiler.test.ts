@@ -1,4 +1,8 @@
-import { AgentElementRef, AgentSnapshotId } from "@contingency/protocol";
+import {
+  AgentElementRef,
+  AgentSnapshotId,
+  ScreenshotHash,
+} from "@contingency/protocol";
 import type {
   AgentBrowserSnapshot,
   AgentFlowDraftProposal,
@@ -54,12 +58,13 @@ const shop = "https://shop.example.com/";
 const cart = "https://shop.example.com/cart";
 const pay = "https://pay.example.net/checkout";
 
+const contentHash = ScreenshotHash.make(`sha256-${"a".repeat(64)}`);
+
 const screenshot: TeachingScreenshot = {
   capturedAt: at(1),
-  encoding: "base64",
+  contentHash,
   format: "png",
   id: "screenshot-1",
-  image: "masked-image",
   url: shop,
 };
 
@@ -74,6 +79,12 @@ const demonstration: Demonstration = {
     { at: at(0), id: "i0", text: "Open the shop" },
     { at: at(3), id: "i3", text: "Now pay for it" },
   ],
+  screenshotContents: new Map([
+    [
+      contentHash,
+      { ...screenshot, encoding: "base64", image: "masked-image" } as const,
+    ],
+  ]),
   screenshots: [screenshot],
   snapshots: new Map([
     [AgentSnapshotId.make("s-a1"), snapshot("s-a1", shop)],
@@ -131,7 +142,10 @@ describe("compileAgentFlowDraft", () => {
     expect(first?.actions.map(({ id }) => id)).toEqual(["a1", "a2"]);
     expect(first?.before).toBeNull();
     expect(first?.after?.snapshotId).toBe("s-a2");
-    expect(first?.screenshots).toEqual([screenshot]);
+    // The slice names where the bytes live rather than carrying them.
+    expect(first?.screenshots).toEqual([
+      { ...screenshot, path: `screenshots/${contentHash}.png` },
+    ]);
     // Instructions given before any action belong to the first Step.
     expect(first?.instructions.map(({ id }) => id)).toEqual(["i0"]);
     expect(first?.urlTransitions.map(({ actionId }) => actionId)).toEqual([
