@@ -120,6 +120,15 @@ it.live("replays a Scroll against its named nested container", () =>
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );
 
+/**
+ * The Runner bounds Scroll readiness at two seconds and a Step timeout can
+ * only lower that bound, so this test has to fit inside it on a two-core CI
+ * runner. Everything it spends is therefore deliberate: a short wheel delta
+ * (a long one animates over many frames, and frames are what a loaded runner
+ * is short of), a beacon the fixture server answers on the next tick, and a
+ * click whose timeout is large enough that an exhausted wait fails on the
+ * readiness assertion below rather than as an unexplained Run outcome.
+ */
 it.live("waits for finite work and DOM quietness started by a Scroll", () =>
   Effect.gen(function* waitForScrollReadiness() {
     const fixtures = yield* fixtureServer;
@@ -127,10 +136,10 @@ it.live("waits for finite work and DOM quietness started by a Scroll", () =>
     const { persisted, run } = yield* runFlow(
       flow([
         { type: "navigate", url: fixtures.url("scroll-readiness.html") },
-        { deltaY: 1200, type: "scroll" },
+        { deltaY: 300, type: "scroll" },
         {
           target: [{ kind: "css", selector: "#continue" }],
-          timeout: 100,
+          timeout: 1000,
           type: "click",
         },
       ])
