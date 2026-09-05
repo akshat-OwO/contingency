@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
 import { Layer } from "effect";
-import type { FileSystem } from "effect";
+import type { Cause, FileSystem } from "effect";
 import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
 import { makeAgentRunArtifactRoutes } from "../routes/agent-run-artifacts.ts";
@@ -44,6 +44,15 @@ export interface HttpServerOptions {
     CreateBrowserService | FileSystem.FileSystem
   >;
   readonly host: string;
+  /**
+   * Streamable HTTP MCP on this process's Agent View server. Absent on
+   * `contingency web`, which must not own Agent Sessions.
+   */
+  readonly mcp?: Layer.Layer<
+    never,
+    Cause.IllegalArgumentError,
+    HttpRouter.HttpRouter
+  >;
   readonly port: number;
   /** The one Flow Audit View can run, and where its Runs are written. */
   readonly run: RunSessionInput;
@@ -56,6 +65,7 @@ export const makeHttpServerLayer = ({
   allowedOrigins,
   agentSession,
   host,
+  mcp = Layer.empty,
   port,
   run,
   serveWebUi,
@@ -88,8 +98,8 @@ export const makeHttpServerLayer = ({
   const artifactRoutes = makeRunArtifactRoutes({ allowedOrigins });
   // The artifact routes read their stores per request, so those are provided
   // to the served router rather than to the route layers.
-  const serveRoutes = <R>(routes: Layer.Layer<never, never, R>) =>
-    HttpRouter.serve(Layer.merge(routes, webRoutes)).pipe(
+  const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>
+    HttpRouter.serve(Layer.mergeAll(routes, mcp, webRoutes)).pipe(
       Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
       Layer.provide(runSession)
     );
