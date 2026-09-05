@@ -45,3 +45,8 @@ yarn-error.log*
 # Calibration experiment output (issue #25): machine-specific numbers, reported
 # on the ticket rather than committed
 packages/cli/tests/calibration/results.json
+
+# Agent Flow Catalog: per-machine state, not shared source. Holds saved and
+# approved Agent Flows, the write-ahead operations log, and Teaching Traces
+# and videos, which are unredacted and sensitive.
+.contingency/
