@@ -709,7 +709,9 @@ it.live("keeps MCP stdio up when the configured Agent View port is taken", () =>
       )
     );
     yield* Effect.promise(() =>
-      mcp.waitForText("Agent View available at http://127.0.0.1:")
+      mcp.waitForText(
+        `Contingency MCP Agent View could not bind 127.0.0.1:${occupiedPort}; tools still run on stdio.`
+      )
     );
     yield* Effect.promise(() =>
       mcp.send({

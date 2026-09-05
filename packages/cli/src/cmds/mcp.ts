@@ -1,8 +1,17 @@
 import path from "node:path";
 
-import { Config, Console, Effect, FileSystem, Layer, Logger } from "effect";
+import {
+  Config,
+  Console,
+  Effect,
+  FileSystem,
+  Layer,
+  Logger,
+  Result,
+} from "effect";
 import { McpProtocol, McpServer } from "effect/unstable/ai";
 import { Command } from "effect/unstable/cli";
+import { HttpServerError } from "effect/unstable/http";
 
 import {
   defaultCatalogRoot,
@@ -22,11 +31,26 @@ import { makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
 
+const DEFAULT_MCP_PORT = 7783;
+
 const mcpTools = Layer.mergeAll(
   McpAgentSessionLayer,
   McpAgentFlowLayer,
   McpAgentRunLayer
 );
+
+const isListenAddressInUse = (error: unknown): boolean => {
+  if (!(error instanceof HttpServerError.ServeError)) {
+    return false;
+  }
+  const { cause } = error;
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    cause.code === "EADDRINUSE"
+  );
+};
 
 /**
  * Start one local MCP process. Its Agent Session layer is passed to both the
@@ -40,7 +64,7 @@ export const mcpCommand = Command.make(
   Effect.fnUntraced(function* runMcp() {
     const config = yield* Config.all({
       host: Config.string("HOST").pipe(Config.withDefault("127.0.0.1")),
-      port: Config.number("PORT").pipe(Config.withDefault(7777)),
+      port: Config.number("PORT").pipe(Config.withDefault(DEFAULT_MCP_PORT)),
     }).pipe(Config.nested("CONTINGENCY_MCP"));
     // This command is intentionally local-only. A non-loopback HOST is not
     // accepted even if an operator accidentally configures one in the shell.
@@ -111,7 +135,7 @@ export const mcpCommand = Command.make(
           );
         }
         const allowedOrigins = resolveAllowedOrigins(browserUrl);
-        yield* Layer.build(
+        const httpOutcome = yield* Layer.build(
           makeHttpServerLayer({
             agentFlowCatalog: catalog,
             agentRunStore: runStore,
@@ -123,14 +147,26 @@ export const mcpCommand = Command.make(
             run: { flow: null, outputDirectory: defaultRunsDirectory() },
             serveWebUi: true,
           }).pipe(Layer.provide(agentSession))
-        );
-        yield* Console.error(
-          `Contingency MCP available at ${browserUrl.origin}/mcp`
-        );
-        yield* Console.error(
-          `Contingency MCP Agent View available at ${browserUrl.origin}/agent`
-        );
-        return yield* Effect.never;
+        ).pipe(Effect.result);
+        if (Result.isSuccess(httpOutcome)) {
+          yield* Console.error(
+            `Contingency MCP available at ${browserUrl.origin}/mcp`
+          );
+          yield* Console.error(
+            `Contingency MCP Agent View available at ${browserUrl.origin}/agent`
+          );
+          return yield* Effect.never;
+        }
+        // URL clients need this exact port. Spawned stdio clients (Claude,
+        // Codex) must keep tools up when the bind is taken, the same contract
+        // the occupied-port integration test pins.
+        if (isListenAddressInUse(httpOutcome.failure) && !process.stdin.isTTY) {
+          yield* Console.error(
+            `Contingency MCP Agent View could not bind ${host}:${port}; tools still run on stdio.`
+          );
+          return yield* Effect.never;
+        }
+        return yield* Effect.fail(httpOutcome.failure);
       })
     ).pipe(Effect.provideService(Logger.LogToStderr, true));
   })
