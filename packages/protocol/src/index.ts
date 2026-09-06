@@ -48,6 +48,7 @@ import {
   PermissionDecisions,
   RecordingSnapshot,
 } from "./flow.ts";
+import { optionalNullable } from "./optional-field.ts";
 import { RunSnapshot } from "./run.ts";
 import {
   BrowserStorageDeletePayload,
@@ -74,6 +75,8 @@ export * from "./agent-browser.ts";
 export * from "./agent-flow.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-run.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./optional-field.ts";
 export {
   BrowserTabId,
   SessionId,
@@ -165,12 +168,12 @@ export type BrowserConsoleEntry = typeof BrowserConsoleEntry.Type;
 export const BrowserNetworkRequest = Schema.Struct({
   headers: Schema.Unknown,
   method: Schema.String,
-  mimeType: Schema.optional(Schema.String),
-  postData: Schema.optional(Schema.String),
+  mimeType: optionalNullable(Schema.String),
+  postData: optionalNullable(Schema.String),
   requestId: BrowserRequestId,
   resourceType: Schema.String,
-  responseHeaders: Schema.optional(Schema.Unknown),
-  status: Schema.optional(Schema.Int),
+  responseHeaders: optionalNullable(Schema.Unknown),
+  status: optionalNullable(Schema.Int),
   tabId: BrowserTabId,
   timestamp: Schema.Int,
   url: Schema.String,
@@ -179,9 +182,9 @@ export type BrowserNetworkRequest = typeof BrowserNetworkRequest.Type;
 
 export const BrowserNetworkRequestDetail = Schema.Struct({
   ...BrowserNetworkRequest.fields,
-  initiator: Schema.optional(Schema.Unknown),
-  responseBody: Schema.optional(Schema.String),
-  timing: Schema.optional(Schema.Unknown),
+  initiator: optionalNullable(Schema.Unknown),
+  responseBody: optionalNullable(Schema.String),
+  timing: optionalNullable(Schema.Unknown),
 });
 export type BrowserNetworkRequestDetail =
   typeof BrowserNetworkRequestDetail.Type;
@@ -196,17 +199,17 @@ export const MouseButton = Schema.Literals([
 ]);
 
 export const MouseInput = Schema.Struct({
-  button: Schema.optional(MouseButton),
-  clickCount: Schema.optional(Schema.Int),
-  deltaX: Schema.optional(Schema.Finite),
-  deltaY: Schema.optional(Schema.Finite),
+  button: optionalNullable(MouseButton),
+  clickCount: optionalNullable(Schema.Int),
+  deltaX: optionalNullable(Schema.Finite),
+  deltaY: optionalNullable(Schema.Finite),
   eventType: Schema.Literals([
     "mousePressed",
     "mouseReleased",
     "mouseMoved",
     "mouseWheel",
   ]),
-  modifiers: Schema.optional(Schema.Int),
+  modifiers: optionalNullable(Schema.Int),
   type: Schema.Literal("input_mouse"),
   x: Schema.Finite,
   y: Schema.Finite,
@@ -214,13 +217,13 @@ export const MouseInput = Schema.Struct({
 export type MouseInput = typeof MouseInput.Type;
 
 export const KeyboardInput = Schema.Struct({
-  code: Schema.optional(Schema.String),
+  code: optionalNullable(Schema.String),
   eventType: Schema.Literals(["keyDown", "keyUp", "char"]),
-  key: Schema.optional(Schema.String),
-  modifiers: Schema.optional(Schema.Int),
-  text: Schema.optional(Schema.String),
+  key: optionalNullable(Schema.String),
+  modifiers: optionalNullable(Schema.Int),
+  text: optionalNullable(Schema.String),
   type: Schema.Literal("input_keyboard"),
-  windowsVirtualKeyCode: Schema.optional(Schema.Int),
+  windowsVirtualKeyCode: optionalNullable(Schema.Int),
 });
 export type KeyboardInput = typeof KeyboardInput.Type;
 
@@ -244,7 +247,7 @@ export const AgentBrowserFrame = Schema.Struct({
 
 export const BrowserStreamStatus = Schema.Struct({
   connected: Schema.Boolean,
-  recording: Schema.optional(Schema.Boolean),
+  recording: optionalNullable(Schema.Boolean),
   screencasting: Schema.Boolean,
   type: Schema.Literal("status"),
   viewportHeight: Schema.Int,
@@ -268,7 +271,7 @@ export const BrowserStreamEvent = Schema.Union([
   BrowserStreamStatus,
   Schema.Struct({
     tabId: BrowserTabId,
-    timestamp: Schema.optional(Schema.Finite),
+    timestamp: optionalNullable(Schema.Finite),
     type: Schema.Literal("url"),
     url: Schema.String,
   }),
@@ -418,7 +421,7 @@ export const BrowserSessionClosed = response("browser.session.closed", {});
 export const BrowserOpen = request("browser.open", {
   /** The whole Emulation to apply before the first request leaves. */
   emulation: DraftEmulation,
-  sessionId: Schema.optional(SessionId),
+  sessionId: optionalNullable(SessionId),
   url: Schema.String,
 });
 export const BrowserOpened = response("browser.opened", {
@@ -463,13 +466,13 @@ export const BrowserUserAgentUpdated = response("browser.user-agent.updated", {
  */
 export const SessionEmulation = Schema.Struct({
   /** The concrete browser identity the session applies to every Page. */
-  browser: Schema.optional(BrowserIdentity),
-  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
-  geolocation: Schema.optional(Geolocation),
-  locale: Schema.optional(nonEmptyProtocolString),
+  browser: optionalNullable(BrowserIdentity),
+  colorScheme: optionalNullable(Schema.Literals(["light", "dark"])),
+  geolocation: optionalNullable(Geolocation),
+  locale: optionalNullable(nonEmptyProtocolString),
   permissions: PermissionDecisions,
-  timezoneId: Schema.optional(nonEmptyProtocolString),
-  userAgent: Schema.optional(nonEmptyProtocolString),
+  timezoneId: optionalNullable(nonEmptyProtocolString),
+  userAgent: optionalNullable(nonEmptyProtocolString),
   viewport: Viewport,
 });
 export type SessionEmulation = typeof SessionEmulation.Type;

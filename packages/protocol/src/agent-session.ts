@@ -10,6 +10,7 @@ import {
 } from "./agent-identifiers.ts";
 import { AgentRunState } from "./agent-run.ts";
 import { DraftEmulation } from "./flow.ts";
+import { optionalNullable } from "./optional-field.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -48,7 +49,7 @@ export const AgentSessionSnapshot = Schema.Struct({
   controller: AgentSessionController,
   createdAt: nonEmptyString,
   currentUrl: Schema.String,
-  error: Schema.optional(Schema.String),
+  error: optionalNullable(Schema.String),
   id: AgentSessionId,
   /**
    * The action the browser had already been asked to perform when Takeover
@@ -88,7 +89,7 @@ export const AgentSessions = Schema.Struct({
 export type AgentSessions = typeof AgentSessions.Type;
 
 export const AgentSessionStart = Schema.Struct({
-  activity: Schema.optional(AgentSessionActivity),
+  activity: optionalNullable(AgentSessionActivity),
   clientName: nonEmptyString,
   clientVersion: nonEmptyString,
   /**
@@ -97,10 +98,10 @@ export const AgentSessionStart = Schema.Struct({
    * phone profile is a phone rather than a narrow desktop window. Without it
    * the session runs the default identity at `viewport`.
    */
-  emulation: Schema.optional(DraftEmulation),
-  name: Schema.optional(nonEmptyString),
+  emulation: optionalNullable(DraftEmulation),
+  name: optionalNullable(nonEmptyString),
   operationId: OperationId,
-  url: Schema.optional(nonEmptyString),
+  url: optionalNullable(nonEmptyString),
   viewport: Viewport,
 });
 export type AgentSessionStart = typeof AgentSessionStart.Type;

@@ -13,6 +13,7 @@ import {
   OperationId,
 } from "./agent-identifiers.ts";
 import { DraftEmulation, Variable } from "./flow.ts";
+import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -78,8 +79,8 @@ export const CapturedUserInput = Schema.Struct({
     "mouseWheel",
   ]),
   inputType: Schema.Literals(["keyboard", "mouse"]),
-  key: Schema.optional(Schema.Literal("[user input]")),
-  text: Schema.optional(Schema.Literal("[user input]")),
+  key: optionalNullable(Schema.Literal("[user input]")),
+  text: optionalNullable(Schema.Literal("[user input]")),
 });
 export type CapturedUserInput = typeof CapturedUserInput.Type;
 
@@ -101,7 +102,7 @@ export const CapturedAction = Schema.Struct({
   actor: AgentSessionController,
   at: nonEmptyString,
   description: nonEmptyString,
-  detail: Schema.optional(Schema.String),
+  detail: optionalNullable(Schema.String),
   id: nonEmptyString,
   outcome: AgentActionOutcome,
   snapshotAfter: Schema.NullOr(AgentSnapshotId),
@@ -224,7 +225,7 @@ export type TeachingFeed = typeof TeachingFeed.Type;
 export const TEACHING_SCREENSHOT_BUDGET_CHARACTERS = 512;
 
 export const TeachingFeedGet = Schema.Struct({
-  includeSnapshots: Schema.optional(Schema.Boolean),
+  includeSnapshots: optionalNullable(Schema.Boolean),
   sessionId: AgentSessionId,
 });
 export type TeachingFeedGet = typeof TeachingFeedGet.Type;
@@ -243,7 +244,7 @@ export type TeachingInstructionRecord = typeof TeachingInstructionRecord.Type;
 export const TeachingVariableInput = Schema.Struct({
   operationId: OperationId,
   /** Omit only in Agent View, where the currently focused control is used. */
-  ref: Schema.optional(AgentElementRef),
+  ref: optionalNullable(AgentElementRef),
   sessionId: AgentSessionId,
   value: nonEmptyString,
   variable: Schema.Struct({
@@ -289,9 +290,9 @@ export const AgentFlowDraftProposal = Schema.Struct({
   domainScope: DomainScope,
   schemaVersion: Schema.Literal(1),
   steps: Schema.Array(AgentStepProposal).check(Schema.isMinLength(1)),
-  tags: Schema.optional(Schema.Array(nonEmptyString)),
+  tags: optionalNullable(Schema.Array(nonEmptyString)),
   title: nonEmptyString,
-  variables: Schema.optional(Schema.Array(Variable)),
+  variables: optionalNullable(Schema.Array(Variable)),
 });
 export type AgentFlowDraftProposal = typeof AgentFlowDraftProposal.Type;
 
@@ -510,14 +511,14 @@ export type AgentCatalogSelect = typeof AgentCatalogSelect.Type;
  * continuation, never mistaken for approved coverage.
  */
 export const AgentFlowSearch = Schema.Struct({
-  archived: Schema.optional(Schema.Boolean),
-  host: Schema.optional(nonEmptyString),
-  limit: Schema.optional(
+  archived: optionalNullable(Schema.Boolean),
+  host: optionalNullable(nonEmptyString),
+  limit: optionalNullable(
     Schema.Int.check(Schema.isBetween({ maximum: 100, minimum: 1 }))
   ),
-  query: Schema.optional(Schema.String),
-  status: Schema.optional(AgentFlowRevisionStatus),
-  tag: Schema.optional(nonEmptyString),
+  query: optionalNullable(Schema.String),
+  status: optionalNullable(AgentFlowRevisionStatus),
+  tag: optionalNullable(nonEmptyString),
 });
 export type AgentFlowSearch = typeof AgentFlowSearch.Type;
 
@@ -547,7 +548,7 @@ export type AgentFlowSearchResult = typeof AgentFlowSearchResult.Type;
 export const AgentFlowGet = Schema.Struct({
   agentFlowId: AgentFlowId,
   /** A specific revision; the current draft head when omitted. */
-  revisionId: Schema.optional(AgentFlowRevisionId),
+  revisionId: optionalNullable(AgentFlowRevisionId),
 });
 export type AgentFlowGet = typeof AgentFlowGet.Type;
 
@@ -562,7 +563,7 @@ export type AgentFlowRevision = typeof AgentFlowRevision.Type;
 
 export const AgentFlowDraftSave = Schema.Struct({
   /** Revise an existing Agent Flow; a new identity is minted when omitted. */
-  agentFlowId: Schema.optional(AgentFlowId),
+  agentFlowId: optionalNullable(AgentFlowId),
   /**
    * The current draft head this proposal started from, or the approved head
    * when beginning a revision of an Approved Agent Flow. `null` is only for a
@@ -674,8 +675,8 @@ export type AgentFlowVerificationAuthorize =
 /** The external agent starting the Verification Run the user authorized. */
 export const AgentFlowVerificationStart = Schema.Struct({
   agentFlowId: AgentFlowId,
-  clientName: Schema.optional(nonEmptyString),
-  clientVersion: Schema.optional(nonEmptyString),
+  clientName: optionalNullable(nonEmptyString),
+  clientVersion: optionalNullable(nonEmptyString),
   operationId: OperationId,
   revisionId: AgentFlowRevisionId,
 });

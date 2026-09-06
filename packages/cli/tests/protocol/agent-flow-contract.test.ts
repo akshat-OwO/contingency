@@ -1,5 +1,7 @@
 import {
   AgentFlowDraftProposal,
+  AgentFlowDraftSave,
+  AgentTimelineEntry,
   TeachingFeed,
   TeachingVariableInput,
 } from "@contingency/protocol";
@@ -37,4 +39,46 @@ test("Teaching contracts carry Variable declarations without literal values", ()
   expect(feedSchema).not.toContain("video");
   expect(draftSchema).toContain("secret");
   expect(draftSchema).toContain("runtime");
+});
+
+test("a draft save mints a new identity for null and for an omitted id", () => {
+  const draft = {
+    description: "Search the catalog",
+    domainScope: { hosts: ["example.com"] },
+    schemaVersion: 1,
+    steps: [
+      {
+        confirmation: false,
+        description: "Search for a product",
+        firstActionId: "a1",
+        lastActionId: "a2",
+        name: "Search",
+      },
+    ],
+    tags: null,
+    title: "Search",
+    variables: null,
+  };
+  const base = {
+    basedOnRevisionId: null,
+    draft,
+    operationId: "op-1",
+    sessionId: "agent-teaching",
+  };
+  const decode = Schema.decodeUnknownSync(AgentFlowDraftSave);
+  expect(decode({ ...base, agentFlowId: null }).agentFlowId).toBeUndefined();
+  expect(decode(base).agentFlowId).toBeUndefined();
+});
+
+test("an optional field with an explicit undefined encodes as an absent key", () => {
+  const entry = Schema.encodeUnknownSync(AgentTimelineEntry)({
+    actor: "agent",
+    at: "2026-09-06T00:00:00.000Z",
+    description: "Failed action",
+    detail: undefined,
+    dispatched: true,
+    id: "entry-1",
+    outcome: "failed",
+  });
+  expect("detail" in entry).toBe(false);
 });

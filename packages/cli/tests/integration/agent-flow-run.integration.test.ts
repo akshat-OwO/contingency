@@ -733,7 +733,7 @@ it.live(
         ) =>
           session("agent_browser_act", {
             action,
-            intent,
+            ...(intent === undefined ? {} : { intent }),
             operationId: OperationId.make(operation),
             sessionId,
           });

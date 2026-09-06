@@ -106,7 +106,6 @@ it.effect(
         });
         const handlers = yield* AgentFlowTools;
         const stream = yield* handlers.handle("agent_flow_draft_save", {
-          agentFlowId: undefined,
           basedOnRevisionId: null,
           draft: proposal,
           operationId,
@@ -169,8 +168,6 @@ it.effect("refuses to start a Verification Run the user never authorized", () =>
       const handlers = yield* AgentFlowTools;
       const stream = yield* handlers.handle("agent_flow_verification_start", {
         agentFlowId: saved.manifest.agentFlowId,
-        clientName: undefined,
-        clientVersion: undefined,
         operationId: OperationId.make("verify-unauthorized-start"),
         revisionId: saved.manifest.revisionId,
       });
