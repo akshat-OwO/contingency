@@ -572,13 +572,18 @@ export const makeAgentElementRegistry = (
         }))
       );
       // #region agent log
-      agentDebugLog("C", "agent-browser.ts:snapshot-collected", "Snapshot script result", {
-        headingNames: decodedNodes
-          .filter(({ role }) => role === "heading")
-          .map(({ name }) => name),
-        identityUrl: identity.url,
-        pageUrl: page.url(),
-      });
+      agentDebugLog(
+        "C",
+        "agent-browser.ts:snapshot-collected",
+        "Snapshot script result",
+        {
+          headingNames: decodedNodes
+            .filter(({ role }) => role === "heading")
+            .map(({ name }) => name),
+          identityUrl: identity.url,
+          pageUrl: page.url(),
+        }
+      );
       // #endregion
       const nodes: AgentSnapshotNode[] = [];
       const orphaned: JSHandle<unknown>[] = [];
@@ -942,20 +947,30 @@ export const snapshotAfterAction = (
   urlBefore: string = page.url()
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
   // #region agent log
-  agentDebugLog("D", "agent-browser.ts:snapshotAfterAction-entry", "Post-action snapshot entered", {
-    pageUrl: page.url(),
-    urlBefore,
-  });
+  agentDebugLog(
+    "D",
+    "agent-browser.ts:snapshotAfterAction-entry",
+    "Post-action snapshot entered",
+    {
+      pageUrl: page.url(),
+      urlBefore,
+    }
+  );
   // #endregion
   const settle = Effect.tryPromise({
     catch: (cause) => cause,
     try: async () => {
       if (page.url() === urlBefore) {
         // #region agent log
-        agentDebugLog("D", "agent-browser.ts:settle-same-url", "Settling unchanged URL branch", {
-          pageUrl: page.url(),
-          urlBefore,
-        });
+        agentDebugLog(
+          "D",
+          "agent-browser.ts:settle-same-url",
+          "Settling unchanged URL branch",
+          {
+            pageUrl: page.url(),
+            urlBefore,
+          }
+        );
         // #endregion
         await page.waitForLoadState("domcontentloaded", {
           timeout: SETTLE_TIMEOUT_MS,
@@ -963,10 +978,15 @@ export const snapshotAfterAction = (
         return;
       }
       // #region agent log
-      agentDebugLog("A", "agent-browser.ts:settle-changed-url", "Settling changed URL branch", {
-        pageUrl: page.url(),
-        urlBefore,
-      });
+      agentDebugLog(
+        "A",
+        "agent-browser.ts:settle-changed-url",
+        "Settling changed URL branch",
+        {
+          pageUrl: page.url(),
+          urlBefore,
+        }
+      );
       // #endregion
       await page.waitForURL((url) => url.href !== urlBefore, {
         timeout: SETTLE_TIMEOUT_MS,
@@ -980,9 +1000,14 @@ export const snapshotAfterAction = (
           })
       );
       // #region agent log
-      agentDebugLog("A,B", "agent-browser.ts:settle-complete", "Playwright settling completed", {
-        pageUrl: page.url(),
-      });
+      agentDebugLog(
+        "A,B",
+        "agent-browser.ts:settle-complete",
+        "Playwright settling completed",
+        {
+          pageUrl: page.url(),
+        }
+      );
       // #endregion
     },
   }).pipe(Effect.ignore);
@@ -991,12 +1016,17 @@ export const snapshotAfterAction = (
     Effect.tap((snapshot) =>
       Effect.sync(() => {
         // #region agent log
-        agentDebugLog("C,E", "agent-browser.ts:snapshotAfterAction-exit", "Post-action snapshot completed", {
-          headingNames: snapshot.nodes
-            .filter(({ role }) => role === "heading")
-            .map(({ name }) => name),
-          snapshotUrl: snapshot.url,
-        });
+        agentDebugLog(
+          "C,E",
+          "agent-browser.ts:snapshotAfterAction-exit",
+          "Post-action snapshot completed",
+          {
+            headingNames: snapshot.nodes
+              .filter(({ role }) => role === "heading")
+              .map(({ name }) => name),
+            snapshotUrl: snapshot.url,
+          }
+        );
         // #endregion
       })
     ),
