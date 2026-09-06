@@ -1,5 +1,3 @@
-import { appendFileSync } from "node:fs";
-
 import {
   AgentElementRef,
   AgentSnapshotId,
@@ -31,26 +29,6 @@ const SNAPSHOT_LIMIT = 300;
 
 /** How long an accessible name may be before it is truncated. */
 const NAME_LIMIT = 160;
-
-// #region agent log
-const agentDebugLog = (
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Readonly<Record<string, unknown>>
-): void => {
-  appendFileSync(
-    "/opt/cursor/logs/debug.log",
-    `${JSON.stringify({
-      data,
-      hypothesisId,
-      location,
-      message,
-      timestamp: Date.now(),
-    })}\n`
-  );
-};
-// #endregion
 
 /**
  * How many element references one Agent Session keeps alive at once. A long
@@ -938,55 +916,19 @@ export const snapshotAfterAction = (
   registry: AgentElementRegistry,
   urlBefore: string
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
-  const effectiveUrlBefore = urlBefore;
-  // #region agent log
-  agentDebugLog(
-    "B,C",
-    "agent-browser.ts:snapshotAfterAction-entry",
-    "Post-action snapshot entered",
-    {
-      currentUrlDiffers: page.url() !== effectiveUrlBefore,
-      urlBeforeOmitted: urlBefore === undefined,
-    }
-  );
-  // #endregion
   const settle = Effect.tryPromise({
     catch: (cause) => cause,
     try: async () => {
-      if (page.url() === effectiveUrlBefore) {
-        // #region agent log
-        agentDebugLog(
-          "C",
-          "agent-browser.ts:settle-unchanged-url",
-          "Settling unchanged URL branch",
-          { urlBeforeOmitted: urlBefore === undefined }
-        );
-        // #endregion
+      if (page.url() === urlBefore) {
         await page.waitForLoadState("domcontentloaded", {
           timeout: SETTLE_TIMEOUT_MS,
         });
         return;
       }
-      // #region agent log
-      agentDebugLog(
-        "B",
-        "agent-browser.ts:settle-changed-url",
-        "Settling changed URL branch",
-        {}
-      );
-      // #endregion
-      await page.waitForURL((url) => url.href !== effectiveUrlBefore, {
+      await page.waitForURL((url) => url.href !== urlBefore, {
         timeout: SETTLE_TIMEOUT_MS,
         waitUntil: "domcontentloaded",
       });
-      // #region agent log
-      agentDebugLog(
-        "B",
-        "agent-browser.ts:wait-for-url-complete",
-        "Playwright URL wait completed",
-        { urlStillDiffers: page.url() !== effectiveUrlBefore }
-      );
-      // #endregion
       await page.evaluate(() => {
         const browser = globalThis as unknown as AnimationFramePageGlobals;
         return (
@@ -996,14 +938,6 @@ export const snapshotAfterAction = (
           })
         );
       });
-      // #region agent log
-      agentDebugLog(
-        "A",
-        "agent-browser.ts:first-frame-complete",
-        "Single post-navigation frame completed",
-        {}
-      );
-      // #endregion
       await page.evaluate(() => {
         const browser = globalThis as unknown as AnimationFramePageGlobals;
         return (
@@ -1013,38 +947,10 @@ export const snapshotAfterAction = (
           })
         );
       });
-      // #region agent log
-      agentDebugLog(
-        "A",
-        "agent-browser.ts:second-frame-complete",
-        "Second post-navigation frame completed",
-        {}
-      );
-      // #endregion
     },
   }).pipe(Effect.ignore);
   const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));
-  return read.pipe(
-    Effect.tap((snapshot) =>
-      Effect.sync(() => {
-        // oxlint-disable-next-line unicorn/prefer-set-has -- Temporary diagnostics keep the probed names explicit.
-        const nodeNames = snapshot.nodes.map(({ name }) => name);
-        // #region agent log
-        agentDebugLog(
-          "A,D,E",
-          "agent-browser.ts:snapshotAfterAction-exit",
-          "Post-action snapshot completed",
-          {
-            hasDestinationHeading: nodeNames.includes("Destination page"),
-            hasOriginHeading: nodeNames.includes("Origin page"),
-            nodeCount: snapshot.nodes.length,
-          }
-        );
-        // #endregion
-      })
-    ),
-    Effect.catchCause(() => read)
-  );
+  return read.pipe(Effect.catchCause(() => read));
 };
 
 const attempt = <A>(
