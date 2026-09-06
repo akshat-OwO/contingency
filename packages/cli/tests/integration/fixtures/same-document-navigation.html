@@ -12,10 +12,14 @@
     <script>
       document.getElementById("navigate").addEventListener("click", () => {
         history.pushState({}, "", "/same-document-navigation.html/destination");
-        setTimeout(() => {
-          document.getElementById("page").innerHTML =
-            "<h1>Destination page</h1><button type='button'>Continue</button>";
-        }, 0);
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            requestAnimationFrame(() => {
+              document.getElementById("page").innerHTML =
+                "<h1>Destination page</h1><button type='button'>Continue</button>";
+            });
+          }, 0);
+        });
       });
     </script>
   </body>

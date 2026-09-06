@@ -100,10 +100,14 @@
         .getElementById("choose-delivery")
         .addEventListener("click", () => {
           history.pushState({}, "", "/shop.html/delivery");
-          setTimeout(() => {
-            document.getElementById("delivery").innerHTML =
-              "<h2>Delivery area</h2><button type='button'>Use current location</button>";
-          }, 0);
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              requestAnimationFrame(() => {
+                document.getElementById("delivery").innerHTML =
+                  "<h2>Delivery area</h2><button type='button'>Use current location</button>";
+              });
+            }, 0);
+          });
         });
     </script>
   </body>
