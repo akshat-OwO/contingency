@@ -1027,6 +1027,7 @@ export const snapshotAfterAction = (
   return read.pipe(
     Effect.tap((snapshot) =>
       Effect.sync(() => {
+        // oxlint-disable-next-line unicorn/prefer-set-has -- Temporary diagnostics keep the probed names explicit.
         const nodeNames = snapshot.nodes.map(({ name }) => name);
         // #region agent log
         agentDebugLog(
