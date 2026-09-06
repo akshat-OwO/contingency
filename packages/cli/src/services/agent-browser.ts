@@ -974,6 +974,7 @@ export const snapshotAfterAction = (
       });
       await page.evaluate(
         () =>
+          // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no Promise API.
           new Promise<void>((resolve) => {
             requestAnimationFrame(() => resolve());
           })
