@@ -1,5 +1,5 @@
 {
-  "name": "@contingency/cli",
+  "name": "@contingencyhq/cli",
   "version": "0.0.1",
   "bin": {
     "contingency": "./dist/index.js"
@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@contingency/protocol": "workspace:*",
     "@effect/platform-node": "^4.0.0-beta.106",
     "axe-core": "^4.13.0",
     "effect": "^4.0.0-beta.106",
@@ -30,6 +29,7 @@
     "playwright-core": "^1.62.1"
   },
   "devDependencies": {
+    "@contingency/protocol": "workspace:*",
     "@effect/vitest": "catalog:effect",
     "@nubjs/types": "catalog:types",
     "@types/node": "catalog:types",

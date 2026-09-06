@@ -20,7 +20,7 @@ To change recipes, fixtures, or harness behavior, follow `.cursor/skills/maintai
 Build once if `packages/cli/dist/index.js` or `packages/cli/dist/web/index.html` is missing:
 
 ```sh
-nub exec turbo run build --filter=@contingency/cli
+nub exec turbo run build --filter=@contingencyhq/cli
 ```
 
 Start an isolated instance. Do not set `CONTINGENCY_WEB_PORT` to 7777 unless `lsof` shows that port free and you created it for this run.

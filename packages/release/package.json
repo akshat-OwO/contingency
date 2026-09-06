@@ -1,0 +1,21 @@
+{
+  "name": "@contingency/release",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:effect",
+    "effect": "catalog:effect"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:effect",
+    "@nubjs/types": "catalog:types",
+    "@types/node": "catalog:types",
+    "typescript": "catalog:",
+    "vitest": "catalog:effect"
+  }
+}
