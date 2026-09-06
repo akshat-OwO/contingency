@@ -925,9 +925,7 @@ export const snapshotAfterAction = (
         timeout: SETTLE_TIMEOUT_MS,
         waitUntil: "domcontentloaded",
       });
-      await page.waitForFunction(() => true, undefined, {
-        timeout: SETTLE_TIMEOUT_MS,
-      });
+      await page.waitForTimeout(0);
     },
   }).pipe(Effect.ignore);
   const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));

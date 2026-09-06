@@ -611,11 +611,7 @@ it.live("reads the destination after a same-document navigation", () =>
     const observed = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,
     });
-    const navigate = findNode(
-      observed.nodes,
-      "button",
-      "Open destination"
-    );
+    const navigate = findNode(observed.nodes, "button", "Open destination");
 
     const navigated = yield* callTool("agent_browser_act", {
       action: { ref: navigate.ref, type: "click" },
@@ -628,9 +624,9 @@ it.live("reads the destination after a same-document navigation", () =>
     );
     findNode(navigated.snapshot.nodes, "heading", "Destination page");
     findNode(navigated.snapshot.nodes, "button", "Continue");
-    expect(
-      navigated.snapshot.nodes.map(({ name }) => name)
-    ).not.toContain("Origin page");
+    expect(navigated.snapshot.nodes.map(({ name }) => name)).not.toContain(
+      "Origin page"
+    );
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
