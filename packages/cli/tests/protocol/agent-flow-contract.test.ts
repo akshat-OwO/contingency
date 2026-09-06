@@ -1,6 +1,7 @@
 import {
   AgentFlowDraftProposal,
   AgentFlowDraftSave,
+  AgentTimelineEntry,
   TeachingFeed,
   TeachingVariableInput,
 } from "@contingency/protocol";
@@ -67,4 +68,17 @@ test("a draft save mints a new identity for null and for an omitted id", () => {
   const decode = Schema.decodeUnknownSync(AgentFlowDraftSave);
   expect(decode({ ...base, agentFlowId: null }).agentFlowId).toBeUndefined();
   expect(decode(base).agentFlowId).toBeUndefined();
+});
+
+test("an optional field with an explicit undefined encodes as an absent key", () => {
+  const entry = Schema.encodeUnknownSync(AgentTimelineEntry)({
+    actor: "agent",
+    at: "2026-09-06T00:00:00.000Z",
+    description: "Failed action",
+    detail: undefined,
+    dispatched: true,
+    id: "entry-1",
+    outcome: "failed",
+  });
+  expect("detail" in entry).toBe(false);
 });
