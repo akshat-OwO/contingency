@@ -972,7 +972,12 @@ export const snapshotAfterAction = (
         timeout: SETTLE_TIMEOUT_MS,
         waitUntil: "domcontentloaded",
       });
-      await page.waitForTimeout(0);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          })
+      );
       // #region agent log
       agentDebugLog("A,B", "agent-browser.ts:settle-complete", "Playwright settling completed", {
         pageUrl: page.url(),
