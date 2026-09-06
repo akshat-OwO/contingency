@@ -900,22 +900,54 @@ export const captureAgentScreenshot = (
 /** How long a post-action read waits for a navigation the action started. */
 const SETTLE_TIMEOUT_MS = 5000;
 
+interface AnimationFramePageGlobals {
+  readonly requestAnimationFrame: (callback: () => void) => number;
+}
+
 /**
- * Read the Page after an action. An action that navigates destroys the
- * execution context the Snapshot script runs in, so the read waits for the new
- * document and, if it still lost the race, settles and reads once more. Without
- * this, a Press that submits a form is recorded as failed although it worked.
+ * Read the Page after an action. A document navigation destroys the execution
+ * context the Snapshot script runs in, while a same-document navigation keeps
+ * that context and commits its destination UI on a following render. Settle
+ * the kind that occurred and, if the read still lost a document-navigation
+ * race, settle and read once more.
  */
 export const snapshotAfterAction = (
   page: Page,
-  registry: AgentElementRegistry
+  registry: AgentElementRegistry,
+  urlBefore: string
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
   const settle = Effect.tryPromise({
     catch: (cause) => cause,
-    try: () =>
-      page.waitForLoadState("domcontentloaded", {
+    try: async () => {
+      if (page.url() === urlBefore) {
+        await page.waitForLoadState("domcontentloaded", {
+          timeout: SETTLE_TIMEOUT_MS,
+        });
+        return;
+      }
+      await page.waitForURL((url) => url.href !== urlBefore, {
         timeout: SETTLE_TIMEOUT_MS,
-      }),
+        waitUntil: "domcontentloaded",
+      });
+      await page.evaluate(() => {
+        const browser = globalThis as unknown as AnimationFramePageGlobals;
+        return (
+          // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no Promise API.
+          new Promise<void>((resolve) => {
+            browser.requestAnimationFrame(() => resolve());
+          })
+        );
+      });
+      await page.evaluate(() => {
+        const browser = globalThis as unknown as AnimationFramePageGlobals;
+        return (
+          // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no Promise API.
+          new Promise<void>((resolve) => {
+            browser.requestAnimationFrame(() => resolve());
+          })
+        );
+      });
+    },
   }).pipe(Effect.ignore);
   const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));
   return read.pipe(Effect.catchCause(() => read));

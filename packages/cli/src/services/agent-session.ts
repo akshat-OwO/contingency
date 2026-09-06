@@ -1777,9 +1777,10 @@ const makeAgentSession = (
 
     const snapshotAfter = (
       record: SessionRecord,
-      page: Page
+      page: Page,
+      urlBefore: string
     ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
-      snapshotAfterAction(page, record.registry).pipe(
+      snapshotAfterAction(page, record.registry, urlBefore).pipe(
         Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
         Effect.tap((snapshot) =>
           Effect.sync(() =>
@@ -1791,10 +1792,11 @@ const makeAgentSession = (
     const boundaryResult = (
       record: SessionRecord,
       page: Page,
-      boundary: AgentExecutionBoundary
+      boundary: AgentExecutionBoundary,
+      urlBefore: string
     ) =>
       Effect.gen(function* readBoundaryResult() {
-        const snapshot = yield* snapshotAfter(record, page);
+        const snapshot = yield* snapshotAfter(record, page, urlBefore);
         return {
           entry: {
             actor: "agent" as const,
@@ -2113,6 +2115,7 @@ const makeAgentSession = (
     const semanticUserEdit = (
       record: SessionRecord,
       page: Page,
+      urlBefore: string,
       focused: {
         readonly description: string;
         readonly key: string;
@@ -2124,7 +2127,7 @@ const makeAgentSession = (
         if (focused.sensitive || record.capture === undefined) {
           return;
         }
-        const observed = yield* snapshotAfter(record, page);
+        const observed = yield* snapshotAfter(record, page, urlBefore);
         record.capture.recordSnapshot(observed);
         const focusedAfter = yield* Effect.result(record.registry.focusedRef());
         const value = Result.isSuccess(focusedAfter)
@@ -2141,8 +2144,12 @@ const makeAgentSession = (
             };
       });
 
-    const semanticUserClick = (record: SessionRecord, page: Page) =>
-      snapshotAfter(record, page).pipe(
+    const semanticUserClick = (
+      record: SessionRecord,
+      page: Page,
+      urlBefore: string
+    ) =>
+      snapshotAfter(record, page, urlBefore).pipe(
         Effect.tap((snapshot) =>
           Effect.sync(() => record.capture?.recordSnapshot(snapshot))
         )
@@ -2205,7 +2212,11 @@ const makeAgentSession = (
         if (input.pointed === undefined || input.record.capture === undefined) {
           return false;
         }
-        const observed = yield* semanticUserClick(input.record, input.page);
+        const observed = yield* semanticUserClick(
+          input.record,
+          input.page,
+          input.urlBefore
+        );
         const description = `Click ${input.pointed.ref}`;
         input.record.capture.recordAction({
           action: { ref: input.pointed.ref, type: "click" },
@@ -2259,6 +2270,7 @@ const makeAgentSession = (
         const semantic = yield* semanticUserEdit(
           input.record,
           input.page,
+          input.urlBefore,
           input.focused
         );
         if (semantic === undefined || input.record.capture === undefined) {
@@ -2303,13 +2315,19 @@ const makeAgentSession = (
       intent: AgentActionIntent
     ) =>
       Effect.gen(function* checkBoundary() {
+        const urlBefore = page.url();
         const { boundaryControl } = record;
         if (boundaryControl === undefined) {
           return;
         }
         const { pending } = boundaryControl;
         if (pending !== undefined) {
-          return yield* boundaryResult(record, page, pending.boundary);
+          return yield* boundaryResult(
+            record,
+            page,
+            pending.boundary,
+            urlBefore
+          );
         }
         const fingerprint = JSON.stringify({
           action,
@@ -2334,7 +2352,7 @@ const makeAgentSession = (
                 : boundaryObjective(record, intent),
           };
           yield* pauseBoundary(sessionId, record, boundary, fingerprint);
-          return yield* boundaryResult(record, page, boundary);
+          return yield* boundaryResult(record, page, boundary, urlBefore);
         }
         for (const reason of reasons) {
           boundaryControl.grants.delete(reason + fingerprint);
@@ -2414,7 +2432,7 @@ const makeAgentSession = (
                 privateRegistration.selector
               );
             }
-            const snapshot = yield* snapshotAfter(record, page);
+            const snapshot = yield* snapshotAfter(record, page, urlBefore);
             return {
               entry: {
                 actor: "agent" as const,
@@ -2515,7 +2533,12 @@ const makeAgentSession = (
         );
         const pending = record.boundaryControl?.pending;
         if (pending !== undefined) {
-          const result = yield* boundaryResult(record, page, pending.boundary);
+          const result = yield* boundaryResult(
+            record,
+            page,
+            pending.boundary,
+            urlBefore
+          );
           return {
             ...result,
             entry: { ...result.entry, dispatched: true, id },
@@ -2787,7 +2810,7 @@ const makeAgentSession = (
               yield* performPrivateVariableInput(page, selector, input.value);
               capture.recordVariable(input.variable, input.value, selector);
               const observed = yield* Effect.result(
-                snapshotAfter(record, page)
+                snapshotAfter(record, page, urlBefore)
               );
               if (Result.isFailure(observed)) {
                 capture.recordAction({
@@ -4152,7 +4175,7 @@ const makeAgentSession = (
             // The user drove the browser, and the Demonstration captures the
             // user's actions with the same fidelity as the agent's: a Snapshot
             // of the Page the navigation reached.
-            const after = yield* snapshotAfter(record, page).pipe(
+            const after = yield* snapshotAfter(record, page, urlBefore).pipe(
               Effect.option
             );
             record.capture.recordAction({
