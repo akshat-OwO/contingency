@@ -9,6 +9,7 @@ Agent View watches Teaching and Interactive Runs owned by one local MCP process,
 - `agent-empty-mcp` shows `No active Agent Sessions` on an MCP launch with no Teaching or Run.
 - `agent-bad-session` shows unavailability when `?session=` names a session this process does not own.
 - `agent-live-session` shows a live session's browser, status, and timeline.
+- `agent-same-document-snapshot` returns destination nodes with the destination URL after an agent action routes without loading a new document.
 - `agent-watching-readonly` disables the browser toolbar and marks the canvas read-only while the agent holds control.
 - `agent-takeover-controls` enables history, address, and canvas input once the user takes control.
 - `agent-takeover-timeline` records what the user did as `You`, and follows the browser's URL.
@@ -45,6 +46,8 @@ Preconditions:
 
 - **Start a session.** Give the agent a browser on the local shop. Run `control-contingency mcp call --tool agent_session_start --params "{\"clientName\":\"verify\",\"clientVersion\":\"1.0\",\"operationId\":\"verify-agent-1\",\"url\":\"$ECOMMERCE_URL\",\"viewport\":{\"deviceScaleFactor\":1,\"height\":720,\"width\":1024}}"`. Stdout is the session snapshot; export its `id` as `sessionId` and its `viewUrl`.
 - **Open the live view.** Run `control-contingency browser goto --url "$viewUrl"`, then `control-contingency browser wait --role button --name "Take control" --timeout-ms 20000`. The heading is `Agent View` and the status reads `Live` once frames arrive.
+- **Route within the document.** Call `agent_browser_snapshot` and note the ref for the `Choose delivery area` button. Call `agent_browser_act` with that ref and a fresh operation id. Save stdout as `agent-view/same-document-act.json`: `snapshot.url` ends in `/shop.html/delivery`, its nodes include heading `Delivery area` and button `Use current location`, and no node is named `Choose delivery area`.
+- **Proof (same-document reread).** Call `agent_browser_snapshot` again and save stdout as `agent-view/same-document-reread.json`; it reports the same URL and destination controls. In Agent View, save `agent-view/same-document.aria.txt` and `agent-view/same-document.png`; the live canvas is at the destination and the timeline records the completed agent click.
 - **Watching is read-only.** Before taking control, snapshot the toolbar. Run `control-contingency browser snapshot --aria --path agent-view/takeover-watching.aria.txt`. `Go back`, `Go forward`, `Reload page`, and `Browser address` are all `[disabled]`, the address placeholder reads `Take control to drive the browser`, and the canvas `Live browser viewport` is `aria-readonly="true"`.
 - **Take control.** Run `control-contingency browser click --role button --name "Take control"`, then `control-contingency browser wait --role button --name "Return control" --timeout-ms 15000`. The same toolbar handles are now enabled and the canvas is `aria-readonly="false"`.
 - **Navigate by address.** Run `control-contingency browser fill --role textbox --name "Browser address" --value "${ECOMMERCE_URL%/*}/catalog.html"`, then `control-contingency browser press --key Enter --role textbox --name "Browser address"`. A bare host is completed to `https://`.
