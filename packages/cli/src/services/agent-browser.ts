@@ -901,21 +901,37 @@ export const captureAgentScreenshot = (
 const SETTLE_TIMEOUT_MS = 5000;
 
 /**
- * Read the Page after an action. An action that navigates destroys the
- * execution context the Snapshot script runs in, so the read waits for the new
- * document and, if it still lost the race, settles and reads once more. Without
- * this, a Press that submits a form is recorded as failed although it worked.
+ * Read the Page after an action. A document navigation destroys the execution
+ * context the Snapshot script runs in, while a same-document navigation keeps
+ * that context and commits its destination UI on a following render. Settle
+ * the kind that occurred and, if the read still lost a document-navigation
+ * race, settle and read once more.
  */
 export const snapshotAfterAction = (
   page: Page,
-  registry: AgentElementRegistry
+  registry: AgentElementRegistry,
+  urlBefore: string = page.url()
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
   const settle = Effect.tryPromise({
     catch: (cause) => cause,
-    try: () =>
-      page.waitForLoadState("domcontentloaded", {
+    try: async () => {
+      if (page.url() === urlBefore) {
+        await page.waitForLoadState("domcontentloaded", {
+          timeout: SETTLE_TIMEOUT_MS,
+        });
+        return;
+      }
+      await page.waitForURL((url) => url.href !== urlBefore, {
         timeout: SETTLE_TIMEOUT_MS,
-      }),
+        waitUntil: "domcontentloaded",
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          })
+      );
+    },
   }).pipe(Effect.ignore);
   const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));
   return read.pipe(Effect.catchCause(() => read));

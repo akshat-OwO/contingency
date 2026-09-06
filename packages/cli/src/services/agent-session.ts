@@ -1777,9 +1777,10 @@ const makeAgentSession = (
 
     const snapshotAfter = (
       record: SessionRecord,
-      page: Page
+      page: Page,
+      urlBefore?: string
     ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
-      snapshotAfterAction(page, record.registry).pipe(
+      snapshotAfterAction(page, record.registry, urlBefore).pipe(
         Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
         Effect.tap((snapshot) =>
           Effect.sync(() =>
@@ -2414,7 +2415,7 @@ const makeAgentSession = (
                 privateRegistration.selector
               );
             }
-            const snapshot = yield* snapshotAfter(record, page);
+            const snapshot = yield* snapshotAfter(record, page, urlBefore);
             return {
               entry: {
                 actor: "agent" as const,
@@ -4152,7 +4153,7 @@ const makeAgentSession = (
             // The user drove the browser, and the Demonstration captures the
             // user's actions with the same fidelity as the agent's: a Snapshot
             // of the Page the navigation reached.
-            const after = yield* snapshotAfter(record, page).pipe(
+            const after = yield* snapshotAfter(record, page, urlBefore).pipe(
               Effect.option
             );
             record.capture.recordAction({

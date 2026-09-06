@@ -599,6 +599,41 @@ it.live("completes an action that navigates the Page it was read from", () =>
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live("reads the destination after a same-document navigation", () =>
+  Effect.gen(function* sameDocumentNavigation() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("same-document-navigation.html"),
+      "start-same-document"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const navigate = findNode(
+      observed.nodes,
+      "button",
+      "Open destination"
+    );
+
+    const navigated = yield* callTool("agent_browser_act", {
+      action: { ref: navigate.ref, type: "click" },
+      operationId: OperationId.make("act-same-document"),
+      sessionId: session.id,
+    });
+
+    expect(navigated.snapshot.url).toBe(
+      `${fixtures.url("same-document-navigation.html")}/destination`
+    );
+    findNode(navigated.snapshot.nodes, "heading", "Destination page");
+    findNode(navigated.snapshot.nodes, "button", "Continue");
+    expect(
+      navigated.snapshot.nodes.map(({ name }) => name)
+    ).not.toContain("Origin page");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("tells an MCP caller why an action failed", () =>
   Effect.gen(function* readableToolFailure() {
     const fixtures = yield* fixtureServer;

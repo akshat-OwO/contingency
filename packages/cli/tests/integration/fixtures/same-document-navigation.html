@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Same-document navigation</title>
+  </head>
+  <body>
+    <main id="page">
+      <h1>Origin page</h1>
+      <button id="navigate" type="button">Open destination</button>
+    </main>
+    <script>
+      document.getElementById("navigate").addEventListener("click", () => {
+        history.pushState({}, "", "/same-document-navigation.html/destination");
+        setTimeout(() => {
+          document.getElementById("page").innerHTML =
+            "<h1>Destination page</h1><button type='button'>Continue</button>";
+        }, 0);
+      });
+    </script>
+  </body>
+</html>
