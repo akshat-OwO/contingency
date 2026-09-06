@@ -11,7 +11,10 @@ import type {
   AgentFlowVerificationStatus,
 } from "@contingency/protocol";
 import { Cause } from "effect";
-import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import type { Atom } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/unstable/reactivity";
+
+import { retainedFamily } from "@/lib/retained-state";
 
 /**
  * One Agent Step as the user is editing it. Corrections move the demonstrated
@@ -295,12 +298,15 @@ export const authorizationPresentation = ({
   };
 };
 
-/** One atom per draft revision, so two reviews on screen never share state. */
-const perRevision = <A extends object>(make: () => A) => {
-  const family = Atom.family((_agentFlowId: AgentFlowId) =>
-    Atom.family((_revisionId: AgentFlowRevisionId) => make())
-  );
-  return (key: DraftReviewKey): A => family(key.agentFlowId)(key.revisionId);
+/**
+ * One slot per draft revision, so two reviews on screen never share state —
+ * and the slot outlives the review, so a region that momentarily leaves the
+ * screen comes back to what the user typed rather than to the manifest.
+ */
+const perRevision = <A>(initial: A) => {
+  const family = retainedFamily<A>(initial);
+  return (key: DraftReviewKey): Atom.Writable<A, A> =>
+    family(`${key.agentFlowId}\u0000${key.revisionId}`);
 };
 
 /** Which draft revision one review is of. */
@@ -333,9 +339,7 @@ export interface DraftCorrections {
   readonly hostsText: string;
 }
 
-export const draftCorrectionsAtom = perRevision(() =>
-  Atom.make<DraftCorrections | null>(null)
-);
+export const draftCorrectionsAtom = perRevision<DraftCorrections | null>(null);
 
 /**
  * The gesture this review last asked for. Its own RPC result — and no other
@@ -343,22 +347,26 @@ export const draftCorrectionsAtom = perRevision(() =>
  */
 export type DraftGesture = "approve" | "archive" | "authorize" | "update";
 
-export const draftGestureAtom = perRevision(() =>
-  Atom.make<DraftGesture | null>(null)
-);
+export const draftGestureAtom = perRevision<DraftGesture | null>(null);
 
 /** The action each Step's split control is aimed at, by Step index. */
-export const draftSplitAtom = perRevision(() =>
-  Atom.family((_index: number) => Atom.make(""))
-);
+const splitFamily = retainedFamily<string>("");
+
+export const draftSplitAtom =
+  (key: DraftReviewKey) =>
+  (index: number): Atom.Writable<string, string> =>
+    splitFamily(`${key.agentFlowId}\u0000${key.revisionId}\u0000${index}`);
 
 /** Exact phrase the user types before Agent View enables permanent deletion. */
-export const draftDeletionConfirmationAtom = perRevision(() => Atom.make(""));
+export const draftDeletionConfirmationAtom = perRevision<string>("");
 
 /** The runtime Variable values typed into one Verification Run, by name. */
-export const draftVariableDraftAtom = Atom.family(
-  (_sessionId: AgentSessionId) => Atom.make<Record<string, string>>({})
-);
+const variableDraftFamily = retainedFamily<Record<string, string>>({});
+
+export const draftVariableDraftAtom = (
+  sessionId: AgentSessionId
+): Atom.Writable<Record<string, string>, Record<string, string>> =>
+  variableDraftFamily(sessionId);
 
 const successOf = <A>(
   result: AsyncResult.AsyncResult<A, unknown> | undefined

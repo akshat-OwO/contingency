@@ -1,5 +1,8 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 import { RegistryProvider } from "@effect/atom-react";
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -782,4 +785,88 @@ test("offers nothing more once the revision is the Approved Agent Flow", async (
   expect(
     screen.queryByRole("button", { name: "Authorize Verification Run" })
   ).toBeNull();
+});
+
+/**
+ * The sidebar renders each region behind a gate on the session snapshot, so an
+ * update that momentarily omits the draft takes the review off screen. The
+ * registry collects an idle atom shortly after its last subscriber goes, so
+ * these tests let that window elapse: a synchronous assertion passes even with
+ * the state discarded.
+ */
+const IDLE_WINDOW = 700;
+
+const GatedReview = ({ shown }: { readonly shown: boolean }) => (
+  <RegistryProvider>
+    {shown ? (
+      <DraftReview
+        agentFlowId={"flow-shop" as never}
+        refreshToken={at}
+        revisionId={"rev-1" as never}
+        sessionId={"agent-one" as never}
+      />
+    ) : (
+      <p>The draft is not on screen.</p>
+    )}
+  </RegistryProvider>
+);
+
+const leaveAndReturn = async (
+  rerender: (ui: React.ReactElement) => void
+): Promise<void> => {
+  rerender(<GatedReview shown={false} />);
+  await act(async () => {
+    await delay(IDLE_WINDOW);
+  });
+  rerender(<GatedReview shown={true} />);
+  await screen.findByLabelText("Agent Step 1 name");
+};
+
+test("keeps a renamed Step when the review leaves the screen and returns", async () => {
+  const user = userEvent.setup();
+  rpc.detail = detailWith(null);
+  const { rerender } = render(<GatedReview shown={true} />);
+
+  const name = await screen.findByLabelText("Agent Step 1 name");
+  await user.clear(name);
+  await user.type(name, "Sign in as the demo shopper");
+  await leaveAndReturn(rerender);
+
+  expect(screen.getByLabelText("Agent Step 1 name")).toHaveValue(
+    "Sign in as the demo shopper"
+  );
+  expect(
+    screen.getByRole("button", { name: "Save corrections" })
+  ).toBeEnabled();
+});
+
+test("keeps a Confirmation Step marker when the review leaves the screen and returns", async () => {
+  const user = userEvent.setup();
+  rpc.detail = detailWith(null);
+  const { rerender } = render(<GatedReview shown={true} />);
+
+  const marker = await screen.findByRole("checkbox", {
+    name: /Agent Step 1 Confirmation Step/u,
+  });
+  await user.click(marker);
+  await leaveAndReturn(rerender);
+
+  expect(
+    screen.getByRole("checkbox", { name: /Agent Step 1 Confirmation Step/u })
+  ).toBeChecked();
+});
+
+test("keeps typed Domain Scope, including a line with no host yet", async () => {
+  const user = userEvent.setup();
+  rpc.detail = detailWith(null);
+  const { rerender } = render(<GatedReview shown={true} />);
+
+  const hosts = await screen.findByLabelText("Domain Scope");
+  await user.clear(hosts);
+  await user.type(hosts, "shop.example.com\npay.example.com\n");
+  await leaveAndReturn(rerender);
+
+  expect(screen.getByLabelText("Domain Scope")).toHaveValue(
+    "shop.example.com\npay.example.com\n"
+  );
 });
