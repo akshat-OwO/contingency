@@ -4,7 +4,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 
 ## Baseline preconditions
 
-- Build `@contingency/cli` so `packages/cli/dist/index.js` and `packages/cli/dist/web/index.html` exist.
+- Build `@contingencyhq/cli` so `packages/cli/dist/index.js` and `packages/cli/dist/web/index.html` exist.
 - Launch with `control-contingency launch` so the UI is the production SPA on an ephemeral `127.0.0.1` port, not Vite `:5173` and not a borrowed `:7777`.
 - Export `CONTINGENCY_VERIFY_DIR` from launch stdout.
 - Run `control-contingency doctor` and require `ok`, the printed URL, and a `stateDir` under that verify directory.

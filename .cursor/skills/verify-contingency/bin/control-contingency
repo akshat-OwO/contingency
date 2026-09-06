@@ -397,7 +397,7 @@ const ensureBuiltCli = () => {
   const web = path.join(repoRoot, "packages/cli/dist/web/index.html");
   if (!existsSync(cli) || !existsSync(web)) {
     fail(
-      "The CLI production build is missing. From the repo root run: nub exec turbo run build --filter=@contingency/cli"
+      "The CLI production build is missing. From the repo root run: nub exec turbo run build --filter=@contingencyhq/cli"
     );
   }
   return cli;

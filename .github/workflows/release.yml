@@ -1,0 +1,214 @@
+# Publishes @contingencyhq/cli to npm.
+#
+# The version is the only input. `v1.2.3` goes to the `latest` dist-tag;
+# any prerelease tag goes to a dist-tag named after its identifier, so
+# `v0.2.0-alpha.4` publishes to `alpha` and nothing else has to be
+# configured to open a new channel. There is no schedule: a release happens
+# because someone tagged one.
+#
+# Versions are never committed. `main` carries a placeholder, and the tag is
+# stamped into the manifest at build time, so no pull request ever has to be
+# rebased over a version bump.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, for example 1.2.3 or 0.2.0-alpha.4"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and pack, but publish nothing"
+        required: false
+        default: true
+        type: boolean
+
+# Releases are never cancelled mid-publish: a run killed between `npm publish`
+# and the GitHub Release leaves a version on the registry with no tag behind
+# it. Queued runs wait instead.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Resolve release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      dist_tag: ${{ steps.release.outputs.dist_tag }}
+      is_prerelease: ${{ steps.release.outputs.is_prerelease }}
+      make_latest: ${{ steps.release.outputs.make_latest }}
+      name: ${{ steps.release.outputs.name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nubjs/setup-nub@v0
+
+      - run: nub ci
+
+      # Rejects anything that is not a semantic version before a build runs,
+      # so a typo in a tag fails in seconds rather than after the matrix.
+      - id: release
+        name: Resolve version, dist-tag, and release flags
+        run: |
+          node packages/release/src/main.ts resolve \
+            "${{ inputs.version || github.ref_name }}"
+
+      - name: Refuse to republish an existing version
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          if npm view "@contingencyhq/cli@${version}" version >/dev/null 2>&1; then
+            echo "::error::@contingencyhq/cli@${version} is already on npm. Versions are immutable; tag a new one."
+            exit 1
+          fi
+          echo "@contingencyhq/cli@${version} is unpublished. Proceeding."
+
+  # The same gate CI runs, against the exact commit being published. A release
+  # tag can point at any commit, including one that never passed a pull
+  # request, so this is not redundant with the CI workflow.
+  quality:
+    name: Quality, types, and unit tests
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nubjs/setup-nub@v0
+
+      - run: nub ci
+
+      - run: nub exec turbo run quality check-types test
+
+  integration:
+    name: Integration (real browser)
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nubjs/setup-nub@v0
+
+      - run: nub ci
+
+      - name: Install Chromium
+        run: nub exec --cwd packages/cli playwright-core install chromium
+
+      - name: Install ffmpeg (ffprobe for the video assertions)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - run: nub exec turbo run test:integration
+
+  publish:
+    name: Publish to npm
+    needs: [preflight, quality, integration]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      # The OIDC token npm exchanges for short-lived publish credentials.
+      # Without this the trusted publisher cannot authenticate and there is no
+      # long-lived token to fall back on.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: nubjs/setup-nub@v0
+        with:
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1+. The runner's bundled npm trails
+      # that, and an older npm fails by asking for a token that does not exist
+      # rather than by naming the real problem.
+      - name: Ensure an npm that supports trusted publishing
+        run: npm install --global npm@latest
+
+      - run: nub ci
+
+      - name: Stamp the release version into the manifest
+        run: |
+          node packages/release/src/main.ts apply-version \
+            "${{ needs.preflight.outputs.version }}"
+
+      # Builds the web bundle into packages/cli/dist/web. `prepack` would do
+      # this too, but building here means a failure surfaces as a build
+      # failure rather than as a publish that half-happened.
+      - name: Build
+        run: nub exec turbo run build --filter @contingencyhq/cli
+
+      # The CLI's --version comes from a value inlined into the bundle at build
+      # time, not from reading package.json at runtime. That makes the stamp
+      # order load-bearing: stamp, then build. This asserts the two agree, so a
+      # binary can never ship announcing a version other than the one on its
+      # tag.
+      - name: Verify the binary reports the release version
+        env:
+          EXPECTED: ${{ needs.preflight.outputs.version }}
+        run: |
+          actual="$(node packages/cli/dist/index.js --version | tr -d '[:space:]')"
+          if [ "${actual}" != "contingencyv${EXPECTED}" ]; then
+            echo "::error::Built binary reports '${actual}', expected 'contingency v${EXPECTED}'."
+            exit 1
+          fi
+          echo "Binary reports ${actual}."
+
+      # Packs the exact tarball that will be published, so the contents are
+      # visible in the log and the same file can be attached to the release.
+      - name: Pack
+        working-directory: packages/cli
+        run: npm pack --ignore-scripts
+
+      # Authentication is the OIDC exchange configured as npm's trusted
+      # publisher for this package: no NPM_TOKEN exists to leak or rotate.
+      # Provenance is attested automatically under trusted publishing, so
+      # passing --provenance here would be redundant.
+      #
+      # `--ignore-scripts` keeps `prepack` from rebuilding what the steps
+      # above already built and verified.
+      - name: Publish
+        if: ${{ inputs.dry_run != true }}
+        working-directory: packages/cli
+        run: |
+          npm publish \
+            --access public \
+            --ignore-scripts \
+            --tag "${{ needs.preflight.outputs.dist_tag }}"
+
+      # A manual dispatch releases a version that may have no tag behind it.
+      # Creating one keeps every published version reachable from git.
+      - name: Create the release tag if the dispatch did not push one
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists."
+            exit 0
+          fi
+          git tag "${TAG}"
+          git push origin "${TAG}"
+
+      - name: Publish the GitHub Release
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ needs.preflight.outputs.tag }}" \
+            --title "${{ needs.preflight.outputs.name }}" \
+            --generate-notes \
+            --prerelease=${{ needs.preflight.outputs.is_prerelease }} \
+            --latest=${{ needs.preflight.outputs.make_latest }} \
+            packages/cli/*.tgz
