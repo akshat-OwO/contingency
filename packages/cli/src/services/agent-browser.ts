@@ -936,9 +936,9 @@ interface AnimationFramePageGlobals {
 export const snapshotAfterAction = (
   page: Page,
   registry: AgentElementRegistry,
-  urlBefore?: string
+  urlBefore: string
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
-  const effectiveUrlBefore = urlBefore ?? page.url();
+  const effectiveUrlBefore = urlBefore;
   // #region agent log
   agentDebugLog(
     "B,C",
@@ -1001,6 +1001,23 @@ export const snapshotAfterAction = (
         "A",
         "agent-browser.ts:first-frame-complete",
         "Single post-navigation frame completed",
+        {}
+      );
+      // #endregion
+      await page.evaluate(() => {
+        const browser = globalThis as unknown as AnimationFramePageGlobals;
+        return (
+          // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no Promise API.
+          new Promise<void>((resolve) => {
+            browser.requestAnimationFrame(() => resolve());
+          })
+        );
+      });
+      // #region agent log
+      agentDebugLog(
+        "A",
+        "agent-browser.ts:second-frame-complete",
+        "Second post-navigation frame completed",
         {}
       );
       // #endregion
