@@ -1,3 +1,5 @@
+import { appendFileSync } from "node:fs";
+
 import {
   AgentElementRef,
   AgentSnapshotId,
@@ -36,6 +38,24 @@ const NAME_LIMIT = 160;
  * holds a browser-side handle, so the oldest are released once past this.
  */
 const REFERENCE_LIMIT = 1000;
+
+const agentDebugLog = (
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Readonly<Record<string, unknown>>
+): void => {
+  appendFileSync(
+    "/opt/cursor/logs/debug.log",
+    `${JSON.stringify({
+      data,
+      hypothesisId,
+      location,
+      message,
+      timestamp: Date.now(),
+    })}\n`
+  );
+};
 
 /** Inputs whose values are never copied into a Browser Snapshot. */
 const SENSITIVE_INPUT_SELECTOR = [
@@ -551,6 +571,15 @@ export const makeAgentElementRegistry = (
           url: page.url(),
         }))
       );
+      // #region agent log
+      agentDebugLog("C", "agent-browser.ts:snapshot-collected", "Snapshot script result", {
+        headingNames: decodedNodes
+          .filter(({ role }) => role === "heading")
+          .map(({ name }) => name),
+        identityUrl: identity.url,
+        pageUrl: page.url(),
+      });
+      // #endregion
       const nodes: AgentSnapshotNode[] = [];
       const orphaned: JSHandle<unknown>[] = [];
       focused = undefined;
@@ -912,24 +941,61 @@ export const snapshotAfterAction = (
   registry: AgentElementRegistry,
   urlBefore: string = page.url()
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
+  // #region agent log
+  agentDebugLog("D", "agent-browser.ts:snapshotAfterAction-entry", "Post-action snapshot entered", {
+    pageUrl: page.url(),
+    urlBefore,
+  });
+  // #endregion
   const settle = Effect.tryPromise({
     catch: (cause) => cause,
     try: async () => {
       if (page.url() === urlBefore) {
+        // #region agent log
+        agentDebugLog("D", "agent-browser.ts:settle-same-url", "Settling unchanged URL branch", {
+          pageUrl: page.url(),
+          urlBefore,
+        });
+        // #endregion
         await page.waitForLoadState("domcontentloaded", {
           timeout: SETTLE_TIMEOUT_MS,
         });
         return;
       }
+      // #region agent log
+      agentDebugLog("A", "agent-browser.ts:settle-changed-url", "Settling changed URL branch", {
+        pageUrl: page.url(),
+        urlBefore,
+      });
+      // #endregion
       await page.waitForURL((url) => url.href !== urlBefore, {
         timeout: SETTLE_TIMEOUT_MS,
         waitUntil: "domcontentloaded",
       });
       await page.waitForTimeout(0);
+      // #region agent log
+      agentDebugLog("A,B", "agent-browser.ts:settle-complete", "Playwright settling completed", {
+        pageUrl: page.url(),
+      });
+      // #endregion
     },
   }).pipe(Effect.ignore);
   const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));
-  return read.pipe(Effect.catchCause(() => read));
+  return read.pipe(
+    Effect.tap((snapshot) =>
+      Effect.sync(() => {
+        // #region agent log
+        agentDebugLog("C,E", "agent-browser.ts:snapshotAfterAction-exit", "Post-action snapshot completed", {
+          headingNames: snapshot.nodes
+            .filter(({ role }) => role === "heading")
+            .map(({ name }) => name),
+          snapshotUrl: snapshot.url,
+        });
+        // #endregion
+      })
+    ),
+    Effect.catchCause(() => read)
+  );
 };
 
 const attempt = <A>(
