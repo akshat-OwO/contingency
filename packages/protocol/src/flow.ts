@@ -8,6 +8,7 @@ import {
   resolveIdentity,
   UserAgentProfileId,
 } from "./browser-identity.ts";
+import { optionalNullable } from "./optional-field.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -187,8 +188,8 @@ export type Condition = typeof Condition.Type;
 // Steps
 // ---------------------------------------------------------------------------
 
-const pageField = Schema.optional(PageIndex);
-const timeoutField = Schema.optional(Schema.Finite);
+const pageField = optionalNullable(PageIndex);
+const timeoutField = optionalNullable(Schema.Finite);
 
 /**
  * Per-Step timeouts are set explicitly rather than inherited from the Run's
@@ -214,7 +215,7 @@ const targetedFields = {
 
 export const ClickStep = Schema.Struct({
   ...targetedFields,
-  button: Schema.optional(Schema.Literals(["left", "middle", "right"])),
+  button: optionalNullable(Schema.Literals(["left", "middle", "right"])),
   type: Schema.Literal("click"),
 });
 export type ClickStep = typeof ClickStep.Type;
@@ -233,7 +234,7 @@ export type ChangeStep = typeof ChangeStep.Type;
 export const KeyStep = Schema.Struct({
   ...actionFields,
   key: nonEmptyString,
-  target: Schema.optional(Target),
+  target: optionalNullable(Target),
   type: Schema.Literals(["keyDown", "keyUp"]),
 });
 export type KeyStep = typeof KeyStep.Type;
@@ -246,7 +247,7 @@ export type KeyStep = typeof KeyStep.Type;
 export const PressStep = Schema.Struct({
   ...actionFields,
   key: nonEmptyString,
-  target: Schema.optional(Target),
+  target: optionalNullable(Target),
   type: Schema.Literal("press"),
 });
 export type PressStep = typeof PressStep.Type;
@@ -265,9 +266,9 @@ export type HoverStep = typeof HoverStep.Type;
  */
 export const ScrollStep = Schema.Struct({
   ...actionFields,
-  deltaX: Schema.optional(Schema.Finite),
-  deltaY: Schema.optional(Schema.Finite),
-  target: Schema.optional(Target),
+  deltaX: optionalNullable(Schema.Finite),
+  deltaY: optionalNullable(Schema.Finite),
+  target: optionalNullable(Target),
   type: Schema.Literal("scroll"),
 });
 export type ScrollStep = typeof ScrollStep.Type;
@@ -391,20 +392,20 @@ export type Variable = typeof Variable.Type;
  * ordinary fields.
  */
 const authoredFields = {
-  id: Schema.optional(nonEmptyString),
+  id: optionalNullable(nonEmptyString),
   /**
    * Collect Core Web Vitals at this Step's navigation. Only meaningful on a
    * Step that navigates, and rejected by {@link Flow} anywhere else ([ADR
    * 0008](../../../docs/adr/0008-performance-is-a-navigation-step-toggle.md)).
    */
-  performance: Schema.optional(Schema.Boolean),
-  preSteps: Schema.optional(Schema.Array(PreStep)),
+  performance: optionalNullable(Schema.Boolean),
+  preSteps: optionalNullable(Schema.Array(PreStep)),
   /**
    * A Variable binding: the named Variable's value substitutes `{{NAME}}` in
    * this Step's fields at Run time. Meaningful where a Step supplies input —
    * a change Step's value, most commonly.
    */
-  variable: Schema.optional(nonEmptyString),
+  variable: optionalNullable(nonEmptyString),
 } as const;
 
 const AuthoredNavigateStep = Schema.Struct({
@@ -515,7 +516,7 @@ export type PermissionState = typeof PermissionState.Type;
  * missing `state` decodes as `granted` rather than as an absent answer.
  */
 export const PermissionDecision = Schema.Struct({
-  origin: Schema.optional(nonEmptyString),
+  origin: optionalNullable(nonEmptyString),
   /** The engine's permission name, e.g. `geolocation`. */
   permission: nonEmptyString,
   state: PermissionState.pipe(
@@ -587,7 +588,7 @@ export const PermissionDecisions = Schema.Array(PermissionDecision).check(
 export type PermissionDecisions = typeof PermissionDecisions.Type;
 
 export const Geolocation = Schema.Struct({
-  accuracy: Schema.optional(Schema.Finite),
+  accuracy: optionalNullable(Schema.Finite),
   latitude: Schema.Finite.check(
     Schema.isBetween({ maximum: 90, minimum: -90 })
   ),
@@ -611,16 +612,16 @@ export const Emulation = Schema.Struct({
    * before an identity was concrete and for custom strings that declare
    * nothing further.
    */
-  browser: Schema.optional(BrowserIdentity),
-  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
-  geolocation: Schema.optional(Geolocation),
-  locale: Schema.optional(nonEmptyString),
-  permissions: Schema.optional(
+  browser: optionalNullable(BrowserIdentity),
+  colorScheme: optionalNullable(Schema.Literals(["light", "dark"])),
+  geolocation: optionalNullable(Geolocation),
+  locale: optionalNullable(nonEmptyString),
+  permissions: optionalNullable(
     PermissionDecisions.check(Schema.isMinLength(1))
   ),
-  timezoneId: Schema.optional(nonEmptyString),
-  userAgent: Schema.optional(nonEmptyString),
-  viewport: Schema.optional(Viewport),
+  timezoneId: optionalNullable(nonEmptyString),
+  userAgent: optionalNullable(nonEmptyString),
+  viewport: optionalNullable(Viewport),
 });
 export type Emulation = typeof Emulation.Type;
 
@@ -649,22 +650,22 @@ export type Gate = typeof Gate.Type;
  * silently stripped of whatever the author meant.
  */
 const FlowDocument = Schema.Struct({
-  emulation: Schema.optional(Emulation),
+  emulation: optionalNullable(Emulation),
   /**
    * Stable identity for the Flow, independent of its user-editable title, so
    * Run history survives a rename.
    */
-  flowId: Schema.optional(FlowId),
-  gate: Schema.optional(Gate),
+  flowId: optionalNullable(FlowId),
+  gate: optionalNullable(Gate),
   /**
    * Opt into carrying browser state between Runs: each Run still starts from
    * whatever state the previous one saved rather than from nothing, so a Flow
    * that depends on being logged in carries that deliberately. Absent — the
    * default — means every Run executes in a fresh context (ADR 0015).
    */
-  persistedState: Schema.optional(Schema.Boolean),
+  persistedState: optionalNullable(Schema.Boolean),
   /** Pre-steps that run before every Step after the initial navigation. */
-  preSteps: Schema.optional(Schema.Array(PreStep)),
+  preSteps: optionalNullable(Schema.Array(PreStep)),
   steps: Schema.Array(AuthoredStep).check(
     Schema.isMinLength(1),
     performanceOnlyOnNavigatingSteps
@@ -674,9 +675,9 @@ const FlowDocument = Schema.Struct({
    * themselves, not inherited from this ([ADR
    * 0021](../../../docs/adr/0021-timeouts-are-set-not-inherited.md)).
    */
-  timeout: Schema.optional(Schema.Finite),
+  timeout: optionalNullable(Schema.Finite),
   title: nonEmptyString,
-  variables: Schema.optional(Schema.Array(Variable)),
+  variables: optionalNullable(Schema.Array(Variable)),
 }).annotate({
   identifier: "Flow",
   parseOptions: { onExcessProperty: "error" },
@@ -742,7 +743,7 @@ export const RecordedStep = Schema.Struct({
   id: nonEmptyString,
   preSteps: Schema.Array(PreStep),
   step: Schema.Union([BrowserActionStep, AuditStep]),
-  variable: Schema.optional(nonEmptyString),
+  variable: optionalNullable(nonEmptyString),
 });
 export type RecordedStep = typeof RecordedStep.Type;
 
@@ -753,16 +754,16 @@ export const hasAuthoredBrowserStep = (
 
 export const RecordingSnapshot = Schema.Struct({
   captureMode: RecordingCaptureMode,
-  downloadName: Schema.optional(Schema.String),
+  downloadName: optionalNullable(Schema.String),
   flow: Flow,
-  incompleteReason: Schema.optional(Schema.String),
+  incompleteReason: optionalNullable(Schema.String),
   initialUrl: nonEmptyString,
   phase: RecordingPhase,
   recordedSteps: Schema.Array(RecordedStep),
   revision: Schema.Int,
   sessionId: SessionId,
   tabId: BrowserTabId,
-  targetStepId: Schema.optional(Schema.String),
+  targetStepId: optionalNullable(Schema.String),
   undoAvailable: Schema.Boolean,
 }).annotate({
   identifier: "RecordingSnapshot",
@@ -818,11 +819,11 @@ export const recordingLocksStorageMutations = (
  * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
 export const DraftEmulation = Schema.Struct({
-  colorScheme: Schema.optional(Schema.Literals(["light", "dark"])),
-  geolocation: Schema.optional(Geolocation),
-  locale: Schema.optional(nonEmptyString),
+  colorScheme: optionalNullable(Schema.Literals(["light", "dark"])),
+  geolocation: optionalNullable(Geolocation),
+  locale: optionalNullable(nonEmptyString),
   permissions: PermissionDecisions,
-  timezoneId: Schema.optional(nonEmptyString),
+  timezoneId: optionalNullable(nonEmptyString),
   userAgentProfile: UserAgentProfileId,
   viewport: Viewport,
 });

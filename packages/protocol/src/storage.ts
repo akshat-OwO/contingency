@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -17,7 +18,7 @@ export const BrowserCookie = Schema.Struct({
   httpOnly: Schema.Boolean,
   name: Schema.String,
   path: nonEmptyString,
-  sameSite: Schema.optional(CookieSameSite),
+  sameSite: optionalNullable(CookieSameSite),
   secure: Schema.Boolean,
   session: Schema.Boolean,
   size: Schema.Int,
@@ -27,11 +28,11 @@ export type BrowserCookie = typeof BrowserCookie.Type;
 
 export const BrowserCookieWrite = Schema.Struct({
   domain: nonEmptyString,
-  expires: Schema.optional(Schema.Finite),
+  expires: optionalNullable(Schema.Finite),
   httpOnly: Schema.Boolean,
   name: nonEmptyString,
   path: nonEmptyString,
-  sameSite: Schema.optional(CookieSameSite),
+  sameSite: optionalNullable(CookieSameSite),
   secure: Schema.Boolean,
   value: Schema.String,
 });

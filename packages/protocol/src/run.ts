@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { Flow, Gate } from "./flow.ts";
+import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -66,11 +67,11 @@ export const SelectorCandidate = Schema.Struct({
    * The browser's own one-line reason, when it says something the miss does
    * not. Redacted like every other message a Run persists.
    */
-  detail: Schema.optional(nonEmptyString),
+  detail: optionalNullable(nonEmptyString),
   /** What this candidate looked for, in words rather than as a raw path. */
   lookedFor: nonEmptyString,
   /** How many elements matched. Present on `ambiguous`. */
-  matches: Schema.optional(Schema.Int),
+  matches: optionalNullable(Schema.Int),
   miss: LocatorMiss,
   strategy: LocatorStrategy,
 });
@@ -97,7 +98,7 @@ export const SelectorDiagnostics = Schema.Struct({
    * Absent when the page could not be read at all, which is not the same as a
    * page that had nothing to report.
    */
-  nearest: Schema.optional(Schema.Array(NearbyElement)),
+  nearest: optionalNullable(Schema.Array(NearbyElement)),
 });
 export type SelectorDiagnostics = typeof SelectorDiagnostics.Type;
 
@@ -127,15 +128,15 @@ export type ScrollReadinessDiagnostic = typeof ScrollReadinessDiagnostic.Type;
  * from its Baseline, so the record is kept even when nothing happened.
  */
 export const RunPreStep = Schema.Struct({
-  error: Schema.optional(Schema.String),
+  error: optionalNullable(Schema.String),
   outcome: RunPreStepOutcome,
   preStepId: nonEmptyString,
   /** `flow` Pre-steps run before every Step after the initial navigation. */
   scope: Schema.Literals(["flow", "step"]),
   /** Present only when a Scroll Pre-step exhausted its readiness bound. */
-  scrollReadiness: Schema.optional(ScrollReadinessDiagnostic),
+  scrollReadiness: optionalNullable(ScrollReadinessDiagnostic),
   /** Present when this Pre-step failed because its target did not resolve. */
-  selector: Schema.optional(SelectorDiagnostics),
+  selector: optionalNullable(SelectorDiagnostics),
 });
 export type RunPreStep = typeof RunPreStep.Type;
 
@@ -178,7 +179,7 @@ export type FindingNode = typeof FindingNode.Type;
  */
 export const Finding = Schema.Struct({
   /** The engine's fix guidance for this rule. */
-  helpUrl: Schema.optional(nonEmptyString),
+  helpUrl: optionalNullable(nonEmptyString),
   message: nonEmptyString,
   /** How many elements the engine says failed this rule. */
   nodeCount: Schema.Int,
@@ -209,10 +210,10 @@ export type Finding = typeof Finding.Type;
 export const CoreWebVitals = Schema.Struct({
   /** Cumulative Layout Shift: the worst session window, not the total. */
   cls: Schema.Number,
-  fcp: Schema.optional(Schema.Number),
-  inp: Schema.optional(Schema.Number),
-  lcp: Schema.optional(Schema.Number),
-  ttfb: Schema.optional(Schema.Number),
+  fcp: optionalNullable(Schema.Number),
+  inp: optionalNullable(Schema.Number),
+  lcp: optionalNullable(Schema.Number),
+  ttfb: optionalNullable(Schema.Number),
 });
 export type CoreWebVitals = typeof CoreWebVitals.Type;
 
@@ -234,7 +235,7 @@ export const RunEnvironment = Schema.Struct({
    * than refuses — see {@link axeVersionMismatchWarning} — because rule churn
    * between versions describes the engine, not the site.
    */
-  axeVersion: Schema.optional(nonEmptyString),
+  axeVersion: optionalNullable(nonEmptyString),
   cpuCount: Schema.Int,
   cpuModel: nonEmptyString,
   /**
@@ -248,7 +249,7 @@ export const RunEnvironment = Schema.Struct({
    * How navigation readiness was established. Absent on Runs written before
    * ADR 0015 made the bounded post-load network-idle wait explicit.
    */
-  navigationReadiness: Schema.optional(
+  navigationReadiness: optionalNullable(
     Schema.Literal("load-then-bounded-network-idle")
   ),
   platform: nonEmptyString,
@@ -261,26 +262,26 @@ export type RunEnvironment = typeof RunEnvironment.Type;
  * embedded Flow without a separate lookup.
  */
 export const RunStep = Schema.Struct({
-  error: Schema.optional(Schema.String),
+  error: optionalNullable(Schema.String),
   /** Everything an Audit Step found. Absent on Steps that audit nothing. */
-  findings: Schema.optional(Schema.Array(Finding)),
+  findings: optionalNullable(Schema.Array(Finding)),
   finishedAt: Instant,
   index: Schema.Int,
   outcome: RunStepOutcome,
   /** Every Pre-step evaluated before this Step, in evaluation order. */
-  preSteps: Schema.optional(Schema.Array(RunPreStep)),
+  preSteps: optionalNullable(Schema.Array(RunPreStep)),
   /** Present only when a Scroll exhausted its readiness bound. */
-  scrollReadiness: Schema.optional(ScrollReadinessDiagnostic),
+  scrollReadiness: optionalNullable(ScrollReadinessDiagnostic),
   /** Present when this Step failed because its target did not resolve. */
-  selector: Schema.optional(SelectorDiagnostics),
+  selector: optionalNullable(SelectorDiagnostics),
   startedAt: Instant,
-  stepId: Schema.optional(Schema.String),
+  stepId: optionalNullable(Schema.String),
   type: nonEmptyString,
   /**
    * Core Web Vitals for the navigation this Step performed. Present only on a
    * Step carrying the performance toggle (ADR 0008).
    */
-  vitals: Schema.optional(CoreWebVitals),
+  vitals: optionalNullable(CoreWebVitals),
 });
 export type RunStep = typeof RunStep.Type;
 
@@ -303,9 +304,9 @@ export type RunFailureKind = typeof RunFailureKind.Type;
  * failing Step to attribute, and guessing would route it to the wrong person.
  */
 export const RunFailure = Schema.Struct({
-  kind: Schema.optional(RunFailureKind),
+  kind: optionalNullable(RunFailureKind),
   message: nonEmptyString,
-  stepIndex: Schema.optional(Schema.Int),
+  stepIndex: optionalNullable(Schema.Int),
 });
 export type RunFailure = typeof RunFailure.Type;
 
@@ -355,7 +356,7 @@ export const describeSettlingDiagnostic = (
 export const RunAttempt = Schema.Struct({
   /** 1-based, so `attempt: 1` is the first try rather than the first retry. */
   attempt: Schema.Int,
-  failure: Schema.optional(RunFailure),
+  failure: optionalNullable(RunFailure),
   finishedAt: Instant,
   outcome: RunOutcome,
   /**
@@ -363,7 +364,7 @@ export const RunAttempt = Schema.Struct({
    * Selecting `Run settled` shows this instead of inventing another Step
    * (ADR 0014).
    */
-  settling: Schema.optional(SettlingDiagnostic),
+  settling: optionalNullable(SettlingDiagnostic),
   startedAt: Instant,
   steps: Schema.Array(RunStep),
 });
@@ -378,7 +379,7 @@ export type RunAttempt = typeof RunAttempt.Type;
  */
 export const RunVideoSegment = Schema.Struct({
   attempt: Schema.Int,
-  error: Schema.optional(nonEmptyString),
+  error: optionalNullable(nonEmptyString),
   file: nonEmptyString,
   /** Whether the video ends on a frame captured after the final quiet wait. */
   includesSettledState: Schema.Boolean,
@@ -407,7 +408,7 @@ export type RunVideoManifest = typeof RunVideoManifest.Type;
 /** One attempt's Playwright trace archive. */
 export const RunTraceSegment = Schema.Struct({
   attempt: Schema.Int,
-  error: Schema.optional(nonEmptyString),
+  error: optionalNullable(nonEmptyString),
   file: nonEmptyString,
   recorded: Schema.Boolean,
 });
@@ -478,7 +479,7 @@ export const Run = Schema.Struct({
   attempts: Schema.Array(RunAttempt).check(Schema.isMinLength(1)),
   /** The machine that produced this Run's measurements. */
   environment: RunEnvironment,
-  failure: Schema.optional(RunFailure),
+  failure: optionalNullable(RunFailure),
   finishedAt: Instant,
   flow: Flow,
   flowHash: nonEmptyString,
@@ -492,7 +493,7 @@ export const Run = Schema.Struct({
    * invocation supplied none, which is the default: a Run then reports every
    * violation and fails nothing (ADR 0009).
    */
-  gate: Schema.optional(RunGate),
+  gate: optionalNullable(RunGate),
   outcome: RunOutcome,
   runId: nonEmptyString,
   startedAt: Instant,
@@ -628,7 +629,7 @@ export type RunVariablePrompt = typeof RunVariablePrompt.Type;
  */
 export const RunSnapshot = Schema.Struct({
   /** The attempt in flight, 1-based. Absent before the first one begins. */
-  attempt: Schema.optional(Schema.Int),
+  attempt: optionalNullable(Schema.Int),
   /** How many attempts this Run may make at most, retries included. */
   attemptCeiling: Schema.Int,
   /**
@@ -636,14 +637,14 @@ export const RunSnapshot = Schema.Struct({
    * executed and failed is not this: that is a `finished` Run whose outcome is
    * `failed`.
    */
-  error: Schema.optional(nonEmptyString),
+  error: optionalNullable(nonEmptyString),
   flow: Flow,
-  outcome: Schema.optional(RunOutcome),
+  outcome: optionalNullable(RunOutcome),
   phase: RunPhase,
   /** The finished Run, with every attempt. Null until the Run ends. */
   run: Schema.NullOr(Run),
   /** Index of the Step executing right now, absent between Steps. */
-  runningIndex: Schema.optional(Schema.Int),
+  runningIndex: optionalNullable(Schema.Int),
   /** The current attempt's Steps so far, in executed order. */
   steps: Schema.Array(RunStep),
   trace: Schema.NullOr(RunTraceManifest),

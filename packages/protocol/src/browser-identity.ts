@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 
+import { optionalNullable } from "./optional-field.ts";
 import type { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -21,13 +22,13 @@ export type BrandVersion = typeof BrandVersion.Type;
  * matches, and two copies of it could disagree.
  */
 export const UserAgentMetadata = Schema.Struct({
-  architecture: Schema.optional(Schema.String),
-  bitness: Schema.optional(Schema.String),
-  brands: Schema.optional(Schema.Array(BrandVersion)),
-  fullVersionList: Schema.optional(Schema.Array(BrandVersion)),
-  model: Schema.optional(Schema.String),
+  architecture: optionalNullable(Schema.String),
+  bitness: optionalNullable(Schema.String),
+  brands: optionalNullable(Schema.Array(BrandVersion)),
+  fullVersionList: optionalNullable(Schema.Array(BrandVersion)),
+  model: optionalNullable(Schema.String),
   platform: nonEmptyString,
-  platformVersion: Schema.optional(Schema.String),
+  platformVersion: optionalNullable(Schema.String),
 });
 export type UserAgentMetadata = typeof UserAgentMetadata.Type;
 
@@ -48,7 +49,7 @@ export const BrowserIdentity = Schema.Struct({
   hasTouch: Schema.Boolean,
   mobile: Schema.Boolean,
   userAgent: nonEmptyString,
-  userAgentMetadata: Schema.optional(UserAgentMetadata),
+  userAgentMetadata: optionalNullable(UserAgentMetadata),
 });
 export type BrowserIdentity = typeof BrowserIdentity.Type;
 

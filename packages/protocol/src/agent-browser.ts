@@ -5,6 +5,7 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
+import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -36,14 +37,14 @@ export type AgentSnapshotId = typeof AgentSnapshotId.Type;
  * neither a role nor an `onclick` attribute reveals them.
  */
 export const AgentSnapshotNode = Schema.Struct({
-  checked: Schema.optional(Schema.Boolean),
-  clickable: Schema.optional(Schema.Boolean),
+  checked: optionalNullable(Schema.Boolean),
+  clickable: optionalNullable(Schema.Boolean),
   depth: Schema.Int.check(Schema.isBetween({ maximum: 64, minimum: 0 })),
-  disabled: Schema.optional(Schema.Boolean),
+  disabled: optionalNullable(Schema.Boolean),
   name: Schema.String,
   ref: AgentElementRef,
   role: nonEmptyString,
-  value: Schema.optional(Schema.String),
+  value: optionalNullable(Schema.String),
 });
 export type AgentSnapshotNode = typeof AgentSnapshotNode.Type;
 
@@ -96,18 +97,18 @@ export const AgentSelectAction = withRef({
 });
 export const AgentPressAction = Schema.Struct({
   key: nonEmptyString,
-  ref: Schema.optional(AgentElementRef),
+  ref: optionalNullable(AgentElementRef),
   type: Schema.Literal("press"),
 });
 export const AgentScrollAction = Schema.Struct({
   deltaX: Schema.Finite,
   deltaY: Schema.Finite,
-  ref: Schema.optional(AgentElementRef),
+  ref: optionalNullable(AgentElementRef),
   type: Schema.Literal("scroll"),
 });
 export const AgentWaitForTextAction = Schema.Struct({
   text: nonEmptyString,
-  timeoutMs: Schema.optional(
+  timeoutMs: optionalNullable(
     Schema.Int.check(Schema.isBetween({ maximum: 60_000, minimum: 1 }))
   ),
   type: Schema.Literal("wait_for_text"),
@@ -132,8 +133,8 @@ export const AgentBrowserAction = Schema.Union([
 export type AgentBrowserAction = typeof AgentBrowserAction.Type;
 
 export const AgentActionIntent = Schema.Struct({
-  irreversible: Schema.optional(Schema.Boolean),
-  objective: Schema.optional(nonEmptyString),
+  irreversible: optionalNullable(Schema.Boolean),
+  objective: optionalNullable(nonEmptyString),
 });
 export type AgentActionIntent = typeof AgentActionIntent.Type;
 
@@ -164,7 +165,7 @@ export const AgentTimelineEntry = Schema.Struct({
   actor: AgentSessionController,
   at: nonEmptyString,
   description: nonEmptyString,
-  detail: Schema.optional(Schema.String),
+  detail: optionalNullable(Schema.String),
   dispatched: Schema.Boolean,
   id: nonEmptyString,
   outcome: AgentActionOutcome,
@@ -173,7 +174,7 @@ export type AgentTimelineEntry = typeof AgentTimelineEntry.Type;
 
 export const AgentActionResult = Schema.Struct({
   entry: AgentTimelineEntry,
-  intervention: Schema.optional(AgentExecutionBoundary),
+  intervention: optionalNullable(AgentExecutionBoundary),
   snapshot: AgentBrowserSnapshot,
   url: Schema.String,
 });
@@ -186,7 +187,7 @@ export type AgentBrowserObserve = typeof AgentBrowserObserve.Type;
 
 export const AgentBrowserAct = Schema.Struct({
   action: AgentBrowserAction,
-  intent: Schema.optional(AgentActionIntent),
+  intent: optionalNullable(AgentActionIntent),
   operationId: OperationId,
   sessionId: AgentSessionId,
 });

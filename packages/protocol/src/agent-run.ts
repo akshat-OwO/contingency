@@ -7,6 +7,7 @@ import {
   AgentSessionVariableState,
 } from "./agent-flow.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
+import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -235,16 +236,16 @@ export const agentRunVideoPath = (runId: AgentRunId | string): string =>
 
 export const AgentFlowRunStart = Schema.Struct({
   agentFlowId: AgentFlowId,
-  clientName: Schema.optional(nonEmptyString),
-  clientVersion: Schema.optional(nonEmptyString),
+  clientName: optionalNullable(nonEmptyString),
+  clientVersion: optionalNullable(nonEmptyString),
   operationId: OperationId,
   /** Client-asserted, stored unverified. */
-  reportedModel: Schema.optional(nonEmptyString),
-  reportedProvider: Schema.optional(nonEmptyString),
+  reportedModel: optionalNullable(nonEmptyString),
+  reportedProvider: optionalNullable(nonEmptyString),
   /** The approved head when omitted. Only approved revisions may be run. */
-  revisionId: Schema.optional(AgentFlowRevisionId),
-  runCeilingMs: Schema.optional(positiveInt),
-  stepCeilingMs: Schema.optional(positiveInt),
+  revisionId: optionalNullable(AgentFlowRevisionId),
+  runCeilingMs: optionalNullable(positiveInt),
+  stepCeilingMs: optionalNullable(positiveInt),
 });
 export type AgentFlowRunStart = typeof AgentFlowRunStart.Type;
 
@@ -260,7 +261,7 @@ export type AgentRunStepAssess = typeof AgentRunStepAssess.Type;
 export const AgentRunComplete = Schema.Struct({
   operationId: OperationId,
   sessionId: AgentSessionId,
-  summary: Schema.optional(nonEmptyString),
+  summary: optionalNullable(nonEmptyString),
 });
 export type AgentRunComplete = typeof AgentRunComplete.Type;
 
