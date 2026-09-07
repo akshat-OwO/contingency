@@ -880,11 +880,16 @@ const actionBoundaryReasons = (
     intent.irreversible === true ||
     (mutating &&
       (step?.confirmation === true || (verificationConfirmation ?? false)));
+  // Domain Scope already decides where the session may travel, and a navigate
+  // mutates nothing, so an in-scope destination is never an unknown objective
+  // however the agent phrased it (ADR 0027).
+  const inScopeNavigate =
+    action.type === "navigate" && domainAllowed(record, action.url);
   const reasons: AgentExecutionBoundary["reason"][] = [];
-  if (action.type === "navigate" && !domainAllowed(record, action.url)) {
+  if (action.type === "navigate" && !inScopeNavigate) {
     reasons.push("domain");
   }
-  if (!knownObjective) {
+  if (!(knownObjective || inScopeNavigate)) {
     reasons.push("objective");
   }
   if (needsConfirmation) {
