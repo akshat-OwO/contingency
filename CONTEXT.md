@@ -34,7 +34,7 @@ Contingency lets companies author and re-run website Flows for functional sanity
 
 **Execution Boundary**: The Runner-enforced domain scope and user-confirmation requirement for irreversible browser actions during an Interactive Run. The external agent controls its plan within this boundary; Contingency does not require its to-do list or browser actions to replay the Demonstration's action path. _Avoid_: generated to-do list, model prompt, Agent Assessment
 
-**Domain Scope**: The exact hosts and explicit wildcard patterns an Agent Flow may visit. Teaching proposes the observed domains, the user approves them, and an unapproved domain during a Run pauses for intervention. _Avoid_: every linked domain, implicit redirect permission, global allowlist
+**Domain Scope**: The exact hosts and explicit wildcard patterns an Agent Flow may visit. Teaching proposes the observed domains, the user approves them, and an unapproved top-level navigation during a Run pauses for intervention. It bounds where the session travels, so a subframe the page embeds is outside it ([ADR 0035](./docs/adr/0035-domain-scope-governs-top-level-documents.md)). _Avoid_: every linked domain, implicit redirect permission, global allowlist, embedded frame policy
 
 **Takeover**: The exclusive interval in Teaching or an Interactive Run when the user controls the browser and agent action tools are disabled. User initiation interrupts the in-flight agent action and takes priority, though an action already dispatched to the browser cannot be undone. Recording continues, sensitive inputs become Variable references rather than literals, and the user explicitly returns control to the agent. _Avoid_: concurrent control, paused Recording, session transfer
 
