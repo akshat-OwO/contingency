@@ -762,6 +762,26 @@ it.live(
           "confirmation"
         );
         yield* decide(requireBoundary(irreversibleNavigate).id, "refuse");
+
+        // A cross-origin subframe is not somewhere the Run can take the user,
+        // so its document load is outside the Domain Scope entirely
+        // ([ADR 0035](../../docs/adr/0035-domain-scope-governs-top-level-documents.md)).
+        const framed = yield* act("open-subframe", {
+          type: "navigate",
+          url: fixtures.url("agent-boundary-frame.html"),
+        });
+        expect(framed.intervention).toBeUndefined();
+        expect(framed.entry.outcome).toBe("completed");
+        yield* Effect.gen(function* waitForThirdPartyFrame() {
+          while (!fixtures.requests.includes("/outside-frame.html")) {
+            yield* Effect.sleep("50 millis");
+          }
+        }).pipe(Effect.timeout("5 seconds"));
+        expect((yield* local.get(sessionId)).boundary).toBeNull();
+        const reopened = yield* act("reopen-boundary", {
+          type: "navigate",
+          url: fixtures.url("agent-boundary.html"),
+        });
         const external = fixtures
           .url("outside-boundary")
           .replace("127.0.0.1", "localhost");
@@ -787,7 +807,7 @@ it.live(
         expect(fixtures.requests).not.toContain("/outside-boundary");
         yield* decide(requireBoundary(domain).id, "refuse");
         const target = findNode(
-          rephrased.snapshot.nodes,
+          reopened.snapshot.nodes,
           "button",
           "Submit purchase"
         );

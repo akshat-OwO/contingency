@@ -664,3 +664,24 @@ it.effect(
       expect(after.controller).toBe("user");
     })
 );
+
+/**
+ * Teaching *proposes* a Domain Scope; it does not have one yet, so no
+ * navigation boundary is installed and nothing is enforced during the draft
+ * phase. This is intentional, not an oversight
+ * ([ADR 0035](../../docs/adr/0035-domain-scope-governs-top-level-documents.md)).
+ */
+it.effect("installs no Execution Boundary during Teaching", () =>
+  Effect.gen(function* teachingIsUnenforced() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    // The fake's `recorderTarget` dies, so a session that reached for a page to
+    // install a boundary on would fail here rather than start.
+    const teaching = yield* service.start({
+      ...startInput("start-teaching-unenforced"),
+      activity: "teaching",
+      url: "https://shop.example.com/",
+    });
+    expect(teaching.boundary).toBeNull();
+  })
+);
