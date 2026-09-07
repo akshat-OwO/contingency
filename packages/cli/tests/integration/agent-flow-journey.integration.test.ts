@@ -389,10 +389,39 @@ it.live(
           { name: "PASSWORD", runtime: false, secret: true, supplied: false },
           { name: "OTP", runtime: true, secret: true, supplied: false },
         ]);
+        /**
+         * The Verification Run has no active Agent Step, so the agent's own
+         * phrasing can never match a proposed Step. Domain Scope already
+         * decides where the session may travel, so an in-scope navigate from
+         * `about:blank` is not an unrecognised objective
+         * ([ADR 0027](../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+         */
         const verificationPage = yield* sessionTool("agent_browser_act", {
           action: { type: "navigate", url: loginUrl },
+          intent: { objective: "Open the login page to begin verification" },
           operationId: OperationId.make("journey-verify-navigate"),
           sessionId: verifying.id,
+        });
+        expect(verificationPage.intervention).toBeUndefined();
+        // A lookalike host no Domain Scope entry covers is still refused.
+        const lookalike = yield* sessionTool("agent_browser_act", {
+          action: {
+            type: "navigate",
+            url: loginUrl.replace("127.0.0.1", "localhost"),
+          },
+          intent: { objective: "Open the login page to begin verification" },
+          operationId: OperationId.make("journey-verify-lookalike"),
+          sessionId: verifying.id,
+        });
+        expect(requireBoundary(lookalike).reason).toBe("domain");
+        yield* user("agent.boundary.resolve", {
+          data: {
+            boundaryId: requireBoundary(lookalike).id,
+            decision: "refuse",
+            operationId: OperationId.make("journey-verify-lookalike-refuse"),
+            sessionId: verifying.id,
+          },
+          type: "agent.boundary.resolve",
         });
         // Nothing Teaching prepared survived into the fresh context.
         expect(
@@ -400,6 +429,28 @@ it.live(
             .value ?? ""
         ).toBe("");
         expect(JSON.stringify(verificationPage)).not.toContain(MOBILE_LITERAL);
+
+        // A non-navigate action with an unrecognised objective still pauses.
+        const unnamed = yield* sessionTool("agent_browser_act", {
+          action: {
+            ref: findNode(verificationPage.snapshot.nodes, "button", "Sign in")
+              .ref,
+            type: "hover",
+          },
+          intent: { objective: "Delete the account" },
+          operationId: OperationId.make("journey-verify-unknown-objective"),
+          sessionId: verifying.id,
+        });
+        expect(requireBoundary(unnamed).reason).toBe("objective");
+        yield* user("agent.boundary.resolve", {
+          data: {
+            boundaryId: requireBoundary(unnamed).id,
+            decision: "refuse",
+            operationId: OperationId.make("journey-verify-unknown-refuse"),
+            sessionId: verifying.id,
+          },
+          type: "agent.boundary.resolve",
+        });
 
         for (const [name, value] of [
           ["MOBILE", MOBILE_LITERAL],

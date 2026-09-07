@@ -742,9 +742,42 @@ it.live(
           url: fixtures.url("boundary-approved-redirect"),
         });
         expect(opened.url).toBe(fixtures.url("agent-boundary.html"));
+        // An in-scope navigate is governed by Domain Scope alone, so the
+        // agent's own phrasing never makes it an unrecognised objective.
+        const rephrased = yield* act(
+          "in-scope-navigate",
+          { type: "navigate", url: fixtures.url("agent-boundary.html") },
+          { objective: "Return to the boundary fixture to keep verifying" }
+        );
+        expect(rephrased.intervention).toBeUndefined();
+        expect(rephrased.entry.outcome).toBe("completed");
+        // The carve-out is scoped to the objective reason: an irreversible
+        // in-scope navigate still asks the user to confirm.
+        const irreversibleNavigate = yield* act(
+          "irreversible-navigate",
+          { type: "navigate", url: fixtures.url("agent-boundary.html") },
+          { irreversible: true, objective: "Leave this page for good" }
+        );
+        expect(requireBoundary(irreversibleNavigate).reason).toBe(
+          "confirmation"
+        );
+        yield* decide(requireBoundary(irreversibleNavigate).id, "refuse");
         const external = fixtures
           .url("outside-boundary")
           .replace("127.0.0.1", "localhost");
+        // A lookalike host stays refused whatever objective accompanies it.
+        const lookalike = yield* act(
+          "lookalike",
+          {
+            type: "navigate",
+            url: fixtures
+              .url("agent-boundary.html")
+              .replace("127.0.0.1", "localhost"),
+          },
+          { objective: "Return to the boundary fixture to keep verifying" }
+        );
+        expect(requireBoundary(lookalike).reason).toBe("domain");
+        yield* decide(requireBoundary(lookalike).id, "refuse");
         const domain = yield* act("outside", {
           type: "navigate",
           url: external,
@@ -754,7 +787,7 @@ it.live(
         expect(fixtures.requests).not.toContain("/outside-boundary");
         yield* decide(requireBoundary(domain).id, "refuse");
         const target = findNode(
-          opened.snapshot.nodes,
+          rephrased.snapshot.nodes,
           "button",
           "Submit purchase"
         );
