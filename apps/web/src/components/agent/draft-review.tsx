@@ -818,6 +818,8 @@ export const DraftReview = ({
           agentFlowId: manifest.agentFlowId,
           operationId: operationId(),
           revisionId: manifest.revisionId,
+          // Verification opens where this session stands, in a fresh context.
+          sessionId,
         },
         type: "agent.flow.verification.authorize",
       },

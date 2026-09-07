@@ -35,7 +35,10 @@ import type {
   AgentRunStoreError,
   AgentRunStoreService,
 } from "../services/agent-run-store.ts";
-import { AgentSession } from "../services/agent-session.ts";
+import {
+  AgentSession,
+  verificationStartingUrl,
+} from "../services/agent-session.ts";
 import type {
   AgentSessionError,
   AgentSessionService,
@@ -888,13 +891,32 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
        */
       "agent.flow.verification.authorize": ({ data }) =>
         revisionResult(
-          catalogUnavailable((catalog) =>
-            catalog.authorizeVerification({
-              agentFlowId: data.agentFlowId,
-              operationId: data.operationId,
-              revisionId: data.revisionId,
-            })
-          )
+          Effect.gen(function* authorizeVerificationRun() {
+            // Where Agent View stands when the user authorizes is where the
+            // Verification Run should open. A session that has gone away, or
+            // that never left a blank page, simply carries no starting URL.
+            const sessionId = data.sessionId ?? null;
+            const startingUrl =
+              sessionId === null
+                ? null
+                : yield* agentUnavailable((service) =>
+                    service
+                      .get(sessionId)
+                      .pipe(
+                        Effect.map((session) =>
+                          verificationStartingUrl(session.currentUrl)
+                        )
+                      )
+                  ).pipe(Effect.orElseSucceed(() => null));
+            return yield* catalogUnavailable((catalog) =>
+              catalog.authorizeVerification({
+                agentFlowId: data.agentFlowId,
+                operationId: data.operationId,
+                revisionId: data.revisionId,
+                startingUrl,
+              })
+            );
+          })
         ),
       "agent.flow.approve": ({ data }) =>
         revisionResult(

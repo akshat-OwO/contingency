@@ -417,6 +417,10 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           domainScope: draft.manifest.domainScope,
           emulation: draft.manifest.emulation,
           operationId: params.operationId,
+          // Verification opens where the user authorized it, in a browser
+          // context of its own: only the URL crosses over, never Teaching's
+          // cookies or storage.
+          url: authorization.startingUrl ?? undefined,
           verification,
           viewport: draft.manifest.emulation.viewport,
         })

@@ -19,6 +19,7 @@ import {
   AgentSession,
   makeAgentSessionLayer,
   makeAgentSessionService,
+  verificationStartingUrl,
 } from "../../src/services/agent-session.ts";
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
@@ -685,3 +686,18 @@ it.effect("installs no Execution Boundary during Teaching", () =>
     expect(teaching.boundary).toBeNull();
   })
 );
+
+it("carries only a real page into a Verification Run's starting URL", () => {
+  expect(verificationStartingUrl("https://shop.example/cart?item=1")).toBe(
+    "https://shop.example/cart?item=1"
+  );
+  // Credentials and secret query values never travel, the same as anywhere
+  // else Contingency records a URL.
+  expect(verificationStartingUrl("https://user:pw@shop.example/cart")).toBe(
+    "https://shop.example/cart"
+  );
+  // A blank or non-document page leaves the Run opening on `about:blank`.
+  expect(verificationStartingUrl("about:blank")).toBeNull();
+  expect(verificationStartingUrl("file:///tmp/page.html")).toBeNull();
+  expect(verificationStartingUrl("[invalid URL]")).toBeNull();
+});
