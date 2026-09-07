@@ -5,6 +5,7 @@ import type {
   BrowserContext,
   CDPSession,
   Page,
+  Request,
 } from "playwright-core";
 
 interface NavigationPolicy {
@@ -23,9 +24,23 @@ const Message = Schema.Struct({
   params: Schema.optional(Schema.Unknown),
 });
 const PausedRequest = Schema.Struct({
+  frameId: Schema.String,
   request: Schema.Struct({ url: Schema.String }),
   requestId: Schema.String,
 });
+/** A subframe document load is not a place the session can take the user. */
+const isTopLevelDocumentRequest = (request: Request) => {
+  if (!request.isNavigationRequest() || request.serviceWorker() !== null) {
+    return false;
+  }
+  try {
+    return request.frame().parentFrame() === null;
+  } catch {
+    // A popup's first request has no frame to read yet. Its document is the
+    // popup's own top-level one, so the Domain Scope still governs it.
+    return true;
+  }
+};
 const attempt = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({
     catch: (cause) => new Error(String(cause)),
@@ -165,8 +180,7 @@ export class NavigationCoordinator {
         Effect.forEach(
           targetInfos.filter(
             (target) =>
-              target.browserContextId === contextId &&
-              (target.type === "page" || target.type === "iframe")
+              target.browserContextId === contextId && target.type === "page"
           ),
           (target) => this.attach(target.targetId, contextId),
           { concurrency: "unbounded", discard: true }
@@ -191,7 +205,15 @@ export class NavigationCoordinator {
       const target = this.sessions.get(sessionId);
       const policy =
         target === undefined ? undefined : this.policies.get(target.contextId);
-      if (policy !== undefined && !policy.allows(paused.request.url)) {
+      // A page target's main frame carries the target's own id, so any other
+      // frame id is a subframe: Domain Scope governs top-level documents only.
+      const topLevel =
+        target !== undefined && paused.frameId === target.targetId;
+      if (
+        topLevel &&
+        policy !== undefined &&
+        !policy.allows(paused.request.url)
+      ) {
         yield* policy.refuse(paused.request.url);
         yield* this.send(sessionId, "Fetch.failRequest", {
           errorReason: "BlockedByClient",
@@ -236,7 +258,7 @@ const coordinatorFor = (browser: Browser) =>
     })
   );
 
-/** Pauses every document request, including redirects and a popup's first request. */
+/** Pauses top-level document requests, including redirects and a popup's first request. */
 export const installAgentNavigationBoundary = (
   context: BrowserContext,
   page: Page,
@@ -272,7 +294,7 @@ export const installAgentNavigationBoundary = (
       context.route("**/*", async (route) => {
         const request = route.request();
         const check = Effect.gen(function* checkInitialNavigation() {
-          if (request.isNavigationRequest()) {
+          if (isTopLevelDocumentRequest(request)) {
             if (!policy.allows(request.url())) {
               yield* policy.refuse(request.url());
               yield* attempt(() => route.abort("blockedbyclient"));

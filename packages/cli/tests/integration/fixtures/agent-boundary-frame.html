@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <title>Execution Boundary subframe fixture</title>
+  <body>
+    <p>A page that embeds a third party.</p>
+    <iframe id="advert" title="Advertising"></iframe>
+    <script>
+      // Served from `localhost` while the Domain Scope holds `127.0.0.1`, so
+      // the frame document is cross-origin and outside the scope.
+      const url = new URL("/outside-frame.html", location.href);
+      url.hostname = "localhost";
+      document.getElementById("advert").src = url.href;
+    </script>
+  </body>
+</html>
