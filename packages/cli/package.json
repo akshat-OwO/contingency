@@ -1,6 +1,9 @@
 {
   "name": "@contingencyhq/cli",
   "version": "0.0.1",
+  "repository": {
+    "url": "https://github.com/akshat-OwO/contingency"
+  },
   "bin": {
     "contingency": "dist/index.js"
   },
