@@ -15,7 +15,7 @@ import { refusal } from "@/components/agent/draft-review-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { agentRunCeilingExtendMutation, agentRunSummaryAtom } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const operationId = () => OperationId.make(crypto.randomUUID());
 
@@ -144,6 +144,7 @@ const RunCeilings = ({
   readonly run: AgentRunState;
   readonly sessionId: AgentSessionSnapshot["id"];
 }) => {
+  const { agentRunCeilingExtendMutation } = useRpcDependencies();
   const [extendResult, extend] = useAtom(agentRunCeilingExtendMutation);
   const failure = refusal(extendResult);
   const ended = run.outcome !== null;
@@ -377,6 +378,7 @@ export const RunDetails = ({
  * ([ADR 0030](../../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
 const EndedRunSummary = ({ runId }: { readonly runId: AgentRunId }) => {
+  const { agentRunSummaryAtom } = useRpcDependencies();
   const result = useAtomValue(agentRunSummaryAtom(runId));
   // The Run Summary is written when the agent finalizes the Run. Until then —
   // and for a Run that ended on a ceiling and was never finalized — the live
@@ -403,6 +405,7 @@ export const RunSummaryPanel = ({
  * recorded the Run has exited.
  */
 export const RunViewer = ({ runId }: { readonly runId: AgentRunId }) => {
+  const { agentRunSummaryAtom } = useRpcDependencies();
   const result = useAtomValue(agentRunSummaryAtom(runId));
   if (result._tag === "Initial") {
     return (

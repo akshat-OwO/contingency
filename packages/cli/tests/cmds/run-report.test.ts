@@ -10,7 +10,7 @@ import {
 
 const videoRun = {
   video: true,
-} as Run;
+} satisfies Pick<Run, "video">;
 
 const fileSystemReading = (contents: string) =>
   FileSystem.layerNoop({

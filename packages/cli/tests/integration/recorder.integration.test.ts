@@ -39,6 +39,19 @@ const RecorderReplayIntegrationLive = Layer.merge(
   IntegrationLive
 );
 
+type PageCallable = (credential?: string, payload?: string) => void;
+type JsonReceiver = NonNullable<object>;
+
+declare global {
+  var __contingencyRecorderCleanup: PageCallable | undefined;
+  var __contingencyRecorderSetSwallowClicks: PageCallable | undefined;
+  var __seen: string[];
+  var __trap: {
+    readonly credentials: string[];
+    readonly retained: PageCallable[];
+  };
+}
+
 const viewport = { deviceScaleFactor: 1, height: 480, width: 640 } as const;
 
 /** How long the page must sit still before the recorder settles a scroll. */
@@ -429,13 +442,11 @@ it.live("cannot be made to record a Step by page code", () =>
     yield* Effect.promise(() =>
       page.evaluate(() => {
         const seen: string[] = [];
-        (globalThis as unknown as { __seen: string[] }).__seen = seen;
+        globalThis.__seen = seen;
         const original = JSON.stringify;
         // oxlint-disable-next-line eslint/no-extend-native
-        JSON.stringify = (...args: readonly unknown[]) => {
-          const output = (original as (...rest: readonly unknown[]) => string)(
-            ...args
-          );
+        JSON.stringify = (value) => {
+          const output = original(value);
           seen.push(String(output));
           return output;
         };
@@ -445,7 +456,7 @@ it.live("cannot be made to record a Step by page code", () =>
         // oxlint-disable-next-line eslint/no-extend-native
         Object.defineProperty(Object.prototype, "toJSON", {
           configurable: true,
-          value(this: object) {
+          value(this: JsonReceiver) {
             seen.push(`toJSON:${Object.keys(this).join("|")}`);
             return this;
           },
@@ -466,8 +477,9 @@ it.live("cannot be made to record a Step by page code", () =>
         );
         const callable = globals.filter(
           (key) =>
-            typeof (globalThis as unknown as Record<string, unknown>)[key] ===
-            "function"
+            Object.prototype.toString.call(
+              Object.getOwnPropertyDescriptor(globalThis, key)?.value
+            ) === "[object Function]"
         );
         const forged = JSON.stringify({
           documentId: "forged-document",
@@ -478,24 +490,19 @@ it.live("cannot be made to record a Step by page code", () =>
           },
           sequence: 1,
         });
-        const observed = (
-          globalThis as unknown as { readonly __seen: string[] }
-        ).__seen;
-        for (const key of callable) {
-          const fn = (
-            globalThis as unknown as Record<
-              string,
-              (...args: readonly unknown[]) => unknown
-            >
-          )[key];
-          // Try the credential every way the page could have learned it.
-          for (const credential of [undefined, "guessed", ...observed]) {
-            try {
-              fn?.(credential, forged);
-              fn?.(forged);
-            } catch {
-              // A throw is fine; being ignored is the point.
-            }
+        const observed = globalThis.__seen;
+        // Try the credential every way the page could have learned it.
+        for (const credential of [undefined, "guessed", ...observed]) {
+          try {
+            globalThis.__contingencyRecorderSetSwallowClicks?.(
+              credential,
+              forged
+            );
+            globalThis.__contingencyRecorderSetSwallowClicks?.(forged);
+            globalThis.__contingencyRecorderCleanup?.(credential, forged);
+            globalThis.__contingencyRecorderCleanup?.(forged);
+          } catch {
+            // A throw is fine; being ignored is the point.
           }
         }
         return { callable, globals, observed };
@@ -545,13 +552,7 @@ it.live("keeps capture running when page code calls cleanup", () =>
     // cleanup would silently omit every action after it.
     yield* Effect.promise(() =>
       page.evaluate(() => {
-        const cleanup = (
-          globalThis as unknown as {
-            readonly __contingencyRecorderCleanup?: (
-              nonce?: unknown
-            ) => unknown;
-          }
-        ).__contingencyRecorderCleanup;
+        const cleanup = globalThis.__contingencyRecorderCleanup;
         cleanup?.();
         cleanup?.("guessed");
       })
@@ -640,14 +641,7 @@ it.live("reveals nothing to a page waiting for capture to attach", () =>
     const forge = () =>
       Effect.promise(() =>
         page.evaluate(() => {
-          const trap = (
-            globalThis as unknown as {
-              readonly __trap: {
-                readonly credentials: string[];
-                readonly retained: ((...args: unknown[]) => unknown)[];
-              };
-            }
-          ).__trap;
+          const trap = globalThis.__trap;
           const forged = JSON.stringify({
             documentId: `forged-${Math.random()}`,
             event: {

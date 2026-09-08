@@ -18,7 +18,7 @@ import {
 import { useAtomSet } from "@effect/atom-react";
 import { Cause, Effect, Fiber, Schedule } from "effect";
 import { PlusIcon, SearchIcon, Trash2Icon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
   applyFetchedStorageSnapshot,
@@ -71,12 +71,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  browserStorageClearMutation,
-  browserStorageDeleteMutation,
-  browserStorageGetMutation,
-  browserStorageSetMutation,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 const innerTabs: readonly {
@@ -115,7 +110,7 @@ const sameSiteFromSelectValue = (
 
 const flagLabel = (value: boolean): string => (value ? "Yes" : "No");
 
-const toErrorMessage = (error: unknown): string =>
+const toErrorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
     : "Storage operation failed";
@@ -159,7 +154,7 @@ const CookieTable = ({
   readonly selected: StorageSelection | undefined;
 }) => (
   <>
-    <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_1.75rem] border-b px-2 py-1 text-[11px] font-medium">
+    <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_1.75rem] border-b px-2 py-1 text-xs font-medium">
       <span>Name</span>
       <span>Domain</span>
       <span>Path</span>
@@ -342,7 +337,7 @@ const WebStorageTable = ({
   const adding = draft !== undefined && !draft.lockedKey;
   return (
     <>
-      <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_1.75rem] border-b px-2 py-1 text-[11px] font-medium">
+      <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_1.75rem] border-b px-2 py-1 text-xs font-medium">
         <span>Key</span>
         <span>Value</span>
         <span className="sr-only">Delete</span>
@@ -722,37 +717,35 @@ const useStoragePolling = ({
     tabUrlRef.current = tabUrl;
   });
 
-  const fetchKind = useCallback(
-    (kind: StorageKind) =>
-      Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          getStorageRef.current({
-            payload: {
-              data: { kind, sessionId, tabId },
-              type: "browser.storage.get",
-            },
-          }),
-      }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            setUiStateRef.current((current) =>
-              applyFetchedStorageSnapshot(
-                current,
-                tabUrlRef.current,
-                result.data.snapshot
-              )
-            );
-          })
-        ),
-        Effect.catchCause((cause) =>
-          Effect.sync(() =>
-            onErrorRef.current(toErrorMessage(Cause.squash(cause)))
-          )
-        )
+  const fetchKind = (kind: StorageKind) =>
+    Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        getStorageRef.current({
+          payload: {
+            data: { kind, sessionId, tabId },
+            type: "browser.storage.get",
+          },
+        }),
+    }).pipe(
+      Effect.tap((result) =>
+        Effect.sync(() => {
+          setUiStateRef.current((current) =>
+            applyFetchedStorageSnapshot(
+              current,
+              tabUrlRef.current,
+              result.data.snapshot
+            )
+          );
+        })
       ),
-    [sessionId, tabId]
-  );
+      Effect.catchCause((cause) =>
+        Effect.sync(() =>
+          onErrorRef.current(toErrorMessage(Cause.squash(cause)))
+        )
+      )
+    );
+  const fetchKindFromEffect = useEffectEvent(fetchKind);
 
   useEffect(() => {
     setUiStateRef.current((current) =>
@@ -767,7 +760,7 @@ const useStoragePolling = ({
     let cancelled = false;
     const trackedFetch = Effect.suspend(() => {
       onRefreshStateChangeRef.current(true);
-      return fetchKind(uiState.storageKind).pipe(
+      return fetchKindFromEffect(uiState.storageKind).pipe(
         Effect.ensuring(
           Effect.sync(() => {
             if (!cancelled) {
@@ -792,7 +785,7 @@ const useStoragePolling = ({
       cancelled = true;
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [dirty, fetchKind, pollPaused, refreshNonce, tabUrl, uiState.storageKind]);
+  }, [dirty, pollPaused, refreshNonce, tabUrl, uiState.storageKind]);
 
   useEffect(() => {
     if (!(mutationsLocked && uiState.storageDraft !== undefined)) {
@@ -819,32 +812,32 @@ type StorageFetchKind = (kind: StorageKind) => Effect.Effect<unknown, unknown>;
 type StorageMutationEffect = Effect.Effect<unknown, unknown>;
 
 const useStorageMutations = () => {
+  const { browserStorageDeleteMutation, browserStorageSetMutation } =
+    useRpcDependencies();
   const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
   const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
     mode: "promise",
   });
-  const setStorageEffect = useCallback(
-    (data: BrowserStorageSetPayload): StorageMutationEffect =>
-      Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          setStorage({
-            payload: { data, type: "browser.storage.set" },
-          }),
-      }),
-    [setStorage]
-  );
-  const deleteStorageEffect = useCallback(
-    (data: BrowserStorageDeletePayload): StorageMutationEffect =>
-      Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          deleteStorage({
-            payload: { data, type: "browser.storage.delete" },
-          }),
-      }),
-    [deleteStorage]
-  );
+  const setStorageEffect = (
+    data: BrowserStorageSetPayload
+  ): StorageMutationEffect =>
+    Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        setStorage({
+          payload: { data, type: "browser.storage.set" },
+        }),
+    });
+  const deleteStorageEffect = (
+    data: BrowserStorageDeletePayload
+  ): StorageMutationEffect =>
+    Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        deleteStorage({
+          payload: { data, type: "browser.storage.delete" },
+        }),
+    });
   return { deleteStorageEffect, setStorageEffect };
 };
 
@@ -911,7 +904,7 @@ const StoragePanelChrome = ({
           {innerTabs.map((tab) => (
             <Button
               aria-selected={uiState.storageKind === tab.kind}
-              className="h-6 rounded-full px-2 text-[11px]"
+              className="h-6 rounded-full px-2 text-xs"
               key={tab.kind}
               onClick={() => {
                 setUiState((current) => ({
@@ -976,7 +969,7 @@ const StoragePanelChrome = ({
         </Button>
       </div>
       {mutationsLocked ? (
-        <p className="text-muted-foreground border-b px-2 py-1 text-[11px]">
+        <p className="text-muted-foreground border-b px-2 py-1 text-xs">
           {storageLockedMessage}
         </p>
       ) : null}
@@ -1400,6 +1393,7 @@ const StorageClearDialog = ({
   readonly setUiState: BrowserStoragePanelProps["setUiState"];
   readonly tabId: BrowserTabId;
 }) => {
+  const { browserStorageClearMutation } = useRpcDependencies();
   const clearStorage = useAtomSet(browserStorageClearMutation, {
     mode: "promise",
   });
@@ -1456,6 +1450,7 @@ export const BrowserStoragePanel = ({
   tabUrl,
   uiState,
 }: BrowserStoragePanelProps) => {
+  const { browserStorageGetMutation } = useRpcDependencies();
   const getStorage = useAtomSet(browserStorageGetMutation, { mode: "promise" });
   const [confirmClear, setConfirmClear] = useState(false);
   const host = httpOriginFromUrl(tabUrl)?.host;

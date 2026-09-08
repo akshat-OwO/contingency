@@ -99,11 +99,12 @@ export const uniqueVariableName = (
   existing: readonly string[]
 ): string => {
   const base = normalizeVariableName(candidate) || "SECRET";
-  if (!existing.includes(base)) {
+  const existingNames = new Set(existing);
+  if (!existingNames.has(base)) {
     return base;
   }
   let suffix = 2;
-  while (existing.includes(`${base}_${suffix}`)) {
+  while (existingNames.has(`${base}_${suffix}`)) {
     suffix += 1;
   }
   return `${base}_${suffix}`;
@@ -231,12 +232,16 @@ export const flowDownloadName = (initialUrl: string, title: string): string => {
     : "contingency-flow.json";
 };
 
-const toAuthoredStep = (recorded: RecordedStep): AuthoredStep => ({
-  ...recorded.step,
-  id: recorded.id,
-  ...(recorded.preSteps.length === 0 ? {} : { preSteps: recorded.preSteps }),
-  ...(recorded.variable === undefined ? {} : { variable: recorded.variable }),
-});
+const toAuthoredStep = (recorded: RecordedStep): AuthoredStep => {
+  let authored: AuthoredStep = { ...recorded.step, id: recorded.id };
+  if (recorded.preSteps.length > 0) {
+    authored = { ...authored, preSteps: recorded.preSteps };
+  }
+  if (recorded.variable !== undefined) {
+    authored = { ...authored, variable: recorded.variable };
+  }
+  return authored;
+};
 
 /**
  * The session's Emulation as the Flow declares it. The viewport the author
@@ -244,60 +249,72 @@ const toAuthoredStep = (recorded: RecordedStep): AuthoredStep => ({
  * would not be the Flow they authored ([ADR
  * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
-const toEmulation = (emulation: SessionEmulation): Flow["emulation"] => ({
+const toEmulation = (emulation: SessionEmulation): Flow["emulation"] => {
   // The concrete identity, not the profile id that produced it: a Flow that
   // referenced a mutable Create View profile could mean something else later
   // (ADR 0013). A session that carries an identity carries no separate
   // `userAgent`, so the two cannot disagree.
-  ...(emulation.browser === undefined ? {} : { browser: emulation.browser }),
-  ...(emulation.colorScheme === undefined
-    ? {}
-    : { colorScheme: emulation.colorScheme }),
-  ...(emulation.geolocation === undefined
-    ? {}
-    : { geolocation: emulation.geolocation }),
-  ...(emulation.locale === undefined ? {} : { locale: emulation.locale }),
-  ...(emulation.permissions.length === 0
-    ? {}
-    : { permissions: [...emulation.permissions] }),
-  ...(emulation.timezoneId === undefined
-    ? {}
-    : { timezoneId: emulation.timezoneId }),
-  ...(emulation.userAgent === undefined
-    ? {}
-    : { userAgent: emulation.userAgent }),
-  viewport: emulation.viewport,
-});
+  let result: Flow["emulation"] = { viewport: emulation.viewport };
+  if (emulation.browser !== undefined) {
+    result = { ...result, browser: emulation.browser };
+  }
+  if (emulation.colorScheme !== undefined) {
+    result = { ...result, colorScheme: emulation.colorScheme };
+  }
+  if (emulation.geolocation !== undefined) {
+    result = { ...result, geolocation: emulation.geolocation };
+  }
+  if (emulation.locale !== undefined) {
+    result = { ...result, locale: emulation.locale };
+  }
+  if (emulation.permissions.length > 0) {
+    result = { ...result, permissions: [...emulation.permissions] };
+  }
+  if (emulation.timezoneId !== undefined) {
+    result = { ...result, timezoneId: emulation.timezoneId };
+  }
+  if (emulation.userAgent !== undefined) {
+    result = { ...result, userAgent: emulation.userAgent };
+  }
+  return result;
+};
 
-export const toFlow = (state: RecordingState): Flow => ({
+export const toFlow = (state: RecordingState): Flow => {
   // The Emulation of the session the Recording was made on, so a headless Run
   // reproduces it rather than running from wherever the machine happens to be.
-  emulation: toEmulation(state.emulation),
-  // Always emitted, because a Flow keys its Run history on this rather than on
-  // the user-editable title, which would orphan that history on a rename.
-  flowId: state.flowId,
-  ...(state.flowPreSteps.length === 0 ? {} : { preSteps: state.flowPreSteps }),
-  steps: state.steps.map(toAuthoredStep),
-  title: state.title,
-  ...(state.variables.length === 0
-    ? {}
-    : {
-        // Create View only authors withheld sensitive values, so every
-        // Variable it declares is both redacted from a Run and promptable
-        // when the Runner has no value for it.
-        variables: state.variables.map((name) => ({
-          name,
-          runtime: true,
-          secret: true,
-        })),
-      }),
-});
+  let flow: Flow = {
+    emulation: toEmulation(state.emulation),
+    // Always emitted, because a Flow keys its Run history on this rather than on
+    // the user-editable title, which would orphan that history on a rename.
+    flowId: state.flowId,
+    steps: state.steps.map(toAuthoredStep),
+    title: state.title,
+  };
+  if (state.flowPreSteps.length > 0) {
+    flow = { ...flow, preSteps: state.flowPreSteps };
+  }
+  if (state.variables.length > 0) {
+    // Create View only authors withheld sensitive values, so every Variable it
+    // declares is both redacted from a Run and promptable when no value exists.
+    flow = {
+      ...flow,
+      variables: state.variables.map((name) => ({
+        name,
+        runtime: true,
+        secret: true,
+      })),
+    };
+  }
+  return flow;
+};
 
 export const referencedVariables = (
   state: Pick<RecordingState, "flowPreSteps" | "initialUrl" | "steps">
 ): readonly string[] => {
   const references = new Set<string>();
-  const addReferences = (value: unknown) => {
+  const addReferences = (
+    value: string | RecordingState["flowPreSteps"] | RecordingState["steps"]
+  ) => {
     for (const match of JSON.stringify(value).matchAll(
       VARIABLE_REFERENCE_PATTERN
     )) {
@@ -313,26 +330,35 @@ export const referencedVariables = (
   return [...references];
 };
 
-export const toSnapshot = (state: RecordingState): RecordingSnapshot => ({
-  captureMode: state.captureMode,
-  ...(state.phase === "finished"
-    ? { downloadName: flowDownloadName(state.initialUrl, state.title) }
-    : {}),
-  flow: toFlow(state),
-  ...(state.incompleteFailure === undefined
-    ? {}
-    : { incompleteReason: state.incompleteFailure.message }),
-  initialUrl: state.initialUrl,
-  phase: state.phase,
-  recordedSteps: state.steps,
-  revision: state.revision,
-  sessionId: state.sessionId,
-  tabId: state.tabId,
-  ...(state.targetStepId === undefined
-    ? {}
-    : { targetStepId: state.targetStepId }),
-  undoAvailable: state.deletedStep !== undefined,
-});
+export const toSnapshot = (state: RecordingState): RecordingSnapshot => {
+  let snapshot: RecordingSnapshot = {
+    captureMode: state.captureMode,
+    flow: toFlow(state),
+    initialUrl: state.initialUrl,
+    phase: state.phase,
+    recordedSteps: state.steps,
+    revision: state.revision,
+    sessionId: state.sessionId,
+    tabId: state.tabId,
+    undoAvailable: state.deletedStep !== undefined,
+  };
+  if (state.phase === "finished") {
+    snapshot = {
+      ...snapshot,
+      downloadName: flowDownloadName(state.initialUrl, state.title),
+    };
+  }
+  if (state.incompleteFailure !== undefined) {
+    snapshot = {
+      ...snapshot,
+      incompleteReason: state.incompleteFailure.message,
+    };
+  }
+  if (state.targetStepId !== undefined) {
+    snapshot = { ...snapshot, targetStepId: state.targetStepId };
+  }
+  return snapshot;
+};
 
 /**
  * The shape every edit shares: bump the revision, re-derive the Variables the

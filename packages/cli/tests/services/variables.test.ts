@@ -43,7 +43,7 @@ const flowWith = (variables: readonly Variable[]): Flow =>
     steps: [{ type: "navigate", url: "https://example.com/" }],
     title: "Sign in",
     variables,
-  }) as Flow;
+  }) satisfies Flow;
 
 const neverPrompt = () => Effect.die(new Error("Prompted unexpectedly"));
 

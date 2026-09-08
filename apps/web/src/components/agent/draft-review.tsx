@@ -58,15 +58,7 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  agentFlowApproveMutation,
-  agentFlowArchiveMutation,
-  agentFlowDeleteMutation,
-  agentFlowDraftUpdateMutation,
-  agentFlowRevisionAtom,
-  agentFlowVerificationAuthorizeMutation,
-  agentVariableSupplyMutation,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const operationId = () => OperationId.make(crypto.randomUUID());
 
@@ -279,6 +271,7 @@ export const VariableSupply = ({
 }: {
   readonly session: AgentSessionSnapshot;
 }) => {
+  const { agentVariableSupplyMutation } = useRpcDependencies();
   const [supplyResult, supply] = useAtom(agentVariableSupplyMutation);
   const [values, setValues] = useAtom(draftVariableDraftAtom(session.id));
   /** Which Variable the Run is being told, so its field clears once it lands. */
@@ -728,6 +721,14 @@ export const DraftReview = ({
    */
   readonly startingPageSessionId: AgentSessionId | undefined;
 }) => {
+  const {
+    agentFlowApproveMutation,
+    agentFlowArchiveMutation,
+    agentFlowDeleteMutation,
+    agentFlowDraftUpdateMutation,
+    agentFlowRevisionAtom,
+    agentFlowVerificationAuthorizeMutation,
+  } = useRpcDependencies();
   const reviewKey: DraftReviewKey = { agentFlowId, revisionId };
   const revisionAtom = agentFlowRevisionAtom(agentFlowId, revisionId);
   const revisionResult = useAtomValue(revisionAtom);

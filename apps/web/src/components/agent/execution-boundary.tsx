@@ -4,13 +4,14 @@ import { useAtom } from "@effect/atom-react";
 
 import { refusal } from "@/components/agent/draft-review-state";
 import { Button } from "@/components/ui/button";
-import { agentBoundaryResolveMutation } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 export const ExecutionBoundary = ({
   session,
 }: {
   readonly session: AgentSessionSnapshot;
 }) => {
+  const { agentBoundaryResolveMutation } = useRpcDependencies();
   const [result, resolve] = useAtom(agentBoundaryResolveMutation);
   const { boundary } = session;
   if (boundary === undefined || boundary === null) {

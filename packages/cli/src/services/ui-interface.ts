@@ -8,17 +8,17 @@ export class UiInterfaceOpenError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export interface UiInterfaceShape {
+export interface UiInterfaceService {
   readonly open: (url: string) => Effect.Effect<void, UiInterfaceOpenError>;
 }
 
-export const UiInterface = Context.Service<UiInterfaceShape>(
+export const UiInterface = Context.Service<UiInterfaceService>(
   "@contingency/UiInterface"
 );
 
-export const makeUiInterface = (
-  openUrl: (url: string) => Promise<unknown> = open
-): UiInterfaceShape => ({
+export const makeUiInterface = <OpenResult>(
+  openUrl: (url: string) => Promise<OpenResult>
+): UiInterfaceService => ({
   open: Effect.fn("UiInterface.open")((url: string) =>
     Effect.tryPromise({
       catch: (cause) =>
@@ -31,4 +31,7 @@ export const makeUiInterface = (
   ),
 });
 
-export const UiInterfaceLive = Layer.succeed(UiInterface, makeUiInterface());
+export const UiInterfaceLive = Layer.succeed(
+  UiInterface,
+  makeUiInterface(open)
+);

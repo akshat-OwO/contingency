@@ -1,4 +1,3 @@
-import type { RunSnapshot } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -32,7 +31,7 @@ const idleRun = {
     ],
   },
   warnings: [],
-} as unknown as RunSnapshot;
+} satisfies unknown;
 
 test("keeps the missing settled-state error visible and does not invent a frame", () => {
   render(

@@ -1,18 +1,22 @@
 import type { Geolocation } from "@contingency/protocol";
 
-/** The geolocation context option, or nothing when none is declared. */
-const geolocationOption = (geolocation: Geolocation | undefined) =>
-  geolocation === undefined
-    ? {}
-    : {
-        geolocation: {
-          ...(geolocation.accuracy === undefined
-            ? {}
-            : { accuracy: geolocation.accuracy }),
-          latitude: geolocation.latitude,
-          longitude: geolocation.longitude,
-        },
-      };
+export interface EnvironmentContextOptions {
+  readonly colorScheme?: "light" | "dark";
+  readonly geolocation?: {
+    readonly accuracy?: number;
+    readonly latitude: number;
+    readonly longitude: number;
+  };
+  readonly locale?: string;
+  readonly timezoneId?: string;
+}
+
+export interface EnvironmentEmulation {
+  readonly colorScheme?: "light" | "dark" | undefined;
+  readonly geolocation?: Geolocation | undefined;
+  readonly locale?: string | undefined;
+  readonly timezoneId?: string | undefined;
+}
 
 /**
  * The environment half of an Emulation — what a site senses about its place
@@ -27,26 +31,25 @@ const geolocationOption = (geolocation: Geolocation | undefined) =>
  * request's own `Accept-Language` would never carry it at all.
  */
 export const environmentContextOptions = (
-  emulation:
-    | {
-        readonly colorScheme?: "light" | "dark" | undefined;
-        readonly geolocation?: Geolocation | undefined;
-        readonly locale?: string | undefined;
-        readonly timezoneId?: string | undefined;
-      }
-    | undefined
-): {
-  colorScheme?: "light" | "dark";
-  geolocation?: { accuracy?: number; latitude: number; longitude: number };
-  locale?: string;
-  timezoneId?: string;
-} => ({
-  ...(emulation?.colorScheme === undefined
-    ? {}
-    : { colorScheme: emulation.colorScheme }),
-  ...geolocationOption(emulation?.geolocation),
-  ...(emulation?.locale === undefined ? {} : { locale: emulation.locale }),
-  ...(emulation?.timezoneId === undefined
-    ? {}
-    : { timezoneId: emulation.timezoneId }),
-});
+  emulation: EnvironmentEmulation | undefined
+): EnvironmentContextOptions => {
+  let options: EnvironmentContextOptions = {};
+  if (emulation?.colorScheme !== undefined) {
+    options = { ...options, colorScheme: emulation.colorScheme };
+  }
+  if (emulation?.geolocation !== undefined) {
+    const { accuracy, latitude, longitude } = emulation.geolocation;
+    const geolocation =
+      accuracy === undefined
+        ? { latitude, longitude }
+        : { accuracy, latitude, longitude };
+    options = { ...options, geolocation };
+  }
+  if (emulation?.locale !== undefined) {
+    options = { ...options, locale: emulation.locale };
+  }
+  if (emulation?.timezoneId !== undefined) {
+    options = { ...options, timezoneId: emulation.timezoneId };
+  }
+  return options;
+};

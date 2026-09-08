@@ -4,7 +4,7 @@ import {
 } from "@contingency/protocol";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Effect, Fiber, Result } from "effect";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 
 import { AttemptPlayer } from "@/components/audit/attempt-player";
 import {
@@ -37,7 +37,7 @@ import {
   runVariableAnswerMutation,
 } from "@/lib/rpc";
 
-const errorMessage = (error: unknown): string =>
+const errorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
     : "The Runner could not answer.";
@@ -246,25 +246,22 @@ const AuditWorkspace = () => {
    * One shape for both requests: a refusal is the Runner's answer and must be
    * shown, not swallowed. Matches how Create View drives its own mutations.
    */
-  const request = useCallback(
-    (operation: () => Promise<unknown>) => {
-      if (busy) {
-        return;
+  const request = <Success,>(operation: () => Promise<Success>) => {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        await operation();
+      } catch (error) {
+        setActionError(errorMessage(error));
+      } finally {
+        setBusy(false);
       }
-      setBusy(true);
-      setActionError(null);
-      void (async () => {
-        try {
-          await operation();
-        } catch (error) {
-          setActionError(errorMessage(error));
-        } finally {
-          setBusy(false);
-        }
-      })();
-    },
-    [busy, setActionError, setBusy]
-  );
+    })();
+  };
 
   useEffect(() => {
     if (runResult._tag !== "Success") {
@@ -300,7 +297,7 @@ const AuditWorkspace = () => {
 
   const { run } = workspace;
 
-  const onStart = useCallback(() => {
+  const onStart = () => {
     // A fresh Run replaces what the reader was looking at, so the attempt and
     // the pinned Step go back to following the Runner.
     setWorkspace((current) => ({
@@ -309,27 +306,24 @@ const AuditWorkspace = () => {
       pin: undefined,
     }));
     request(() => start({ payload: { data: {}, type: "run.start" } }));
-  }, [request, setWorkspace, start]);
+  };
 
-  const onLoadFlow = useCallback(
-    (document: string, source: string) => {
-      // A different Flow is a different timeline: nothing the reader had
-      // pinned survives it.
-      setWorkspace((current) => ({
-        ...current,
-        attempt: undefined,
-        pin: undefined,
-      }));
-      request(() =>
-        loadFlow({
-          payload: { data: { document, source }, type: "run.flow.load" },
-        })
-      );
-    },
-    [loadFlow, request, setWorkspace]
-  );
+  const onLoadFlow = (document: string, source: string) => {
+    // A different Flow is a different timeline: nothing the reader had
+    // pinned survives it.
+    setWorkspace((current) => ({
+      ...current,
+      attempt: undefined,
+      pin: undefined,
+    }));
+    request(() =>
+      loadFlow({
+        payload: { data: { document, source }, type: "run.flow.load" },
+      })
+    );
+  };
 
-  const onAnswer = useCallback(() => {
+  const onAnswer = () => {
     const name = run?.variablePrompt?.name;
     if (name === undefined) {
       return;
@@ -340,7 +334,7 @@ const AuditWorkspace = () => {
       });
       setDraft("");
     });
-  }, [answer, draft, request, run?.variablePrompt?.name, setDraft]);
+  };
 
   if (run === null) {
     return <NoFlow busy={busy} error={actionError} onLoad={onLoadFlow} />;

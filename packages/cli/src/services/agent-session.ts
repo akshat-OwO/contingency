@@ -66,6 +66,7 @@ import {
   Ref,
   Result,
   Schedule,
+  Schema,
   Scope,
   Semaphore,
   Stream,
@@ -102,7 +103,7 @@ export interface AgentSessionServiceOptions {
   /** Exact process-owner directory for per-session temporary resources. */
   readonly resourceDirectory?: string;
   /** Durable local directory for Teaching Trace archives, resolved at start. */
-  readonly traceDirectory?: string | (() => string);
+  readonly traceDirectory?: () => string;
 }
 
 export interface AgentSessionStartInput {
@@ -533,17 +534,22 @@ const teachingOf = (
     : record.capture.progress(snapshot.teaching?.draft ?? null);
 
 /** Keep the control event useful to the compiler without persisting typed text. */
-const teachingInput = (input: BrowserInput): CapturedUserInput =>
-  input.type === "input_keyboard"
-    ? {
-        eventType: input.eventType,
-        inputType: "keyboard",
-        ...(input.key !== undefined && input.key.length === 1
-          ? { key: "[user input]" }
-          : {}),
-        ...(input.text === undefined ? {} : { text: "[user input]" }),
-      }
-    : { eventType: input.eventType, inputType: "mouse" };
+const teachingInput = (input: BrowserInput): CapturedUserInput => {
+  if (input.type === "input_mouse") {
+    return { eventType: input.eventType, inputType: "mouse" };
+  }
+  const withoutKey: CapturedUserInput =
+    input.text === undefined
+      ? { eventType: input.eventType, inputType: "keyboard" }
+      : {
+          eventType: input.eventType,
+          inputType: "keyboard",
+          text: "[user input]",
+        };
+  return input.key !== undefined && input.key.length === 1
+    ? { ...withoutKey, key: "[user input]" }
+    : withoutKey;
+};
 
 const describeTeachingInput = (input: BrowserInput): string =>
   input.type === "input_mouse"
@@ -565,7 +571,7 @@ const shouldCaptureRawInput = (input: BrowserInput): boolean =>
 /** Keep public Teaching records free of credentials and sensitive URL values. */
 const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
   action.type === "navigate"
-    ? ({ ...action, url: sanitizeTeachingUrl(action.url) } as A)
+    ? ({ ...action, url: sanitizeTeachingUrl(action.url) } satisfies A)
     : action;
 
 const sanitizeSensitiveAction = (
@@ -977,27 +983,17 @@ interface ReplayRecord {
   readonly target: string;
 }
 
+const CatalogTeachingRetention = Schema.Struct({
+  retention: Schema.Literals(["delete-on-approval", "retain-for-days"]),
+});
+
 const catalogTeachingRetention = (
   contents: string
 ): "delete-on-approval" | "retain-for-days" | null => {
-  try {
-    const parsed = JSON.parse(contents) as unknown;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "retention" in parsed
-    ) {
-      if (parsed.retention === "delete-on-approval") {
-        return "delete-on-approval";
-      }
-      if (parsed.retention === "retain-for-days") {
-        return "retain-for-days";
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const decoded = Result.try(() =>
+    Schema.decodeUnknownSync(CatalogTeachingRetention)(JSON.parse(contents))
+  );
+  return Result.isSuccess(decoded) ? decoded.success.retention : null;
 };
 
 const makeAgentSession = (
@@ -1452,11 +1448,7 @@ const makeAgentSession = (
         if (requested === undefined && activity !== "teaching") {
           return;
         }
-        const directory =
-          requested ??
-          (typeof options.traceDirectory === "function"
-            ? options.traceDirectory()
-            : options.traceDirectory);
+        const directory = requested ?? options.traceDirectory?.();
         if (directory !== undefined && fileSystem !== undefined) {
           yield* fileSystem
             .makeDirectory(directory, { recursive: true })
@@ -3682,16 +3674,21 @@ const makeAgentSession = (
         ),
       close: (sessionId, operationId) =>
         lock.withPermit(closeUnlocked(sessionId, operationId)),
-      closeAll: () =>
-        lock.withPermit(
+      closeAll: () => {
+        const liveSessionIds: AgentSessionId[] = [];
+        for (const [sessionId, record] of Ref.getUnsafe(sessions)) {
+          if (isLive(record.snapshot.phase)) {
+            liveSessionIds.push(sessionId);
+          }
+        }
+        return lock.withPermit(
           Effect.forEach(
-            [...Ref.getUnsafe(sessions).entries()]
-              .filter(([, record]) => isLive(record.snapshot.phase))
-              .map(([sessionId]) => sessionId),
+            liveSessionIds,
             (sessionId) => interruptUnlocked(sessionId).pipe(Effect.ignore),
             { discard: true }
           )
-        ),
+        );
+      },
       completeRun: (sessionId, summaryText, operationId) =>
         lock.withPermit(
           completeRunUnlocked(sessionId, summaryText, operationId)

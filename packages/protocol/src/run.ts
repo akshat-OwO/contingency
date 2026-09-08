@@ -661,15 +661,16 @@ export type RunSnapshot = typeof RunSnapshot.Type;
  * answer with this predicate rather than with two bodies that agree by
  * coincidence.
  */
-export const runIsInFlight = (snapshot: RunSnapshot | null): boolean =>
-  snapshot?.phase === "starting" || snapshot?.phase === "running";
+export const runIsInFlight = (
+  snapshot: Pick<RunSnapshot, "phase"> | null
+): boolean => snapshot?.phase === "starting" || snapshot?.phase === "running";
 
 /**
  * Which attempt Audit View opens on: the last one that failed, falling back to
  * the last recorded. The attempt worth watching is the one that went wrong,
  * and on a Run that needed no retry both answers are the same.
  */
-export const defaultAttempt = (run: Run): number => {
+export const defaultAttempt = (run: Pick<Run, "attempts">): number => {
   const failed = run.attempts.findLast(
     (attempt) => attempt.outcome === "failed"
   );

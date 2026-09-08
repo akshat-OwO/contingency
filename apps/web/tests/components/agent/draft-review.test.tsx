@@ -10,19 +10,23 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Atom } from "effect/unstable/reactivity";
+import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
+import { DraftReview } from "@/components/agent/draft-review";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+
 const rpc = vi.hoisted(() => ({
-  approveCalls: [] as unknown[],
-  archiveCalls: [] as unknown[],
-  authorizeCalls: [] as unknown[],
-  deleteCalls: [] as unknown[],
-  detail: undefined as unknown,
-  readError: undefined as string | undefined,
-  updateCalls: [] as unknown[],
-  writeError: undefined as string | undefined,
+  approveCalls: [] satisfies unknown[],
+  archiveCalls: [] satisfies unknown[],
+  authorizeCalls: [] satisfies unknown[],
+  deleteCalls: [] satisfies unknown[],
+  detail: undefined,
+  readError: undefined,
+  updateCalls: [] satisfies unknown[],
+  writeError: undefined,
 }));
 
 const answer = () =>
@@ -44,44 +48,55 @@ const revisionOf = Atom.family((_key: string) =>
 const revisionFamily = (agentFlowId: string, revisionId: string) =>
   revisionOf(`${agentFlowId}\u0000${revisionId}`);
 
-vi.mock("@/lib/rpc", () => ({
-  agentFlowApproveMutation: Atom.fn((payload: unknown) =>
+const rpcOverrides = {
+  agentFlowApproveMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.suspend(() => {
       rpc.approveCalls.push(payload);
       return answer();
     })
   ),
-  agentFlowArchiveMutation: Atom.fn((payload: unknown) =>
+  agentFlowArchiveMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.suspend(() => {
       rpc.archiveCalls.push(payload);
       return answer();
     })
   ),
-  agentFlowDeleteMutation: Atom.fn((payload: unknown) =>
+  agentFlowDeleteMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.suspend(() => {
       rpc.deleteCalls.push(payload);
       return Effect.succeed({
-        data: { agentFlowId: "flow-shop", deleted: true as const },
+        data: { agentFlowId: "flow-shop", deleted: true },
       });
     })
   ),
-  agentFlowDraftUpdateMutation: Atom.fn((payload: unknown) =>
+  agentFlowDraftUpdateMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.suspend(() => {
       rpc.updateCalls.push(payload);
       return answer();
     })
   ),
   agentFlowRevisionAtom: revisionFamily,
-  agentFlowVerificationAuthorizeMutation: Atom.fn((payload: unknown) =>
-    Effect.suspend(() => {
-      rpc.authorizeCalls.push(payload);
-      return answer();
-    })
+  agentFlowVerificationAuthorizeMutation: Atom.fn(
+    <Payload,>(payload: Payload) =>
+      Effect.suspend(() => {
+        rpc.authorizeCalls.push(payload);
+        return answer();
+      })
   ),
   agentVariableSupplyMutation: Atom.fn(() => Effect.succeed({})),
-}));
+};
 
-const { DraftReview } = await import("@/components/agent/draft-review");
+const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
+  <RpcDependenciesProvider overrides={rpcOverrides}>
+    <RegistryProvider>{children}</RegistryProvider>
+  </RpcDependenciesProvider>
+);
+
+const RecordedAuthorization = Schema.Struct({
+  payload: Schema.Struct({
+    data: Schema.Struct({ sessionId: Schema.String }),
+  }),
+});
 
 const at = "2026-09-02T00:00:00.000Z";
 
@@ -129,7 +144,7 @@ const evidence = [
     stepIndex: 1,
     urlTransitionCount: 1,
   },
-] as const;
+];
 
 const manifest = {
   agentFlowId: "flow-shop",
@@ -170,7 +185,7 @@ const manifest = {
   tags: ["shop"],
   title: "Shop sign-in and order",
   variables: [{ name: "PASSWORD", runtime: true, secret: true }],
-} as const;
+};
 
 interface Verification {
   readonly authorizationId: string;
@@ -220,22 +235,22 @@ const verificationOf = (
   summary,
 });
 
-const renderReview = (
-  detail: unknown,
+const renderReview = <Detail,>(
+  detail: Detail,
   sessionId?: string,
   refreshToken = at
 ) => {
   rpc.detail = detail;
   return render(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken={refreshToken}
-        revisionId={"rev-1" as never}
-        sessionId={sessionId as never}
-        startingPageSessionId={sessionId as never}
+        revisionId={"rev-1"}
+        sessionId={sessionId}
+        startingPageSessionId={sessionId}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 };
 
@@ -281,21 +296,7 @@ test("archives an Agent Flow against the heads being reviewed", async () => {
   await waitFor(() => {
     expect(rpc.archiveCalls).toHaveLength(1);
   });
-  const [call] = rpc.archiveCalls as [
-    {
-      readonly payload: {
-        readonly data: {
-          readonly agentFlowId: string;
-          readonly archived: boolean;
-          readonly expectedHeads: {
-            readonly approvedRevisionId: string | null;
-            readonly archived: boolean;
-            readonly draftRevisionId: string | null;
-          };
-        };
-      };
-    },
-  ];
+  const [call] = rpc.archiveCalls;
   expect(call.payload.data).toMatchObject({
     agentFlowId: "flow-shop",
     archived: true,
@@ -327,21 +328,7 @@ test("requires typed confirmation before permanently deleting an Agent Flow", as
   await waitFor(() => {
     expect(rpc.deleteCalls).toHaveLength(1);
   });
-  const [call] = rpc.deleteCalls as [
-    {
-      readonly payload: {
-        readonly data: {
-          readonly agentFlowId: string;
-          readonly confirmation: string;
-          readonly expectedHeads: {
-            readonly approvedRevisionId: string | null;
-            readonly archived: boolean;
-            readonly draftRevisionId: string | null;
-          };
-        };
-      };
-    },
-  ];
+  const [call] = rpc.deleteCalls;
   expect(call.payload.data).toMatchObject({
     agentFlowId: "flow-shop",
     confirmation: "permanently-delete",
@@ -357,15 +344,15 @@ test("does not carry deletion success into another Agent Flow review", async () 
   const user = userEvent.setup();
   rpc.detail = detailWith(null);
   const view = render(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken={at}
-        revisionId={"rev-1" as never}
-        sessionId={"agent-one" as never}
-        startingPageSessionId={"agent-one" as never}
+        revisionId={"rev-1"}
+        sessionId={"agent-one"}
+        startingPageSessionId={"agent-one"}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   await user.type(
@@ -382,19 +369,19 @@ test("does not carry deletion success into another Agent Flow review", async () 
   ).toBeInTheDocument();
 
   rpc.detail = detailWith(null, {
-    agentFlowId: "flow-other" as never,
-    revisionId: "rev-other" as never,
+    agentFlowId: "flow-other",
+    revisionId: "rev-other",
   });
   view.rerender(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-other" as never}
+        agentFlowId={"flow-other"}
         refreshToken={at}
-        revisionId={"rev-other" as never}
-        sessionId={"agent-two" as never}
-        startingPageSessionId={"agent-two" as never}
+        revisionId={"rev-other"}
+        sessionId={"agent-two"}
+        startingPageSessionId={"agent-two"}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   expect(
@@ -442,16 +429,8 @@ test("renames a Step, edits Domain Scope, and saves one corrected proposal", asy
   await waitFor(() => {
     expect(rpc.updateCalls).toHaveLength(1);
   });
-  const [call] = rpc.updateCalls as [
-    { readonly payload: { readonly data: Record<string, never> } },
-  ];
-  const { draft, basedOnRevisionId } = call.payload.data as unknown as {
-    readonly basedOnRevisionId: string;
-    readonly draft: {
-      readonly domainScope: { readonly hosts: readonly string[] };
-      readonly steps: readonly { readonly name: string }[];
-    };
-  };
+  const [call] = rpc.updateCalls;
+  const { draft, basedOnRevisionId } = call.payload.data;
   expect(basedOnRevisionId).toBe("rev-1");
   expect(draft.steps[0]?.name).toBe("Sign in as the demo shopper");
   expect(draft.domainScope.hosts).toEqual([
@@ -472,20 +451,7 @@ test("merges two Agent Steps into one demonstrated span", async () => {
   await waitFor(() => {
     expect(rpc.updateCalls).toHaveLength(1);
   });
-  const [call] = rpc.updateCalls as [
-    {
-      readonly payload: {
-        readonly data: {
-          readonly draft: {
-            readonly steps: readonly {
-              readonly firstActionId: string;
-              readonly lastActionId: string;
-            }[];
-          };
-        };
-      };
-    },
-  ];
+  const [call] = rpc.updateCalls;
   expect(call.payload.data.draft.steps).toHaveLength(1);
   expect(call.payload.data.draft.steps[0]).toMatchObject({
     firstActionId: "action-1",
@@ -511,20 +477,7 @@ test("splits one Agent Step at a demonstrated action", async () => {
   await waitFor(() => {
     expect(rpc.updateCalls).toHaveLength(1);
   });
-  const [call] = rpc.updateCalls as [
-    {
-      readonly payload: {
-        readonly data: {
-          readonly draft: {
-            readonly steps: readonly {
-              readonly firstActionId: string;
-              readonly lastActionId: string;
-            }[];
-          };
-        };
-      };
-    },
-  ];
+  const [call] = rpc.updateCalls;
   const { steps } = call.payload.data.draft;
   expect(steps).toHaveLength(3);
   expect(steps[0]).toMatchObject({
@@ -548,17 +501,7 @@ test("authorizes one Verification Run for the exact draft revision", async () =>
   await waitFor(() => {
     expect(rpc.authorizeCalls).toHaveLength(1);
   });
-  const [call] = rpc.authorizeCalls as [
-    {
-      readonly payload: {
-        readonly data: {
-          readonly agentFlowId: string;
-          readonly revisionId: string;
-          readonly sessionId: string | undefined;
-        };
-      };
-    },
-  ];
+  const [call] = rpc.authorizeCalls;
   expect(call.payload.data).toMatchObject({
     agentFlowId: "flow-shop",
     revisionId: "rev-1",
@@ -571,17 +514,17 @@ test("retries verification from the page the Verification Run is showing", async
   const user = userEvent.setup();
   rpc.detail = detailWith(verificationOf("failed", "The basket stayed empty."));
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken={at}
-        revisionId={"rev-1" as never}
+        revisionId={"rev-1"}
         // The Verification Run panel owns no Demonstration to correct, but the
         // retry must still open where that Run stands, not on `about:blank`.
-        sessionId={undefined as never}
-        startingPageSessionId={"agent-verify" as never}
+        sessionId={undefined}
+        startingPageSessionId={"agent-verify"}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   await user.click(
@@ -591,9 +534,9 @@ test("retries verification from the page the Verification Run is showing", async
   await waitFor(() => {
     expect(rpc.authorizeCalls).toHaveLength(1);
   });
-  const [retry] = rpc.authorizeCalls as [
-    { readonly payload: { readonly data: { readonly sessionId: string } } },
-  ];
+  const retry = Schema.decodeUnknownSync(RecordedAuthorization)(
+    rpc.authorizeCalls[0]
+  );
   expect(retry.payload.data.sessionId).toBe("agent-verify");
 });
 
@@ -657,13 +600,7 @@ test("approves the exact revision a Verification Run proved", async () => {
   await waitFor(() => {
     expect(rpc.approveCalls).toHaveLength(1);
   });
-  const [call] = rpc.approveCalls as [
-    {
-      readonly payload: {
-        readonly data: { readonly revisionId: string };
-      };
-    },
-  ];
+  const [call] = rpc.approveCalls;
   expect(call.payload.data.revisionId).toBe("rev-1");
 });
 
@@ -721,15 +658,15 @@ test("offers approval once the session reports the Run passed", async () => {
   // only signal that the draft may now be approved.
   rpc.detail = detailWith(verificationOf("passed", "Everything matched."));
   rerender(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken="2026-09-02T00:00:05.000Z"
-        revisionId={"rev-1" as never}
-        sessionId={undefined as never}
-        startingPageSessionId={undefined as never}
+        revisionId={"rev-1"}
+        sessionId={undefined}
+        startingPageSessionId={undefined}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   expect(
@@ -745,15 +682,15 @@ test("keeps unsaved corrections when the draft is reread", async () => {
   await user.clear(name);
   await user.type(name, "Sign in as the demo shopper");
   rerender(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken="2026-09-02T00:00:05.000Z"
-        revisionId={"rev-1" as never}
-        sessionId={"agent-one" as never}
-        startingPageSessionId={"agent-one" as never}
+        revisionId={"rev-1"}
+        sessionId={"agent-one"}
+        startingPageSessionId={"agent-one"}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   await waitFor(() => {
@@ -835,19 +772,19 @@ test("offers nothing more once the revision is the Approved Agent Flow", async (
 const IDLE_WINDOW = 700;
 
 const GatedReview = ({ shown }: { readonly shown: boolean }) => (
-  <RegistryProvider>
+  <TestRegistry>
     {shown ? (
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken={at}
-        revisionId={"rev-1" as never}
-        sessionId={"agent-one" as never}
-        startingPageSessionId={"agent-one" as never}
+        revisionId={"rev-1"}
+        sessionId={"agent-one"}
+        startingPageSessionId={"agent-one"}
       />
     ) : (
       <p>The draft is not on screen.</p>
     )}
-  </RegistryProvider>
+  </TestRegistry>
 );
 
 const leaveAndReturn = async (

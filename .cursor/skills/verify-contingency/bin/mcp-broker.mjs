@@ -9,7 +9,13 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 
+import { Option, Schema } from "effect";
+
 const REQUEST_TIMEOUT_MS = 60_000;
+const CallRequest = Schema.Struct({
+  params: Schema.optional(Schema.Record(Schema.String, Schema.Json)),
+  tool: Schema.String,
+});
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -60,7 +66,8 @@ child.stdout.on("data", (chunk) => {
 });
 
 const send = async (method, params) => {
-  const id = (nextId += 1);
+  nextId += 1;
+  const id = nextId;
   const reply = Promise.withResolvers();
   const timer = setTimeout(() => {
     pending.delete(id);
@@ -110,11 +117,14 @@ const handle = async (request, response) => {
     respond(response, 404, { error: "POST /call or GET /health" });
     return;
   }
-  const { params = {}, tool } = JSON.parse(await readBody(request));
-  if (typeof tool !== "string") {
+  const decoded = Schema.decodeUnknownOption(CallRequest)(
+    JSON.parse(await readBody(request))
+  );
+  if (Option.isNone(decoded)) {
     respond(response, 400, { error: "call needs a tool name" });
     return;
   }
+  const { params = {}, tool } = decoded.value;
   const message = await send("tools/call", { arguments: params, name: tool });
   if (message.error === undefined) {
     respond(response, 200, message.result);

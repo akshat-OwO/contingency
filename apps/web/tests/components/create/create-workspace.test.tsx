@@ -5,7 +5,7 @@ import {
   resolveUserAgent,
   SessionId,
 } from "@contingency/protocol";
-import { RegistryProvider } from "@effect/atom-react";
+import { RegistryProvider, useAtom } from "@effect/atom-react";
 import {
   cleanup,
   render,
@@ -17,128 +17,134 @@ import userEvent from "@testing-library/user-event";
 import { Effect, Schema } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { createWorkspaceAtom } from "@/components/create/create-workspace-state";
+import { CreateWorkspace } from "@/components/create/create-workspace";
+import type { CreateWorkspaceComponents } from "@/components/create/create-workspace";
+import {
+  createWorkspaceAtom,
+  recordingLocksBrowser,
+} from "@/components/create/create-workspace-state";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
-const stream = vi.hoisted(() => ({
-  recording: null as RecordingSnapshot | null,
-  run: vi.fn(),
-}));
+interface RecordingStreamState {
+  effect: Effect.Effect<never, Error>;
+  recording: RecordingSnapshot | null;
+}
+
+const stream: RecordingStreamState = {
+  effect: Effect.never,
+  recording: null,
+};
 
 const rpc = vi.hoisted(() => ({
   bindVariable: vi.fn(),
-  bindVariableResult: null as RecordingSnapshot | null,
+  bindVariableResult: null,
   condition: vi.fn(),
-  conditionResult: null as RecordingSnapshot | null,
+  conditionResult: null,
   conditionUrl: vi.fn(),
-  conditionUrlResult: null as RecordingSnapshot | null,
+  conditionUrlResult: null,
   deleteStep: vi.fn(),
-  deleteStepResult: null as RecordingSnapshot | null,
+  deleteStepResult: null,
   discard: vi.fn(),
   preStep: vi.fn(),
-  preStepResult: null as RecordingSnapshot | null,
+  preStepResult: null,
   renameVariable: vi.fn(),
-  renameVariableResult: null as RecordingSnapshot | null,
+  renameVariableResult: null,
   undoDelete: vi.fn(),
-  undoDeleteResult: null as RecordingSnapshot | null,
+  undoDeleteResult: null,
 }));
 
 const sessionId = SessionId.make("create-checkout");
 const tabId = BrowserTabId.make("tab-1");
 
-vi.mock("@/components/create/browser-workspace", async () => {
-  const { BrowserTabId: TabId, SessionId: BrowserSessionId } =
-    await import("@contingency/protocol");
-  const { useAtom } = await import("@effect/atom-react");
-  const { useEffect } = await import("react");
-  const { createWorkspaceAtom: workspaceAtom, recordingLocksBrowser } =
-    await import("@/components/create/create-workspace-state");
-  return {
-    BrowserWorkspace: () => {
-      const [workspace, setWorkspace] = useAtom(workspaceAtom);
-      useEffect(() => {
-        if (workspace.selectedSessionId !== undefined) {
-          return;
-        }
-        setWorkspace((current) => ({
-          ...current,
-          activeTabId: TabId.make("tab-1"),
-          address: "https://example.com/start",
-          selectedSessionId: BrowserSessionId.make("create-checkout"),
-        }));
-      }, [setWorkspace, workspace.selectedSessionId]);
-      return (
-        <section
-          aria-label="Browser workspace"
-          data-address={workspace.address}
-          data-locked={recordingLocksBrowser(
-            workspace.recording,
-            workspace.selectedSessionId
-          )}
-          data-session={workspace.selectedSessionId}
-        />
-      );
+const TestBrowser = () => {
+  const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
+  useEffect(() => {
+    if (workspace.selectedSessionId !== undefined) {
+      return;
+    }
+    setWorkspace((current) => ({
+      ...current,
+      activeTabId: tabId,
+      address: "https://example.com/start",
+      selectedSessionId: sessionId,
+    }));
+  }, [setWorkspace, workspace.selectedSessionId]);
+  return (
+    <section
+      aria-label="Browser workspace"
+      data-address={workspace.address}
+      data-locked={recordingLocksBrowser(
+        workspace.recording,
+        workspace.selectedSessionId
+      )}
+      data-session={workspace.selectedSessionId}
+    />
+  );
+};
+
+const testComponents: CreateWorkspaceComponents = {
+  Browser: TestBrowser,
+  Handle: () => <hr />,
+  Panel: ({ children }: { readonly children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  PanelGroup: ({ children }: { readonly children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+};
+
+const makeSnapshot = (phase: RecordingSnapshot["phase"]): RecordingSnapshot => {
+  const snapshot = {
+    captureMode: "ordinary" as const,
+    flow: {
+      steps: [
+        { type: "navigate", url: "https://example.com/start" },
+        {
+          target: [{ kind: "role", name: "Continue", role: "button" }],
+          type: "click",
+        },
+      ],
+      title: "Checkout",
     },
-  };
-});
-
-vi.mock("@/components/ui/resizable", () => ({
-  ResizableHandle: () => <hr />,
-  ResizablePanel: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ResizablePanelGroup: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-}));
-
-const makeSnapshot = (
-  phase: RecordingSnapshot["phase"]
-): RecordingSnapshot => ({
-  captureMode: "ordinary",
-  flow: {
-    steps: [
-      { type: "navigate", url: "https://example.com/start" },
+    initialUrl: "https://example.com/start",
+    phase,
+    recordedSteps: [
       {
-        target: [{ kind: "role", name: "Continue", role: "button" }],
-        type: "click",
+        id: "initial",
+        preSteps: [],
+        step: { type: "navigate", url: "https://example.com/start" },
+      },
+      {
+        id: "continue",
+        preSteps: [],
+        step: {
+          target: [{ kind: "role", name: "Continue", role: "button" }],
+          type: "click",
+        },
       },
     ],
-    title: "Checkout",
-  },
-  initialUrl: "https://example.com/start",
-  ...(phase === "incomplete"
-    ? { incompleteReason: "The original capture connection failed." }
-    : {}),
-  phase,
-  recordedSteps: [
-    {
-      id: "initial",
-      preSteps: [],
-      step: { type: "navigate", url: "https://example.com/start" },
-    },
-    {
-      id: "continue",
-      preSteps: [],
-      step: {
-        target: [{ kind: "role", name: "Continue", role: "button" }],
-        type: "click",
-      },
-    },
-  ],
-  revision: 1,
-  sessionId,
-  tabId,
-  undoAvailable: false,
-});
+    revision: 1,
+    sessionId,
+    tabId,
+    undoAvailable: false,
+  };
+  return phase === "incomplete"
+    ? {
+        ...snapshot,
+        incompleteReason: "The original capture connection failed.",
+      }
+    : snapshot;
+};
 
 const rpcResult = (recording: RecordingSnapshot | null) => ({
   data: { recording },
-  type: "recording.result" as const,
+  type: "recording.result",
 });
 
-vi.mock("@/lib/rpc", () => {
+const rpcOverrides = (() => {
   const mutation = (phase: RecordingSnapshot["phase"]) =>
     Atom.fn(() => Effect.succeed(rpcResult(makeSnapshot(phase))));
   const controlledMutation = (
@@ -154,7 +160,7 @@ vi.mock("@/lib/rpc", () => {
   // oxlint-disable-next-line eslint/sort-keys
   return {
     recordingAtom: Atom.make({
-      _tag: "Success" as const,
+      _tag: "Success",
       get value() {
         return rpcResult(stream.recording);
       },
@@ -165,7 +171,7 @@ vi.mock("@/lib/rpc", () => {
       rpc.discard(request);
       return Effect.succeed({
         data: {},
-        type: "recording.discarded" as const,
+        type: "recording.discarded",
       });
     }),
     recordingFinishMutation: mutation("finished"),
@@ -203,13 +209,17 @@ vi.mock("@/lib/rpc", () => {
       () => rpc.undoDeleteResult
     ),
     recordingTitleMutation: mutation("active"),
-    runRecordingStream: (onEvent: (recording: RecordingSnapshot) => unknown) =>
-      stream.run(onEvent),
+    runRecordingStream: (
+      _onEvent: (recording: RecordingSnapshot) => Effect.Effect<void>
+    ) => stream.effect,
   };
-});
+})();
 
-const { CreateWorkspace } =
-  await import("@/components/create/create-workspace");
+const TestWorkspace = () => (
+  <RpcDependenciesProvider overrides={rpcOverrides}>
+    <CreateWorkspace components={testComponents} />
+  </RpcDependenciesProvider>
+);
 
 const renderRecording = (recording: RecordingSnapshot) => {
   stream.recording = recording;
@@ -227,7 +237,7 @@ const renderRecording = (recording: RecordingSnapshot) => {
         ],
       ]}
     >
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 };
@@ -242,7 +252,7 @@ beforeEach(() => {
   rpc.renameVariableResult = null;
   rpc.undoDeleteResult = null;
   stream.recording = null;
-  stream.run.mockReturnValue(Effect.never);
+  stream.effect = Effect.never;
 });
 
 afterEach(cleanup);
@@ -251,7 +261,7 @@ test("starts a Recording only after browser and title prerequisites", async () =
   const user = userEvent.setup();
   render(
     <RegistryProvider>
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 
@@ -296,7 +306,7 @@ test("locks the composed browser while pausing and resuming a Recording", async 
         ],
       ]}
     >
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 
@@ -334,7 +344,7 @@ test("reloads an incomplete Recording from a navigation checkpoint", async () =>
         ],
       ]}
     >
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 
@@ -353,19 +363,19 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
     id: "dismiss-banner",
     step: {
       target: [{ kind: "role", name: "Close banner", role: "button" }],
-      type: "click" as const,
+      type: "click",
     },
     when: {
       target: [{ kind: "role", name: "Banner", role: "banner" }],
-      type: "selectorVisible" as const,
+      type: "selectorVisible",
     },
   };
   const auditStep = {
     id: "accessibility-audit",
     preSteps: [],
     step: {
-      kind: "accessibility" as const,
-      type: "audit" as const,
+      kind: "accessibility",
+      type: "audit",
     },
   };
   const recording: RecordingSnapshot = {
@@ -393,7 +403,7 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
         ],
       ]}
     >
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 
@@ -420,11 +430,11 @@ test("renders Flow Pre-steps as cards and Audits as ordered Steps", async () => 
 });
 
 test("surfaces a terminal Recording stream failure", async () => {
-  stream.run.mockReturnValue(Effect.fail(new Error("Recorder stream failed")));
+  stream.effect = Effect.fail(new Error("Recorder stream failed"));
 
   render(
     <RegistryProvider>
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 
@@ -471,7 +481,7 @@ test("does not finish a Flow whose only authored Step is an Audit", () => {
 
   render(
     <RegistryProvider>
-      <CreateWorkspace />
+      <TestWorkspace />
     </RegistryProvider>
   );
 
@@ -518,11 +528,11 @@ test("arms explicit Flow Pre-step capture and picks a visible condition", async 
     id: "dismiss-dialog",
     step: {
       target: [{ kind: "role", name: "Close dialog", role: "button" }],
-      type: "click" as const,
+      type: "click",
     },
     when: {
       target: [{ kind: "role", name: "Dialog", role: "dialog" }],
-      type: "selectorVisible" as const,
+      type: "selectorVisible",
     },
   };
   const withPreStep: RecordingSnapshot = {
@@ -614,7 +624,7 @@ test("authors a urlMatches condition from a typed pattern", async () => {
         {
           ...checkoutPreStep[0],
           id: "checkout-only",
-          when: { pattern: "/checkout$", type: "urlMatches" } as const,
+          when: { pattern: "/checkout$", type: "urlMatches" },
         },
       ],
     },
@@ -644,7 +654,7 @@ test("shows which Page a Step beyond the first acts on", () => {
     step: {
       page: 1,
       target: [{ kind: "role", name: "Pay now", role: "button" }],
-      type: "click" as const,
+      type: "click",
     },
   };
   const recording: RecordingSnapshot = {
@@ -671,7 +681,7 @@ test("names a container Scroll by its target", () => {
     step: {
       deltaY: 200,
       target: [{ kind: "role", name: "Results", role: "region" }],
-      type: "scroll" as const,
+      type: "scroll",
     },
   };
   const recording: RecordingSnapshot = {
@@ -696,7 +706,7 @@ test("renames and rebinds Variables", async () => {
     preSteps: [],
     step: {
       target: [{ kind: "label", label: "Email" }],
-      type: "change" as const,
+      type: "change",
       value: "{{ACCOUNT}}",
     },
     variable: "ACCOUNT",
@@ -800,12 +810,7 @@ test("downloads a migrated browser identity in the normalized shape", async () =
   await user.click(
     screen.getByRole("button", { name: "Download older-mobile.json" })
   );
-  const downloaded = JSON.parse((await downloadedBlob?.text()) ?? "null") as {
-    readonly emulation?: {
-      readonly browser?: { readonly mobile?: boolean };
-      readonly userAgent?: string;
-    };
-  };
+  const downloaded = JSON.parse((await downloadedBlob?.text()) ?? "null");
 
   expect(downloaded.emulation?.browser?.mobile).toBe(true);
   expect(downloaded.emulation?.userAgent).toBeUndefined();

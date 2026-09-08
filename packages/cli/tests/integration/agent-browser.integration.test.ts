@@ -3,7 +3,6 @@ import type { AgentSnapshotNode } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import type { Tool } from "effect/unstable/ai";
 import { RpcTest } from "effect/unstable/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -16,6 +15,7 @@ import {
 import { RecordingLive } from "../../src/services/recorder.ts";
 import { RunSession } from "../../src/services/run-session.ts";
 import type { RunSessionService } from "../../src/services/run-session.ts";
+import { makeCall } from "./agent-harness.ts";
 import {
   CART_VIEWED_BEACON,
   fixtureServer,
@@ -64,43 +64,12 @@ const AgentBrowserLive = Layer.mergeAll(
 const client = RpcTest.makeClient(ContingencyRpcs, { flatten: true });
 type AgentClient = Effect.Success<typeof client>;
 
-interface ToolFailure {
-  readonly code: string;
-  readonly message: string;
-}
-
-const isToolFailure = (value: unknown): value is ToolFailure =>
-  typeof value === "object" &&
-  value !== null &&
-  "code" in value &&
-  "message" in value;
-
 /**
  * One MCP tool call, as the external agent makes it: validated parameters in,
  * and the tool's success value out — a structured tool failure is raised so a
  * test asserts it with `Effect.flip` rather than by inspecting a union.
  */
-type AgentTools = typeof AgentSessionTools.tools;
-
-const callTool = <Name extends keyof AgentTools>(
-  name: Name,
-  params: Tool.Parameters<AgentTools[Name]>
-) =>
-  Effect.gen(function* callAgentTool() {
-    const toolkit = yield* AgentSessionTools;
-    const results = yield* toolkit
-      .handle(name, params)
-      .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
-    const last = results.at(-1);
-    if (last === undefined) {
-      return yield* Effect.die(`The ${String(name)} tool answered nothing.`);
-    }
-    const { result } = last;
-    if (isToolFailure(result)) {
-      return yield* Effect.fail(result);
-    }
-    return result as Tool.Success<AgentTools[Name]>;
-  });
+const callTool = makeCall(AgentSessionTools);
 
 const startSession = (agent: AgentClient, url: string, operationId: string) =>
   agent("agent.session.start", {

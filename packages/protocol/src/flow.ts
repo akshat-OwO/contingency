@@ -700,13 +700,13 @@ const normalizeOlderBrowserIdentity = (flow: FlowDocument): FlowDocument => {
   }
   const { userAgent: _, ...current } = emulation;
   const viewport = current.viewport ?? profileViewport(matched.profile.id);
+  const normalizedEmulation =
+    viewport === undefined
+      ? { ...current, browser }
+      : { ...current, browser, viewport };
   return {
     ...flow,
-    emulation: {
-      ...current,
-      browser,
-      ...(viewport === undefined ? {} : { viewport }),
-    },
+    emulation: normalizedEmulation,
   };
 };
 

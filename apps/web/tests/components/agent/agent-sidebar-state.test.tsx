@@ -1,11 +1,16 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
+import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
+
+import { AgentWorkspace } from "@/components/agent/agent-workspace";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 /**
  * Agent View's sidebar refreshes constantly while a session is live, and each
@@ -17,12 +22,12 @@ import { afterEach, expect, test, vi } from "vitest";
 const IDLE_WINDOW = 700;
 
 const rpc = vi.hoisted(() => ({
-  detail: undefined as unknown,
-  emit: undefined as undefined | ((snapshot: unknown) => void),
-  sessionsResult: undefined as unknown,
+  detail: undefined,
+  emit: undefined,
+  sessionsResult: undefined,
 }));
 
-vi.mock("@/lib/rpc", () => ({
+const rpcOverrides = {
   agentBoundaryResolveMutation: Atom.fn(() => Effect.never),
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn(() => Effect.succeed({})),
@@ -42,16 +47,20 @@ vi.mock("@/lib/rpc", () => ({
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: (
     _sessionId: string,
-    onEvent: (snapshot: unknown) => Effect.Effect<void>
+    onEvent: (snapshot: AgentSessionSnapshot) => Effect.Effect<void>
   ) =>
     Effect.callback<never>(() => {
       rpc.emit = (snapshot) => {
         Effect.runFork(onEvent(snapshot));
       };
     }),
-}));
+};
 
-const { AgentWorkspace } = await import("@/components/agent/agent-workspace");
+const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
+  <RpcDependenciesProvider overrides={rpcOverrides}>
+    <RegistryProvider>{children}</RegistryProvider>
+  </RpcDependenciesProvider>
+);
 
 const at = "2026-09-02T00:00:00.000Z";
 
@@ -81,7 +90,7 @@ const evidence = [
     stepIndex: 0,
     urlTransitionCount: 1,
   },
-] as const;
+];
 
 const manifest = {
   agentFlowId: "flow-shop",
@@ -113,7 +122,7 @@ const manifest = {
   tags: ["shop"],
   title: "Shop sign-in",
   variables: [],
-} as const;
+};
 
 rpc.detail = {
   evidence,
@@ -149,9 +158,9 @@ const savedDraft = {
   title: "Shop sign-in",
 };
 
-const sessionAt = (
+const sessionAt = <Overrides extends object>(
   updatedAt: string,
-  overrides: Record<string, unknown> = {}
+  overrides?: Overrides
 ) => ({
   activity: "teaching",
   boundary: null,
@@ -176,17 +185,17 @@ const sessionAt = (
 
 const renderWorkspace = () => {
   rpc.sessionsResult = {
-    _tag: "Success" as const,
+    _tag: "Success",
     value: {
       data: { sessions: [sessionAt(at)] },
-      type: "agent.sessions.result" as const,
+      type: "agent.sessions.result",
     },
     waiting: false,
   };
   return render(
-    <RegistryProvider>
+    <TestRegistry>
       <AgentWorkspace requestedSessionId="agent-one" />
-    </RegistryProvider>
+    </TestRegistry>
   );
 };
 

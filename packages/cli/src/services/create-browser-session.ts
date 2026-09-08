@@ -17,7 +17,7 @@ import type {
   Viewport,
 } from "@contingency/protocol";
 import type { Semaphore } from "effect";
-import { Effect, PubSub, Ref, Result } from "effect";
+import { Effect, Option, PubSub, Ref, Result, Schema } from "effect";
 import type {
   BrowserContext,
   CDPSession,
@@ -108,55 +108,49 @@ export interface CreateSession {
   readonly state: Ref.Ref<CreateSessionState>;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const ScreencastFrame = Schema.Struct({
+  data: Schema.String,
+  metadata: Schema.Struct({
+    deviceHeight: Schema.Finite,
+    deviceWidth: Schema.Finite,
+    offsetTop: Schema.Finite,
+    pageScaleFactor: Schema.Finite,
+    scrollOffsetX: Schema.Finite,
+    scrollOffsetY: Schema.Finite,
+    timestamp: Schema.optional(Schema.Finite),
+  }),
+  sessionId: Schema.Int,
+});
 
-const finiteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
+/** Chromium's declared shape at the screencast event boundary. */
+export interface ScreencastFrameCandidate {
+  readonly data: string;
+  readonly metadata: {
+    readonly deviceHeight: number;
+    readonly deviceWidth: number;
+    readonly offsetTop: number;
+    readonly pageScaleFactor: number;
+    readonly scrollOffsetX: number;
+    readonly scrollOffsetY: number;
+    readonly timestamp?: number;
+  };
+  readonly sessionId: number;
+}
 
 export const decodeScreencastFrame = (
-  value: unknown
+  value: ScreencastFrameCandidate
 ): ScreencastFramePayload | undefined => {
-  if (!isRecord(value) || !isRecord(value.metadata)) {
+  const decoded = Option.getOrUndefined(
+    Schema.decodeUnknownOption(ScreencastFrame)(value)
+  );
+  if (decoded === undefined) {
     return undefined;
   }
-  const { data, metadata, sessionId } = value;
-  const {
-    deviceHeight,
-    deviceWidth,
-    offsetTop,
-    pageScaleFactor,
-    scrollOffsetX,
-    scrollOffsetY,
-    timestamp,
-  } = metadata;
-  if (
-    typeof data !== "string" ||
-    !finiteNumber(sessionId) ||
-    !Number.isInteger(sessionId) ||
-    !finiteNumber(deviceHeight) ||
-    !finiteNumber(deviceWidth) ||
-    !finiteNumber(offsetTop) ||
-    !finiteNumber(pageScaleFactor) ||
-    !finiteNumber(scrollOffsetX) ||
-    !finiteNumber(scrollOffsetY) ||
-    (timestamp !== undefined && !finiteNumber(timestamp))
-  ) {
-    return undefined;
+  const { timestamp, ...metadata } = decoded.metadata;
+  if (timestamp === undefined) {
+    return { ...decoded, metadata };
   }
-  return {
-    data,
-    metadata: {
-      deviceHeight,
-      deviceWidth,
-      offsetTop,
-      pageScaleFactor,
-      scrollOffsetX,
-      scrollOffsetY,
-      ...(timestamp === undefined ? {} : { timestamp }),
-    },
-    sessionId,
-  };
+  return { ...decoded, metadata: { ...metadata, timestamp } };
 };
 
 const errorMessage = (cause: unknown): string =>
@@ -482,12 +476,14 @@ export const reapplyViewport = (
  * context-wide grant of the same permission is not a set a Flow may declare,
  * because no union of grants could express it.
  */
-export const grantedPermissionScopes = (
-  decisions: readonly PermissionDecision[]
-): {
+export interface GrantedPermissionScopes {
   readonly byOrigin: ReadonlyMap<string, string[]>;
   readonly contextWide: readonly string[];
-} => {
+}
+
+export const grantedPermissionScopes = (
+  decisions: readonly PermissionDecision[]
+): GrantedPermissionScopes => {
   const granted = decisions.filter((decision) => decision.state === "granted");
   const contextWide = granted
     .filter((decision) => decision.origin === undefined)
@@ -535,22 +531,31 @@ export const applyPermissions = (
 
 export const toSessionEmulation = (
   state: CreateSessionState
-): SessionEmulation => ({
-  ...(state.colorScheme === undefined
-    ? {}
-    : { colorScheme: state.colorScheme }),
-  ...(state.geolocation === undefined
-    ? {}
-    : { geolocation: state.geolocation }),
-  ...(state.locale === undefined ? {} : { locale: state.locale }),
-  permissions: [...state.permissions],
-  ...(state.timezoneId === undefined ? {} : { timezoneId: state.timezoneId }),
+): SessionEmulation => {
+  let emulation: SessionEmulation = {
+    permissions: [...state.permissions],
+    viewport: state.viewport,
+  };
+  if (state.colorScheme !== undefined) {
+    emulation = { ...emulation, colorScheme: state.colorScheme };
+  }
+  if (state.geolocation !== undefined) {
+    emulation = { ...emulation, geolocation: state.geolocation };
+  }
+  if (state.locale !== undefined) {
+    emulation = { ...emulation, locale: state.locale };
+  }
+  if (state.timezoneId !== undefined) {
+    emulation = { ...emulation, timezoneId: state.timezoneId };
+  }
   // The identity alone. Writing its string beside it as `userAgent` would be
   // a second copy of one answer, and a later edit could leave the two
   // disagreeing about what the Flow emulates.
-  ...(state.identity === undefined ? {} : { browser: state.identity }),
-  viewport: state.viewport,
-});
+  if (state.identity !== undefined) {
+    emulation = { ...emulation, browser: state.identity };
+  }
+  return emulation;
+};
 
 export const emptyStorageSnapshot = (
   tabId: BrowserTabId,

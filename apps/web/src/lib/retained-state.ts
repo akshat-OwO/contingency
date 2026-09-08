@@ -27,19 +27,22 @@ export const retainedFamily = <A>(
   initial: A,
   limit: number = RETAINED_KEYS
 ): ((key: string) => Atom.Writable<A, A>) => {
-  const store = Atom.keepAlive(Atom.make<ReadonlyMap<string, A>>(new Map()));
+  const store = Atom.keepAlive(
+    Atom.make<ReadonlyMap<string, { readonly value: A }>>(new Map())
+  );
   return Atom.family((key: string) =>
     Atom.writable<A, A>(
       (get) => {
         const held = get(store);
-        return held.has(key) ? (held.get(key) as A) : initial;
+        const entry = held.get(key);
+        return entry === undefined ? initial : entry.value;
       },
       (ctx, value) => {
         const next = new Map(ctx.get(store));
         // Reinserting makes this key the most recently used, so the key that
         // is dropped is always the one no review has touched for longest.
         next.delete(key);
-        next.set(key, value);
+        next.set(key, { value });
         while (next.size > limit) {
           const oldest = next.keys().next();
           if (oldest.done === true) {

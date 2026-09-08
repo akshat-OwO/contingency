@@ -1,15 +1,20 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { publishableManifests } from "../src/publishable-packages.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+const PublishableManifest = Schema.Struct({
+  bin: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  private: Schema.optional(Schema.Boolean),
+});
 
 const readManifest = async (relativePath: string) => {
   const text = await readFile(path.join(repoRoot, relativePath), "utf-8");
-  return JSON.parse(text) as Record<string, unknown>;
+  return Schema.decodeUnknownSync(PublishableManifest)(JSON.parse(text));
 };
 
 describe.each(publishableManifests)("%s", (relativePath) => {
@@ -24,15 +29,10 @@ describe.each(publishableManifests)("%s", (relativePath) => {
       return;
     }
 
-    expect(typeof bin === "object" && bin !== null).toBe(true);
-
-    for (const [name, target] of Object.entries(
-      bin as Record<string, unknown>
-    )) {
-      expect(typeof target).toBe("string");
+    for (const [name, target] of Object.entries(bin)) {
       expect(
-        (target as string).startsWith("./"),
-        `bin.${name} is "${String(target)}"; npm strips a leading './' on publish and the command disappears`
+        target.startsWith("./"),
+        `bin.${name} is "${target}"; npm strips a leading './' on publish and the command disappears`
       ).toBe(false);
     }
   });

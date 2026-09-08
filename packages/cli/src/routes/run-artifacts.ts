@@ -96,18 +96,18 @@ export const makeRunArtifactRoutes = ({
       }
       const size = Number(info.success.size);
       const range = parseByteRange(request.headers.range, size);
+      const headers =
+        range === undefined
+          ? { "accept-ranges": "bytes" }
+          : {
+              "accept-ranges": "bytes",
+              "content-range": `bytes ${range.start}-${range.end}/${size}`,
+            };
       return yield* HttpServerResponse.file(file, {
         bytesToRead:
           range === undefined ? undefined : range.end - range.start + 1,
         contentType: "video/webm",
-        headers: {
-          "accept-ranges": "bytes",
-          ...(range === undefined
-            ? {}
-            : {
-                "content-range": `bytes ${range.start}-${range.end}/${size}`,
-              }),
-        },
+        headers,
         offset: range?.start,
         status: range === undefined ? 200 : 206,
       }).pipe(

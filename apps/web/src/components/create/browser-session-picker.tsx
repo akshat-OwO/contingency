@@ -18,7 +18,6 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useMemo } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -31,12 +30,7 @@ import {
   ComboboxList,
   ComboboxTrigger,
 } from "@/components/ui/combobox";
-import {
-  browserSessionAttachMutation,
-  browserSessionCloseMutation,
-  browserSessionCreateMutation,
-  browserSessionsAtom,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const createItemPrefix = "__create_session__:";
 const noSessions: readonly BrowserSession[] = [];
@@ -56,7 +50,7 @@ const sessionPickerStateAtom = Atom.make<SessionPickerState>({
   query: "",
 });
 
-const toErrorMessage = (error: unknown): string =>
+const toErrorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
     : "Unable to update browser session";
@@ -93,6 +87,12 @@ export const BrowserSessionPicker = ({
   selectedSessionId,
   viewport,
 }: BrowserSessionPickerProps) => {
+  const {
+    browserSessionAttachMutation,
+    browserSessionCloseMutation,
+    browserSessionCreateMutation,
+    browserSessionsAtom,
+  } = useRpcDependencies();
   const sessionsResult = useAtomValue(browserSessionsAtom);
   const refreshSessions = useAtomRefresh(browserSessionsAtom);
   const createSession = useAtomSet(browserSessionCreateMutation, {
@@ -114,32 +114,23 @@ export const BrowserSessionPicker = ({
       ? sessionsResult.value.data.sessions
       : noSessions;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleSessions = useMemo(
-    () =>
-      normalizedQuery.length === 0
-        ? sessions
-        : sessions.filter(({ id }) =>
-            id.toLocaleLowerCase().includes(normalizedQuery)
-          ),
-    [normalizedQuery, sessions]
-  );
+  const visibleSessions =
+    normalizedQuery.length === 0
+      ? sessions
+      : sessions.filter(({ id }) =>
+          id.toLocaleLowerCase().includes(normalizedQuery)
+        );
   const createName = sessionNameToCreate(sessions, query);
   const createItemValue =
     createName === undefined ? undefined : `${createItemPrefix}${createName}`;
-  const items = useMemo(
-    () => [
-      ...sessions.map(({ id }) => id),
-      ...(createItemValue === undefined ? [] : [createItemValue]),
-    ],
-    [createItemValue, sessions]
-  );
-  const filteredItems = useMemo(
-    () => [
-      ...visibleSessions.map(({ id }) => id),
-      ...(createItemValue === undefined ? [] : [createItemValue]),
-    ],
-    [createItemValue, visibleSessions]
-  );
+  const items = [
+    ...sessions.map(({ id }) => id),
+    ...(createItemValue === undefined ? [] : [createItemValue]),
+  ];
+  const filteredItems = [
+    ...visibleSessions.map(({ id }) => id),
+    ...(createItemValue === undefined ? [] : [createItemValue]),
+  ];
   const loading = sessionsResult._tag === "Initial" || sessionsResult.waiting;
 
   const completeAction = (sessionId: SessionId, url: string) => {

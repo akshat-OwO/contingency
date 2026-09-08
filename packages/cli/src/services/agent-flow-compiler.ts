@@ -116,13 +116,15 @@ interface ResolvedSpan {
   readonly last: number;
 }
 
+interface ResolvedSpans {
+  readonly diagnostics: AgentFlowDiagnostic[];
+  readonly spans: ResolvedSpan[];
+}
+
 const resolveSpans = (
   proposal: AgentFlowDraftProposal,
   demonstration: Demonstration
-): {
-  readonly diagnostics: AgentFlowDiagnostic[];
-  readonly spans: ResolvedSpan[];
-} => {
+): ResolvedSpans => {
   const indexById = new Map(
     demonstration.actions.map((action, index) => [action.id, index] as const)
   );
@@ -326,6 +328,15 @@ const sliceFor = (
   }
   const endedAt = timeOf(last.at);
   const actionIds = new Set(span.actions.map((action) => action.id));
+  const screenshots: EvidenceSlice["screenshots"][number][] = [];
+  for (const screenshot of demonstration.screenshots) {
+    if (between(screenshot.capturedAt, previousEnd, endedAt)) {
+      screenshots.push({
+        ...screenshot,
+        path: evidenceScreenshotPath(screenshot.contentHash),
+      });
+    }
+  }
   const lookup = (id: AgentSnapshotId | null): AgentBrowserSnapshot | null =>
     id === null ? null : (demonstration.snapshots.get(id) ?? null);
   return {
@@ -342,12 +353,7 @@ const sliceFor = (
     schemaVersion: 2,
     // The slice names where the bytes live in the package rather than
     // carrying them: one screenshot two Steps both cite is stored once.
-    screenshots: demonstration.screenshots
-      .filter(({ capturedAt }) => between(capturedAt, previousEnd, endedAt))
-      .map((screenshot) => ({
-        ...screenshot,
-        path: evidenceScreenshotPath(screenshot.contentHash),
-      })),
+    screenshots,
     startedAt: first.at,
     urlTransitions: demonstration.urlTransitions.filter(
       (transition) =>

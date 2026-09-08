@@ -1,6 +1,5 @@
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Scope } from "effect";
-import type { CDPSession } from "playwright-core";
 import { vi } from "vitest";
 
 import { NavigationCoordinator } from "../../src/services/agent-navigation-boundary.ts";
@@ -11,7 +10,7 @@ it.effect(
     Effect.gen(function* malformedNavigationMessages() {
       const scope = yield* Scope.make();
       // Only the event surface is needed: sends are intercepted below.
-      const root = { on: vi.fn() } as unknown as CDPSession;
+      const root = { on: vi.fn(), send: vi.fn() };
       const coordinator = new NavigationCoordinator(root, scope);
       const send = vi.spyOn(coordinator, "send").mockReturnValue(Effect.void);
       yield* coordinator.handleMessage("session", "not JSON");
@@ -58,7 +57,7 @@ it.effect(
 it.effect("refuses only top-level documents outside the Domain Scope", () =>
   Effect.gen(function* subframeDocumentsStayOutsideTheBoundary() {
     const scope = yield* Scope.make();
-    const root = { on: vi.fn() } as unknown as CDPSession;
+    const root = { on: vi.fn(), send: vi.fn() };
     const coordinator = new NavigationCoordinator(root, scope);
     const send = vi.spyOn(coordinator, "send").mockReturnValue(Effect.void);
     const refuse = vi.fn(() => Effect.void);

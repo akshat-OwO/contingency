@@ -1,6 +1,11 @@
 import path from "node:path";
 
-import { AgentRunId } from "@contingency/protocol";
+import {
+  AgentFlowId,
+  AgentFlowRevisionId,
+  AgentRunId,
+  AgentSessionId,
+} from "@contingency/protocol";
 import type { AgentRunSummary } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
@@ -18,7 +23,7 @@ const runId = AgentRunId.make("agentrun-store-test");
 
 const summaryFor = (root: string): AgentRunSummary =>
   ({
-    agentFlowId: "flow-catalogue",
+    agentFlowId: AgentFlowId.make("flow-catalogue"),
     assessmentCounts: {
       blocked: 0,
       inconclusive: 0,
@@ -36,10 +41,10 @@ const summaryFor = (root: string): AgentRunSummary =>
     coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
     endedAt: "2026-09-04T00:02:00.000Z",
     outcome: "ended-early",
-    revisionId: "rev-one",
+    revisionId: AgentFlowRevisionId.make("rev-one"),
     runId,
     schemaVersion: 1,
-    sessionId: "agent-one",
+    sessionId: AgentSessionId.make("agent-one"),
     startedAt: "2026-09-04T00:00:00.000Z",
     steps: [
       {
@@ -93,7 +98,7 @@ const summaryFor = (root: string): AgentRunSummary =>
     title: "Buy one product",
     tracePath: null,
     videoPath: `${path.basename(root)}-nowhere.webm`,
-  }) as unknown as AgentRunSummary;
+  }) satisfies AgentRunSummary;
 
 const layerFor = (root: string) =>
   makeAgentRunStoreLayer({ root: () => root }).pipe(

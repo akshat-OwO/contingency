@@ -11,7 +11,6 @@ import type {
   Flow,
   Run,
   RunSnapshot,
-  RunStep,
   RunTraceManifest,
   RunVariablePrompt,
   RunVideoManifest,
@@ -106,10 +105,11 @@ interface RunSessionState extends RunSnapshot {
   readonly directory: string | undefined;
 }
 
-const toSnapshot = ({
-  directory: _,
-  ...snapshot
-}: RunSessionState): RunSnapshot => snapshot;
+const toSnapshot = (state: RunSessionState): RunSnapshot => {
+  const snapshot = { ...state };
+  Reflect.deleteProperty(snapshot, "directory");
+  return snapshot;
+};
 
 const idleState = (flow: Flow): RunSessionState => ({
   attemptCeiling: attemptCeiling(DEFAULT_RETRY),
@@ -135,9 +135,7 @@ const readManifest = <A>(
   schema: Schema.Codec<A, unknown>
 ): Effect.Effect<A | null> =>
   fileSystem.readFileString(file).pipe(
-    Effect.flatMap((contents) =>
-      Effect.try(() => JSON.parse(contents) as unknown)
-    ),
+    Effect.flatMap((contents) => Effect.try(() => JSON.parse(contents))),
     Effect.flatMap(Schema.decodeUnknownEffect(schema)),
     Effect.catchCause(() => Effect.succeed(null))
   );
@@ -274,7 +272,7 @@ export const makeRunSessionService = ({
         phase: "finished",
         run,
         runningIndex: undefined,
-        steps: run.steps as RunStep[],
+        steps: run.steps,
         trace,
         variablePrompt: null,
         video,
@@ -454,7 +452,7 @@ export const makeRunSessionService = ({
           }
           const started = yield* update(() => ({
             ...idleState(state.flow),
-            phase: "starting" as const,
+            phase: "starting",
           }));
           // Forked as a daemon: the Run outlives the request that asked for
           // it, and a browser that navigates away must not interrupt a Run

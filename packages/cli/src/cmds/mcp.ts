@@ -7,8 +7,12 @@ import {
   FileSystem,
   Layer,
   Logger,
+  Option,
   Result,
+  Schema,
 } from "effect";
+import type { IllegalArgumentError } from "effect/Cause";
+import type { PlatformError } from "effect/PlatformError";
 import { McpProtocol, McpServer } from "effect/unstable/ai";
 import { Command } from "effect/unstable/cli";
 import { HttpServerError } from "effect/unstable/http";
@@ -37,16 +41,18 @@ const mcpTools = Layer.mergeAll(
   McpAgentRunLayer
 );
 
-const isListenAddressInUse = (error: unknown): boolean => {
+const ListenError = Schema.Struct({ code: Schema.String });
+type McpHttpFailure =
+  | HttpServerError.ServeError
+  | IllegalArgumentError
+  | PlatformError;
+
+const isListenAddressInUse = (error: McpHttpFailure): boolean => {
   if (!(error instanceof HttpServerError.ServeError)) {
     return false;
   }
-  const { cause } = error;
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    cause.code === "EADDRINUSE"
+  return Schema.decodeUnknownOption(ListenError)(error.cause).pipe(
+    Option.exists(({ code }) => code === "EADDRINUSE")
   );
 };
 

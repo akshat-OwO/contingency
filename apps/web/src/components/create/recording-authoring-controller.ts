@@ -10,27 +10,9 @@ import {
   createWorkspaceAtom,
   recordingAuthoringUiAtom,
 } from "@/components/create/create-workspace-state";
-import {
-  recordingAuditMutation,
-  recordingCaptureCancelMutation,
-  recordingDiscardMutation,
-  recordingFinishMutation,
-  recordingHoverArmMutation,
-  recordingPauseMutation,
-  recordingPreStepConditionMutation,
-  recordingPreStepConditionUrlMutation,
-  recordingPreStepMutation,
-  recordingRecoverMutation,
-  recordingResumeMutation,
-  recordingVariableBindMutation,
-  recordingVariableRenameMutation,
-  recordingStartMutation,
-  recordingStepDeleteMutation,
-  recordingStepUndoMutation,
-  recordingTitleMutation,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
-const errorMessage = (error: unknown): string =>
+const errorMessage = <Failure>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
     : "Unable to update the Recording.";
@@ -86,6 +68,25 @@ export interface RecordingAuthoringController {
 }
 
 export const useRecordingAuthoring = (): RecordingAuthoringController => {
+  const {
+    recordingAuditMutation,
+    recordingCaptureCancelMutation,
+    recordingDiscardMutation,
+    recordingFinishMutation,
+    recordingHoverArmMutation,
+    recordingPauseMutation,
+    recordingPreStepConditionMutation,
+    recordingPreStepConditionUrlMutation,
+    recordingPreStepMutation,
+    recordingRecoverMutation,
+    recordingResumeMutation,
+    recordingStartMutation,
+    recordingStepDeleteMutation,
+    recordingStepUndoMutation,
+    recordingTitleMutation,
+    recordingVariableBindMutation,
+    recordingVariableRenameMutation,
+  } = useRpcDependencies();
   const [workspace, setWorkspace] = useAtom(createWorkspaceAtom);
   const [ui, setUi] = useAtom(recordingAuthoringUiAtom);
   const startMutation = useAtomSet(recordingStartMutation, { mode: "promise" });

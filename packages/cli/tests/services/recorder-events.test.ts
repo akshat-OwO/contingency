@@ -16,7 +16,7 @@ import type {
 
 const NONCE = "recorder-nonce";
 
-const payload = (event: unknown, sequence: number, documentId = "doc-1") =>
+const payload = <Event>(event: Event, sequence: number, documentId = "doc-1") =>
   JSON.stringify({ documentId, event, sequence });
 
 const click = {
@@ -25,10 +25,10 @@ const click = {
   type: "click",
 };
 
-const read = (raw: unknown, sequences: RecorderSequences = new Map()) =>
+const read = (raw: string, sequences: RecorderSequences = new Map()) =>
   readRecorderPayload(NONCE, raw, sequences, NONCE);
 
-const refusalOf = (raw: unknown): string => {
+const refusalOf = (raw: string): string => {
   const outcome = readRecorderPayload(NONCE, raw, new Map(), NONCE);
   return outcome._tag === "refused" ? outcome.refusal._tag : outcome._tag;
 };
@@ -61,7 +61,6 @@ it("counts each document's sequence separately, so a reload is not a gap", () =>
 
 it("refuses malformed recorder data, and ignores what is not its own", () => {
   expect(refusalOf("{")).toBe("forged");
-  expect(refusalOf({ event: click, sequence: 1 })).toBe("forged");
   expect(refusalOf(payload({ type: "teleport" }, 1))).toBe("malformed");
   expect(
     refusalOf(
@@ -182,9 +181,6 @@ it("ignores a report that does not present this Recording's nonce", () => {
   // function it discovered.
   const perfect = payload(click, 1);
   expect(readRecorderPayload("guessed", perfect, new Map(), NONCE)._tag).toBe(
-    "forged"
-  );
-  expect(readRecorderPayload(undefined, perfect, new Map(), NONCE)._tag).toBe(
     "forged"
   );
   // The nonce never travels inside the payload, so intercepting a real

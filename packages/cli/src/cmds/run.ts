@@ -175,15 +175,18 @@ export const runCommand = Command.make(
     }
     const rules = gateOverride(gate, ignoreGate);
 
-    const { directory, run } = yield* runner.run(flow, {
-      ...(rules === undefined ? {} : { gate: rules }),
+    const runOptions = {
       outputDirectory,
       retry,
       timeout: Duration.seconds(timeout),
       trace: keepTrace,
       variables: resolution,
       video: makeVideo,
-    });
+    };
+    const { directory, run } = yield* runner.run(
+      flow,
+      rules === undefined ? runOptions : { ...runOptions, gate: rules }
+    );
 
     if (run.attempts.length > 1) {
       // Silent retry is how a Flow that fails 40% of the time reports green for

@@ -456,11 +456,14 @@ export const resolveUserAgentMetadata = (
     metadata.fullVersionList,
     chromiumMajor
   );
-  return {
-    ...metadata,
-    ...(brands === undefined ? {} : { brands }),
-    ...(fullVersionList === undefined ? {} : { fullVersionList }),
-  };
+  let resolved: UserAgentMetadata = { ...metadata };
+  if (brands !== undefined) {
+    resolved = { ...resolved, brands };
+  }
+  if (fullVersionList !== undefined) {
+    resolved = { ...resolved, fullVersionList };
+  }
+  return resolved;
 };
 
 /**
@@ -481,19 +484,21 @@ export const browserIdentityFor = (
   if (identity === undefined) {
     return stringOnlyIdentity(userAgent);
   }
-  return {
+  let resolved: BrowserIdentity = {
     hasTouch: identity.hasTouch,
     mobile: identity.mobile,
     userAgent,
-    ...(identity.userAgentMetadata === undefined
-      ? {}
-      : {
-          userAgentMetadata: resolveUserAgentMetadata(
-            identity.userAgentMetadata,
-            chromiumMajor
-          ),
-        }),
   };
+  if (identity.userAgentMetadata !== undefined) {
+    resolved = {
+      ...resolved,
+      userAgentMetadata: resolveUserAgentMetadata(
+        identity.userAgentMetadata,
+        chromiumMajor
+      ),
+    };
+  }
+  return resolved;
 };
 
 /**

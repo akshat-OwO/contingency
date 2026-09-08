@@ -12,7 +12,6 @@ import {
   AgentFlowCatalog,
   makeAgentFlowCatalogLayer,
 } from "../../src/services/agent-flow-catalog.ts";
-import type { AgentSessionService } from "../../src/services/agent-session.ts";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
   AgentFlowToolHandlersLive,
@@ -75,15 +74,15 @@ it.effect(
       const root = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "contingency-mcp-replay-",
       });
-      const missingSession = {
+      const missingSession = Layer.mock(AgentSession, {
         teachingSource: () =>
           Effect.die("teachingSource should not be called during replay"),
-      } as unknown as AgentSessionService;
+      });
       const layer = AgentFlowToolHandlersLive.pipe(
         Layer.provideMerge(
           Layer.mergeAll(
             makeAgentFlowCatalogLayer({ now: () => new Date(at), root }),
-            Layer.succeed(AgentSession, missingSession)
+            missingSession
           ).pipe(Layer.provide(NodeServices.layer))
         )
       );
@@ -139,14 +138,14 @@ it.effect("refuses to start a Verification Run the user never authorized", () =>
     const root = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "contingency-mcp-verify-",
     });
-    const noBrowser = {
+    const noBrowser = Layer.mock(AgentSession, {
       start: () => Effect.die("no Verification Run may start unauthorized"),
-    } as unknown as AgentSessionService;
+    });
     const layer = AgentFlowToolHandlersLive.pipe(
       Layer.provideMerge(
         Layer.mergeAll(
           makeAgentFlowCatalogLayer({ now: () => new Date(at), root }),
-          Layer.succeed(AgentSession, noBrowser)
+          noBrowser
         ).pipe(Layer.provide(NodeServices.layer))
       )
     );

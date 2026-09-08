@@ -7,15 +7,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { Run as RunSchema } from "@contingency/protocol";
 import type {
   DraftEmulation,
   Flow,
-  Run,
+  Run as RunType,
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import { Effect, FileSystem, Layer } from "effect";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 import type { Scope } from "effect/Scope";
 
 import type {
@@ -23,6 +24,10 @@ import type {
   RunnerService,
 } from "../../src/services/runner.ts";
 import { Runner, RunnerLive } from "../../src/services/runner.ts";
+
+const isTcpAddress = (
+  address: AddressInfo | string | null
+): address is AddressInfo => address !== null && typeof address !== "string";
 
 /**
  * The real Runner, driving a real Chromium in process.
@@ -230,9 +235,10 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
         // only way to test what an interrupted Run leaves behind is to have
         // one still running when the signal arrives.
         if (pathname === "/boundary-redirect") {
+          const address = created.address();
           response
             .writeHead(302, {
-              location: `http://localhost:${String(created.address() && typeof created.address() === "object" ? (created.address() as AddressInfo).port : 0)}/outside-boundary`,
+              location: `http://localhost:${String(isTcpAddress(address) ? address.port : 0)}/outside-boundary`,
             })
             .end();
           return;
@@ -295,7 +301,11 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
       })
   );
 
-  const { port } = server.address() as AddressInfo;
+  const address = server.address();
+  if (!isTcpAddress(address)) {
+    throw new Error("Fixture server did not bind to a TCP address.");
+  }
+  const { port } = address;
   const origin = `http://127.0.0.1:${port}`;
   return {
     origin,
@@ -328,11 +338,8 @@ export const flow = (
   steps: Flow["steps"],
   title = "Integration",
   variables?: Flow["variables"]
-): Flow => ({
-  steps,
-  title,
-  ...(variables === undefined ? {} : { variables }),
-});
+): Flow =>
+  variables === undefined ? { steps, title } : { steps, title, variables };
 
 /**
  * Execute a Flow through the real Runner and hand back the Run, plus the
@@ -343,7 +350,11 @@ export const runFlow = (
   target: Flow,
   options?: Partial<RunnerRunOptions>
 ): Effect.Effect<
-  { readonly directory: string; readonly persisted: Run; readonly run: Run },
+  {
+    readonly directory: string;
+    readonly persisted: RunType;
+    readonly run: RunType;
+  },
   unknown,
   RunnerService | FileSystem.FileSystem | Scope
 > =>
@@ -365,7 +376,11 @@ export const runFlow = (
 
     const persisted = yield* fileSystem
       .readFileString(path.join(directory, "run.json"))
-      .pipe(Effect.map((contents) => JSON.parse(contents) as Run));
+      .pipe(
+        Effect.map((contents) =>
+          Schema.decodeUnknownSync(RunSchema)(JSON.parse(contents))
+        )
+      );
 
     // The temporary output directory belongs to the caller's scope, not this
     // one: a test that reads the Run's artifacts has to outlive the Run.

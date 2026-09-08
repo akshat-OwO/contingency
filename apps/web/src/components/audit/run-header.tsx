@@ -72,7 +72,7 @@ export const RunHeader = ({
     <header className="relative flex items-center gap-3 border-b px-4 py-2">
       <div className="min-w-0">
         <h1 className="truncate text-sm font-semibold">{run.flow.title}</h1>
-        <p className="text-muted-foreground font-mono text-[11px]">
+        <p className="text-muted-foreground font-mono text-xs">
           {run.run === null ? "No Run yet" : run.run.runId}
         </p>
       </div>

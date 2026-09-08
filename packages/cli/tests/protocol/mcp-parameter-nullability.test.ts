@@ -1,4 +1,5 @@
-import { Schema } from "effect";
+import { Exit, Schema } from "effect";
+import type { Tool, Toolkit } from "effect/unstable/ai";
 import { expect, test } from "vitest";
 
 import { AgentFlowTools } from "../../src/services/mcp-agent-flow.ts";
@@ -21,47 +22,42 @@ const advertisesNull = (property: JsonSchema): boolean =>
  * published JSON Schema while the validator refuses `null`, so an agent that
  * trusts the advertised contract is refused (issue #129).
  */
-const toolkits = [
-  ["agent flow", AgentFlowTools],
-  ["agent run", AgentRunTools],
-  ["agent session", AgentSessionTools],
-] as const;
+const isStruct = (
+  schema: Schema.Top
+): schema is Schema.Struct<Schema.Struct.Fields> => "fields" in schema;
 
-for (const [name, toolkit] of toolkits) {
+const verifyToolkit = <Tools extends Record<string, Tool.Any>>(
+  name: string,
+  toolkit: Toolkit.Toolkit<Tools>
+) => {
   test(`${name} tools accept null for every parameter published as nullable`, () => {
-    const tools = Object.entries(
-      (toolkit as unknown as { readonly tools: Record<string, unknown> }).tools
-    );
+    const tools = Object.entries(toolkit.tools);
     expect(tools.length).toBeGreaterThan(0);
 
     const refused: string[] = [];
     for (const [toolName, tool] of tools) {
-      const parameters = (tool as { readonly parametersSchema: Schema.Top })
-        .parametersSchema;
-      const { fields } = parameters as unknown as {
-        readonly fields?: Record<string, Schema.Top>;
-      };
-      if (fields === undefined) {
+      if (!isStruct(tool.parametersSchema)) {
         continue;
       }
+      const { fields } = tool.parametersSchema;
       for (const [key, field] of Object.entries(fields)) {
-        const isolated = Schema.Struct({
-          [key]: field,
-        }) as unknown as Schema.Codec<Record<string, unknown>>;
-        const document = Schema.toJsonSchemaDocument(isolated) as {
-          readonly schema: { readonly properties?: Record<string, JsonSchema> };
-        };
-        const property = document.schema.properties?.[key];
-        if (property === undefined || !advertisesNull(property)) {
+        const document = Schema.toJsonSchemaDocument(field);
+        if (!advertisesNull(document.schema)) {
           continue;
         }
-        try {
-          Schema.decodeUnknownSync(isolated)({ [key]: null });
-        } catch {
+        const synchronousField = Schema.make<
+          Schema.Codec<unknown, unknown, never, never>
+        >(field.ast);
+        const decoded = Schema.decodeUnknownExit(synchronousField)(null);
+        if (Exit.isFailure(decoded)) {
           refused.push(`${toolName}.${key}`);
         }
       }
     }
     expect(refused).toEqual([]);
   });
-}
+};
+
+verifyToolkit("agent flow", AgentFlowTools);
+verifyToolkit("agent run", AgentRunTools);
+verifyToolkit("agent session", AgentSessionTools);

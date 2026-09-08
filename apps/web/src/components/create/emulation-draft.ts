@@ -70,19 +70,26 @@ const patchedPermissions = (
 };
 
 /** Rebuild the draft without the keys a cleared setting must not carry. */
-const exactDraft = (draft: DraftEmulation): DraftEmulation => ({
-  ...(draft.colorScheme === undefined
-    ? {}
-    : { colorScheme: draft.colorScheme }),
-  ...(draft.geolocation === undefined
-    ? {}
-    : { geolocation: draft.geolocation }),
-  ...(draft.locale === undefined ? {} : { locale: draft.locale }),
-  permissions: draft.permissions,
-  ...(draft.timezoneId === undefined ? {} : { timezoneId: draft.timezoneId }),
-  userAgentProfile: draft.userAgentProfile,
-  viewport: draft.viewport,
-});
+const exactDraft = (draft: DraftEmulation): DraftEmulation => {
+  let result: DraftEmulation = {
+    permissions: draft.permissions,
+    userAgentProfile: draft.userAgentProfile,
+    viewport: draft.viewport,
+  };
+  if (draft.colorScheme !== undefined) {
+    result = { ...result, colorScheme: draft.colorScheme };
+  }
+  if (draft.geolocation !== undefined) {
+    result = { ...result, geolocation: draft.geolocation };
+  }
+  if (draft.locale !== undefined) {
+    result = { ...result, locale: draft.locale };
+  }
+  if (draft.timezoneId !== undefined) {
+    result = { ...result, timezoneId: draft.timezoneId };
+  }
+  return result;
+};
 
 /**
  * Choosing an identity moves every signal it implies together: a mobile

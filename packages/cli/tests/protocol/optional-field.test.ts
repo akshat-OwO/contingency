@@ -11,17 +11,13 @@ const decode = Schema.decodeUnknownSync(Struct);
 const encode = Schema.encodeUnknownSync(Struct);
 
 test("the published schema offers the value and null, and nothing else", () => {
-  const document = Schema.toJsonSchemaDocument(Struct) as unknown as {
-    readonly schema: {
-      readonly properties: Record<string, { readonly anyOf?: unknown }>;
-      readonly required: readonly string[];
-    };
-  };
-  expect(document.schema.properties.optional?.anyOf).toEqual([
-    { type: "string" },
-    { type: "null" },
-  ]);
-  expect(document.schema.required).toEqual(["required"]);
+  const document = Schema.toJsonSchemaDocument(Struct);
+  expect(document.schema).toMatchObject({
+    properties: {
+      optional: { anyOf: [{ type: "string" }, { type: "null" }] },
+    },
+    required: ["required"],
+  });
 });
 
 test("null and an absent key both decode to not provided", () => {

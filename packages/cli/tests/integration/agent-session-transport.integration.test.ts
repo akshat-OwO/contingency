@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 
 import {
@@ -14,7 +15,7 @@ import {
   NodeSocket,
 } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Stream } from "effect";
+import { Context, Effect, FileSystem, Layer, Schema, Stream } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
 import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
@@ -49,6 +50,10 @@ const runSession: RunSessionService = {
   start: () => Effect.die("Not under test."),
 };
 
+const isTcpAddress = (
+  address: AddressInfo | string | null
+): address is AddressInfo => address !== null && typeof address !== "string";
+
 const reservePort = Effect.promise(
   () =>
     // oxlint-disable-next-line promise/avoid-new -- Bridges the Node server callback in this test.
@@ -57,7 +62,7 @@ const reservePort = Effect.promise(
       probe.once("error", reject);
       probe.listen(0, "127.0.0.1", () => {
         const address = probe.address();
-        if (address === null || typeof address === "string") {
+        if (!isTcpAddress(address)) {
           reject(new Error("Could not reserve a loopback port."));
           return;
         }
@@ -70,12 +75,96 @@ const reservePort = Effect.promise(
 
 const makeLoopbackRpcClient = (origin: string) =>
   Effect.gen(function* makeLoopbackClient() {
+    type StandardWebSocket = InstanceType<typeof globalThis.WebSocket>;
+
+    class OriginWebSocket extends EventTarget {
+      readonly CLOSED = 3;
+      readonly CLOSING = 2;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      onclose: StandardWebSocket["onclose"] = null;
+      onerror: StandardWebSocket["onerror"] = null;
+      onmessage: StandardWebSocket["onmessage"] = null;
+      onopen: StandardWebSocket["onopen"] = null;
+      private readonly socket: NodeSocket.NodeWS.WebSocket;
+
+      constructor(url: string, protocols?: string | string[]) {
+        super();
+        this.socket = new NodeSocket.NodeWS.WebSocket(url, protocols, {
+          origin,
+        });
+        this.socket.on("open", () => {
+          const event = new Event("open");
+          this.dispatchEvent(event);
+          this.onopen?.(event);
+        });
+        this.socket.on("message", (data) => {
+          const event = new MessageEvent("message", { data });
+          this.dispatchEvent(event);
+          this.onmessage?.(event);
+        });
+        this.socket.on("error", () => {
+          const event = new ErrorEvent("error");
+          this.dispatchEvent(event);
+          this.onerror?.(event);
+        });
+        this.socket.on("close", (code, reason) => {
+          const event = new CloseEvent("close", {
+            code,
+            reason: reason.toString(),
+            wasClean: code === 1000,
+          });
+          this.dispatchEvent(event);
+          this.onclose?.(event);
+        });
+      }
+
+      get binaryType(): StandardWebSocket["binaryType"] {
+        return this.socket.binaryType === "arraybuffer"
+          ? "arraybuffer"
+          : "blob";
+      }
+
+      set binaryType(value: StandardWebSocket["binaryType"]) {
+        this.socket.binaryType = value === "arraybuffer" ? value : "nodebuffer";
+      }
+
+      get bufferedAmount(): number {
+        return this.socket.bufferedAmount;
+      }
+
+      get extensions(): string {
+        return this.socket.extensions;
+      }
+
+      get protocol(): string {
+        return this.socket.protocol;
+      }
+
+      get readyState(): number {
+        return this.socket.readyState;
+      }
+
+      get url(): string {
+        return this.socket.url;
+      }
+
+      close(code?: number, reason?: string): void {
+        this.socket.close(code, reason);
+      }
+
+      send(data: Parameters<StandardWebSocket["send"]>[0]): void {
+        if (data instanceof Blob) {
+          throw new TypeError("Blob WebSocket messages are not used by RPC.");
+        }
+        this.socket.send(data);
+      }
+    }
+
     const socketConstructor = Layer.succeed(
       Socket.WebSocketConstructor,
-      ((url: string, protocols?: string | string[]) =>
-        new NodeSocket.NodeWS.WebSocket(url, protocols, {
-          origin,
-        })) as unknown as Socket.WebSocketConstructor["Service"]
+      (url: string, protocols?: string | string[]) =>
+        new OriginWebSocket(url, protocols)
     );
     const socket = Layer.effect(Socket.Socket)(
       Socket.makeWebSocket(`${origin.replace("http", "ws")}/ws`).pipe(
@@ -238,11 +327,38 @@ it.live(
 
 const MAX_NDJSON_BYTES = 1_048_576;
 
-interface JsonRpcResponse {
-  readonly error?: unknown;
-  readonly id?: number;
-  readonly result?: unknown;
+const JsonRpcResponseSchema = Schema.Struct({
+  error: Schema.optional(Schema.Unknown),
+  id: Schema.optional(Schema.Number),
+  result: Schema.optional(Schema.Unknown),
+});
+type JsonRpcResponse = typeof JsonRpcResponseSchema.Type;
+
+type JsonValue =
+  | boolean
+  | null
+  | number
+  | string
+  | readonly JsonValue[]
+  | JsonObject;
+
+interface JsonObject {
+  readonly [key: string]: JsonValue;
 }
+
+const McpToolResultSchema = Schema.Struct({
+  isError: Schema.optional(Schema.Boolean),
+  structuredContent: Schema.optional(Schema.Unknown),
+});
+
+const SessionSnapshotSchema = Schema.Struct({
+  id: Schema.String,
+  phase: Schema.String,
+});
+
+const SessionListingSchema = Schema.Struct({
+  sessions: Schema.Array(SessionSnapshotSchema),
+});
 
 interface PendingResponse {
   readonly id: number;
@@ -260,16 +376,13 @@ interface PendingText {
 interface McpChild {
   readonly child: ChildProcessWithoutNullStreams;
   readonly receive: (id: number) => Promise<JsonRpcResponse>;
-  readonly send: (message: object) => Promise<void>;
+  readonly send: (message: JsonObject) => Promise<void>;
   readonly stop: () => Promise<{
     readonly code: number | null;
     readonly signal: NodeJS.Signals | null;
   }>;
   readonly waitForText: (text: string) => Promise<void>;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const spawnMcpChild = (port: number): McpChild => {
   const child = spawn(
@@ -344,11 +457,9 @@ const spawnMcpChild = (port: number): McpChild => {
       if (line.trim().length > 0) {
         let response: JsonRpcResponse;
         try {
-          const parsed: unknown = JSON.parse(line);
-          if (!isRecord(parsed)) {
-            throw new Error("MCP response was not a JSON object.");
-          }
-          response = parsed as JsonRpcResponse;
+          response = Schema.decodeUnknownSync(JsonRpcResponseSchema)(
+            JSON.parse(line)
+          );
         } catch (error) {
           failPending(
             error instanceof Error
@@ -404,7 +515,10 @@ const spawnMcpChild = (port: number): McpChild => {
       const existing = responses.findIndex((response) => response.id === id);
       if (existing !== -1) {
         const [response] = responses.splice(existing, 1);
-        return Promise.resolve(response as JsonRpcResponse);
+        if (response === undefined) {
+          return Promise.reject(new Error(`MCP response ${id} disappeared.`));
+        }
+        return Promise.resolve(response);
       }
       if (closed) {
         return Promise.reject(
@@ -441,12 +555,12 @@ const spawnMcpChild = (port: number): McpChild => {
     },
     stop: () => {
       if (closed) {
-        return Promise.resolve(
-          closeResult as {
-            readonly code: number | null;
-            readonly signal: NodeJS.Signals | null;
-          }
-        );
+        if (closeResult === undefined) {
+          return Promise.reject(
+            new Error("MCP child closed without a result.")
+          );
+        }
+        return Promise.resolve(closeResult);
       }
       child.kill("SIGTERM");
       return closedPromise;
@@ -473,11 +587,11 @@ const spawnMcpChild = (port: number): McpChild => {
   };
 };
 
-const toolResult = (response: JsonRpcResponse): Record<string, unknown> => {
-  if (response.error !== undefined || !isRecord(response.result)) {
+const toolResult = (response: JsonRpcResponse) => {
+  if (response.error !== undefined) {
     throw new Error(`MCP tool call failed: ${JSON.stringify(response)}`);
   }
-  return response.result;
+  return Schema.decodeUnknownSync(McpToolResultSchema)(response.result);
 };
 
 it.live("serves the real MCP stdio child-process boundary", () =>
@@ -505,7 +619,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     expect(yield* fileSystem.exists(ownerMarker)).toBe(true);
     const origin = `http://127.0.0.1:${port}`;
 
-    const sendAndReceive = (id: number, method: string, params: object) =>
+    const sendAndReceive = (id: number, method: string, params: JsonObject) =>
       Effect.gen(function* sendMcpRequest() {
         yield* Effect.promise(() =>
           mcp.send({ id, jsonrpc: "2.0", method, params })
@@ -540,13 +654,12 @@ it.live("serves the real MCP stdio child-process boundary", () =>
       });
     const first = toolResult(yield* start(2, "child-start-first", "first"));
     const second = toolResult(yield* start(3, "child-start-second", "second"));
-    const firstSnapshot = first.structuredContent;
-    const secondSnapshot = second.structuredContent;
-    if (!isRecord(firstSnapshot) || !isRecord(secondSnapshot)) {
-      return yield* Effect.die(
-        "MCP start did not return structured snapshots."
-      );
-    }
+    const firstSnapshot = Schema.decodeUnknownSync(SessionSnapshotSchema)(
+      first.structuredContent
+    );
+    const secondSnapshot = Schema.decodeUnknownSync(SessionSnapshotSchema)(
+      second.structuredContent
+    );
     expect(firstSnapshot.phase).toBe("running");
     expect(secondSnapshot.phase).toBe("running");
     expect(firstSnapshot.id).not.toBe(secondSnapshot.id);
@@ -626,7 +739,9 @@ it.live("serves the real MCP stdio child-process boundary", () =>
       yield* close(4, "child-close-first", String(firstSessionId))
     );
     expect(
-      (firstClosed.structuredContent as Record<string, unknown>).phase
+      Schema.decodeUnknownSync(SessionSnapshotSchema)(
+        firstClosed.structuredContent
+      ).phase
     ).toBe("closed");
 
     // Keep the second browser live until owner shutdown. The MCP boundary
@@ -637,16 +752,12 @@ it.live("serves the real MCP stdio child-process boundary", () =>
         name: "agent_sessions_get",
       })
     );
-    if (!isRecord(live.structuredContent)) {
-      return yield* Effect.die("MCP live-session listing was not structured.");
-    }
-    const liveSessions = live.structuredContent.sessions;
-    if (!Array.isArray(liveSessions)) {
-      return yield* Effect.die("MCP live-session listing had no sessions.");
-    }
+    const liveSessions = Schema.decodeUnknownSync(SessionListingSchema)(
+      live.structuredContent
+    ).sessions;
     expect(liveSessions).toHaveLength(1);
     const [liveSession] = liveSessions;
-    if (!isRecord(liveSession)) {
+    if (liveSession === undefined) {
       return yield* Effect.die("MCP live-session listing was malformed.");
     }
     expect(liveSession.id).toBe(String(secondSessionId));

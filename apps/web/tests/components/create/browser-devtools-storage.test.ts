@@ -8,6 +8,7 @@ import { createElement } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { BrowserDevtools } from "@/components/create/browser-devtools";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 const rpc = vi.hoisted(() => ({
   clear: vi.fn(),
@@ -34,7 +35,7 @@ const cookies = [
   },
 ];
 
-vi.mock("@/lib/rpc", () => {
+const rpcOverrides = (() => {
   const updated = { data: {}, type: "browser.storage.updated" as const };
   return {
     browserNetworkRequestMutation: Atom.fn(() =>
@@ -93,28 +94,32 @@ vi.mock("@/lib/rpc", () => {
       return Effect.succeed(updated);
     }),
   };
-});
+})();
 
 const renderDevtools = (mutationsLocked = false) =>
   render(
     createElement(
-      RegistryProvider,
-      null,
-      createElement(BrowserDevtools, {
-        consoleEntries: [],
-        mutationsLocked,
-        networkRequests: [],
-        onClearConsole: () => {},
-        onClearNetwork: () => {},
-        onClose: () => {},
-        onError: () => {},
-        onRefreshNetwork: () => {},
-        refreshingNetwork: false,
-        sessionId,
-        tabId,
-        tabTitle: "App",
-        tabUrl: "https://app.example.com/home",
-      })
+      RpcDependenciesProvider,
+      { overrides: rpcOverrides },
+      createElement(
+        RegistryProvider,
+        null,
+        createElement(BrowserDevtools, {
+          consoleEntries: [],
+          mutationsLocked,
+          networkRequests: [],
+          onClearConsole: () => {},
+          onClearNetwork: () => {},
+          onClose: () => {},
+          onError: () => {},
+          onRefreshNetwork: () => {},
+          refreshingNetwork: false,
+          sessionId,
+          tabId,
+          tabTitle: "App",
+          tabUrl: "https://app.example.com/home",
+        })
+      )
     )
   );
 

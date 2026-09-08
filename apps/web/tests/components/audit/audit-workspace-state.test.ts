@@ -50,7 +50,7 @@ const snapshot = (overrides: Partial<RunSnapshot>): RunSnapshot =>
     video: null,
     warnings: [],
     ...overrides,
-  }) as RunSnapshot;
+  }) satisfies RunSnapshot;
 
 describe("the timeline", () => {
   it("has its full length before the first Step runs", () => {
@@ -94,7 +94,7 @@ describe("the timeline", () => {
           steps: [],
         },
         runningIndex: 1,
-      } as unknown as Partial<RunSnapshot>),
+      } satisfies unknown),
       1
     );
     expect(timeline.map(({ state }) => state)).toEqual([
@@ -121,7 +121,7 @@ describe("what is selected", () => {
     const steps = [stepAt(0, "completed"), stepAt(1, "failed")];
     const finished = snapshot({
       phase: "finished",
-      run: { attempts: [], runId: "run-1", steps } as unknown as never,
+      run: { attempts: [], runId: "run-1", steps } satisfies unknown,
       steps,
     });
     const timeline = timelineSteps(finished, following);
@@ -132,7 +132,7 @@ describe("what is selected", () => {
     const steps = [stepAt(0, "completed"), stepAt(1, "completed")];
     const finished = snapshot({
       phase: "finished",
-      run: { attempts: [], runId: "run-1", steps } as unknown as never,
+      run: { attempts: [], runId: "run-1", steps } satisfies unknown,
       steps,
     });
     const timeline = timelineSteps(finished, following);
@@ -197,7 +197,7 @@ describe("attempts", () => {
       ],
       runId: "run-1",
       steps: [stepAt(0, "completed"), stepAt(1, "completed")],
-    } as unknown as never,
+    } satisfies unknown,
     steps: [],
   });
 
@@ -213,7 +213,7 @@ describe("attempts", () => {
         attempts: [{ attempt: 1, outcome: "completed", steps: [] }],
         runId: "run-1",
         steps: [],
-      } as unknown as never,
+      } satisfies unknown,
     });
     expect(attempts(single)).toHaveLength(1);
     expect(selectedAttempt(single, following)).toBe(1);
@@ -321,7 +321,7 @@ it("keeps a Gate breach apart from the Run's outcome", () => {
       outcome: "completed",
       runId: "run-1",
       steps: [],
-    } as unknown as never,
+    } satisfies unknown,
   });
   // A breach is a verdict on the site; the Run still completed (ADR 0018).
   expect(breaching.outcome).toBe("completed");
@@ -331,7 +331,10 @@ it("keeps a Gate breach apart from the Run's outcome", () => {
 
 it("names a navigate Step by where it goes", () => {
   expect(
-    describeStep({ type: "navigate", url: "https://example.com/cart" } as never)
+    describeStep({
+      type: "navigate",
+      url: "https://example.com/cart",
+    } satisfies never)
   ).toBe("Navigate to example.com/cart");
 });
 
@@ -341,9 +344,9 @@ it("distinguishes a container Scroll from a page Scroll", () => {
       deltaY: 200,
       target: [{ kind: "role", name: "Results", role: "region" }],
       type: "scroll",
-    } as never)
+    } satisfies never)
   ).toBe('Scroll region "Results"');
-  expect(describeStep({ deltaY: 200, type: "scroll" } as never)).toBe(
+  expect(describeStep({ deltaY: 200, type: "scroll" } satisfies never)).toBe(
     "Scroll the page"
   );
 });

@@ -210,6 +210,21 @@ const pageField = (page: number): { readonly page?: number } =>
 const capturedTarget = (action: CapturedAction): Target | undefined =>
   "target" in action ? action.target : undefined;
 
+interface MutablePressStep {
+  key: string;
+  page?: number;
+  target?: Target;
+  type: "press";
+}
+
+interface MutableScrollStep {
+  deltaX?: number;
+  deltaY?: number;
+  page?: number;
+  target?: Target;
+  type: "scroll";
+}
+
 /** The Step a captured action becomes, before authoring adds anything. */
 const toBrowserStep = (
   action: CapturedAction,
@@ -242,21 +257,31 @@ const toBrowserStep = (
       };
     }
     case "press": {
-      return {
+      const step: MutablePressStep = {
         ...at,
         key: action.key,
-        ...(action.target === undefined ? {} : { target: action.target }),
         type: "press",
       };
+      if (action.target !== undefined) {
+        step.target = action.target;
+      }
+      return step;
     }
     case "scroll": {
-      return {
+      const step: MutableScrollStep = {
         ...at,
-        ...(action.deltaX === undefined ? {} : { deltaX: action.deltaX }),
-        ...(action.deltaY === undefined ? {} : { deltaY: action.deltaY }),
-        ...(action.target === undefined ? {} : { target: action.target }),
         type: "scroll",
       };
+      if (action.deltaX !== undefined) {
+        step.deltaX = action.deltaX;
+      }
+      if (action.deltaY !== undefined) {
+        step.deltaY = action.deltaY;
+      }
+      if (action.target !== undefined) {
+        step.target = action.target;
+      }
+      return step;
     }
     default: {
       return undefined;
@@ -686,14 +711,19 @@ export const makeRecordingService = (
             step.type === "change" && assignedVariable !== undefined
               ? { ...step, value: `{{${assignedVariable}}}` }
               : step;
-          const recorded: RecordedStep = {
-            id: randomUUID(),
-            preSteps: [],
-            step: recordedStep,
-            ...(assignedVariable === undefined
-              ? {}
-              : { variable: assignedVariable }),
-          };
+          const recorded: RecordedStep =
+            assignedVariable === undefined
+              ? {
+                  id: randomUUID(),
+                  preSteps: [],
+                  step: recordedStep,
+                }
+              : {
+                  id: randomUUID(),
+                  preSteps: [],
+                  step: recordedStep,
+                  variable: assignedVariable,
+                };
           const steps =
             replaces && lastRecorded !== undefined
               ? mutable.steps.map((existing) =>
@@ -1214,14 +1244,18 @@ export const makeRecordingService = (
                 from,
                 name
               ),
-              steps: mutable.steps.map((recorded) => ({
-                ...recorded,
-                ...(recorded.variable === from ? { variable: name } : {}),
-                preSteps: recorded.preSteps.map((preStep) =>
-                  renamePreStepVariable(preStep, from, name)
-                ),
-                step: renameStepValue(recorded.step, from, name),
-              })),
+              steps: mutable.steps.map((recorded) => {
+                const renamed = {
+                  ...recorded,
+                  preSteps: recorded.preSteps.map((preStep) =>
+                    renamePreStepVariable(preStep, from, name)
+                  ),
+                  step: renameStepValue(recorded.step, from, name),
+                };
+                return recorded.variable === from
+                  ? { ...renamed, variable: name }
+                  : renamed;
+              }),
             });
           })
         ),

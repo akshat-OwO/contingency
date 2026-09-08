@@ -1,4 +1,3 @@
-import type { BrowserTabId, SessionId } from "@contingency/protocol";
 import { Effect } from "effect";
 import { describe, expect, it, test } from "vitest";
 
@@ -49,9 +48,9 @@ describe("browserAddressFromUrlEvent", () => {
 
 describe("reconcileActiveTab", () => {
   it("requests a stream restart when a popup becomes the active tab", () => {
-    const previousTabId = "tab-1" as BrowserTabId;
-    const popupTabId = "tab-2" as BrowserTabId;
-    const sessionId = "create-popup" as SessionId;
+    const previousTabId = "tab-1";
+    const popupTabId = "tab-2";
+    const sessionId = "create-popup";
 
     expect(
       reconcileActiveTab(
@@ -136,7 +135,7 @@ describe("browserNetworkRefreshEffect", () => {
 
 describe("preserveBrowserTabMetadata", () => {
   it("does not let a raw stream event replace an enriched background title", () => {
-    const tabId = "tab-1" as BrowserTabId;
+    const tabId = "tab-1";
 
     expect(
       preserveBrowserTabMetadata(
@@ -209,7 +208,7 @@ describe("browserViewportEmptyState", () => {
       browserViewportEmptyState({
         error: undefined,
         opening: true,
-        selectedSessionId: "create-1" as SessionId,
+        selectedSessionId: "create-1",
       })
     ).toMatchObject({
       icon: "loading",

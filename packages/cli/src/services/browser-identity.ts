@@ -58,6 +58,19 @@ interface CdpUserAgentMetadata {
   readonly platformVersion: string;
 }
 
+interface CdpUserAgentOverride {
+  readonly platform?: string;
+  readonly userAgent: string;
+  readonly userAgentMetadata?: CdpUserAgentMetadata;
+}
+
+interface CdpDeviceMetricsOverride {
+  readonly deviceScaleFactor: number;
+  readonly height: number;
+  readonly mobile: boolean;
+  readonly width: number;
+}
+
 /**
  * `Emulation.setUserAgentOverride` parameters. An absent identity restores the
  * browser's own string, so switching a session back to the default actually
@@ -68,11 +81,7 @@ interface CdpUserAgentMetadata {
 export const userAgentOverride = (
   identity: BrowserIdentity | undefined,
   defaultUserAgent: string
-): {
-  readonly platform?: string;
-  readonly userAgent: string;
-  readonly userAgentMetadata?: CdpUserAgentMetadata;
-} => {
+): CdpUserAgentOverride => {
   if (identity === undefined) {
     return { userAgent: defaultUserAgent };
   }
@@ -111,12 +120,7 @@ export const userAgentOverride = (
 export const deviceMetricsOverride = (
   identity: BrowserIdentity | undefined,
   viewport: Viewport
-): {
-  deviceScaleFactor: number;
-  height: number;
-  mobile: boolean;
-  width: number;
-} => ({
+): CdpDeviceMetricsOverride => ({
   deviceScaleFactor: viewport.deviceScaleFactor,
   height: viewport.height,
   mobile: identity?.mobile ?? false,

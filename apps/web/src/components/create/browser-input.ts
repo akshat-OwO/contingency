@@ -6,23 +6,26 @@ import type {
 import { Effect } from "effect";
 import type { KeyboardEvent, PointerEvent } from "react";
 
-export const keyboardKeyInfo: Readonly<
-  Record<string, { readonly keyCode: number; readonly text?: string }>
-> = {
-  ArrowDown: { keyCode: 40 },
-  ArrowLeft: { keyCode: 37 },
-  ArrowRight: { keyCode: 39 },
-  ArrowUp: { keyCode: 38 },
-  Backspace: { keyCode: 8, text: "\b" },
-  Delete: { keyCode: 46 },
-  End: { keyCode: 35 },
-  Enter: { keyCode: 13, text: "\r" },
-  Escape: { keyCode: 27 },
-  Home: { keyCode: 36 },
-  PageDown: { keyCode: 34 },
-  PageUp: { keyCode: 33 },
-  Tab: { keyCode: 9, text: "\t" },
-};
+interface KeyboardKeyInfo {
+  readonly keyCode: number;
+  readonly text?: string;
+}
+
+export const keyboardKeyInfo: ReadonlyMap<string, KeyboardKeyInfo> = new Map([
+  ["ArrowDown", { keyCode: 40 }],
+  ["ArrowLeft", { keyCode: 37 }],
+  ["ArrowRight", { keyCode: 39 }],
+  ["ArrowUp", { keyCode: 38 }],
+  ["Backspace", { keyCode: 8, text: "\b" }],
+  ["Delete", { keyCode: 46 }],
+  ["End", { keyCode: 35 }],
+  ["Enter", { keyCode: 13, text: "\r" }],
+  ["Escape", { keyCode: 27 }],
+  ["Home", { keyCode: 36 }],
+  ["PageDown", { keyCode: 34 }],
+  ["PageUp", { keyCode: 33 }],
+  ["Tab", { keyCode: 9, text: "\t" }],
+]);
 
 export const pointerButton = (button: number): typeof MouseButton.Type => {
   switch (button) {
@@ -124,7 +127,7 @@ export const makeBrowserInputHandlers = (
     ) => {
       event.preventDefault();
       event.stopPropagation();
-      const info = keyboardKeyInfo[event.key];
+      const info = keyboardKeyInfo.get(event.key);
       const text =
         eventType === "keyDown"
           ? (info?.text ?? (event.key.length === 1 ? event.key : undefined))
@@ -132,15 +135,15 @@ export const makeBrowserInputHandlers = (
       const windowsVirtualKeyCode =
         info?.keyCode ??
         (event.key.length === 1 ? (event.key.codePointAt(0) ?? 0) : 0);
-      dispatchInput({
+      const input = {
         code: event.code,
         eventType,
         key: event.key,
         modifiers: keyboardModifiers(event),
-        ...(text === undefined ? {} : { text }),
         type: "input_keyboard",
         windowsVirtualKeyCode,
-      });
+      } satisfies BrowserInput;
+      dispatchInput(text === undefined ? input : { ...input, text });
     },
     handlePointerDown: (event: PointerEvent<HTMLCanvasElement>) => {
       handlePointer(event, "mousePressed");

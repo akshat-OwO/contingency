@@ -97,7 +97,7 @@ export const unmeasuredWarning = (run: Run): string | undefined => {
  * failure does not change the Run outcome, but it must not pass silently.
  */
 export const videoWarning = Effect.fn("run.videoWarning")(
-  function* videoWarning(run: Run, directory: string) {
+  function* videoWarning(run: Pick<Run, "video">, directory: string) {
     if (!run.video) {
       return;
     }
@@ -109,7 +109,7 @@ export const videoWarning = Effect.fn("run.videoWarning")(
       return;
     }
     const decoded = yield* Effect.result(
-      Effect.try(() => JSON.parse(read.success) as unknown).pipe(
+      Effect.try(() => JSON.parse(read.success)).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(RunVideoManifest))
       )
     );
@@ -117,12 +117,14 @@ export const videoWarning = Effect.fn("run.videoWarning")(
       return "Warning: video was requested but its manifest could not be read.";
     }
     const manifest = decoded.success;
-    const missing = manifest.segments
-      .filter(({ recorded }) => !recorded)
-      .map(
-        ({ attempt, error }) =>
-          `attempt ${attempt} (${error ?? "no reason given"})`
-      );
+    const missing: string[] = [];
+    for (const segment of manifest.segments) {
+      if (!segment.recorded) {
+        missing.push(
+          `attempt ${segment.attempt} (${segment.error ?? "no reason given"})`
+        );
+      }
+    }
     return missing.length === 0
       ? undefined
       : `Warning: video was requested but ${missing.length} ${missing.length === 1 ? "attempt" : "attempts"} produced no recording: ${missing.join("; ")}`;

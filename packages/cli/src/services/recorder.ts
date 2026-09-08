@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import type { Frame, Page } from "playwright-core";
 
 import { CreateBrowser } from "./create-browser-contract.ts";
@@ -31,8 +31,10 @@ import type {
 } from "./recording.ts";
 
 /** Teardown that must not turn a closed browser into a defect. */
-const tryQuietly = (run: () => Promise<unknown>) =>
+const tryQuietly = <Success>(run: () => Promise<Success>) =>
   Effect.tryPromise({ catch: () => null, try: run }).pipe(Effect.ignore);
+
+const RecorderBindingArguments = Schema.Tuple([Schema.String, Schema.String]);
 
 const CONNECTION_LOST = connectionLost(
   "The browser recorder connection was lost."
@@ -165,14 +167,17 @@ export const makePlaywrightRecorderCapture = Effect.gen(
         try: () =>
           target.context.exposeBinding(
             bindingName,
-            (
-              source: { readonly page: Page },
-              presented: unknown,
-              raw: unknown
-            ) => {
+            (source: { readonly page: Page }, ...args) => {
               if (closing) {
                 return;
               }
+              const decoded = Schema.decodeUnknownOption(
+                RecorderBindingArguments
+              )(args);
+              if (Option.isNone(decoded)) {
+                return;
+              }
+              const [presented, raw] = decoded.value;
               const outcome = readRecorderPayload(
                 presented,
                 raw,

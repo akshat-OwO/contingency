@@ -59,12 +59,14 @@ const decisionLabel = (decision: PermissionDecision): string =>
     : `${decision.permission} (${decision.origin})`;
 
 /** The decisions as they read back, split by the answer each one records. */
-const decisionLabels = (
-  decisions: readonly PermissionDecision[]
-): {
+interface DecisionLabels {
   readonly denied: readonly string[];
   readonly granted: readonly string[];
-} => {
+}
+
+const decisionLabels = (
+  decisions: readonly PermissionDecision[]
+): DecisionLabels => {
   const denied: string[] = [];
   const granted: string[] = [];
   for (const decision of decisions) {
@@ -129,14 +131,11 @@ const permissionsAfterDecision = (
     }
     return !(state === "denied" && decision.origin === undefined);
   });
-  return [
-    ...kept,
-    {
-      ...(origin === undefined ? {} : { origin }),
-      permission,
-      state,
-    },
-  ];
+  const decision: PermissionDecision =
+    origin === undefined
+      ? { permission, state }
+      : { origin, permission, state };
+  return [...kept, decision];
 };
 
 const LocationPermissionDialogContent = ({

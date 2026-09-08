@@ -9,11 +9,8 @@ const EMULATION_BEACON = "/emulation-beacon";
 const beaconReports = (requests: readonly string[]) =>
   requests
     .filter((request) => request.startsWith(`${EMULATION_BEACON}?`))
-    .map(
-      (request) =>
-        Object.fromEntries(
-          new URLSearchParams(request.split("?")[1] ?? "")
-        ) as Record<string, string>
+    .map((request) =>
+      Object.fromEntries(new URLSearchParams(request.split("?")[1] ?? ""))
     );
 
 /**

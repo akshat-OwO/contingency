@@ -21,16 +21,16 @@ const target = [
   { kind: "css", selector: "#add-to-cart" },
 ];
 
-const flowWith = (
-  steps: readonly unknown[],
-  extra?: Record<string, unknown>
+const flowWith = <Step, Extra extends object>(
+  steps: readonly Step[],
+  extra?: Extra
 ) => ({
   ...extra,
   steps,
   title: "Checkout",
 });
 
-const assertDecodes = (input: unknown) => {
+const assertDecodes = <Input>(input: Input) => {
   const result = decode(input);
   if (Result.isFailure(result)) {
     throw new Error(
@@ -40,11 +40,11 @@ const assertDecodes = (input: unknown) => {
   return result.success;
 };
 
-const assertRejects = (input: unknown) => {
+const assertRejects = <Input>(input: Input) => {
   expect(Result.isSuccess(decode(input))).toBe(false);
 };
 
-const failureMessage = (input: unknown): string => {
+const failureMessage = <Input>(input: Input): string => {
   const result = decode(input);
   if (Result.isSuccess(result)) {
     throw new Error("Expected the Flow to be rejected");
@@ -443,7 +443,7 @@ test("Pre-step conditions accept visible, hidden, and URL matches", () => {
 });
 
 test("a Pre-step cannot navigate or wait", () => {
-  const preStepFlow = (step: Record<string, unknown>) =>
+  const preStepFlow = <Step>(step: Step) =>
     flowWith([navigateStep], {
       preSteps: [
         { id: "clear", step, when: { pattern: "/", type: "urlMatches" } },
@@ -576,14 +576,10 @@ test("strictness lives in the schema, not the call site", () => {
 });
 
 test("old selector arrays, frame indices, string targets, and variable folds are rejected", () => {
-  const legacy = (
-    step: Record<string, unknown>,
-    contingency?: Record<string, unknown>
-  ) => ({
-    ...(contingency === undefined ? {} : { contingency }),
-    steps: [navigateStep, step],
-    title: "Legacy",
-  });
+  const legacy = <Step, Contingency>(step: Step, contingency?: Contingency) => {
+    const flow = { steps: [navigateStep, step], title: "Legacy" };
+    return contingency === undefined ? flow : { ...flow, contingency };
+  };
 
   // Old selector arrays: every targeted action carried `selectors`.
   expect(

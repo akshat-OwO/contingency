@@ -134,7 +134,10 @@ test("reads back both granted and denied decisions", async () => {
 });
 
 test("locks the browser controls only for the Recording's own session", () => {
-  const recording = { phase: "incomplete", sessionId } as RecordingSnapshot;
+  const recording = {
+    phase: "incomplete",
+    sessionId,
+  } satisfies RecordingSnapshot;
 
   expect(recordingLocksBrowser(recording, sessionId)).toBe(true);
   expect(recordingLocksBrowser(recording, otherSessionId)).toBe(false);

@@ -713,11 +713,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         agentUnavailable((service) =>
           service.enterUserVariable(
             data.sessionId,
-            {
-              ...(data.ref === undefined ? {} : { ref: data.ref }),
-              value: data.value,
-              variable: data.variable,
-            },
+            data.ref === undefined
+              ? { value: data.value, variable: data.variable }
+              : {
+                  ref: data.ref,
+                  value: data.value,
+                  variable: data.variable,
+                },
             data.operationId
           )
         ).pipe(

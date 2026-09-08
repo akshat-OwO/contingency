@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { Data, Effect, FileSystem } from "effect";
+import { Data, Effect, FileSystem, Schema } from "effect";
 
 import { publishableManifests } from "./publishable-packages.ts";
 
@@ -16,22 +16,22 @@ export class ManifestVersionError extends Data.TaggedError(
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const PackageManifest = Schema.Record(Schema.String, Schema.Json);
+const PackageDependencies = Schema.Record(Schema.String, Schema.String);
 
 const DEPENDENCY_FIELDS = [
   "dependencies",
   "devDependencies",
   "peerDependencies",
   "optionalDependencies",
-] as const;
+];
 
 /**
  * Specifier prefixes that only mean something inside this repository.
  * `workspace:` names a sibling package and `catalog:` names a version from the
  * root catalog; nub resolves both, and npm resolves neither.
  */
-const LOCAL_ONLY_PREFIXES = ["workspace:", "catalog:"] as const;
+const LOCAL_ONLY_PREFIXES = ["workspace:", "catalog:"];
 
 /**
  * Strips every dependency whose range only resolves inside this repository,
@@ -45,21 +45,29 @@ const LOCAL_ONLY_PREFIXES = ["workspace:", "catalog:"] as const;
  * dependency is the protocol package, which tsdown inlines into `dist`, so
  * removing these declarations loses nothing the published code needs.
  */
+interface StrippedManifest {
+  readonly manifest: Schema.JsonObject;
+  readonly removed: string[];
+}
+
 const stripWorkspaceDependencies = (
-  manifest: Record<string, unknown>
-): string[] => {
+  manifest: Schema.JsonObject
+): StrippedManifest => {
+  const next = { ...manifest };
   const removed: string[] = [];
 
   for (const field of DEPENDENCY_FIELDS) {
-    const deps = manifest[field];
-    if (!isRecord(deps)) {
+    const decoded = Schema.decodeUnknownOption(PackageDependencies)(
+      manifest[field]
+    );
+    if (decoded._tag === "None") {
       continue;
     }
 
-    const kept = Object.entries(deps).filter(([name, range]) => {
-      const isLocalOnly =
-        typeof range === "string" &&
-        LOCAL_ONLY_PREFIXES.some((prefix) => range.startsWith(prefix));
+    const kept = Object.entries(decoded.value).filter(([name, range]) => {
+      const isLocalOnly = LOCAL_ONLY_PREFIXES.some((prefix) =>
+        range.startsWith(prefix)
+      );
 
       if (isLocalOnly) {
         removed.push(`${field}.${name}`);
@@ -67,12 +75,14 @@ const stripWorkspaceDependencies = (
       return !isLocalOnly;
     });
 
-    // `undefined` rather than `delete`: JSON.stringify omits the key either
-    // way, and an emptied field should not ship as a bare `{}`.
-    manifest[field] = kept.length === 0 ? undefined : Object.fromEntries(kept);
+    if (kept.length === 0) {
+      Reflect.deleteProperty(next, field);
+    } else {
+      next[field] = Object.fromEntries(kept);
+    }
   }
 
-  return removed;
+  return { manifest: next, removed };
 };
 
 /**
@@ -104,30 +114,22 @@ export const applyReleaseVersion = Effect.fn("applyReleaseVersion")(
       const manifest = yield* Effect.try({
         catch: (cause) =>
           new ManifestVersionError({ cause, filePath, operation: "parse" }),
-        try: () => JSON.parse(text) as unknown,
+        try: () => Schema.decodeUnknownSync(PackageManifest)(JSON.parse(text)),
       });
 
-      if (!isRecord(manifest)) {
-        return yield* new ManifestVersionError({
-          cause: "manifest is not a JSON object",
-          filePath,
-          operation: "parse",
-        });
-      }
+      const stripped = stripWorkspaceDependencies(manifest);
 
-      const removed = stripWorkspaceDependencies(manifest);
-
-      if (manifest.version === version && removed.length === 0) {
+      if (manifest.version === version && stripped.removed.length === 0) {
         continue;
       }
 
-      manifest.version = version;
+      const stamped = { ...stripped.manifest, version };
 
       // Two-space indent and a trailing newline, matching what every other
       // tool here writes, so a stamped manifest never shows up as a
       // whitespace-only diff if it is ever committed.
       yield* fs
-        .writeFileString(filePath, `${JSON.stringify(manifest, null, 2)}\n`)
+        .writeFileString(filePath, `${JSON.stringify(stamped, null, 2)}\n`)
         .pipe(
           Effect.mapError(
             (cause) =>

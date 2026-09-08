@@ -5,13 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 
-const vitalUnits: Record<string, string> = {
-  cls: "",
-  fcp: "ms",
-  inp: "ms",
-  lcp: "ms",
-  ttfb: "ms",
-};
+const vitalUnits: ReadonlyMap<string, string> = new Map([
+  ["cls", ""],
+  ["fcp", "ms"],
+  ["inp", "ms"],
+  ["lcp", "ms"],
+  ["ttfb", "ms"],
+]);
 
 const readinessEvidenceLabels = {
   "dom-mutations": "The DOM kept changing",
@@ -174,17 +174,17 @@ export const StepDetail = ({
             <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               {Object.entries(result.vitals).map(([key, value]) => (
                 <div className="rounded-md border p-2" key={key}>
-                  <dt className="text-muted-foreground text-[10px] uppercase">
+                  <dt className="text-muted-foreground text-xs uppercase">
                     {key}
                   </dt>
                   <dd className="font-mono text-sm tabular-nums">
                     {value}
-                    {vitalUnits[key] ?? ""}
+                    {vitalUnits.get(key) ?? ""}
                   </dd>
                 </div>
               ))}
             </dl>
-            <p className="text-muted-foreground mt-1.5 text-[11px]">
+            <p className="text-muted-foreground mt-1.5 text-xs">
               Unthrottled: these describe the host machine as much as the site.
             </p>
           </section>

@@ -2,17 +2,15 @@ import path from "node:path";
 
 import {
   AgentElementRef,
+  AgentFlowHeads,
+  EvidenceSlice,
   OperationId,
   TEACHING_SCREENSHOT_BUDGET_CHARACTERS,
 } from "@contingency/protocol";
-import type {
-  EvidenceSlice,
-  TeachingFeed,
-  TeachingScreenshot,
-} from "@contingency/protocol";
+import type { TeachingFeed, TeachingScreenshot } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer } from "effect";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 
 import { makeAgentFlowCatalogLayer } from "../../src/services/agent-flow-catalog.ts";
 import {
@@ -335,16 +333,18 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       // The Evidence Slice is derived from the demonstrated span, with the
       // Page as it stood before and after, and the instruction in force.
       const [, secondStep] = saved.manifest.steps;
-      const slice = JSON.parse(
-        yield* fileSystem.readFileString(
-          path.join(
-            catalogRoot,
-            "agent-flows",
-            saved.manifest.agentFlowId,
-            secondStep?.evidence.path ?? ""
+      const slice = Schema.decodeUnknownSync(EvidenceSlice)(
+        JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(
+              catalogRoot,
+              "agent-flows",
+              saved.manifest.agentFlowId,
+              secondStep?.evidence.path ?? ""
+            )
           )
         )
-      ) as EvidenceSlice;
+      );
       expect(slice.actions.map(({ id }) => id)).toEqual([
         clickAction.id,
         waitAction.id,
@@ -424,9 +424,9 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         saved.manifest.agentFlowId,
         "agent-flow.json"
       );
-      const heads = JSON.parse(
-        yield* fileSystem.readFileString(headsPath)
-      ) as Record<string, unknown>;
+      const heads = Schema.decodeUnknownSync(AgentFlowHeads)(
+        JSON.parse(yield* fileSystem.readFileString(headsPath))
+      );
       yield* fileSystem.writeFileString(
         headsPath,
         JSON.stringify({ ...heads, archived: true })
@@ -837,16 +837,18 @@ it.live(
         }
         expect(yield* fileSystem.exists(artifacts.traceFile)).toBe(true);
         expect(yield* fileSystem.exists(artifacts.videoFile)).toBe(true);
-        const retention = JSON.parse(
-          yield* fileSystem.readFileString(artifacts.retentionFile)
-        ) as {
-          readonly files: {
-            readonly trace: string;
-            readonly videos: readonly string[];
-          };
-          readonly retention: string;
-          readonly sensitive: boolean;
-        };
+        const retention = Schema.decodeUnknownSync(
+          Schema.Struct({
+            files: Schema.Struct({
+              trace: Schema.String,
+              videos: Schema.Array(Schema.String),
+            }),
+            retention: Schema.String,
+            sensitive: Schema.Boolean,
+          })
+        )(
+          JSON.parse(yield* fileSystem.readFileString(artifacts.retentionFile))
+        );
         expect(retention).toMatchObject({
           files: {
             trace: path.basename(artifacts.traceFile),

@@ -3,15 +3,23 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cause, Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
+import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
+import {
+  RunDetails,
+  RunSummaryPanel,
+  RunViewer,
+} from "@/components/agent/run-view";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+
 const rpc = vi.hoisted(() => ({
-  ceilingCalls: [] as unknown[],
-  summaryResult: { _tag: "Initial" as const, waiting: true } as unknown,
+  ceilingCalls: [] satisfies unknown[],
+  summaryResult: { _tag: "Initial", waiting: true } satisfies unknown,
 }));
 
-vi.mock("@/lib/rpc", () => ({
-  agentRunCeilingExtendMutation: Atom.fn((payload: unknown) =>
+const rpcOverrides = {
+  agentRunCeilingExtendMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.ceilingCalls.push(payload);
       return {};
@@ -19,10 +27,13 @@ vi.mock("@/lib/rpc", () => ({
   ),
   agentRunSummaryAtom: () => Atom.make(() => rpc.summaryResult),
   agentVariableSupplyMutation: Atom.fn(() => Effect.never),
-}));
+};
 
-const { RunDetails, RunSummaryPanel, RunViewer } =
-  await import("@/components/agent/run-view");
+const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
+  <RpcDependenciesProvider overrides={rpcOverrides}>
+    <RegistryProvider>{children}</RegistryProvider>
+  </RpcDependenciesProvider>
+);
 
 const step = {
   assessment: null,
@@ -34,7 +45,7 @@ const step = {
   index: 0,
   name: "Open the catalogue",
   startedAt: null,
-} as const;
+};
 
 const run = {
   activeStepIndex: 1,
@@ -85,7 +96,7 @@ const run = {
   ],
   title: "Buy one product",
   variables: [],
-} as const;
+};
 
 const session = {
   activity: "run",
@@ -105,7 +116,7 @@ const session = {
   updatedAt: "2026-09-04T00:00:00.000Z",
   verification: null,
   viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
-} as const;
+};
 
 const summary = {
   agentFlowId: "flow-shop",
@@ -126,10 +137,10 @@ const summary = {
   title: "Buy one product",
   tracePath: "run.trace.zip",
   videoPath: "run.webm",
-} as const;
+};
 
 const successfulSummary = {
-  _tag: "Success" as const,
+  _tag: "Success",
   value: {
     data: { summary, viewUrl: "http://127.0.0.1:7777/agent?run=agentrun-one" },
   },
@@ -138,9 +149,7 @@ const successfulSummary = {
 
 // The component takes the protocol shapes; the fixtures above are the same
 // values without their branded identifiers.
-const asSession = session as unknown as Parameters<
-  typeof RunDetails
->[0]["session"];
+const asSession = session;
 
 afterEach(() => {
   cleanup();
@@ -150,9 +159,9 @@ afterEach(() => {
 
 test("shows the ordered Agent Steps and which one is active", () => {
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunDetails session={asSession} />
-    </RegistryProvider>
+    </TestRegistry>
   );
   const steps = screen.getByRole("list", { name: "Agent Steps" });
   expect(steps).toBeVisible();
@@ -166,9 +175,9 @@ test("shows the ordered Agent Steps and which one is active", () => {
 
 test("reports assessment counts separately from coverage", () => {
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunDetails session={asSession} />
-    </RegistryProvider>
+    </TestRegistry>
   );
   expect(
     screen.getByText("Incomplete · 2 of 3 Agent Steps executed")
@@ -180,9 +189,9 @@ test("reports assessment counts separately from coverage", () => {
 
 test("marks client-reported model metadata as unverified", () => {
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunDetails session={asSession} />
-    </RegistryProvider>
+    </TestRegistry>
   );
   expect(screen.getByText("Reported model (unverified)")).toBeVisible();
   expect(screen.getByText("run-agent 2.0.0")).toBeVisible();
@@ -191,9 +200,9 @@ test("marks client-reported model metadata as unverified", () => {
 test("extends a ceiling only through a direct user action", async () => {
   const user = userEvent.setup();
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunDetails session={asSession} />
-    </RegistryProvider>
+    </TestRegistry>
   );
   await user.click(
     screen.getByRole("button", { name: "Extend Agent Step ceiling" })
@@ -209,16 +218,16 @@ test("extends a ceiling only through a direct user action", async () => {
 
 test("cannot extend a ceiling once the Run has ended", () => {
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunDetails
         session={
           {
             ...session,
             run: { ...run, outcome: "timed-out" },
-          } as unknown as typeof asSession
+          } satisfies unknown
         }
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
   expect(
     screen.getByRole("button", { name: "Extend Run ceiling" })
@@ -229,9 +238,9 @@ test("cannot extend a ceiling once the Run has ended", () => {
 test("shows no Run Summary while the Run is still live", () => {
   rpc.summaryResult = successfulSummary;
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunSummaryPanel session={asSession} />
-    </RegistryProvider>
+    </TestRegistry>
   );
   expect(screen.queryByText("Run Summary")).toBeNull();
 });
@@ -239,16 +248,16 @@ test("shows no Run Summary while the Run is still live", () => {
 test("embeds the local Run video in the summary of a finished Run", () => {
   rpc.summaryResult = successfulSummary;
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RunSummaryPanel
         session={
           {
             ...session,
             run: { ...run, outcome: "ended-early" },
-          } as unknown as typeof asSession
+          } satisfies unknown
         }
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
   expect(screen.getByText("Run Summary")).toBeVisible();
   const video = screen.getByLabelText("Recorded Run video");
@@ -258,9 +267,9 @@ test("embeds the local Run video in the summary of a finished Run", () => {
 test("opens persisted Run evidence read-only without a live session", () => {
   rpc.summaryResult = successfulSummary;
   render(
-    <RegistryProvider>
-      <RunViewer runId={"agentrun-one" as never} />
-    </RegistryProvider>
+    <TestRegistry>
+      <RunViewer runId={"agentrun-one"} />
+    </TestRegistry>
   );
   expect(
     screen.getByRole("heading", { level: 1, name: "Run Summary" })
@@ -280,9 +289,9 @@ test("explains when a persisted Run cannot be opened", () => {
     waiting: false,
   };
   render(
-    <RegistryProvider>
-      <RunViewer runId={"agentrun-missing" as never} />
-    </RegistryProvider>
+    <TestRegistry>
+      <RunViewer runId={"agentrun-missing"} />
+    </TestRegistry>
   );
   expect(screen.getByText("This Run could not be opened")).toBeVisible();
 });

@@ -37,7 +37,7 @@ const decode = Schema.decodeUnknownResult(RunEnvironment, {
 });
 const formatIssue = SchemaIssue.makeFormatterDefault();
 
-const environmentWith = (extra?: Record<string, unknown>) => ({
+const environmentWith = <Extra extends object>(extra?: Extra) => ({
   architecture: "arm64",
   cpuCount: 8,
   cpuModel: "Apple M2",
@@ -47,7 +47,7 @@ const environmentWith = (extra?: Record<string, unknown>) => ({
   ...extra,
 });
 
-const assertDecodes = (input: unknown): RunEnvironmentType => {
+const assertDecodes = <Input>(input: Input): RunEnvironmentType => {
   const result = decode(input);
   if (Result.isFailure(result)) {
     throw new Error(
@@ -110,7 +110,7 @@ const decodeRun = Schema.decodeUnknownResult(Run, {
   onExcessProperty: "error",
 });
 
-const runWith = (extra?: Record<string, unknown>) => ({
+const runWith = <Extra extends object>(extra?: Extra) => ({
   attempts: [
     {
       attempt: 1,
@@ -137,7 +137,7 @@ const runWith = (extra?: Record<string, unknown>) => ({
   ...extra,
 });
 
-const assertRunDecodes = (input: unknown): RunType => {
+const assertRunDecodes = <Input>(input: Input): RunType => {
   const result = decodeRun(input);
   if (Result.isFailure(result)) {
     throw new Error(
@@ -334,20 +334,20 @@ const attemptWith = (attempt: number, outcome: "completed" | "failed") =>
     outcome,
     startedAt: "2026-01-01T00:00:00.000Z",
     steps: [],
-  }) as RunAttemptType;
+  }) satisfies RunAttemptType;
 
 test("the attempt worth watching is the last failed one", () => {
   expect(
     defaultAttempt({
       attempts: [attemptWith(1, "failed"), attemptWith(2, "completed")],
-    } as unknown as RunType)
+    })
   ).toBe(1);
   // Nothing failed, so the last attempt is both the failed answer's fallback
   // and the only one there is.
   expect(
     defaultAttempt({
       attempts: [attemptWith(1, "completed")],
-    } as unknown as RunType)
+    })
   ).toBe(1);
   expect(
     defaultAttempt({
@@ -356,7 +356,7 @@ test("the attempt worth watching is the last failed one", () => {
         attemptWith(2, "failed"),
         attemptWith(3, "completed"),
       ],
-    } as unknown as RunType)
+    })
   ).toBe(2);
 });
 
@@ -468,8 +468,9 @@ test("an attempt may carry a settling diagnostic without changing the outcome", 
   });
 });
 
-const snapshotWith = (phase: RunPhaseType): RunSnapshotType =>
-  ({ phase }) as RunSnapshotType;
+const snapshotWith = (phase: RunPhaseType): Pick<RunSnapshotType, "phase"> => ({
+  phase,
+});
 
 test("both sides address a derived video by the same path", () => {
   expect(runVideoPath("2f8c-41", 2)).toBe("/runs/2f8c-41/video/2");

@@ -11,7 +11,7 @@ const pinnedAxeVersion = (): string => {
   const require = createRequire(import.meta.url);
   const manifest = JSON.parse(
     readFileSync(require.resolve("axe-core/package.json"), "utf-8")
-  ) as { version: string };
+  );
   return manifest.version;
 };
 

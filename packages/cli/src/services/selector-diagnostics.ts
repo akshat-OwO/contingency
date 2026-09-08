@@ -452,13 +452,15 @@ export const redactDiagnostics = (
   diagnostics: SelectorDiagnostics,
   variables: VariableResolution
 ): SelectorDiagnostics => ({
-  candidates: diagnostics.candidates.map((candidate) => ({
-    ...candidate,
-    ...(candidate.detail === undefined
-      ? {}
-      : { detail: redactSecrets(candidate.detail, variables) }),
-    lookedFor: redactSecrets(candidate.lookedFor, variables),
-  })),
+  candidates: diagnostics.candidates.map((candidate) => {
+    const redacted = {
+      ...candidate,
+      lookedFor: redactSecrets(candidate.lookedFor, variables),
+    };
+    return candidate.detail === undefined
+      ? redacted
+      : { ...redacted, detail: redactSecrets(candidate.detail, variables) };
+  }),
   ...nearestOf(
     diagnostics.nearest?.map((element) => ({
       ...element,

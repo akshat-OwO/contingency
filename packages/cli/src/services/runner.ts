@@ -56,6 +56,7 @@ import { chromium, errors } from "playwright-core";
 import type {
   Browser,
   BrowserContext,
+  BrowserContextOptions,
   JSHandle,
   Locator,
   Page,
@@ -98,21 +99,27 @@ const DEFAULT_RUN_VIEWPORT = {
   width: 1280,
 } as const;
 
+interface RunContextOptions {
+  readonly colorScheme?: "light" | "dark";
+  readonly deviceScaleFactor: number;
+  readonly geolocation?: {
+    readonly accuracy?: number;
+    readonly latitude: number;
+    readonly longitude: number;
+  };
+  readonly hasTouch: boolean;
+  readonly isMobile: boolean;
+  readonly locale?: string;
+  readonly timezoneId?: string;
+  readonly userAgent?: string;
+  readonly viewport: { readonly height: number; readonly width: number };
+}
+
 const emulationContextOptions = (
   emulation: Flow["emulation"]
-): {
-  colorScheme?: "light" | "dark";
-  deviceScaleFactor: number;
-  geolocation?: { accuracy?: number; latitude: number; longitude: number };
-  hasTouch: boolean;
-  isMobile: boolean;
-  locale?: string;
-  timezoneId?: string;
-  userAgent?: string;
-  viewport: { height: number; width: number };
-} => {
+): RunContextOptions => {
   const identity = flowBrowserIdentity(emulation);
-  return {
+  let options: RunContextOptions = {
     deviceScaleFactor:
       emulation?.viewport?.deviceScaleFactor ??
       DEFAULT_RUN_VIEWPORT.deviceScaleFactor,
@@ -123,12 +130,15 @@ const emulationContextOptions = (
     hasTouch: identity?.hasTouch ?? false,
     isMobile: identity?.mobile ?? false,
     ...environmentContextOptions(emulation),
-    ...(identity === undefined ? {} : { userAgent: identity.userAgent }),
     viewport: {
       height: emulation?.viewport?.height ?? DEFAULT_RUN_VIEWPORT.height,
       width: emulation?.viewport?.width ?? DEFAULT_RUN_VIEWPORT.width,
     },
   };
+  if (identity !== undefined) {
+    options = { ...options, userAgent: identity.userAgent };
+  }
+  return options;
 };
 
 /**
@@ -417,14 +427,41 @@ const checkedGateOverride = Effect.fn("Runner.checkedGateOverride")(
   }
 );
 
-const stableStringify = (value: unknown): string => {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
+type JsonValue =
+  | boolean
+  | null
+  | number
+  | string
+  | readonly JsonValue[]
+  | JsonObject;
+
+interface JsonObject {
+  readonly [key: string]: JsonValue;
+}
+
+const JsonValueSchema = Schema.Union([
+  Schema.Boolean,
+  Schema.Null,
+  Schema.Number,
+  Schema.String,
+  Schema.Array(Schema.suspend((): Schema.Codec<JsonValue> => JsonValueSchema)),
+  Schema.Record(
+    Schema.String,
+    Schema.suspend((): Schema.Codec<JsonValue> => JsonValueSchema)
+  ),
+]);
+
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const stableStringify = (value: JsonValue): string => {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
   }
-  const entries = Object.entries(value as Record<string, unknown>)
+  if (!isJsonObject(value)) {
+    return JSON.stringify(value) ?? "null";
+  }
+  const entries = Object.entries(value)
     .filter(([, entry]) => entry !== undefined)
     .toSorted(([left], [right]) => (left < right ? -1 : 1))
     .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`);
@@ -436,7 +473,9 @@ const stableStringify = (value: unknown): string => {
  * semantically identical Flow hashes identically regardless of key order.
  */
 export const hashFlow = (flow: Flow): string =>
-  createHash("sha256").update(stableStringify(flow)).digest("hex");
+  createHash("sha256")
+    .update(stableStringify(Schema.decodeUnknownSync(JsonValueSchema)(flow)))
+    .digest("hex");
 
 /**
  * A Flow's Run history is keyed on its stable identity. A Flow that declares
@@ -608,6 +647,96 @@ const normalizeUrl = (value: string): Effect.Effect<string, RunnerError> =>
     },
   });
 
+type PlaywrightRole = Parameters<Page["getByRole"]>[0];
+
+const playwrightRoles: ReadonlySet<string> = new Set<PlaywrightRole>([
+  "alert",
+  "alertdialog",
+  "application",
+  "article",
+  "banner",
+  "blockquote",
+  "button",
+  "caption",
+  "cell",
+  "checkbox",
+  "code",
+  "columnheader",
+  "combobox",
+  "complementary",
+  "contentinfo",
+  "definition",
+  "deletion",
+  "dialog",
+  "directory",
+  "document",
+  "emphasis",
+  "feed",
+  "figure",
+  "form",
+  "generic",
+  "grid",
+  "gridcell",
+  "group",
+  "heading",
+  "img",
+  "insertion",
+  "link",
+  "list",
+  "listbox",
+  "listitem",
+  "log",
+  "main",
+  "marquee",
+  "math",
+  "menu",
+  "menubar",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "meter",
+  "navigation",
+  "none",
+  "note",
+  "option",
+  "paragraph",
+  "presentation",
+  "progressbar",
+  "radio",
+  "radiogroup",
+  "region",
+  "row",
+  "rowgroup",
+  "rowheader",
+  "scrollbar",
+  "search",
+  "searchbox",
+  "separator",
+  "slider",
+  "spinbutton",
+  "status",
+  "strong",
+  "subscript",
+  "superscript",
+  "switch",
+  "tab",
+  "table",
+  "tablist",
+  "tabpanel",
+  "term",
+  "textbox",
+  "time",
+  "timer",
+  "toolbar",
+  "tooltip",
+  "tree",
+  "treegrid",
+  "treeitem",
+]);
+
+const isPlaywrightRole = (role: string): role is PlaywrightRole =>
+  playwrightRoles.has(role);
+
 const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator =>
   matchLocatorDescriptor(descriptor, {
     css: ({ selector }) => page.locator(selector),
@@ -615,10 +744,12 @@ const locatorFor = (page: Page, descriptor: LocatorDescriptor): Locator =>
     placeholder: ({ placeholder }) => page.getByPlaceholder(placeholder),
     // The schema accepts any role name the ARIA vocabulary might grow;
     // Playwright narrows to the roles it knows today.
-    role: (role) =>
-      page.getByRole(role.role as never, {
-        name: role.name,
-      }),
+    role: ({ name, role }) =>
+      isPlaywrightRole(role)
+        ? page.getByRole(role, { name })
+        : page
+            .locator(`[role=${JSON.stringify(role)}]`)
+            .filter({ hasText: name }),
     text: ({ text }) => page.getByText(text),
     xpath: ({ expression }) => page.locator(`xpath=${expression}`),
   });
@@ -700,10 +831,12 @@ const redactedSelector = (
  * exhaustion of all of them fails the Step — naming every strategy tried, so
  * a stale ladder is visible at a glance.
  */
-const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
+const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder<
+  Success,
+>(
   page: Page,
   target: readonly LocatorDescriptor[],
-  perform: (locator: Locator) => Promise<unknown>
+  perform: (locator: Locator) => Promise<Success>
 ) {
   const tried: SelectorCandidate[] = [];
   /**
@@ -716,13 +849,15 @@ const throughLadder = Effect.fn("Runner.throughLadder")(function* throughLadder(
    * evidence to an accident of ordering. No `nearest`, because that answer
    * would have to come from the same page that just stopped giving them.
    */
-  const unattributed = (message: string) =>
-    new RunnerError({
+  const unattributed = (message: string) => {
+    if (tried.length === 0) {
+      return new RunnerError({ message });
+    }
+    return new RunnerError({
+      diagnostics: { candidates: [...tried] },
       message,
-      ...(tried.length === 0
-        ? {}
-        : { diagnostics: { candidates: [...tried] } }),
     });
+  };
 
   for (const descriptor of target) {
     const locator = locatorFor(page, descriptor);
@@ -811,13 +946,22 @@ interface ScrollReadinessHandle {
   readonly snapshot: () => ScrollReadinessSnapshot;
 }
 
+interface ScrollReadinessElement {
+  readonly scrollLeft: number;
+  readonly scrollTop: number;
+}
+
+interface ScrollReadinessMutationTarget {
+  readonly nodeType?: number;
+}
+
 interface ScrollReadinessPageGlobals {
   readonly cancelAnimationFrame: (handle: number) => void;
-  readonly document: unknown;
+  readonly document: ScrollReadinessMutationTarget;
   readonly MutationObserver: new (callback: () => void) => {
     readonly disconnect: () => void;
     readonly observe: (
-      target: unknown,
+      target: ScrollReadinessMutationTarget,
       options: {
         readonly attributes: boolean;
         readonly characterData: boolean;
@@ -832,27 +976,27 @@ interface ScrollReadinessPageGlobals {
   readonly scrollY: number;
 }
 
+declare global {
+  var cancelAnimationFrame: ScrollReadinessPageGlobals["cancelAnimationFrame"];
+  var document: ScrollReadinessPageGlobals["document"];
+  var MutationObserver: ScrollReadinessPageGlobals["MutationObserver"];
+  var requestAnimationFrame: ScrollReadinessPageGlobals["requestAnimationFrame"];
+  var scrollX: ScrollReadinessPageGlobals["scrollX"];
+  var scrollY: ScrollReadinessPageGlobals["scrollY"];
+}
+
 /** Installed in the page before a wheel action. */
 const installScrollReadinessObserver = ({
   element,
   stableWindowMs,
 }: {
-  readonly element: unknown;
+  readonly element: ScrollReadinessElement | null;
   readonly stableWindowMs: number;
 }): ScrollReadinessHandle => {
-  const browser = globalThis as unknown as ScrollReadinessPageGlobals;
+  const browser: ScrollReadinessPageGlobals = globalThis;
   const position = () => {
     if (element === null) {
       return { x: browser.scrollX, y: browser.scrollY };
-    }
-    if (
-      typeof element !== "object" ||
-      !("scrollLeft" in element) ||
-      !("scrollTop" in element) ||
-      typeof element.scrollLeft !== "number" ||
-      typeof element.scrollTop !== "number"
-    ) {
-      return { x: 0, y: 0 };
     }
     return { x: element.scrollLeft, y: element.scrollTop };
   };
@@ -1127,21 +1271,26 @@ const collectVitals = Effect.fn("Runner.collectVitals")(function* collectVitals(
     catch: () => new Error("The page could not answer."),
     try: () => page.evaluate(VITALS_COLLECTOR),
   });
-  if (typeof raw !== "object" || raw === null) {
-    return yield* new RunnerError({
-      message: "The page did not report Core Web Vitals.",
-    });
-  }
   const decoded = yield* Schema.decodeUnknownEffect(CollectedVitals)(raw).pipe(
-    Effect.mapError(() => new Error("unparsable"))
+    Effect.mapError(
+      () =>
+        new RunnerError({ message: "The page did not report Core Web Vitals." })
+    )
   );
-  return {
-    cls: decoded.cls,
-    ...(decoded.fcp === null ? {} : { fcp: decoded.fcp }),
-    ...(decoded.inp === null ? {} : { inp: decoded.inp }),
-    ...(decoded.lcp === null ? {} : { lcp: decoded.lcp }),
-    ...(decoded.ttfb === null ? {} : { ttfb: decoded.ttfb }),
-  } satisfies CoreWebVitals;
+  let vitals: CoreWebVitals = { cls: decoded.cls };
+  if (decoded.fcp !== null) {
+    vitals = { ...vitals, fcp: decoded.fcp };
+  }
+  if (decoded.inp !== null) {
+    vitals = { ...vitals, inp: decoded.inp };
+  }
+  if (decoded.lcp !== null) {
+    vitals = { ...vitals, lcp: decoded.lcp };
+  }
+  if (decoded.ttfb !== null) {
+    vitals = { ...vitals, ttfb: decoded.ttfb };
+  }
+  return vitals;
 });
 
 // ---------------------------------------------------------------------------
@@ -1204,8 +1353,10 @@ const AUDIT_NODE_SAMPLE_CAP = 10;
  * the two get different joins rather than being flattened together:
  * `iframe >>> a` and `#host >> a` are found in entirely different ways.
  */
+const isAuditTargetString = Schema.is(Schema.String);
+
 const renderAuditHop = (hop: AuditTargetPath): string =>
-  typeof hop === "string" ? hop : hop.map(renderAuditHop).join(" >> ");
+  isAuditTargetString(hop) ? hop : hop.map(renderAuditHop).join(" >> ");
 
 const renderAuditTarget = (target: readonly AuditTargetPath[]): string =>
   target.map(renderAuditHop).join(" >>> ");
@@ -1261,17 +1412,23 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
     // The pinned WCAG rules always carry an impact rating; the fallback exists
     // so a rule that somehow does not still reports rather than failing the
     // whole Audit on decode.
-    violations: raw.violations.map((violation) => ({
-      help: violation.help,
-      ...(violation.helpUrl ? { helpUrl: violation.helpUrl } : {}),
-      id: violation.id,
-      impact: violation.impact ?? ("minor" as const),
-      nodeCount: violation.nodes.length,
-      nodes: violation.nodes.map((node) => ({
-        ...(node.failureSummary ? { failureSummary: node.failureSummary } : {}),
-        target: node.target,
-      })),
-    })),
+    violations: raw.violations.map((violation) => {
+      const nodes = violation.nodes.map((node) =>
+        node.failureSummary
+          ? { failureSummary: node.failureSummary, target: node.target }
+          : { target: node.target }
+      );
+      const reportViolation = {
+        help: violation.help,
+        id: violation.id,
+        impact: violation.impact ?? ("minor" as const),
+        nodeCount: violation.nodes.length,
+        nodes,
+      };
+      return violation.helpUrl
+        ? { ...reportViolation, helpUrl: violation.helpUrl }
+        : reportViolation;
+    }),
   }).pipe(
     Effect.mapError(
       (cause) =>
@@ -1294,20 +1451,22 @@ const runAudit = Effect.fn("Runner.runAudit")(function* runAudit(
 
   return stepResult({
     axeVersion: raw.testEngine.version,
-    findings: report.violations.map((violation) => ({
-      ...(violation.helpUrl === undefined
-        ? {}
-        : { helpUrl: violation.helpUrl }),
-      message: violation.help,
-      nodeCount: violation.nodeCount,
-      nodes: violation.nodes.slice(0, AUDIT_NODE_SAMPLE_CAP).map((node) => ({
-        message: node.failureSummary ?? violation.help,
-        target: renderAuditTarget(node.target),
-      })),
-      rule: violation.id,
-      severity: violation.impact,
-      stepIndex,
-    })),
+    findings: report.violations.map((violation) => {
+      const finding = {
+        message: violation.help,
+        nodeCount: violation.nodeCount,
+        nodes: violation.nodes.slice(0, AUDIT_NODE_SAMPLE_CAP).map((node) => ({
+          message: node.failureSummary ?? violation.help,
+          target: renderAuditTarget(node.target),
+        })),
+        rule: violation.id,
+        severity: violation.impact,
+        stepIndex,
+      };
+      return violation.helpUrl === undefined
+        ? finding
+        : { ...finding, helpUrl: violation.helpUrl };
+    }),
   });
 });
 
@@ -1430,7 +1589,7 @@ const waitUntilCondition = Effect.fn("Runner.waitUntilCondition")(
       if (outcome === true) {
         return;
       }
-      if (typeof outcome !== "boolean") {
+      if (outcome !== false) {
         lastReason = outcome.reason;
       }
       const remaining = deadline - Date.now();
@@ -1683,7 +1842,7 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
       preStep.when,
       protectedPage
     );
-    if (typeof condition === "object") {
+    if (condition !== true && condition !== false) {
       return { ...base, error: condition.reason, outcome: "failed" } as const;
     }
     if (!condition) {
@@ -1693,13 +1852,16 @@ const evaluatePreStep = Effect.fn("Runner.evaluatePreStep")(
       executeStep(execution, preStep.step, index)
     );
     if (outcome._tag === "Success") {
-      return {
+      const completed = {
         ...base,
         outcome: "completed",
-        ...(outcome.success.scrollReadiness === undefined
-          ? {}
-          : { scrollReadiness: outcome.success.scrollReadiness }),
       } as const;
+      return outcome.success.scrollReadiness === undefined
+        ? completed
+        : {
+            ...completed,
+            scrollReadiness: outcome.success.scrollReadiness,
+          };
     }
     return {
       ...base,
@@ -1747,6 +1909,15 @@ interface AttemptResult {
   readonly settling: SettlingDiagnostic | undefined;
 }
 
+interface RunStepBase {
+  readonly finishedAt: string;
+  readonly index: number;
+  readonly preSteps?: readonly RunPreStep[];
+  readonly startedAt: string;
+  readonly stepId?: RunStep["stepId"];
+  readonly type: RunStep["type"];
+}
+
 const StoredState = Schema.Struct({
   cookies: Schema.Array(
     Schema.Struct({
@@ -1777,7 +1948,7 @@ const StoredState = Schema.Struct({
  * fresh rather than failing.
  */
 const parseStoredState = (contents: string): BrowserStorageState | null => {
-  const parsed = Effect.try((): unknown => JSON.parse(contents)).pipe(
+  const parsed = Effect.try(() => JSON.parse(contents)).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(StoredState)),
     Effect.option,
     Effect.runSync
@@ -1888,15 +2059,18 @@ const deriveVideoSegment = Effect.fn("Runner.deriveVideoSegment")(
     } else if (derived._tag === "Failure") {
       videoError = reportable(errorMessage(derived.failure));
     }
-    return {
+    let segment: RunVideoSegment = {
       attempt,
-      ...(videoError === undefined ? {} : { error: videoError }),
       file: path.basename(videoFile),
       includesSettledState:
         derived?._tag === "Success" && derived.success.includesSettledState,
       recorded: derived?._tag === "Success",
       steps: derived?._tag === "Success" ? [...derived.success.steps] : [],
-    } satisfies RunVideoSegment;
+    };
+    if (videoError !== undefined) {
+      segment = { ...segment, error: videoError };
+    }
+    return segment;
   }
 );
 
@@ -1967,12 +2141,15 @@ const saveArtifacts = Effect.fn("Runner.saveArtifacts")(function* saveArtifacts(
   }
 
   if (capture.keepTrace) {
-    capture.traceSegments.push({
+    let segment: RunTraceSegment = {
       attempt,
-      ...(stopped.error === undefined ? {} : { error: stopped.error }),
       file: path.basename(capture.traceFile),
       recorded: stopped.recorded,
-    });
+    };
+    if (stopped.error !== undefined) {
+      segment = { ...segment, error: stopped.error };
+    }
+    capture.traceSegments.push(segment);
   }
 
   if (capture.videoFile !== undefined) {
@@ -2170,16 +2347,18 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
   const openContext = Effect.fn("Runner.openContext")(function* openContext(
     state: BrowserStorageState | null
   ) {
+    let contextOptions: BrowserContextOptions = emulationContextOptions(
+      flow.emulation
+    );
+    if (state !== null) {
+      contextOptions = { ...contextOptions, storageState: state };
+    }
     const context = yield* Effect.tryPromise({
       catch: (cause) =>
         new RunnerError({
           message: `Could not open a browser context: ${errorMessage(cause)}`,
         }),
-      try: () =>
-        browser.newContext({
-          ...emulationContextOptions(flow.emulation),
-          ...(state === null ? {} : { storageState: state }),
-        }),
+      try: () => browser.newContext(contextOptions),
     });
     const decisions = flow.emulation?.permissions;
     if (decisions !== undefined) {
@@ -2351,34 +2530,42 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
               capture.stepFrames.set(index, frame.success);
             }
           }
-          const base = {
+          let base: RunStepBase = {
             finishedAt: stepFinishedAt.toISOString(),
             index,
-            ...(preSteps.length === 0 ? {} : { preSteps }),
             startedAt: stepStartedAt.toISOString(),
             type: step.type,
-            ...(step.id === undefined ? {} : { stepId: step.id }),
           };
+          if (preSteps.length > 0) {
+            base = { ...base, preSteps };
+          }
+          if (step.id !== undefined) {
+            base = { ...base, stepId: step.id };
+          }
 
           if (outcome._tag === "Success") {
             if (measuresPerformance(step)) {
               pending = steps.length;
             }
             engine.version = outcome.success.axeVersion ?? engine.version;
-            const completedStep = {
+            let completedStep: RunStep = {
               ...base,
-              ...(outcome.success.findings.length === 0
-                ? {}
-                : {
-                    findings: outcome.success.findings.map((finding) =>
-                      redactFinding(finding, variables)
-                    ),
-                  }),
-              ...(outcome.success.scrollReadiness === undefined
-                ? {}
-                : { scrollReadiness: outcome.success.scrollReadiness }),
               outcome: "completed",
-            } satisfies RunStep;
+            };
+            if (outcome.success.findings.length > 0) {
+              completedStep = {
+                ...completedStep,
+                findings: outcome.success.findings.map((finding) =>
+                  redactFinding(finding, variables)
+                ),
+              };
+            }
+            if (outcome.success.scrollReadiness !== undefined) {
+              completedStep = {
+                ...completedStep,
+                scrollReadiness: outcome.success.scrollReadiness,
+              };
+            }
             steps.push(completedStep);
             yield* report({ _tag: "stepFinished", step: completedStep });
             continue;
@@ -2397,11 +2584,10 @@ const attemptRun = Effect.fn("Runner.attemptRun")(function* attemptRun(
           };
           steps.push(failedStep);
           yield* report({ _tag: "stepFinished", step: failedStep });
-          failure = {
-            ...(kind === undefined ? {} : { kind }),
-            message,
-            stepIndex: index,
-          };
+          failure =
+            kind === undefined
+              ? { message, stepIndex: index }
+              : { kind, message, stepIndex: index };
           // The navigation that was measured still happened, and a Flow that
           // fails at Step 9 should not lose the metrics from Step 2.
           yield* measurePending(execution, steps, pending);
@@ -2751,20 +2937,21 @@ export const makeRunnerService = () =>
                 lastSavedState = result.savedState;
                 const attemptFinishedAt = yield* nowIso;
                 inFlight = undefined;
-                attempts.push({
+                let runAttempt: RunAttempt = {
                   attempt: index + 1,
-                  ...(result.failure === undefined
-                    ? {}
-                    : { failure: result.failure }),
                   finishedAt: attemptFinishedAt.toISOString(),
                   outcome:
                     result.failure === undefined ? "completed" : "failed",
                   startedAt: attemptStartedAt.toISOString(),
-                  ...(result.settling === undefined
-                    ? {}
-                    : { settling: result.settling }),
                   steps,
-                });
+                };
+                if (result.failure !== undefined) {
+                  runAttempt = { ...runAttempt, failure: result.failure };
+                }
+                if (result.settling !== undefined) {
+                  runAttempt = { ...runAttempt, settling: result.settling };
+                }
+                attempts.push(runAttempt);
 
                 if (result.failure === undefined) {
                   return;
@@ -2809,15 +2996,13 @@ export const makeRunnerService = () =>
                 .pipe(Effect.ignore);
             }
 
-            const record: Run = {
+            const runEnvironment: RunEnvironment =
+              engine.version === undefined
+                ? environment
+                : { ...environment, axeVersion: engine.version };
+            let record: Run = {
               attempts,
-              environment: {
-                ...environment,
-                ...(engine.version === undefined
-                  ? {}
-                  : { axeVersion: engine.version }),
-              },
-              ...(failure === undefined ? {} : { failure }),
+              environment: runEnvironment,
               finishedAt: finishedAt.toISOString(),
               flow,
               flowHash,
@@ -2825,7 +3010,6 @@ export const makeRunnerService = () =>
               // A breach never reaches `outcome`: the site missed the bar, the
               // Run executed fine, and `runIsBaselineEligible` keys on outcome
               // (ADR 0018).
-              ...(gate === undefined ? {} : { gate }),
               outcome: failure === undefined ? "completed" : "failed",
               runId,
               startedAt: startedAt.toISOString(),
@@ -2833,6 +3017,12 @@ export const makeRunnerService = () =>
               trace: keepTrace,
               video: makeVideo,
             };
+            if (failure !== undefined) {
+              record = { ...record, failure };
+            }
+            if (gate !== undefined) {
+              record = { ...record, gate };
+            }
 
             return yield* persist(record, options.outputDirectory, startedAt);
           })
@@ -2856,7 +3046,7 @@ export const decodeFlowDocument = Effect.fn("Runner.decodeFlowDocument")(
         new RunnerError({
           message: `${source} is not valid JSON: ${errorMessage(cause)}`,
         }),
-      try: () => JSON.parse(contents) as unknown,
+      try: () => JSON.parse(contents),
     });
 
     return yield* Schema.decodeUnknownEffect(FlowSchema)(parsed).pipe(

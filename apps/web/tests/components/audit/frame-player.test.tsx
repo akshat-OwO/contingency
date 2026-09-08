@@ -62,7 +62,7 @@ test("puts a marker on the transport for every frame, and pins on a click", asyn
   const onPin = player({ index: 0, kind: "step" });
   const markers = screen.getAllByRole("button", { name: /^Step \d/u });
   expect(markers).toHaveLength(segment.steps.length);
-  await userEvent.click(markers[2] as HTMLElement);
+  await userEvent.click(markers[2]);
   expect(onPin).toHaveBeenCalledWith({ index: 3, kind: "step" });
 });
 
@@ -129,7 +129,7 @@ test("says the video could not be loaded rather than showing an empty player", (
   player({ index: 0, kind: "step" });
   const video = document.querySelector("video");
   expect(video).not.toBeNull();
-  fireEvent.error(video as HTMLVideoElement);
+  fireEvent.error(video);
   expect(screen.getByText(/could not be loaded/u)).toBeVisible();
 });
 
@@ -137,14 +137,14 @@ test("does not snap back to the pinned Step while the segment is playing", () =>
   const pause = vi.spyOn(HTMLMediaElement.prototype, "pause");
   // jsdom loads nothing: nothing is seekable until the file can play.
   const seekable = vi.spyOn(HTMLMediaElement.prototype, "seekable", "get");
-  seekable.mockReturnValue({ length: 0 } as TimeRanges);
+  seekable.mockReturnValue({ length: 0 } satisfies TimeRanges);
   player({ index: 1, kind: "step" });
-  const video = document.querySelector("video") as HTMLVideoElement;
+  const video = document.querySelector("video");
   expect(pause).toHaveBeenCalledTimes(1);
 
   // A seek against an unseekable resource is dropped, so `canplay` retries it
   // once the file can play.
-  seekable.mockReturnValue({ length: 1 } as TimeRanges);
+  seekable.mockReturnValue({ length: 1 } satisfies TimeRanges);
   fireEvent.canPlay(video);
   expect(pause).toHaveBeenCalledTimes(2);
 
