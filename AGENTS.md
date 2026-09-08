@@ -35,3 +35,7 @@ Canonical roles map 1:1 to tracker labels (`needs-triage`, `needs-info`, `ready-
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+### Verification
+
+End-to-end proof for user-visible work uses `verify-contingency`. During triage and in agent briefs, see `docs/agents/verification.md`.

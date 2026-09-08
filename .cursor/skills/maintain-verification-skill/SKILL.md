@@ -80,3 +80,11 @@ When adding pages or SKUs, update `ecommerce-drive.md` and any smoke Flow titles
 3. Update `verify-contingency/SKILL.md` if launch/doctor/drive/cleanup contracts change.
 4. Run a real drive: `launch` → `doctor` → `ecommerce start` → ecommerce-drive steps → `cleanup`. For Agent View, add `mcp start` and the `agent-view.md` live-session steps.
 5. Confirm evidence under `artifacts/` survives `cleanup`.
+
+## Triage and agent briefs
+
+`/triage` may reference verify-contingency in agent-brief acceptance criteria when an issue touches user-visible behavior. See `docs/agents/verification.md` for when to require it and which feature recipe to cite.
+
+If an implementing change alters accessible names, MCP-visible outcomes, drive steps, or fixture behavior, update feature files and the harness in the **same PR** — not as follow-up work.
+
+If the change is internal only (catalog metadata, protocol fields with no new user-visible surface), triage should mark updating verify-contingency as out of scope for that issue.
