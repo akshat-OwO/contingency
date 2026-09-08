@@ -456,6 +456,15 @@ export const AgentFlowVerification = Schema.Struct({
   /** The Agent Session that performed the Run, once one started. */
   sessionId: Schema.NullOr(AgentSessionId),
   startedAt: Schema.NullOr(nonEmptyString),
+  /**
+   * The page Agent View was showing when the user authorized, so the
+   * Verification Run opens where Teaching left off instead of `about:blank`.
+   * It carries no cookies or storage: the Run still uses a fresh context. A
+   * record written before Contingency carried it reads as `null`.
+   */
+  startingUrl: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   status: AgentFlowVerificationStatus,
   /** The agent's account of why verification worked or failed. */
   summary: Schema.NullOr(nonEmptyString),
@@ -668,6 +677,11 @@ export const AgentFlowVerificationAuthorize = Schema.Struct({
   agentFlowId: AgentFlowId,
   operationId: OperationId,
   revisionId: AgentFlowRevisionId,
+  /**
+   * The Agent Session the user authorized from. Its current page becomes the
+   * Verification Run's starting URL.
+   */
+  sessionId: optionalNullable(AgentSessionId),
 });
 export type AgentFlowVerificationAuthorize =
   typeof AgentFlowVerificationAuthorize.Type;

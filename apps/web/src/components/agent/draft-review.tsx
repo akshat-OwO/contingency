@@ -707,6 +707,7 @@ export const DraftReview = ({
   refreshToken,
   revisionId,
   sessionId,
+  startingPageSessionId,
 }: {
   readonly agentFlowId: AgentFlowId;
   /**
@@ -719,6 +720,13 @@ export const DraftReview = ({
   readonly revisionId: AgentFlowRevisionId;
   /** The Teaching session whose Demonstration corrections compile against. */
   readonly sessionId: AgentSessionId | undefined;
+  /**
+   * The Agent Session whose current page an authorized Verification Run should
+   * open on. Authorizing from a Verification Run panel retries from where that
+   * Run stands, which is why this is separate from the Teaching session that
+   * owns corrections.
+   */
+  readonly startingPageSessionId: AgentSessionId | undefined;
 }) => {
   const reviewKey: DraftReviewKey = { agentFlowId, revisionId };
   const revisionAtom = agentFlowRevisionAtom(agentFlowId, revisionId);
@@ -818,6 +826,8 @@ export const DraftReview = ({
           agentFlowId: manifest.agentFlowId,
           operationId: operationId(),
           revisionId: manifest.revisionId,
+          // Verification opens where this session stands, in a fresh context.
+          sessionId: startingPageSessionId,
         },
         type: "agent.flow.verification.authorize",
       },
@@ -971,6 +981,7 @@ export const VerificationDetails = ({
         refreshToken={session.updatedAt}
         revisionId={verification.revisionId}
         sessionId={undefined}
+        startingPageSessionId={session.id}
       />
     </>
   );

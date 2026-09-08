@@ -371,6 +371,7 @@ it.live(
             agentFlowId,
             operationId: OperationId.make("journey-authorize"),
             revisionId,
+            sessionId: teaching.id,
           },
           type: "agent.flow.verification.authorize",
         });
@@ -382,6 +383,9 @@ it.live(
           revisionId,
         });
         expect(verifying.id).not.toBe(teaching.id);
+        // Authorizing from a navigated page opens verification there rather
+        // than on a blank page the agent would have to leave first.
+        expect(verifying.currentUrl).toBe(loginUrl);
         // Verification is a fresh browser context that asks for the Variables
         // again rather than inheriting what Teaching prepared.
         expect(verifying.verification?.variables).toEqual([
@@ -392,8 +396,8 @@ it.live(
         /**
          * The Verification Run has no active Agent Step, so the agent's own
          * phrasing can never match a proposed Step. Domain Scope already
-         * decides where the session may travel, so an in-scope navigate from
-         * `about:blank` is not an unrecognised objective
+         * decides where the session may travel, so an in-scope navigate is
+         * not an unrecognised objective
          * ([ADR 0027](../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
          */
         const verificationPage = yield* sessionTool("agent_browser_act", {

@@ -915,6 +915,7 @@ export const AgentFlowVerificationAuthorizeRequest = request(
     agentFlowId: AgentFlowVerificationAuthorize.fields.agentFlowId,
     operationId: AgentFlowVerificationAuthorize.fields.operationId,
     revisionId: AgentFlowVerificationAuthorize.fields.revisionId,
+    sessionId: AgentFlowVerificationAuthorize.fields.sessionId,
   }
 );
 export const AgentFlowApproveRequest = request("agent.flow.approve", {

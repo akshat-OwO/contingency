@@ -826,6 +826,25 @@ interface SessionRecord {
   readonly retentionFile: string | undefined;
 }
 
+/**
+ * The URL a Verification Run should open, given where the authorizing Agent
+ * View stands. Only an `http`/`https` document carries across, and only in the
+ * sanitized form the rest of Contingency records; `about:blank` and anything
+ * unparsable fall back to the blank opening page. No cookies or storage travel
+ * with it: the Run still runs in its own fresh browser context.
+ */
+export const verificationStartingUrl = (currentUrl: string): string | null => {
+  try {
+    const parsed = new URL(currentUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return sanitizeTeachingUrl(currentUrl);
+  } catch {
+    return null;
+  }
+};
+
 const domainAllowed = (record: SessionRecord, url: string): boolean => {
   if (record.boundaryControl === undefined) {
     return true;

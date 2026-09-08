@@ -43,6 +43,7 @@
       </button>
       <output aria-live="polite" id="echo"></output>
       <output aria-live="polite" id="verification"></output>
+      <output aria-live="polite" id="carried"></output>
     </main>
     <script>
       const fields = ["display", "mobile", "password"].map((id) =>
@@ -50,6 +51,19 @@
       );
       const otpInputs = [...document.querySelectorAll("fieldset input")];
       const echo = document.getElementById("echo");
+      const carried = document.getElementById("carried");
+      // Whether this context knows anything a previous session left behind.
+      carried.textContent =
+        document.cookie.includes("contingency-signed-in=1") ||
+        localStorage.getItem("contingency-signed-in") === "1"
+          ? "carried session"
+          : "fresh context";
+      document
+        .querySelector("button[type=button]")
+        .addEventListener("click", () => {
+          document.cookie = "contingency-signed-in=1; path=/";
+          localStorage.setItem("contingency-signed-in", "1");
+        });
       const verification = document.getElementById("verification");
       document.getElementById("rejected").addEventListener("input", (event) => {
         event.currentTarget.value = "";

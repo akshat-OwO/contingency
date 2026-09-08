@@ -179,6 +179,14 @@ export interface RevisionOperationInput {
   readonly revisionId: AgentFlowRevisionId;
 }
 
+export interface AuthorizeVerificationInput extends RevisionOperationInput {
+  /**
+   * The page the authorizing Agent Session was showing, sanitized. The
+   * Verification Run opens there in its own fresh browser context.
+   */
+  readonly startingUrl?: string | null | undefined;
+}
+
 export interface StartVerificationInput extends RevisionOperationInput {
   readonly sessionId: AgentSessionId;
 }
@@ -218,7 +226,7 @@ export interface AgentFlowCatalogService {
    * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
    */
   readonly authorizeVerification: (
-    input: RevisionOperationInput
+    input: AuthorizeVerificationInput
   ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
   /** Spend the authorization on one Verification Run. */
   readonly startVerification: (
@@ -2493,50 +2501,55 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         )
       ),
     authorizeVerification: (input) =>
-      mutateHeads("verification.authorize", input, {}, (heads, at) =>
-        Effect.gen(function* authorizeVerificationRun() {
-          const catalogRoot = yield* Ref.get(root);
-          const manifest = yield* requireDraftHead(
-            catalogRoot,
-            heads,
-            input.revisionId
-          );
-          const verification = verificationOf(heads, input.revisionId);
-          if (verification?.status === "running") {
-            return yield* Effect.fail(
-              catalogError(
-                "agent_flow_conflict",
-                `A Verification Run of ${input.revisionId} is already in progress.`
-              )
+      mutateHeads(
+        "verification.authorize",
+        input,
+        { startingUrl: input.startingUrl ?? null },
+        (heads, at) =>
+          Effect.gen(function* authorizeVerificationRun() {
+            const catalogRoot = yield* Ref.get(root);
+            const manifest = yield* requireDraftHead(
+              catalogRoot,
+              heads,
+              input.revisionId
             );
-          }
-          if (verification?.status === "passed") {
-            return yield* Effect.fail(
-              catalogError(
-                "agent_flow_conflict",
-                `Revision ${input.revisionId} already passed verification and is waiting for your approval.`
-              )
-            );
-          }
-          return {
-            heads: {
-              ...heads,
-              updatedAt: at,
-              verification: {
-                authorizationId: `auth-${randomUUID()}`,
-                authorizedAt: at,
-                completedAt: null,
-                revisionId: input.revisionId,
-                sessionId: null,
-                startedAt: null,
-                status: "authorized" as const,
-                summary: null,
+            const verification = verificationOf(heads, input.revisionId);
+            if (verification?.status === "running") {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_flow_conflict",
+                  `A Verification Run of ${input.revisionId} is already in progress.`
+                )
+              );
+            }
+            if (verification?.status === "passed") {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_flow_conflict",
+                  `Revision ${input.revisionId} already passed verification and is waiting for your approval.`
+                )
+              );
+            }
+            return {
+              heads: {
+                ...heads,
+                updatedAt: at,
+                verification: {
+                  authorizationId: `auth-${randomUUID()}`,
+                  authorizedAt: at,
+                  completedAt: null,
+                  revisionId: input.revisionId,
+                  sessionId: null,
+                  startedAt: null,
+                  startingUrl: input.startingUrl ?? null,
+                  status: "authorized" as const,
+                  summary: null,
+                },
               },
-            },
-            manifest,
-            writeManifest: false,
-          };
-        })
+              manifest,
+              writeManifest: false,
+            };
+          })
       ),
     completeVerification: (input) =>
       mutateHeads(

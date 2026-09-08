@@ -12,6 +12,7 @@ import {
 import {
   AgentSession,
   makeAgentSessionLayer,
+  verificationStartingUrl,
 } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import {
@@ -177,11 +178,16 @@ it.live(
         );
         expect(unverified.code).toBe("agent_flow_conflict");
 
-        // Agent View authorizes this one exact revision.
+        // Agent View authorizes this one exact revision, from wherever
+        // Teaching left the browser.
+        const authorizingFrom = yield* localSession.get(taught.id);
+        const startingUrl = verificationStartingUrl(authorizingFrom.currentUrl);
+        expect(startingUrl).toBe(loginUrl);
         const authorized = yield* catalog.authorizeVerification({
           agentFlowId,
           operationId: OperationId.make("authorize-run"),
           revisionId,
+          startingUrl,
         });
         expect(authorized.heads.verification).toMatchObject({
           revisionId,
@@ -195,7 +201,10 @@ it.live(
           operationId: OperationId.make("start-run"),
           revisionId,
         });
+        // Verification starts where the user authorized it, not on a blank
+        // page the agent would have to navigate away from.
         expect(run.id).not.toBe(taught.id);
+        expect(run.currentUrl).toBe(loginUrl);
         expect(run.activity).toBe("run");
         expect(run.teaching).toBeNull();
         expect(run.verification).toMatchObject({
@@ -217,6 +226,18 @@ it.live(
           })
         );
         expect(spent.code).toBe("agent_flow_conflict");
+
+        // The URL is all that crossed over: the opening document sees none of
+        // the cookies or storage Teaching's sign-in left behind.
+        const opened = yield* session("agent_browser_snapshot", {
+          sessionId: run.id,
+        });
+        expect(
+          opened.nodes.some((node) => node.name === "carried session")
+        ).toBe(false);
+        expect(opened.nodes.some((node) => node.name === "fresh context")).toBe(
+          true
+        );
 
         // The fresh context inherits nothing Teaching prepared.
         const navigated = yield* session("agent_browser_act", {
