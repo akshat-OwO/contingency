@@ -8,6 +8,7 @@ import {
   AgentFlowRevision,
   AgentFlowSearch,
   AgentFlowSearchResult,
+  AgentPendingDecisionResolve,
   AgentFlowVerificationComplete,
   AgentFlowVerificationStart,
   AgentSessionSnapshot,
@@ -27,7 +28,7 @@ import {
 } from "./agent-flow-catalog.ts";
 import type { AgentFlowCatalogError } from "./agent-flow-catalog.ts";
 import { compileAgentFlowDraft } from "./agent-flow-compiler.ts";
-import { AgentSession } from "./agent-session.ts";
+import { AgentSession, verificationStartingUrl } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
@@ -194,7 +195,7 @@ const AgentFlowVerificationStartTool = Tool.make(
   {
     dependencies: [AgentSession, AgentFlowCatalog],
     description:
-      "Start the Verification Run the user authorized in Agent View for one exact draft revision. It opens a fresh browser context under the draft's Emulation, inheriting nothing Teaching prepared, and its runtime Variables must be supplied again by the user. Fails when the user has not authorized this exact revision or has already spent the authorization; ask the user to authorize verification in Agent View rather than retrying.",
+      "Start the Verification Run the user authorized in the agent conversation for one exact draft revision. It opens a fresh browser context under the draft's Emulation, inheriting nothing Teaching prepared, and its runtime Variables must be supplied again by the user. Fails when the user has not authorized this exact revision or has already spent the authorization; reread pendingDecisions rather than retrying.",
     failure: AgentFlowFailure,
     parameters: Schema.Struct({
       agentFlowId: AgentFlowVerificationStart.fields.agentFlowId,
@@ -224,11 +225,26 @@ const AgentFlowVerificationCompleteTool = Tool.make(
   }
 );
 
+const AgentPendingDecisionResolveTool = Tool.make(
+  "agent_pending_decision_resolve",
+  {
+    dependencies: [AgentSession, AgentFlowCatalog],
+    description:
+      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. Use authorize for authorize_verification, approve for approve_flow, or refuse for either. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns agent_flow_conflict; reread pendingDecisions before asking again.",
+    failure: AgentFlowFailure,
+    parameters: Schema.Struct({
+      decision: AgentPendingDecisionResolve.fields.decision,
+      operationId: AgentPendingDecisionResolve.fields.operationId,
+      pendingDecisionId: AgentPendingDecisionResolve.fields.pendingDecisionId,
+      userMessage: AgentPendingDecisionResolve.fields.userMessage,
+    }),
+    success: AgentFlowRevision,
+  }
+);
+
 /**
- * Catalog, Teaching Feed, compilation, and Verification Run tools. Authorizing
- * verification and approving a revision are absent on purpose: Agent View
- * alone grants those
- * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ * Catalog, Teaching Feed, compilation, Verification Run, and relayed user
+ * decision tools.
  */
 export const AgentFlowTools = withStrictParameters(
   Toolkit.make(
@@ -241,6 +257,7 @@ export const AgentFlowTools = withStrictParameters(
     TeachingFeedGetTool,
     TeachingScreenshotGetTool,
     AgentFlowDraftSaveTool,
+    AgentPendingDecisionResolveTool,
     AgentFlowVerificationStartTool,
     AgentFlowVerificationCompleteTool
   )
@@ -337,6 +354,13 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           title: saved.manifest.title,
         })
         .pipe(Effect.mapError(failure));
+      yield* session
+        .recordPendingDecisionState(
+          params.sessionId,
+          saved.heads.pendingDecisions,
+          saved.heads.decisionHistory
+        )
+        .pipe(Effect.mapError(failure));
       return saved;
     }),
   agent_flow_get: (params) =>
@@ -366,6 +390,13 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
       yield* session
         .recordVerificationOutcome(params.sessionId, params.outcome)
         .pipe(Effect.mapError(failure));
+      yield* session
+        .recordPendingDecisionState(
+          params.sessionId,
+          recorded.heads.pendingDecisions,
+          recorded.heads.decisionHistory
+        )
+        .pipe(Effect.mapError(failure));
       return recorded;
     }),
   agent_flow_verification_start: (params) =>
@@ -387,7 +418,7 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           new AgentFlowFailure({
             code: "agent_flow_conflict",
             diagnostics: [],
-            message: `Revision ${params.revisionId} has no unspent Verification Run authorization. Ask the user to authorize verification in Agent View. (agent_flow_conflict)`,
+            message: `Revision ${params.revisionId} has no unspent Verification Run authorization. Reread pendingDecisions and ask the user to authorize the exact draft in the agent conversation. (agent_flow_conflict)`,
           })
         );
       }
@@ -447,6 +478,45 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           Effect.onError(() => session.close(started.id).pipe(Effect.ignore)),
           Effect.as(started)
         );
+    }),
+  agent_pending_decision_resolve: (params) =>
+    Effect.gen(function* resolvePendingDecision() {
+      const catalog = yield* AgentFlowCatalog;
+      const session = yield* AgentSession;
+      const pendingResult = yield* Effect.result(
+        catalog.pendingDecision(params.pendingDecisionId)
+      );
+      if (Result.isFailure(pendingResult)) {
+        return yield* catalog
+          .resolvePendingDecision({ ...params, startingUrl: null })
+          .pipe(Effect.mapError(failure));
+      }
+      const pending = pendingResult.success;
+      const relatedSession =
+        pending.sessionId === null
+          ? null
+          : yield* Effect.result(session.get(pending.sessionId));
+      const startingUrl =
+        relatedSession === null || Result.isFailure(relatedSession)
+          ? null
+          : verificationStartingUrl(relatedSession.success.currentUrl);
+      const resolved = yield* catalog
+        .resolvePendingDecision({ ...params, startingUrl })
+        .pipe(Effect.mapError(failure));
+      if (
+        pending.sessionId !== null &&
+        relatedSession !== null &&
+        Result.isSuccess(relatedSession)
+      ) {
+        yield* session
+          .recordPendingDecisionState(
+            pending.sessionId,
+            resolved.heads.pendingDecisions,
+            resolved.heads.decisionHistory
+          )
+          .pipe(Effect.mapError(failure));
+      }
+      return resolved;
     }),
   agent_teaching_feed_get: (params) =>
     Effect.gen(function* readTeachingFeed() {

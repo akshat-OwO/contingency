@@ -209,9 +209,9 @@ export const spanEvidence = (
   );
 
 export interface AuthorizationPresentation {
-  /** What the one verification button does next, or nothing when it is hidden. */
+  /** Retained for presentation compatibility; Agent View never acts on it. */
   readonly action: string | undefined;
-  /** Whether Agent View offers the separate approval action. */
+  /** Whether Agent View should explain that conversation approval is pending. */
   readonly canApprove: boolean;
   readonly detail: string;
   readonly status: AgentFlowVerificationStatus | "none";
@@ -256,10 +256,10 @@ export const authorizationPresentation = ({
   }
   if (verification === null || verification.revisionId !== revisionId) {
     return {
-      action: "Authorize Verification Run",
+      action: undefined,
       canApprove: false,
       detail:
-        "Verification opens a fresh browser and asks for this Agent Flow's runtime Variables again. One authorization funds one Run of this exact draft.",
+        "Authorize or refuse this exact draft in your agent conversation. One authorization funds one Verification Run in a fresh browser.",
       status: "none",
     };
   }
@@ -291,7 +291,7 @@ export const authorizationPresentation = ({
     };
   }
   return {
-    action: "Authorize Verification Run",
+    action: undefined,
     canApprove: false,
     detail: `Verification failed: ${verification.summary ?? "the agent reported no explanation."} Any existing Approved Agent Flow is unchanged.`,
     status: "failed",

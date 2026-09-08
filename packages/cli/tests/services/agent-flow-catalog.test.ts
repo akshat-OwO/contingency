@@ -700,6 +700,124 @@ it("defaults the Catalog Root to the workspace's .contingency directory", () => 
   }
 });
 
+it.effect(
+  "resolves, refuses, and replays server-issued pending decisions",
+  () =>
+    withCatalog((catalog) =>
+      Effect.gen(function* resolvePendingDecisions() {
+        const saved = yield* catalog.saveDraft(
+          saveInput("Shop front", "pending-save")
+        );
+        const [first] = saved.heads.pendingDecisions;
+        expect(first).toMatchObject({
+          agentFlowId: saved.manifest.agentFlowId,
+          kind: "authorize_verification",
+          revisionId: saved.manifest.revisionId,
+        });
+        if (first === undefined) {
+          throw new Error("The draft did not expose its pending decision.");
+        }
+
+        const refused = yield* catalog.resolvePendingDecision({
+          decision: "refuse",
+          operationId: OperationId.make("pending-refuse"),
+          pendingDecisionId: first.pendingDecisionId,
+          userMessage: "Do not run this draft.",
+        });
+        expect(refused.heads.pendingDecisions).toEqual([]);
+        expect(refused.heads.verification).toBeNull();
+        expect(refused.heads.decisionHistory).toMatchObject([
+          {
+            decision: "refuse",
+            kind: "authorize_verification",
+            operationId: "pending-refuse",
+            userMessage: "Do not run this draft.",
+          },
+        ]);
+
+        const stale = yield* Effect.flip(
+          catalog.resolvePendingDecision({
+            decision: "authorize",
+            operationId: OperationId.make("pending-stale"),
+            pendingDecisionId: first.pendingDecisionId,
+          })
+        );
+        expect(stale.code).toBe("agent_flow_conflict");
+
+        const corrected = yield* catalog.saveDraft(
+          saveInput("Shop front", "pending-correct", {
+            agentFlowId: saved.manifest.agentFlowId,
+            basedOnRevisionId: saved.manifest.revisionId,
+          })
+        );
+        const [next] = corrected.heads.pendingDecisions;
+        if (next === undefined) {
+          throw new Error(
+            "The corrected draft did not get a fresh pending id."
+          );
+        }
+        expect(next.pendingDecisionId).not.toBe(first.pendingDecisionId);
+        const request = {
+          decision: "authorize" as const,
+          operationId: OperationId.make("pending-authorize"),
+          pendingDecisionId: next.pendingDecisionId,
+        };
+        const authorized = yield* catalog.resolvePendingDecision(request);
+        const replayed = yield* catalog.resolvePendingDecision(request);
+        expect(replayed).toEqual(authorized);
+        expect(authorized.heads.verification?.status).toBe("authorized");
+
+        yield* catalog.startVerification({
+          agentFlowId: corrected.manifest.agentFlowId,
+          operationId: OperationId.make("pending-start"),
+          revisionId: corrected.manifest.revisionId,
+          sessionId: AgentSessionId.make("agent-pending-verification"),
+        });
+        const passed = yield* catalog.completeVerification({
+          agentFlowId: corrected.manifest.agentFlowId,
+          assessments: [verificationAssessment()],
+          operationId: OperationId.make("pending-complete"),
+          outcome: "passed",
+          revisionId: corrected.manifest.revisionId,
+          summary: "The draft worked.",
+        });
+        const [approval] = passed.heads.pendingDecisions;
+        if (approval === undefined) {
+          throw new Error("The passed draft did not expose approval.");
+        }
+        const refusedApproval = yield* catalog.resolvePendingDecision({
+          decision: "refuse",
+          operationId: OperationId.make("pending-refuse-approval"),
+          pendingDecisionId: approval.pendingDecisionId,
+        });
+        expect(refusedApproval.heads.approvedRevisionId).toBeNull();
+        expect(refusedApproval.heads.draftRevisionId).toBe(
+          corrected.manifest.revisionId
+        );
+        expect(refusedApproval.heads.verification?.status).toBe("passed");
+        const [replacementApproval] = refusedApproval.heads.pendingDecisions;
+        expect(replacementApproval).toMatchObject({
+          kind: "approve_flow",
+          revisionId: corrected.manifest.revisionId,
+        });
+        if (replacementApproval === undefined) {
+          throw new Error("Refused approval did not remain recoverable.");
+        }
+        expect(replacementApproval.pendingDecisionId).not.toBe(
+          approval.pendingDecisionId
+        );
+        const approved = yield* catalog.resolvePendingDecision({
+          decision: "approve",
+          operationId: OperationId.make("pending-approve-after-refusal"),
+          pendingDecisionId: replacementApproval.pendingDecisionId,
+        });
+        expect(approved.heads.approvedRevisionId).toBe(
+          corrected.manifest.revisionId
+        );
+      })
+    )
+);
+
 it.effect("binds one verification authorization to one exact draft", () =>
   withCatalog((catalog) =>
     Effect.gen(function* authorizeOneExactDraft() {

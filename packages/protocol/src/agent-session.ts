@@ -1,7 +1,12 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { AgentExecutionBoundary, AgentTimelineEntry } from "./agent-browser.ts";
-import { AgentSessionVerification, TeachingProgress } from "./agent-flow.ts";
+import {
+  AgentPendingDecision,
+  AgentPendingDecisionResolution,
+  AgentSessionVerification,
+  TeachingProgress,
+} from "./agent-flow.ts";
 import {
   AgentProcessId,
   AgentSessionController,
@@ -49,6 +54,10 @@ export const AgentSessionSnapshot = Schema.Struct({
   controller: AgentSessionController,
   createdAt: nonEmptyString,
   currentUrl: Schema.String,
+  /** Resolutions mirrored from the catalog for Agent View's read-only status. */
+  decisionHistory: Schema.Array(AgentPendingDecisionResolution).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   error: optionalNullable(Schema.String),
   id: AgentSessionId,
   /**
@@ -58,6 +67,10 @@ export const AgentSessionSnapshot = Schema.Struct({
    */
   interruptedAction: Schema.NullOr(AgentTimelineEntry),
   ownerProcessId: AgentProcessId,
+  /** Open conversation-relayed decisions associated with this session. */
+  pendingDecisions: Schema.Array(AgentPendingDecision).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   phase: AgentSessionPhase,
   /**
    * The Interactive Run this session is performing: its ordered Agent Steps,

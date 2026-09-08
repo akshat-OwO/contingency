@@ -389,102 +389,104 @@ const DraftFacts = ({ manifest }: { readonly manifest: AgentFlowManifest }) => (
   </>
 );
 
-/**
- * The two gestures no MCP tool can reach. They are buttons in Agent View and
- * nowhere else
- * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
- */
 const VerificationGestures = ({
   authorization,
-  failure,
+  heads,
   manifest,
-  onApprove,
-  onAuthorize,
-  pending,
   verification,
 }: {
   readonly authorization: AuthorizationPresentation;
-  /** Why the last gesture did not take effect, when one was refused. */
-  readonly failure: string | undefined;
+  readonly heads: AgentFlowHeads;
   readonly manifest: AgentFlowManifest;
-  readonly onApprove: () => void;
-  readonly onAuthorize: () => void;
-  readonly pending: boolean;
   readonly verification: AgentFlowVerification | null;
-}) => (
-  <div className="space-y-2 border-t pt-3">
-    <h3 className="text-xs font-semibold">Verification</h3>
-    <p className="text-muted-foreground text-xs">{authorization.detail}</p>
-    {verification === null || verification.assessments.length === 0 ? null : (
-      <ol aria-label="Verification Step verdicts" className="space-y-2">
-        {verification.assessments.map((assessment) => {
-          const step = manifest.steps[assessment.stepIndex];
-          return (
-            <li
-              className="space-y-1 rounded-md border p-2"
-              key={assessment.stepIndex}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium">
-                  Step {assessment.stepIndex + 1}:{" "}
-                  {step?.name ?? "Unknown Step"}
-                </span>
-                <Badge
-                  variant={
-                    assessment.outcome === "working" ? "default" : "destructive"
-                  }
-                >
-                  {assessment.outcome}
-                </Badge>
-              </div>
-              <p className="text-muted-foreground text-xs">
-                {assessment.explanation}
-              </p>
-              <p className="text-muted-foreground font-mono text-xs wrap-anywhere">
-                Evidence:{" "}
-                {assessment.evidence
-                  .map((reference) => `${reference.kind} ${reference.id}`)
-                  .join(", ")}
-              </p>
-            </li>
-          );
-        })}
-      </ol>
-    )}
-    {authorization.action === undefined ? null : (
-      <Button disabled={pending} onClick={onAuthorize} size="sm" type="button">
-        {authorization.action}
-      </Button>
-    )}
-    {authorization.canApprove ? (
-      <Alert>
-        <CircleCheckIcon aria-hidden="true" />
-        <AlertTitle>This draft passed verification</AlertTitle>
-        <AlertDescription>
-          <span>
-            Approving makes this exact revision the Approved Agent Flow. It
-            cannot be edited afterwards; a change creates a new draft.
-          </span>
-          <Button
-            disabled={pending}
-            onClick={onApprove}
-            size="sm"
-            type="button"
+}) => {
+  const pendingDecisions = heads.pendingDecisions ?? [];
+  const approvalPending = pendingDecisions.some(
+    (decision) => decision.kind === "approve_flow"
+  );
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <h3 className="text-xs font-semibold">Verification</h3>
+      <p className="text-muted-foreground text-xs">{authorization.detail}</p>
+      {verification === null || verification.assessments.length === 0 ? null : (
+        <ol aria-label="Verification Step verdicts" className="space-y-2">
+          {verification.assessments.map((assessment) => {
+            const step = manifest.steps[assessment.stepIndex];
+            return (
+              <li
+                className="space-y-1 rounded-md border p-2"
+                key={assessment.stepIndex}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium">
+                    Step {assessment.stepIndex + 1}:{" "}
+                    {step?.name ?? "Unknown Step"}
+                  </span>
+                  <Badge
+                    variant={
+                      assessment.outcome === "working"
+                        ? "default"
+                        : "destructive"
+                    }
+                  >
+                    {assessment.outcome}
+                  </Badge>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  {assessment.explanation}
+                </p>
+                <p className="text-muted-foreground font-mono text-xs wrap-anywhere">
+                  Evidence:{" "}
+                  {assessment.evidence
+                    .map((reference) => `${reference.kind} ${reference.id}`)
+                    .join(", ")}
+                </p>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {pendingDecisions.map((decision) => (
+        <Alert key={decision.pendingDecisionId}>
+          <CircleAlertIcon aria-hidden="true" />
+          <AlertTitle>
+            Pending in the agent conversation:{" "}
+            <span>
+              {decision.kind === "authorize_verification"
+                ? "verification authorization"
+                : "flow approval"}
+            </span>
+          </AlertTitle>
+          <AlertDescription>
+            <span>{decision.scopeSummary}</span>
+            <code className="block wrap-anywhere">
+              {decision.pendingDecisionId}
+            </code>
+          </AlertDescription>
+        </Alert>
+      ))}
+      {authorization.canApprove && approvalPending ? (
+        <Alert>
+          <CircleCheckIcon aria-hidden="true" />
+          <AlertTitle>This draft passed verification</AlertTitle>
+          <AlertDescription>
+            Approve or refuse the pending decision in your agent conversation.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {(heads.decisionHistory ?? []).map((resolution) =>
+        resolution.revisionId === manifest.revisionId ? (
+          <p
+            className="text-muted-foreground text-xs"
+            key={resolution.operationId}
           >
-            Approve Agent Flow
-          </Button>
-        </AlertDescription>
-      </Alert>
-    ) : null}
-    {failure === undefined ? null : (
-      <Alert variant="destructive">
-        <CircleAlertIcon aria-hidden="true" />
-        <AlertTitle>That action was refused</AlertTitle>
-        <AlertDescription>{failure}</AlertDescription>
-      </Alert>
-    )}
-  </div>
-);
+            {resolution.kind} {resolution.decision} at {resolution.decidedAt}
+          </p>
+        ) : null
+      )}
+    </div>
+  );
+};
 
 const RetirementControls = ({
   archiveFailure,
@@ -577,11 +579,8 @@ const DraftReviewContent = ({
   detail,
   edit,
   edited,
-  failure,
   hostsText,
-  onApprove,
   onArchive,
-  onAuthorize,
   onConfirmationChange,
   onCorrect,
   onDelete,
@@ -601,11 +600,8 @@ const DraftReviewContent = ({
   readonly detail: DraftRevisionDetail;
   readonly edit: DraftReviewEdit;
   readonly edited: boolean;
-  readonly failure: string | undefined;
   readonly hostsText: string;
-  readonly onApprove: () => void;
   readonly onArchive: () => void;
-  readonly onAuthorize: () => void;
   readonly onConfirmationChange: (value: string) => void;
   readonly onCorrect: (
     change: (current: DraftReviewEdit) => DraftReviewEdit
@@ -708,11 +704,8 @@ const DraftReviewContent = ({
 
         <VerificationGestures
           authorization={authorization}
-          failure={failure}
+          heads={detail.revision.heads}
           manifest={manifest}
-          onApprove={onApprove}
-          onAuthorize={onAuthorize}
-          pending={pending}
           verification={detail.revision.heads.verification}
         />
         <RetirementControls
@@ -733,17 +726,14 @@ const DraftReviewContent = ({
 
 /**
  * The draft under review. The user reads what verification would authorize,
- * corrects the agent's proposed objectives and Domain Scope, and performs the
- * two gestures no MCP tool can reach: authorizing one Verification Run of one
- * exact revision, and approving the revision that Run proved
- * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ * corrects the agent's proposed objectives and Domain Scope, and mirrors
+ * verification decisions relayed through the agent conversation.
  */
 export const DraftReview = ({
   agentFlowId,
   refreshToken,
   revisionId,
   sessionId,
-  startingPageSessionId,
 }: {
   readonly agentFlowId: AgentFlowId;
   /**
@@ -756,31 +746,18 @@ export const DraftReview = ({
   readonly revisionId: AgentFlowRevisionId;
   /** The Teaching session whose Demonstration corrections compile against. */
   readonly sessionId: AgentSessionId | undefined;
-  /**
-   * The Agent Session whose current page an authorized Verification Run should
-   * open on. Authorizing from a Verification Run panel retries from where that
-   * Run stands, which is why this is separate from the Teaching session that
-   * owns corrections.
-   */
-  readonly startingPageSessionId: AgentSessionId | undefined;
 }) => {
   const {
-    agentFlowApproveMutation,
     agentFlowArchiveMutation,
     agentFlowDeleteMutation,
     agentFlowDraftUpdateMutation,
     agentFlowRevisionAtom,
-    agentFlowVerificationAuthorizeMutation,
   } = useRpcDependencies();
   const reviewKey: DraftReviewKey = { agentFlowId, revisionId };
   const revisionAtom = agentFlowRevisionAtom(agentFlowId, revisionId);
   const revisionResult = useAtomValue(revisionAtom);
   const rereadRevision = useAtomRefresh(revisionAtom);
   const [updateResult, updateDraft] = useAtom(agentFlowDraftUpdateMutation);
-  const [authorizeResult, authorize] = useAtom(
-    agentFlowVerificationAuthorizeMutation
-  );
-  const [approveResult, approve] = useAtom(agentFlowApproveMutation);
   const [archiveResult, archive] = useAtom(agentFlowArchiveMutation);
   const [deleteResult, deleteAgentFlow] = useAtom(agentFlowDeleteMutation);
   const [gesture, setGesture] = useAtom(draftGestureAtom(reviewKey));
@@ -806,12 +783,6 @@ export const DraftReview = ({
   }, [refreshToken, rereadRevision]);
 
   const gestureResult = (() => {
-    if (gesture === "approve") {
-      return approveResult;
-    }
-    if (gesture === "authorize") {
-      return authorizeResult;
-    }
     if (gesture === "archive") {
       return archiveResult;
     }
@@ -820,7 +791,6 @@ export const DraftReview = ({
   const detail = shownRevision(revisionResult, gestureResult);
   const pending =
     gestureResult !== undefined && AsyncResult.isWaiting(gestureResult);
-  const failure = gesture === "archive" ? undefined : refusal(gestureResult);
   const archiveFailure =
     gesture === "archive" ? refusal(archiveResult) : undefined;
   const deleteFailure = refusal(deleteResult);
@@ -861,36 +831,6 @@ export const DraftReview = ({
     revisionStatus: manifest.status,
     verification: detail.revision.heads.verification,
   });
-
-  const authorizeRun = () => {
-    setGesture("authorize");
-    authorize({
-      payload: {
-        data: {
-          agentFlowId: manifest.agentFlowId,
-          operationId: operationId(),
-          revisionId: manifest.revisionId,
-          // Verification opens where this session stands, in a fresh context.
-          sessionId: startingPageSessionId,
-        },
-        type: "agent.flow.verification.authorize",
-      },
-    });
-  };
-
-  const approveRevision = () => {
-    setGesture("approve");
-    approve({
-      payload: {
-        data: {
-          agentFlowId: manifest.agentFlowId,
-          operationId: operationId(),
-          revisionId: manifest.revisionId,
-        },
-        type: "agent.flow.approve",
-      },
-    });
-  };
 
   const saveCorrections = () => {
     if (sessionId === undefined) {
@@ -962,11 +902,8 @@ export const DraftReview = ({
       detail={detail}
       edit={edit}
       edited={edited}
-      failure={failure}
       hostsText={hostsText}
-      onApprove={approveRevision}
       onArchive={setArchiveState}
-      onAuthorize={authorizeRun}
       onConfirmationChange={setDeleteConfirmation}
       onCorrect={correct}
       onDelete={permanentlyDelete}
@@ -1025,7 +962,6 @@ export const VerificationDetails = ({
         refreshToken={session.updatedAt}
         revisionId={verification.revisionId}
         sessionId={undefined}
-        startingPageSessionId={session.id}
       />
     </>
   );
