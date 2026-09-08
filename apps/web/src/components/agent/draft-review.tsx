@@ -401,20 +401,9 @@ const VerificationGestures = ({
   readonly verification: AgentFlowVerification | null;
 }) => {
   const pendingDecisions = heads.pendingDecisions ?? [];
-  let waitingForDecision:
-    | "flow approval"
-    | "verification authorization"
-    | null = null;
-  if (pendingDecisions.length === 0 && manifest.status === "draft") {
-    if (verification?.status === "passed") {
-      waitingForDecision = "flow approval";
-    } else if (
-      verification?.status !== "running" &&
-      verification?.status !== "authorized"
-    ) {
-      waitingForDecision = "verification authorization";
-    }
-  }
+  const approvalPending = pendingDecisions.some(
+    (decision) => decision.kind === "approve_flow"
+  );
   return (
     <div className="space-y-2 border-t pt-3">
       <h3 className="text-xs font-semibold">Verification</h3>
@@ -457,14 +446,6 @@ const VerificationGestures = ({
           })}
         </ol>
       )}
-      {waitingForDecision === null ? null : (
-        <Alert>
-          <CircleAlertIcon aria-hidden="true" />
-          <AlertTitle>
-            Pending in the agent conversation: <span>{waitingForDecision}</span>
-          </AlertTitle>
-        </Alert>
-      )}
       {pendingDecisions.map((decision) => (
         <Alert key={decision.pendingDecisionId}>
           <CircleAlertIcon aria-hidden="true" />
@@ -484,7 +465,7 @@ const VerificationGestures = ({
           </AlertDescription>
         </Alert>
       ))}
-      {authorization.canApprove ? (
+      {authorization.canApprove && approvalPending ? (
         <Alert>
           <CircleCheckIcon aria-hidden="true" />
           <AlertTitle>This draft passed verification</AlertTitle>

@@ -129,7 +129,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         return yield* Effect.fail(
           new AgentRunFailure({
             code: "agent_flow_conflict",
-            message: `Agent Flow ${params.agentFlowId} has no Approved Agent Flow to run. Ask the user to verify and approve a draft in Agent View. (agent_flow_conflict)`,
+            message: `Agent Flow ${params.agentFlowId} has no Approved Agent Flow to run. Reread pendingDecisions and ask the user to verify and approve the draft in the agent conversation. (agent_flow_conflict)`,
           })
         );
       }
@@ -147,7 +147,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         return yield* Effect.fail(
           new AgentRunFailure({
             code: "agent_flow_conflict",
-            message: `Revision ${found.manifest.revisionId} is a draft. Only an Approved Agent Flow can be run; ask the user to verify and approve it in Agent View. (agent_flow_conflict)`,
+            message: `Revision ${found.manifest.revisionId} is a draft. Only an Approved Agent Flow can be run; reread pendingDecisions and ask the user to verify and approve it in the agent conversation. (agent_flow_conflict)`,
           })
         );
       }

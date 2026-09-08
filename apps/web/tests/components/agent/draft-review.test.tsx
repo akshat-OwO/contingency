@@ -538,6 +538,19 @@ test("shows authorization pending in the agent conversation without an action bu
   expect(rpc.authorizeCalls).toHaveLength(0);
 });
 
+test("does not invent a pending decision when the catalog exposes none", async () => {
+  const detail = detailWith(null);
+  detail.revision.heads.pendingDecisions = [];
+  renderReview(detail, "agent-one");
+
+  expect(
+    await screen.findByText(/Authorize or refuse this exact draft/u)
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText(/Pending in the agent conversation/u)
+  ).not.toBeInTheDocument();
+});
+
 test("shows a failed Verification Run retry as pending in conversation", async () => {
   rpc.detail = detailWith(verificationOf("failed", "The basket stayed empty."));
   render(

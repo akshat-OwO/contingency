@@ -268,7 +268,7 @@ export interface AgentFlowCatalogService {
   ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
   /**
    * Turn one successfully verified draft revision into the Approved Agent
-   * Flow. Only a direct Agent View gesture reaches this
+   * Flow. Kept as the underlying catalog mutation for trusted adapters
    * ([ADR 0028](../../../../docs/adr/0028-approved-agent-flows-are-immutable-revisions.md)).
    */
   readonly approve: (
@@ -3050,8 +3050,22 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                         updatedAt: decidedAt,
                       };
                       if (input.decision === "refuse") {
+                        const refusedHeads =
+                          current.kind === "approve_flow"
+                            ? {
+                                ...baseHeads,
+                                pendingDecisions: [
+                                  pendingDecision(
+                                    manifest,
+                                    "approve_flow",
+                                    decidedAt,
+                                    current.sessionId
+                                  ),
+                                ],
+                              }
+                            : baseHeads;
                         return {
-                          heads: baseHeads,
+                          heads: refusedHeads,
                           manifest,
                           writeManifest: false,
                         };
@@ -3206,7 +3220,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               return yield* Effect.fail(
                 catalogError(
                   "agent_flow_conflict",
-                  `Revision ${input.revisionId} has no unspent Verification Run authorization. Ask the user to authorize verification in Agent View.`
+                  `Revision ${input.revisionId} has no unspent Verification Run authorization. Reread pendingDecisions and ask the user to authorize the exact draft in the agent conversation.`
                 )
               );
             }

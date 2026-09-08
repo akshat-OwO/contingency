@@ -195,7 +195,7 @@ const AgentFlowVerificationStartTool = Tool.make(
   {
     dependencies: [AgentSession, AgentFlowCatalog],
     description:
-      "Start the Verification Run the user authorized in Agent View for one exact draft revision. It opens a fresh browser context under the draft's Emulation, inheriting nothing Teaching prepared, and its runtime Variables must be supplied again by the user. Fails when the user has not authorized this exact revision or has already spent the authorization; ask the user to authorize verification in Agent View rather than retrying.",
+      "Start the Verification Run the user authorized in the agent conversation for one exact draft revision. It opens a fresh browser context under the draft's Emulation, inheriting nothing Teaching prepared, and its runtime Variables must be supplied again by the user. Fails when the user has not authorized this exact revision or has already spent the authorization; reread pendingDecisions rather than retrying.",
     failure: AgentFlowFailure,
     parameters: Schema.Struct({
       agentFlowId: AgentFlowVerificationStart.fields.agentFlowId,
@@ -418,7 +418,7 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           new AgentFlowFailure({
             code: "agent_flow_conflict",
             diagnostics: [],
-            message: `Revision ${params.revisionId} has no unspent Verification Run authorization. Ask the user to authorize verification in Agent View. (agent_flow_conflict)`,
+            message: `Revision ${params.revisionId} has no unspent Verification Run authorization. Reread pendingDecisions and ask the user to authorize the exact draft in the agent conversation. (agent_flow_conflict)`,
           })
         );
       }
@@ -492,26 +492,29 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
           .pipe(Effect.mapError(failure));
       }
       const pending = pendingResult.success;
-      const startingUrl =
+      const relatedSession =
         pending.sessionId === null
           ? null
-          : yield* session.get(pending.sessionId).pipe(
-              Effect.map((snapshot) =>
-                verificationStartingUrl(snapshot.currentUrl)
-              ),
-              Effect.orElseSucceed(() => null)
-            );
+          : yield* Effect.result(session.get(pending.sessionId));
+      const startingUrl =
+        relatedSession === null || Result.isFailure(relatedSession)
+          ? null
+          : verificationStartingUrl(relatedSession.success.currentUrl);
       const resolved = yield* catalog
         .resolvePendingDecision({ ...params, startingUrl })
         .pipe(Effect.mapError(failure));
-      if (pending.sessionId !== null) {
+      if (
+        pending.sessionId !== null &&
+        relatedSession !== null &&
+        Result.isSuccess(relatedSession)
+      ) {
         yield* session
           .recordPendingDecisionState(
             pending.sessionId,
             resolved.heads.pendingDecisions,
             resolved.heads.decisionHistory
           )
-          .pipe(Effect.ignore);
+          .pipe(Effect.mapError(failure));
       }
       return resolved;
     }),

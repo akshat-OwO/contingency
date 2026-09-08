@@ -213,9 +213,9 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         )
       );
     /**
-     * Agent Flow Catalog operations only Agent View performs. The catalog is
-     * optional in a process that serves Audit View alone, so its absence is a
-     * refusal rather than a crash.
+     * Agent Flow Catalog operations exposed to Agent View over loopback RPC.
+     * The catalog is optional in a process that serves Audit View alone, so
+     * its absence is a refusal rather than a crash.
      */
     const catalogUnavailable = <A>(
       operation: (

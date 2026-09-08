@@ -795,6 +795,25 @@ it.effect(
           corrected.manifest.revisionId
         );
         expect(refusedApproval.heads.verification?.status).toBe("passed");
+        const [replacementApproval] = refusedApproval.heads.pendingDecisions;
+        expect(replacementApproval).toMatchObject({
+          kind: "approve_flow",
+          revisionId: corrected.manifest.revisionId,
+        });
+        if (replacementApproval === undefined) {
+          throw new Error("Refused approval did not remain recoverable.");
+        }
+        expect(replacementApproval.pendingDecisionId).not.toBe(
+          approval.pendingDecisionId
+        );
+        const approved = yield* catalog.resolvePendingDecision({
+          decision: "approve",
+          operationId: OperationId.make("pending-approve-after-refusal"),
+          pendingDecisionId: replacementApproval.pendingDecisionId,
+        });
+        expect(approved.heads.approvedRevisionId).toBe(
+          corrected.manifest.revisionId
+        );
       })
     )
 );
