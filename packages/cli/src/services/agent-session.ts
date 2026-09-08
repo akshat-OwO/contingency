@@ -614,6 +614,12 @@ const redactActionText = (
     case "wait_for_text": {
       return { ...action, text: redact(action.text) };
     }
+    // `sanitizeTeachingUrl` rewrites query parameters whose names look like
+    // secrets; a private value the session knows about can still sit in a path
+    // segment or an unmatched parameter.
+    case "navigate": {
+      return { ...action, url: redact(action.url) };
+    }
     default: {
       return action;
     }

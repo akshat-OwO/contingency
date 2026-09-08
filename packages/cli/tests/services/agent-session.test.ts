@@ -745,3 +745,25 @@ it("redacts a private literal in an accessible name or objective", () => {
     )
   ).toBe('Click button "Signed in as [sensitive input]"');
 });
+
+/**
+ * `sanitizeTeachingUrl` rewrites query parameters whose names look like
+ * secrets, so a private value the session knows about survives it in a path
+ * segment. The description strips it on the way to the timeline.
+ */
+it("redacts a private literal carried in a navigated URL", () => {
+  const secret = "tok-8f3ad9c2e1b7";
+  const described = describeCapturedAction(
+    undefined,
+    {
+      type: "navigate",
+      url: `https://shop.example.com/session/${secret}/cart`,
+    },
+    {},
+    [secret]
+  );
+  expect(described).toBe(
+    "Navigate to https://shop.example.com/session/[sensitive input]/cart"
+  );
+  expect(described).not.toContain(secret);
+});
