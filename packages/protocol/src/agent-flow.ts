@@ -441,12 +441,48 @@ export const AgentFlowVerificationStatus = Schema.Literals([
 export type AgentFlowVerificationStatus =
   typeof AgentFlowVerificationStatus.Type;
 
+/** The same evidence-backed verdict an agent gives an Interactive Run Step. */
+export const AgentFlowVerificationAssessmentOutcome = Schema.Literals([
+  "working",
+  "not-working",
+  "inconclusive",
+  "blocked",
+]);
+export type AgentFlowVerificationAssessmentOutcome =
+  typeof AgentFlowVerificationAssessmentOutcome.Type;
+
+/** One Snapshot or attempt produced while verifying this exact Step. */
+export const AgentFlowVerificationAssessmentEvidence = Schema.Struct({
+  id: nonEmptyString,
+  kind: Schema.Literals(["snapshot", "attempt"]),
+});
+export type AgentFlowVerificationAssessmentEvidence =
+  typeof AgentFlowVerificationAssessmentEvidence.Type;
+
+/** The durable evidence-backed verdict for one ordered draft Step. */
+export const AgentFlowVerificationStepAssessment = Schema.Struct({
+  attempts: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  evidence: Schema.Array(AgentFlowVerificationAssessmentEvidence).check(
+    Schema.isMinLength(1)
+  ),
+  explanation: nonEmptyString,
+  outcome: AgentFlowVerificationAssessmentOutcome,
+  stepIndex: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  submittedAt: nonEmptyString,
+});
+export type AgentFlowVerificationStepAssessment =
+  typeof AgentFlowVerificationStepAssessment.Type;
+
 /**
  * One user authorization of one Verification Run, bound to one exact draft
  * revision. Any draft mutation replaces the draft head, and the authorization
  * does not travel with it: the changed draft must be authorized again.
  */
 export const AgentFlowVerification = Schema.Struct({
+  /** Ordered Step verdicts recorded before this Verification Run completed. */
+  assessments: Schema.Array(AgentFlowVerificationStepAssessment).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   /** Identifies this authorization so a replayed approval names the same one. */
   authorizationId: nonEmptyString,
   authorizedAt: nonEmptyString,
@@ -778,7 +814,12 @@ export type AgentSessionVariableState = typeof AgentSessionVariableState.Type;
  * never touched, with its runtime Variables supplied again.
  */
 export const AgentSessionVerification = Schema.Struct({
+  /** The Step currently accepting evidence, or `null` after a terminal verdict. */
+  activeStepIndex: Schema.NullOr(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+  ),
   agentFlowId: AgentFlowId,
+  assessments: Schema.Array(AgentFlowVerificationStepAssessment),
   authorizationId: nonEmptyString,
   outcome: Schema.NullOr(AgentFlowVerificationOutcome),
   revisionId: AgentFlowRevisionId,

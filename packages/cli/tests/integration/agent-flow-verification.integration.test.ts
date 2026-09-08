@@ -20,6 +20,10 @@ import {
   AgentFlowTools,
 } from "../../src/services/mcp-agent-flow.ts";
 import {
+  AgentRunToolHandlersLive,
+  AgentRunTools,
+} from "../../src/services/mcp-agent-run.ts";
+import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
@@ -34,9 +38,14 @@ const viewport = {
 
 const session = makeCall(AgentSessionTools);
 const flow = makeCall(AgentFlowTools);
+const runTool = makeCall(AgentRunTools);
 
 const verificationLayer = (catalogRoot: string) =>
-  Layer.mergeAll(AgentSessionToolHandlersLive, AgentFlowToolHandlersLive).pipe(
+  Layer.mergeAll(
+    AgentSessionToolHandlersLive,
+    AgentFlowToolHandlersLive,
+    AgentRunToolHandlersLive
+  ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
         makeAgentSessionLayer({
@@ -142,10 +151,17 @@ it.live(
             steps: [
               {
                 confirmation: false,
-                description: "Enter the password and sign in.",
+                description: "Enter the password.",
                 firstActionId: fillAction.id,
+                lastActionId: fillAction.id,
+                name: "Enter the password",
+              },
+              {
+                confirmation: false,
+                description: "Submit the sign-in.",
+                firstActionId: clickAction.id,
                 lastActionId: clickAction.id,
-                name: "Sign in",
+                name: "Submit the sign-in",
               },
             ],
             title: "Private login",
@@ -299,7 +315,57 @@ it.live(
           findNode(filled.snapshot.nodes, "textbox", "Password").value
         ).not.toBe(runLiteral);
 
-        // A failed verification records evidence and approves nothing.
+        const unknownEvidence = yield* Effect.flip(
+          runTool("agent_run_step_assess", {
+            evidence: [
+              { id: "snapshot-from-another-step", kind: "snapshot" as const },
+            ],
+            explanation: "This evidence does not belong to the active Step.",
+            operationId: OperationId.make("assess-unknown-evidence"),
+            outcome: "working",
+            sessionId: run.id,
+          })
+        );
+        expect(unknownEvidence.code).toBe("agent_session_invalid");
+
+        const assessedWorking = yield* runTool("agent_run_step_assess", {
+          evidence: [
+            { id: filled.snapshot.snapshotId, kind: "snapshot" as const },
+          ],
+          explanation: "The password entry Step reproduced.",
+          operationId: OperationId.make("assess-working-prefix"),
+          outcome: "working",
+          sessionId: run.id,
+        });
+        expect(assessedWorking.verification?.activeStepIndex).toBe(1);
+
+        const refusedPass = yield* Effect.flip(
+          flow("agent_flow_verification_complete", {
+            operationId: OperationId.make("complete-without-assessment"),
+            outcome: "passed",
+            sessionId: run.id,
+            summary: "The Step worked.",
+          })
+        );
+        expect(refusedPass.code).toBe("agent_flow_conflict");
+
+        const failedSnapshot = yield* session("agent_browser_snapshot", {
+          sessionId: run.id,
+        });
+        const assessedFailure = yield* runTool("agent_run_step_assess", {
+          evidence: [
+            { id: failedSnapshot.snapshotId, kind: "snapshot" as const },
+          ],
+          explanation: "The sign-in button did not confirm the session.",
+          operationId: OperationId.make("assess-failed"),
+          outcome: "not-working",
+          sessionId: run.id,
+        });
+        expect(assessedFailure.verification?.assessments).toMatchObject([
+          { outcome: "working", stepIndex: 0 },
+          { outcome: "not-working", stepIndex: 1 },
+        ]);
+        // A failed verification records its Step evidence and approves nothing.
         const failedRun = yield* flow("agent_flow_verification_complete", {
           operationId: OperationId.make("complete-failed"),
           outcome: "failed",
@@ -307,6 +373,10 @@ it.live(
           summary: "The sign-in button did not confirm the session.",
         });
         expect(failedRun.heads.verification).toMatchObject({
+          assessments: [
+            { outcome: "working", stepIndex: 0 },
+            { outcome: "not-working", stepIndex: 1 },
+          ],
           revisionId,
           status: "failed",
         });
@@ -387,6 +457,18 @@ it.live(
         expect(retry.verification?.variables).toEqual([
           { name: "PASSWORD", runtime: true, secret: true, supplied: false },
         ]);
+        const retrySnapshot = yield* session("agent_browser_snapshot", {
+          sessionId: retry.id,
+        });
+        yield* runTool("agent_run_step_assess", {
+          evidence: [
+            { id: retrySnapshot.snapshotId, kind: "snapshot" as const },
+          ],
+          explanation: "The corrected sign-in Step reproduced.",
+          operationId: OperationId.make("assess-passed"),
+          outcome: "working",
+          sessionId: retry.id,
+        });
         const passed = yield* flow("agent_flow_verification_complete", {
           operationId: OperationId.make("complete-passed"),
           outcome: "passed",
@@ -394,6 +476,7 @@ it.live(
           summary: "The password was accepted and the page confirmed sign-in.",
         });
         expect(passed.heads.verification).toMatchObject({
+          assessments: [{ outcome: "working", stepIndex: 0 }],
           revisionId: correctedRevisionId,
           status: "passed",
         });

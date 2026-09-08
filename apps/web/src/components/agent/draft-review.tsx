@@ -4,6 +4,7 @@ import type {
   AgentFlowId,
   AgentFlowManifest,
   AgentFlowRevisionId,
+  AgentFlowVerification,
   AgentSessionId,
   AgentSessionSnapshot,
 } from "@contingency/protocol";
@@ -396,20 +397,60 @@ const DraftFacts = ({ manifest }: { readonly manifest: AgentFlowManifest }) => (
 const VerificationGestures = ({
   authorization,
   failure,
+  manifest,
   onApprove,
   onAuthorize,
   pending,
+  verification,
 }: {
   readonly authorization: AuthorizationPresentation;
   /** Why the last gesture did not take effect, when one was refused. */
   readonly failure: string | undefined;
+  readonly manifest: AgentFlowManifest;
   readonly onApprove: () => void;
   readonly onAuthorize: () => void;
   readonly pending: boolean;
+  readonly verification: AgentFlowVerification | null;
 }) => (
   <div className="space-y-2 border-t pt-3">
     <h3 className="text-xs font-semibold">Verification</h3>
     <p className="text-muted-foreground text-xs">{authorization.detail}</p>
+    {verification === null || verification.assessments.length === 0 ? null : (
+      <ol aria-label="Verification Step verdicts" className="space-y-2">
+        {verification.assessments.map((assessment) => {
+          const step = manifest.steps[assessment.stepIndex];
+          return (
+            <li
+              className="space-y-1 rounded-md border p-2"
+              key={assessment.stepIndex}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium">
+                  Step {assessment.stepIndex + 1}:{" "}
+                  {step?.name ?? "Unknown Step"}
+                </span>
+                <Badge
+                  variant={
+                    assessment.outcome === "working" ? "default" : "destructive"
+                  }
+                >
+                  {assessment.outcome}
+                </Badge>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                {assessment.explanation}
+              </p>
+              <p className="text-muted-foreground font-mono text-xs wrap-anywhere">
+                Evidence:{" "}
+                {assessment.evidence
+                  .map((reference) => `${reference.kind} ${reference.id}`)
+                  .join(", ")}
+              </p>
+            </li>
+          );
+        })}
+      </ol>
+    )}
     {authorization.action === undefined ? null : (
       <Button disabled={pending} onClick={onAuthorize} size="sm" type="button">
         {authorization.action}
@@ -668,9 +709,11 @@ const DraftReviewContent = ({
         <VerificationGestures
           authorization={authorization}
           failure={failure}
+          manifest={manifest}
           onApprove={onApprove}
           onAuthorize={onAuthorize}
           pending={pending}
+          verification={detail.revision.heads.verification}
         />
         <RetirementControls
           archiveFailure={archiveFailure}

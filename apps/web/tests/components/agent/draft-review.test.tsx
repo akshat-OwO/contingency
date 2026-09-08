@@ -188,6 +188,17 @@ const manifest = {
 };
 
 interface Verification {
+  readonly assessments: readonly {
+    readonly attempts: number;
+    readonly evidence: readonly {
+      readonly id: string;
+      readonly kind: "snapshot" | "attempt";
+    }[];
+    readonly explanation: string;
+    readonly outcome: "working" | "not-working";
+    readonly stepIndex: number;
+    readonly submittedAt: string;
+  }[];
   readonly authorizationId: string;
   readonly authorizedAt: string;
   readonly completedAt: string | null;
@@ -225,6 +236,19 @@ const verificationOf = (
   summary: string | null = null,
   revisionId = "rev-1"
 ): Verification => ({
+  assessments:
+    status === "authorized" || status === "running"
+      ? []
+      : [
+          {
+            attempts: 1,
+            evidence: [{ id: "snapshot-1", kind: "snapshot" }],
+            explanation: "The Step was checked in the fresh context.",
+            outcome: status === "passed" ? "working" : "not-working",
+            stepIndex: 0,
+            submittedAt: at,
+          },
+        ],
   authorizationId: "auth-1",
   authorizedAt: at,
   completedAt: status === "passed" || status === "failed" ? at : null,
@@ -584,6 +608,11 @@ test("reports a failed Verification Run and offers another authorization", async
   expect(
     screen.queryByRole("button", { name: "Approve Agent Flow" })
   ).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("list", { name: "Verification Step verdicts" })
+  ).toHaveTextContent("Step 1: Sign in");
+  expect(screen.getByText("not-working")).toBeInTheDocument();
+  expect(screen.getByText(/snapshot snapshot-1/u)).toBeInTheDocument();
 });
 
 test("approves the exact revision a Verification Run proved", async () => {

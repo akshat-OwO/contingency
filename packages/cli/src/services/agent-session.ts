@@ -790,7 +790,12 @@ const noteRunEvidence = (
   kind: "attempt" | "snapshot",
   id: string
 ): void => {
-  if (record.snapshot.run === null) {
+  if (
+    (record.snapshot.run === null ||
+      record.snapshot.run.activeStepIndex === null) &&
+    (record.snapshot.verification === null ||
+      record.snapshot.verification.activeStepIndex === null)
+  ) {
     return;
   }
   if (kind === "attempt") {
@@ -941,38 +946,26 @@ const actionBoundaryReasons = (
   action: AgentBrowserAction,
   intent: AgentActionIntent
 ): AgentExecutionBoundary["reason"][] => {
-  const step = record.snapshot.run?.steps.find(
-    (candidate) => candidate.index === record.snapshot.run?.activeStepIndex
-  );
+  const step =
+    record.snapshot.run?.steps.find(
+      (candidate) => candidate.index === record.snapshot.run?.activeStepIndex
+    ) ??
+    record.snapshot.verification?.steps.find(
+      (candidate) =>
+        candidate.index === record.snapshot.verification?.activeStepIndex
+    );
   const { objective } = intent;
   const knownObjective =
     objective === undefined ||
-    (step === undefined
-      ? record.snapshot.verification?.steps.some(
-          (candidate) =>
-            candidate.description === objective || candidate.name === objective
-        )
-      : objective === step.description || objective === step.name);
+    (step !== undefined &&
+      (objective === step.description || objective === step.name));
   const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
     action.type
   );
   // An explicit approved verification objective scopes the marker to that Step.
   // Without one, retain the conservative guard so omission cannot bypass it.
-  const verificationConfirmation =
-    objective === undefined
-      ? record.snapshot.verification?.steps.some(
-          (candidate) => candidate.confirmation
-        )
-      : record.snapshot.verification?.steps.some(
-          (candidate) =>
-            candidate.confirmation &&
-            (candidate.description === objective ||
-              candidate.name === objective)
-        );
   const needsConfirmation =
-    intent.irreversible === true ||
-    (mutating &&
-      (step?.confirmation === true || (verificationConfirmation ?? false)));
+    intent.irreversible === true || (mutating && step?.confirmation === true);
   // Domain Scope already decides where the session may travel, and a navigate
   // mutates nothing, so an in-scope destination is never an unknown objective
   // however the agent phrased it (ADR 0027).
@@ -997,10 +990,8 @@ const actionBoundaryReasons = (
  * named one, and the active Agent Step when it did not: during an Interactive
  * Run the ordered Step really is what the action contributes to.
  *
- * A Verification Run has no active Step, so there is nothing truthful to fall
- * back to. Naming a Confirmation Step here would put an unrelated Step's words
- * on an action that is not it — the user reads `requested` to decide, so an
- * unnamed action says so rather than borrowing a description.
+ * Verification and Interactive Runs both have one active ordered Step, so an
+ * unnamed action can use the same truthful fallback in either Run kind.
  */
 const boundaryObjective = (
   record: SessionRecord,
@@ -1009,6 +1000,9 @@ const boundaryObjective = (
   intent.objective ??
   record.snapshot.run?.steps.find(
     (step) => step.index === record.snapshot.run?.activeStepIndex
+  )?.description ??
+  record.snapshot.verification?.steps.find(
+    (step) => step.index === record.snapshot.verification?.activeStepIndex
   )?.description ??
   "An action the agent did not name an objective for";
 
@@ -2417,7 +2411,9 @@ const makeAgentSession = (
           action,
           intent,
           operationId: attemptId,
-          stepIndex: record.snapshot.run?.activeStepIndex,
+          stepIndex:
+            record.snapshot.run?.activeStepIndex ??
+            record.snapshot.verification?.activeStepIndex,
         });
         const reasons = actionBoundaryReasons(record, action, intent);
         for (const reason of reasons) {
@@ -3374,6 +3370,108 @@ const makeAgentSession = (
         )
       );
 
+    const assessVerificationStep = Effect.fn(
+      "AgentSession.assessVerificationStep"
+    )(function* assessDraftStep(
+      sessionId: AgentSessionId,
+      verification: AgentSessionVerification,
+      input: {
+        readonly evidence: readonly AgentAssessmentEvidence[];
+        readonly explanation: string;
+        readonly outcome: AgentAssessmentOutcome;
+      },
+      operationId: OperationId | string | undefined,
+      requestInput: string,
+      record: SessionRecord
+    ) {
+      if (verification.outcome !== null) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Verification Run ${verification.authorizationId} has already ended as ${verification.outcome} and accepts no further Agent Assessments.`
+          )
+        );
+      }
+      const activeIndex = verification.activeStepIndex;
+      const active =
+        activeIndex === null ? undefined : verification.steps[activeIndex];
+      if (activeIndex === null || active === undefined) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Verification Run ${verification.authorizationId} has no active Agent Step to assess.`
+          )
+        );
+      }
+      const unknown = input.evidence.filter((reference) =>
+        reference.kind === "snapshot"
+          ? !record.runEvidence.snapshots.has(reference.id)
+          : !record.runEvidence.attempts.has(reference.id)
+      );
+      if (unknown.length > 0) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_invalid",
+            `Agent Step ${activeIndex + 1} recorded no ${unknown
+              .map((reference) => `${reference.kind} ${reference.id}`)
+              .join(
+                ", "
+              )}. Cite a Browser Snapshot or an attempt from this Agent Step.`
+          )
+        );
+      }
+      const nextIndex = activeIndex + 1;
+      const hasNext =
+        advancesAgentRun(input.outcome) &&
+        nextIndex < verification.steps.length;
+      const submittedAt = now().toISOString();
+      const next = yield* mutate(sessionId, (snapshot) =>
+        snapshot.verification === null
+          ? snapshot
+          : {
+              ...snapshot,
+              updatedAt: submittedAt,
+              verification: {
+                ...snapshot.verification,
+                activeStepIndex: hasNext ? nextIndex : null,
+                assessments: [
+                  ...snapshot.verification.assessments,
+                  {
+                    attempts: record.runEvidence.attempts.size,
+                    evidence: input.evidence,
+                    explanation: input.explanation,
+                    outcome: input.outcome,
+                    stepIndex: activeIndex,
+                    submittedAt,
+                  },
+                ],
+              },
+            }
+      );
+      if (next === undefined) {
+        return yield* Effect.fail(notRunning(sessionId));
+      }
+      record.runEvidence.attempts.clear();
+      record.runEvidence.snapshots.clear();
+      const withEntry = yield* recordEntry(sessionId, {
+        actor: "agent",
+        at: submittedAt,
+        description: `Assessed "${active.name}" as ${input.outcome}`,
+        detail: input.explanation,
+        dispatched: false,
+        id: `assessment-${randomUUID()}`,
+        outcome: "completed",
+      });
+      yield* rememberSession(
+        operationId,
+        "assess",
+        sessionId,
+        requestInput,
+        withEntry
+      );
+      return withEntry;
+    });
+
     const assessStepUnlocked = Effect.fn("AgentSession.assessStep")(
       function* assessAgentStep(
         sessionId: AgentSessionId,
@@ -3408,7 +3506,18 @@ const makeAgentSession = (
         }
         const { run } = record.snapshot;
         if (run === null) {
-          return yield* Effect.fail(notRunning(sessionId));
+          const { verification } = record.snapshot;
+          if (verification === null) {
+            return yield* Effect.fail(notRunning(sessionId));
+          }
+          return yield* assessVerificationStep(
+            sessionId,
+            verification,
+            input,
+            operationId,
+            requestInput,
+            record
+          );
         }
         if (run.outcome !== null) {
           return yield* Effect.fail(

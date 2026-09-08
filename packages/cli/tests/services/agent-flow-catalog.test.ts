@@ -37,6 +37,18 @@ import type {
 
 const at = "2026-09-01T00:00:00.000Z";
 
+const verificationAssessment = (
+  outcome: "working" | "not-working" = "working"
+) => ({
+  attempts: 1,
+  evidence: [{ id: "snapshot-verification", kind: "snapshot" as const }],
+  explanation:
+    outcome === "working" ? "The Step reproduced." : "The Step did not work.",
+  outcome,
+  stepIndex: 0,
+  submittedAt: at,
+});
+
 const slice = (name: string, url: string): EvidenceSlice => ({
   actions: [
     {
@@ -805,6 +817,7 @@ it.effect(
         });
         yield* catalog.completeVerification({
           agentFlowId,
+          assessments: [verificationAssessment()],
           operationId: OperationId.make("fail-complete-1"),
           outcome: "passed",
           revisionId: first.manifest.revisionId,
@@ -840,6 +853,7 @@ it.effect(
         });
         const failed = yield* catalog.completeVerification({
           agentFlowId,
+          assessments: [verificationAssessment("not-working")],
           operationId: OperationId.make("fail-complete-2"),
           outcome: "failed",
           revisionId: second.manifest.revisionId,
@@ -926,6 +940,7 @@ it.effect("replays authorization and approval by operation id", () =>
       });
       yield* catalog.completeVerification({
         agentFlowId,
+        assessments: [verificationAssessment()],
         operationId: OperationId.make("replay-complete"),
         outcome: "passed",
         revisionId,
@@ -1059,6 +1074,7 @@ it.effect(
         });
         yield* catalog.completeVerification({
           agentFlowId,
+          assessments: [verificationAssessment()],
           operationId: OperationId.make("approved-complete"),
           outcome: "passed",
           revisionId,
@@ -1230,6 +1246,7 @@ it.effect(
         });
         yield* catalog.completeVerification({
           agentFlowId,
+          assessments: [verificationAssessment()],
           operationId: OperationId.make("retention-complete"),
           outcome: "passed",
           revisionId,
@@ -1297,6 +1314,7 @@ it.effect("does not report a committed approval as failed", () =>
       });
       yield* catalog.completeVerification({
         agentFlowId,
+        assessments: [verificationAssessment()],
         operationId: OperationId.make("approval-failure-complete"),
         outcome: "passed",
         revisionId,
@@ -1377,6 +1395,7 @@ it.effect("reads an approval retention duration from each Catalog Root", () =>
       });
       yield* catalog.completeVerification({
         agentFlowId,
+        assessments: [verificationAssessment()],
         operationId: OperationId.make("retained-complete"),
         outcome: "passed",
         revisionId,
