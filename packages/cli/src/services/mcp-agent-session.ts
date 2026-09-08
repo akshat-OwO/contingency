@@ -18,6 +18,7 @@ import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
 import type { AgentSessionError } from "./agent-session.ts";
 import { AgentSession } from "./agent-session.ts";
+import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 const AgentSessionStartParameters = Schema.Struct({
   activity: AgentSessionStart.fields.activity,
@@ -190,17 +191,19 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
  * request are MCP tools and nothing else: Agent View's loopback RPC exposes
  * only what the user does ([ADR 0026](../../../../docs/adr/0026-external-agents-control-agent-flows-through-mcp.md)).
  */
-export const AgentSessionTools = Toolkit.make(
-  AgentSessionsGetTool,
-  AgentSessionStartTool,
-  AgentSessionGetTool,
-  AgentSessionCloseTool,
-  AgentBrowserSnapshotTool,
-  AgentBrowserScreenshotTool,
-  AgentBrowserActTool,
-  AgentTakeoverRequestTool,
-  TeachingVariableInputTool,
-  AgentVariableEnterTool
+export const AgentSessionTools = withStrictParameters(
+  Toolkit.make(
+    AgentSessionsGetTool,
+    AgentSessionStartTool,
+    AgentSessionGetTool,
+    AgentSessionCloseTool,
+    AgentBrowserSnapshotTool,
+    AgentBrowserScreenshotTool,
+    AgentBrowserActTool,
+    AgentTakeoverRequestTool,
+    TeachingVariableInputTool,
+    AgentVariableEnterTool
+  )
 );
 
 /** The handlers behind those tools, shared by MCP and its tests. */

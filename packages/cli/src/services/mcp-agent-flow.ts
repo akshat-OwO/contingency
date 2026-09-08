@@ -29,6 +29,7 @@ import type { AgentFlowCatalogError } from "./agent-flow-catalog.ts";
 import { compileAgentFlowDraft } from "./agent-flow-compiler.ts";
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
+import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 /**
  * The failure an MCP client reads for catalog and Teaching tools. Refused
@@ -229,18 +230,20 @@ const AgentFlowVerificationCompleteTool = Tool.make(
  * alone grants those
  * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
  */
-export const AgentFlowTools = Toolkit.make(
-  AgentCatalogGetTool,
-  AgentCatalogSelectTool,
-  AgentCatalogSearchTool,
-  AgentFlowGetTool,
-  AgentFlowArchiveTool,
-  TeachingInstructionRecordTool,
-  TeachingFeedGetTool,
-  TeachingScreenshotGetTool,
-  AgentFlowDraftSaveTool,
-  AgentFlowVerificationStartTool,
-  AgentFlowVerificationCompleteTool
+export const AgentFlowTools = withStrictParameters(
+  Toolkit.make(
+    AgentCatalogGetTool,
+    AgentCatalogSelectTool,
+    AgentCatalogSearchTool,
+    AgentFlowGetTool,
+    AgentFlowArchiveTool,
+    TeachingInstructionRecordTool,
+    TeachingFeedGetTool,
+    TeachingScreenshotGetTool,
+    AgentFlowDraftSaveTool,
+    AgentFlowVerificationStartTool,
+    AgentFlowVerificationCompleteTool
+  )
 );
 
 export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({

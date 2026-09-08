@@ -20,6 +20,7 @@ import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreError } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
+import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
@@ -100,11 +101,13 @@ const AgentRunOpenTool = Tool.make("open_run", {
  * direct Agent View action can
  * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
  */
-export const AgentRunTools = Toolkit.make(
-  AgentFlowRunStartTool,
-  AgentRunStepAssessTool,
-  AgentRunCompleteTool,
-  AgentRunOpenTool
+export const AgentRunTools = withStrictParameters(
+  Toolkit.make(
+    AgentFlowRunStartTool,
+    AgentRunStepAssessTool,
+    AgentRunCompleteTool,
+    AgentRunOpenTool
+  )
 );
 
 export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
