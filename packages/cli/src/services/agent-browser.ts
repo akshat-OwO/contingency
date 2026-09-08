@@ -4,6 +4,7 @@ import {
   makeBrowserRpcError,
 } from "@contingency/protocol";
 import type {
+  AgentActionSubject,
   AgentBrowserAction,
   AgentBrowserSnapshot,
   AgentScreenshot,
@@ -405,6 +406,12 @@ export interface AgentElementRegistry {
   readonly resolve: (
     ref: string
   ) => Effect.Effect<ElementHandle, BrowserRpcErrorType>;
+  /**
+   * The role and accessible name the most recent Snapshot read for a
+   * reference, so an action can be described by what it acted on rather than
+   * by a reference that means nothing once the Snapshot is out of view.
+   */
+  readonly describe: (ref: string) => AgentActionSubject | undefined;
   /** Determine whether a referenced control is known to contain sensitive data. */
   readonly isSensitive: (
     ref: string
@@ -434,6 +441,7 @@ export const makeAgentElementRegistry = (
   now: () => Date = () => new Date()
 ): AgentElementRegistry => {
   const elements = new Map<string, ElementHandle>();
+  const subjects = new Map<string, AgentActionSubject>();
   const bounds = new Map<
     string,
     {
@@ -455,6 +463,7 @@ export const makeAgentElementRegistry = (
     const handles = [...elements.values()];
     elements.clear();
     bounds.clear();
+    subjects.clear();
     documentUrl = undefined;
     focused = undefined;
     return disposeHandles(handles);
@@ -474,6 +483,7 @@ export const makeAgentElementRegistry = (
       released.push(handle);
       elements.delete(ref);
       bounds.delete(ref);
+      subjects.delete(ref);
     }
     return disposeHandles(released);
   };
@@ -568,6 +578,7 @@ export const makeAgentElementRegistry = (
         const ref = AgentElementRef.make(`e${minted}`);
         elements.set(ref, element);
         bounds.set(ref, { height, width, x, y });
+        subjects.set(ref, { name: node.name, role: node.role });
         if (index - 1 === identity.focusedIndex) {
           focused = ref;
         }
@@ -763,6 +774,7 @@ export const makeAgentElementRegistry = (
 
   return {
     clear,
+    describe: (ref) => subjects.get(ref),
     focusedRef,
     isSensitive,
     pointRef,
@@ -774,7 +786,10 @@ export const makeAgentElementRegistry = (
 
 const REDACTED = "[sensitive input]";
 
-const redactKnownValues = (text: string, values: readonly string[]): string => {
+export const redactKnownValues = (
+  text: string,
+  values: readonly string[]
+): string => {
   if (values.includes(text)) {
     return REDACTED;
   }

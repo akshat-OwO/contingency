@@ -8,8 +8,20 @@
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
-import { Option, Schema } from "effect";
+// The broker is spawned from the skill directory, which sits outside the
+// workspace, so a bare `effect` specifier resolves against a repository root
+// that does not install it. It is resolved through the CLI package this
+// broker drives instead, which is the same copy the MCP server itself loads.
+const { Option, Schema } = await import(
+  pathToFileURL(
+    createRequire(import.meta.url).resolve("effect", {
+      paths: [new URL("../../../../packages/cli/", import.meta.url).pathname],
+    })
+  ).href
+);
 
 const REQUEST_TIMEOUT_MS = 60_000;
 const CallRequest = Schema.Struct({

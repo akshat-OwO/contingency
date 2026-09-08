@@ -1,4 +1,5 @@
 import {
+  AgentElementRef,
   AgentFlowId,
   AgentFlowRevisionId,
   makeBrowserRpcError,
@@ -17,6 +18,7 @@ import { Context, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect";
 
 import {
   AgentSession,
+  describeCapturedAction,
   makeAgentSessionLayer,
   makeAgentSessionService,
   verificationStartingUrl,
@@ -703,4 +705,67 @@ it("carries only a real page into a Verification Run's starting URL", () => {
   expect(verificationStartingUrl("about:blank")).toBeNull();
   expect(verificationStartingUrl("file:///tmp/page.html")).toBeNull();
   expect(verificationStartingUrl("[invalid URL]")).toBeNull();
+});
+
+/**
+ * A description is a sentence assembled from length-limited fragments, so a
+ * private literal longer than that limit is already cut in half by the time a
+ * whole-sentence redaction pass looks for it. Redaction runs per field, before
+ * assembly, so no prefix of a long token reaches the timeline.
+ */
+it("redacts a private literal longer than the label limit", () => {
+  // Long enough to outlast the label's length limit, and shaped like nothing
+  // a credential scanner should mistake for a real key.
+  const secret = "private-value-".repeat(16);
+  const described = describeCapturedAction(
+    { name: "API token", role: "textbox" },
+    { ref: AgentElementRef.make("e7"), text: secret, type: "fill" },
+    {},
+    [secret]
+  );
+  expect(described).toBe('Fill textbox "API token" with [sensitive input]');
+  expect(described).not.toContain("private-value");
+});
+
+/** A control whose accessible name echoes a private value is redacted too. */
+it("redacts a private literal in an accessible name or objective", () => {
+  const secret = "hunter2-hunter2-hunter2";
+  expect(
+    describeCapturedAction(
+      { name: `Signed in as ${secret}`, role: "button" },
+      { ref: AgentElementRef.make("e7"), type: "click" },
+      { objective: `Confirm ${secret} is signed in` },
+      [secret]
+    )
+  ).toBe("Confirm [sensitive input] is signed in");
+  expect(
+    describeCapturedAction(
+      { name: `Signed in as ${secret}`, role: "button" },
+      { ref: AgentElementRef.make("e7"), type: "click" },
+      {},
+      [secret]
+    )
+  ).toBe('Click button "Signed in as [sensitive input]"');
+});
+
+/**
+ * `sanitizeTeachingUrl` rewrites query parameters whose names look like
+ * secrets, so a private value the session knows about survives it in a path
+ * segment. The description strips it on the way to the timeline.
+ */
+it("redacts a private literal carried in a navigated URL", () => {
+  const secret = "not-a-real-session-value";
+  const described = describeCapturedAction(
+    undefined,
+    {
+      type: "navigate",
+      url: `https://shop.example.com/session/${secret}/cart`,
+    },
+    {},
+    [secret]
+  );
+  expect(described).toBe(
+    "Navigate to https://shop.example.com/session/[sensitive input]/cart"
+  );
+  expect(described).not.toContain(secret);
 });

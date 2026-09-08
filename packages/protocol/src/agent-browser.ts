@@ -193,8 +193,72 @@ export const AgentBrowserAct = Schema.Struct({
 });
 export type AgentBrowserAct = typeof AgentBrowserAct.Type;
 
-/** How an action reads in the timeline and in Agent View. */
-export const describeAgentAction = (action: AgentBrowserAction): string => {
+/**
+ * The acted-on control as the capture-time Browser Snapshot saw it. Actions
+ * name elements by reference, and a reference names nothing outside the
+ * Snapshot that minted it, so the role and accessible name travel with the
+ * description instead.
+ */
+export interface AgentActionSubject {
+  readonly name: string;
+  readonly role: string;
+}
+
+/**
+ * What is known about an attempt beyond the action itself: the agent's own
+ * one-line objective, and the control the reference resolved to when the
+ * action was dispatched.
+ */
+export interface AgentActionContext {
+  readonly objective?: string | undefined;
+  readonly subject?: AgentActionSubject | undefined;
+}
+
+/** Keep one timeline line readable when a control carries a whole paragraph. */
+const SUBJECT_NAME_LIMIT = 60;
+
+const truncate = (value: string): string =>
+  value.length <= SUBJECT_NAME_LIMIT
+    ? value
+    : `${value.slice(0, SUBJECT_NAME_LIMIT - 1).trimEnd()}\u2026`;
+
+/**
+ * Redaction placeholders are already their own sentence — quoting them reads
+ * as though the literal text `[sensitive input]` was typed into the field.
+ */
+const isPlaceholder = (value: string): boolean =>
+  value.startsWith("[") && value.endsWith("]");
+
+const quoted = (value: string): string =>
+  isPlaceholder(value) ? value : `"${truncate(value)}"`;
+
+/** How the acted-on control reads: its role and accessible name, else its ref. */
+const describeSubject = (
+  ref: string,
+  subject: AgentActionSubject | undefined
+): string => {
+  if (subject === undefined) {
+    return ref;
+  }
+  const name = subject.name.trim();
+  return name.length === 0 ? subject.role : `${subject.role} ${quoted(name)}`;
+};
+
+/**
+ * How an action reads in the timeline and in Agent View. The raw reference
+ * stays on the action payload as the join back to its Snapshot; this is the
+ * label a person reads, so it prefers the agent's stated objective, then the
+ * control's role and accessible name, and falls back to the reference only
+ * when the Snapshot no longer describes it.
+ */
+export const describeAgentAction = (
+  action: AgentBrowserAction,
+  context: AgentActionContext = {}
+): string => {
+  const objective = context.objective?.trim();
+  if (objective !== undefined && objective.length > 0) {
+    return objective;
+  }
   switch (action.type) {
     case "navigate": {
       return `Navigate to ${action.url}`;
@@ -205,26 +269,26 @@ export const describeAgentAction = (action: AgentBrowserAction): string => {
         : `Go ${action.action}`;
     }
     case "click": {
-      return `Click ${action.ref}`;
+      return `Click ${describeSubject(action.ref, context.subject)}`;
     }
     case "hover": {
-      return `Hover ${action.ref}`;
+      return `Hover ${describeSubject(action.ref, context.subject)}`;
     }
     case "fill": {
-      return `Fill ${action.ref}`;
+      return `Fill ${describeSubject(action.ref, context.subject)} with ${quoted(action.text)}`;
     }
     case "select": {
-      return `Select ${action.values.join(", ")} in ${action.ref}`;
+      return `Select ${action.values.map(quoted).join(", ")} in ${describeSubject(action.ref, context.subject)}`;
     }
     case "press": {
       return action.ref === undefined
         ? `Press ${action.key}`
-        : `Press ${action.key} on ${action.ref}`;
+        : `Press ${action.key} on ${describeSubject(action.ref, context.subject)}`;
     }
     case "scroll": {
       return action.ref === undefined
         ? `Scroll the page by ${action.deltaX}, ${action.deltaY}`
-        : `Scroll ${action.ref} by ${action.deltaX}, ${action.deltaY}`;
+        : `Scroll ${describeSubject(action.ref, context.subject)} by ${action.deltaX}, ${action.deltaY}`;
     }
     case "wait_for_text": {
       return `Wait for "${action.text}"`;
