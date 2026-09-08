@@ -63,6 +63,66 @@ export type ScreenshotHash = typeof ScreenshotHash.Type;
 export const AgentFlowRevisionStatus = Schema.Literals(["draft", "approved"]);
 export type AgentFlowRevisionStatus = typeof AgentFlowRevisionStatus.Type;
 
+/** A server-issued handle for one explicit user decision relayed over MCP. */
+export const AgentPendingDecisionId = Schema.String.check(
+  Schema.isPattern(/^pending-[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/u)
+).pipe(Schema.brand("@contingency/AgentPendingDecisionId"));
+export type AgentPendingDecisionId = typeof AgentPendingDecisionId.Type;
+
+export const AgentPendingDecisionKind = Schema.Literals([
+  "authorize_verification",
+  "approve_flow",
+]);
+export type AgentPendingDecisionKind = typeof AgentPendingDecisionKind.Type;
+
+export const AgentPendingDecisionChoice = Schema.Literals([
+  "authorize",
+  "approve",
+  "refuse",
+]);
+export type AgentPendingDecisionChoice = typeof AgentPendingDecisionChoice.Type;
+
+/**
+ * One open decision the external agent may present in its conversation. The
+ * id, kind, and exact target keep consent bound to the revision the user saw.
+ */
+export const AgentPendingDecision = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  createdAt: nonEmptyString,
+  kind: AgentPendingDecisionKind,
+  pendingDecisionId: AgentPendingDecisionId,
+  revisionId: AgentFlowRevisionId,
+  /** Human-readable bounded scope for the agent to quote before asking. */
+  scopeSummary: nonEmptyString,
+  /** The session whose page supplies verification's starting URL, when live. */
+  sessionId: Schema.NullOr(AgentSessionId),
+});
+export type AgentPendingDecision = typeof AgentPendingDecision.Type;
+
+/** The durable audit record produced when the agent relays the user's choice. */
+export const AgentPendingDecisionResolution = Schema.Struct({
+  agentFlowId: AgentFlowId,
+  decidedAt: nonEmptyString,
+  decision: AgentPendingDecisionChoice,
+  kind: AgentPendingDecisionKind,
+  operationId: OperationId,
+  pendingDecisionId: AgentPendingDecisionId,
+  revisionId: AgentFlowRevisionId,
+  userMessage: optionalNullable(nonEmptyString),
+});
+export type AgentPendingDecisionResolution =
+  typeof AgentPendingDecisionResolution.Type;
+
+export const AgentPendingDecisionResolve = Schema.Struct({
+  decision: AgentPendingDecisionChoice,
+  operationId: OperationId,
+  pendingDecisionId: AgentPendingDecisionId,
+  /** Audit context only. The server does not treat this as proof of consent. */
+  userMessage: optionalNullable(nonEmptyString),
+});
+export type AgentPendingDecisionResolve =
+  typeof AgentPendingDecisionResolve.Type;
+
 // ---------------------------------------------------------------------------
 // Demonstration and Teaching Feed
 // ---------------------------------------------------------------------------
@@ -516,8 +576,14 @@ export const AgentFlowHeads = Schema.Struct({
   approvedRevisionId: Schema.NullOr(AgentFlowRevisionId),
   archived: Schema.Boolean,
   createdAt: nonEmptyString,
+  decisionHistory: Schema.Array(AgentPendingDecisionResolution).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   draftRevisionId: Schema.NullOr(AgentFlowRevisionId),
   id: AgentFlowId,
+  pendingDecisions: Schema.Array(AgentPendingDecision).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
   schemaVersion: Schema.Literal(1),
   updatedAt: nonEmptyString,
   /**

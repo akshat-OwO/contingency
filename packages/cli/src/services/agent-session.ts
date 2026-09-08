@@ -26,6 +26,8 @@ import type {
   AgentRunStep,
   AgentRunSummary,
   AgentFlowDraftRef,
+  AgentPendingDecision,
+  AgentPendingDecisionResolution,
   AgentFlowVerificationOutcome,
   AgentSessionVerification,
   DraftEmulation,
@@ -194,6 +196,12 @@ export interface AgentSessionService {
   readonly recordDraft: (
     sessionId: AgentSessionId,
     draft: AgentFlowDraftRef
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /** Mirror catalog consent state into this session's read-only Agent View. */
+  readonly recordPendingDecisionState: (
+    sessionId: AgentSessionId,
+    pendingDecisions: readonly AgentPendingDecision[],
+    decisionHistory: readonly AgentPendingDecisionResolution[]
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * Record what the user told the agent to do, as the agent relayed it. The
@@ -2007,9 +2015,11 @@ const makeAgentSession = (
                   controller: "agent",
                   createdAt: at,
                   currentUrl: "about:blank",
+                  decisionHistory: [],
                   id: sessionId,
                   interruptedAction: null,
                   ownerProcessId: owner,
+                  pendingDecisions: [],
                   phase: "starting",
                   run: input.run ?? null,
                   takeover: null,
@@ -4008,6 +4018,21 @@ const makeAgentSession = (
         lock.withPermit(
           recordInstructionUnlocked(sessionId, text, operationId)
         ),
+      recordPendingDecisionState: (
+        sessionId,
+        pendingDecisions,
+        decisionHistory
+      ) =>
+        Effect.gen(function* mirrorPendingDecisionState() {
+          const record = yield* read(sessionId);
+          const next = yield* mutate(sessionId, (snapshot) => ({
+            ...snapshot,
+            decisionHistory,
+            pendingDecisions,
+            updatedAt: now().toISOString(),
+          }));
+          return next ?? record.snapshot;
+        }),
       recordVerificationOutcome: (sessionId, outcome) =>
         Effect.gen(function* noteVerificationOutcome() {
           const record = yield* read(sessionId);

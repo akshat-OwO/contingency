@@ -883,6 +883,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                 title: saved.manifest.title,
               })
             );
+            yield* agentUnavailable((service) =>
+              service.recordPendingDecisionState(
+                data.sessionId,
+                saved.heads.pendingDecisions,
+                saved.heads.decisionHistory
+              )
+            );
             return saved;
           })
         ),

@@ -9,6 +9,7 @@ import {
   AgentFlowRevision,
   AgentFlowRevisionId,
   AgentFlowDeleteResult,
+  AgentPendingDecisionId,
   EvidenceHash,
   EvidenceSlice,
   OperationId,
@@ -21,6 +22,9 @@ import type {
   AgentFlowCompiler,
   AgentFlowDraftProposal,
   AgentFlowExpectedHeads,
+  AgentPendingDecision,
+  AgentPendingDecisionResolution,
+  AgentPendingDecisionResolve,
   AgentFlowSearch,
   AgentFlowSearchHit,
   AgentFlowSearchResult,
@@ -217,6 +221,11 @@ export interface CompleteVerificationInput extends RevisionOperationInput {
   readonly summary: string;
 }
 
+export interface ResolvePendingDecisionInput extends AgentPendingDecisionResolve {
+  /** Resolved from the pending decision's live session by the MCP adapter. */
+  readonly startingUrl?: string | null | undefined;
+}
+
 export interface SetArchivedInput {
   readonly agentFlowId: AgentFlowId;
   readonly archived: boolean;
@@ -265,6 +274,10 @@ export interface AgentFlowCatalogService {
   readonly approve: (
     input: RevisionOperationInput
   ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /** Apply one explicit user choice to the exact server-issued pending id. */
+  readonly resolvePendingDecision: (
+    input: ResolvePendingDecisionInput
+  ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
   /** Archive is recoverable and is the normal way to retire an Agent Flow. */
   readonly setArchived: (
     input: SetArchivedInput
@@ -281,6 +294,10 @@ export interface AgentFlowCatalogService {
     agentFlowId: AgentFlowId,
     revisionId?: AgentFlowRevisionId
   ) => Effect.Effect<AgentFlowRevision, AgentFlowCatalogError>;
+  /** Find one open server-issued decision without requiring its target ids. */
+  readonly pendingDecision: (
+    pendingDecisionId: AgentPendingDecisionId
+  ) => Effect.Effect<AgentPendingDecision, AgentFlowCatalogError>;
   readonly info: () => Effect.Effect<AgentCatalogInfo, AgentFlowCatalogError>;
   /**
    * Persist one validated draft revision as a directory package. The write
@@ -624,6 +641,45 @@ const verificationOf = (
     ? heads.verification
     : null;
 
+const pendingMatchesSavedManifest = (
+  heads: AgentFlowHeads,
+  manifest: AgentFlowManifest
+): boolean => {
+  const [pending] = heads.pendingDecisions;
+  return (
+    heads.pendingDecisions.length === 1 &&
+    pending?.agentFlowId === manifest.agentFlowId &&
+    pending.kind === "authorize_verification" &&
+    pending.revisionId === manifest.revisionId &&
+    pending.sessionId === manifest.sourceSessionId
+  );
+};
+
+const pendingScopeSummary = (
+  manifest: AgentFlowManifest,
+  kind: AgentPendingDecision["kind"]
+): string => {
+  const hosts = manifest.domainScope.hosts.join(", ");
+  return kind === "authorize_verification"
+    ? `Authorize one Verification Run of "${manifest.title}", revision ${manifest.revisionId}, with ${manifest.steps.length} Steps on ${hosts}.`
+    : `Approve "${manifest.title}", revision ${manifest.revisionId}, for future Runs after its passed Verification Run on ${hosts}.`;
+};
+
+const pendingDecision = (
+  manifest: AgentFlowManifest,
+  kind: AgentPendingDecision["kind"],
+  at: string,
+  sessionId: AgentSessionId | null
+): AgentPendingDecision => ({
+  agentFlowId: manifest.agentFlowId,
+  createdAt: at,
+  kind,
+  pendingDecisionId: AgentPendingDecisionId.make(`pending-${randomUUID()}`),
+  revisionId: manifest.revisionId,
+  scopeSummary: pendingScopeSummary(manifest, kind),
+  sessionId,
+});
+
 const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
   options: AgentFlowCatalogOptions
 ) {
@@ -829,8 +885,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               approvedRevisionId: null,
               archived: false,
               createdAt: manifest.createdAt,
+              decisionHistory: [],
               draftRevisionId: manifest.revisionId,
               id: manifest.agentFlowId,
+              pendingDecisions: heads.pendingDecisions,
               schemaVersion: 1,
               updatedAt: manifest.createdAt,
               verification: null,
@@ -838,6 +896,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           : {
               ...persisted.expectedHeads,
               draftRevisionId: manifest.revisionId,
+              pendingDecisions: heads.pendingDecisions,
               updatedAt: manifest.createdAt,
               verification: null,
             };
@@ -862,6 +921,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         persisted.result.path === expectedPath &&
         pathIsSafe &&
         sameHeads(heads, expectedResultHeads) &&
+        pendingMatchesSavedManifest(heads, manifest) &&
         manifest.basedOnRevisionId === expectedBasedOn &&
         slicesMatchManifest &&
         (persisted.expectedHeads === null ||
@@ -1743,8 +1803,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             approvedRevisionId: null,
             archived: false,
             createdAt: at,
+            decisionHistory: [],
             draftRevisionId: null,
             id: agentFlowId,
+            pendingDecisions: [],
             schemaVersion: 1,
             updatedAt: at,
             verification: null,
@@ -1829,6 +1891,14 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       const heads: AgentFlowHeads = {
         ...(expectedHeads ?? existing),
         draftRevisionId: revisionId,
+        pendingDecisions: [
+          pendingDecision(
+            manifest,
+            "authorize_verification",
+            at,
+            input.sourceSessionId
+          ),
+        ],
         updatedAt: at,
         // A changed draft is a different draft. The previous authorization
         // covered one exact revision and does not travel to this one.
@@ -2597,6 +2667,9 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               ...heads,
               approvedRevisionId: input.revisionId,
               draftRevisionId: null,
+              pendingDecisions: heads.pendingDecisions.filter(
+                ({ revisionId }) => revisionId !== input.revisionId
+              ),
               updatedAt: at,
             },
             manifest: { ...manifest, status: "approved" },
@@ -2649,6 +2722,11 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             return {
               heads: {
                 ...heads,
+                pendingDecisions: heads.pendingDecisions.filter(
+                  ({ kind, revisionId }) =>
+                    kind !== "authorize_verification" ||
+                    revisionId !== input.revisionId
+                ),
                 updatedAt: at,
                 verification: {
                   assessments: [],
@@ -2724,6 +2802,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
             return {
               heads: {
                 ...heads,
+                pendingDecisions: [
+                  pendingDecision(
+                    manifest,
+                    input.outcome === "passed"
+                      ? "approve_flow"
+                      : "authorize_verification",
+                    at,
+                    verification.sessionId
+                  ),
+                ],
                 updatedAt: at,
                 verification: {
                   ...verification,
@@ -2768,6 +2856,25 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       ),
     get: (agentFlowId, revisionId) => get(agentFlowId, revisionId),
     info: () => Ref.get(root).pipe(Effect.flatMap(info)),
+    pendingDecision: (pendingDecisionId) =>
+      Effect.gen(function* findPendingDecision() {
+        const catalogRoot = yield* Ref.get(root);
+        for (const agentFlowId of yield* listFlowIds(catalogRoot)) {
+          const heads = yield* readHeads(catalogRoot, agentFlowId);
+          const found = heads.pendingDecisions.find(
+            (candidate) => candidate.pendingDecisionId === pendingDecisionId
+          );
+          if (found !== undefined) {
+            return found;
+          }
+        }
+        return yield* Effect.fail(
+          catalogError(
+            "agent_flow_conflict",
+            `Pending decision ${pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+          )
+        );
+      }),
     replayDraftSave: (operationId, requestInput) =>
       writes.withPermit(
         Effect.gen(function* replayDraftSaveWithCatalogLock() {
@@ -2794,6 +2901,227 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           );
         })
       ),
+    resolvePendingDecision: (input) =>
+      writes
+        .withPermit(
+          Effect.gen(function* resolvePendingDecision() {
+            const catalogRoot = yield* Ref.get(root);
+            yield* ensureCatalogPath(
+              catalogRoot,
+              flowsDirectory(catalogRoot),
+              "Agent Flow Catalog"
+            );
+            const operationId = String(input.operationId);
+            const requestInput = canonicalJson({
+              decision: input.decision,
+              kind: "pending.resolve",
+              pendingDecisionId: input.pendingDecisionId,
+              userMessage: input.userMessage ?? null,
+            });
+            return yield* withCatalogLock(
+              catalogRoot,
+              Effect.gen(function* resolveUnderCatalogLock() {
+                const recordFile = headOperationFile(catalogRoot, operationId);
+                const recordExists = yield* fileSystem
+                  .exists(recordFile)
+                  .pipe(
+                    Effect.mapError(
+                      ioError(
+                        "Could not inspect the pending decision operation"
+                      )
+                    )
+                  );
+                if (recordExists) {
+                  const persisted = yield* readJson(
+                    AgentFlowHeadOperationRecord,
+                    recordFile,
+                    "pending decision operation record",
+                    catalogRoot
+                  );
+                  if (persisted.input !== requestInput) {
+                    return yield* Effect.fail(
+                      catalogError(
+                        "agent_flow_conflict",
+                        `Operation ${operationId} was already used for a different Agent Flow mutation.`
+                      )
+                    );
+                  }
+                  return yield* mutateHeadsUnlocked(
+                    catalogRoot,
+                    persisted.result.manifest.agentFlowId,
+                    operationId,
+                    requestInput,
+                    () =>
+                      Effect.fail(
+                        catalogError(
+                          "agent_flow_conflict",
+                          "A completed pending decision operation could not be replayed."
+                        )
+                      )
+                  );
+                }
+
+                let target: AgentPendingDecision | undefined;
+                for (const agentFlowId of yield* listFlowIds(catalogRoot)) {
+                  const heads = yield* readHeads(catalogRoot, agentFlowId);
+                  target = heads.pendingDecisions.find(
+                    ({ pendingDecisionId }) =>
+                      pendingDecisionId === input.pendingDecisionId
+                  );
+                  if (target !== undefined) {
+                    break;
+                  }
+                }
+                if (target === undefined) {
+                  return yield* Effect.fail(
+                    catalogError(
+                      "agent_flow_conflict",
+                      `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+                    )
+                  );
+                }
+                const expectedDecision =
+                  target.kind === "authorize_verification"
+                    ? "authorize"
+                    : "approve";
+                if (
+                  input.decision !== "refuse" &&
+                  input.decision !== expectedDecision
+                ) {
+                  return yield* Effect.fail(
+                    catalogError(
+                      "agent_flow_conflict",
+                      `Pending decision ${input.pendingDecisionId} accepts ${expectedDecision} or refuse, not ${input.decision}.`
+                    )
+                  );
+                }
+
+                return yield* mutateHeadsUnlocked(
+                  catalogRoot,
+                  target.agentFlowId,
+                  operationId,
+                  requestInput,
+                  (heads) =>
+                    Effect.gen(function* applyPendingDecision() {
+                      const current = heads.pendingDecisions.find(
+                        ({ pendingDecisionId }) =>
+                          pendingDecisionId === input.pendingDecisionId
+                      );
+                      if (current === undefined) {
+                        return yield* Effect.fail(
+                          catalogError(
+                            "agent_flow_conflict",
+                            `Pending decision ${input.pendingDecisionId} is stale. Reread pendingDecisions before asking the user again.`
+                          )
+                        );
+                      }
+                      const manifest = yield* requireDraftHead(
+                        catalogRoot,
+                        heads,
+                        current.revisionId
+                      );
+                      const decidedAt = now().toISOString();
+                      const resolutionBase = {
+                        agentFlowId: current.agentFlowId,
+                        decidedAt,
+                        decision: input.decision,
+                        kind: current.kind,
+                        operationId: input.operationId,
+                        pendingDecisionId: current.pendingDecisionId,
+                        revisionId: current.revisionId,
+                      } satisfies Omit<
+                        AgentPendingDecisionResolution,
+                        "userMessage"
+                      >;
+                      const resolution: AgentPendingDecisionResolution =
+                        input.userMessage === undefined
+                          ? resolutionBase
+                          : {
+                              ...resolutionBase,
+                              userMessage: input.userMessage,
+                            };
+                      const baseHeads: AgentFlowHeads = {
+                        ...heads,
+                        decisionHistory: [...heads.decisionHistory, resolution],
+                        pendingDecisions: heads.pendingDecisions.filter(
+                          ({ pendingDecisionId }) =>
+                            pendingDecisionId !== input.pendingDecisionId
+                        ),
+                        updatedAt: decidedAt,
+                      };
+                      if (input.decision === "refuse") {
+                        return {
+                          heads: baseHeads,
+                          manifest,
+                          writeManifest: false,
+                        };
+                      }
+                      if (current.kind === "authorize_verification") {
+                        return {
+                          heads: {
+                            ...baseHeads,
+                            verification: {
+                              assessments: [],
+                              authorizationId: `auth-${randomUUID()}`,
+                              authorizedAt: decidedAt,
+                              completedAt: null,
+                              revisionId: current.revisionId,
+                              sessionId: null,
+                              startedAt: null,
+                              startingUrl: input.startingUrl ?? null,
+                              status: "authorized",
+                              summary: null,
+                            },
+                          },
+                          manifest,
+                          writeManifest: false,
+                        };
+                      }
+                      const verification = verificationOf(
+                        heads,
+                        current.revisionId
+                      );
+                      if (
+                        verification === null ||
+                        verification.status !== "passed"
+                      ) {
+                        return yield* Effect.fail(
+                          catalogError(
+                            "agent_flow_conflict",
+                            `Agent Flow ${heads.id} revision ${current.revisionId} no longer has a passed Verification Run.`
+                          )
+                        );
+                      }
+                      return {
+                        heads: {
+                          ...baseHeads,
+                          approvedRevisionId: current.revisionId,
+                          draftRevisionId: null,
+                        },
+                        manifest: { ...manifest, status: "approved" },
+                      };
+                    })
+                );
+              })
+            );
+          })
+        )
+        .pipe(
+          Effect.tap((resolved) =>
+            input.decision === "approve"
+              ? applyApprovalRetention(resolved).pipe(
+                  // Effect error recovery is callback-based by design.
+                  // oxlint-disable-next-line promise/prefer-await-to-callbacks, promise/prefer-await-to-then
+                  Effect.catch((retentionError) =>
+                    Effect.logWarning(
+                      "Approval committed, but Teaching artifact retention could not be applied.",
+                      retentionError
+                    )
+                  )
+                )
+              : Effect.void
+          )
+        ),
     saveDraft: (input) =>
       writes.withPermit(
         Effect.gen(function* saveDraftWithCatalogLock() {

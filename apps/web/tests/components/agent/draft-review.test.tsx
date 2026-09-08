@@ -10,7 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -91,12 +91,6 @@ const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
     <RegistryProvider>{children}</RegistryProvider>
   </RpcDependenciesProvider>
 );
-
-const RecordedAuthorization = Schema.Struct({
-  payload: Schema.Struct({
-    data: Schema.Struct({ sessionId: Schema.String }),
-  }),
-});
 
 const at = "2026-09-02T00:00:00.000Z";
 
@@ -220,8 +214,29 @@ const detailWith = (
       approvedRevisionId: null,
       archived: false,
       createdAt: at,
+      decisionHistory: [],
       draftRevisionId: "rev-1",
       id: "flow-shop",
+      pendingDecisions:
+        verification !== null &&
+        (verification.revisionId !== "rev-1" ||
+          verification.status === "authorized" ||
+          verification.status === "running")
+          ? []
+          : [
+              {
+                agentFlowId: "flow-shop",
+                createdAt: at,
+                kind:
+                  verification?.status === "passed"
+                    ? ("approve_flow" as const)
+                    : ("authorize_verification" as const),
+                pendingDecisionId: "pending-review",
+                revisionId: "rev-1",
+                scopeSummary: "Review the exact draft scope.",
+                sessionId: "agent-one",
+              },
+            ],
       schemaVersion: 1,
       updatedAt: at,
       verification,
@@ -272,7 +287,6 @@ const renderReview = <Detail,>(
         refreshToken={refreshToken}
         revisionId={"rev-1"}
         sessionId={sessionId}
-        startingPageSessionId={sessionId}
       />
     </TestRegistry>
   );
@@ -374,7 +388,6 @@ test("does not carry deletion success into another Agent Flow review", async () 
         refreshToken={at}
         revisionId={"rev-1"}
         sessionId={"agent-one"}
-        startingPageSessionId={"agent-one"}
       />
     </TestRegistry>
   );
@@ -403,7 +416,6 @@ test("does not carry deletion success into another Agent Flow review", async () 
         refreshToken={at}
         revisionId={"rev-other"}
         sessionId={"agent-two"}
-        startingPageSessionId={"agent-two"}
       />
     </TestRegistry>
   );
@@ -514,28 +526,19 @@ test("splits one Agent Step at a demonstrated action", async () => {
   });
 });
 
-test("authorizes one Verification Run for the exact draft revision", async () => {
-  const user = userEvent.setup();
+test("shows authorization pending in the agent conversation without an action button", async () => {
   renderReview(detailWith(null), "agent-one");
 
-  await user.click(
-    await screen.findByRole("button", { name: "Authorize Verification Run" })
-  );
-
-  await waitFor(() => {
-    expect(rpc.authorizeCalls).toHaveLength(1);
-  });
-  const [call] = rpc.authorizeCalls;
-  expect(call.payload.data).toMatchObject({
-    agentFlowId: "flow-shop",
-    revisionId: "rev-1",
-    // The Run opens where the authorizing session stands (issue #139).
-    sessionId: "agent-one",
-  });
+  expect(
+    await screen.findByText("verification authorization")
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Authorize Verification Run" })
+  ).not.toBeInTheDocument();
+  expect(rpc.authorizeCalls).toHaveLength(0);
 });
 
-test("retries verification from the page the Verification Run is showing", async () => {
-  const user = userEvent.setup();
+test("shows a failed Verification Run retry as pending in conversation", async () => {
   rpc.detail = detailWith(verificationOf("failed", "The basket stayed empty."));
   render(
     <TestRegistry>
@@ -543,25 +546,15 @@ test("retries verification from the page the Verification Run is showing", async
         agentFlowId={"flow-shop"}
         refreshToken={at}
         revisionId={"rev-1"}
-        // The Verification Run panel owns no Demonstration to correct, but the
-        // retry must still open where that Run stands, not on `about:blank`.
         sessionId={undefined}
-        startingPageSessionId={"agent-verify"}
       />
     </TestRegistry>
   );
 
-  await user.click(
-    await screen.findByRole("button", { name: "Authorize Verification Run" })
-  );
-
-  await waitFor(() => {
-    expect(rpc.authorizeCalls).toHaveLength(1);
-  });
-  const retry = Schema.decodeUnknownSync(RecordedAuthorization)(
-    rpc.authorizeCalls[0]
-  );
-  expect(retry.payload.data.sessionId).toBe("agent-verify");
+  expect(
+    await screen.findByText("verification authorization")
+  ).toBeInTheDocument();
+  expect(rpc.authorizeCalls).toHaveLength(0);
 });
 
 test("withholds authorization until unsaved corrections are saved", async () => {
@@ -602,9 +595,7 @@ test("reports a failed Verification Run and offers another authorization", async
   expect(
     screen.getByText(/Any existing Approved Agent Flow is unchanged\./u)
   ).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: "Authorize Verification Run" })
-  ).toBeInTheDocument();
+  expect(screen.getByText("verification authorization")).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "Approve Agent Flow" })
   ).not.toBeInTheDocument();
@@ -615,22 +606,17 @@ test("reports a failed Verification Run and offers another authorization", async
   expect(screen.getByText(/snapshot snapshot-1/u)).toBeInTheDocument();
 });
 
-test("approves the exact revision a Verification Run proved", async () => {
-  const user = userEvent.setup();
+test("shows exact-revision approval pending without an action button", async () => {
   renderReview(
     detailWith(verificationOf("passed", "Both Agent Steps worked.")),
     "agent-one"
   );
 
-  await user.click(
-    await screen.findByRole("button", { name: "Approve Agent Flow" })
-  );
-
-  await waitFor(() => {
-    expect(rpc.approveCalls).toHaveLength(1);
-  });
-  const [call] = rpc.approveCalls;
-  expect(call.payload.data.revisionId).toBe("rev-1");
+  expect(await screen.findByText("flow approval")).toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Approve Agent Flow" })
+  ).not.toBeInTheDocument();
+  expect(rpc.approveCalls).toHaveLength(0);
 });
 
 test("treats an authorization for another revision as no authorization", async () => {
@@ -640,32 +626,28 @@ test("treats an authorization for another revision as no authorization", async (
   );
 
   expect(
-    await screen.findByRole("button", { name: "Authorize Verification Run" })
+    await screen.findByText(/Authorize or refuse this exact draft/u)
   ).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "Approve Agent Flow" })
   ).not.toBeInTheDocument();
 });
 
-test("shows why a refused gesture did not take effect", async () => {
-  const user = userEvent.setup();
+test("does not expose verification gestures when a write would be stale", async () => {
   renderReview(detailWith(null), "agent-one");
   rpc.writeError = "Agent Flow flow-shop draft head is rev-2, not rev-1.";
 
-  await user.click(
-    await screen.findByRole("button", { name: "Authorize Verification Run" })
-  );
-
   expect(
-    await screen.findByText(/draft head is rev-2, not rev-1\./u)
+    await screen.findByText("verification authorization")
   ).toBeInTheDocument();
+  expect(rpc.authorizeCalls).toHaveLength(0);
 });
 
 test("offers no corrections without the Teaching session behind the draft", async () => {
   renderReview(detailWith(null));
 
   expect(
-    await screen.findByRole("button", { name: "Authorize Verification Run" })
+    await screen.findByText("verification authorization")
   ).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "Save corrections" })
@@ -693,14 +675,14 @@ test("offers approval once the session reports the Run passed", async () => {
         refreshToken="2026-09-02T00:00:05.000Z"
         revisionId={"rev-1"}
         sessionId={undefined}
-        startingPageSessionId={undefined}
       />
     </TestRegistry>
   );
 
+  expect(await screen.findByText("flow approval")).toBeInTheDocument();
   expect(
-    await screen.findByRole("button", { name: "Approve Agent Flow" })
-  ).toBeInTheDocument();
+    screen.queryByRole("button", { name: "Approve Agent Flow" })
+  ).not.toBeInTheDocument();
 });
 
 test("keeps unsaved corrections when the draft is reread", async () => {
@@ -717,7 +699,6 @@ test("keeps unsaved corrections when the draft is reread", async () => {
         refreshToken="2026-09-02T00:00:05.000Z"
         revisionId={"rev-1"}
         sessionId={"agent-one"}
-        startingPageSessionId={"agent-one"}
       />
     </TestRegistry>
   );
@@ -808,7 +789,6 @@ const GatedReview = ({ shown }: { readonly shown: boolean }) => (
         refreshToken={at}
         revisionId={"rev-1"}
         sessionId={"agent-one"}
-        startingPageSessionId={"agent-one"}
       />
     ) : (
       <p>The draft is not on screen.</p>

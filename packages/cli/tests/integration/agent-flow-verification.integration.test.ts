@@ -62,14 +62,12 @@ const verificationLayer = (catalogRoot: string) =>
 
 /**
  * The whole review-verify-approve boundary over one real Chromium: the agent
- * teaches a private-input login, only Agent View can authorize verification,
- * the Verification Run opens a fresh context that knows nothing Teaching
- * prepared and asks for the runtime Variable again, and only Agent View turns
- * the verified revision into an Approved Agent Flow
- * ([ADR 0027](../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ * teaches a private-input login, relays explicit user decisions through MCP,
+ * opens Verification in a fresh context that knows nothing Teaching prepared,
+ * and approves only the exact revision the Run proved.
  */
 it.live(
-  "verifies a private-input login draft in a fresh context and refuses MCP self-approval",
+  "verifies and approves a private-input login through pending decisions",
   () =>
     Effect.gen(function* verifyPrivateLogin() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -83,14 +81,11 @@ it.live(
         const localSession = yield* AgentSession;
         const catalog = yield* AgentFlowCatalog;
 
-        // No MCP tool can authorize verification or approve a revision.
         const toolNames = [
           ...Object.keys(AgentFlowTools.tools),
           ...Object.keys(AgentSessionTools.tools),
         ];
-        expect(
-          toolNames.filter((name) => /approve|authoriz/u.test(name))
-        ).toEqual([]);
+        expect(toolNames).toContain("agent_pending_decision_resolve");
 
         // Teaching: the user types the password privately, so only the
         // declaration is captured.
@@ -171,6 +166,15 @@ it.live(
           sessionId: taught.id,
         });
         const { agentFlowId, revisionId } = saved.manifest;
+        const [authorizationPending] = saved.heads.pendingDecisions;
+        expect(authorizationPending).toMatchObject({
+          agentFlowId,
+          kind: "authorize_verification",
+          revisionId,
+        });
+        if (authorizationPending === undefined) {
+          throw new Error("The saved draft has no authorization decision.");
+        }
 
         // The agent cannot fund its own Verification Run.
         const unauthorized = yield* Effect.flip(
@@ -194,21 +198,30 @@ it.live(
         );
         expect(unverified.code).toBe("agent_flow_conflict");
 
-        // Agent View authorizes this one exact revision, from wherever
-        // Teaching left the browser.
+        // The agent relays the user's explicit choice for this one exact
+        // revision. Verification starts where Teaching left the browser.
         const authorizingFrom = yield* localSession.get(taught.id);
         const startingUrl = verificationStartingUrl(authorizingFrom.currentUrl);
         expect(startingUrl).toBe(loginUrl);
-        const authorized = yield* catalog.authorizeVerification({
-          agentFlowId,
+        const authorized = yield* flow("agent_pending_decision_resolve", {
+          decision: "authorize",
           operationId: OperationId.make("authorize-run"),
-          revisionId,
-          startingUrl,
+          pendingDecisionId: authorizationPending.pendingDecisionId,
+          userMessage: "Yes, authorize that verification.",
         });
         expect(authorized.heads.verification).toMatchObject({
           revisionId,
+          startingUrl: loginUrl,
           status: "authorized",
         });
+        const staleAuthorization = yield* Effect.flip(
+          flow("agent_pending_decision_resolve", {
+            decision: "authorize",
+            operationId: OperationId.make("authorize-stale"),
+            pendingDecisionId: authorizationPending.pendingDecisionId,
+          })
+        );
+        expect(staleAuthorization.code).toBe("agent_flow_conflict");
 
         const run = yield* flow("agent_flow_verification_start", {
           agentFlowId,
@@ -397,10 +410,16 @@ it.live(
         // The user authorizes once more, and then the agent proposes a changed
         // draft: the authorization covered one exact revision and does not
         // travel to the correction.
-        yield* catalog.authorizeVerification({
-          agentFlowId,
+        const [retryPending] = failedRun.heads.pendingDecisions;
+        if (retryPending === undefined) {
+          throw new Error(
+            "The failed Run has no retry authorization decision."
+          );
+        }
+        yield* flow("agent_pending_decision_resolve", {
+          decision: "authorize",
           operationId: OperationId.make("authorize-again"),
-          revisionId,
+          pendingDecisionId: retryPending.pendingDecisionId,
         });
         const corrected = yield* flow("agent_flow_draft_save", {
           agentFlowId,
@@ -440,11 +459,15 @@ it.live(
           expect(unfunded.code).toBe("agent_flow_conflict");
         }
 
-        // Another direct authorization, of the changed draft this time.
-        yield* catalog.authorizeVerification({
-          agentFlowId,
+        // The changed draft has its own pending id.
+        const [correctedPending] = corrected.heads.pendingDecisions;
+        if (correctedPending === undefined) {
+          throw new Error("The corrected draft has no authorization decision.");
+        }
+        yield* flow("agent_pending_decision_resolve", {
+          decision: "authorize",
           operationId: OperationId.make("authorize-corrected"),
-          revisionId: correctedRevisionId,
+          pendingDecisionId: correctedPending.pendingDecisionId,
         });
         const retry = yield* flow("agent_flow_verification_start", {
           agentFlowId,
@@ -486,21 +509,34 @@ it.live(
           sessionId: retry.id,
         });
 
-        // Only Agent View turns the verified revision into an Approved Agent
-        // Flow, and the gesture is idempotent by operation id.
-        const approved = yield* catalog.approve({
-          agentFlowId,
+        const [approvalPending] = passed.heads.pendingDecisions;
+        expect(approvalPending?.kind).toBe("approve_flow");
+        if (approvalPending === undefined) {
+          throw new Error("The passed Run has no approval decision.");
+        }
+        const approved = yield* flow("agent_pending_decision_resolve", {
+          decision: "approve",
           operationId: OperationId.make("approve-verified"),
-          revisionId: correctedRevisionId,
+          pendingDecisionId: approvalPending.pendingDecisionId,
+          userMessage: "Save it as approved.",
         });
         expect(approved.manifest.status).toBe("approved");
         expect(approved.manifest.steps[0]?.name).toBe("Sign in and confirm");
         expect(approved.heads.approvedRevisionId).toBe(correctedRevisionId);
         expect(approved.heads.draftRevisionId).toBeNull();
-        const replayed = yield* catalog.approve({
+        expect(approved.heads.decisionHistory.at(-1)).toMatchObject({
           agentFlowId,
-          operationId: OperationId.make("approve-verified"),
+          decision: "approve",
+          kind: "approve_flow",
+          operationId: "approve-verified",
           revisionId: correctedRevisionId,
+          userMessage: "Save it as approved.",
+        });
+        const replayed = yield* flow("agent_pending_decision_resolve", {
+          decision: "approve",
+          operationId: OperationId.make("approve-verified"),
+          pendingDecisionId: approvalPending.pendingDecisionId,
+          userMessage: "Save it as approved.",
         });
         expect(replayed).toEqual(approved);
         const found = yield* flow("agent_catalog_search", {

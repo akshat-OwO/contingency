@@ -225,6 +225,7 @@ const agentSessionOwnership: AgentSessionService = {
     Effect.succeed(ownedSessionId === genericPrivateSessionId),
   recordDraft: rpcNotUnderTest,
   recordInstruction: rpcNotUnderTest,
+  recordPendingDecisionState: rpcNotUnderTest,
   recordVerificationOutcome: rpcNotUnderTest,
   requestTakeover: rpcNotUnderTest,
   resolveBoundary: rpcNotUnderTest,
