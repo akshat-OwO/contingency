@@ -714,7 +714,9 @@ it("carries only a real page into a Verification Run's starting URL", () => {
  * assembly, so no prefix of a long token reaches the timeline.
  */
 it("redacts a private literal longer than the label limit", () => {
-  const secret = `sk-${"a".repeat(200)}`;
+  // Long enough to outlast the label's length limit, and shaped like nothing
+  // a credential scanner should mistake for a real key.
+  const secret = "private-value-".repeat(16);
   const described = describeCapturedAction(
     { name: "API token", role: "textbox" },
     { ref: AgentElementRef.make("e7"), text: secret, type: "fill" },
@@ -722,7 +724,7 @@ it("redacts a private literal longer than the label limit", () => {
     [secret]
   );
   expect(described).toBe('Fill textbox "API token" with [sensitive input]');
-  expect(described).not.toContain("sk-a");
+  expect(described).not.toContain("private-value");
 });
 
 /** A control whose accessible name echoes a private value is redacted too. */
@@ -752,7 +754,7 @@ it("redacts a private literal in an accessible name or objective", () => {
  * segment. The description strips it on the way to the timeline.
  */
 it("redacts a private literal carried in a navigated URL", () => {
-  const secret = "tok-8f3ad9c2e1b7";
+  const secret = "not-a-real-session-value";
   const described = describeCapturedAction(
     undefined,
     {
