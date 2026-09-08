@@ -1,6 +1,6 @@
 import { UploadIcon } from "lucide-react";
 import type { ChangeEvent } from "react";
-import { useCallback, useId } from "react";
+import { useId } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 
@@ -28,18 +28,15 @@ export const FlowUpload = ({
 }: FlowUploadProps) => {
   const inputId = useId();
 
-  const onChange = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      // Cleared either way, so choosing the same file twice still fires.
-      event.target.value = "";
-      if (file === undefined) {
-        return;
-      }
-      onLoad(await file.text(), file.name);
-    },
-    [onLoad]
-  );
+  const onChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Cleared either way, so choosing the same file twice still fires.
+    event.target.value = "";
+    if (file === undefined) {
+      return;
+    }
+    onLoad(await file.text(), file.name);
+  };
 
   return (
     <label

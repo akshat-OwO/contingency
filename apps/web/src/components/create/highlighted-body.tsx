@@ -9,16 +9,19 @@ const highlighter = createHighlighter({
   languages: [json, plaintext],
 });
 
-const prettyJsonIfParseable = (
-  value: string
-): { readonly language: "json" | "plaintext"; readonly text: string } => {
+interface HighlightedBodyContent {
+  readonly language: "json" | "plaintext";
+  readonly text: string;
+}
+
+const prettyJsonIfParseable = (value: string): HighlightedBodyContent => {
   if (value.length === 0) {
     return { language: "plaintext", text: "" };
   }
   try {
     return {
       language: "json",
-      text: JSON.stringify(JSON.parse(value) as unknown, null, 2),
+      text: JSON.stringify(JSON.parse(value), null, 2),
     };
   } catch {
     return { language: "plaintext", text: value };

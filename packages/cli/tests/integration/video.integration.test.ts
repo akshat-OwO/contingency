@@ -1,6 +1,5 @@
 import path from "node:path";
 
-import type { RunTraceManifest, RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 import { yauzl } from "playwright-core/lib/utilsBundle";
@@ -70,7 +69,7 @@ it.live("records a sensitive Playwright Trace by default", () =>
 
     const manifest = JSON.parse(
       yield* fileSystem.readFileString(path.join(directory, "trace.json"))
-    ) as RunTraceManifest;
+    );
     expect(manifest.runId).toBe(persisted.runId);
     expect(manifest.containsSecrets).toBe(false);
     expect(manifest.scrubbing).toBe("best-effort");
@@ -166,7 +165,7 @@ it.live.skipIf(!canDecodeVideo())(
 
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(path.join(directory, "video.json"))
-      ) as RunVideoManifest;
+      );
       expect(manifest.runId).toBe(persisted.runId);
       expect(manifest.containsSecrets).toBe(false);
       expect(manifest.segments).toHaveLength(1);
@@ -214,7 +213,7 @@ it.live.skipIf(!canDecodeVideo())(
       expect(persisted.video).toBe(true);
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(path.join(directory, "video.json"))
-      ) as RunVideoManifest;
+      );
       expect(manifest.segments[0]?.recorded).toBe(true);
       expect(
         (yield* Effect.result(
@@ -250,7 +249,7 @@ it.live.skipIf(!canDecodeVideo())(
       expect(persisted.outcome).toBe("failed");
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(path.join(directory, "video.json"))
-      ) as RunVideoManifest;
+      );
       const [segment] = manifest.segments;
       expect(segment?.error).toBeUndefined();
       expect(segment?.recorded).toBe(true);

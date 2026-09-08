@@ -4,22 +4,25 @@ import path from "node:path";
 
 import {
   AgentFlowId,
+  AgentFlowHeads,
+  AgentFlowManifest,
   AgentFlowRevisionId,
   AgentSessionId,
+  EvidenceSlice,
+  EvidenceHash,
   OperationId,
   ScreenshotHash,
+  StoredEvidenceSlice,
   UserAgentProfileId,
 } from "@contingency/protocol";
-import type {
-  AgentFlowDraftProposal,
-  EvidenceSlice,
-} from "@contingency/protocol";
+import type { AgentFlowDraftProposal } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Effect, FileSystem, Layer, Result, Schema } from "effect";
 
 import {
   AGENT_FLOWS_DIRECTORY,
+  AgentFlowOperationRecord,
   AgentFlowCatalog,
   CATALOG_CONFIG_FILE,
   canonicalJson,
@@ -145,24 +148,30 @@ it.effect("saves a draft as an inspectable revision package", () =>
         )
       );
 
-      const manifest = JSON.parse(
-        yield* fileSystem.readFileString(path.join(saved.path, "manifest.json"))
-      ) as unknown;
+      const manifest = Schema.decodeUnknownSync(AgentFlowManifest)(
+        JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(saved.path, "manifest.json")
+          )
+        )
+      );
       expect(manifest).toEqual(saved.manifest);
       const [step] = saved.manifest.steps;
       expect(step?.evidence.hash).toBe(
         evidenceHash(slice("Open the shop", "https://shop.example.com/"))
       );
-      const evidence = JSON.parse(
-        yield* fileSystem.readFileString(
-          path.join(
-            root,
-            AGENT_FLOWS_DIRECTORY,
-            saved.manifest.agentFlowId,
-            step?.evidence.path ?? ""
+      const evidence = Schema.decodeUnknownSync(EvidenceSlice)(
+        JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(
+              root,
+              AGENT_FLOWS_DIRECTORY,
+              saved.manifest.agentFlowId,
+              step?.evidence.path ?? ""
+            )
           )
         )
-      ) as unknown;
+      );
       expect(evidence).toEqual(
         slice("Open the shop", "https://shop.example.com/")
       );
@@ -225,9 +234,9 @@ it.effect("recovers a pending save before its head move after restart", () =>
       const saved = yield* catalog.saveDraft(input);
       const headsFile = path.join(saved.path, "..", "..", "agent-flow.json");
       const operationPath = operationFile(root, "save-pending-before");
-      const record = JSON.parse(
-        yield* fileSystem.readFileString(operationPath)
-      ) as Record<string, unknown>;
+      const record = Schema.decodeUnknownSync(AgentFlowOperationRecord)(
+        JSON.parse(yield* fileSystem.readFileString(operationPath))
+      );
       yield* fileSystem.writeFileString(
         operationPath,
         JSON.stringify({ ...record, status: "pending" })
@@ -277,9 +286,9 @@ it.effect("completes a pending save after its head move", () =>
       const input = saveInput("Pending after", "save-pending-after");
       const saved = yield* catalog.saveDraft(input);
       const operationPath = operationFile(root, "save-pending-after");
-      const record = JSON.parse(
-        yield* fileSystem.readFileString(operationPath)
-      ) as Record<string, unknown>;
+      const record = Schema.decodeUnknownSync(AgentFlowOperationRecord)(
+        JSON.parse(yield* fileSystem.readFileString(operationPath))
+      );
       yield* fileSystem.writeFileString(
         operationPath,
         JSON.stringify({ ...record, status: "pending" })
@@ -309,11 +318,9 @@ it.effect("refuses a persisted operation with an invalid head transition", () =>
       const input = saveInput("Invalid transition", "save-invalid-transition");
       yield* catalog.saveDraft(input);
       const operationPath = operationFile(root, "save-invalid-transition");
-      const record = JSON.parse(
-        yield* fileSystem.readFileString(operationPath)
-      ) as {
-        result: { heads: Record<string, unknown> };
-      };
+      const record = Schema.decodeUnknownSync(AgentFlowOperationRecord)(
+        JSON.parse(yield* fileSystem.readFileString(operationPath))
+      );
       yield* fileSystem.writeFileString(
         operationPath,
         JSON.stringify({
@@ -619,9 +626,9 @@ it.effect(
           saved.manifest.agentFlowId,
           "agent-flow.json"
         );
-        const heads = JSON.parse(
-          yield* fileSystem.readFileString(headsPath)
-        ) as Record<string, unknown>;
+        const heads = Schema.decodeUnknownSync(AgentFlowHeads)(
+          JSON.parse(yield* fileSystem.readFileString(headsPath))
+        );
         yield* fileSystem.writeFileString(
           headsPath,
           JSON.stringify({ ...heads, archived: true })
@@ -657,13 +664,11 @@ it.effect("recovers dead catalog locks but preserves foreign locks", () =>
   )
 );
 
-it("hashes evidence by content, not by key order", () => {
+it("canonicalizes evidence content independently of key order", () => {
   const first = slice("Open the shop", "https://shop.example.com/");
-  const reordered = Object.fromEntries(
-    Object.entries(first).toReversed()
-  ) as unknown as EvidenceSlice;
+  const reordered = Object.fromEntries(Object.entries(first).toReversed());
   expect(Object.keys(reordered)).not.toEqual(Object.keys(first));
-  expect(evidenceHash(reordered)).toBe(evidenceHash(first));
+  expect(canonicalJson(reordered)).toBe(canonicalJson(first));
   expect(canonicalJson({ a: [{ c: undefined, d: 2 }], b: 1 })).toBe(
     '{"a":[{"d":2}],"b":1}'
   );
@@ -968,26 +973,32 @@ it.effect("reads a Catalog Root written before drafts were verified", () =>
 
       // What an earlier Contingency wrote: a v1 manifest whose Agent Steps had
       // no demonstrated span, plus heads with no verification key.
-      const heads = JSON.parse(
-        yield* fileSystem.readFileString(
-          path.join(flowDirectory, "agent-flow.json")
+      const currentHeads = Schema.decodeUnknownSync(AgentFlowHeads)(
+        JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(flowDirectory, "agent-flow.json")
+          )
         )
-      ) as Record<string, unknown>;
-      delete heads.verification;
+      );
+      const heads = { ...currentHeads, verification: undefined };
       yield* fileSystem.writeFileString(
         path.join(flowDirectory, "agent-flow.json"),
         JSON.stringify(heads)
       );
 
       const manifestFile = path.join(saved.path, "manifest.json");
-      const manifest = JSON.parse(
-        yield* fileSystem.readFileString(manifestFile)
-      ) as { schemaVersion: number; steps: Record<string, unknown>[] };
-      manifest.schemaVersion = 1;
-      for (const step of manifest.steps) {
-        delete step.firstActionId;
-        delete step.lastActionId;
-      }
+      const currentManifest = Schema.decodeUnknownSync(AgentFlowManifest)(
+        JSON.parse(yield* fileSystem.readFileString(manifestFile))
+      );
+      const manifest = {
+        ...currentManifest,
+        schemaVersion: 1,
+        steps: currentManifest.steps.map((step) => ({
+          ...step,
+          firstActionId: undefined,
+          lastActionId: undefined,
+        })),
+      };
       yield* fileSystem.writeFileString(manifestFile, JSON.stringify(manifest));
 
       const read = yield* catalog.get(saved.manifest.agentFlowId);
@@ -1005,12 +1016,10 @@ it.effect("reads a Catalog Root written before drafts were verified", () =>
       expect(read.manifest.agentFlowId).toBe(saved.manifest.agentFlowId);
       expect(read.manifest.revisionId).toBe(saved.manifest.revisionId);
       // Reading migrates in memory. The v1 package remains untouched on disk.
+      const ManifestVersion = Schema.Struct({ schemaVersion: Schema.Number });
       expect(
-        (
-          JSON.parse(yield* fileSystem.readFileString(manifestFile)) as Record<
-            string,
-            unknown
-          >
+        Schema.decodeUnknownSync(ManifestVersion)(
+          JSON.parse(yield* fileSystem.readFileString(manifestFile))
         ).schemaVersion
       ).toBe(1);
       yield* catalog.setArchived({
@@ -1020,11 +1029,8 @@ it.effect("reads a Catalog Root written before drafts were verified", () =>
         operationId: OperationId.make("archive-migrated-v1"),
       });
       expect(
-        (
-          JSON.parse(yield* fileSystem.readFileString(manifestFile)) as Record<
-            string,
-            unknown
-          >
+        Schema.decodeUnknownSync(ManifestVersion)(
+          JSON.parse(yield* fileSystem.readFileString(manifestFile))
         ).schemaVersion
       ).toBe(1);
     })
@@ -1522,17 +1528,18 @@ it.effect("reads a package whose Evidence Slices embed their screenshots", () =>
 
       // What an earlier Contingency wrote: the PNG inside the slice itself.
       const manifestFile = path.join(saved.path, "manifest.json");
-      const manifest = JSON.parse(
-        yield* fileSystem.readFileString(manifestFile)
-      ) as {
-        steps: { evidence: { hash: string; path: string } }[];
-      };
-      for (const [index, step] of manifest.steps.entries()) {
-        const current = JSON.parse(
-          yield* fileSystem.readFileString(
-            path.join(flowDirectory, step.evidence.path)
+      const currentManifest = Schema.decodeUnknownSync(AgentFlowManifest)(
+        JSON.parse(yield* fileSystem.readFileString(manifestFile))
+      );
+      const steps = [];
+      for (const [index, step] of currentManifest.steps.entries()) {
+        const current = Schema.decodeUnknownSync(StoredEvidenceSlice)(
+          JSON.parse(
+            yield* fileSystem.readFileString(
+              path.join(flowDirectory, step.evidence.path)
+            )
           )
-        ) as Record<string, unknown>;
+        );
         const legacy = {
           ...current,
           schemaVersion: 1,
@@ -1548,15 +1555,21 @@ it.effect("reads a package whose Evidence Slices embed their screenshots", () =>
           ],
         };
         const contents = JSON.stringify(legacy);
-        const hash = `sha256-${createHash("sha256")
-          .update(canonicalJson(legacy))
-          .digest("hex")}`;
+        const hash = EvidenceHash.make(
+          `sha256-${createHash("sha256")
+            .update(canonicalJson(legacy))
+            .digest("hex")}`
+        );
         yield* fileSystem.writeFileString(
           path.join(flowDirectory, `evidence/${hash}.json`),
           contents
         );
-        step.evidence = { hash, path: `evidence/${hash}.json` };
+        steps.push({
+          ...step,
+          evidence: { hash, path: `evidence/${hash}.json` },
+        });
       }
+      const manifest = { ...currentManifest, steps };
       yield* fileSystem.writeFileString(manifestFile, JSON.stringify(manifest));
       // The screenshot store the v1 package never had.
       yield* fileSystem.remove(path.join(flowDirectory, "screenshots"), {
@@ -1583,10 +1596,7 @@ it.effect("reads a package whose Evidence Slices embed their screenshots", () =>
 );
 
 /** Rewrite one slice into the shape that embedded its screenshots. */
-const legacySlice = (
-  current: Record<string, unknown>,
-  index: number
-): Record<string, unknown> => ({
+const legacySlice = (current: StoredEvidenceSlice, index: number) => ({
   ...current,
   schemaVersion: 1,
   screenshots: [
@@ -1618,30 +1628,42 @@ it.effect(
         // What an earlier Contingency's write-ahead record held: the slices it
         // saved, with the PNG inside each one.
         const recordFile = operationFile(root, "screenshot-wal");
-        const record = JSON.parse(
-          yield* fileSystem.readFileString(recordFile)
-        ) as {
-          result: {
-            manifest: { steps: { evidence: Record<string, string> }[] };
-          };
-          slices: Record<string, unknown>[];
-        };
+        const record = Schema.decodeUnknownSync(AgentFlowOperationRecord)(
+          JSON.parse(yield* fileSystem.readFileString(recordFile))
+        );
+        const slices = [];
+        const steps = [...record.result.manifest.steps];
         for (const [index, stored] of record.slices.entries()) {
           const legacy = legacySlice(stored, index);
-          const hash = `sha256-${createHash("sha256")
-            .update(canonicalJson(legacy))
-            .digest("hex")}`;
+          const hash = EvidenceHash.make(
+            `sha256-${createHash("sha256")
+              .update(canonicalJson(legacy))
+              .digest("hex")}`
+          );
           yield* fileSystem.writeFileString(
             path.join(flowDirectory, `evidence/${hash}.json`),
             JSON.stringify(legacy)
           );
-          record.slices[index] = legacy;
-          const step = record.result.manifest.steps[index];
+          slices.push(legacy);
+          const step = steps[index];
           if (step !== undefined) {
-            step.evidence = { hash, path: `evidence/${hash}.json` };
+            steps[index] = {
+              ...step,
+              evidence: { hash, path: `evidence/${hash}.json` },
+            };
           }
         }
-        yield* fileSystem.writeFileString(recordFile, JSON.stringify(record));
+        yield* fileSystem.writeFileString(
+          recordFile,
+          JSON.stringify({
+            ...record,
+            result: {
+              ...record.result,
+              manifest: { ...record.result.manifest, steps },
+            },
+            slices,
+          })
+        );
 
         // A restarted process reads the record from disk. The same operation id
         // answers with the draft it already saved rather than refusing to read
@@ -1661,7 +1683,7 @@ it.effect(
               saved.manifest.revisionId
             );
             expect(replayed.manifest.steps[0]?.evidence.hash).toBe(
-              record.result.manifest.steps[0]?.evidence.hash
+              steps[0]?.evidence.hash
             );
           })
         );

@@ -814,13 +814,15 @@ export const redactAgentSnapshot = (
   values: readonly string[]
 ): AgentBrowserSnapshot => ({
   ...snapshot,
-  nodes: snapshot.nodes.map((node) => ({
-    ...node,
-    name: redactKnownValues(node.name, values),
-    ...(node.value === undefined
-      ? {}
-      : { value: redactControlValue(node.value, values) }),
-  })),
+  nodes: snapshot.nodes.map((node) => {
+    const redacted = {
+      ...node,
+      name: redactKnownValues(node.name, values),
+    };
+    return node.value === undefined
+      ? redacted
+      : { ...redacted, value: redactControlValue(node.value, values) };
+  }),
   title: redactKnownValues(snapshot.title, values),
 });
 
@@ -861,28 +863,30 @@ export const captureAgentScreenshot = (
           : await textElements.evaluateAll(
               (elements, values) =>
                 elements.flatMap((element, index) => {
-                  const ownText = [...element.childNodes]
-                    .filter((node) => node.nodeType === 3)
-                    .map((node) => node.textContent ?? "")
-                    .join(" ");
+                  const textParts: string[] = [];
+                  for (const node of element.childNodes) {
+                    if (node.nodeType === 3) {
+                      textParts.push(node.textContent ?? "");
+                    }
+                  }
+                  const ownText = textParts.join(" ");
                   return values.some((value) => ownText.includes(value))
                     ? [index]
                     : [];
                 }),
               textValues
             );
+      if (!maskSensitive) {
+        return page.screenshot({ timeout: ACTION_TIMEOUT_MS, type: "png" });
+      }
       return page.screenshot({
-        ...(maskSensitive
-          ? {
-              mask: [
-                page.locator(SENSITIVE_INPUT_SELECTOR),
-                ...privateSelectors.map((selector) => page.locator(selector)),
-                ...privateIndexes.map((index) => controls.nth(index)),
-                ...privateTextIndexes.map((index) => textElements.nth(index)),
-              ],
-              maskColor: "#000000",
-            }
-          : {}),
+        mask: [
+          page.locator(SENSITIVE_INPUT_SELECTOR),
+          ...privateSelectors.map((selector) => page.locator(selector)),
+          ...privateIndexes.map((index) => controls.nth(index)),
+          ...privateTextIndexes.map((index) => textElements.nth(index)),
+        ],
+        maskColor: "#000000",
         timeout: ACTION_TIMEOUT_MS,
         type: "png",
       });
@@ -902,6 +906,10 @@ const SETTLE_TIMEOUT_MS = 5000;
 
 interface AnimationFramePageGlobals {
   readonly requestAnimationFrame: (callback: () => void) => number;
+}
+
+declare global {
+  var requestAnimationFrame: AnimationFramePageGlobals["requestAnimationFrame"];
 }
 
 /**
@@ -929,24 +937,20 @@ export const snapshotAfterAction = (
         timeout: SETTLE_TIMEOUT_MS,
         waitUntil: "domcontentloaded",
       });
-      await page.evaluate(() => {
-        const browser = globalThis as unknown as AnimationFramePageGlobals;
-        return (
+      await page.evaluate(
+        () =>
           // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no Promise API.
           new Promise<void>((resolve) => {
-            browser.requestAnimationFrame(() => resolve());
+            globalThis.requestAnimationFrame(() => resolve());
           })
-        );
-      });
-      await page.evaluate(() => {
-        const browser = globalThis as unknown as AnimationFramePageGlobals;
-        return (
+      );
+      await page.evaluate(
+        () =>
           // oxlint-disable-next-line promise/avoid-new -- requestAnimationFrame has no Promise API.
           new Promise<void>((resolve) => {
-            browser.requestAnimationFrame(() => resolve());
+            globalThis.requestAnimationFrame(() => resolve());
           })
-        );
-      });
+      );
     },
   }).pipe(Effect.ignore);
   const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));
@@ -963,11 +967,11 @@ const attempt = <A>(
   });
 
 /** Resolve a reference and act on the element it still names, or fail. */
-const onElement = (
+const onElement = <Success>(
   registry: AgentElementRegistry,
   ref: string,
   description: string,
-  operation: (element: ElementHandle) => Promise<unknown>
+  operation: (element: ElementHandle) => Promise<Success>
 ): Effect.Effect<void, BrowserRpcErrorType> =>
   registry
     .resolve(ref)

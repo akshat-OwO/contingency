@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Option, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 /** Exact prefix for temporary ownership directories created by MCP. */
@@ -21,6 +21,8 @@ export const agentOwnerMarker = (pid: number): string => {
 
 export type ProcessIsAlive = (pid: number) => boolean;
 
+const ProcessError = Schema.Struct({ code: Schema.String });
+
 const hostProcessIsAlive: ProcessIsAlive = (pid) => {
   try {
     process.kill(pid, 0);
@@ -28,11 +30,8 @@ const hostProcessIsAlive: ProcessIsAlive = (pid) => {
   } catch (error) {
     // EPERM means the process exists but this process is not allowed to signal
     // it. Treating it as alive avoids deleting another user's live resources.
-    return (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "EPERM"
+    return Schema.decodeUnknownOption(ProcessError)(error).pipe(
+      Option.exists(({ code }) => code === "EPERM")
     );
   }
 };

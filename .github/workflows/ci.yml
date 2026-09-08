@@ -1,6 +1,6 @@
 # The gate. Lint, formatting, types, and tests, on every PR and every push to
 # main. Nothing else in this repo runs the test suites: the other checks
-# (React Doctor, GitGuardian, Macroscope) read the diff, not the code running.
+# (GitGuardian and Macroscope) read the diff, not the code running.
 
 name: CI
 

@@ -25,7 +25,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BrowserStoragePanel } from "@/components/create/browser-storage-panel";
 import type { StoragePanelUiState } from "@/components/create/browser-storage-panel";
@@ -42,7 +42,7 @@ import { HighlightedCode } from "@/components/create/highlighted-code";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { browserNetworkRequestMutation } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 type DevtoolsTab = "console" | "network" | "storage";
@@ -213,21 +213,19 @@ const requestMatchesFilter = (
   return type === filter;
 };
 
+type NetworkHeaders = BrowserNetworkRequest["headers"] | null | undefined;
+
 const recordEntries = (
-  value: unknown
-): readonly (readonly [string, string])[] => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return [];
-  }
-  return Object.entries(value).map(([key, entry]) => [key, String(entry)]);
-};
+  value: NetworkHeaders
+): readonly (readonly [string, string])[] =>
+  value === null || value === undefined ? [] : Object.entries(value);
 
 const prettyText = (value: string | undefined): string => {
   if (value === undefined || value.length === 0) {
     return "";
   }
   try {
-    return JSON.stringify(JSON.parse(value) as unknown, null, 2);
+    return JSON.stringify(JSON.parse(value), null, 2);
   } catch {
     return value;
   }
@@ -258,7 +256,7 @@ const renderHighlightedText = (
   return <HighlightedCode tokens={tokens} />;
 };
 
-const renderHeaderSection = (label: string, value: unknown) => {
+const renderHeaderSection = (label: string, value: NetworkHeaders) => {
   const entries = recordEntries(value);
   return (
     <section className="border-b p-3">
@@ -444,17 +442,13 @@ const DevtoolsNetworkPanel = ({
 }) => {
   const networkScrollRef = useRef<HTMLDivElement>(null);
   const normalizedQuery = networkQuery.trim().toLocaleLowerCase();
-  const visibleRequests = useMemo(
-    () =>
-      networkRequests.filter(
-        (request) =>
-          requestMatchesFilter(request, networkFilter) &&
-          (normalizedQuery.length === 0 ||
-            request.url.toLocaleLowerCase().includes(normalizedQuery) ||
-            request.method.toLocaleLowerCase().includes(normalizedQuery) ||
-            request.resourceType.toLocaleLowerCase().includes(normalizedQuery))
-      ),
-    [networkFilter, networkRequests, normalizedQuery]
+  const visibleRequests = networkRequests.filter(
+    (request) =>
+      requestMatchesFilter(request, networkFilter) &&
+      (normalizedQuery.length === 0 ||
+        request.url.toLocaleLowerCase().includes(normalizedQuery) ||
+        request.method.toLocaleLowerCase().includes(normalizedQuery) ||
+        request.resourceType.toLocaleLowerCase().includes(normalizedQuery))
   );
   const selectedRequest = networkRequests.find(
     ({ requestId }) => requestId === selectedRequestId
@@ -492,7 +486,7 @@ const DevtoolsNetworkPanel = ({
           {networkFilters.map((filter) => (
             <Button
               aria-pressed={networkFilter === filter.value}
-              className="h-6 rounded-full px-2 text-[11px]"
+              className="h-6 rounded-full px-2 text-xs"
               key={filter.value}
               onClick={() => onUpdateUiState({ networkFilter: filter.value })}
               size="sm"
@@ -510,7 +504,7 @@ const DevtoolsNetworkPanel = ({
             selectedRequest === undefined ? "flex-1" : "w-1/2 border-r"
           )}
         >
-          <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] border-b px-2 py-1 text-[11px] font-medium">
+          <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] border-b px-2 py-1 text-xs font-medium">
             <span>Status</span>
             <span>Method</span>
             <span>Name</span>
@@ -571,7 +565,7 @@ const DevtoolsNetworkPanel = ({
             <div className="flex h-8 shrink-0 items-center overflow-x-auto border-b px-1">
               {detailTabs.map((detailTabValue) => (
                 <Button
-                  className="h-7 rounded-none px-2 text-[11px] capitalize"
+                  className="h-7 rounded-none px-2 text-xs capitalize"
                   key={detailTabValue}
                   onClick={() => onUpdateUiState({ detailTab: detailTabValue })}
                   size="sm"
@@ -635,7 +629,7 @@ const renderDevtoolsHeader = ({
       </TabsTrigger>
       <TabsTrigger value="storage">Storage</TabsTrigger>
     </TabsList>
-    <span className="text-muted-foreground ml-2 min-w-0 truncate text-[11px]">
+    <span className="text-muted-foreground ml-2 min-w-0 truncate text-xs">
       {tabTitle}
     </span>
     <div className="ml-auto flex items-center gap-0.5">
@@ -689,6 +683,7 @@ export const BrowserDevtools = ({
   tabTitle,
   tabUrl,
 }: BrowserDevtoolsProps) => {
+  const { browserNetworkRequestMutation } = useRpcDependencies();
   const getNetworkRequest = useAtomSet(browserNetworkRequestMutation, {
     mode: "promise",
   });
@@ -711,19 +706,18 @@ export const BrowserDevtools = ({
   const updateUiState = (update: Partial<DevtoolsUiState>) => {
     setUiState((current) => ({ ...current, ...update }));
   };
-  const updateStorageUiState = useCallback(
-    (update: (current: StoragePanelUiState) => StoragePanelUiState) => {
-      setUiState((current) => {
-        const slice = storageSlice(current);
-        const nextSlice = update(slice);
-        if (nextSlice === slice) {
-          return current;
-        }
-        return { ...current, ...nextSlice };
-      });
-    },
-    [setUiState]
-  );
+  const updateStorageUiState = (
+    update: (current: StoragePanelUiState) => StoragePanelUiState
+  ) => {
+    setUiState((current) => {
+      const slice = storageSlice(current);
+      const nextSlice = update(slice);
+      if (nextSlice === slice) {
+        return current;
+      }
+      return { ...current, ...nextSlice };
+    });
+  };
 
   const selectRequest = (request: BrowserNetworkRequest) => {
     updateUiState({
@@ -767,7 +761,7 @@ export const BrowserDevtools = ({
   return (
     <Tabs
       className="bg-background size-full min-h-0 gap-0"
-      onValueChange={(value) => updateUiState({ tab: value as DevtoolsTab })}
+      onValueChange={(value) => updateUiState({ tab: value })}
       value={tab}
     >
       {renderDevtoolsHeader({

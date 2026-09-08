@@ -48,6 +48,8 @@ const attempt = <A>(run: () => Promise<A>) =>
   });
 
 /** One coordinator per Runner browser keeps interceptors bound to their session contexts. */
+type NavigationCDPSession = Pick<CDPSession, "on" | "send">;
+
 export class NavigationCoordinator {
   readonly policies = new Map<string, NavigationPolicy>();
   readonly targets = new Map<string, Deferred.Deferred<Target, Error>>();
@@ -59,11 +61,11 @@ export class NavigationCoordinator {
       readonly sessionId: string;
     }
   >();
-  readonly root: CDPSession;
+  readonly root: NavigationCDPSession;
   readonly scope: Scope.Closeable;
   private sequence = 0;
 
-  constructor(root: CDPSession, scope: Scope.Closeable) {
+  constructor(root: NavigationCDPSession, scope: Scope.Closeable) {
     this.root = root;
     this.scope = scope;
     root.on("Target.receivedMessageFromTarget", ({ message, sessionId }) => {
@@ -128,7 +130,7 @@ export class NavigationCoordinator {
   send(
     sessionId: string,
     method: string,
-    params: object
+    params: Schema.JsonObject
   ): Effect.Effect<void, Error> {
     return Effect.gen({ self: this }, function* sendCommand() {
       this.sequence += 1;

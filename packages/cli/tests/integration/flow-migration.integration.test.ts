@@ -60,14 +60,7 @@ it.live("runs a migrated Flow without rewriting the opened source", () =>
           "run.json"
         )
       )
-    ) as {
-      readonly flow?: {
-        readonly emulation?: {
-          readonly browser?: { readonly mobile?: boolean };
-          readonly userAgent?: string;
-        };
-      };
-    };
+    );
     expect(run.flow?.emulation?.browser?.mobile).toBe(true);
     expect(run.flow?.emulation?.userAgent).toBeUndefined();
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))

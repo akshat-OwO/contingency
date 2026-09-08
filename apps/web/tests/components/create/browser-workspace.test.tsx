@@ -18,11 +18,13 @@ import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import { BrowserWorkspace } from "@/components/create/browser-workspace";
 import { createWorkspaceAtom } from "@/components/create/create-workspace-state";
 import {
   emulationDraftAtom,
   initialEmulationDraft,
 } from "@/components/create/emulation-draft";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 const sessionId = SessionId.make("create-checkout");
 const tabId = BrowserTabId.make("tab-1");
@@ -31,82 +33,87 @@ const rpc = vi.hoisted(() => ({
   emulation: {
     permissions: [],
     viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
-  } as SessionEmulation,
+  } satisfies SessionEmulation,
   emulationSet: vi.fn(),
   open: vi.fn(),
   sessionClose: vi.fn(),
   sessionCreate: vi.fn(),
-  tabs: [] as BrowserTab[],
+  tabs: [] satisfies BrowserTab[],
   userAgent: vi.fn(),
   viewport: vi.fn(),
 }));
 
 /** One mutation atom answering with a fixed payload, recording its request. */
-const answer = <A,>(call: ((request: unknown) => void) | null, data: A) =>
-  Atom.fn((request: unknown) => {
-    call?.(request);
+const answer = <A,>(data: A) =>
+  Atom.fn(() => Effect.succeed({ data, type: "test.result" }));
+
+const recordingAnswer = <Request, A>(
+  call: (request: Request) => void,
+  data: A
+) =>
+  Atom.fn((request: Request) => {
+    call(request);
     return Effect.succeed({ data, type: "test.result" });
   });
 
-vi.mock("@/lib/rpc", () => ({
-  browserEmulationMutation: Atom.fn((request: unknown) => {
+const rpcOverrides = {
+  browserEmulationMutation: Atom.fn(<Request,>(request: Request) => {
     rpc.emulationSet(request);
     return Effect.succeed({
       data: { emulation: rpc.emulation },
-      type: "browser.emulation.updated" as const,
+      type: "browser.emulation.updated",
     });
   }),
-  browserEmulationQuery: answer(null, { emulation: rpc.emulation }),
-  browserFrameAckMutation: answer(null, {}),
-  browserInputMutation: answer(null, {}),
-  browserNavigationMutation: answer(null, {}),
-  browserNetworkRequestMutation: answer(null, { request: null }),
-  browserNetworkRequestsMutation: answer(null, { requests: [] }),
-  browserOpenMutation: Atom.fn((request: unknown) => {
+  browserEmulationQuery: answer({ emulation: rpc.emulation }),
+  browserFrameAckMutation: answer({}),
+  browserInputMutation: answer({}),
+  browserNavigationMutation: answer({}),
+  browserNetworkRequestMutation: answer({ request: null }),
+  browserNetworkRequestsMutation: answer({ requests: [] }),
+  browserOpenMutation: Atom.fn(<Request,>(request: Request) => {
     rpc.open(request);
     return Effect.succeed({
       data: { sessionId, url: "https://example.com/" },
-      type: "browser.opened" as const,
+      type: "browser.opened",
     });
   }),
-  browserSessionAttachMutation: answer(null, { sessionId, url: "" }),
-  browserSessionCloseMutation: answer(rpc.sessionClose, {}),
-  browserSessionCreateMutation: answer(rpc.sessionCreate, { sessionId }),
+  browserSessionAttachMutation: answer({ sessionId, url: "" }),
+  browserSessionCloseMutation: recordingAnswer(rpc.sessionClose, {}),
+  browserSessionCreateMutation: recordingAnswer(rpc.sessionCreate, {
+    sessionId,
+  }),
   browserSessionsAtom: Atom.make({
-    _tag: "Success" as const,
+    _tag: "Success",
     value: { data: { sessions: [] }, type: "browser.sessions.result" },
     waiting: false,
   }),
-  browserStorageClearMutation: answer(null, {}),
-  browserStorageDeleteMutation: answer(null, {}),
-  browserStorageGetMutation: answer(null, {
+  browserStorageClearMutation: answer({}),
+  browserStorageDeleteMutation: answer({}),
+  browserStorageGetMutation: answer({
     snapshot: { cookies: [], kind: "cookies", tabId },
   }),
-  browserStorageSetMutation: answer(null, {}),
-  browserTabCloseMutation: answer(null, {}),
-  browserTabNewMutation: answer(null, {}),
-  browserTabSwitchMutation: answer(null, {}),
+  browserStorageSetMutation: answer({}),
+  browserTabCloseMutation: answer({}),
+  browserTabNewMutation: answer({}),
+  browserTabSwitchMutation: answer({}),
   browserTabsMutation: Atom.fn(() =>
     Effect.succeed({
       data: { tabs: rpc.tabs },
-      type: "browser.tabs.result" as const,
+      type: "browser.tabs.result",
     })
   ),
-  browserUserAgentMutation: Atom.fn((request: unknown) => {
+  browserUserAgentMutation: Atom.fn(<Request,>(request: Request) => {
     rpc.userAgent(request);
     return Effect.succeed({
       data: { url: "https://example.com/", userAgentProfile: "default" },
-      type: "browser.user-agent.updated" as const,
+      type: "browser.user-agent.updated",
     });
   }),
-  browserViewportMutation: answer(rpc.viewport, {
+  browserViewportMutation: recordingAnswer(rpc.viewport, {
     viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
   }),
   runBrowserStream: () => Effect.never,
-}));
-
-const { BrowserWorkspace } =
-  await import("@/components/create/browser-workspace");
+};
 
 const renderWorkspace = (recording: RecordingSnapshot | null = null) =>
   render(
@@ -124,7 +131,9 @@ const renderWorkspace = (recording: RecordingSnapshot | null = null) =>
         ],
       ]}
     >
-      <BrowserWorkspace />
+      <RpcDependenciesProvider overrides={rpcOverrides}>
+        <BrowserWorkspace />
+      </RpcDependenciesProvider>
     </RegistryProvider>
   );
 
@@ -145,15 +154,15 @@ const renderOpenSession = (recording: RecordingSnapshot | null = null) =>
         ],
       ]}
     >
-      <BrowserWorkspace />
+      <RpcDependenciesProvider overrides={rpcOverrides}>
+        <BrowserWorkspace />
+      </RpcDependenciesProvider>
     </RegistryProvider>
   );
 
 /** The payload of the last `browser.open`, which carries the snapshot. */
 const openedEmulation = () => {
-  const call = rpc.open.mock.calls.at(-1)?.[0] as
-    | { readonly payload: { readonly data: Record<string, unknown> } }
-    | undefined;
+  const call = rpc.open.mock.calls.at(-1)?.[0];
   return call?.payload.data;
 };
 
@@ -201,12 +210,7 @@ test("composes Emulation before a session exists and applies it at the first nav
     locale: "de-DE",
     userAgentProfile: "chrome-android-mobile",
   });
-  const { viewport } = opened.emulation as {
-    readonly viewport: {
-      readonly deviceScaleFactor: number;
-      readonly width: number;
-    };
-  };
+  const { viewport } = opened.emulation;
   expect(viewport.width).toBeLessThan(1280);
   expect(viewport.deviceScaleFactor).toBeGreaterThan(1);
 });
@@ -240,9 +244,7 @@ test("uses the active tab origin as the default location permission scope", asyn
     screen.getByRole("button", { name: "Apply and grant location" })
   );
 
-  const request = rpc.emulationSet.mock.calls.at(-1)?.[0] as {
-    readonly payload: { readonly data: Record<string, unknown> };
-  };
+  const request = rpc.emulationSet.mock.calls.at(-1)?.[0];
   expect(request.payload.data).toMatchObject({
     geolocation: { latitude: 52.52, longitude: 13.405 },
     permissions: [
@@ -269,7 +271,7 @@ test("sends a viewport edit made in the same tick as the submission", async () =
     fireEvent.change(screen.getByLabelText("Viewport width"), {
       target: { value: "500" },
     });
-    fireEvent.submit(address.closest("form") as HTMLFormElement);
+    fireEvent.submit(address.closest("form"));
     await Promise.resolve();
   });
 
@@ -277,10 +279,7 @@ test("sends a viewport edit made in the same tick as the submission", async () =
   if (submitted === undefined) {
     throw new Error("The submission sent no request.");
   }
-  const { userAgentProfile, viewport } = submitted.emulation as {
-    readonly userAgentProfile: string;
-    readonly viewport: { readonly width: number };
-  };
+  const { userAgentProfile, viewport } = submitted.emulation;
   expect(viewport.width).toBe(500);
   // Editing the viewport is an override of the identity's default, not a
   // retreat from the identity itself.
@@ -292,9 +291,7 @@ test("reapplies the identity onto the open session rather than reopening it", as
 
   await chooseIdentity("Chrome — Android Mobile");
 
-  const request = rpc.userAgent.mock.calls.at(-1)?.[0] as {
-    readonly payload: { readonly data: Record<string, unknown> };
-  };
+  const request = rpc.userAgent.mock.calls.at(-1)?.[0];
   // The whole identity is reapplied and the current URL reloaded, on the
   // session that already holds the page's cookies and storage.
   expect(request.payload.data).toMatchObject({
@@ -318,7 +315,7 @@ test("locks the Emulation controls while the session is being recorded", async (
     sessionId,
     tabId,
     undoAvailable: false,
-  } as unknown as RecordingSnapshot;
+  } satisfies unknown;
   renderOpenSession(recording);
 
   expect(screen.getByRole("combobox", { name: "User agent" })).toBeDisabled();

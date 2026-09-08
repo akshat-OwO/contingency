@@ -132,14 +132,17 @@ export type RecorderCaptureEvent = { readonly page: number } & (
 export const recorderError = (message: string): BrowserRpcErrorType =>
   makeBrowserRpcError("recording_unavailable", message);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+export interface NavigationCandidate {
+  readonly url: string;
+}
 
 export const decodeNavigationEvent = (
-  value: unknown
+  value: NavigationCandidate
 ): typeof NavigationCapture.Type | undefined => {
-  const candidate = isRecord(value) ? { ...value, type: "navigation" } : value;
-  const decoded = Schema.decodeUnknownResult(NavigationCapture)(candidate);
+  const decoded = Schema.decodeUnknownResult(NavigationCapture)({
+    ...value,
+    type: "navigation",
+  });
   return decoded._tag === "Success" && decoded.success.url.startsWith("http")
     ? decoded.success
     : undefined;
@@ -219,8 +222,8 @@ export type RecorderSequences = Map<string, number>;
  * is the recorder contradicting itself, which is lost integrity.
  */
 export const readRecorderPayload = (
-  presented: unknown,
-  raw: unknown,
+  presented: string,
+  raw: string,
   sequences: RecorderSequences,
   nonce: string
 ): PayloadOutcome => {
@@ -230,14 +233,13 @@ export const readRecorderPayload = (
   // recorder's own emissions are bounded at the source.
   if (
     presented !== nonce ||
-    typeof raw !== "string" ||
     new TextEncoder().encode(raw).byteLength > MAX_BINDING_PAYLOAD_BYTES
   ) {
     return { _tag: "forged" };
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as unknown;
+    parsed = JSON.parse(raw);
   } catch {
     return { _tag: "forged" };
   }
@@ -258,9 +260,13 @@ export const readRecorderPayload = (
  * How many events a page may report before it is reporting a defect rather
  * than an author's work. Held per Recording, checked per event.
  */
+export interface EventRateLimit {
+  readonly exceeded: () => boolean;
+}
+
 export const makeEventRateLimit = (
   now: () => number = Date.now
-): { readonly exceeded: () => boolean } => {
+): EventRateLimit => {
   let windowStart = now();
   let count = 0;
   return {

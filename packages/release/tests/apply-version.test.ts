@@ -12,7 +12,7 @@ import { publishableManifests } from "../src/publishable-packages.ts";
 const run = <A, E>(effect: Effect.Effect<A, E, NodeServices.NodeServices>) =>
   Effect.runPromise(Effect.provide(effect, NodeServices.layer));
 
-const makeRepo = async (manifest: Record<string, unknown>) => {
+const makeRepo = async <Manifest>(manifest: Manifest) => {
   const root = await mkdtemp(path.join(tmpdir(), "contingency-release-"));
   await Promise.all(
     publishableManifests.map(async (relativePath) => {
@@ -29,7 +29,7 @@ const readManifest = async (root: string) => {
     path.join(root, publishableManifests[0]),
     "utf-8"
   );
-  return JSON.parse(text) as Record<string, unknown>;
+  return JSON.parse(text);
 };
 
 describe("applyReleaseVersion", () => {

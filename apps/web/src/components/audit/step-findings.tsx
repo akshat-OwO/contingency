@@ -50,7 +50,7 @@ export const StepFindings = ({
                 <div className="flex items-center gap-2">
                   <span
                     className={cn(
-                      "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                      "rounded px-1.5 py-0.5 text-xs font-medium uppercase",
                       severityTone[finding.severity]
                     )}
                   >
@@ -58,7 +58,7 @@ export const StepFindings = ({
                   </span>
                   <span className="font-mono text-xs">{finding.rule}</span>
                   {breachedRules.has(finding.rule) && (
-                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 uppercase dark:text-amber-300">
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-700 uppercase dark:text-amber-300">
                       Gate
                     </span>
                   )}

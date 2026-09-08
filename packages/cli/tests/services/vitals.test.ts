@@ -44,11 +44,11 @@ const collect = async (
       type === "navigation" ? [{ responseStart: 7 }] : [],
     now: () => 0,
   };
-  const collected = (await runInNewContext(VITALS_COLLECTOR, {
+  const collected = await runInNewContext(VITALS_COLLECTOR, {
     performance: page,
     setTimeout,
     window: { [VITALS_GLOBAL]: state },
-  })) as Collected;
+  });
   return collected;
 };
 

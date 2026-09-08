@@ -128,7 +128,7 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
       const parsed = yield* Effect.try({
         catch: () =>
           storeError("agent_run_invalid", `${file} is not valid JSON.`),
-        try: () => JSON.parse(contents) as unknown,
+        try: () => JSON.parse(contents),
       });
       return yield* decodeSummary(parsed).pipe(
         Effect.mapError((cause) =>
@@ -195,7 +195,7 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
             Effect.try({
               catch: () =>
                 storeError("agent_run_invalid", `${file} is not valid JSON.`),
-              try: () => JSON.parse(contents) as unknown,
+              try: () => JSON.parse(contents),
             })
           ),
           Effect.flatMap(Schema.decodeUnknownEffect(CatalogRunConfiguration))

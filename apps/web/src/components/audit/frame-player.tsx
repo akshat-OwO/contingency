@@ -7,7 +7,7 @@ import {
   PlayIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import type { TimelineStep } from "@/components/audit/audit-workspace-state";
@@ -158,7 +158,7 @@ export const FramePlayer = ({
   // per executed Step, plus the settled state when capture produced one. The
   // element's `duration` only confirms it.
   const duration = segmentDuration(segment);
-  const pins = useMemo(() => framePins(segment), [segment]);
+  const pins = framePins(segment);
 
   const current =
     selected !== undefined &&
@@ -205,15 +205,15 @@ export const FramePlayer = ({
     return () => element?.removeEventListener("canplay", apply);
   }, [seek]);
 
-  const onScrub = useCallback((value: number) => {
+  const onScrub = (value: number) => {
     const element = video.current;
     if (element !== null) {
       element.currentTime = value;
     }
     setCurrentTime(value);
-  }, []);
+  };
 
-  const onToggle = useCallback(() => {
+  const onToggle = () => {
     const element = video.current;
     if (element === null) {
       return;
@@ -223,31 +223,25 @@ export const FramePlayer = ({
       return;
     }
     element.pause();
-  }, []);
+  };
 
-  const stepTo = useCallback(
-    (target: VideoFrameTarget | undefined) => {
-      if (target !== undefined) {
-        onPin(target);
-      }
-    },
-    [onPin]
-  );
+  const stepTo = (target: VideoFrameTarget | undefined) => {
+    if (target !== undefined) {
+      onPin(target);
+    }
+  };
 
-  const onKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        stepTo(next);
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        stepTo(previous);
-      }
-    },
-    [next, previous, stepTo]
-  );
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepTo(next);
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepTo(previous);
+    }
+  };
 
   const over = playheadAtSeconds(segment, currentTime);
   let playheadLabel = "No frame";
@@ -328,7 +322,7 @@ export const FramePlayer = ({
           <ChevronRightIcon className="size-3.5" />
         </Button>
 
-        <span className="font-mono text-[11px] tabular-nums">
+        <span className="font-mono text-xs tabular-nums">
           {formatTimecode(currentTime)} / {formatTimecode(duration)}
         </span>
 
@@ -352,7 +346,7 @@ export const FramePlayer = ({
           />
         </div>
 
-        <span className="text-[11px] whitespace-nowrap text-white/70">
+        <span className="text-xs whitespace-nowrap text-white/70">
           {playheadLabel}
         </span>
       </div>

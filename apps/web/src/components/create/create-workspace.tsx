@@ -1,5 +1,6 @@
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Effect, Fiber, Result } from "effect";
+import type { ComponentType, ReactNode } from "react";
 import { useEffect } from "react";
 
 import { BrowserWorkspace } from "@/components/create/browser-workspace";
@@ -15,9 +16,38 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { recordingAtom, runRecordingStream } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
-const CreateWorkspace = () => {
+export interface CreateWorkspaceComponents {
+  readonly Browser: ComponentType;
+  readonly Handle: ComponentType<{ readonly withHandle?: boolean }>;
+  readonly Panel: ComponentType<{
+    readonly children: ReactNode;
+    readonly defaultSize: string;
+    readonly id: string;
+    readonly minSize: string;
+  }>;
+  readonly PanelGroup: ComponentType<{
+    readonly children: ReactNode;
+    readonly className?: string;
+    readonly orientation: "horizontal" | "vertical";
+  }>;
+}
+
+const defaultComponents: CreateWorkspaceComponents = {
+  Browser: BrowserWorkspace,
+  Handle: ResizableHandle,
+  Panel: ResizablePanel,
+  PanelGroup: ResizablePanelGroup,
+};
+
+const CreateWorkspace = ({
+  components = defaultComponents,
+}: {
+  readonly components?: CreateWorkspaceComponents;
+}) => {
+  const { Browser, Handle, Panel, PanelGroup } = components;
+  const { recordingAtom, runRecordingStream } = useRpcDependencies();
   const isMobile = useIsMobile();
   const [, setWorkspace] = useAtom(createWorkspaceAtom);
   const [streamError, setStreamError] = useAtom(recordingStreamErrorAtom);
@@ -66,26 +96,26 @@ const CreateWorkspace = () => {
           <AlertDescription>{streamError}</AlertDescription>
         </Alert>
       )}
-      <ResizablePanelGroup
+      <PanelGroup
         className="bg-background min-h-0 flex-1 overflow-hidden rounded-xl border shadow-xs"
         orientation={isMobile ? "vertical" : "horizontal"}
       >
-        <ResizablePanel
+        <Panel
           defaultSize={isMobile ? "58%" : "72%"}
           id="browser"
           minSize={isMobile ? "16rem" : "32rem"}
         >
-          <BrowserWorkspace />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel
+          <Browser />
+        </Panel>
+        <Handle withHandle />
+        <Panel
           defaultSize={isMobile ? "42%" : "28%"}
           id="instructions"
           minSize={isMobile ? "16rem" : "18rem"}
         >
           <InstructionsPanel />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        </Panel>
+      </PanelGroup>
     </main>
   );
 };

@@ -124,16 +124,28 @@ export const cookieWriteFromDraft = (
   if (fieldError !== undefined) {
     return undefined;
   }
-  return {
-    domain: draft.domain.trim() || draft.domain,
-    ...(draft.expires < 0 ? {} : { expires: draft.expires }),
-    httpOnly: draft.httpOnly,
-    name: draft.name.trim(),
-    path: draft.path.trim() || "/",
-    ...(draft.sameSite === undefined ? {} : { sameSite: draft.sameSite }),
-    secure: draft.secure,
-    value: draft.value,
-  };
+  const withoutSameSite: BrowserCookieWrite =
+    draft.expires < 0
+      ? {
+          domain: draft.domain.trim() || draft.domain,
+          httpOnly: draft.httpOnly,
+          name: draft.name.trim(),
+          path: draft.path.trim() || "/",
+          secure: draft.secure,
+          value: draft.value,
+        }
+      : {
+          domain: draft.domain.trim() || draft.domain,
+          expires: draft.expires,
+          httpOnly: draft.httpOnly,
+          name: draft.name.trim(),
+          path: draft.path.trim() || "/",
+          secure: draft.secure,
+          value: draft.value,
+        };
+  return draft.sameSite === undefined
+    ? withoutSameSite
+    : { ...withoutSameSite, sameSite: draft.sameSite };
 };
 
 export const saveCookieMutation = (
@@ -222,13 +234,15 @@ export const selectedStorageRowExists = (
   return Object.hasOwn(entries, selection.key);
 };
 
+export interface StorageOriginChange {
+  readonly clearSearchAndSelection: boolean;
+  readonly snapshots: StorageSnapshots;
+}
+
 export const applyStorageOriginChange = (
   snapshots: StorageSnapshots,
   nextUrl: string
-): {
-  readonly clearSearchAndSelection: boolean;
-  readonly snapshots: StorageSnapshots;
-} => {
+): StorageOriginChange => {
   const nextOrigin = httpOriginFromUrl(nextUrl)?.origin;
   if (nextOrigin === snapshots.origin) {
     return { clearSearchAndSelection: false, snapshots };

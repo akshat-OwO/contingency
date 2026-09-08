@@ -31,11 +31,10 @@ const FRAME_IDENTITY_BEACON = "/frame-identity-beacon";
 const reportsOn = (beacon: string, requests: readonly string[]) =>
   requests
     .filter((request) => request.startsWith(`${beacon}?`))
-    .map(
-      (request) =>
-        Object.fromEntries(
-          new URLSearchParams(request.split("?")[1] ?? "")
-        ) as Record<string, string>
+    .map((request) =>
+      Object.fromEntries<string>(
+        new URLSearchParams(request.split("?")[1] ?? "")
+      )
     );
 
 const identityReports = (requests: readonly string[]) =>

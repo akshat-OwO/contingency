@@ -37,6 +37,7 @@ import {
   Effect,
   FileSystem,
   Layer,
+  Option,
   Ref,
   Result,
   Schema,
@@ -89,6 +90,31 @@ const catalogError = (
 const ioError = (context: string) => (cause: PlatformError) =>
   catalogError("agent_catalog_io", `${context}: ${cause.message}`);
 
+const ProcessError = Schema.Struct({ code: Schema.optional(Schema.String) });
+const RetentionDeadline = Schema.Struct({
+  deleteAfter: Schema.String,
+  retention: Schema.Literal("retain-for-days"),
+});
+const RetentionMetadata = Schema.Struct({
+  approvedAt: Schema.optional(Schema.String),
+  deleteAfter: Schema.optional(Schema.String),
+  files: Schema.optional(
+    Schema.Struct({
+      trace: Schema.String,
+      videos: Schema.Array(Schema.String),
+    })
+  ),
+  retention: Schema.optional(
+    Schema.Literals([
+      "delete-on-approval",
+      "expired",
+      "local",
+      "retain-for-days",
+    ])
+  ),
+  sensitive: Schema.optional(Schema.Boolean),
+});
+
 /** Only the exact format written by Contingency is eligible for recovery. */
 const lockOwnerPid = (contents: string): number | undefined => {
   const match = /^(?<pid>[1-9][0-9]*)\n$/u.exec(contents);
@@ -105,28 +131,21 @@ const processIsStale = (pid: number): boolean => {
     process.kill(pid, 0);
     return false;
   } catch (error) {
-    const code =
-      typeof error === "object" && error !== null && "code" in error
-        ? error.code
-        : undefined;
-    return code === "ESRCH";
+    return Schema.decodeUnknownOption(ProcessError)(error).pipe(
+      Option.exists(({ code }) => code === "ESRCH")
+    );
   }
 };
 
 const retentionDeadline = (contents: string): number | null => {
   try {
-    const metadata = JSON.parse(contents) as unknown;
-    if (
-      typeof metadata !== "object" ||
-      metadata === null ||
-      !("retention" in metadata) ||
-      metadata.retention !== "retain-for-days" ||
-      !("deleteAfter" in metadata) ||
-      typeof metadata.deleteAfter !== "string"
-    ) {
+    const metadata = Schema.decodeUnknownOption(RetentionDeadline)(
+      JSON.parse(contents)
+    );
+    if (Option.isNone(metadata)) {
       return null;
     }
-    const deadline = Date.parse(metadata.deleteAfter);
+    const deadline = Date.parse(metadata.value.deleteAfter);
     return Number.isNaN(deadline) ? null : deadline;
   } catch {
     return null;
@@ -300,7 +319,7 @@ export interface AgentFlowCatalogOptions {
  * expected to move, and the result it produced. A repeated operation id
  * answers with that result instead of moving the heads a second time.
  */
-const AgentFlowHeadOperationRecord = Schema.Struct({
+export const AgentFlowHeadOperationRecord = Schema.Struct({
   expectedHeads: AgentFlowHeads,
   input: Schema.String,
   operationId: OperationId,
@@ -319,7 +338,7 @@ const SourceArtifacts = Schema.Struct({
 });
 type SourceArtifacts = typeof SourceArtifacts.Type;
 
-const AgentFlowOperationRecord = Schema.Struct({
+export const AgentFlowOperationRecord = Schema.Struct({
   expectedHeads: Schema.NullOr(AgentFlowHeads),
   input: Schema.String,
   operationId: OperationId,
@@ -369,8 +388,8 @@ const AgentFlowDeletionRecord = Schema.Struct({
  * one address regardless of how its object was assembled.
  */
 const compareKeys = (
-  [left]: readonly [string, unknown],
-  [right]: readonly [string, unknown]
+  [left]: readonly [string, Schema.Json],
+  [right]: readonly [string, Schema.Json]
 ): number => {
   if (left === right) {
     return 0;
@@ -378,11 +397,13 @@ const compareKeys = (
   return left < right ? -1 : 1;
 };
 
-const normalizeJson = (input: unknown): unknown => {
+const JsonObject = Schema.Record(Schema.String, Schema.Json);
+
+const normalizeJson = (input: Schema.Json): Schema.Json => {
   if (Array.isArray(input)) {
     return input.map(normalizeJson);
   }
-  if (typeof input === "object" && input !== null) {
+  if (Schema.is(JsonObject)(input)) {
     const entries = Object.entries(input)
       .filter(([, entryValue]) => entryValue !== undefined)
       .toSorted(compareKeys);
@@ -393,8 +414,13 @@ const normalizeJson = (input: unknown): unknown => {
   return input;
 };
 
-export const canonicalJson = (value: unknown): string =>
-  JSON.stringify(normalizeJson(value));
+export const canonicalJson = <Value>(value: Value): string => {
+  const serialized = Schema.decodeUnknownSync(Schema.String)(
+    JSON.stringify(value)
+  );
+  const json = Schema.decodeUnknownSync(Schema.Json)(JSON.parse(serialized));
+  return JSON.stringify(normalizeJson(json));
+};
 
 /** The MCP-visible portion of a draft save request, stable across restarts. */
 export const normalizedDraftSaveInput = (input: {
@@ -418,7 +444,7 @@ const encodeSliceV1 = Schema.encodeSync(StoredEvidenceSliceV1);
  * rather than leaning on union encoding keeps one stored slice at one address
  * whichever version it belongs to.
  */
-const encodeStoredSlice = (slice: StoredEvidenceSlice): unknown =>
+const encodeStoredSlice = (slice: StoredEvidenceSlice) =>
   slice.schemaVersion === 1 ? encodeSliceV1(slice) : encodeSlice(slice);
 const encodeManifest = Schema.encodeSync(AgentFlowManifest);
 const encodeHeads = Schema.encodeSync(AgentFlowHeads);
@@ -435,16 +461,20 @@ const operationRecord = (
   result: AgentFlowRevision,
   slices: readonly StoredEvidenceSlice[],
   sourceArtifacts: SourceArtifacts | undefined
-): AgentFlowOperationRecord => ({
-  expectedHeads,
-  input,
-  operationId: OperationId.make(operationId),
-  result,
-  schemaVersion: 1,
-  slices,
-  ...(sourceArtifacts === undefined ? {} : { sourceArtifacts }),
-  status,
-});
+): AgentFlowOperationRecord => {
+  const record = {
+    expectedHeads,
+    input,
+    operationId: OperationId.make(operationId),
+    result,
+    schemaVersion: 1,
+    slices,
+    status,
+  } satisfies AgentFlowOperationRecord;
+  return sourceArtifacts === undefined
+    ? record
+    : { ...record, sourceArtifacts };
+};
 
 export const evidenceHash = (slice: StoredEvidenceSlice): EvidenceHash =>
   EvidenceHash.make(
@@ -687,7 +717,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         Effect.try({
           catch: () =>
             catalogError("agent_catalog_invalid", `${file} is not valid JSON.`),
-          try: () => JSON.parse(contents) as unknown,
+          try: () => JSON.parse(contents),
         })
       ),
       Effect.flatMap((parsed) =>
@@ -864,7 +894,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           try: () =>
             EvidenceHash.make(
               `sha256-${createHash("sha256")
-                .update(canonicalJson(JSON.parse(contents) as unknown))
+                .update(canonicalJson(JSON.parse(contents)))
                 .digest("hex")}`
             ),
         })
@@ -916,7 +946,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       const referenced = new Map(
         slices.flatMap((slice) =>
           (slice.schemaVersion === 1 ? [] : slice.screenshots).map(
-            (screenshot) => [screenshot.contentHash, screenshot.path] as const
+            (screenshot) => [screenshot.contentHash, screenshot.path]
           )
         )
       );
@@ -936,7 +966,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           Effect.mapError(ioError("Could not create the screenshot store"))
         );
       const supplied = new Map(
-        contents.map((content) => [content.contentHash, content] as const)
+        contents.map((content) => [content.contentHash, content])
       );
       yield* Effect.forEach(
         [...referenced],
@@ -1307,9 +1337,12 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         .pipe(
           Effect.mapError(ioError("Could not list the Agent Flow Catalog"))
         );
-      const ids = entries
-        .filter((entry) => Schema.is(AgentFlowId)(entry))
-        .map((entry) => AgentFlowId.make(entry));
+      const ids: AgentFlowId[] = [];
+      for (const entry of entries) {
+        if (Schema.is(AgentFlowId)(entry)) {
+          ids.push(AgentFlowId.make(entry));
+        }
+      }
       const present = yield* Effect.forEach(
         ids,
         (id) =>
@@ -1396,7 +1429,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         ).pipe(
           Effect.map((steps) => ({
             ...stored,
-            schemaVersion: 2 as const,
+            schemaVersion: 2,
             steps,
           }))
         )
@@ -1957,10 +1990,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
     }
   );
 
-  const mutateHeads = (
+  const mutateHeads = <Extra extends object>(
     kind: string,
     input: RevisionOperationInput,
-    extra: Record<string, unknown>,
+    extra: Extra,
     decide: (
       heads: AgentFlowHeads,
       at: string
@@ -2021,7 +2054,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           Effect.mapError(ioError("Could not inspect Catalog retention policy"))
         );
       if (!exists) {
-        return { mode: "delete-immediately" as const };
+        return { mode: "delete-immediately" };
       }
       const configured = yield* Effect.result(
         readJson(
@@ -2036,7 +2069,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
           "Catalog retention configuration is invalid; sensitive Teaching artifacts will use immediate deletion.",
           configured.failure
         );
-        return { mode: "delete-immediately" as const };
+        return { mode: "delete-immediately" };
       }
       return configured.success.approvalArtifactRetention;
     });
@@ -2161,18 +2194,19 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         .pipe(
           Effect.mapError(ioError("Could not read Teaching retention metadata"))
         );
-      const parsed = yield* Effect.try({
+      const metadata = yield* Effect.try({
         catch: () =>
           catalogError(
             "agent_catalog_invalid",
             "Teaching retention metadata is not valid JSON."
           ),
-        try: () => JSON.parse(current) as unknown,
+        try: () => {
+          const decoded = Schema.decodeUnknownOption(RetentionMetadata)(
+            JSON.parse(current)
+          );
+          return Option.getOrElse(decoded, () => ({}));
+        },
       });
-      const metadata =
-        typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-          ? parsed
-          : {};
       const deleteAfter = new Date(
         now().getTime() + policy.days * 86_400_000
       ).toISOString();
@@ -2483,7 +2517,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               draftRevisionId: null,
               updatedAt: at,
             },
-            manifest: { ...manifest, status: "approved" as const },
+            manifest: { ...manifest, status: "approved" },
           };
         })
       ).pipe(
@@ -2542,7 +2576,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                   sessionId: null,
                   startedAt: null,
                   startingUrl: input.startingUrl ?? null,
-                  status: "authorized" as const,
+                  status: "authorized",
                   summary: null,
                 },
               },
@@ -2741,7 +2775,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                   ...verification,
                   sessionId: input.sessionId,
                   startedAt: at,
-                  status: "running" as const,
+                  status: "running",
                 },
               },
               manifest,

@@ -32,15 +32,15 @@
     "format:fix": "oxfmt .",
     "check-types": "turbo run check-types",
     "check": "ultracite check",
-    "fix": "ultracite fix",
-    "doctor": "nubx react-doctor@latest"
+    "fix": "ultracite fix"
   },
   "devDependencies": {
-    "oxfmt": "0.62.0",
-    "oxlint": "1.77.0",
-    "turbo": "^2.10.9",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
+    "oxlint-plugin-react-doctor": "0.9.13",
+    "turbo": "^2.10.12",
     "typescript": "catalog:",
-    "ultracite": "7.10.1"
+    "ultracite": "7.11.0"
   },
   "devEngines": {
     "packageManager": {
@@ -52,5 +52,5 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "nub@0.7.4"
+  "packageManager": "nub@0.9.0"
 }

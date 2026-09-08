@@ -1,14 +1,14 @@
 import path from "node:path";
 
+import { AgentFlowDiagnostic } from "@contingency/protocol";
 import type {
   AgentActionResult,
-  AgentFlowDiagnostic,
   AgentRunState,
   AgentSessionSnapshot,
   AgentSnapshotNode,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -41,24 +41,45 @@ export const agentViewport = {
 /** The structured failure an MCP client actually reads. */
 export interface ToolFailure {
   readonly code: string;
-  readonly diagnostics?: readonly AgentFlowDiagnostic[];
+  readonly diagnostics?: readonly AgentFlowDiagnostic[] | undefined;
   readonly message: string;
 }
 
-const isToolFailure = (value: unknown): value is ToolFailure =>
-  typeof value === "object" &&
-  value !== null &&
-  "code" in value &&
-  "message" in value;
+const decodeToolSuccess = <Success extends Schema.Top>(
+  schema: Success,
+  result: typeof schema.Encoded
+) => Schema.decodeUnknownEffect(schema)(result);
+
+const ToolFailureSchema = Schema.Struct({
+  code: Schema.String,
+  diagnostics: Schema.optional(Schema.Array(AgentFlowDiagnostic)),
+  message: Schema.String,
+});
+
+const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>
+  Schema.decodeUnknownOption(ToolFailureSchema)(value).pipe(
+    Option.getOrUndefined
+  );
 
 /**
  * One MCP tool call, as the external agent makes it: validated parameters in,
  * the tool's success value out, and a structured failure raised so a test
  * asserts on it with `Effect.flip`.
  */
-export const makeCall =
-  <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) =>
-  <Name extends keyof Tools>(
+export function makeCall<Tools extends Record<string, Tool.Any>>(
+  toolkit: Toolkit.Toolkit<Tools>
+): <Name extends keyof Tools>(
+  name: Name,
+  params: Tool.Parameters<Tools[Name]>
+) => Effect.Effect<
+  Tool.Success<Tools[Name]>,
+  ToolFailure,
+  Tool.HandlersFor<Tools> | Tool.ResultDecodingServices<Tools[Name]>
+>;
+export function makeCall<Tools extends Record<string, Tool.Any>>(
+  toolkit: Toolkit.Toolkit<Tools>
+) {
+  return <Name extends keyof Tools>(
     name: Name,
     params: Tool.Parameters<Tools[Name]>
   ) =>
@@ -72,11 +93,19 @@ export const makeCall =
         return yield* Effect.die(`The ${String(name)} tool answered nothing.`);
       }
       const { result } = last;
-      if (isToolFailure(result)) {
-        return yield* Effect.fail(result);
+      const failure = decodeToolFailure(result);
+      if (failure !== undefined) {
+        return yield* Effect.fail(failure);
       }
-      return result as Tool.Success<Tools[Name]>;
+      const tool = toolkit.tools[name];
+      if (tool === undefined) {
+        return yield* Effect.die(`The ${String(name)} tool is not registered.`);
+      }
+      return yield* decodeToolSuccess(tool.successSchema, result).pipe(
+        Effect.orDie
+      );
     });
+}
 
 /** The agent's session, catalog, and Run tools, called the way MCP calls them. */
 export const sessionTool = makeCall(AgentSessionTools);
@@ -136,6 +165,11 @@ export const agentProcessLayer = (
   } = {}
 ) => {
   let selectedCatalogRoot = initialCatalogRoot;
+  const sessionOptions = {
+    baseUrl: "http://127.0.0.1:7777",
+    traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+  };
+  const catalogOptions = { root: initialCatalogRoot };
   return Layer.mergeAll(
     RpcHandlersLive,
     AgentSessionToolHandlersLive,
@@ -145,23 +179,24 @@ export const agentProcessLayer = (
     Layer.provideMerge(
       Layer.mergeAll(
         RecordingLive,
-        makeAgentSessionLayer({
-          baseUrl: "http://127.0.0.1:7777",
-          traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
-          ...(options.resourceDirectory === undefined
-            ? {}
-            : { resourceDirectory: options.resourceDirectory }),
-        }),
-        makeAgentFlowCatalogLayer({
-          root: initialCatalogRoot,
-          ...(options.followCatalogSelection === true
+        makeAgentSessionLayer(
+          options.resourceDirectory === undefined
+            ? sessionOptions
+            : {
+                ...sessionOptions,
+                resourceDirectory: options.resourceDirectory,
+              }
+        ),
+        makeAgentFlowCatalogLayer(
+          options.followCatalogSelection === true
             ? {
+                ...catalogOptions,
                 onSelect: (root: string) => {
                   selectedCatalogRoot = root;
                 },
               }
-            : {}),
-        }),
+            : catalogOptions
+        ),
         makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),

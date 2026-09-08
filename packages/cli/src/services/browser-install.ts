@@ -69,15 +69,6 @@ export const ensureChromiumInstalled: Effect.Effect<
   if (BROWSERS.every(isInstalled)) {
     return Effect.void;
   }
-  // The declaration pins only what is consumed; a playwright-core minor that
-  // reshapes this surface must fail here, loudly, rather than compile clean
-  // and break at runtime inside the installer.
-  if (typeof installBrowsersForNpmInstall !== "function") {
-    return new ChromiumInstallError({
-      cause: undefined,
-      message: `This playwright-core version does not expose the install surface Contingency relies on (lib/coreBundle). ${MANUAL_INSTALL}`,
-    });
-  }
   return Console.error(
     "Contingency needs its Chromium build, which is not installed yet. Downloading it now; this happens once."
   ).pipe(

@@ -8,33 +8,38 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
+import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
+import { AgentWorkspace } from "@/components/agent/agent-workspace";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+import { routeTree } from "@/routeTree.gen";
+
 const rpc = vi.hoisted(() => ({
-  agentStreamFailureMessage: undefined as string | undefined,
-  inputCalls: [] as unknown[],
-  navigateCalls: [] as unknown[],
-  returnControlCalls: [] as unknown[],
+  agentStreamFailureMessage: undefined,
+  inputCalls: [] satisfies unknown[],
+  navigateCalls: [] satisfies unknown[],
+  returnControlCalls: [] satisfies unknown[],
   sessionsResult: {
-    _tag: "Initial" as const,
+    _tag: "Initial",
     waiting: true,
-  } as unknown,
-  takeoverCalls: [] as unknown[],
-  variableInputCalls: [] as unknown[],
+  } satisfies unknown,
+  takeoverCalls: [] satisfies unknown[],
+  variableInputCalls: [] satisfies unknown[],
 }));
 
 /** The draft review is not what this test reads, so its revision never lands. */
 const pendingRevisionAtom = Atom.make(Effect.never);
 
-vi.mock("@/lib/rpc", () => ({
+const rpcOverrides = {
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
-  agentBrowserInputMutation: Atom.fn((payload: unknown) =>
+  agentBrowserInputMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.inputCalls.push(payload);
       return {};
     })
   ),
-  agentBrowserNavigateMutation: Atom.fn((payload: unknown) =>
+  agentBrowserNavigateMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.navigateCalls.push(payload);
       return {};
@@ -46,20 +51,20 @@ vi.mock("@/lib/rpc", () => ({
   agentFlowDraftUpdateMutation: Atom.fn(() => Effect.never),
   agentFlowRevisionAtom: () => pendingRevisionAtom,
   agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),
-  agentReturnControlMutation: Atom.fn((payload: unknown) =>
+  agentReturnControlMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.returnControlCalls.push(payload);
       return {};
     })
   ),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
-  agentTakeoverMutation: Atom.fn((payload: unknown) =>
+  agentTakeoverMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
       return {};
     })
   ),
-  agentTeachingVariableInputMutation: Atom.fn((payload: unknown) =>
+  agentTeachingVariableInputMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.variableInputCalls.push(payload);
       return {};
@@ -71,10 +76,13 @@ vi.mock("@/lib/rpc", () => ({
     rpc.agentStreamFailureMessage === undefined
       ? Effect.never
       : Effect.fail(new Error(rpc.agentStreamFailureMessage)),
-}));
+};
 
-const { AgentWorkspace } = await import("@/components/agent/agent-workspace");
-const { routeTree } = await import("@/routeTree.gen");
+const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
+  <RpcDependenciesProvider overrides={rpcOverrides}>
+    <RegistryProvider>{children}</RegistryProvider>
+  </RpcDependenciesProvider>
+);
 
 const session = {
   activity: "run",
@@ -94,15 +102,15 @@ const session = {
   updatedAt: "2026-08-31T00:00:00.000Z",
   verification: null,
   viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
-} as const;
+};
 
 type Session = typeof session;
 
 const resultFor = (sessions: readonly Session[]) => ({
-  _tag: "Success" as const,
+  _tag: "Success",
   value: {
     data: { sessions },
-    type: "agent.sessions.result" as const,
+    type: "agent.sessions.result",
   },
   waiting: false,
 });
@@ -116,9 +124,9 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
   (() => {
     rpc.sessionsResult = result;
     return render(
-      <RegistryProvider>
+      <TestRegistry>
         <AgentWorkspace requestedSessionId={requestedSessionId} />
-      </RegistryProvider>
+      </TestRegistry>
     );
   })();
 
@@ -208,9 +216,9 @@ test("keeps a selected Agent Session in the route query", async () => {
   const testRouter = createRouter({ history, routeTree });
   await testRouter.load();
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <RouterProvider router={testRouter} />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   const select = await screen.findByRole("combobox", {
@@ -249,7 +257,7 @@ test("shows the active controller and the action timeline", async () => {
             outcome: "failed",
           },
         ],
-      } as unknown as Session,
+      } satisfies unknown,
     ]),
     session.id
   );
@@ -285,7 +293,7 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
           },
           instructionCount: 2,
         },
-      } as unknown as Session,
+      } satisfies unknown,
     ]),
     session.id
   );
@@ -339,7 +347,7 @@ test("takes control from Agent View and returns it explicitly", async () => {
           requestedAt: "2026-08-31T00:00:03.000Z",
           requestedBy: "user",
         },
-      } as unknown as Session,
+      } satisfies unknown,
     ]),
     session.id
   );
@@ -371,7 +379,7 @@ test("forwards browser input only while the user holds the browser", async () =>
           requestedAt: "2026-08-31T00:00:03.000Z",
           requestedBy: "user",
         },
-      } as unknown as Session,
+      } satisfies unknown,
     ]),
     session.id
   );
@@ -393,7 +401,7 @@ const takenOverSession = {
     requestedAt: "2026-08-31T00:00:03.000Z",
     requestedBy: "user",
   },
-} as unknown as Session;
+} satisfies unknown;
 
 test("enters a private Variable during Teaching Takeover", async () => {
   const user = userEvent.setup();
@@ -403,7 +411,7 @@ test("enters a private Variable during Teaching Takeover", async () => {
         ...takenOverSession,
         activity: "teaching",
         teaching: { actionCount: 0, draft: null, instructionCount: 0 },
-      } as unknown as Session,
+      } satisfies unknown,
     ]),
     session.id
   );

@@ -130,18 +130,12 @@ export const initializePage = (session: CreateSession, page: Page): void => {
         network.delete(tabId);
         titles.delete(page);
         const [nextPage] = pageIds.keys();
-        return [
-          state.activePage === page ? nextPage : undefined,
-          {
-            ...state,
-            ...(state.activePage === page && nextPage !== undefined
-              ? { activePage: nextPage }
-              : {}),
-            network,
-            pageIds,
-            titles,
-          },
-        ];
+        const nextState = { ...state, network, pageIds, titles };
+        const updatedState =
+          state.activePage === page && nextPage !== undefined
+            ? { ...nextState, activePage: nextPage }
+            : nextState;
+        return [state.activePage === page ? nextPage : undefined, updatedState];
       })
     );
     if (replacement !== undefined) {

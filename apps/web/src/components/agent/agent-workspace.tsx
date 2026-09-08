@@ -28,7 +28,7 @@ import {
   UserRoundIcon,
 } from "lucide-react";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 import {
   agentControlPresentation,
@@ -65,23 +65,13 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
-import {
-  agentBrowserFrameAckMutation,
-  agentBrowserInputMutation,
-  agentBrowserNavigateMutation,
-  agentReturnControlMutation,
-  agentSessionsAtom,
-  agentTakeoverMutation,
-  agentTeachingVariableInputMutation,
-  runAgentBrowserStream,
-  runAgentSessionStream,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { ExecutionBoundary } from "./execution-boundary";
 
 const VARIABLE_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/u;
 
-const errorMessage = (error: unknown): string =>
+const errorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
     : "The Agent View could not connect.";
@@ -783,6 +773,17 @@ const useAgentView = (
   requestedSessionId: string | undefined,
   onSelectSession: ((sessionId: AgentSessionId) => void) | undefined
 ) => {
+  const {
+    agentBrowserFrameAckMutation,
+    agentBrowserInputMutation,
+    agentBrowserNavigateMutation,
+    agentReturnControlMutation,
+    agentSessionsAtom,
+    agentTakeoverMutation,
+    agentTeachingVariableInputMutation,
+    runAgentBrowserStream,
+    runAgentSessionStream,
+  } = useRpcDependencies();
   const sessionsResult = useAtomValue(agentSessionsAtom);
   const refreshSessions = useAtomRefresh(agentSessionsAtom);
   const [state, setState] = useAtom(agentViewStateAtom);
@@ -944,69 +945,65 @@ const useAgentView = (
     setState,
   ]);
 
-  const ackFrame = useCallback(
-    (
-      sessionId: AgentSessionId,
-      frame: Extract<BrowserStreamEvent, { readonly type: "frame" }>
-    ) =>
-      Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          acknowledgeFrame({
-            payload: {
-              data: {
-                frameId: frame.seq,
-                sessionId,
-                streamId: frame.streamId,
-              },
-              type: "agent.browser.frame.ack",
+  const ackFrame = (
+    sessionId: AgentSessionId,
+    frame: Extract<BrowserStreamEvent, { readonly type: "frame" }>
+  ) =>
+    Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        acknowledgeFrame({
+          payload: {
+            data: {
+              frameId: frame.seq,
+              sessionId,
+              streamId: frame.streamId,
             },
-          }),
-      }).pipe(Effect.ignore),
-    [acknowledgeFrame]
-  );
+            type: "agent.browser.frame.ack",
+          },
+        }),
+    }).pipe(Effect.ignore);
 
-  const enqueueFrame = useCallback(
-    (
-      sessionId: AgentSessionId,
-      frame: Extract<BrowserStreamEvent, { readonly type: "frame" }>,
-      cancelled: () => boolean
-    ) => {
-      const previous = pendingFrameRef.current;
-      if (previous !== null) {
-        Effect.runFork(ackFrame(sessionId, previous));
-      }
-      pendingFrameRef.current = frame;
-      if (frameRenderFiberRef.current !== null) {
-        return;
-      }
-      const render = Effect.gen(function* renderLatestFrame() {
-        while (pendingFrameRef.current !== null) {
-          const latest = pendingFrameRef.current;
-          pendingFrameRef.current = null;
-          const canvas = canvasRef.current;
-          if (canvas === null || cancelled()) {
-            yield* ackFrame(sessionId, latest);
-            continue;
-          }
-          yield* renderFrame(canvas, latest).pipe(
-            Effect.ensuring(ackFrame(sessionId, latest))
-          );
-          if (!cancelled()) {
-            setState((current) => ({ ...current, frameReady: true }));
-          }
+  const enqueueFrame = (
+    sessionId: AgentSessionId,
+    frame: Extract<BrowserStreamEvent, { readonly type: "frame" }>,
+    cancelled: () => boolean
+  ) => {
+    const previous = pendingFrameRef.current;
+    if (previous !== null) {
+      Effect.runFork(ackFrame(sessionId, previous));
+    }
+    pendingFrameRef.current = frame;
+    if (frameRenderFiberRef.current !== null) {
+      return;
+    }
+    const render = Effect.gen(function* renderLatestFrame() {
+      while (pendingFrameRef.current !== null) {
+        const latest = pendingFrameRef.current;
+        pendingFrameRef.current = null;
+        const canvas = canvasRef.current;
+        if (canvas === null || cancelled()) {
+          yield* ackFrame(sessionId, latest);
+          continue;
         }
-      }).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            frameRenderFiberRef.current = null;
-          })
-        )
-      );
-      frameRenderFiberRef.current = Effect.runFork(render);
-    },
-    [ackFrame, setState]
-  );
+        yield* renderFrame(canvas, latest).pipe(
+          Effect.ensuring(ackFrame(sessionId, latest))
+        );
+        if (!cancelled()) {
+          setState((current) => ({ ...current, frameReady: true }));
+        }
+      }
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          frameRenderFiberRef.current = null;
+        })
+      )
+    );
+    frameRenderFiberRef.current = Effect.runFork(render);
+  };
+  const ackFrameFromEffect = useEffectEvent(ackFrame);
+  const enqueueFrameFromEffect = useEffectEvent(enqueueFrame);
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
@@ -1061,7 +1058,11 @@ const useAgentView = (
                 return;
               }
               if (isFrame(event)) {
-                enqueueFrame(selectedSessionId, event, () => cancelled);
+                enqueueFrameFromEffect(
+                  selectedSessionId,
+                  event,
+                  () => cancelled
+                );
                 return;
               }
               if (isStatus(event)) {
@@ -1111,16 +1112,16 @@ const useAgentView = (
       const pendingFrame = pendingFrameRef.current;
       pendingFrameRef.current = null;
       if (pendingFrame !== null) {
-        Effect.runFork(ackFrame(selectedSessionId, pendingFrame));
+        Effect.runFork(ackFrameFromEffect(selectedSessionId, pendingFrame));
       }
     };
-  }, [ackFrame, enqueueFrame, selectedSessionId, setState]);
+  }, [selectedSessionId, setState]);
 
   /**
    * Taking control is a direct user action from this View, and returning it is
    * another: the agent can ask, but only the user moves the boundary.
    */
-  const changeControl = useCallback(() => {
+  const changeControl = () => {
     const current = state.session;
     if (current === undefined || state.controlPending) {
       return;
@@ -1131,30 +1132,34 @@ const useAgentView = (
       controlError: undefined,
       controlPending: true,
     }));
-    const change: () => Promise<unknown> =
+    const change =
       current.controller === "user"
-        ? () =>
-            requestReturnControl({
-              payload: {
-                data: { operationId, sessionId: current.id },
-                type: "agent.session.control.return",
-              },
-            })
-        : () =>
-            requestTakeover({
-              payload: {
-                data: {
-                  operationId,
-                  reason: "The user took control from Agent View.",
-                  sessionId: current.id,
+        ? Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              requestReturnControl({
+                payload: {
+                  data: { operationId, sessionId: current.id },
+                  type: "agent.session.control.return",
                 },
-                type: "agent.session.takeover",
-              },
-            });
+              }),
+          }).pipe(Effect.asVoid)
+        : Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              requestTakeover({
+                payload: {
+                  data: {
+                    operationId,
+                    reason: "The user took control from Agent View.",
+                    sessionId: current.id,
+                  },
+                  type: "agent.session.takeover",
+                },
+              }),
+          }).pipe(Effect.asVoid);
     controlFiberRef.current = Effect.runFork(
-      Effect.result(
-        Effect.tryPromise({ catch: (cause) => cause, try: change })
-      ).pipe(
+      Effect.result(change).pipe(
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
             setState((previous) => ({
@@ -1173,13 +1178,7 @@ const useAgentView = (
         )
       )
     );
-  }, [
-    requestReturnControl,
-    requestTakeover,
-    setState,
-    state.controlPending,
-    state.session,
-  ]);
+  };
 
   // A control change outlives no View: an unmount mid-request interrupts it
   // rather than leaving a fiber to write to a component that is gone.
@@ -1205,147 +1204,123 @@ const useAgentView = (
     );
   }, [currentUrl, setState]);
 
-  const setAddress = useCallback(
-    (address: string) => {
-      addressEditingRef.current = true;
-      setState((current) => ({ ...current, address }));
-    },
-    [setState]
-  );
+  const setAddress = (address: string) => {
+    addressEditingRef.current = true;
+    setState((current) => ({ ...current, address }));
+  };
 
   /**
    * Navigation during Takeover. The user drives the same browser the agent
    * does, so it goes through the Agent Session rather than the generic browser
    * RPCs: the lower-level session id never leaves the process.
    */
-  const runNavigation = useCallback(
-    (action: AgentHistoryAction | AgentNavigateAction) => {
-      const sessionId = activeSessionRef.current;
-      if (sessionId === null) {
-        return;
-      }
-      setState((current) => ({
-        ...current,
-        navigationError: undefined,
-        navigationPending: true,
-      }));
-      Effect.runFork(
-        Effect.result(
-          Effect.tryPromise({
-            catch: (cause) => cause,
-            try: () =>
-              navigateBrowser({
-                payload: {
-                  data: { action, sessionId },
-                  type: "agent.browser.navigate",
-                },
-              }),
-          })
-        ).pipe(
-          Effect.flatMap((outcome) =>
-            Effect.sync(() => {
-              setState((current) => ({
-                ...current,
-                navigationError: Result.isFailure(outcome)
-                  ? errorMessage(outcome.failure)
-                  : undefined,
-                navigationPending: false,
-              }));
-            })
-          )
-        )
-      );
-    },
-    [navigateBrowser, setState]
-  );
-
-  const navigate = useCallback(
-    (action: "back" | "forward" | "reload") => {
-      runNavigation({ action, type: "history" });
-    },
-    [runNavigation]
-  );
-
-  const submitAddress = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const url = navigationUrl(state.address);
-      if (url === "https://") {
-        return;
-      }
-      addressEditingRef.current = false;
-      runNavigation({ type: "navigate", url });
-    },
-    [runNavigation, state.address]
-  );
-
-  const dispatchInput = useCallback(
-    (browserInput: BrowserInput) => {
-      const sessionId = activeSessionRef.current;
-      if (sessionId === null) {
-        return;
-      }
-      Effect.runFork(
+  const runNavigation = (action: AgentHistoryAction | AgentNavigateAction) => {
+    const sessionId = activeSessionRef.current;
+    if (sessionId === null) {
+      return;
+    }
+    setState((current) => ({
+      ...current,
+      navigationError: undefined,
+      navigationPending: true,
+    }));
+    Effect.runFork(
+      Effect.result(
         Effect.tryPromise({
           catch: (cause) => cause,
           try: () =>
-            sendBrowserInput({
+            navigateBrowser({
               payload: {
-                data: { input: browserInput, sessionId },
-                type: "agent.browser.input.send",
+                data: { action, sessionId },
+                type: "agent.browser.navigate",
               },
             }),
-        }).pipe(Effect.ignore)
-      );
-    },
-    [sendBrowserInput]
-  );
+        })
+      ).pipe(
+        Effect.flatMap((outcome) =>
+          Effect.sync(() => {
+            setState((current) => ({
+              ...current,
+              navigationError: Result.isFailure(outcome)
+                ? errorMessage(outcome.failure)
+                : undefined,
+              navigationPending: false,
+            }));
+          })
+        )
+      )
+    );
+  };
 
-  const input = useMemo(
-    () => makeBrowserInputHandlers(dispatchInput),
-    [dispatchInput]
-  );
+  const navigate = (action: "back" | "forward" | "reload") => {
+    runNavigation({ action, type: "history" });
+  };
 
-  const changePrivateVariable = useCallback(
-    (patch: Partial<AgentViewState["privateVariable"]>) => {
-      setState((current) => ({
-        ...current,
-        privateVariable: { ...current.privateVariable, ...patch },
-      }));
-    },
-    [setState]
-  );
+  const submitAddress = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const url = navigationUrl(state.address);
+    if (url === "https://") {
+      return;
+    }
+    addressEditingRef.current = false;
+    runNavigation({ type: "navigate", url });
+  };
+
+  const dispatchInput = (browserInput: BrowserInput) => {
+    const sessionId = activeSessionRef.current;
+    if (sessionId === null) {
+      return;
+    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          sendBrowserInput({
+            payload: {
+              data: { input: browserInput, sessionId },
+              type: "agent.browser.input.send",
+            },
+          }),
+      }).pipe(Effect.ignore)
+    );
+  };
+
+  const input = makeBrowserInputHandlers(dispatchInput);
+
+  const changePrivateVariable = (
+    patch: Partial<AgentViewState["privateVariable"]>
+  ) => {
+    setState((current) => ({
+      ...current,
+      privateVariable: { ...current.privateVariable, ...patch },
+    }));
+  };
+  const clearPrivateVariableFromEffect = useEffectEvent(changePrivateVariable);
 
   // A private value belongs to one selected session and no longer than this
   // View. The Atom outlives the component, so clear the literal explicitly.
   useEffect(
     () => () => {
-      changePrivateVariable({
+      clearPrivateVariableFromEffect({
         error: undefined,
         open: false,
         pending: false,
         value: "",
       });
     },
-    [changePrivateVariable, selectedSessionId]
+    [selectedSessionId]
   );
 
-  const setPrivateVariableOpen = useCallback(
-    (open: boolean) => {
-      setState((current) => ({
-        ...current,
-        privateVariable: {
-          ...current.privateVariable,
-          error: undefined,
-          open,
-          ...(open ? {} : { value: "" }),
-        },
-      }));
-    },
-    [setState]
-  );
+  const setPrivateVariableOpen = (open: boolean) => {
+    setState((current) => ({
+      ...current,
+      privateVariable: open
+        ? { ...current.privateVariable, error: undefined, open }
+        : { ...current.privateVariable, error: undefined, open, value: "" },
+    }));
+  };
 
-  const submitPrivateVariable = useCallback(() => {
+  const submitPrivateVariable = () => {
     const sessionId = activeSessionRef.current;
     const inputState = state.privateVariable;
     if (
@@ -1401,18 +1376,14 @@ const useAgentView = (
         )
       )
     );
-  }, [
-    changePrivateVariable,
-    enterTeachingVariable,
-    setState,
-    state.privateVariable,
-  ]);
+  };
 
   /**
    * Scrolling is a wheel event, and React only offers it passively, so the
    * canvas listens itself to keep the page from scrolling underneath it.
    */
   const controller = state.session?.controller;
+  const dispatchInputFromEffect = useEffectEvent(dispatchInput);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null || controller !== "user") {
@@ -1421,7 +1392,7 @@ const useAgentView = (
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      dispatchInput({
+      dispatchInputFromEffect({
         ...mousePosition(canvas, event),
         deltaX: event.deltaX,
         deltaY: event.deltaY,
@@ -1434,33 +1405,28 @@ const useAgentView = (
     return () => {
       canvas.removeEventListener("wheel", handleWheel);
     };
-  }, [controller, dispatchInput]);
+  }, [controller]);
 
-  const selectSession = useCallback(
-    (nextSessionId: string) => {
-      const nextSession = sessions.find(({ id }) => id === nextSessionId);
-      if (nextSession === undefined) {
-        return;
-      }
-      onSelectSession?.(nextSession.id);
-      addressEditingRef.current = false;
-      setState((current) => ({
-        ...current,
-        address:
-          nextSession.currentUrl === "about:blank"
-            ? ""
-            : nextSession.currentUrl,
-        browserStreamError: undefined,
-        frameReady: false,
-        navigationError: undefined,
-        phase: "switching",
-        selectedSessionId: nextSession.id,
-        session: nextSession,
-        streamConnected: false,
-      }));
-    },
-    [onSelectSession, sessions, setState]
-  );
+  const selectSession = (nextSessionId: string) => {
+    const nextSession = sessions.find(({ id }) => id === nextSessionId);
+    if (nextSession === undefined) {
+      return;
+    }
+    onSelectSession?.(nextSession.id);
+    addressEditingRef.current = false;
+    setState((current) => ({
+      ...current,
+      address:
+        nextSession.currentUrl === "about:blank" ? "" : nextSession.currentUrl,
+      browserStreamError: undefined,
+      frameReady: false,
+      navigationError: undefined,
+      phase: "switching",
+      selectedSessionId: nextSession.id,
+      session: nextSession,
+      streamConnected: false,
+    }));
+  };
 
   return {
     canvasRef,

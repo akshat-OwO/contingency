@@ -21,6 +21,15 @@ const sessionId = Schema.decodeUnknownSync(SessionId)("create-recording-test");
 const tabId = Schema.decodeUnknownSync(BrowserTabId)("tab-1");
 const INITIAL_URL = "https://shop.example.com/cart";
 
+const activeSnapshot = (
+  snapshot: RecordingSnapshot | null
+): RecordingSnapshot => {
+  if (snapshot === null) {
+    throw new Error("Expected an active recording snapshot");
+  }
+  return snapshot;
+};
+
 const cartButton = [
   { kind: "role", name: "Add to cart", role: "button" },
   { kind: "css", selector: "button#cart" },
@@ -189,7 +198,7 @@ it.effect("records the Page a Step acted on, and only past the first", () =>
       type: "click",
     });
     const snapshot = yield* recording.get();
-    const recorded = steps(snapshot as RecordingSnapshot);
+    const recorded = steps(activeSnapshot(snapshot));
     expect(recorded[1]).toMatchObject({ type: "click" });
     expect(recorded[1]).not.toHaveProperty("page");
     expect(recorded[2]).toMatchObject({ page: 1, type: "click" });
@@ -217,7 +226,7 @@ it.effect("keeps recording when a popup opens as a further Page", () =>
       target: cartButton,
       type: "click",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(snapshot.phase).toBe("active");
     expect(steps(snapshot).at(-1)).toMatchObject({ page: 1, type: "click" });
   })
@@ -233,9 +242,9 @@ it.effect("captures hover only when the author has armed it", () =>
       target: cartButton,
       type: "click",
     });
-    expect(
-      steps((yield* recording.get()) as RecordingSnapshot).at(-1)
-    ).toMatchObject({ type: "click" });
+    expect(steps(activeSnapshot(yield* recording.get())).at(-1)).toMatchObject({
+      type: "click",
+    });
 
     yield* recording.armHover();
     yield* capture.emit({
@@ -244,7 +253,7 @@ it.effect("captures hover only when the author has armed it", () =>
       target: cartButton,
       type: "click",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(snapshot.captureMode).toBe("ordinary");
     expect(steps(snapshot).at(-1)).toMatchObject({
       target: cartButton,
@@ -264,7 +273,7 @@ it.effect("records a scroll as one Step per resting position", () =>
       target: cartButton,
       type: "scroll",
     });
-    const recorded = steps((yield* recording.get()) as RecordingSnapshot);
+    const recorded = steps(activeSnapshot(yield* recording.get()));
     expect(recorded.slice(1)).toEqual([
       { deltaY: 900, id: expect.any(String), type: "scroll" },
       {
@@ -287,7 +296,7 @@ it.effect("records a locator ladder led by role, never a test id", () =>
       target: cartButton,
       type: "click",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     const [step] = steps(snapshot).slice(1);
     expect(step).toMatchObject({ target: cartButton });
     expect(JSON.stringify(snapshot.flow)).not.toContain("testId");
@@ -305,7 +314,7 @@ it.effect("names a Variable for a sensitive field rather than storing it", () =>
       value: "{{PASSWORD}}",
       variable: "PASSWORD",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(steps(snapshot).at(-1)).toMatchObject({
       value: "{{PASSWORD}}",
       variable: "PASSWORD",
@@ -332,7 +341,7 @@ it.effect("replaces the Step before it when a field is edited again", () =>
       type: "change",
       value: "author@example.com",
     });
-    const recorded = steps((yield* recording.get()) as RecordingSnapshot);
+    const recorded = steps(activeSnapshot(yield* recording.get()));
     expect(recorded).toHaveLength(2);
     expect(recorded.at(-1)).toMatchObject({ value: "author@example.com" });
   })
@@ -361,7 +370,7 @@ it.effect("drops a navigation an action caused, and keeps one it did not", () =>
       type: "navigation",
       url: "https://shop.example.com/checkout",
     });
-    const recorded = steps((yield* recording.get()) as RecordingSnapshot);
+    const recorded = steps(activeSnapshot(yield* recording.get()));
     expect(recorded.map((step) => step.type)).toEqual([
       "navigate",
       "navigate",
@@ -385,16 +394,14 @@ it.effect("ends the Recording when the pinned tab navigates while paused", () =>
       type: "navigation",
       url: "https://shop.example.com/background",
     });
-    expect(((yield* recording.get()) as RecordingSnapshot).phase).toBe(
-      "paused"
-    );
+    expect(activeSnapshot(yield* recording.get()).phase).toBe("paused");
 
     yield* capture.emit({
       page: 0,
       type: "navigation",
       url: "https://shop.example.com/elsewhere",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(snapshot.phase).toBe("incomplete");
     expect(snapshot.incompleteReason).toBe(
       "The pinned tab navigated while capture was paused."
@@ -412,7 +419,7 @@ it.effect("ends the Recording when an element cannot be addressed", () =>
         "An element on the page could not be addressed by any locator."
       )
     );
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(snapshot.phase).toBe("incomplete");
     expect(snapshot.incompleteReason).toBe(
       "An element on the page could not be addressed by any locator."
@@ -433,9 +440,7 @@ it.effect("recovers a Recording whose recorder connection was lost", () =>
     yield* capture.fail(
       connectionLost("The browser recorder connection was lost.")
     );
-    expect(((yield* recording.get()) as RecordingSnapshot).phase).toBe(
-      "incomplete"
-    );
+    expect(activeSnapshot(yield* recording.get()).phase).toBe("incomplete");
 
     const recovered = yield* recording.recover();
     expect(recovered.phase).toBe("active");
@@ -506,7 +511,7 @@ it.effect("records a selectOption and a press as their own Step kinds", () =>
       values: ["blue"],
     });
     yield* capture.emit({ key: "Enter", page: 0, type: "press" });
-    const recorded = steps((yield* recording.get()) as RecordingSnapshot);
+    const recorded = steps(activeSnapshot(yield* recording.get()));
     expect(recorded.map((step) => step.type)).toEqual([
       "navigate",
       "selectOption",
@@ -528,7 +533,7 @@ it.effect("authors a Pre-step and its condition from captured actions", () =>
       target: cartButton,
       type: "click",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(snapshot.captureMode).toBe("ordinary");
     expect(snapshot.flow.preSteps).toEqual([
       {
@@ -563,7 +568,7 @@ it.effect("authors a selectorHidden condition from an armed hidden pick", () =>
       target: emailField,
       type: "click",
     });
-    const snapshot = (yield* recording.get()) as RecordingSnapshot;
+    const snapshot = activeSnapshot(yield* recording.get());
     expect(snapshot.captureMode).toBe("ordinary");
     expect(snapshot.flow.preSteps?.[0]?.when).toEqual({
       target: emailField,
@@ -609,7 +614,7 @@ it.effect("ignores an untargeted action while a pick is armed", () =>
     // must not end the Recording.
     yield* capture.emit({ deltaY: 400, page: 0, type: "scroll" });
     yield* capture.emit({ key: "Enter", page: 0, type: "press" });
-    const armed = (yield* recording.get()) as RecordingSnapshot;
+    const armed = activeSnapshot(yield* recording.get());
     expect(armed.phase).toBe("active");
     expect(armed.captureMode).toBe("hoverPicker");
 
@@ -619,7 +624,7 @@ it.effect("ignores an untargeted action while a pick is armed", () =>
       target: cartButton,
       type: "click",
     });
-    const picked = (yield* recording.get()) as RecordingSnapshot;
+    const picked = activeSnapshot(yield* recording.get());
     expect(picked.captureMode).toBe("ordinary");
     expect(steps(picked).at(-1)).toMatchObject({ type: "hover" });
   })
@@ -649,7 +654,7 @@ it.effect(
         "https://shop.example.com/cart?token=abc123&size=large"
       );
       const recording = yield* startRecording(capture);
-      const started = (yield* recording.get()) as RecordingSnapshot;
+      const started = activeSnapshot(yield* recording.get());
 
       // The placeholder has to survive as a reference the Runner can resolve:
       // percent-encoded braces are text, and replay would send them verbatim.
@@ -667,7 +672,7 @@ it.effect(
         url: "https://shop.example.com/pay?secret=xyz789",
       });
       yield* recording.addAudit("accessibility");
-      const later = (yield* recording.get()) as RecordingSnapshot;
+      const later = activeSnapshot(yield* recording.get());
       const names = (later.flow.variables ?? []).map(({ name }) => name);
       expect(names).toContain("TOKEN");
       expect(names).toContain("SECRET");
@@ -701,7 +706,7 @@ it.effect("attributes a navigation to its own Page, not to any Page", () =>
       url: "https://shop.example.com/unrelated",
     });
 
-    const recorded = steps((yield* recording.get()) as RecordingSnapshot);
+    const recorded = steps(activeSnapshot(yield* recording.get()));
     expect(recorded.map((step) => step.type)).toEqual([
       "navigate",
       "click",

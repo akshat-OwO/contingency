@@ -16,12 +16,12 @@ const flow: Flow = {
     { kind: "accessibility", type: "audit" },
   ],
   title: "Checkout",
-} as Flow;
+} satisfies Flow;
 
 const flowWithRuntimeVariable: Flow = {
   ...flow,
   variables: [{ name: "OTP", runtime: true, secret: true }],
-} as Flow;
+} satisfies Flow;
 
 const stepAt = (index: number, outcome: "completed" | "failed"): RunStep => ({
   finishedAt: "2026-01-01T00:00:01.000Z",
@@ -60,7 +60,7 @@ const runWith = (steps: readonly RunStep[]): Run =>
     steps,
     trace: true,
     video: true,
-  }) as Run;
+  }) satisfies Run;
 
 /** A Runner that records how it was invoked and reports two Steps. */
 const recordingRunner = () => {
@@ -275,7 +275,7 @@ it.live("reports a Run that could not start rather than a failed Run", () =>
       flow: {
         ...flow,
         variables: [{ name: "TOKEN", runtime: false, secret: true }],
-      } as Flow,
+      } satisfies Flow,
       outputDirectory: "/runs",
     }).pipe(
       Effect.provide(

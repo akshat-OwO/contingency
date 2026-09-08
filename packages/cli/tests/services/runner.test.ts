@@ -1,4 +1,6 @@
+import { Flow as FlowSchema } from "@contingency/protocol";
 import type { Flow } from "@contingency/protocol";
+import { Schema } from "effect";
 import { expect, it } from "vitest";
 
 import {
@@ -9,13 +11,40 @@ import {
   runDirectoryName,
 } from "../../src/services/runner";
 
-const reversedKeys = (value: unknown): unknown => {
+type JsonValue =
+  | boolean
+  | null
+  | number
+  | string
+  | readonly JsonValue[]
+  | JsonObject;
+
+interface JsonObject {
+  readonly [key: string]: JsonValue;
+}
+
+const JsonValueSchema = Schema.Union([
+  Schema.Boolean,
+  Schema.Null,
+  Schema.Number,
+  Schema.String,
+  Schema.Array(Schema.suspend((): Schema.Codec<JsonValue> => JsonValueSchema)),
+  Schema.Record(
+    Schema.String,
+    Schema.suspend((): Schema.Codec<JsonValue> => JsonValueSchema)
+  ),
+]);
+
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const reversedKeys = (value: JsonValue): JsonValue => {
   if (Array.isArray(value)) {
     return value.map(reversedKeys);
   }
-  if (typeof value === "object" && value !== null) {
-    const entries = Object.entries(value as Record<string, unknown>).toSorted(
-      ([left], [right]) => (right < left ? -1 : 1)
+  if (isJsonObject(value)) {
+    const entries = Object.entries(value).toSorted(([left], [right]) =>
+      right < left ? -1 : 1
     );
     return Object.fromEntries(
       entries.map(([key, entry]) => [key, reversedKeys(entry)])
@@ -25,14 +54,17 @@ const reversedKeys = (value: unknown): unknown => {
 };
 
 const flow = (steps: Flow["steps"]): Flow =>
-  ({ steps, title: "Any title" }) as Flow;
+  ({ steps, title: "Any title" }) satisfies Flow;
 
 it("hashes a Flow independently of key order", () => {
   // Two Flows that differ only in key order are the same Flow, so a Run's
   // embedded hash must not change when a serializer reorders them.
   const executed = flow([{ type: "navigate", url: "https://a.test/" }]);
 
-  expect(hashFlow(reversedKeys(executed) as Flow)).toBe(hashFlow(executed));
+  const reordered = Schema.decodeUnknownSync(FlowSchema)(
+    reversedKeys(Schema.decodeUnknownSync(JsonValueSchema)(executed))
+  );
+  expect(hashFlow(reordered)).toBe(hashFlow(executed));
 });
 
 it("files every Run of a Flow in the directory preflight probes", () => {

@@ -1,7 +1,10 @@
 import path from "node:path";
 
-import { ContingencyRpcs, OperationId } from "@contingency/protocol";
-import type { AgentRunId } from "@contingency/protocol";
+import {
+  AgentRunId,
+  ContingencyRpcs,
+  OperationId,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Stream } from "effect";
@@ -668,7 +671,7 @@ it.live(
           expect(viewer.viewUrl).not.toContain("session=");
         }
         const absent = yield* Effect.flip(
-          run("open_run", { runId: "agentrun-never" as AgentRunId })
+          run("open_run", { runId: AgentRunId.make("agentrun-never") })
         );
         expect(absent.code).toBe("agent_run_not_found");
         // No browser was reopened to read them.
@@ -730,13 +733,17 @@ it.live(
           operation: string,
           action: Parameters<typeof local.act>[1],
           intent?: Parameters<typeof local.act>[3]
-        ) =>
-          session("agent_browser_act", {
+        ) => {
+          const input = {
             action,
-            ...(intent === undefined ? {} : { intent }),
             operationId: OperationId.make(operation),
             sessionId,
-          });
+          };
+          return session(
+            "agent_browser_act",
+            intent === undefined ? input : { ...input, intent }
+          );
+        };
         const opened = yield* act("open-boundary", {
           type: "navigate",
           url: fixtures.url("boundary-approved-redirect"),

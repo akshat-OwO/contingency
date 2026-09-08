@@ -29,7 +29,7 @@ import {
   RotateCwIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useEffectEvent, useRef } from "react";
 import type { FormEvent, KeyboardEvent, PointerEvent } from "react";
 
 import {
@@ -117,22 +117,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  browserInputMutation,
-  browserFrameAckMutation,
-  browserNetworkRequestsMutation,
-  browserNavigationMutation,
-  browserOpenMutation,
-  browserTabCloseMutation,
-  browserTabNewMutation,
-  browserTabsMutation,
-  browserTabSwitchMutation,
-  browserUserAgentMutation,
-  browserViewportMutation,
-  browserEmulationMutation,
-  browserEmulationQuery,
-  runBrowserStream,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const DIMENSION_PATTERN = /^\d{0,4}$/u;
 const sessionEmulationAtom = Atom.make<SessionEmulationState>({
@@ -160,7 +145,7 @@ const streamConnectedAtom = Atom.make(false);
  */
 const viewportWidthAtom = Atom.make("1280");
 
-const toErrorMessage = (error: unknown): string =>
+const toErrorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
     : "Browser operation failed";
@@ -246,6 +231,22 @@ const devtoolsContext = (
     : undefined;
 
 const useBrowserWorkspace = () => {
+  const {
+    browserEmulationMutation,
+    browserEmulationQuery,
+    browserFrameAckMutation,
+    browserInputMutation,
+    browserNavigationMutation,
+    browserNetworkRequestsMutation,
+    browserOpenMutation,
+    browserTabCloseMutation,
+    browserTabNewMutation,
+    browserTabsMutation,
+    browserTabSwitchMutation,
+    browserUserAgentMutation,
+    browserViewportMutation,
+    runBrowserStream,
+  } = useRpcDependencies();
   const addressEditingRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeTabIdRef = useRef<BrowserTabId | null>(null);
@@ -267,33 +268,27 @@ const useBrowserWorkspace = () => {
   const [optionalState, setOptionalState] = useAtom(browserOptionalStateAtom);
   const { error } = optionalState;
   const { address, selectedSessionId } = workspace;
-  const setError = useCallback(
-    (nextError: string | undefined) => {
-      setOptionalState((current) => ({ ...current, error: nextError }));
-    },
-    [setOptionalState]
-  );
-  const setAddress = useCallback(
-    (nextAddress: string | ((currentAddress: string) => string)) => {
-      setWorkspace((current) => ({
-        ...current,
-        address:
-          typeof nextAddress === "function"
-            ? nextAddress(current.address)
-            : nextAddress,
-      }));
-    },
-    [setWorkspace]
-  );
-  const setSelectedSessionId = useCallback(
-    (nextSessionId: SessionId | undefined) => {
-      setWorkspace((current) => ({
-        ...current,
-        selectedSessionId: nextSessionId,
-      }));
-    },
-    [setWorkspace]
-  );
+  const setError = (nextError: string | undefined) => {
+    setOptionalState((current) => ({ ...current, error: nextError }));
+  };
+  const setAddress = (nextAddress: string) => {
+    setWorkspace((current) => ({
+      ...current,
+      address: nextAddress,
+    }));
+  };
+  const updateAddress = (update: (currentAddress: string) => string) => {
+    setWorkspace((current) => ({
+      ...current,
+      address: update(current.address),
+    }));
+  };
+  const setSelectedSessionId = (nextSessionId: SessionId | undefined) => {
+    setWorkspace((current) => ({
+      ...current,
+      selectedSessionId: nextSessionId,
+    }));
+  };
   const [frameReady, setFrameReady] = useAtom(frameReadyAtom);
   const [height, setHeight] = useAtom(viewportHeightAtom);
   const [opening, setOpening] = useAtom(openingAtom);
@@ -315,13 +310,15 @@ const useBrowserWorkspace = () => {
   const registry: AtomRegistry.AtomRegistry = useContext(RegistryContext);
   const [draft] = useAtom(emulationDraftAtom);
   const { userAgentProfile, viewport } = draft;
-  const updateDraft = useCallback(
-    (update: (current: DraftEmulation) => DraftEmulation): DraftEmulation => {
-      registry.update(emulationDraftAtom, update);
-      return registry.get(emulationDraftAtom);
-    },
-    [registry]
-  );
+  const updateDraft = (
+    update: (current: DraftEmulation) => DraftEmulation
+  ): DraftEmulation => {
+    registry.update(emulationDraftAtom, update);
+    return registry.get(emulationDraftAtom);
+  };
+  const setErrorFromEffect = useEffectEvent(setError);
+  const updateAddressFromEffect = useEffectEvent(updateAddress);
+  const updateDraftFromEffect = useEffectEvent(updateDraft);
   const updateEmulation = useAtomSet(browserEmulationMutation, {
     mode: "promise",
   });
@@ -393,42 +390,40 @@ const useBrowserWorkspace = () => {
    * force. A session with no browser open yet answers with a failure, which
    * leaves nothing applied.
    */
-  const loadSessionEmulation = useCallback(
-    (sessionId: SessionId) => {
-      emulationSessionRef.current = sessionId;
-      setSessionEmulation({ status: "unknown" });
-      Effect.runFork(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            readEmulation({
-              payload: { data: { sessionId }, type: "browser.emulation.get" },
-            }),
-        }).pipe(
-          Effect.tap((result) =>
-            Effect.sync(() => {
-              // A slow answer for a session the author has already left says
-              // nothing about the one they are looking at now.
-              if (emulationSessionRef.current === sessionId) {
-                setSessionEmulation({
-                  emulation: result.data.emulation,
-                  status: "known",
-                });
-                // The draft is what the next navigation applies, so it adopts
-                // what the session already emulates rather than re-applying
-                // settings the author composed for a different session.
-                updateDraft((current) =>
-                  draftFromSessionEmulation(current, result.data.emulation)
-                );
-              }
-            })
-          ),
-          Effect.catchCause(() => Effect.void)
-        )
-      );
-    },
-    [readEmulation, setSessionEmulation, updateDraft]
-  );
+  const loadSessionEmulation = (sessionId: SessionId) => {
+    emulationSessionRef.current = sessionId;
+    setSessionEmulation({ status: "unknown" });
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          readEmulation({
+            payload: { data: { sessionId }, type: "browser.emulation.get" },
+          }),
+      }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            // A slow answer for a session the author has already left says
+            // nothing about the one they are looking at now.
+            if (emulationSessionRef.current === sessionId) {
+              setSessionEmulation({
+                emulation: result.data.emulation,
+                status: "known",
+              });
+              // The draft is what the next navigation applies, so it adopts
+              // what the session already emulates rather than re-applying
+              // settings the author composed for a different session.
+              updateDraft((current) =>
+                draftFromSessionEmulation(current, result.data.emulation)
+              );
+            }
+          })
+        ),
+        Effect.catchCause(() => Effect.void)
+      )
+    );
+  };
+  const loadSessionEmulationFromEffect = useEffectEvent(loadSessionEmulation);
 
   useEffect(() => {
     knownTabIdsRef.current = null;
@@ -440,87 +435,79 @@ const useBrowserWorkspace = () => {
       setSessionEmulation({ status: "unknown" });
       return;
     }
-    loadSessionEmulation(selectedSessionId);
-  }, [loadSessionEmulation, selectedSessionId, setSessionEmulation, setTabs]);
+    loadSessionEmulationFromEffect(selectedSessionId);
+  }, [selectedSessionId, setSessionEmulation, setTabs]);
 
   /**
    * Every Emulation edit lands on the draft first, so the controls mean the
    * same thing before a session exists as after: a live session is then told
    * about the change, and answers with the Emulation now in force.
    */
-  const applyEmulationPatch = useCallback(
-    (patch: EmulationPatch) => {
-      updateDraft((current) => draftWithPatch(current, patch));
-      if (selectedSessionId === undefined) {
-        return;
-      }
-      Effect.runFork(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            updateEmulation({
-              payload: {
-                data: { sessionId: selectedSessionId, ...patch },
-                type: "browser.emulation.set",
-              },
-            }),
-        }).pipe(
-          Effect.tap((result) =>
-            Effect.sync(() => {
-              // A reply from a session the author has already left must not
-              // become the current session's Emulation: a later grant sends
-              // the whole list, so a stale one would be written onto it.
-              if (emulationSessionRef.current !== selectedSessionId) {
-                return;
-              }
-              setSessionEmulation({
-                emulation: result.data.emulation,
-                status: "known",
-              });
-            })
-          ),
-          Effect.catchCause((emulationCause) =>
-            Effect.sync(() =>
-              setError(toErrorMessage(Cause.squash(emulationCause)))
-            )
+  const applyEmulationPatch = (patch: EmulationPatch) => {
+    updateDraft((current) => draftWithPatch(current, patch));
+    if (selectedSessionId === undefined) {
+      return;
+    }
+    Effect.runFork(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          updateEmulation({
+            payload: {
+              data: { sessionId: selectedSessionId, ...patch },
+              type: "browser.emulation.set",
+            },
+          }),
+      }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            // A reply from a session the author has already left must not
+            // become the current session's Emulation: a later grant sends
+            // the whole list, so a stale one would be written onto it.
+            if (emulationSessionRef.current !== selectedSessionId) {
+              return;
+            }
+            setSessionEmulation({
+              emulation: result.data.emulation,
+              status: "known",
+            });
+          })
+        ),
+        Effect.catchCause((emulationCause) =>
+          Effect.sync(() =>
+            setError(toErrorMessage(Cause.squash(emulationCause)))
           )
         )
-      );
-    },
-    [
-      selectedSessionId,
-      setError,
-      setSessionEmulation,
-      updateDraft,
-      updateEmulation,
-    ]
-  );
+      )
+    );
+  };
 
-  const synchronizeTabState = useCallback(
-    (nextTabs: readonly BrowserTab[], rememberMetadata = false) => {
-      const resolvedTabs = rememberMetadata
-        ? nextTabs
-        : preserveBrowserTabMetadata(nextTabs, enrichedTabsRef.current);
-      if (rememberMetadata) {
-        enrichedTabsRef.current = resolvedTabs;
-      }
-      if (hasActiveTabChanged(resolvedTabs, activeTabIdRef.current)) {
-        setFrameReady(false);
-      }
-      setTabs(resolvedTabs);
-      setAddress((currentAddress) => {
-        const reconciliation = reconcileActiveTab(
-          resolvedTabs,
-          activeTabIdRef.current,
-          currentAddress,
-          addressEditingRef.current
-        );
-        activeTabIdRef.current = reconciliation.activeTabId;
-        return reconciliation.address;
-      });
-    },
-    [setAddress, setFrameReady, setTabs]
-  );
+  const synchronizeTabState = (
+    nextTabs: readonly BrowserTab[],
+    rememberMetadata = false
+  ) => {
+    const resolvedTabs = rememberMetadata
+      ? nextTabs
+      : preserveBrowserTabMetadata(nextTabs, enrichedTabsRef.current);
+    if (rememberMetadata) {
+      enrichedTabsRef.current = resolvedTabs;
+    }
+    if (hasActiveTabChanged(resolvedTabs, activeTabIdRef.current)) {
+      setFrameReady(false);
+    }
+    setTabs(resolvedTabs);
+    updateAddress((currentAddress) => {
+      const reconciliation = reconcileActiveTab(
+        resolvedTabs,
+        activeTabIdRef.current,
+        currentAddress,
+        addressEditingRef.current
+      );
+      activeTabIdRef.current = reconciliation.activeTabId;
+      return reconciliation.address;
+    });
+  };
+  const synchronizeTabStateFromEffect = useEffectEvent(synchronizeTabState);
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
@@ -581,13 +568,13 @@ const useBrowserWorkspace = () => {
           knownTabIdsRef.current = new Set(
             result.data.tabs.map(({ tabId }) => tabId)
           );
-          synchronizeTabState(result.data.tabs, true);
+          synchronizeTabStateFromEffect(result.data.tabs, true);
         }
       }).pipe(
         Effect.catchCause((tabsCause) =>
           Effect.sync(() => {
             if (!cancelled) {
-              setError(toErrorMessage(Cause.squash(tabsCause)));
+              setErrorFromEffect(toErrorMessage(Cause.squash(tabsCause)));
             }
           })
         ),
@@ -613,16 +600,9 @@ const useBrowserWorkspace = () => {
       cancelled = true;
       Effect.runFork(Fiber.interrupt(pollingFiber));
     };
-  }, [
-    getBrowserTabs,
-    selectedSessionId,
-    setError,
-    setFrameReady,
-    switchBrowserTab,
-    synchronizeTabState,
-  ]);
+  }, [getBrowserTabs, selectedSessionId, setFrameReady, switchBrowserTab]);
 
-  const refreshNetwork = useCallback(() => {
+  const refreshNetwork = () => {
     const activeTabId = activeTabIdRef.current;
     if (selectedSessionId === undefined || activeTabId === null) {
       return Effect.void;
@@ -648,14 +628,15 @@ const useBrowserWorkspace = () => {
         Effect.sync(() => setError(toErrorMessage(Cause.squash(networkCause))))
       )
     );
-  }, [getNetworkRequests, selectedSessionId, setDevtoolsState, setError]);
+  };
+  const refreshNetworkFromEffect = useEffectEvent(refreshNetwork);
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
       return;
     }
     const pollingFiber = Effect.runFork(
-      browserNetworkRefreshEffect(refreshNetwork).pipe(
+      browserNetworkRefreshEffect(refreshNetworkFromEffect).pipe(
         Effect.repeat(Schedule.spaced("1 second")),
         Effect.ignore
       )
@@ -663,7 +644,7 @@ const useBrowserWorkspace = () => {
     return () => {
       Effect.runFork(Fiber.interrupt(pollingFiber));
     };
-  }, [refreshNetwork, selectedSessionId]);
+  }, [selectedSessionId]);
 
   const manuallyRefreshNetwork = () => {
     setRefreshingNetwork(true);
@@ -674,30 +655,29 @@ const useBrowserWorkspace = () => {
     );
   };
 
-  const acknowledgeFrame = useCallback(
-    (event: Extract<BrowserStreamEvent, { readonly type: "frame" }>) => {
-      if (selectedSessionId === undefined) {
-        return Effect.void;
-      }
-      return Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          acknowledgeBrowserFrame({
-            payload: {
-              data: {
-                seq: event.seq,
-                sessionId: selectedSessionId,
-                streamId: event.streamId,
-              },
-              type: "browser.frame.ack",
+  const acknowledgeFrame = (
+    event: Extract<BrowserStreamEvent, { readonly type: "frame" }>
+  ) => {
+    if (selectedSessionId === undefined) {
+      return Effect.void;
+    }
+    return Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        acknowledgeBrowserFrame({
+          payload: {
+            data: {
+              seq: event.seq,
+              sessionId: selectedSessionId,
+              streamId: event.streamId,
             },
-          }),
-      }).pipe(Effect.ignore);
-    },
-    [acknowledgeBrowserFrame, selectedSessionId]
-  );
+            type: "browser.frame.ack",
+          },
+        }),
+    }).pipe(Effect.ignore);
+  };
 
-  const beginCanvasHold = useCallback(() => {
+  const beginCanvasHold = () => {
     canvasHoldRef.current = "dropping";
     const inFlightRender = frameRenderFiberRef.current;
     if (inFlightRender !== null) {
@@ -711,81 +691,79 @@ const useBrowserWorkspace = () => {
     }
     setFrameReady(false);
     setOpening(true);
-  }, [acknowledgeFrame, setFrameReady, setOpening]);
+  };
 
-  const releaseCanvasHold = useCallback(() => {
+  const releaseCanvasHold = () => {
     canvasHoldRef.current = "idle";
     setOpening(false);
-  }, [setOpening]);
+  };
 
-  const markNavigationCommandSettled = useCallback(() => {
+  const markNavigationCommandSettled = () => {
     canvasHoldRef.current = canvasHoldAfterNavigationCommand(
       canvasHoldRef.current
     );
-  }, []);
+  };
 
-  const enqueueFrame = useCallback(
-    (event: Extract<BrowserStreamEvent, { readonly type: "frame" }>) => {
-      // Drop frames while the navigate/UA RPC is in flight so the previous shell
-      // cannot paint. After the command settles, accept the first frame (new paint)
-      // before clearing the Loading… state.
-      if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
-        Effect.runFork(acknowledgeFrame(event));
-        return;
+  const enqueueFrame = (
+    event: Extract<BrowserStreamEvent, { readonly type: "frame" }>
+  ) => {
+    // Drop frames while the navigate/UA RPC is in flight so the previous shell
+    // cannot paint. After the command settles, accept the first frame (new paint)
+    // before clearing the Loading… state.
+    if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
+      Effect.runFork(acknowledgeFrame(event));
+      return;
+    }
+
+    pendingFrameRef.current = replacePendingBrowserFrame(
+      pendingFrameRef.current,
+      event,
+      (droppedFrame) => {
+        Effect.runFork(acknowledgeFrame(droppedFrame));
       }
+    );
+    if (frameRenderFiberRef.current !== null) {
+      return;
+    }
 
-      pendingFrameRef.current = replacePendingBrowserFrame(
-        pendingFrameRef.current,
-        event,
-        (droppedFrame) => {
-          Effect.runFork(acknowledgeFrame(droppedFrame));
+    const renderFrames = Effect.gen(function* renderLatestFrames() {
+      while (pendingFrameRef.current !== null) {
+        const latestFrame = pendingFrameRef.current;
+        pendingFrameRef.current = null;
+        if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
+          yield* acknowledgeFrame(latestFrame);
+          continue;
         }
-      );
-      if (frameRenderFiberRef.current !== null) {
-        return;
-      }
-
-      const renderFrames = Effect.gen(function* renderLatestFrames() {
-        while (pendingFrameRef.current !== null) {
-          const latestFrame = pendingFrameRef.current;
-          pendingFrameRef.current = null;
-          if (shouldDropStaleCanvasFrame(canvasHoldRef.current)) {
-            yield* acknowledgeFrame(latestFrame);
+        const canvas = canvasRef.current;
+        if (canvas === null) {
+          yield* acknowledgeFrame(latestFrame);
+        } else {
+          yield* renderFrame(canvas, latestFrame).pipe(
+            Effect.ensuring(acknowledgeFrame(latestFrame))
+          );
+          if (!shouldRevealCanvasAfterPaint(canvasHoldRef.current)) {
             continue;
           }
-          const canvas = canvasRef.current;
-          if (canvas === null) {
-            yield* acknowledgeFrame(latestFrame);
-          } else {
-            yield* renderFrame(canvas, latestFrame).pipe(
-              Effect.ensuring(acknowledgeFrame(latestFrame))
-            );
-            if (!shouldRevealCanvasAfterPaint(canvasHoldRef.current)) {
-              continue;
-            }
-            const previousHold = canvasHoldRef.current;
-            const nextHold = canvasHoldAfterFirstFrame(previousHold);
-            canvasHoldRef.current = nextHold;
-            if (
-              previousHold === "awaiting-first-frame" &&
-              nextHold === "idle"
-            ) {
-              setOpening(false);
-            }
-            setFrameReady(true);
+          const previousHold = canvasHoldRef.current;
+          const nextHold = canvasHoldAfterFirstFrame(previousHold);
+          canvasHoldRef.current = nextHold;
+          if (previousHold === "awaiting-first-frame" && nextHold === "idle") {
+            setOpening(false);
           }
+          setFrameReady(true);
         }
-      }).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            frameRenderFiberRef.current = null;
-          })
-        )
-      );
-      frameRenderFiberRef.current = Effect.runFork(renderFrames);
-    },
-    [acknowledgeFrame, setFrameReady, setOpening]
-  );
+      }
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          frameRenderFiberRef.current = null;
+        })
+      )
+    );
+    frameRenderFiberRef.current = Effect.runFork(renderFrames);
+  };
+  const acknowledgeFrameFromEffect = useEffectEvent(acknowledgeFrame);
+  const enqueueFrameFromEffect = useEffectEvent(enqueueFrame);
 
   useEffect(() => {
     if (selectedSessionId === undefined) {
@@ -794,20 +772,20 @@ const useBrowserWorkspace = () => {
       return;
     }
 
-    setError(undefined);
+    setErrorFromEffect(undefined);
     setFrameReady(false);
     setStreamConnected(false);
     const streamEffect = Effect.gen(function* consumeBrowserStream() {
       const outcome = yield* Effect.result(
         runBrowserStream(selectedSessionId, (event) => {
           if (event.type === "frame") {
-            return Effect.sync(() => enqueueFrame(event));
+            return Effect.sync(() => enqueueFrameFromEffect(event));
           }
 
           return Effect.sync(() => {
             if (event.type === "url") {
               if (event.tabId === activeTabIdRef.current) {
-                setAddress((currentAddress) =>
+                updateAddressFromEffect((currentAddress) =>
                   browserAddressFromUrlEvent(
                     currentAddress,
                     addressEditingRef.current,
@@ -826,7 +804,7 @@ const useBrowserWorkspace = () => {
             }
 
             if (event.type === "tabs") {
-              synchronizeTabState(event.tabs);
+              synchronizeTabStateFromEffect(event.tabs);
               return;
             }
 
@@ -835,7 +813,7 @@ const useBrowserWorkspace = () => {
               setPresetId(RESPONSIVE_PRESET_ID);
               setWidth(String(event.viewportWidth));
               setHeight(String(event.viewportHeight));
-              updateDraft((current) =>
+              updateDraftFromEffect((current) =>
                 draftWithViewport(current, {
                   deviceScaleFactor: current.viewport.deviceScaleFactor,
                   height: event.viewportHeight,
@@ -849,7 +827,7 @@ const useBrowserWorkspace = () => {
 
       if (Result.isFailure(outcome)) {
         setStreamConnected(false);
-        setError(toErrorMessage(outcome.failure));
+        setErrorFromEffect(toErrorMessage(outcome.failure));
       }
     });
     const streamFiber = Effect.runFork(streamEffect);
@@ -864,24 +842,18 @@ const useBrowserWorkspace = () => {
       const pendingFrame = pendingFrameRef.current;
       pendingFrameRef.current = null;
       if (pendingFrame !== null) {
-        Effect.runFork(acknowledgeFrame(pendingFrame));
+        Effect.runFork(acknowledgeFrameFromEffect(pendingFrame));
       }
     };
   }, [
-    enqueueFrame,
-    acknowledgeFrame,
     selectedSessionId,
-    setAddress,
     setDevtoolsState,
-    setError,
     setFrameReady,
     setHeight,
     setPresetId,
     setStreamConnected,
     setWidth,
     streamIdentity,
-    synchronizeTabState,
-    updateDraft,
   ]);
 
   useEffect(
@@ -919,7 +891,7 @@ const useBrowserWorkspace = () => {
           }).pipe(
             Effect.catch((inputError) =>
               Effect.sync(() => {
-                setError(toErrorMessage(inputError));
+                setErrorFromEffect(toErrorMessage(inputError));
               })
             )
           )
@@ -939,20 +911,18 @@ const useBrowserWorkspace = () => {
     return () => {
       Effect.runFork(Fiber.interrupt(inputFiber));
     };
-  }, [selectedSessionId, sendBrowserInput, setError]);
+  }, [selectedSessionId, sendBrowserInput]);
 
-  const dispatchInput = useCallback(
-    (input: BrowserInput) => {
-      if (recordingMakesCanvasReadOnly(workspace.recording)) {
-        return;
-      }
-      const queue = inputQueueRef.current;
-      if (queue !== null) {
-        Effect.runFork(Queue.offer(queue, input));
-      }
-    },
-    [workspace.recording]
-  );
+  const dispatchInput = (input: BrowserInput) => {
+    if (recordingMakesCanvasReadOnly(workspace.recording)) {
+      return;
+    }
+    const queue = inputQueueRef.current;
+    if (queue !== null) {
+      Effect.runFork(Queue.offer(queue, input));
+    }
+  };
+  const dispatchInputFromEffect = useEffectEvent(dispatchInput);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -963,7 +933,7 @@ const useBrowserWorkspace = () => {
     const handleWheel = (event: globalThis.WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      dispatchInput({
+      dispatchInputFromEffect({
         ...mousePosition(canvas, event),
         deltaX: event.deltaX,
         deltaY: event.deltaY,
@@ -977,7 +947,7 @@ const useBrowserWorkspace = () => {
     return () => {
       canvas.removeEventListener("wheel", handleWheel);
     };
-  }, [dispatchInput]);
+  }, []);
 
   const submitAddress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1364,7 +1334,7 @@ const useBrowserWorkspace = () => {
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    const info = keyboardKeyInfo[event.key];
+    const info = keyboardKeyInfo.get(event.key);
     const text =
       eventType === "keyDown"
         ? (info?.text ?? (event.key.length === 1 ? event.key : undefined))
@@ -1372,15 +1342,15 @@ const useBrowserWorkspace = () => {
     const windowsVirtualKeyCode =
       info?.keyCode ??
       (event.key.length === 1 ? (event.key.codePointAt(0) ?? 0) : 0);
-    dispatchInput({
+    const input = {
       code: event.code,
       eventType,
       key: event.key,
       modifiers: keyboardModifiers(event),
-      ...(text === undefined ? {} : { text }),
       type: "input_keyboard",
       windowsVirtualKeyCode,
-    });
+    } satisfies BrowserInput;
+    dispatchInput(text === undefined ? input : { ...input, text });
   };
 
   return {

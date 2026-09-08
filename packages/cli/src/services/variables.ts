@@ -288,14 +288,16 @@ export const preflight = <R>(
       );
     };
 
+    const resolution: VariableResolution =
+      deferred.size === 0
+        ? { secretNames, values }
+        : {
+            runtime: { names: new Set(deferred.keys()), resolve },
+            secretNames,
+            values,
+          };
     return {
-      resolution: {
-        secretNames,
-        values,
-        ...(deferred.size === 0
-          ? {}
-          : { runtime: { names: new Set(deferred.keys()), resolve } }),
-      },
+      resolution,
       warnings,
     } satisfies PreflightReport;
   });
@@ -312,7 +314,7 @@ export const substituteVariables = (
   values: ReadonlyMap<string, string>
 ): string =>
   value.replaceAll(REFERENCE_PATTERN, (match, ...rest) => {
-    const groups = rest.at(-1) as { readonly name?: string } | undefined;
+    const groups = rest.at(-1);
     const name = groups?.name;
     if (name === undefined) {
       return match;
@@ -321,7 +323,9 @@ export const substituteVariables = (
   });
 
 /** Every `{{NAME}}` a value references, in declaration-agnostic order. */
-export const referencedVariables = (value: unknown): ReadonlySet<string> => {
+export const referencedVariables = <Value>(
+  value: Value
+): ReadonlySet<string> => {
   const referenced = new Set<string>();
   for (const match of JSON.stringify(value).matchAll(REFERENCE_PATTERN)) {
     const name = match.groups?.name;
@@ -337,9 +341,9 @@ export const referencedVariables = (value: unknown): ReadonlySet<string> => {
  * a value for yet. Nothing happens for a Step that references none, which is
  * every Step of most Flows.
  */
-export const resolveStepVariables = (
+export const resolveStepVariables = <Step>(
   resolution: VariableResolution,
-  step: unknown
+  step: Step
 ): Effect.Effect<void, PreflightFailed> => {
   const { runtime } = resolution;
   if (runtime === undefined) {

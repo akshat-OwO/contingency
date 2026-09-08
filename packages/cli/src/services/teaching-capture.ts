@@ -193,12 +193,11 @@ export const makeDemonstrationCapture = (
         : undefined;
     const previous =
       previousIndex === undefined ? undefined : actions[previousIndex];
-    const captured: CapturedAction = {
+    const capturedBase = {
       action: coalescedAction(input, previous),
       actor: input.actor,
       at,
       description: input.description,
-      ...(input.detail === undefined ? {} : { detail: input.detail }),
       id: previous?.id ?? input.id,
       outcome: input.outcome,
       snapshotAfter: input.snapshotAfter?.snapshotId ?? null,
@@ -206,6 +205,10 @@ export const makeDemonstrationCapture = (
       urlAfter: sanitizeTeachingUrl(input.urlAfter),
       urlBefore: previous?.urlBefore ?? sanitizeTeachingUrl(input.urlBefore),
     };
+    const captured: CapturedAction =
+      input.detail === undefined
+        ? capturedBase
+        : { ...capturedBase, detail: input.detail };
     // The action is what moved the Page, so the transition it caused is
     // attributed to it even when the URL was noticed only afterwards.
     transition(sanitizeTeachingUrl(input.urlBefore), at, null);

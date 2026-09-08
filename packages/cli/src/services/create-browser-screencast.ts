@@ -55,7 +55,7 @@ const startUnlocked = (session: CreateSession) =>
       streamId: BrowserStreamId.make(randomUUID()),
     };
     yield* Ref.update(session.state, (state) => ({ ...state, screencast }));
-    cdp.on("Page.screencastFrame", (raw: unknown) => {
+    cdp.on("Page.screencastFrame", (raw) => {
       const frame = decodeScreencastFrame(raw);
       if (frame === undefined) {
         const { viewport } = readSessionState(session);

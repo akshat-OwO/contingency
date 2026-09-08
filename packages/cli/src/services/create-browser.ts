@@ -6,6 +6,7 @@ import {
   SessionId as SessionIdSchema,
 } from "@contingency/protocol";
 import type {
+  BrowserInput,
   BrowserRpcErrorType,
   BrowserStreamEvent,
   DraftEmulation,
@@ -17,7 +18,7 @@ import type {
 } from "@contingency/protocol";
 import { Effect, Exit, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import { chromium } from "playwright-core";
-import type { Browser } from "playwright-core";
+import type { Browser, BrowserContextOptions } from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
@@ -61,6 +62,79 @@ export type {
 
 /** An Emulation's environment: everything but the identity it presents. */
 type SessionEnvironment = Omit<DraftEmulation, "userAgentProfile" | "viewport">;
+
+interface MouseEventParameters {
+  readonly button?: "back" | "forward" | "left" | "middle" | "none" | "right";
+  readonly clickCount?: number;
+  readonly deltaX?: number;
+  readonly deltaY?: number;
+  readonly modifiers?: number;
+  readonly type: "mouseMoved" | "mousePressed" | "mouseReleased" | "mouseWheel";
+  readonly x: number;
+  readonly y: number;
+}
+
+interface KeyEventParameters {
+  readonly code?: string;
+  readonly key?: string;
+  readonly modifiers?: number;
+  readonly text?: string;
+  readonly type: "char" | "keyDown" | "keyUp" | "rawKeyDown";
+  readonly windowsVirtualKeyCode?: number;
+}
+
+const mouseEventParameters = (
+  input: Extract<BrowserInput, { readonly type: "input_mouse" }>
+): MouseEventParameters => {
+  let parameters: MouseEventParameters = {
+    type: input.eventType,
+    x: input.x,
+    y: input.y,
+  };
+  if (input.button !== undefined) {
+    parameters = { ...parameters, button: input.button };
+  }
+  if (input.clickCount !== undefined) {
+    parameters = { ...parameters, clickCount: input.clickCount };
+  }
+  if (input.deltaX !== undefined) {
+    parameters = { ...parameters, deltaX: input.deltaX };
+  }
+  if (input.deltaY !== undefined) {
+    parameters = { ...parameters, deltaY: input.deltaY };
+  }
+  if (input.modifiers !== undefined) {
+    parameters = { ...parameters, modifiers: input.modifiers };
+  }
+  return parameters;
+};
+
+const keyEventParameters = (
+  input: Extract<BrowserInput, { readonly type: "input_keyboard" }>
+): KeyEventParameters => {
+  let parameters: KeyEventParameters = {
+    type: input.eventType,
+  };
+  if (input.code !== undefined) {
+    parameters = { ...parameters, code: input.code };
+  }
+  if (input.key !== undefined) {
+    parameters = { ...parameters, key: input.key };
+  }
+  if (input.modifiers !== undefined) {
+    parameters = { ...parameters, modifiers: input.modifiers };
+  }
+  if (input.text !== undefined) {
+    parameters = { ...parameters, text: input.text };
+  }
+  if (input.windowsVirtualKeyCode !== undefined) {
+    parameters = {
+      ...parameters,
+      windowsVirtualKeyCode: input.windowsVirtualKeyCode,
+    };
+  }
+  return parameters;
+};
 
 /**
  * What one patch field means: absent leaves the value as it is, `null` clears
@@ -141,20 +215,23 @@ const makeService = (
           )
         );
       }
+      let contextOptions: BrowserContextOptions = {
+        deviceScaleFactor: viewport.deviceScaleFactor,
+        // The same translation a Run applies, so a session authored here and a
+        // headless Run present one environment (ADR 0013).
+        ...environmentContextOptions(environment),
+        serviceWorkers: blockServiceWorkers ? "block" : "allow",
+        viewport: { height: viewport.height, width: viewport.width },
+      };
+      if (recordVideoDirectory !== undefined) {
+        contextOptions = {
+          ...contextOptions,
+          recordVideo: { dir: recordVideoDirectory },
+        };
+      }
       const context = yield* tryBrowser(
         "Could not create browser session",
-        () =>
-          browser.newContext({
-            deviceScaleFactor: viewport.deviceScaleFactor,
-            // The same translation a Run applies, so a session authored here
-            // and a headless Run present one environment (ADR 0013).
-            ...environmentContextOptions(environment),
-            ...(recordVideoDirectory === undefined
-              ? {}
-              : { recordVideo: { dir: recordVideoDirectory } }),
-            serviceWorkers: blockServiceWorkers ? "block" : "allow",
-            viewport: { height: viewport.height, width: viewport.width },
-          })
+        () => browser.newContext(contextOptions)
       );
       const events = yield* PubSub.unbounded<BrowserStreamEvent>({
         replay: 32,
@@ -429,12 +506,10 @@ const makeService = (
             : yield* tryBrowser("Could not read the response body", () =>
                 response.text()
               ).pipe(Effect.option);
-        return {
-          ...record.request,
-          ...(responseBody?._tag === "Some"
-            ? { responseBody: responseBody.value }
-            : {}),
-        };
+        if (responseBody?._tag === "Some") {
+          return { ...record.request, responseBody: responseBody.value };
+        }
+        return record.request;
       }),
     getNetworkRequests: (sessionId, tabId) =>
       Effect.gen(function* readNetworkRequests() {
@@ -513,40 +588,11 @@ const makeService = (
           try {
             const dispatched =
               input.type === "input_mouse"
-                ? cdp.send("Input.dispatchMouseEvent", {
-                    ...(input.button === undefined
-                      ? {}
-                      : { button: input.button }),
-                    ...(input.clickCount === undefined
-                      ? {}
-                      : { clickCount: input.clickCount }),
-                    ...(input.deltaX === undefined
-                      ? {}
-                      : { deltaX: input.deltaX }),
-                    ...(input.deltaY === undefined
-                      ? {}
-                      : { deltaY: input.deltaY }),
-                    ...(input.modifiers === undefined
-                      ? {}
-                      : { modifiers: input.modifiers }),
-                    type: input.eventType,
-                    x: input.x,
-                    y: input.y,
-                  })
-                : cdp.send("Input.dispatchKeyEvent", {
-                    ...(input.code === undefined ? {} : { code: input.code }),
-                    ...(input.key === undefined ? {} : { key: input.key }),
-                    ...(input.modifiers === undefined
-                      ? {}
-                      : { modifiers: input.modifiers }),
-                    ...(input.text === undefined ? {} : { text: input.text }),
-                    type: input.eventType,
-                    ...(input.windowsVirtualKeyCode === undefined
-                      ? {}
-                      : {
-                          windowsVirtualKeyCode: input.windowsVirtualKeyCode,
-                        }),
-                  });
+                ? cdp.send(
+                    "Input.dispatchMouseEvent",
+                    mouseEventParameters(input)
+                  )
+                : cdp.send("Input.dispatchKeyEvent", keyEventParameters(input));
             await dispatched;
           } finally {
             await cdp.detach();

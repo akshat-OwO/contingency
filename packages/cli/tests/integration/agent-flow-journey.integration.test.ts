@@ -145,14 +145,15 @@ it.live(
         });
         for (const key of ["A", "d", "a"]) {
           for (const eventType of ["keyDown", "keyUp"] as const) {
+            const input = {
+              eventType,
+              key,
+              type: "input_keyboard" as const,
+            };
             yield* user("agent.browser.input.send", {
               data: {
-                input: {
-                  eventType,
-                  key,
-                  type: "input_keyboard",
-                  ...(eventType === "keyDown" ? { text: key } : {}),
-                },
+                input:
+                  eventType === "keyDown" ? { ...input, text: key } : input,
                 sessionId: teaching.id,
               },
               type: "agent.browser.input.send",

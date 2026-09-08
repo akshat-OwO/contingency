@@ -5,12 +5,16 @@ import {
   useNavigate,
   useSearch,
 } from "@tanstack/react-router";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RunViewer } from "@/components/agent/run-view";
 
 const isAgentRunId = Schema.is(AgentRunId);
+const AgentSearch = Schema.Struct({
+  run: Schema.optional(Schema.String),
+  session: Schema.optional(Schema.String),
+});
 
 const AgentRouteComponent = () => {
   const { run, session } = useSearch({ from: "/agent" });
@@ -33,10 +37,16 @@ const AgentRouteComponent = () => {
 
 const AgentRoute = createFileRoute("/agent")({
   component: AgentRouteComponent,
-  validateSearch: (search: Record<string, unknown>) => ({
-    run: isAgentRunId(search.run) ? search.run : undefined,
-    session: typeof search.session === "string" ? search.session : undefined,
-  }),
+  validateSearch: <Search,>(search: Search) => {
+    const decoded = Schema.decodeUnknownOption(AgentSearch)(search);
+    if (Option.isNone(decoded)) {
+      return {};
+    }
+    return {
+      run: isAgentRunId(decoded.value.run) ? decoded.value.run : undefined,
+      session: decoded.value.session,
+    };
+  },
 });
 
 export const Route = AgentRoute;

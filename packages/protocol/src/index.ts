@@ -165,14 +165,17 @@ export const BrowserConsoleEntry = Schema.Union([
 ]);
 export type BrowserConsoleEntry = typeof BrowserConsoleEntry.Type;
 
+export const BrowserHeaders = Schema.Record(Schema.String, Schema.String);
+export type BrowserHeaders = typeof BrowserHeaders.Type;
+
 export const BrowserNetworkRequest = Schema.Struct({
-  headers: Schema.Unknown,
+  headers: BrowserHeaders,
   method: Schema.String,
   mimeType: optionalNullable(Schema.String),
   postData: optionalNullable(Schema.String),
   requestId: BrowserRequestId,
   resourceType: Schema.String,
-  responseHeaders: optionalNullable(Schema.Unknown),
+  responseHeaders: optionalNullable(BrowserHeaders),
   status: optionalNullable(Schema.Int),
   tabId: BrowserTabId,
   timestamp: Schema.Int,

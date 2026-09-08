@@ -4,7 +4,6 @@ import { once } from "node:events";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import type { RunVideoManifest } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem } from "effect";
 import type { Scope } from "effect/Scope";
@@ -124,11 +123,11 @@ const recordingOf = (runs: string): string | undefined => {
  * yield — and this Run can be gone well under a hundred milliseconds after
  * the signal.
  */
-const armExitWaiter = (
-  child: ChildProcess
-): {
+interface ExitWaiter {
   readonly exited: Promise<null>;
-} => ({
+}
+
+const armExitWaiter = (child: ChildProcess): ExitWaiter => ({
   // `once` attaches immediately, at call time — which is the whole point.
   exited: once(child, "exit").then(() => null),
 });
@@ -224,7 +223,7 @@ it.live("leaves a flushed recording when a Run is interrupted", () =>
     // one, so the manifest is written on every exit path too.
     const manifest = JSON.parse(
       yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
-    ) as RunVideoManifest;
+    );
     expect(manifest.segments).toHaveLength(1);
     expect(manifest.segments[0]?.recorded).toBe(true);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
@@ -280,7 +279,7 @@ it.live("keeps the flushed recording when the second Ctrl-C is a reflex", () =>
 
     const manifest = JSON.parse(
       yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
-    ) as RunVideoManifest;
+    );
     expect(manifest.segments).toHaveLength(1);
     expect(manifest.segments[0]?.recorded).toBe(true);
   }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
@@ -351,7 +350,7 @@ it.live(
 
       const manifest = JSON.parse(
         yield* fileSystem.readFileString(path.join(artifacts, "video.json"))
-      ) as RunVideoManifest;
+      );
       expect(manifest.segments).toHaveLength(1);
       expect(manifest.segments[0]?.recorded).toBe(true);
     }).pipe(Effect.scoped, Effect.provide(IntegrationLive))

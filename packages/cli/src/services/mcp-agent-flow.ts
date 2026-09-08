@@ -269,14 +269,16 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
   agent_flow_draft_save: (params) =>
     Effect.gen(function* saveDraft() {
       const catalog = yield* AgentFlowCatalog;
-      const requestInput = normalizedDraftSaveInput({
+      const saveInput = {
         basedOnRevisionId: params.basedOnRevisionId,
         proposal: params.draft,
         sourceSessionId: params.sessionId,
-        ...(params.agentFlowId === undefined
-          ? {}
-          : { agentFlowId: params.agentFlowId }),
-      });
+      };
+      const requestInput = normalizedDraftSaveInput(
+        params.agentFlowId === undefined
+          ? saveInput
+          : { ...saveInput, agentFlowId: params.agentFlowId }
+      );
       const replay = yield* catalog
         .replayDraftSave(params.operationId, requestInput)
         .pipe(Effect.mapError(failure));

@@ -28,6 +28,10 @@ type RequireSession = (
   sessionId: SessionId
 ) => Effect.Effect<CreateSession, BrowserRpcErrorType>;
 
+type BrowserCookie = Parameters<
+  CreateSession["context"]["addCookies"]
+>[0][number];
+
 const requireActivePage = (session: CreateSession, tabId: BrowserTabId) => {
   const page = activeStoragePage(session, tabId);
   return page === undefined
@@ -90,23 +94,22 @@ export const makeCreateBrowserStorage = (requireSession: RequireSession) => {
     const session = yield* requireSession(sessionId);
     const page = yield* requireActivePage(session, tabId);
     if (input.kind === "cookies") {
+      const cookie: BrowserCookie = {
+        domain: input.cookie.domain,
+        httpOnly: input.cookie.httpOnly,
+        name: input.cookie.name,
+        path: input.cookie.path,
+        secure: input.cookie.secure,
+        value: input.cookie.value,
+      };
+      if (input.cookie.expires !== undefined) {
+        cookie.expires = input.cookie.expires;
+      }
+      if (input.cookie.sameSite !== undefined) {
+        cookie.sameSite = input.cookie.sameSite;
+      }
       yield* tryBrowser("Could not set the cookie", () =>
-        session.context.addCookies([
-          {
-            domain: input.cookie.domain,
-            ...(input.cookie.expires === undefined
-              ? {}
-              : { expires: input.cookie.expires }),
-            httpOnly: input.cookie.httpOnly,
-            name: input.cookie.name,
-            path: input.cookie.path,
-            ...(input.cookie.sameSite === undefined
-              ? {}
-              : { sameSite: input.cookie.sameSite }),
-            secure: input.cookie.secure,
-            value: input.cookie.value,
-          },
-        ])
+        session.context.addCookies([cookie])
       );
       return;
     }

@@ -30,7 +30,7 @@ export const optionalNullable = <S extends Schema.Top>(schema: S) =>
           (value: Option.Option<S["Type"] | undefined>) =>
             Option.isSome(value) && value.value === undefined
               ? Option.none()
-              : (value as Option.Option<S["Type"]>)
+              : value
         ),
       })
     )
