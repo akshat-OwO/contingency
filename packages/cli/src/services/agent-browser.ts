@@ -329,8 +329,14 @@ const SNAPSHOT_SCRIPT = `(() => {
     if (typeof element.checked === "boolean") {
       node.checked = element.checked;
     }
-    if (typeof element.value === "string" && !isSensitive(element)) {
-      node.value = element.value.slice(0, ${NAME_LIMIT});
+    if (typeof element.value === "string") {
+      if (isSensitive(element)) {
+        if (element.value.length > 0) {
+          node.valueWithheld = true;
+        }
+      } else {
+        node.value = element.value.slice(0, ${NAME_LIMIT});
+      }
     }
     nodes.push(node);
     elements.push(element);
@@ -355,6 +361,7 @@ const CollectedNodes = Schema.Array(
     name: Schema.String,
     role: Schema.String,
     value: Schema.optional(Schema.String),
+    valueWithheld: Schema.optional(Schema.Boolean),
     width: Schema.Finite,
     x: Schema.Finite,
     y: Schema.Finite,
@@ -834,9 +841,13 @@ export const redactAgentSnapshot = (
       ...node,
       name: redactKnownValues(node.name, values),
     };
-    return node.value === undefined
-      ? redacted
-      : { ...redacted, value: redactControlValue(node.value, values) };
+    if (node.value === undefined) {
+      return redacted;
+    }
+    const value = redactControlValue(node.value, values);
+    return value === node.value
+      ? { ...redacted, value }
+      : { ...redacted, value, valueWithheld: true };
   }),
   title: redactKnownValues(snapshot.title, values),
 });
