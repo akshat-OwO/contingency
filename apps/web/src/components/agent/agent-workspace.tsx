@@ -634,6 +634,7 @@ const SessionDetails = ({
             refreshToken={session.updatedAt}
             revisionId={session.teaching.draft.revisionId}
             sessionId={session.id}
+            startingPageSessionId={session.id}
           />
         ) : null}
 

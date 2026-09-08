@@ -696,6 +696,9 @@ it("carries only a real page into a Verification Run's starting URL", () => {
   expect(verificationStartingUrl("https://user:pw@shop.example/cart")).toBe(
     "https://shop.example/cart"
   );
+  expect(
+    verificationStartingUrl("https://shop.example/cart?token=abc123")
+  ).toBe("https://shop.example/cart?token=%5Bsensitive%5D");
   // A blank or non-document page leaves the Run opening on `about:blank`.
   expect(verificationStartingUrl("about:blank")).toBeNull();
   expect(verificationStartingUrl("file:///tmp/page.html")).toBeNull();

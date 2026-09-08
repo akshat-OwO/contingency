@@ -233,6 +233,7 @@ const renderReview = (
         refreshToken={refreshToken}
         revisionId={"rev-1" as never}
         sessionId={sessionId as never}
+        startingPageSessionId={sessionId as never}
       />
     </RegistryProvider>
   );
@@ -362,6 +363,7 @@ test("does not carry deletion success into another Agent Flow review", async () 
         refreshToken={at}
         revisionId={"rev-1" as never}
         sessionId={"agent-one" as never}
+        startingPageSessionId={"agent-one" as never}
       />
     </RegistryProvider>
   );
@@ -390,6 +392,7 @@ test("does not carry deletion success into another Agent Flow review", async () 
         refreshToken={at}
         revisionId={"rev-other" as never}
         sessionId={"agent-two" as never}
+        startingPageSessionId={"agent-two" as never}
       />
     </RegistryProvider>
   );
@@ -551,6 +554,7 @@ test("authorizes one Verification Run for the exact draft revision", async () =>
         readonly data: {
           readonly agentFlowId: string;
           readonly revisionId: string;
+          readonly sessionId: string | undefined;
         };
       };
     },
@@ -558,7 +562,39 @@ test("authorizes one Verification Run for the exact draft revision", async () =>
   expect(call.payload.data).toMatchObject({
     agentFlowId: "flow-shop",
     revisionId: "rev-1",
+    // The Run opens where the authorizing session stands (issue #139).
+    sessionId: "agent-one",
   });
+});
+
+test("retries verification from the page the Verification Run is showing", async () => {
+  const user = userEvent.setup();
+  rpc.detail = detailWith(verificationOf("failed", "The basket stayed empty."));
+  render(
+    <RegistryProvider>
+      <DraftReview
+        agentFlowId={"flow-shop" as never}
+        refreshToken={at}
+        revisionId={"rev-1" as never}
+        // The Verification Run panel owns no Demonstration to correct, but the
+        // retry must still open where that Run stands, not on `about:blank`.
+        sessionId={undefined as never}
+        startingPageSessionId={"agent-verify" as never}
+      />
+    </RegistryProvider>
+  );
+
+  await user.click(
+    await screen.findByRole("button", { name: "Authorize Verification Run" })
+  );
+
+  await waitFor(() => {
+    expect(rpc.authorizeCalls).toHaveLength(1);
+  });
+  const [retry] = rpc.authorizeCalls as [
+    { readonly payload: { readonly data: { readonly sessionId: string } } },
+  ];
+  expect(retry.payload.data.sessionId).toBe("agent-verify");
 });
 
 test("withholds authorization until unsaved corrections are saved", async () => {
@@ -691,6 +727,7 @@ test("offers approval once the session reports the Run passed", async () => {
         refreshToken="2026-09-02T00:00:05.000Z"
         revisionId={"rev-1" as never}
         sessionId={undefined as never}
+        startingPageSessionId={undefined as never}
       />
     </RegistryProvider>
   );
@@ -714,6 +751,7 @@ test("keeps unsaved corrections when the draft is reread", async () => {
         refreshToken="2026-09-02T00:00:05.000Z"
         revisionId={"rev-1" as never}
         sessionId={"agent-one" as never}
+        startingPageSessionId={"agent-one" as never}
       />
     </RegistryProvider>
   );
@@ -804,6 +842,7 @@ const GatedReview = ({ shown }: { readonly shown: boolean }) => (
         refreshToken={at}
         revisionId={"rev-1" as never}
         sessionId={"agent-one" as never}
+        startingPageSessionId={"agent-one" as never}
       />
     ) : (
       <p>The draft is not on screen.</p>
