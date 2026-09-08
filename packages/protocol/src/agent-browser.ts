@@ -45,6 +45,7 @@ export const AgentSnapshotNode = Schema.Struct({
   ref: AgentElementRef,
   role: nonEmptyString,
   value: optionalNullable(Schema.String),
+  valueWithheld: optionalNullable(Schema.Boolean),
 });
 export type AgentSnapshotNode = typeof AgentSnapshotNode.Type;
 

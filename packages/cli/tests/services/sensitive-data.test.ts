@@ -17,6 +17,14 @@ it("recognizes credential and token metadata across field attributes", () => {
   expect(isSensitiveField({ ariaLabel: "Postal code" })).toBe(false);
   expect(isSensitiveField({ name: "keyboard-layout" })).toBe(false);
   expect(isSensitiveField({ ariaLabel: "Spinbutton value" })).toBe(false);
+  expect(isSensitiveField({ name: "pincode" })).toBe(false);
+  expect(isSensitiveField({ name: "zipcode" })).toBe(false);
+  expect(isSensitiveField({ name: "country_code" })).toBe(false);
+  expect(isSensitiveField({ name: "monkey" })).toBe(false);
+  expect(isSensitiveField({ name: "otp" })).toBe(true);
+  expect(isSensitiveField({ name: "cvv" })).toBe(true);
+  expect(isSensitiveField({ name: "ssn" })).toBe(true);
+  expect(isSensitiveField({ name: "password" })).toBe(true);
 });
 
 it("sanitizes credentials, fragments, and sensitive query values", () => {

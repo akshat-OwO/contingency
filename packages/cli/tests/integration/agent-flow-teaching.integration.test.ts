@@ -464,6 +464,7 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       });
       expect(observed.url).not.toContain("url-secret");
       const token = findNode(observed.nodes, "textbox", "Token");
+      expect(token.valueWithheld).toBeUndefined();
       const filled = yield* session("agent_browser_act", {
         action: { ref: token.ref, text: "top-secret", type: "fill" },
         operationId: OperationId.make("fill-sensitive-input"),
@@ -475,7 +476,9 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       expect(findNode(filled.snapshot.nodes, "textbox", "Token").value).toBe(
         undefined
       );
-      expect(findNode(after.nodes, "textbox", "Token").value).toBeUndefined();
+      const redactedToken = findNode(after.nodes, "textbox", "Token");
+      expect(redactedToken.value).toBeUndefined();
+      expect(redactedToken.valueWithheld).toBe(true);
       expect(JSON.stringify(after)).not.toContain("top-secret");
       expect(filled.snapshot.url).not.toContain("url-secret");
       const screenshot = yield* session("agent_browser_screenshot", {
@@ -509,6 +512,12 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       expect(JSON.stringify(feed)).not.toContain("top-secret");
       expect(JSON.stringify(feed)).not.toContain("url-secret");
       expect(JSON.stringify(feed)).not.toContain("literal-secret-key");
+      const capturedTokens = feed.snapshots.flatMap(({ nodes }) =>
+        nodes.filter(({ name, role }) => name === "Token" && role === "textbox")
+      );
+      expect(
+        capturedTokens.some(({ valueWithheld }) => valueWithheld === true)
+      ).toBe(true);
 
       yield* session("agent_session_close", {
         operationId: OperationId.make("close-sensitive-teaching"),
@@ -683,6 +692,7 @@ it.live(
         for (const box of otpBoxes) {
           expect(box.value).not.toBe("");
           expect(box.value).toBe("[sensitive input]");
+          expect(box.valueWithheld).toBe(true);
         }
         yield* session("agent_browser_screenshot", { sessionId: started.id });
 
@@ -721,6 +731,9 @@ it.live(
           // Snapshots taken before private entry hold an empty box; every
           // filled one must be redacted rather than carrying its digit.
           expect(["", "[sensitive input]", undefined]).toContain(box.value);
+          expect(box.valueWithheld).toBe(
+            box.value === "[sensitive input]" ? true : undefined
+          );
         }
         expect(feed.variables).toEqual([
           { name: "MOBILE", runtime: false, secret: true },
@@ -821,6 +834,18 @@ it.live(
           ),
           ...evidence,
         ].join("\n");
+        const evidenceNodes = evidence
+          .map((content) =>
+            Schema.decodeUnknownSync(EvidenceSlice)(JSON.parse(content))
+          )
+          .flatMap(({ after, before }) => [before, after])
+          .flatMap((snapshot) => snapshot?.nodes ?? []);
+        expect(
+          evidenceNodes.some(
+            ({ name, valueWithheld }) =>
+              name.endsWith(" of 6") && valueWithheld === true
+          )
+        ).toBe(true);
         for (const literal of literals) {
           expect(persisted).not.toContain(literal);
         }
