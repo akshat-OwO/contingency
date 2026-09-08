@@ -1,4 +1,5 @@
 import {
+  AgentElementRef,
   AgentFlowId,
   AgentFlowRevisionId,
   makeBrowserRpcError,
@@ -17,6 +18,7 @@ import { Context, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect";
 
 import {
   AgentSession,
+  describeCapturedAction,
   makeAgentSessionLayer,
   makeAgentSessionService,
   verificationStartingUrl,
@@ -703,4 +705,43 @@ it("carries only a real page into a Verification Run's starting URL", () => {
   expect(verificationStartingUrl("about:blank")).toBeNull();
   expect(verificationStartingUrl("file:///tmp/page.html")).toBeNull();
   expect(verificationStartingUrl("[invalid URL]")).toBeNull();
+});
+
+/**
+ * A description is a sentence assembled from length-limited fragments, so a
+ * private literal longer than that limit is already cut in half by the time a
+ * whole-sentence redaction pass looks for it. Redaction runs per field, before
+ * assembly, so no prefix of a long token reaches the timeline.
+ */
+it("redacts a private literal longer than the label limit", () => {
+  const secret = `sk-${"a".repeat(200)}`;
+  const described = describeCapturedAction(
+    { name: "API token", role: "textbox" },
+    { ref: AgentElementRef.make("e7"), text: secret, type: "fill" },
+    {},
+    [secret]
+  );
+  expect(described).toBe('Fill textbox "API token" with [sensitive input]');
+  expect(described).not.toContain("sk-a");
+});
+
+/** A control whose accessible name echoes a private value is redacted too. */
+it("redacts a private literal in an accessible name or objective", () => {
+  const secret = "hunter2-hunter2-hunter2";
+  expect(
+    describeCapturedAction(
+      { name: `Signed in as ${secret}`, role: "button" },
+      { ref: AgentElementRef.make("e7"), type: "click" },
+      { objective: `Confirm ${secret} is signed in` },
+      [secret]
+    )
+  ).toBe("Confirm [sensitive input] is signed in");
+  expect(
+    describeCapturedAction(
+      { name: `Signed in as ${secret}`, role: "button" },
+      { ref: AgentElementRef.make("e7"), type: "click" },
+      {},
+      [secret]
+    )
+  ).toBe('Click button "Signed in as [sensitive input]"');
 });

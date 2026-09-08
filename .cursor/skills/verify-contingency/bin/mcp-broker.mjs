@@ -8,28 +8,26 @@
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+
+// The broker is spawned from the skill directory, which sits outside the
+// workspace, so a bare `effect` specifier resolves against a repository root
+// that does not install it. It is resolved through the CLI package this
+// broker drives instead, which is the same copy the MCP server itself loads.
+const { Option, Schema } = await import(
+  pathToFileURL(
+    createRequire(import.meta.url).resolve("effect", {
+      paths: [new URL("../../../../packages/cli/", import.meta.url).pathname],
+    })
+  ).href
+);
 
 const REQUEST_TIMEOUT_MS = 60_000;
-
-// The broker runs from the skill directory, where the workspace's packages are
-// not resolvable, so it validates its one request shape by hand rather than
-// importing a schema library it cannot reach.
-const parseCall = (body) => {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return undefined;
-  }
-  const { params, tool } = body;
-  if (typeof tool !== "string" || tool.length === 0) {
-    return undefined;
-  }
-  if (
-    params !== undefined &&
-    (typeof params !== "object" || params === null || Array.isArray(params))
-  ) {
-    return undefined;
-  }
-  return { params: params ?? {}, tool };
-};
+const CallRequest = Schema.Struct({
+  params: Schema.optional(Schema.Record(Schema.String, Schema.Json)),
+  tool: Schema.String,
+});
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -131,12 +129,14 @@ const handle = async (request, response) => {
     respond(response, 404, { error: "POST /call or GET /health" });
     return;
   }
-  const decoded = parseCall(JSON.parse(await readBody(request)));
-  if (decoded === undefined) {
+  const decoded = Schema.decodeUnknownOption(CallRequest)(
+    JSON.parse(await readBody(request))
+  );
+  if (Option.isNone(decoded)) {
     respond(response, 400, { error: "call needs a tool name" });
     return;
   }
-  const { params, tool } = decoded;
+  const { params = {}, tool } = decoded.value;
   const message = await send("tools/call", { arguments: params, name: tool });
   if (message.error === undefined) {
     respond(response, 200, message.result);

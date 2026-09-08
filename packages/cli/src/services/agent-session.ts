@@ -13,6 +13,7 @@ import {
 import type {
   AgentActionResult,
   AgentActionIntent,
+  AgentActionSubject,
   AgentBoundaryResolve,
   AgentExecutionBoundary,
   DomainScope,
@@ -598,30 +599,65 @@ const sanitizeSensitiveAction = (
   }
 };
 
+/** Strip private literals from every free-text field an action carries. */
+const redactActionText = (
+  action: AgentBrowserAction,
+  redact: (text: string) => string
+): AgentBrowserAction => {
+  switch (action.type) {
+    case "fill": {
+      return { ...action, text: redact(action.text) };
+    }
+    case "select": {
+      return { ...action, values: action.values.map(redact) };
+    }
+    case "wait_for_text": {
+      return { ...action, text: redact(action.text) };
+    }
+    default: {
+      return action;
+    }
+  }
+};
+
 /**
  * Describe an attempt by what it acted on. The description is read long after
  * the Snapshot that minted the reference is gone, so the control's role and
- * accessible name are resolved now, while the reference still means something,
- * and private literals are stripped before the label is stored.
+ * accessible name are resolved now, while the reference still means something.
+ *
+ * Redaction runs field by field before the label is assembled. A description
+ * is a sentence built from truncated fragments, so redacting the finished
+ * sentence would look for a private literal that a length limit had already
+ * cut in half, and leave its surviving prefix on the timeline.
  */
-const describeCapturedAction = (
-  registry: AgentElementRegistry,
+export const describeCapturedAction = (
+  subject: AgentActionSubject | undefined,
   action: AgentBrowserAction,
   intent: AgentActionIntent,
   privateValues: readonly string[]
 ): string => {
-  const subject =
-    "ref" in action && action.ref !== undefined
-      ? registry.describe(action.ref)
-      : undefined;
-  const described = describeAgentAction(action, {
-    objective: intent.objective ?? undefined,
-    subject,
+  const redact = (text: string): string =>
+    privateValues.length === 0 ? text : redactKnownValues(text, privateValues);
+  return describeAgentAction(redactActionText(action, redact), {
+    objective:
+      intent.objective === undefined || intent.objective === null
+        ? undefined
+        : redact(intent.objective),
+    subject:
+      subject === undefined
+        ? undefined
+        : { name: redact(subject.name), role: subject.role },
   });
-  return privateValues.length === 0
-    ? described
-    : redactKnownValues(described, privateValues);
 };
+
+/** The control an action names, as the live Snapshot generation described it. */
+const actionSubject = (
+  registry: AgentElementRegistry,
+  action: AgentBrowserAction
+): AgentActionSubject | undefined =>
+  "ref" in action && action.ref !== undefined
+    ? registry.describe(action.ref)
+    : undefined;
 
 const sanitizeActionFailure = (
   failure: AgentSessionError,
@@ -2669,7 +2705,7 @@ const makeAgentSession = (
                     privateCapture.value,
                   ];
             const description = describeCapturedAction(
-              record.registry,
+              actionSubject(record.registry, capturedAction),
               capturedAction,
               intent,
               privateValues
@@ -2678,7 +2714,7 @@ const makeAgentSession = (
               privateCapture === undefined
                 ? description
                 : describeCapturedAction(
-                    record.registry,
+                    actionSubject(record.registry, action),
                     sanitizeSensitiveAction(action, true),
                     intent,
                     privateValues
@@ -4203,7 +4239,7 @@ const makeAgentSession = (
               ? { ...action, url: sanitizeTeachingUrl(action.url) }
               : action;
           const description = describeCapturedAction(
-            record.registry,
+            actionSubject(record.registry, capturedAction),
             capturedAction,
             {},
             record.capture?.sensitiveValues() ?? []
