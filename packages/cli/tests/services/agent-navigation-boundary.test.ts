@@ -57,7 +57,7 @@ it.effect(
 it.effect("refuses only top-level documents outside the Domain Scope", () =>
   Effect.gen(function* subframeDocumentsStayOutsideTheBoundary() {
     const scope = yield* Scope.make();
-    const root = { on: vi.fn() } as unknown as CDPSession;
+    const root = { on: vi.fn(), send: vi.fn() };
     const coordinator = new NavigationCoordinator(root, scope);
     const send = vi.spyOn(coordinator, "send").mockReturnValue(Effect.void);
     const refuse = vi.fn(() => Effect.void);

@@ -10,7 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -91,6 +91,12 @@ const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
     <RegistryProvider>{children}</RegistryProvider>
   </RpcDependenciesProvider>
 );
+
+const RecordedAuthorization = Schema.Struct({
+  payload: Schema.Struct({
+    data: Schema.Struct({ sessionId: Schema.String }),
+  }),
+});
 
 const at = "2026-09-02T00:00:00.000Z";
 
@@ -508,17 +514,17 @@ test("retries verification from the page the Verification Run is showing", async
   const user = userEvent.setup();
   rpc.detail = detailWith(verificationOf("failed", "The basket stayed empty."));
   render(
-    <RegistryProvider>
+    <TestRegistry>
       <DraftReview
-        agentFlowId={"flow-shop" as never}
+        agentFlowId={"flow-shop"}
         refreshToken={at}
-        revisionId={"rev-1" as never}
+        revisionId={"rev-1"}
         // The Verification Run panel owns no Demonstration to correct, but the
         // retry must still open where that Run stands, not on `about:blank`.
-        sessionId={undefined as never}
-        startingPageSessionId={"agent-verify" as never}
+        sessionId={undefined}
+        startingPageSessionId={"agent-verify"}
       />
-    </RegistryProvider>
+    </TestRegistry>
   );
 
   await user.click(
@@ -528,9 +534,9 @@ test("retries verification from the page the Verification Run is showing", async
   await waitFor(() => {
     expect(rpc.authorizeCalls).toHaveLength(1);
   });
-  const [retry] = rpc.authorizeCalls as [
-    { readonly payload: { readonly data: { readonly sessionId: string } } },
-  ];
+  const retry = Schema.decodeUnknownSync(RecordedAuthorization)(
+    rpc.authorizeCalls[0]
+  );
   expect(retry.payload.data.sessionId).toBe("agent-verify");
 });
 
