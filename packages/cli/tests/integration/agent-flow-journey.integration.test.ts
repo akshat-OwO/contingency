@@ -394,13 +394,7 @@ it.live(
           { name: "PASSWORD", runtime: false, secret: true, supplied: false },
           { name: "OTP", runtime: true, secret: true, supplied: false },
         ]);
-        /**
-         * The Verification Run has no active Agent Step, so the agent's own
-         * phrasing can never match a proposed Step. Domain Scope already
-         * decides where the session may travel, so an in-scope navigate is
-         * not an unrecognised objective
-         * ([ADR 0027](../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
-         */
+        // An in-scope navigate remains allowed before the active Step's work.
         const verificationPage = yield* sessionTool("agent_browser_act", {
           action: { type: "navigate", url: loginUrl },
           intent: { objective: "Open the login page to begin verification" },
@@ -474,12 +468,7 @@ it.live(
           expect(JSON.stringify(supplied)).not.toContain(value);
         }
 
-        /**
-         * A draft with a Confirmation Step guards every mutating verification
-         * action the agent does not scope to a named objective, so the user
-         * confirms each one before it reaches the browser
-         * ([ADR 0027](../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
-         */
+        /** A Confirmation Step guards only the Step currently being verified. */
         const withUserConfirmation = <E, R>(
           attempt: Effect.Effect<AgentActionResult, E, R>,
           confirmationId: string,
@@ -506,27 +495,49 @@ it.live(
             return yield* attempt;
           });
 
-        for (const [name, label] of [
-          ["MOBILE", "Mobile number"],
-          ["PASSWORD", "Password"],
-          ["OTP", "digit 1 of 6"],
-        ] as const) {
-          const entered = yield* withUserConfirmation(
-            sessionTool("agent_variable_enter", {
-              name,
-              operationId: OperationId.make(`journey-verify-enter-${name}`),
-              ref: findNode(verificationPage.snapshot.nodes, "textbox", label)
-                .ref,
-              sessionId: verifying.id,
-            }),
-            `journey-verify-confirm-${name}`,
-            "An action the agent did not name an objective for"
-          );
+        const enterVariable = (
+          name: "MOBILE" | "PASSWORD" | "OTP",
+          label: string
+        ) =>
+          sessionTool("agent_variable_enter", {
+            name,
+            operationId: OperationId.make(`journey-verify-enter-${name}`),
+            ref: findNode(verificationPage.snapshot.nodes, "textbox", label)
+              .ref,
+            sessionId: verifying.id,
+          });
+        const mobileEntered = yield* enterVariable("MOBILE", "Mobile number");
+        yield* runTool("agent_run_step_assess", {
+          evidence: [
+            {
+              id: mobileEntered.snapshot.snapshotId,
+              kind: "snapshot" as const,
+            },
+          ],
+          explanation:
+            "The account identity fields accepted the supplied value.",
+          operationId: OperationId.make("journey-verify-assess-identity"),
+          outcome: "working",
+          sessionId: verifying.id,
+        });
+        const passwordEntered = yield* enterVariable("PASSWORD", "Password");
+        const otpEntered = yield* enterVariable("OTP", "digit 1 of 6");
+        for (const entered of [mobileEntered, passwordEntered, otpEntered]) {
           expect(entered.entry.outcome).toBe("completed");
           for (const literal of literals) {
             expect(JSON.stringify(entered)).not.toContain(literal);
           }
         }
+        yield* runTool("agent_run_step_assess", {
+          evidence: [
+            { id: otpEntered.snapshot.snapshotId, kind: "snapshot" as const },
+          ],
+          explanation:
+            "The authentication fields accepted both supplied values.",
+          operationId: OperationId.make("journey-verify-assess-authentication"),
+          outcome: "working",
+          sessionId: verifying.id,
+        });
 
         // The Confirmation Step the user added is enforced by name.
         const submitted = yield* withUserConfirmation(
@@ -547,6 +558,15 @@ it.live(
           "Submit the sign-in"
         );
         expect(submitted.entry.outcome).toBe("completed");
+        yield* runTool("agent_run_step_assess", {
+          evidence: [
+            { id: submitted.snapshot.snapshotId, kind: "snapshot" as const },
+          ],
+          explanation: "Submitting the sign-in reached the expected state.",
+          operationId: OperationId.make("journey-verify-assess-submit"),
+          outcome: "working",
+          sessionId: verifying.id,
+        });
 
         yield* flowTool("agent_flow_verification_complete", {
           operationId: OperationId.make("journey-verified"),
@@ -1068,6 +1088,28 @@ const approveSanityFlow = (loginUrl: string, fixtureHost: string) =>
       operationId: OperationId.make("fixture-verify"),
       revisionId,
     });
+    for (const step of saved.manifest.steps) {
+      const verificationEvidence = yield* sessionTool(
+        "agent_browser_snapshot",
+        {
+          sessionId: verifying.id,
+        }
+      );
+      yield* runTool("agent_run_step_assess", {
+        evidence: [
+          {
+            id: verificationEvidence.snapshotId,
+            kind: "snapshot" as const,
+          },
+        ],
+        explanation: `The "${step.name}" Step reproduced.`,
+        operationId: OperationId.make(
+          `fixture-assess-verification-${step.index}`
+        ),
+        outcome: "working",
+        sessionId: verifying.id,
+      });
+    }
     yield* flowTool("agent_flow_verification_complete", {
       operationId: OperationId.make("fixture-verified"),
       outcome: "passed",

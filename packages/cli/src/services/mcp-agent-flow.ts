@@ -212,7 +212,7 @@ const AgentFlowVerificationCompleteTool = Tool.make(
   {
     dependencies: [AgentSession, AgentFlowCatalog],
     description:
-      "Report how the Verification Run ended, with an explanation grounded in what you observed. A failure leaves any existing Approved Agent Flow untouched and lets you propose a changed draft, which the user must authorize again. Only the user can approve a passed revision.",
+      "Complete a Verification Run after assessing its ordered Steps with agent_run_step_assess. Passed requires every Step to be assessed working; failed requires a working prefix followed by one terminal not-working, inconclusive, or blocked assessment. The summary supplements those durable evidence-backed verdicts. A failure leaves any existing Approved Agent Flow untouched. Only the user can approve a passed revision.",
     failure: AgentFlowFailure,
     parameters: Schema.Struct({
       operationId: AgentFlowVerificationComplete.fields.operationId,
@@ -356,6 +356,7 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
       const recorded = yield* catalog
         .completeVerification({
           agentFlowId: verifying.agentFlowId,
+          assessments: verifying.assessments,
           operationId: params.operationId,
           outcome: params.outcome,
           revisionId: verifying.revisionId,
@@ -391,7 +392,9 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
         );
       }
       const verification: AgentSessionVerification = {
+        activeStepIndex: 0,
         agentFlowId: params.agentFlowId,
+        assessments: [],
         authorizationId: authorization.authorizationId,
         outcome: null,
         revisionId: params.revisionId,

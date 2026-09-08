@@ -17,6 +17,7 @@ Agent View watches Teaching and Interactive Runs owned by one local MCP process,
 - `agent-teaching-details` shows a Teaching session's captured action and instruction counts, the Teaching Feed disclosure, and the saved draft once one exists.
 - `agent-teaching-draft` compiles a Teaching session into a draft Agent Flow through MCP, refuses invalid output with diagnostics, and finds the draft again by catalog search.
 - `agent-execution-boundary` shows refused domains, new objectives, and per-attempt confirmation while preserving priority Takeover.
+- `agent-verification-assessments` records evidence-backed verdicts for the draft's ordered Steps, refuses inconsistent completion, and shows the verdicts in draft review.
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Feed or draft.
 
 ## How to get to it (user POV)
@@ -86,6 +87,10 @@ Preconditions:
 ### Execution Boundary
 
 - **Prepare verification.** Save a draft using the Teaching recipe above and mark its Step as a Confirmation Step. Open its Agent View and click the button `Authorize Verification Run`. Call `agent_flow_verification_start` with that exact `agentFlowId`, `revisionId`, client metadata, and a fresh operation id. Open the returned `viewUrl`.
+- **Assess each Step.** Drive the active Step, then call `agent_run_step_assess` with `outcome`, `explanation`, and at least one `evidence` entry naming a Snapshot id or attempt id that Step produced. A `working` verdict advances to the next ordered Step. `not-working`, `inconclusive`, or `blocked` ends the ordered Steps.
+- **Refuse an unsupported pass.** Before every Step has a `working` verdict, call `agent_flow_verification_complete` with `outcome:"passed"`. It exits `2` and reports that every ordered Step needs a working assessment.
+- **Complete and reread.** After the final assessment, call `agent_flow_verification_complete` with the matching `passed` or `failed` outcome. Call `agent_flow_get` for the same revision and require `heads.verification.assessments` to retain the ordered Step indexes, outcomes, explanations, and evidence references.
+- **Proof (draft review verdicts).** Reopen the Verification Run's `viewUrl`, wait for the list `Verification Step verdicts`, then save `agent-view/verification-assessments.aria.txt` and `agent-view/verification-assessments.png`. The list names each assessed Step and shows its verdict, explanation, and evidence references. A partial failure keeps the earlier working verdicts beside the terminal verdict.
 - **Refuse a domain.** Call `agent_browser_act` with a navigate action whose URL replaces the fixture's `127.0.0.1` host with `localhost`. The result contains `intervention.reason: domain`; the browser stays on its previous page. Run `control-contingency browser wait --role heading --name "Waiting for confirmation"`. The region `Execution Boundary` shows the URL, action, operation id, `Allow host for this Run`, and `Refuse request`.
 - **Take priority control.** Run `control-contingency browser click --role button --name "Take control"`. The boundary remains visible and its allow button becomes disabled. Click `Return control`, then `Refuse request`. Read `agent_session_get` again: `boundary` is null and the timeline retains the refusal.
 - **Confirm one attempt.** Navigate to the approved fixture host, observe the page, and request a click on a current element reference. In a Confirmation Step this returns `intervention.reason: confirmation`. Click `Confirm this attempt`, then repeat the identical MCP operation id and action. It runs once. Replaying that id returns its original result; a new id requires another confirmation.

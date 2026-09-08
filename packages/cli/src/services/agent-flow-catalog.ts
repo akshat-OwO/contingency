@@ -26,6 +26,7 @@ import type {
   AgentFlowSearchResult,
   AgentFlowVerification,
   AgentFlowVerificationOutcome,
+  AgentFlowVerificationStepAssessment,
   AgentSessionId,
   AgentStep,
   DraftEmulation,
@@ -211,6 +212,7 @@ export interface StartVerificationInput extends RevisionOperationInput {
 }
 
 export interface CompleteVerificationInput extends RevisionOperationInput {
+  readonly assessments: readonly AgentFlowVerificationStepAssessment[];
   readonly outcome: AgentFlowVerificationOutcome;
   readonly summary: string;
 }
@@ -2649,6 +2651,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                 ...heads,
                 updatedAt: at,
                 verification: {
+                  assessments: [],
                   authorizationId: `auth-${randomUUID()}`,
                   authorizedAt: at,
                   completedAt: null,
@@ -2669,7 +2672,11 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
       mutateHeads(
         "verification.complete",
         input,
-        { outcome: input.outcome, summary: input.summary },
+        {
+          assessments: input.assessments,
+          outcome: input.outcome,
+          summary: input.summary,
+        },
         (heads, at) =>
           Effect.gen(function* completeVerificationRun() {
             const catalogRoot = yield* Ref.get(root);
@@ -2687,12 +2694,40 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                 )
               );
             }
+            const ordered = input.assessments.every(
+              (assessment, index) => assessment.stepIndex === index
+            );
+            const completePass =
+              input.assessments.length === manifest.steps.length &&
+              input.assessments.every(
+                (assessment) => assessment.outcome === "working"
+              );
+            const terminalFailure =
+              input.assessments.length > 0 &&
+              input.assessments.length <= manifest.steps.length &&
+              input.assessments.at(-1)?.outcome !== "working" &&
+              input.assessments
+                .slice(0, -1)
+                .every((assessment) => assessment.outcome === "working");
+            const outcomeMatches =
+              input.outcome === "passed" ? completePass : terminalFailure;
+            if (!(ordered && outcomeMatches)) {
+              return yield* Effect.fail(
+                catalogError(
+                  "agent_flow_conflict",
+                  input.outcome === "passed"
+                    ? "A passed Verification Run requires one working assessment for every ordered Agent Step."
+                    : "A failed Verification Run requires an ordered working prefix followed by one terminal non-working assessment."
+                )
+              );
+            }
             return {
               heads: {
                 ...heads,
                 updatedAt: at,
                 verification: {
                   ...verification,
+                  assessments: input.assessments,
                   completedAt: at,
                   status: input.outcome,
                   summary: input.summary,

@@ -215,8 +215,16 @@ const approveJourney = (
         operationId: OperationId.make("verify-unmarked-objective"),
         sessionId: verifying.id,
       });
-      expect(unmarked.entry.outcome).toBe("completed");
-      expect(unmarked.intervention).toBeUndefined();
+      expect(requireBoundary(unmarked).reason).toBe("objective");
+      yield* user("agent.boundary.resolve", {
+        data: {
+          boundaryId: requireBoundary(unmarked).id,
+          decision: "refuse",
+          operationId: OperationId.make("verify-user-refuse-future-step"),
+          sessionId: verifying.id,
+        },
+        type: "agent.boundary.resolve",
+      });
       const request = {
         action: { ref, text: "Ada", type: "fill" as const },
         intent: { objective: "Enter the display name" },
@@ -238,8 +246,21 @@ const approveJourney = (
         "completed"
       );
     }
-    // A Verification Run is not an Interactive Run of an Approved Agent Flow.
+    // Verification keeps separate state from an Interactive Run while using
+    // the same evidence-backed assessments for its ordered Agent Steps.
     expect(verifying.run).toBeNull();
+    for (let stepIndex = 0; stepIndex < proposal.steps.length; stepIndex += 1) {
+      const evidence = yield* session("agent_browser_snapshot", {
+        sessionId: verifying.id,
+      });
+      yield* run("agent_run_step_assess", {
+        evidence: [{ id: evidence.snapshotId, kind: "snapshot" as const }],
+        explanation: `Verification Step ${stepIndex + 1} reproduced.`,
+        operationId: OperationId.make(`verify-assess-${stepIndex}`),
+        outcome: "working",
+        sessionId: verifying.id,
+      });
+    }
     yield* flow("agent_flow_verification_complete", {
       operationId: OperationId.make("verified"),
       outcome: "passed",
