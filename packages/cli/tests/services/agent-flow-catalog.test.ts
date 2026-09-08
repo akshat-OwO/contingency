@@ -1240,9 +1240,17 @@ it.effect(
           operationId: OperationId.make("retention-approve"),
           revisionId,
         });
+        const storedArtifacts = JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(approved.path, "source-artifacts.json")
+          )
+        );
 
         expect(yield* fileSystem.exists(traceFile)).toBe(false);
         expect(yield* fileSystem.exists(videoFile)).toBe(false);
+        expect(storedArtifacts).toEqual({
+          retentionFile: path.relative(root, retentionFile),
+        });
         expect(
           JSON.parse(yield* fileSystem.readFileString(retentionFile))
         ).toMatchObject({
@@ -1345,6 +1353,17 @@ it.effect("reads an approval retention duration from each Catalog Root", () =>
         })
       );
       const { agentFlowId, revisionId } = saved.manifest;
+      const sourceArtifactsFile = path.join(
+        saved.path,
+        "source-artifacts.json"
+      );
+      expect(
+        JSON.parse(yield* fileSystem.readFileString(sourceArtifactsFile))
+      ).toEqual({
+        retentionFile: path.relative(root, retentionFile),
+        traceFile: path.relative(root, traceFile),
+        videoFile: path.relative(root, videoFile),
+      });
       yield* catalog.authorizeVerification({
         agentFlowId,
         operationId: OperationId.make("retained-authorize"),
@@ -1372,6 +1391,13 @@ it.effect("reads an approval retention duration from each Catalog Root", () =>
       expect(yield* fileSystem.exists(traceFile)).toBe(true);
       expect(yield* fileSystem.exists(videoFile)).toBe(true);
       expect(
+        JSON.parse(yield* fileSystem.readFileString(sourceArtifactsFile))
+      ).toEqual({
+        retentionFile: path.relative(root, retentionFile),
+        traceFile: path.relative(root, traceFile),
+        videoFile: path.relative(root, videoFile),
+      });
+      expect(
         JSON.parse(yield* fileSystem.readFileString(retentionFile))
       ).toMatchObject({
         deleteAfter: "2026-10-01T00:00:00.000Z",
@@ -1387,6 +1413,11 @@ it.effect("reads an approval retention duration from each Catalog Root", () =>
 
       expect(yield* fileSystem.exists(traceFile)).toBe(false);
       expect(yield* fileSystem.exists(videoFile)).toBe(false);
+      expect(
+        JSON.parse(yield* fileSystem.readFileString(sourceArtifactsFile))
+      ).toEqual({
+        retentionFile: path.relative(root, retentionFile),
+      });
       expect(
         JSON.parse(yield* fileSystem.readFileString(retentionFile))
       ).toMatchObject({

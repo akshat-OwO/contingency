@@ -453,6 +453,41 @@ const encodeHeadOperation = Schema.encodeSync(AgentFlowHeadOperationRecord);
 const encodeSourceArtifacts = Schema.encodeSync(SourceArtifacts);
 const encodeDeletionRecord = Schema.encodeSync(AgentFlowDeletionRecord);
 
+const storeSourceArtifacts = (
+  catalogRoot: string,
+  artifacts: SourceArtifacts | undefined
+): SourceArtifacts | undefined => {
+  if (artifacts === undefined) {
+    return undefined;
+  }
+  const relativeToCatalog = (file: string | undefined) => {
+    if (file === undefined) {
+      return;
+    }
+    return path.isAbsolute(file)
+      ? path.relative(catalogRoot, file)
+      : path.normalize(file);
+  };
+  return {
+    retentionFile: relativeToCatalog(artifacts.retentionFile),
+    traceFile: relativeToCatalog(artifacts.traceFile),
+    videoFile: relativeToCatalog(artifacts.videoFile),
+  };
+};
+
+const resolveSourceArtifacts = (
+  catalogRoot: string,
+  artifacts: SourceArtifacts
+): SourceArtifacts => {
+  const resolveFromCatalog = (file: string | undefined) =>
+    file === undefined ? undefined : path.resolve(catalogRoot, file);
+  return {
+    retentionFile: resolveFromCatalog(artifacts.retentionFile),
+    traceFile: resolveFromCatalog(artifacts.traceFile),
+    videoFile: resolveFromCatalog(artifacts.videoFile),
+  };
+};
+
 const operationRecord = (
   status: AgentFlowOperationRecord["status"],
   operationId: string,
@@ -1798,6 +1833,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         verification: null,
       };
       const saved = revision(catalogRoot, heads, manifest);
+      const sourceArtifacts = storeSourceArtifacts(
+        catalogRoot,
+        input.sourceArtifacts
+      );
       const pending =
         operationKey === undefined
           ? null
@@ -1808,7 +1847,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               expectedHeads,
               saved,
               input.slices,
-              input.sourceArtifacts
+              sourceArtifacts
             );
       yield* writeScreenshots(
         catalogRoot,
@@ -1821,7 +1860,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
         catalogRoot,
         manifest,
         input.slices,
-        input.sourceArtifacts
+        sourceArtifacts
       );
       yield* commitDraft(catalogRoot, headsFile, heads, expectedHeads, pending);
       if (operationKey !== undefined) {
@@ -2092,11 +2131,36 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
               file,
               "Teaching artifact record",
               catalogRoot
+            ).pipe(
+              Effect.map((artifacts) =>
+                resolveSourceArtifacts(catalogRoot, artifacts)
+              )
             )
           : Effect.succeed(null)
       )
     );
   };
+
+  const writeRetainedSourceArtifacts = (
+    catalogRoot: string,
+    agentFlowId: AgentFlowId,
+    revisionId: AgentFlowRevisionId,
+    retentionFile: string | undefined
+  ): Effect.Effect<void, AgentFlowCatalogError> =>
+    writeJson(
+      path.join(
+        revisionDirectory(catalogRoot, agentFlowId, revisionId),
+        SOURCE_ARTIFACTS_FILE
+      ),
+      JSON.stringify(
+        encodeSourceArtifacts(
+          storeSourceArtifacts(catalogRoot, { retentionFile }) ?? {}
+        ),
+        null,
+        2
+      ),
+      "the Teaching artifact record"
+    );
 
   /**
    * Sensitive artifact paths originate in the Contingency-owned Teaching
@@ -2178,6 +2242,12 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                 Effect.mapError(ioError("Could not remove a Teaching artifact"))
               ),
           { discard: true }
+        );
+        yield* writeRetainedSourceArtifacts(
+          approved.catalogRoot,
+          approved.manifest.agentFlowId,
+          approved.manifest.revisionId,
+          artifacts.retentionFile
         );
         return;
       }
@@ -2285,11 +2355,15 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                   if (!sourceExists) {
                     return;
                   }
-                  const artifacts = yield* readJson(
+                  const storedArtifacts = yield* readJson(
                     SourceArtifacts,
                     sourceFile,
                     "Teaching artifact record",
                     catalogRoot
+                  );
+                  const artifacts = resolveSourceArtifacts(
+                    catalogRoot,
+                    storedArtifacts
                   );
                   if (artifacts.retentionFile === undefined) {
                     return;
@@ -2348,6 +2422,12 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                         ioError("Could not update Teaching retention metadata")
                       )
                     );
+                  yield* writeRetainedSourceArtifacts(
+                    catalogRoot,
+                    AgentFlowId.make(agentFlowId),
+                    AgentFlowRevisionId.make(revisionId),
+                    artifacts.retentionFile
+                  );
                 }),
               { discard: true }
             );
