@@ -9,13 +9,27 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 
-import { Option, Schema } from "effect";
-
 const REQUEST_TIMEOUT_MS = 60_000;
-const CallRequest = Schema.Struct({
-  params: Schema.optional(Schema.Record(Schema.String, Schema.Json)),
-  tool: Schema.String,
-});
+
+// The broker runs from the skill directory, where the workspace's packages are
+// not resolvable, so it validates its one request shape by hand rather than
+// importing a schema library it cannot reach.
+const parseCall = (body) => {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return undefined;
+  }
+  const { params, tool } = body;
+  if (typeof tool !== "string" || tool.length === 0) {
+    return undefined;
+  }
+  if (
+    params !== undefined &&
+    (typeof params !== "object" || params === null || Array.isArray(params))
+  ) {
+    return undefined;
+  }
+  return { params: params ?? {}, tool };
+};
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -117,14 +131,12 @@ const handle = async (request, response) => {
     respond(response, 404, { error: "POST /call or GET /health" });
     return;
   }
-  const decoded = Schema.decodeUnknownOption(CallRequest)(
-    JSON.parse(await readBody(request))
-  );
-  if (Option.isNone(decoded)) {
+  const decoded = parseCall(JSON.parse(await readBody(request)));
+  if (decoded === undefined) {
     respond(response, 400, { error: "call needs a tool name" });
     return;
   }
-  const { params = {}, tool } = decoded.value;
+  const { params, tool } = decoded;
   const message = await send("tools/call", { arguments: params, name: tool });
   if (message.error === undefined) {
     respond(response, 200, message.result);

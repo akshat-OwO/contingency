@@ -175,9 +175,15 @@ it.live(
       // Agent View may be closed at any time; the link is available again for
       // as long as the Agent Session lives.
       expect(current.data.session.viewUrl).toBe(session.viewUrl);
+      // The timeline outlives the Browser Snapshot that minted these
+      // references, so it says which control was acted on rather than naming
+      // a reference that resolves to nothing by the time anyone reads it.
       expect(
         current.data.session.timeline.map(({ description }) => description)
-      ).toEqual([`Fill ${search.ref}`, `Click ${viewCart.ref}`]);
+      ).toEqual([
+        `Fill ${search.role} "${search.name}" with "anvil"`,
+        `Click ${viewCart.role} "${viewCart.name}"`,
+      ]);
       expect(current.data.session.controller).toBe("agent");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );

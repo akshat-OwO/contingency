@@ -79,6 +79,7 @@ import {
   performAgentAction,
   performPrivateVariableInput,
   redactAgentSnapshot,
+  redactKnownValues,
   snapshotAfterAction,
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
@@ -595,6 +596,31 @@ const sanitizeSensitiveAction = (
       return action;
     }
   }
+};
+
+/**
+ * Describe an attempt by what it acted on. The description is read long after
+ * the Snapshot that minted the reference is gone, so the control's role and
+ * accessible name are resolved now, while the reference still means something,
+ * and private literals are stripped before the label is stored.
+ */
+const describeCapturedAction = (
+  registry: AgentElementRegistry,
+  action: AgentBrowserAction,
+  intent: AgentActionIntent,
+  privateValues: readonly string[]
+): string => {
+  const subject =
+    "ref" in action && action.ref !== undefined
+      ? registry.describe(action.ref)
+      : undefined;
+  const described = describeAgentAction(action, {
+    objective: intent.objective ?? undefined,
+    subject,
+  });
+  return privateValues.length === 0
+    ? described
+    : redactKnownValues(described, privateValues);
 };
 
 const sanitizeActionFailure = (
@@ -2383,6 +2409,10 @@ const makeAgentSession = (
         action: AgentBrowserAction,
         capturedAction: AgentBrowserAction,
         description: string,
+        // An attempt that failed or was interrupted registered no Variable, so
+        // it is recorded under a masked label rather than one that names a
+        // Variable the Demonstration never accepted.
+        failedDescription: string,
         id: string,
         sensitive: boolean,
         boundaryAttempt: {
@@ -2504,7 +2534,7 @@ const makeAgentSession = (
           // have performed it, so this operation id is spent: retrying it
           // answers with the same refusal instead of acting again.
           const refusal = takenOver(
-            `${description} was interrupted and may already have happened.`
+            `${failedDescription} was interrupted and may already have happened.`
           );
           return yield* Effect.fail(refusal);
         }
@@ -2525,7 +2555,7 @@ const makeAgentSession = (
               : sanitizeSensitiveAction(action, true),
           actor: "agent",
           at: failedAt,
-          description,
+          description: failedDescription,
           detail,
           id,
           outcome: "failed",
@@ -2539,7 +2569,7 @@ const makeAgentSession = (
           {
             actor: "agent",
             at: failedAt,
-            description,
+            description: failedDescription,
             detail,
             dispatched: true,
             id,
@@ -2631,7 +2661,28 @@ const makeAgentSession = (
             const capturedAction =
               privateCapture?.action ??
               sanitizeSensitiveAction(action, sensitive);
-            const description = describeAgentAction(capturedAction);
+            const privateValues =
+              privateCapture === undefined
+                ? (record.capture?.sensitiveValues() ?? [])
+                : [
+                    ...(record.capture?.sensitiveValues() ?? []),
+                    privateCapture.value,
+                  ];
+            const description = describeCapturedAction(
+              record.registry,
+              capturedAction,
+              intent,
+              privateValues
+            );
+            const failedDescription =
+              privateCapture === undefined
+                ? description
+                : describeCapturedAction(
+                    record.registry,
+                    sanitizeSensitiveAction(action, true),
+                    intent,
+                    privateValues
+                  );
             const id = `action-${randomUUID()}`;
             // Concurrent agent actions would leave a fiber Takeover cannot
             // reach, so a second waits and re-reads control when it wakes.
@@ -2674,6 +2725,7 @@ const makeAgentSession = (
                     action,
                     capturedAction,
                     description,
+                    failedDescription,
                     id,
                     sensitive,
                     { intent, operationId: String(operationId ?? id) },
@@ -4150,7 +4202,12 @@ const makeAgentSession = (
             action.type === "navigate"
               ? { ...action, url: sanitizeTeachingUrl(action.url) }
               : action;
-          const description = describeAgentAction(capturedAction);
+          const description = describeCapturedAction(
+            record.registry,
+            capturedAction,
+            {},
+            record.capture?.sensitiveValues() ?? []
+          );
           const id = `user-${randomUUID()}`;
           const urlBefore = page.url();
           const snapshotBefore = record.capture?.latestSnapshotId() ?? null;
