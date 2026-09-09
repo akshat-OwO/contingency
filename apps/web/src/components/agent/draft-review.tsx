@@ -9,15 +9,9 @@ import type {
   AgentSessionSnapshot,
 } from "@contingency/protocol";
 import { OperationId } from "@contingency/protocol";
-import {
-  useAtom,
-  useAtomRefresh,
-  useAtomSubscribe,
-  useAtomValue,
-} from "@effect/atom-react";
+import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { CircleAlertIcon, CircleCheckIcon, KeyRoundIcon } from "lucide-react";
-import type { FormEvent } from "react";
 import { useEffect, useRef } from "react";
 
 import {
@@ -29,7 +23,6 @@ import {
   draftIsEdited,
   draftProposalFrom,
   draftSplitAtom,
-  draftVariableDraftAtom,
   editHosts,
   editStep,
   mergeStepWithNext,
@@ -263,29 +256,18 @@ const StepEditor = ({
 );
 
 /**
- * Runtime Variables the live Run still needs. A Verification Run and an
- * Interactive Run ask the same way and for the same reason: the literal is
- * supplied again by the user and never reaches the agent or the artifacts.
+ * Runtime Variables the live Run still needs, as a read-only mirror. A
+ * Verification Run and an Interactive Run ask the same way and for the same
+ * reason: the user supplies each literal by answering that Variable's pending
+ * decision in the agent conversation, and it never reaches the agent or the
+ * artifacts
+ * ([ADR 0037](../../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
  */
 export const VariableSupply = ({
   session,
 }: {
   readonly session: AgentSessionSnapshot;
 }) => {
-  const { agentVariableSupplyMutation } = useRpcDependencies();
-  const [supplyResult, supply] = useAtom(agentVariableSupplyMutation);
-  const [values, setValues] = useAtom(draftVariableDraftAtom(session.id));
-  /** Which Variable the Run is being told, so its field clears once it lands. */
-  const supplying = useRef<string | null>(null);
-  useAtomSubscribe(agentVariableSupplyMutation, (result) => {
-    const name = supplying.current;
-    if (name === null || !AsyncResult.isSuccess(result)) {
-      return;
-    }
-    supplying.current = null;
-    setValues((current) => ({ ...current, [name]: "" }));
-  });
-  const failure = refusal(supplyResult);
   const declaring = session.verification ?? session.run;
   if (declaring === null) {
     return null;
@@ -294,21 +276,9 @@ export const VariableSupply = ({
   if (runtime.length === 0) {
     return null;
   }
-  const submit = (name: string) => (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    supplying.current = name;
-    supply({
-      payload: {
-        data: {
-          name,
-          operationId: operationId(),
-          sessionId: session.id,
-          value: values[name] ?? "",
-        },
-        type: "agent.session.variable.supply",
-      },
-    });
-  };
+  const pending = (session.pendingDecisions ?? []).filter(
+    (decision) => decision.kind === "supply_variable"
+  );
   return (
     <section
       aria-labelledby="agent-verification-variables"
@@ -319,39 +289,31 @@ export const VariableSupply = ({
       </h2>
       <p className="text-muted-foreground text-xs">
         A Run never reuses what Teaching prepared, so it asks for these values
-        again. They stay on this machine and never reach the agent.
+        again. Supply each one in your agent conversation; they stay on this
+        machine and never reach the agent.
       </p>
-      <div className="space-y-3 rounded-lg border p-3">
-        {runtime.map((variable) => (
-          <form key={variable.name} onSubmit={submit(variable.name)}>
-            <div className="space-y-2">
-              <Label htmlFor={`agent-variable-${variable.name}`}>
+      <ul className="space-y-2 rounded-lg border p-3 text-xs">
+        {runtime.map((variable) => {
+          const open = pending.find(
+            (decision) => decision.variable?.name === variable.name
+          );
+          return (
+            <li className="space-y-1" key={variable.name}>
+              <span className="flex items-center gap-1 font-medium">
+                <KeyRoundIcon aria-hidden="true" className="size-3" />
                 {variable.name}
+                {variable.secret ? " · secret" : ""}
                 {variable.supplied ? " · supplied" : ""}
-              </Label>
-              <Input
-                autoComplete="off"
-                id={`agent-variable-${variable.name}`}
-                onChange={(event) =>
-                  setValues((current) => ({
-                    ...current,
-                    [variable.name]: event.target.value,
-                  }))
-                }
-                type={variable.secret ? "password" : "text"}
-                value={values[variable.name] ?? ""}
-              />
-              <Button size="sm" type="submit" variant="outline">
-                <KeyRoundIcon aria-hidden="true" />
-                Supply {variable.name}
-              </Button>
-            </div>
-          </form>
-        ))}
-        {failure === undefined ? null : (
-          <p className="text-destructive text-xs">{failure}</p>
-        )}
-      </div>
+              </span>
+              {open === undefined ? null : (
+                <code className="text-muted-foreground wrap-anywhere">
+                  {open.pendingDecisionId}
+                </code>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 };

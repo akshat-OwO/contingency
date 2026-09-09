@@ -83,7 +83,6 @@ const rpcOverrides = {
         return answer();
       })
   ),
-  agentVariableSupplyMutation: Atom.fn(() => Effect.succeed({})),
 };
 
 const TestRegistry = ({ children }: { readonly children: ReactNode }) => (

@@ -73,12 +73,14 @@ export const AgentPendingDecisionKind = Schema.Literals([
   "authorize_verification",
   "approve_flow",
   "boundary",
+  "supply_variable",
 ]);
 export type AgentPendingDecisionKind = typeof AgentPendingDecisionKind.Type;
 
 export const AgentPendingDecisionChoice = Schema.Literals([
   "allow",
   "authorize",
+  "supply",
   "approve",
   "refuse",
 ]);
@@ -88,8 +90,9 @@ export type AgentPendingDecisionChoice = typeof AgentPendingDecisionChoice.Type;
  * One open decision the external agent may present in its conversation. The
  * id, kind, and exact target keep consent bound to what the user saw: a
  * revision for catalog decisions, and the exact paused Execution Boundary for
- * a `boundary` decision. A session that pauses at a Boundary without a
- * catalog revision behind it carries `null` Agent Flow and revision ids.
+ * a `boundary` decision, and the exact Variable for a `supply_variable` one.
+ * A session that pauses at a Boundary without a catalog revision behind it
+ * carries `null` Agent Flow and revision ids.
  */
 export const AgentPendingDecision = Schema.Struct({
   agentFlowId: Schema.NullOr(AgentFlowId),
@@ -108,6 +111,14 @@ export const AgentPendingDecision = Schema.Struct({
   scopeSummary: nonEmptyString,
   /** The session whose page supplies verification's starting URL, when live. */
   sessionId: Schema.NullOr(AgentSessionId),
+  /**
+   * The runtime Variable this decision supplies, for `supply_variable`. The
+   * declaration travels so the agent can name it and say whether it is secret;
+   * the literal never does.
+   */
+  variable: Schema.NullOr(
+    Schema.Struct({ name: variableName, secret: Schema.Boolean })
+  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
 });
 export type AgentPendingDecision = typeof AgentPendingDecision.Type;
 
@@ -125,6 +136,13 @@ export const AgentPendingDecisionResolution = Schema.Struct({
   pendingDecisionId: AgentPendingDecisionId,
   revisionId: Schema.NullOr(AgentFlowRevisionId),
   userMessage: optionalNullable(nonEmptyString),
+  /**
+   * The Variable a `supply_variable` decision named. Secret Variable names are
+   * audited; their values never are.
+   */
+  variableName: Schema.NullOr(variableName).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
 });
 export type AgentPendingDecisionResolution =
   typeof AgentPendingDecisionResolution.Type;
@@ -135,6 +153,11 @@ export const AgentPendingDecisionResolve = Schema.Struct({
   pendingDecisionId: AgentPendingDecisionId,
   /** Audit context only. The server does not treat this as proof of consent. */
   userMessage: optionalNullable(nonEmptyString),
+  /**
+   * The literal the user supplied for a `supply_variable` decision. It stays
+   * inside Contingency: it is never published, persisted, or audited.
+   */
+  value: optionalNullable(nonEmptyString),
 });
 export type AgentPendingDecisionResolve =
   typeof AgentPendingDecisionResolve.Type;
@@ -910,15 +933,6 @@ export const AgentSessionVerification = Schema.Struct({
   variables: Schema.Array(AgentSessionVariableState),
 });
 export type AgentSessionVerification = typeof AgentSessionVerification.Type;
-
-/** Agent View supplying one runtime Variable value to a Verification Run. */
-export const AgentSessionVariableSupply = Schema.Struct({
-  name: variableName,
-  operationId: OperationId,
-  sessionId: AgentSessionId,
-  value: nonEmptyString,
-});
-export type AgentSessionVariableSupply = typeof AgentSessionVariableSupply.Type;
 
 /**
  * The agent entering a Variable the user supplied to this Run. It names the

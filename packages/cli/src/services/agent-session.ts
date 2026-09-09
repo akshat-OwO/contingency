@@ -143,14 +143,15 @@ export interface AgentSessionStartInput {
 
 export interface AgentSessionService {
   /**
-   * Apply the user's explicit choice to one paused Execution Boundary, as the
-   * agent relayed it from the MCP conversation
+   * Apply the user's explicit choice to a paused Execution Boundary or a
+   * runtime Variable this session still needs. The agent relays the choice
+   * from the MCP conversation
    * ([ADR 0037](../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
    */
   readonly resolvePendingDecision: (
     input: AgentPendingDecisionResolve
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /** The open boundary decision this session minted, for the MCP adapter. */
+  /** An open decision this session minted, for the MCP adapter. */
   readonly pendingDecision: (
     pendingDecisionId: AgentPendingDecisionId
   ) => Effect.Effect<AgentPendingDecision, AgentSessionError>;
@@ -261,17 +262,6 @@ export interface AgentSessionService {
   readonly ownsBrowserSession: (sessionId: SessionId) => Effect.Effect<boolean>;
   readonly start: (
     input: AgentSessionStartInput
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /**
-   * Supply one runtime Variable to a Verification Run. Only the user does
-   * this, and only the declaration reaches the snapshot: the literal stays in
-   * this process and never enters a Run artifact or the agent's tools.
-   */
-  readonly supplyVariable: (
-    sessionId: AgentSessionId,
-    name: string,
-    value: string,
-    operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * Enter a Variable the user supplied to this Run into one element. The agent
@@ -1070,7 +1060,114 @@ const boundaryPendingDecision = (
   pendingDecisionId: AgentPendingDecisionId.make(`pending-${randomUUID()}`),
   scopeSummary: boundaryScopeSummary(boundary),
   sessionId: snapshot.id,
+  variable: null,
 });
+
+/**
+ * The Variable decisions a Run opens with: one per declared runtime Variable,
+ * so the user answers each by name rather than in a single bundled prompt. The
+ * declaration and its secrecy travel; the literal never does.
+ */
+const variablePendingDecisions = (
+  snapshot: AgentSessionSnapshot,
+  at: string
+): readonly AgentPendingDecision[] => {
+  const declaring = snapshot.verification ?? snapshot.run;
+  if (declaring === null) {
+    return [];
+  }
+  return declaring.variables.flatMap((variable) =>
+    variable.runtime && !variable.supplied
+      ? [
+          {
+            agentFlowId: declaring.agentFlowId,
+            boundaryId: null,
+            createdAt: at,
+            kind: "supply_variable" as const,
+            pendingDecisionId: AgentPendingDecisionId.make(
+              `pending-${randomUUID()}`
+            ),
+            revisionId: declaring.revisionId,
+            scopeSummary: `Supply runtime Variable ${variable.name}${variable.secret ? " (secret)" : ""} for this Run. The value stays on this machine and never reaches you or the Run artifacts.`,
+            sessionId: snapshot.id,
+            variable: { name: variable.name, secret: variable.secret },
+          },
+        ]
+      : []
+  );
+};
+
+/** A replay key that can compare a supplied literal without retaining it. */
+const variableResolveRequest = (input: AgentPendingDecisionResolve) => {
+  const value = input.value ?? null;
+  const userMessage =
+    value === null
+      ? input.userMessage
+      : input.userMessage?.replaceAll(value, "[REDACTED]");
+  return {
+    requestInput: JSON.stringify({
+      decision: input.decision,
+      pendingDecisionId: input.pendingDecisionId,
+      userMessage: userMessage ?? null,
+      valueHash:
+        value === null
+          ? null
+          : createHash("sha256").update(value).digest("hex"),
+    }),
+    userMessage,
+    value,
+  };
+};
+
+/**
+ * Why a relayed Variable answer cannot be applied, if it cannot be. The enum
+ * is the server's input: a decision this kind does not accept, or a supply
+ * with nothing to supply, is refused rather than guessed at.
+ */
+const variableAnswerRefusal = (
+  pending: AgentPendingDecision,
+  input: AgentPendingDecisionResolve,
+  value: string | null
+): AgentSessionError | undefined => {
+  if (input.decision !== "supply" && input.decision !== "refuse") {
+    return error(
+      "agent_session_conflict",
+      `Pending decision ${input.pendingDecisionId} accepts supply or refuse, not ${input.decision}.`
+    );
+  }
+  if (input.decision === "supply" && value === null) {
+    return error(
+      "agent_session_invalid",
+      `Supplying Variable ${pending.variable?.name} needs the value the user gave. Ask them again rather than sending an empty supply.`
+    );
+  }
+  return undefined;
+};
+
+/** The durable audit record of one relayed runtime Variable choice. */
+const variableResolution = (
+  pending: AgentPendingDecision,
+  input: AgentPendingDecisionResolve,
+  decidedAt: string,
+  userMessage: string | null | undefined
+): AgentPendingDecisionResolution => {
+  const base = {
+    agentFlowId: pending.agentFlowId,
+    boundaryId: null,
+    decidedAt,
+    decision: input.decision,
+    kind: "supply_variable",
+    operationId: input.operationId,
+    pendingDecisionId: pending.pendingDecisionId,
+    revisionId: pending.revisionId,
+    // The name is audited; the literal the user supplied never is.
+    variableName: pending.variable?.name ?? null,
+  } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
+  if (userMessage === undefined || userMessage === null) {
+    return base;
+  }
+  return { ...base, userMessage };
+};
 
 /**
  * Record what an allowed Boundary grants: an allowed host covers the Run, and
@@ -1113,6 +1210,7 @@ const boundaryResolution = (
     operationId: input.operationId,
     pendingDecisionId: pending.decision.pendingDecisionId,
     revisionId: pending.decision.revisionId,
+    variableName: null,
   } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
   if (input.userMessage === undefined || input.userMessage === null) {
     return base;
@@ -1120,8 +1218,12 @@ const boundaryResolution = (
   return { ...base, userMessage: input.userMessage };
 };
 
-/** Catalog-mirrored decisions, without the boundary decision this session owns. */
-const catalogDecisions = (
+/** The decisions a session owns itself rather than mirroring from the catalog. */
+const sessionOwnedDecision = (decision: AgentPendingDecision): boolean =>
+  decision.kind === "boundary" || decision.kind === "supply_variable";
+
+/** Decisions unrelated to the session's current Execution Boundary pause. */
+const withoutBoundaryDecision = (
   decisions: readonly AgentPendingDecision[]
 ): readonly AgentPendingDecision[] =>
   decisions.filter((decision) => decision.kind !== "boundary");
@@ -1945,7 +2047,7 @@ const makeAgentSession = (
           {
             boundary,
             pendingDecisions: [
-              ...catalogDecisions(current.pendingDecisions),
+              ...withoutBoundaryDecision(current.pendingDecisions),
               decision,
             ],
           }
@@ -2131,7 +2233,7 @@ const makeAgentSession = (
                     activity === "teaching"
                   );
                 const at = now().toISOString();
-                const base: AgentSessionSnapshot = {
+                const opening: AgentSessionSnapshot = {
                   activity,
                   boundary: null,
                   clientName: input.clientName?.trim() || "unknown",
@@ -2155,6 +2257,13 @@ const makeAgentSession = (
                   updatedAt: at,
                   verification: input.verification ?? null,
                   viewUrl: viewUrl(options.baseUrl, sessionId),
+                };
+                // A Run asks for each runtime Variable it still needs as its
+                // own Pending Decision, so the user answers them by name in
+                // the agent conversation (ADR 0037).
+                const base: AgentSessionSnapshot = {
+                  ...opening,
+                  pendingDecisions: variablePendingDecisions(opening, at),
                 };
                 const registry = makeAgentElementRegistry(now);
                 yield* Scope.addFinalizer(sessionScope, registry.clear());
@@ -2964,6 +3073,155 @@ const makeAgentSession = (
       }
       return entry.gate.withPermit(executeAction(...args));
     };
+
+    /**
+     * Apply the user's answer to one runtime Variable decision. A supplied
+     * literal stays in this process; a refusal is recorded and leaves the Run
+     * without the value, exactly as never supplying it would
+     * ([ADR 0037](../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
+     */
+    const resolveVariableUnlocked = Effect.fn("AgentSession.resolveVariable")(
+      function* resolveRuntimeVariableDecision(
+        sessionId: AgentSessionId,
+        input: AgentPendingDecisionResolve
+      ) {
+        const { requestInput, userMessage, value } =
+          variableResolveRequest(input);
+        const replayed = replaySession(
+          input.operationId,
+          "variable-supply",
+          input.pendingDecisionId,
+          requestInput
+        );
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        const record = yield* requireLiveRecord(sessionId);
+        const pending = record.snapshot.pendingDecisions.find(
+          (decision) =>
+            decision.kind === "supply_variable" &&
+            decision.pendingDecisionId === input.pendingDecisionId
+        );
+        if (pending === undefined || pending.variable === null) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+            )
+          );
+        }
+        const refusal = variableAnswerRefusal(pending, input, value);
+        if (refusal !== undefined) {
+          return yield* Effect.fail(refusal);
+        }
+        const supply = input.decision === "supply";
+        const declared = requireDeclaredVariable(record, pending.variable.name);
+        if (declared._tag === "error") {
+          return yield* Effect.fail(declared.error);
+        }
+        const { name } = pending.variable;
+        if (supply && value !== null) {
+          record.supplied.set(name, value);
+        }
+        const markSupplied = <
+          T extends {
+            readonly variables: readonly AgentSessionVariableState[];
+          },
+        >(
+          state: T
+        ): T =>
+          supply
+            ? {
+                ...state,
+                variables: state.variables.map((variable) =>
+                  variable.name === name
+                    ? { ...variable, supplied: true }
+                    : variable
+                ),
+              }
+            : state;
+        const decidedAt = now().toISOString();
+        const resolution = variableResolution(
+          pending,
+          input,
+          decidedAt,
+          userMessage
+        );
+        const snapshot = yield* recordEntry(
+          sessionId,
+          {
+            actor: "user",
+            at: decidedAt,
+            // The Variable is named; its value never is.
+            description: supply
+              ? `Supplied Variable ${name}`
+              : `Refused to supply Variable ${name}`,
+            detail: pending.variable.secret ? "secret Variable" : name,
+            dispatched: false,
+            id: randomUUID(),
+            outcome: supply ? "completed" : "refused",
+          },
+          {
+            decisionHistory: [...record.snapshot.decisionHistory, resolution],
+            pendingDecisions: record.snapshot.pendingDecisions.filter(
+              (decision) =>
+                decision.pendingDecisionId !== input.pendingDecisionId
+            ),
+            run:
+              record.snapshot.run === null
+                ? null
+                : markSupplied(record.snapshot.run),
+            verification:
+              record.snapshot.verification === null
+                ? null
+                : markSupplied(record.snapshot.verification),
+          }
+        );
+        yield* rememberSession(
+          input.operationId,
+          "variable-supply",
+          input.pendingDecisionId,
+          requestInput,
+          snapshot
+        );
+        return snapshot;
+      }
+    );
+
+    /** Resolve or replay a Variable decision, or leave a boundary id alone. */
+    const resolveVariableDecisionUnlocked = Effect.fn(
+      "AgentSession.resolveVariableDecision"
+    )(function* resolveVariableDecision(input: AgentPendingDecisionResolve) {
+      // A replay must be recognized after its first supply cleared the
+      // decision. Keep only a digest of the literal in the replay key.
+      const replayed = replaySession(
+        input.operationId,
+        "variable-supply",
+        input.pendingDecisionId,
+        variableResolveRequest(input).requestInput
+      );
+      if (replayed?._tag === "conflict") {
+        return yield* Effect.fail(replayed.error);
+      }
+      if (replayed?._tag === "replay") {
+        return replayed.snapshot;
+      }
+      const sessionOwner = [...Ref.getUnsafe(sessions).values()].find(
+        (candidate) =>
+          candidate.snapshot.pendingDecisions.some(
+            (decision) =>
+              decision.kind === "supply_variable" &&
+              decision.pendingDecisionId === input.pendingDecisionId
+          )
+      );
+      if (sessionOwner === undefined) {
+        return null;
+      }
+      return yield* resolveVariableUnlocked(sessionOwner.snapshot.id, input);
+    });
 
     const enterUserVariableUnlocked = Effect.fn(
       "AgentSession.enterUserVariable"
@@ -4070,7 +4328,7 @@ const makeAgentSession = (
             return yield* Effect.fail(
               error(
                 "agent_session_invalid",
-                `Variable ${name} has not been supplied for this Run. Ask the user to enter it in Agent View.`
+                `Variable ${name} has not been supplied for this Run. Reread pendingDecisions and ask the user for it in this conversation.`
               )
             );
           }
@@ -4121,11 +4379,19 @@ const makeAgentSession = (
           )
         ),
       pendingDecision: (pendingDecisionId) =>
-        Effect.gen(function* findBoundaryDecision() {
+        Effect.gen(function* findSessionDecision() {
           for (const record of Ref.getUnsafe(sessions).values()) {
             const pending = record.boundaryControl?.pending;
             if (pending?.decision.pendingDecisionId === pendingDecisionId) {
               return pending.decision;
+            }
+            const variable = record.snapshot.pendingDecisions.find(
+              (decision) =>
+                decision.kind === "supply_variable" &&
+                decision.pendingDecisionId === pendingDecisionId
+            );
+            if (variable !== undefined) {
+              return variable;
             }
           }
           return yield* Effect.fail(
@@ -4167,13 +4433,11 @@ const makeAgentSession = (
           const next = yield* mutate(sessionId, (snapshot) => ({
             ...snapshot,
             decisionHistory,
-            // A paused Execution Boundary is this session's own decision, so a
-            // catalog mirror must not drop the pause the user still owes an
-            // answer to.
+            // A paused Execution Boundary and an unsupplied runtime Variable
+            // are this session's own decisions, so a catalog mirror must not
+            // drop what the user still owes an answer to.
             pendingDecisions: [
-              ...snapshot.pendingDecisions.filter(
-                (decision) => decision.kind === "boundary"
-              ),
+              ...snapshot.pendingDecisions.filter(sessionOwnedDecision),
               ...pendingDecisions,
             ],
             updatedAt: now().toISOString(),
@@ -4203,7 +4467,13 @@ const makeAgentSession = (
         ),
       resolvePendingDecision: (input) =>
         lock.withPermit(
-          Effect.gen(function* resolveExecutionBoundary() {
+          Effect.gen(function* resolveSessionDecision() {
+            // A runtime Variable decision and a paused Execution Boundary both
+            // live on the session; the id the agent relays says which.
+            const variable = yield* resolveVariableDecisionUnlocked(input);
+            if (variable !== null) {
+              return variable;
+            }
             const requestInput = JSON.stringify({
               decision: input.decision,
               pendingDecisionId: input.pendingDecisionId,
@@ -4293,7 +4563,7 @@ const makeAgentSession = (
                   ...record.snapshot.decisionHistory,
                   resolution,
                 ],
-                pendingDecisions: catalogDecisions(
+                pendingDecisions: withoutBoundaryDecision(
                   record.snapshot.pendingDecisions
                 ),
               }
@@ -4444,63 +4714,6 @@ const makeAgentSession = (
           )
         ),
       start: (input) => lock.withPermit(startAndWatch(input)),
-      supplyVariable: (sessionId, name, value, operationId) =>
-        Effect.gen(function* supplyRuntimeVariable() {
-          const requestInput = JSON.stringify({
-            name,
-            valueHash: createHash("sha256").update(value).digest("hex"),
-          });
-          const replayed = replaySession(
-            operationId,
-            "variable-supply",
-            sessionId,
-            requestInput
-          );
-          if (replayed?._tag === "conflict") {
-            return yield* Effect.fail(replayed.error);
-          }
-          if (replayed?._tag === "replay") {
-            return replayed.snapshot;
-          }
-          const record = yield* requireLiveRecord(sessionId);
-          const declared = requireDeclaredVariable(record, name);
-          if (declared._tag === "error") {
-            return yield* Effect.fail(declared.error);
-          }
-          record.supplied.set(name, value);
-          const markSupplied = <
-            T extends {
-              readonly variables: readonly AgentSessionVariableState[];
-            },
-          >(
-            state: T
-          ): T => ({
-            ...state,
-            variables: state.variables.map((variable) =>
-              variable.name === name
-                ? { ...variable, supplied: true }
-                : variable
-            ),
-          });
-          const next = yield* mutate(sessionId, (snapshot) => ({
-            ...snapshot,
-            run: snapshot.run === null ? null : markSupplied(snapshot.run),
-            updatedAt: now().toISOString(),
-            verification:
-              snapshot.verification === null
-                ? null
-                : markSupplied(snapshot.verification),
-          }));
-          const saved = next ?? record.snapshot;
-          yield* rememberSession(
-            operationId,
-            "variable-supply",
-            sessionId,
-            requestInput,
-            saved
-          );
-          return saved;
-        }),
       takeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)

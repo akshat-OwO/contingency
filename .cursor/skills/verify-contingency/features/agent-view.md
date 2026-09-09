@@ -19,6 +19,7 @@ Agent View watches Teaching and Interactive Runs owned by one local MCP process,
 - `agent-execution-boundary` pauses refused domains, new objectives, and per-attempt confirmation, relays each pause as a Pending Decision the agent resolves over MCP, and preserves priority Takeover.
 - `agent-verification-assessments` records evidence-backed verdicts for the draft's ordered Steps, refuses inconsistent completion, and shows the verdicts in draft review.
 - `agent-pending-decisions` relays verification authorization, approval, and Execution Boundary allow or refuse through MCP while Agent View mirrors pending and resolved status without action buttons.
+- `agent-runtime-variables` creates one Pending Decision for each missing runtime Variable, accepts supply or refusal through MCP, and keeps Agent View read-only.
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Feed or draft.
 
 ## How to get to it (user POV)
@@ -98,6 +99,15 @@ Preconditions:
 - **Confirm one attempt.** Navigate to the approved fixture host, observe the page, and request a click on a current element reference. In a Confirmation Step this returns `intervention.reason: confirmation`. Resolve its pending id with `decision:"allow"`, then repeat the identical MCP operation id and action. It runs once. Replaying that id returns its original result; a new id requires another decision. Resolving the spent pending id again exits `2` as a conflict.
 - **Request a new objective.** Supply `intent.objective` with an objective outside the approved Step. It returns `intervention.reason: objective`. Allowing that decision permits only that action attempt. A marked irreversible action still requires its own decision.
 - **Capture proof.** Save ARIA and screenshots under `agent-boundary/` while paused, during Takeover, and after the allow. Re-read the session to prove the timeline, `decisionHistory`, and controller agree with the View. Approved Agent Flow Runs use the same relay.
+
+### Runtime Variable decisions
+
+- **Prepare a runtime Variable.** Follow the Teaching private Variables recipe and save a draft with at least one Variable whose `runtime` field is `true`. Authorize and start its Verification Run through the Pending Decision steps above.
+- **Read each request.** The start result contains one `supply_variable` item in `pendingDecisions` for every missing runtime Variable. Each item names the Variable, states whether it is secret, and has its own `pendingDecisionId`. Open the Run's `viewUrl`. The `Runtime Variables` region shows the same names and ids, with no input or supply buttons.
+- **Refuse without inventing coverage.** Call `agent_pending_decision_resolve` with `decision:"refuse"`, the Variable's pending id, and a fresh operation id. Call `agent_session_get` again. The pending item is gone, the Variable remains `supplied:false`, `activeStepIndex` is unchanged, and `decisionHistory` names the Variable without a value. Assess the blocked Step and complete verification as failed to record incomplete coverage.
+- **Retry and supply.** Authorize the failed draft's new Verification Run decision and start another Verification Run. Resolve its Variable decision with `decision:"supply"` and `value:"<disposable literal>"`. Repeat the exact call with the same operation id. Both results are identical, the pending item is gone, and the Variable reads `supplied:true` without exposing the literal.
+- **Use the supplied Variable.** Call `agent_browser_snapshot`, then `agent_variable_enter` with the Variable name and destination ref. The action succeeds and returns a redacted Snapshot. Assess the Step as `working`; the ordered Run can proceed.
+- **Capture proof.** Save `agent-view/runtime-variable-pending.aria.txt` and `.png` before resolving, then `agent-view/runtime-variable-refused.*` and `agent-view/runtime-variable-supplied.*`. Search every ARIA artifact and MCP result for the disposable literals and require zero matches. Cleanup must remove the isolated catalog, Trace, and video while these proof files remain.
 
 ## Gotchas
 

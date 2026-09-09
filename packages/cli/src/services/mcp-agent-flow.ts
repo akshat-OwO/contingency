@@ -230,13 +230,14 @@ const AgentPendingDecisionResolveTool = Tool.make(
   {
     dependencies: [AgentSession, AgentFlowCatalog],
     description:
-      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. Use authorize for authorize_verification, approve for approve_flow, allow for a paused Execution Boundary, or refuse for any of them. An Agent Flow decision answers with the revision; a boundary decision answers with the Agent Session. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns a conflict; reread pendingDecisions before asking again.",
+      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. Use authorize for authorize_verification, approve for approve_flow, allow for a paused Execution Boundary, supply with the user's literal in value for supply_variable, or refuse for any of them. An Agent Flow decision answers with the revision; a session decision answers with the Agent Session. Ask the user for a runtime Variable in your own conversation and pass what they typed verbatim; Contingency keeps the value on this machine and never audits it. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns a conflict; reread pendingDecisions before asking again.",
     failure: AgentFlowFailure,
     parameters: Schema.Struct({
       decision: AgentPendingDecisionResolve.fields.decision,
       operationId: AgentPendingDecisionResolve.fields.operationId,
       pendingDecisionId: AgentPendingDecisionResolve.fields.pendingDecisionId,
       userMessage: AgentPendingDecisionResolve.fields.userMessage,
+      value: AgentPendingDecisionResolve.fields.value,
     }),
     success: Schema.Union([AgentFlowRevision, AgentSessionSnapshot]),
   }
@@ -487,16 +488,23 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
         catalog.pendingDecision(params.pendingDecisionId)
       );
       if (Result.isFailure(pendingResult)) {
-        // A paused Execution Boundary belongs to its Agent Session rather than
-        // the catalog, so the same id resolves there. Only an id neither owns
-        // falls through to the catalog's structured conflict.
-        const boundary = yield* Effect.result(
+        // A paused Execution Boundary and a runtime Variable belong to their
+        // Agent Session rather than the catalog, so the same id resolves
+        // there. Only an id neither owns falls through to the catalog's
+        // structured conflict.
+        const owned = yield* Effect.result(
           session.pendingDecision(params.pendingDecisionId)
         );
-        if (Result.isSuccess(boundary)) {
+        if (Result.isSuccess(owned)) {
           return yield* session
             .resolvePendingDecision(params)
             .pipe(Effect.mapError(failure));
+        }
+        const replayed = yield* Effect.result(
+          session.resolvePendingDecision(params)
+        );
+        if (Result.isSuccess(replayed)) {
+          return replayed.success;
         }
         return yield* catalog
           .resolvePendingDecision({ ...params, startingUrl: null })

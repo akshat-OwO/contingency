@@ -216,6 +216,51 @@ export const resolveBoundary = (input: {
     );
   });
 
+/** The open decision for one runtime Variable, as the agent reads it. */
+export const requireVariableDecision = (
+  snapshot: AgentSessionSnapshot,
+  name: string
+) => {
+  const decision = snapshot.pendingDecisions.find(
+    (pending) =>
+      pending.kind === "supply_variable" && pending.variable?.name === name
+  );
+  if (decision === undefined) {
+    throw new Error(
+      `The Agent Session had no pending decision for Variable ${name}.`
+    );
+  }
+  return decision;
+};
+
+/**
+ * Relay the user's answer about one runtime Variable the way the external
+ * agent does: read the session's pending decisions, then resolve the
+ * server-issued id with the literal the user typed in the conversation
+ * ([ADR 0037](../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
+ */
+export const resolveVariable = (input: {
+  readonly decision: "supply" | "refuse";
+  readonly name: string;
+  readonly operationId: string;
+  readonly sessionId: AgentSessionId;
+  readonly value?: string;
+}) =>
+  Effect.gen(function* relayVariableDecision() {
+    const snapshot = yield* sessionTool("agent_session_get", {
+      sessionId: input.sessionId,
+    });
+    return requireSessionSnapshot(
+      yield* flowTool("agent_pending_decision_resolve", {
+        decision: input.decision,
+        operationId: OperationId.make(input.operationId),
+        pendingDecisionId: requireVariableDecision(snapshot, input.name)
+          .pendingDecisionId,
+        value: input.value,
+      })
+    );
+  });
+
 /**
  * One MCP process's whole public surface over one Catalog Root: the agent's
  * three toolkits and Agent View's loopback RPC, over a real Chromium.

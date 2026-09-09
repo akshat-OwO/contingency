@@ -16,7 +16,6 @@ import {
   AgentFlowGet,
   AgentFlowRevisionDetail,
   AgentFlowVerificationAuthorize,
-  AgentSessionVariableSupply,
   TeachingVariableInput,
 } from "./agent-flow.ts";
 import {
@@ -379,8 +378,6 @@ export const BrandId = Schema.Literals([
   "agent.teaching.variable.input.result",
   "agent.browser.navigate",
   "agent.browser.navigated",
-  "agent.session.variable.supply",
-  "agent.session.variable.supplied",
   "agent.flow.revision.get",
   "agent.flow.revision.result",
   "agent.flow.draft.update",
@@ -864,21 +861,6 @@ export const AgentBrowserNavigated = response("agent.browser.navigated", {
   session: AgentSessionSnapshot,
 });
 
-/** Agent View supplies one runtime Variable to a Verification Run. */
-export const AgentSessionVariableSupplyRequest = request(
-  "agent.session.variable.supply",
-  {
-    name: AgentSessionVariableSupply.fields.name,
-    operationId: AgentSessionVariableSupply.fields.operationId,
-    sessionId: AgentSessionVariableSupply.fields.sessionId,
-    value: AgentSessionVariableSupply.fields.value,
-  }
-);
-export const AgentSessionVariableSupplied = response(
-  "agent.session.variable.supplied",
-  { session: AgentSessionSnapshot }
-);
-
 /** Reading the draft under review. Agent View shows what verification covers. */
 export const AgentFlowRevisionGet = request("agent.flow.revision.get", {
   agentFlowId: AgentFlowGet.fields.agentFlowId,
@@ -1283,14 +1265,6 @@ const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   payload: AgentBrowserNavigate,
   success: AgentBrowserNavigated,
 });
-const AgentSessionVariableSupplyRpc = Rpc.make(
-  "agent.session.variable.supply",
-  {
-    error: BrowserRpcError,
-    payload: AgentSessionVariableSupplyRequest,
-    success: AgentSessionVariableSupplied,
-  }
-);
 const AgentFlowRevisionGetRpc = Rpc.make("agent.flow.revision.get", {
   error: BrowserRpcError,
   payload: AgentFlowRevisionGet,
@@ -1395,7 +1369,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
   AgentBrowserNavigateRpc,
-  AgentSessionVariableSupplyRpc,
   AgentFlowRevisionGetRpc,
   AgentFlowDraftUpdateRpc,
   AgentFlowVerificationAuthorizeRpc,

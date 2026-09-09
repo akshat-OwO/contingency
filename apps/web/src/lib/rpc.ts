@@ -130,10 +130,6 @@ export const agentTakeoverMutation = ContingencyRpcClient.mutation(
 export const agentReturnControlMutation = ContingencyRpcClient.mutation(
   "agent.session.control.return"
 );
-/** Supply one runtime Variable to a Verification Run, from the user only. */
-export const agentVariableSupplyMutation = ContingencyRpcClient.mutation(
-  "agent.session.variable.supply"
-);
 /**
  * Raising an Agent Step or Run ceiling. It is a direct user action and has no
  * MCP tool: the agent whose work a ceiling bounds cannot raise its own budget.

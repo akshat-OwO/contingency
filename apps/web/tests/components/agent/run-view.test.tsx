@@ -26,7 +26,6 @@ const rpcOverrides = {
     })
   ),
   agentRunSummaryAtom: () => Atom.make(() => rpc.summaryResult),
-  agentVariableSupplyMutation: Atom.fn(() => Effect.never),
 };
 
 const TestRegistry = ({ children }: { readonly children: ReactNode }) => (

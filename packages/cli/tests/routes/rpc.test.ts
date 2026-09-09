@@ -236,7 +236,6 @@ const agentSessionOwnership: AgentSessionService = {
   sendInput: rpcNotUnderTest,
   snapshot: rpcNotUnderTest,
   start: rpcNotUnderTest,
-  supplyVariable: rpcNotUnderTest,
   takeover: rpcNotUnderTest,
   teachingFeed: rpcNotUnderTest,
   teachingScreenshot: rpcNotUnderTest,

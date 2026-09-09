@@ -27,7 +27,13 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { findNode, makeCall, requireRevision } from "./agent-harness.ts";
+import {
+  findNode,
+  makeCall,
+  requireRevision,
+  requireSessionSnapshot,
+  requireVariableDecision,
+} from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
 const viewport = {
@@ -296,28 +302,71 @@ it.live(
           })
         );
         expect(missing.code).toBe("agent_session_invalid");
-        const undeclared = yield* Effect.flip(
-          localSession.supplyVariable(
-            run.id,
-            "UNDECLARED",
-            "nope",
-            OperationId.make("supply-undeclared")
-          )
-        );
-        expect(undeclared.code).toBe("agent_session_invalid");
 
-        // Agent View supplies the runtime Variable again, from scratch.
-        const runLiteral = "run-secret-value";
-        const supplied = yield* localSession.supplyVariable(
-          run.id,
-          "PASSWORD",
-          runLiteral,
-          OperationId.make("supply-password")
+        // The Run asks for each runtime Variable as its own pending decision,
+        // naming the Variable and its secrecy but never a value.
+        const variableDecision = requireVariableDecision(run, "PASSWORD");
+        expect(variableDecision.variable).toEqual({
+          name: "PASSWORD",
+          secret: true,
+        });
+        const wrongChoice = yield* Effect.flip(
+          flow("agent_pending_decision_resolve", {
+            decision: "approve",
+            operationId: OperationId.make("supply-wrong-choice"),
+            pendingDecisionId: variableDecision.pendingDecisionId,
+          })
         );
+        expect(wrongChoice.code).toBe("agent_session_conflict");
+
+        // The user supplies the runtime Variable again, from scratch, by
+        // answering that decision in the agent conversation.
+        const runLiteral = "run-secret-value";
+        const supplied = requireSessionSnapshot(
+          yield* flow("agent_pending_decision_resolve", {
+            decision: "supply",
+            operationId: OperationId.make("supply-password"),
+            pendingDecisionId: variableDecision.pendingDecisionId,
+            userMessage: `Use ${runLiteral} for this Run.`,
+            value: runLiteral,
+          })
+        );
+        expect(supplied.pendingDecisions).toEqual([]);
+        expect(supplied.decisionHistory).toMatchObject([
+          {
+            decision: "supply",
+            kind: "supply_variable",
+            variableName: "PASSWORD",
+          },
+        ]);
+        // Supplying is idempotent by operation id, and a spent id is a
+        // conflict rather than a second supply.
+        const replayedSupply = requireSessionSnapshot(
+          yield* flow("agent_pending_decision_resolve", {
+            decision: "supply",
+            operationId: OperationId.make("supply-password"),
+            pendingDecisionId: variableDecision.pendingDecisionId,
+            userMessage: `Use ${runLiteral} for this Run.`,
+            value: runLiteral,
+          })
+        );
+        expect(replayedSupply.updatedAt).toBe(supplied.updatedAt);
+        const spentSupply = yield* Effect.flip(
+          flow("agent_pending_decision_resolve", {
+            decision: "supply",
+            operationId: OperationId.make("supply-password-again"),
+            pendingDecisionId: variableDecision.pendingDecisionId,
+            value: runLiteral,
+          })
+        );
+        expect(spentSupply.code).toBe("agent_flow_conflict");
         expect(supplied.verification?.variables).toEqual([
           { name: "PASSWORD", runtime: true, secret: true, supplied: true },
         ]);
         expect(JSON.stringify(supplied)).not.toContain(runLiteral);
+        expect(supplied.decisionHistory[0]?.userMessage).toBe(
+          "Use [REDACTED] for this Run."
+        );
 
         const filled = yield* session("agent_variable_enter", {
           name: "PASSWORD",
@@ -423,6 +472,74 @@ it.live(
           operationId: OperationId.make("authorize-again"),
           pendingDecisionId: retryPending.pendingDecisionId,
         });
+        // Refusing a runtime Variable is the same as never supplying it: the
+        // Run stays where it is, the agent still cannot enter the value, and
+        // the refusal joins the audit record under the Variable's name.
+        const refusedRun = yield* flow("agent_flow_verification_start", {
+          agentFlowId,
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          operationId: OperationId.make("start-refused-run"),
+          revisionId,
+        });
+        const refusedSupply = requireSessionSnapshot(
+          yield* flow("agent_pending_decision_resolve", {
+            decision: "refuse",
+            operationId: OperationId.make("refuse-password"),
+            pendingDecisionId: requireVariableDecision(refusedRun, "PASSWORD")
+              .pendingDecisionId,
+            userMessage: "Not on this machine.",
+          })
+        );
+        expect(refusedSupply.pendingDecisions).toEqual([]);
+        expect(refusedSupply.decisionHistory).toMatchObject([
+          {
+            decision: "refuse",
+            kind: "supply_variable",
+            variableName: "PASSWORD",
+          },
+        ]);
+        expect(refusedSupply.verification?.variables).toEqual([
+          { name: "PASSWORD", runtime: true, secret: true, supplied: false },
+        ]);
+        const refusedSnapshot = yield* session("agent_browser_snapshot", {
+          sessionId: refusedRun.id,
+        });
+        const refusedField = findNode(
+          refusedSnapshot.nodes,
+          "textbox",
+          "Password"
+        );
+        const blocked = yield* Effect.flip(
+          session("agent_variable_enter", {
+            name: "PASSWORD",
+            operationId: OperationId.make("enter-after-refusal"),
+            ref: refusedField.ref,
+            sessionId: refusedRun.id,
+          })
+        );
+        expect(blocked.code).toBe("agent_session_invalid");
+        yield* runTool("agent_run_step_assess", {
+          evidence: [
+            { id: refusedSnapshot.snapshotId, kind: "snapshot" as const },
+          ],
+          explanation: "The user refused the Variable required by this Step.",
+          operationId: OperationId.make("assess-refused-variable"),
+          outcome: "blocked",
+          sessionId: refusedRun.id,
+        });
+        const incomplete = yield* flow("agent_flow_verification_complete", {
+          operationId: OperationId.make("complete-refused"),
+          outcome: "failed",
+          sessionId: refusedRun.id,
+          summary: "The password was never supplied, so the Step never ran.",
+        });
+        expect(incomplete.heads.verification?.status).toBe("failed");
+        yield* session("agent_session_close", {
+          operationId: OperationId.make("close-refused-run"),
+          sessionId: refusedRun.id,
+        });
+
         const corrected = yield* flow("agent_flow_draft_save", {
           agentFlowId,
           basedOnRevisionId: revisionId,
