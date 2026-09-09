@@ -679,6 +679,7 @@ const pendingDecision = (
   revisionId: manifest.revisionId,
   scopeSummary: pendingScopeSummary(manifest, kind),
   sessionId,
+  variable: null,
 });
 
 const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
@@ -2985,7 +2986,11 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                 // Execution Boundary pause lives in its Agent Session, and the
                 // MCP adapter routes it there.
                 const { agentFlowId } = target;
-                if (agentFlowId === null || target.kind === "boundary") {
+                if (
+                  agentFlowId === null ||
+                  (target.kind !== "authorize_verification" &&
+                    target.kind !== "approve_flow")
+                ) {
                   return yield* Effect.fail(
                     catalogError(
                       "agent_flow_conflict",
@@ -3047,6 +3052,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                         operationId: input.operationId,
                         pendingDecisionId: current.pendingDecisionId,
                         revisionId: current.revisionId,
+                        variableName: null,
                       } satisfies Omit<
                         AgentPendingDecisionResolution,
                         "userMessage"

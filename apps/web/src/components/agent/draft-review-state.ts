@@ -1,7 +1,6 @@
 import type {
   AgentFlowId,
   AgentFlowRevisionId,
-  AgentSessionId,
   AgentFlowEvidenceSummary,
   AgentFlowHeads,
   AgentFlowManifest,
@@ -120,14 +119,6 @@ export interface DraftRevisionDetail {
 
 /** Exact phrase the user types before Agent View enables permanent deletion. */
 export const draftDeletionConfirmationAtom = perRevision<string>("");
-
-/** The runtime Variable values typed into one Verification Run, by name. */
-const variableDraftFamily = retainedFamily<Record<string, string>>({});
-
-export const draftVariableDraftAtom = (
-  sessionId: AgentSessionId
-): Atom.Writable<Record<string, string>, Record<string, string>> =>
-  variableDraftFamily(sessionId);
 
 const successOf = <A>(
   result: AsyncResult.AsyncResult<A, unknown> | undefined

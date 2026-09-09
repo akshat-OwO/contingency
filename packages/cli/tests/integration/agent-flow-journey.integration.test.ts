@@ -25,6 +25,7 @@ import {
   flowTool,
   requireBoundary,
   resolveBoundary,
+  resolveVariable,
   requireRun,
   runTool,
   sessionTool,
@@ -189,7 +190,7 @@ it.live(
             operationId: OperationId.make("journey-enter-mobile"),
             sessionId: teaching.id,
             value: MOBILE_LITERAL,
-            variable: { name: "MOBILE", runtime: false, secret: true },
+            variable: { name: "MOBILE", runtime: true, secret: true },
           },
           type: "agent.teaching.variable.input",
         });
@@ -208,7 +209,7 @@ it.live(
           ref: password.ref,
           sessionId: teaching.id,
           value: PASSWORD_LITERAL,
-          variable: { name: "PASSWORD", runtime: false, secret: true },
+          variable: { name: "PASSWORD", runtime: true, secret: true },
         });
         const enteredOtp = yield* sessionTool("agent_teaching_variable_input", {
           operationId: OperationId.make("journey-enter-otp"),
@@ -245,8 +246,8 @@ it.live(
         expect(exported).not.toContain(".trace.zip");
         expect(exported).not.toContain(".webm");
         expect(feed.variables).toEqual([
-          { name: "MOBILE", runtime: false, secret: true },
-          { name: "PASSWORD", runtime: false, secret: true },
+          { name: "MOBILE", runtime: true, secret: true },
+          { name: "PASSWORD", runtime: true, secret: true },
           { name: "OTP", runtime: true, secret: true },
         ]);
         expect(feed.instructions.map(({ text }) => text)).toContain(
@@ -412,8 +413,8 @@ it.live(
         // Verification is a fresh browser context that asks for the Variables
         // again rather than inheriting what Teaching prepared.
         expect(verifying.verification?.variables).toEqual([
-          { name: "MOBILE", runtime: false, secret: true, supplied: false },
-          { name: "PASSWORD", runtime: false, secret: true, supplied: false },
+          { name: "MOBILE", runtime: true, secret: true, supplied: false },
+          { name: "PASSWORD", runtime: true, secret: true, supplied: false },
           { name: "OTP", runtime: true, secret: true, supplied: false },
         ]);
         // An in-scope navigate remains allowed before the active Step's work.
@@ -472,14 +473,12 @@ it.live(
           ["PASSWORD", PASSWORD_LITERAL],
           ["OTP", TEACHING_OTP],
         ] as const) {
-          const supplied = yield* user("agent.session.variable.supply", {
-            data: {
-              name,
-              operationId: OperationId.make(`journey-verify-supply-${name}`),
-              sessionId: verifying.id,
-              value,
-            },
-            type: "agent.session.variable.supply",
+          const supplied = yield* resolveVariable({
+            decision: "supply",
+            name,
+            operationId: `journey-verify-supply-${name}`,
+            sessionId: verifying.id,
+            value,
           });
           expect(JSON.stringify(supplied)).not.toContain(value);
         }
@@ -705,6 +704,15 @@ it.live(
           "Authenticate",
           "Submit the sign-in",
         ]);
+        expect(
+          started.pendingDecisions
+            .filter((decision) => decision.kind === "supply_variable")
+            .map((decision) => decision.variable)
+        ).toEqual([
+          { name: "MOBILE", secret: true },
+          { name: "PASSWORD", secret: true },
+          { name: "OTP", secret: true },
+        ]);
 
         // Agent View shows the live browser while the Run executes.
         const frame = yield* user("agent.browser.stream.subscribe", {
@@ -738,14 +746,12 @@ it.live(
           operationId: OperationId.make("journey-run-fill-display"),
           sessionId,
         });
-        yield* user("agent.session.variable.supply", {
-          data: {
-            name: "MOBILE",
-            operationId: OperationId.make("journey-run-supply-mobile"),
-            sessionId,
-            value: MOBILE_LITERAL,
-          },
-          type: "agent.session.variable.supply",
+        yield* resolveVariable({
+          decision: "supply",
+          name: "MOBILE",
+          operationId: "journey-run-supply-mobile",
+          sessionId,
+          value: MOBILE_LITERAL,
         });
         const mobileEntered = yield* sessionTool("agent_variable_enter", {
           name: "MOBILE",
@@ -766,14 +772,12 @@ it.live(
         expect(requireRun(stepOne).activeStepIndex).toBe(1);
 
         // -- Agent Step two: the agent asks for the user, who enters the OTP.
-        yield* user("agent.session.variable.supply", {
-          data: {
-            name: "PASSWORD",
-            operationId: OperationId.make("journey-run-supply-password"),
-            sessionId,
-            value: PASSWORD_LITERAL,
-          },
-          type: "agent.session.variable.supply",
+        yield* resolveVariable({
+          decision: "supply",
+          name: "PASSWORD",
+          operationId: "journey-run-supply-password",
+          sessionId,
+          value: PASSWORD_LITERAL,
         });
         const passwordEntered = yield* sessionTool("agent_variable_enter", {
           name: "PASSWORD",
@@ -822,14 +826,12 @@ it.live(
         expect(requireRun(reopened.data.session).outcome).toBeNull();
         expect(requireRun(reopened.data.session).activeStepIndex).toBe(1);
 
-        yield* user("agent.session.variable.supply", {
-          data: {
-            name: "OTP",
-            operationId: OperationId.make("journey-run-supply-otp"),
-            sessionId,
-            value: RUN_OTP,
-          },
-          type: "agent.session.variable.supply",
+        yield* resolveVariable({
+          decision: "supply",
+          name: "OTP",
+          operationId: "journey-run-supply-otp",
+          sessionId,
+          value: RUN_OTP,
         });
         const returned = yield* user("agent.session.control.return", {
           data: {

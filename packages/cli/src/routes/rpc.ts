@@ -754,20 +754,6 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.session.control.returned" as const,
           }))
         ),
-      "agent.session.variable.supply": ({ data }) =>
-        agentUnavailable((service) =>
-          service.supplyVariable(
-            data.sessionId,
-            data.name,
-            data.value,
-            data.operationId
-          )
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.variable.supplied" as const,
-          }))
-        ),
       /**
        * Raising a ceiling is a direct user action and exists nowhere else: the
        * agent whose work a ceiling bounds may not extend its own budget

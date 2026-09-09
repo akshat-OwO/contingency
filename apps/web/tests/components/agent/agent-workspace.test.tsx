@@ -69,7 +69,6 @@ const rpcOverrides = {
       return {};
     })
   ),
-  agentVariableSupplyMutation: Atom.fn(() => Effect.never),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: () =>
     rpc.agentStreamFailureMessage === undefined
