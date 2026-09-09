@@ -1222,6 +1222,12 @@ const boundaryResolution = (
 const sessionOwnedDecision = (decision: AgentPendingDecision): boolean =>
   decision.kind === "boundary" || decision.kind === "supply_variable";
 
+/** The decision resolutions a session owns rather than mirroring from the catalog. */
+const sessionOwnedResolution = (
+  resolution: AgentPendingDecisionResolution
+): boolean =>
+  resolution.kind === "boundary" || resolution.kind === "supply_variable";
+
 /** Decisions unrelated to the session's current Execution Boundary pause. */
 const withoutBoundaryDecision = (
   decisions: readonly AgentPendingDecision[]
@@ -4432,7 +4438,10 @@ const makeAgentSession = (
           const record = yield* read(sessionId);
           const next = yield* mutate(sessionId, (snapshot) => ({
             ...snapshot,
-            decisionHistory,
+            decisionHistory: [
+              ...snapshot.decisionHistory.filter(sessionOwnedResolution),
+              ...decisionHistory,
+            ],
             // A paused Execution Boundary and an unsupplied runtime Variable
             // are this session's own decisions, so a catalog mirror must not
             // drop what the user still owes an answer to.

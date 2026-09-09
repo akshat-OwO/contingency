@@ -167,9 +167,6 @@ export const agentFlowRevisionAtom = (
   revisionId: AgentFlowRevisionId
 ) => agentFlowRevisionFamily(agentFlowId)(revisionId);
 /** The user's correction of the proposed Agent Steps and Domain Scope. */
-export const agentFlowDraftUpdateMutation = ContingencyRpcClient.mutation(
-  "agent.flow.draft.update"
-);
 /**
  * The two gestures the external agent may ask for but never perform. They live
  * on Agent View's loopback RPC and have no MCP tool.

@@ -4,6 +4,7 @@ import {
   AgentFlowArchive,
   AgentFlowDiagnostic,
   AgentFlowDraftSave,
+  AgentFlowDraftUpdate,
   AgentFlowGet,
   AgentFlowRevision,
   AgentFlowSearch,
@@ -190,6 +191,21 @@ const AgentFlowDraftSaveTool = Tool.make("agent_flow_draft_save", {
   success: AgentFlowRevision,
 });
 
+const AgentFlowDraftUpdateTool = Tool.make("agent_flow_draft_update", {
+  dependencies: [AgentSession, AgentFlowCatalog],
+  description:
+    "Save a user-confirmed correction to an existing draft Agent Flow. The correction compiles against the original Teaching Demonstration, so Contingency derives new Evidence Slices and refuses invalid Step spans or Domain Scope with structured diagnostics. The current revision must be supplied as basedOnRevisionId. Saving invalidates verification authorization for the replaced revision. Requires a fresh operation id; replaying it returns the original result.",
+  failure: AgentFlowFailure,
+  parameters: Schema.Struct({
+    agentFlowId: AgentFlowDraftUpdate.fields.agentFlowId,
+    basedOnRevisionId: AgentFlowDraftUpdate.fields.basedOnRevisionId,
+    draft: AgentFlowDraftUpdate.fields.draft,
+    operationId: AgentFlowDraftUpdate.fields.operationId,
+    sessionId: AgentFlowDraftUpdate.fields.sessionId,
+  }),
+  success: AgentFlowRevision,
+});
+
 const AgentFlowVerificationStartTool = Tool.make(
   "agent_flow_verification_start",
   {
@@ -243,6 +259,81 @@ const AgentPendingDecisionResolveTool = Tool.make(
   }
 );
 
+const saveDraftFromTeaching = (params: AgentFlowDraftSave) =>
+  Effect.gen(function* saveDraft() {
+    const catalog = yield* AgentFlowCatalog;
+    const saveInput = {
+      basedOnRevisionId: params.basedOnRevisionId,
+      proposal: params.draft,
+      sourceSessionId: params.sessionId,
+    };
+    const requestInput = normalizedDraftSaveInput(
+      params.agentFlowId === undefined
+        ? saveInput
+        : { ...saveInput, agentFlowId: params.agentFlowId }
+    );
+    const replay = yield* catalog
+      .replayDraftSave(params.operationId, requestInput)
+      .pipe(Effect.mapError(failure));
+    if (replay !== null) {
+      return replay;
+    }
+    const session = yield* AgentSession;
+    const source = yield* session
+      .teachingSource(params.sessionId)
+      .pipe(Effect.mapError(failure));
+    const compiled = compileAgentFlowDraft(params.draft, source.demonstration);
+    if (Result.isFailure(compiled)) {
+      return yield* Effect.fail(invalidDraft(compiled.failure));
+    }
+    const saved = yield* catalog
+      .saveDraft({
+        agentFlowId: params.agentFlowId,
+        basedOnRevisionId: params.basedOnRevisionId,
+        compiler: {
+          clientName: source.session.clientName,
+          clientVersion: source.session.clientVersion,
+        },
+        emulation: source.emulation,
+        operationId: params.operationId,
+        proposal: params.draft,
+        screenshots: [...source.demonstration.screenshotContents.values()],
+        slices: compiled.success,
+        sourceArtifacts: {
+          retentionFile: source.retentionFile,
+          traceFile: source.traceFile,
+          videoFile: source.videoFile,
+        },
+        sourceSessionId: params.sessionId,
+      })
+      .pipe(Effect.mapError(failure));
+    yield* session
+      .recordDraft(params.sessionId, {
+        agentFlowId: saved.manifest.agentFlowId,
+        revisionId: saved.manifest.revisionId,
+        savedAt: saved.manifest.createdAt,
+        steps: saved.manifest.steps.map((step, index) => ({
+          confirmation: step.confirmation,
+          description: step.description,
+          evidenceHash: step.evidence.hash,
+          firstActionId: step.firstActionId,
+          index,
+          lastActionId: step.lastActionId,
+          name: step.name,
+        })),
+        title: saved.manifest.title,
+      })
+      .pipe(Effect.mapError(failure));
+    yield* session
+      .recordPendingDecisionState(
+        params.sessionId,
+        saved.heads.pendingDecisions,
+        saved.heads.decisionHistory
+      )
+      .pipe(Effect.mapError(failure));
+    return saved;
+  });
+
 /**
  * Catalog, Teaching Feed, compilation, Verification Run, and relayed user
  * decision tools.
@@ -258,6 +349,7 @@ export const AgentFlowTools = withStrictParameters(
     TeachingFeedGetTool,
     TeachingScreenshotGetTool,
     AgentFlowDraftSaveTool,
+    AgentFlowDraftUpdateTool,
     AgentPendingDecisionResolveTool,
     AgentFlowVerificationStartTool,
     AgentFlowVerificationCompleteTool
@@ -287,83 +379,8 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
       const catalog = yield* AgentFlowCatalog;
       return yield* catalog.setArchived(params).pipe(Effect.mapError(failure));
     }),
-  agent_flow_draft_save: (params) =>
-    Effect.gen(function* saveDraft() {
-      const catalog = yield* AgentFlowCatalog;
-      const saveInput = {
-        basedOnRevisionId: params.basedOnRevisionId,
-        proposal: params.draft,
-        sourceSessionId: params.sessionId,
-      };
-      const requestInput = normalizedDraftSaveInput(
-        params.agentFlowId === undefined
-          ? saveInput
-          : { ...saveInput, agentFlowId: params.agentFlowId }
-      );
-      const replay = yield* catalog
-        .replayDraftSave(params.operationId, requestInput)
-        .pipe(Effect.mapError(failure));
-      if (replay !== null) {
-        return replay;
-      }
-      const session = yield* AgentSession;
-      const source = yield* session
-        .teachingSource(params.sessionId)
-        .pipe(Effect.mapError(failure));
-      const compiled = compileAgentFlowDraft(
-        params.draft,
-        source.demonstration
-      );
-      if (Result.isFailure(compiled)) {
-        return yield* Effect.fail(invalidDraft(compiled.failure));
-      }
-      const saved = yield* catalog
-        .saveDraft({
-          agentFlowId: params.agentFlowId,
-          basedOnRevisionId: params.basedOnRevisionId,
-          compiler: {
-            clientName: source.session.clientName,
-            clientVersion: source.session.clientVersion,
-          },
-          emulation: source.emulation,
-          operationId: params.operationId,
-          proposal: params.draft,
-          screenshots: [...source.demonstration.screenshotContents.values()],
-          slices: compiled.success,
-          sourceArtifacts: {
-            retentionFile: source.retentionFile,
-            traceFile: source.traceFile,
-            videoFile: source.videoFile,
-          },
-          sourceSessionId: params.sessionId,
-        })
-        .pipe(Effect.mapError(failure));
-      yield* session
-        .recordDraft(params.sessionId, {
-          agentFlowId: saved.manifest.agentFlowId,
-          revisionId: saved.manifest.revisionId,
-          savedAt: saved.manifest.createdAt,
-          steps: saved.manifest.steps.map((step, index) => ({
-            confirmation: step.confirmation,
-            description: step.description,
-            evidenceHash: step.evidence.hash,
-            firstActionId: step.firstActionId,
-            index,
-            lastActionId: step.lastActionId,
-            name: step.name,
-          })),
-          title: saved.manifest.title,
-        })
-        .pipe(Effect.mapError(failure));
-      yield* session
-        .recordPendingDecisionState(
-          params.sessionId,
-          saved.heads.pendingDecisions,
-          saved.heads.decisionHistory
-        )
-        .pipe(Effect.mapError(failure));
-      return saved;
-    }),
+  agent_flow_draft_save: (params) => saveDraftFromTeaching(params),
+  agent_flow_draft_update: (params) => saveDraftFromTeaching(params),
   agent_flow_get: (params) =>
     Effect.gen(function* readAgentFlow() {
       const catalog = yield* AgentFlowCatalog;

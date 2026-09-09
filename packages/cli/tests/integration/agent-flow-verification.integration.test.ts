@@ -535,12 +535,26 @@ it.live(
           summary: "The password was never supplied, so the Step never ran.",
         });
         expect(incomplete.heads.verification?.status).toBe("failed");
+        const refusedAfterComplete = yield* session("agent_session_get", {
+          sessionId: refusedRun.id,
+        });
+        expect(refusedAfterComplete.decisionHistory).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              decision: "refuse",
+              kind: "supply_variable",
+              operationId: "refuse-password",
+              userMessage: "Not on this machine.",
+              variableName: "PASSWORD",
+            }),
+          ])
+        );
         yield* session("agent_session_close", {
           operationId: OperationId.make("close-refused-run"),
           sessionId: refusedRun.id,
         });
 
-        const corrected = yield* flow("agent_flow_draft_save", {
+        const correction = {
           agentFlowId,
           basedOnRevisionId: revisionId,
           draft: {
@@ -561,7 +575,11 @@ it.live(
           },
           operationId: OperationId.make("save-corrected-draft"),
           sessionId: taught.id,
-        });
+        } as const;
+        const corrected = yield* flow("agent_flow_draft_update", correction);
+        expect(yield* flow("agent_flow_draft_update", correction)).toEqual(
+          corrected
+        );
         const correctedRevisionId = corrected.manifest.revisionId;
         expect(correctedRevisionId).not.toBe(revisionId);
         expect(corrected.heads.verification).toBeNull();

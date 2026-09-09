@@ -1,8 +1,5 @@
-import { setTimeout as delay } from "node:timers/promises";
-
 import { RegistryProvider } from "@effect/atom-react";
 import {
-  act,
   cleanup,
   render,
   screen,
@@ -25,7 +22,6 @@ const rpc = vi.hoisted(() => ({
   deleteCalls: [] satisfies unknown[],
   detail: undefined,
   readError: undefined,
-  updateCalls: [] satisfies unknown[],
   writeError: undefined,
 }));
 
@@ -67,12 +63,6 @@ const rpcOverrides = {
       return Effect.succeed({
         data: { agentFlowId: "flow-shop", deleted: true },
       });
-    })
-  ),
-  agentFlowDraftUpdateMutation: Atom.fn(<Payload,>(payload: Payload) =>
-    Effect.suspend(() => {
-      rpc.updateCalls.push(payload);
-      return answer();
     })
   ),
   agentFlowRevisionAtom: revisionFamily,
@@ -273,11 +263,7 @@ const verificationOf = (
   summary,
 });
 
-const renderReview = <Detail,>(
-  detail: Detail,
-  sessionId?: string,
-  refreshToken = at
-) => {
+const renderReview = <Detail,>(detail: Detail, refreshToken = at) => {
   rpc.detail = detail;
   return render(
     <TestRegistry>
@@ -285,7 +271,6 @@ const renderReview = <Detail,>(
         agentFlowId={"flow-shop"}
         refreshToken={refreshToken}
         revisionId={"rev-1"}
-        sessionId={sessionId}
       />
     </TestRegistry>
   );
@@ -298,21 +283,23 @@ afterEach(() => {
   rpc.authorizeCalls = [];
   rpc.deleteCalls = [];
   rpc.readError = undefined;
-  rpc.updateCalls = [];
   rpc.writeError = undefined;
 });
 
 test("shows the Agent Steps, evidence, Variables, Domain Scope, and Emulation", async () => {
-  renderReview(detailWith(null), "agent-one");
+  renderReview(detailWith(null));
 
-  expect(await screen.findByDisplayValue("Sign in")).toBeInTheDocument();
-  expect(screen.getByDisplayValue("Place the order")).toBeInTheDocument();
+  expect(await screen.findByText("Agent Step 1: Sign in")).toBeInTheDocument();
+  expect(screen.getByText("Agent Step 2: Place the order")).toBeInTheDocument();
+  expect(screen.getByText("No confirmation required.")).toBeInTheDocument();
   expect(
-    screen.getByRole("checkbox", {
-      name: /Agent Step 1 Confirmation Step/u,
-    })
-  ).not.toBeChecked();
-  expect(screen.getByLabelText("Domain Scope")).toHaveValue("shop.example.com");
+    screen.getByText(
+      "Confirmation Step: asks before each irreversible attempt."
+    )
+  ).toBeInTheDocument();
+  expect(screen.getByRole("list", { name: "Domain Scope" })).toHaveTextContent(
+    "shop.example.com"
+  );
   expect(screen.getByRole("list", { name: "Variables" })).toHaveTextContent(
     "PASSWORD"
   );
@@ -324,7 +311,7 @@ test("shows the Agent Steps, evidence, Variables, Domain Scope, and Emulation", 
 
 test("archives an Agent Flow against the heads being reviewed", async () => {
   const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
+  renderReview(detailWith(null));
 
   await user.click(
     await screen.findByRole("button", { name: "Archive Agent Flow" })
@@ -347,7 +334,7 @@ test("archives an Agent Flow against the heads being reviewed", async () => {
 
 test("requires typed confirmation before permanently deleting an Agent Flow", async () => {
   const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
+  renderReview(detailWith(null));
 
   const deleteButton = await screen.findByRole("button", {
     name: "Permanently delete Agent Flow",
@@ -386,7 +373,6 @@ test("does not carry deletion success into another Agent Flow review", async () 
         agentFlowId={"flow-shop"}
         refreshToken={at}
         revisionId={"rev-1"}
-        sessionId={"agent-one"}
       />
     </TestRegistry>
   );
@@ -414,7 +400,6 @@ test("does not carry deletion success into another Agent Flow review", async () 
         agentFlowId={"flow-other"}
         refreshToken={at}
         revisionId={"rev-other"}
-        sessionId={"agent-two"}
       />
     </TestRegistry>
   );
@@ -430,7 +415,7 @@ test("does not carry deletion success into another Agent Flow review", async () 
 test("shows archive conflicts with the retirement controls", async () => {
   const user = userEvent.setup();
   rpc.writeError = "The Agent Flow changed before it could be archived.";
-  renderReview(detailWith(null), "agent-one");
+  renderReview(detailWith(null));
 
   await user.click(
     await screen.findByRole("button", { name: "Archive Agent Flow" })
@@ -449,84 +434,8 @@ test("shows archive conflicts with the retirement controls", async () => {
   ).toBeInTheDocument();
 });
 
-test("renames a Step, edits Domain Scope, and saves one corrected proposal", async () => {
-  const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
-
-  const name = await screen.findByLabelText("Agent Step 1 name");
-  await user.clear(name);
-  await user.type(name, "Sign in as the demo shopper");
-  const hosts = screen.getByLabelText("Domain Scope");
-  await user.clear(hosts);
-  await user.type(hosts, "shop.example.com{enter}*.cdn.example.com");
-  await user.click(screen.getByRole("button", { name: "Save corrections" }));
-
-  await waitFor(() => {
-    expect(rpc.updateCalls).toHaveLength(1);
-  });
-  const [call] = rpc.updateCalls;
-  const { draft, basedOnRevisionId } = call.payload.data;
-  expect(basedOnRevisionId).toBe("rev-1");
-  expect(draft.steps[0]?.name).toBe("Sign in as the demo shopper");
-  expect(draft.domainScope.hosts).toEqual([
-    "shop.example.com",
-    "*.cdn.example.com",
-  ]);
-});
-
-test("merges two Agent Steps into one demonstrated span", async () => {
-  const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
-
-  await user.click(
-    await screen.findByRole("button", { name: "Merge with next Step" })
-  );
-  await user.click(screen.getByRole("button", { name: "Save corrections" }));
-
-  await waitFor(() => {
-    expect(rpc.updateCalls).toHaveLength(1);
-  });
-  const [call] = rpc.updateCalls;
-  expect(call.payload.data.draft.steps).toHaveLength(1);
-  expect(call.payload.data.draft.steps[0]).toMatchObject({
-    firstActionId: "action-1",
-    lastActionId: "action-3",
-  });
-});
-
-test("splits one Agent Step at a demonstrated action", async () => {
-  const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
-
-  await user.selectOptions(
-    await screen.findByLabelText("Split Agent Step 1 before"),
-    "action-2"
-  );
-  const [split] = screen.getAllByRole("button", { name: "Split Step" });
-  if (split === undefined) {
-    throw new Error("Agent View offered no way to split an Agent Step.");
-  }
-  await user.click(split);
-  await user.click(screen.getByRole("button", { name: "Save corrections" }));
-
-  await waitFor(() => {
-    expect(rpc.updateCalls).toHaveLength(1);
-  });
-  const [call] = rpc.updateCalls;
-  const { steps } = call.payload.data.draft;
-  expect(steps).toHaveLength(3);
-  expect(steps[0]).toMatchObject({
-    firstActionId: "action-1",
-    lastActionId: "action-1",
-  });
-  expect(steps[1]).toMatchObject({
-    firstActionId: "action-2",
-    lastActionId: "action-2",
-  });
-});
-
 test("shows authorization pending in the agent conversation without an action button", async () => {
-  renderReview(detailWith(null), "agent-one");
+  renderReview(detailWith(null));
 
   expect(
     await screen.findByText("verification authorization")
@@ -540,7 +449,7 @@ test("shows authorization pending in the agent conversation without an action bu
 test("does not invent a pending decision when the catalog exposes none", async () => {
   const detail = detailWith(null);
   detail.revision.heads.pendingDecisions = [];
-  renderReview(detail, "agent-one");
+  renderReview(detail);
 
   expect(
     await screen.findByText(/Authorize or refuse this exact draft/u)
@@ -558,7 +467,6 @@ test("shows a failed Verification Run retry as pending in conversation", async (
         agentFlowId={"flow-shop"}
         refreshToken={at}
         revisionId={"rev-1"}
-        sessionId={undefined}
       />
     </TestRegistry>
   );
@@ -569,23 +477,8 @@ test("shows a failed Verification Run retry as pending in conversation", async (
   expect(rpc.authorizeCalls).toHaveLength(0);
 });
 
-test("withholds authorization until unsaved corrections are saved", async () => {
-  const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
-
-  const name = await screen.findByLabelText("Agent Step 1 name");
-  await user.type(name, " again");
-
-  expect(
-    screen.queryByRole("button", { name: "Authorize Verification Run" })
-  ).not.toBeInTheDocument();
-  expect(
-    screen.getByText(/Every changed draft needs its own verification/u)
-  ).toBeInTheDocument();
-});
-
 test("offers no approval until a Verification Run has passed", async () => {
-  renderReview(detailWith(verificationOf("authorized")), "agent-one");
+  renderReview(detailWith(verificationOf("authorized")));
 
   expect(
     await screen.findByText(/Verification is authorized for this draft/u)
@@ -646,7 +539,7 @@ test("treats an authorization for another revision as no authorization", async (
 });
 
 test("does not expose verification gestures when a write would be stale", async () => {
-  renderReview(detailWith(null), "agent-one");
+  renderReview(detailWith(null));
   rpc.writeError = "Agent Flow flow-shop draft head is rev-2, not rev-1.";
 
   expect(
@@ -655,16 +548,23 @@ test("does not expose verification gestures when a write would be stale", async 
   expect(rpc.authorizeCalls).toHaveLength(0);
 });
 
-test("offers no corrections without the Teaching session behind the draft", async () => {
+test("keeps draft review read-only and directs corrections to the conversation", async () => {
   renderReview(detailWith(null));
 
   expect(
     await screen.findByText("verification authorization")
   ).toBeInTheDocument();
+  expect(screen.queryByLabelText("Agent Step 1 name")).not.toBeInTheDocument();
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "Save corrections" })
   ).not.toBeInTheDocument();
-  expect(screen.getByLabelText("Domain Scope")).toBeDisabled();
+  expect(
+    screen.queryByRole("button", { name: "Merge with next Step" })
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/describe the change in your agent conversation/u)
+  ).toBeInTheDocument();
 });
 
 test("offers approval once the session reports the Run passed", async () => {
@@ -686,7 +586,6 @@ test("offers approval once the session reports the Run passed", async () => {
         agentFlowId={"flow-shop"}
         refreshToken="2026-09-02T00:00:05.000Z"
         revisionId={"rev-1"}
-        sessionId={undefined}
       />
     </TestRegistry>
   );
@@ -695,75 +594,6 @@ test("offers approval once the session reports the Run passed", async () => {
   expect(
     screen.queryByRole("button", { name: "Approve Agent Flow" })
   ).not.toBeInTheDocument();
-});
-
-test("keeps unsaved corrections when the draft is reread", async () => {
-  const user = userEvent.setup();
-  const { rerender } = renderReview(detailWith(null), "agent-one");
-
-  const name = await screen.findByLabelText("Agent Step 1 name");
-  await user.clear(name);
-  await user.type(name, "Sign in as the demo shopper");
-  rerender(
-    <TestRegistry>
-      <DraftReview
-        agentFlowId={"flow-shop"}
-        refreshToken="2026-09-02T00:00:05.000Z"
-        revisionId={"rev-1"}
-        sessionId={"agent-one"}
-      />
-    </TestRegistry>
-  );
-
-  await waitFor(() => {
-    expect(screen.getByLabelText("Agent Step 1 name")).toHaveValue(
-      "Sign in as the demo shopper"
-    );
-  });
-});
-
-test("offers the merged span's later actions as split points", async () => {
-  const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
-
-  await user.click(
-    await screen.findByRole("button", { name: "Merge with next Step" })
-  );
-
-  // The merged objective covers both demonstrated Steps, so the user can split
-  // it anywhere after its first action — including inside what was Step 2.
-  const split = screen.getByLabelText("Split Agent Step 1 before");
-  expect(
-    within(split).getByRole("option", { name: "Enter Variable PASSWORD in e3" })
-  ).toBeInTheDocument();
-  expect(
-    within(split).getByRole("option", { name: "Click Place order" })
-  ).toBeInTheDocument();
-});
-
-test("shows each split Step the actions its own span covers", async () => {
-  const user = userEvent.setup();
-  renderReview(detailWith(null), "agent-one");
-
-  await user.selectOptions(
-    await screen.findByLabelText("Split Agent Step 1 before"),
-    "action-2"
-  );
-  const [split] = screen.getAllByRole("button", { name: "Split Step" });
-  if (split === undefined) {
-    throw new Error("Agent View offered no way to split an Agent Step.");
-  }
-  await user.click(split);
-
-  expect(
-    screen.getByRole("list", { name: "Agent Step 1 evidence" })
-  ).toHaveTextContent("Navigate to the sign-in page");
-  const second = screen.getByRole("list", { name: "Agent Step 2 evidence" });
-  expect(second).toHaveTextContent("Enter Variable PASSWORD in e3");
-  expect(second).not.toHaveTextContent("Click Place order");
-  expect(
-    screen.getByRole("list", { name: "Agent Step 3 evidence" })
-  ).toHaveTextContent("Click Place order");
 });
 
 test("offers nothing more once the revision is the Approved Agent Flow", async () => {
@@ -782,88 +612,4 @@ test("offers nothing more once the revision is the Approved Agent Flow", async (
   expect(
     screen.queryByRole("button", { name: "Authorize Verification Run" })
   ).toBeNull();
-});
-
-/**
- * The sidebar renders each region behind a gate on the session snapshot, so an
- * update that momentarily omits the draft takes the review off screen. The
- * registry collects an idle atom shortly after its last subscriber goes, so
- * these tests let that window elapse: a synchronous assertion passes even with
- * the state discarded.
- */
-const IDLE_WINDOW = 700;
-
-const GatedReview = ({ shown }: { readonly shown: boolean }) => (
-  <TestRegistry>
-    {shown ? (
-      <DraftReview
-        agentFlowId={"flow-shop"}
-        refreshToken={at}
-        revisionId={"rev-1"}
-        sessionId={"agent-one"}
-      />
-    ) : (
-      <p>The draft is not on screen.</p>
-    )}
-  </TestRegistry>
-);
-
-const leaveAndReturn = async (
-  rerender: (ui: React.ReactElement) => void
-): Promise<void> => {
-  rerender(<GatedReview shown={false} />);
-  await act(async () => {
-    await delay(IDLE_WINDOW);
-  });
-  rerender(<GatedReview shown={true} />);
-  await screen.findByLabelText("Agent Step 1 name");
-};
-
-test("keeps a renamed Step when the review leaves the screen and returns", async () => {
-  const user = userEvent.setup();
-  rpc.detail = detailWith(null);
-  const { rerender } = render(<GatedReview shown={true} />);
-
-  const name = await screen.findByLabelText("Agent Step 1 name");
-  await user.clear(name);
-  await user.type(name, "Sign in as the demo shopper");
-  await leaveAndReturn(rerender);
-
-  expect(screen.getByLabelText("Agent Step 1 name")).toHaveValue(
-    "Sign in as the demo shopper"
-  );
-  expect(
-    screen.getByRole("button", { name: "Save corrections" })
-  ).toBeEnabled();
-});
-
-test("keeps a Confirmation Step marker when the review leaves the screen and returns", async () => {
-  const user = userEvent.setup();
-  rpc.detail = detailWith(null);
-  const { rerender } = render(<GatedReview shown={true} />);
-
-  const marker = await screen.findByRole("checkbox", {
-    name: /Agent Step 1 Confirmation Step/u,
-  });
-  await user.click(marker);
-  await leaveAndReturn(rerender);
-
-  expect(
-    screen.getByRole("checkbox", { name: /Agent Step 1 Confirmation Step/u })
-  ).toBeChecked();
-});
-
-test("keeps typed Domain Scope, including a line with no host yet", async () => {
-  const user = userEvent.setup();
-  rpc.detail = detailWith(null);
-  const { rerender } = render(<GatedReview shown={true} />);
-
-  const hosts = await screen.findByLabelText("Domain Scope");
-  await user.clear(hosts);
-  await user.type(hosts, "shop.example.com\npay.example.com\n");
-  await leaveAndReturn(rerender);
-
-  expect(screen.getByLabelText("Domain Scope")).toHaveValue(
-    "shop.example.com\npay.example.com\n"
-  );
 });
