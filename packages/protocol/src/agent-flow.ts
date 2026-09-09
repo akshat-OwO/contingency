@@ -72,10 +72,12 @@ export type AgentPendingDecisionId = typeof AgentPendingDecisionId.Type;
 export const AgentPendingDecisionKind = Schema.Literals([
   "authorize_verification",
   "approve_flow",
+  "boundary",
 ]);
 export type AgentPendingDecisionKind = typeof AgentPendingDecisionKind.Type;
 
 export const AgentPendingDecisionChoice = Schema.Literals([
+  "allow",
   "authorize",
   "approve",
   "refuse",
@@ -84,14 +86,24 @@ export type AgentPendingDecisionChoice = typeof AgentPendingDecisionChoice.Type;
 
 /**
  * One open decision the external agent may present in its conversation. The
- * id, kind, and exact target keep consent bound to the revision the user saw.
+ * id, kind, and exact target keep consent bound to what the user saw: a
+ * revision for catalog decisions, and the exact paused Execution Boundary for
+ * a `boundary` decision. A session that pauses at a Boundary without a
+ * catalog revision behind it carries `null` Agent Flow and revision ids.
  */
 export const AgentPendingDecision = Schema.Struct({
-  agentFlowId: AgentFlowId,
+  agentFlowId: Schema.NullOr(AgentFlowId),
+  /**
+   * The paused Execution Boundary this decision releases, for `boundary`.
+   * Absent in a catalog written before boundary decisions existed.
+   */
+  boundaryId: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   createdAt: nonEmptyString,
   kind: AgentPendingDecisionKind,
   pendingDecisionId: AgentPendingDecisionId,
-  revisionId: AgentFlowRevisionId,
+  revisionId: Schema.NullOr(AgentFlowRevisionId),
   /** Human-readable bounded scope for the agent to quote before asking. */
   scopeSummary: nonEmptyString,
   /** The session whose page supplies verification's starting URL, when live. */
@@ -101,13 +113,17 @@ export type AgentPendingDecision = typeof AgentPendingDecision.Type;
 
 /** The durable audit record produced when the agent relays the user's choice. */
 export const AgentPendingDecisionResolution = Schema.Struct({
-  agentFlowId: AgentFlowId,
+  agentFlowId: Schema.NullOr(AgentFlowId),
+  /** Absent in an audit record written before boundary decisions existed. */
+  boundaryId: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   decidedAt: nonEmptyString,
   decision: AgentPendingDecisionChoice,
   kind: AgentPendingDecisionKind,
   operationId: OperationId,
   pendingDecisionId: AgentPendingDecisionId,
-  revisionId: AgentFlowRevisionId,
+  revisionId: Schema.NullOr(AgentFlowRevisionId),
   userMessage: optionalNullable(nonEmptyString),
 });
 export type AgentPendingDecisionResolution =

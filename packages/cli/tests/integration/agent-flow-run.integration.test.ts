@@ -42,6 +42,8 @@ import {
   findNode,
   makeCall,
   requireBoundary,
+  requireBoundaryDecision,
+  resolveBoundary,
   requireRun,
 } from "./agent-harness.ts";
 import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
@@ -188,9 +190,6 @@ const approveJourney = (
       revisionId,
     });
     if (confirmation) {
-      const user = yield* RpcTest.makeClient(ContingencyRpcs, {
-        flatten: true,
-      });
       const verificationPage = yield* session("agent_browser_act", {
         action: { type: "navigate", url: loginUrl },
         operationId: OperationId.make("verify-navigation"),
@@ -216,14 +215,11 @@ const approveJourney = (
         sessionId: verifying.id,
       });
       expect(requireBoundary(unmarked).reason).toBe("objective");
-      yield* user("agent.boundary.resolve", {
-        data: {
-          boundaryId: requireBoundary(unmarked).id,
-          decision: "refuse",
-          operationId: OperationId.make("verify-user-refuse-future-step"),
-          sessionId: verifying.id,
-        },
-        type: "agent.boundary.resolve",
+      yield* resolveBoundary({
+        boundaryId: requireBoundary(unmarked).id,
+        decision: "refuse",
+        operationId: "verify-user-refuse-future-step",
+        sessionId: verifying.id,
       });
       const request = {
         action: { ref, text: "Ada", type: "fill" as const },
@@ -233,14 +229,11 @@ const approveJourney = (
       };
       const refused = yield* session("agent_browser_act", request);
       expect(requireBoundary(refused).reason).toBe("confirmation");
-      yield* user("agent.boundary.resolve", {
-        data: {
-          boundaryId: requireBoundary(refused).id,
-          decision: "allow",
-          operationId: OperationId.make("verify-user-confirm"),
-          sessionId: verifying.id,
-        },
-        type: "agent.boundary.resolve",
+      yield* resolveBoundary({
+        boundaryId: requireBoundary(refused).id,
+        decision: "allow",
+        operationId: "verify-user-confirm",
+        sessionId: verifying.id,
       });
       expect((yield* session("agent_browser_act", request)).entry.outcome).toBe(
         "completed"
@@ -741,14 +734,11 @@ it.live(
         const sessionId = started.id;
         let sequence = 0;
         const decide = (boundaryId: string, decision: "allow" | "refuse") =>
-          user("agent.boundary.resolve", {
-            data: {
-              boundaryId,
-              decision,
-              operationId: OperationId.make(`decision-${(sequence += 1)}`),
-              sessionId,
-            },
-            type: "agent.boundary.resolve",
+          resolveBoundary({
+            boundaryId,
+            decision,
+            operationId: `decision-${(sequence += 1)}`,
+            sessionId,
           });
         const act = (
           operation: string,
@@ -853,17 +843,52 @@ it.live(
           },
           type: "agent.session.takeover",
         });
+        // Takeover blocks allow and leaves refuse open: the user can block the
+        // paused attempt without first returning control.
         yield* Effect.flip(decide(requireBoundary(objective).id, "allow"));
         const paused = yield* local.get(sessionId);
         expect(paused.controller).toBe("user");
         expect(paused.boundary?.id).toBe(requireBoundary(objective).id);
+        const objectiveDecisionId = requireBoundaryDecision(
+          paused,
+          requireBoundary(objective).id
+        ).pendingDecisionId;
+        const refusedUnderTakeover = yield* decide(
+          requireBoundary(objective).id,
+          "refuse"
+        );
+        expect(refusedUnderTakeover).toMatchObject({
+          boundary: null,
+          pendingDecisions: [],
+        });
+        expect(refusedUnderTakeover.decisionHistory.at(-1)).toMatchObject({
+          boundaryId: requireBoundary(objective).id,
+          decision: "refuse",
+          kind: "boundary",
+        });
+        // The resolved id is spent, so relaying it again is a conflict the
+        // agent answers by rereading pendingDecisions.
+        const stale = yield* Effect.flip(
+          flow("agent_pending_decision_resolve", {
+            decision: "refuse",
+            operationId: OperationId.make("stale-boundary-decision"),
+            pendingDecisionId: objectiveDecisionId,
+          })
+        );
+        expect(stale.code).toBe("agent_flow_conflict");
         yield* user("agent.session.control.return", {
           data: { operationId: OperationId.make("boundary-return"), sessionId },
           type: "agent.session.control.return",
         });
-        yield* decide(requireBoundary(objective).id, "allow");
+        const reasked = yield* act(
+          "new-objective-again",
+          { ref: target.ref, type: "hover" },
+          { objective: "Delete the account" }
+        );
+        expect(requireBoundary(reasked).reason).toBe("objective");
+        yield* decide(requireBoundary(reasked).id, "allow");
         const resumed = yield* act(
-          "new-objective",
+          "new-objective-again",
           { ref: target.ref, type: "hover" },
           { objective: "Delete the account" }
         );
@@ -874,6 +899,8 @@ it.live(
         });
         expect(requireBoundary(optedOut).reason).toBe("confirmation");
         yield* decide(requireBoundary(optedOut).id, "refuse");
+        // The Boundary is released by resolving its pending decision, so the
+        // session toolkit exposes no boundary-specific tool of its own.
         expect(Object.keys(AgentSessionTools.tools)).not.toContain(
           "agent_boundary_resolve"
         );
@@ -981,14 +1008,11 @@ it.live(
           "agent_browser_act",
           secondRequest
         );
-        yield* user("agent.boundary.resolve", {
-          data: {
-            boundaryId: requireBoundary(secondBoundary).id,
-            decision: "allow",
-            operationId: OperationId.make("allow-second-domain"),
-            sessionId: second.id,
-          },
-          type: "agent.boundary.resolve",
+        yield* resolveBoundary({
+          boundaryId: requireBoundary(secondBoundary).id,
+          decision: "allow",
+          operationId: "allow-second-domain",
+          sessionId: second.id,
         });
         expect((yield* session("agent_browser_act", secondRequest)).url).toBe(
           secondRequest.action.url

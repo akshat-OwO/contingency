@@ -1,6 +1,8 @@
 import {
   AgentFlowDraftProposal,
   AgentFlowDraftSave,
+  AgentPendingDecision,
+  AgentPendingDecisionResolution,
   AgentTimelineEntry,
   TeachingFeed,
   TeachingVariableInput,
@@ -81,4 +83,27 @@ test("an optional field with an explicit undefined encodes as an absent key", ()
     outcome: "failed",
   });
   expect("detail" in entry).toBe(false);
+});
+
+test("a decision written before boundary decisions existed still decodes", () => {
+  const pending = Schema.decodeUnknownSync(AgentPendingDecision)({
+    agentFlowId: "flow-shop",
+    createdAt: "2026-09-08T00:00:00.000Z",
+    kind: "approve_flow",
+    pendingDecisionId: "pending-1",
+    revisionId: "rev-1",
+    scopeSummary: "Approve the verified draft.",
+    sessionId: null,
+  });
+  expect(pending.boundaryId).toBeNull();
+  const resolution = Schema.decodeUnknownSync(AgentPendingDecisionResolution)({
+    agentFlowId: "flow-shop",
+    decidedAt: "2026-09-08T00:00:01.000Z",
+    decision: "approve",
+    kind: "approve_flow",
+    operationId: "approve-1",
+    pendingDecisionId: "pending-1",
+    revisionId: "rev-1",
+  });
+  expect(resolution.boundaryId).toBeNull();
 });

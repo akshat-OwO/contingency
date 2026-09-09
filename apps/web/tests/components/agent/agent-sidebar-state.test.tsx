@@ -28,7 +28,6 @@ const rpc = vi.hoisted(() => ({
 }));
 
 const rpcOverrides = {
-  agentBoundaryResolveMutation: Atom.fn(() => Effect.never),
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserNavigateMutation: Atom.fn(() => Effect.succeed({})),
