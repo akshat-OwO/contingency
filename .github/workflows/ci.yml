@@ -59,10 +59,11 @@ jobs:
       # without it the test skips itself, and a skipped test proves nothing
       # about the feature it names. The runner no longer encodes with ffmpeg,
       # but the probe stays a hard prerequisite of this job.
+      # Skip apt-get update: the runner's cached Ubuntu index is enough for
+      # ffmpeg, and update also refreshes Google's Chrome repo, which has
+      # intermittently failed with hash-sum mismatches and blocked CI.
       - name: Install ffmpeg (ffprobe for the video assertions)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+        run: sudo apt-get install -y ffmpeg
 
       - name: Check ffprobe is present
         run: ffprobe -version

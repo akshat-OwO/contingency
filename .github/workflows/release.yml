@@ -104,10 +104,11 @@ jobs:
       - name: Install Chromium
         run: nub exec --cwd packages/cli playwright-core install chromium
 
+      # Skip apt-get update: the runner's cached Ubuntu index is enough for
+      # ffmpeg, and update also refreshes Google's Chrome repo, which has
+      # intermittently failed with hash-sum mismatches and blocked release.
       - name: Install ffmpeg (ffprobe for the video assertions)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+        run: sudo apt-get install -y ffmpeg
 
       - run: nub exec turbo run test:integration
 
