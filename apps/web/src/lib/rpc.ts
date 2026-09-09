@@ -115,10 +115,6 @@ export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
 export const agentBrowserInputMutation = ContingencyRpcClient.mutation(
   "agent.browser.input.send"
 );
-/** Enter private text without sending raw keystrokes through the browser stream. */
-export const agentTeachingVariableInputMutation = ContingencyRpcClient.mutation(
-  "agent.teaching.variable.input"
-);
 /** History and address-bar navigation while the user holds the browser. */
 export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
   "agent.browser.navigate"

@@ -35,7 +35,6 @@ const rpcOverrides = {
   agentReturnControlMutation: Atom.fn(() => Effect.succeed({})),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
   agentTakeoverMutation: Atom.fn(() => Effect.succeed({})),
-  agentTeachingVariableInputMutation: Atom.fn(() => Effect.succeed({})),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: (
     _sessionId: string,
