@@ -93,8 +93,13 @@ export type AgentPendingDecisionChoice = typeof AgentPendingDecisionChoice.Type;
  */
 export const AgentPendingDecision = Schema.Struct({
   agentFlowId: Schema.NullOr(AgentFlowId),
-  /** The paused Execution Boundary this decision releases, for `boundary`. */
-  boundaryId: Schema.NullOr(nonEmptyString),
+  /**
+   * The paused Execution Boundary this decision releases, for `boundary`.
+   * Absent in a catalog written before boundary decisions existed.
+   */
+  boundaryId: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   createdAt: nonEmptyString,
   kind: AgentPendingDecisionKind,
   pendingDecisionId: AgentPendingDecisionId,
@@ -109,7 +114,10 @@ export type AgentPendingDecision = typeof AgentPendingDecision.Type;
 /** The durable audit record produced when the agent relays the user's choice. */
 export const AgentPendingDecisionResolution = Schema.Struct({
   agentFlowId: Schema.NullOr(AgentFlowId),
-  boundaryId: Schema.NullOr(nonEmptyString),
+  /** Absent in an audit record written before boundary decisions existed. */
+  boundaryId: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   decidedAt: nonEmptyString,
   decision: AgentPendingDecisionChoice,
   kind: AgentPendingDecisionKind,
