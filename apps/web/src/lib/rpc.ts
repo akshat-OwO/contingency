@@ -348,7 +348,3 @@ export const runRunProgressStream = (
       yield* events.pipe(Stream.runForEach(onEvent));
     })
   ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
-
-export const agentBoundaryResolveMutation = ContingencyRpcClient.mutation(
-  "agent.boundary.resolve"
-);

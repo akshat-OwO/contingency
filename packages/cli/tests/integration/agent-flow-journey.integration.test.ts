@@ -24,6 +24,7 @@ import {
   findNode,
   flowTool,
   requireBoundary,
+  resolveBoundary,
   requireRun,
   runTool,
   sessionTool,
@@ -434,14 +435,11 @@ it.live(
           sessionId: verifying.id,
         });
         expect(requireBoundary(lookalike).reason).toBe("domain");
-        yield* user("agent.boundary.resolve", {
-          data: {
-            boundaryId: requireBoundary(lookalike).id,
-            decision: "refuse",
-            operationId: OperationId.make("journey-verify-lookalike-refuse"),
-            sessionId: verifying.id,
-          },
-          type: "agent.boundary.resolve",
+        yield* resolveBoundary({
+          boundaryId: requireBoundary(lookalike).id,
+          decision: "refuse",
+          operationId: "journey-verify-lookalike-refuse",
+          sessionId: verifying.id,
         });
         // Nothing Teaching prepared survived into the fresh context.
         expect(
@@ -462,14 +460,11 @@ it.live(
           sessionId: verifying.id,
         });
         expect(requireBoundary(unnamed).reason).toBe("objective");
-        yield* user("agent.boundary.resolve", {
-          data: {
-            boundaryId: requireBoundary(unnamed).id,
-            decision: "refuse",
-            operationId: OperationId.make("journey-verify-unknown-refuse"),
-            sessionId: verifying.id,
-          },
-          type: "agent.boundary.resolve",
+        yield* resolveBoundary({
+          boundaryId: requireBoundary(unnamed).id,
+          decision: "refuse",
+          operationId: "journey-verify-unknown-refuse",
+          sessionId: verifying.id,
         });
 
         for (const [name, value] of [
@@ -504,14 +499,11 @@ it.live(
             // What the user is asked to confirm describes this action, not
             // whichever Step happens to carry the Confirmation marker.
             expect(first.intervention.requested).toBe(requested);
-            yield* user("agent.boundary.resolve", {
-              data: {
-                boundaryId: first.intervention.id,
-                decision: "allow",
-                operationId: OperationId.make(confirmationId),
-                sessionId: verifying.id,
-              },
-              type: "agent.boundary.resolve",
+            yield* resolveBoundary({
+              boundaryId: first.intervention.id,
+              decision: "allow",
+              operationId: confirmationId,
+              sessionId: verifying.id,
             });
             return yield* attempt;
           });
@@ -883,14 +875,11 @@ it.live(
         };
         const bounded = yield* sessionTool("agent_browser_act", submit);
         expect(requireBoundary(bounded).reason).toBe("confirmation");
-        yield* user("agent.boundary.resolve", {
-          data: {
-            boundaryId: requireBoundary(bounded).id,
-            decision: "allow",
-            operationId: OperationId.make("journey-run-confirm"),
-            sessionId,
-          },
-          type: "agent.boundary.resolve",
+        yield* resolveBoundary({
+          boundaryId: requireBoundary(bounded).id,
+          decision: "allow",
+          operationId: "journey-run-confirm",
+          sessionId,
         });
         const submitted = yield* sessionTool("agent_browser_act", submit);
         expect(submitted.entry.outcome).toBe("completed");

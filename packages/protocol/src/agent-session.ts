@@ -152,14 +152,6 @@ export const AgentSessionTakeover = Schema.Struct({
 });
 export type AgentSessionTakeover = typeof AgentSessionTakeover.Type;
 
-export const AgentBoundaryResolve = Schema.Struct({
-  boundaryId: nonEmptyString,
-  decision: Schema.Literals(["allow", "refuse"]),
-  operationId: OperationId,
-  sessionId: AgentSessionId,
-});
-export type AgentBoundaryResolve = typeof AgentBoundaryResolve.Type;
-
 export const AgentSessionReturnControl = Schema.Struct({
   operationId: OperationId,
   sessionId: AgentSessionId,

@@ -1,9 +1,11 @@
 import path from "node:path";
 
-import { AgentFlowDiagnostic } from "@contingency/protocol";
+import { AgentFlowDiagnostic, OperationId } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  AgentFlowRevision,
   AgentRunState,
+  AgentSessionId,
   AgentSessionSnapshot,
   AgentSnapshotNode,
 } from "@contingency/protocol";
@@ -147,6 +149,72 @@ export const requireBoundary = (result: AgentActionResult) => {
   }
   return result.intervention;
 };
+
+/**
+ * The Agent Flow revision a resolved pending decision answered with. Resolving
+ * a boundary decision answers with the Agent Session instead, so the revision
+ * is asserted rather than assumed.
+ */
+export const requireRevision = (
+  resolved: AgentFlowRevision | AgentSessionSnapshot
+): AgentFlowRevision => {
+  if (!("heads" in resolved)) {
+    throw new Error("The resolved decision was not an Agent Flow decision.");
+  }
+  return resolved;
+};
+
+/** The Agent Session a resolved boundary decision answered with. */
+export const requireSessionSnapshot = (
+  resolved: AgentFlowRevision | AgentSessionSnapshot
+): AgentSessionSnapshot => {
+  if ("heads" in resolved) {
+    throw new Error("The resolved decision was not a boundary decision.");
+  }
+  return resolved;
+};
+
+/** The open boundary decision the session is waiting on, as the agent reads it. */
+export const requireBoundaryDecision = (
+  snapshot: AgentSessionSnapshot,
+  boundaryId: string
+) => {
+  const decision = snapshot.pendingDecisions.find(
+    (pending) =>
+      pending.kind === "boundary" && pending.boundaryId === boundaryId
+  );
+  if (decision === undefined) {
+    throw new Error(
+      `The Agent Session had no pending decision for boundary ${boundaryId}.`
+    );
+  }
+  return decision;
+};
+
+/**
+ * Relay the user's choice about one paused Execution Boundary the way the
+ * external agent does: read the session's pending decisions, then resolve the
+ * server-issued id ([ADR 0037](../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
+ */
+export const resolveBoundary = (input: {
+  readonly boundaryId: string;
+  readonly decision: "allow" | "refuse";
+  readonly operationId: string;
+  readonly sessionId: AgentSessionId;
+}) =>
+  Effect.gen(function* relayBoundaryDecision() {
+    const snapshot = yield* sessionTool("agent_session_get", {
+      sessionId: input.sessionId,
+    });
+    return requireSessionSnapshot(
+      yield* flowTool("agent_pending_decision_resolve", {
+        decision: input.decision,
+        operationId: OperationId.make(input.operationId),
+        pendingDecisionId: requireBoundaryDecision(snapshot, input.boundaryId)
+          .pendingDecisionId,
+      })
+    );
+  });
 
 /**
  * One MCP process's whole public surface over one Catalog Root: the agent's

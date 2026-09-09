@@ -1,35 +1,23 @@
-import { OperationId } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
-import { useAtom } from "@effect/atom-react";
 
-import { refusal } from "@/components/agent/draft-review-state";
-import { Button } from "@/components/ui/button";
-import { useRpcDependencies } from "@/lib/rpc-dependencies";
-
+/**
+ * The paused Execution Boundary, as a read-only mirror. The user allows or
+ * refuses it by answering the pending decision in the agent conversation
+ * ([ADR 0037](../../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
+ */
 export const ExecutionBoundary = ({
   session,
 }: {
   readonly session: AgentSessionSnapshot;
 }) => {
-  const { agentBoundaryResolveMutation } = useRpcDependencies();
-  const [result, resolve] = useAtom(agentBoundaryResolveMutation);
   const { boundary } = session;
   if (boundary === undefined || boundary === null) {
     return null;
   }
-  const failure = refusal(result);
-  const decide = (decision: "allow" | "refuse") => () =>
-    resolve({
-      payload: {
-        data: {
-          boundaryId: boundary.id,
-          decision,
-          operationId: OperationId.make(crypto.randomUUID()),
-          sessionId: session.id,
-        },
-        type: "agent.boundary.resolve",
-      },
-    });
+  const pending = (session.pendingDecisions ?? []).find(
+    (decision) =>
+      decision.kind === "boundary" && decision.boundaryId === boundary.id
+  );
   return (
     <section
       aria-label="Execution Boundary"
@@ -45,36 +33,21 @@ export const ExecutionBoundary = ({
       </pre>
       <p>
         {boundary.reason === "domain"
-          ? "Allow this exact host for this Run. The saved Domain Scope stays unchanged."
-          : "Confirmation permits this exact action attempt once. A retry with a new operation id needs another confirmation."}
+          ? "Allowing this exact host covers this Run. The saved Domain Scope stays unchanged."
+          : "Allowing permits this exact action attempt once. A retry with a new operation id needs another decision."}
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={
-            session.controller === "user" || session.phase === "takeover"
-          }
-          onClick={decide("allow")}
-        >
-          {boundary.reason === "domain"
-            ? "Allow host for this Run"
-            : "Confirm this attempt"}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={decide("refuse")}
-        >
-          Refuse request
-        </Button>
-      </div>
       <p>
-        Take control remains available. Return control before confirming an
-        agent attempt.
+        Allow or refuse this request in your agent conversation.
+        {pending === undefined ? null : (
+          <code className="ml-1 wrap-anywhere">
+            {pending.pendingDecisionId}
+          </code>
+        )}
       </p>
-      {failure === undefined ? null : <p role="alert">{failure}</p>}
+      <p>
+        Take control remains available. Return control before allowing an agent
+        attempt.
+      </p>
     </section>
   );
 };

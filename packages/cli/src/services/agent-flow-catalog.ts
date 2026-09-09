@@ -672,6 +672,7 @@ const pendingDecision = (
   sessionId: AgentSessionId | null
 ): AgentPendingDecision => ({
   agentFlowId: manifest.agentFlowId,
+  boundaryId: null,
   createdAt: at,
   kind,
   pendingDecisionId: AgentPendingDecisionId.make(`pending-${randomUUID()}`),
@@ -2980,6 +2981,18 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                     )
                   );
                 }
+                // Only a revision-bound decision belongs to the catalog. An
+                // Execution Boundary pause lives in its Agent Session, and the
+                // MCP adapter routes it there.
+                const { agentFlowId } = target;
+                if (agentFlowId === null || target.kind === "boundary") {
+                  return yield* Effect.fail(
+                    catalogError(
+                      "agent_flow_conflict",
+                      `Pending decision ${input.pendingDecisionId} is not an Agent Flow decision.`
+                    )
+                  );
+                }
                 const expectedDecision =
                   target.kind === "authorize_verification"
                     ? "authorize"
@@ -2998,7 +3011,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
 
                 return yield* mutateHeadsUnlocked(
                   catalogRoot,
-                  target.agentFlowId,
+                  agentFlowId,
                   operationId,
                   requestInput,
                   (heads) =>
@@ -3007,7 +3020,10 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                         ({ pendingDecisionId }) =>
                           pendingDecisionId === input.pendingDecisionId
                       );
-                      if (current === undefined) {
+                      if (
+                        current === undefined ||
+                        current.revisionId === null
+                      ) {
                         return yield* Effect.fail(
                           catalogError(
                             "agent_flow_conflict",
@@ -3015,14 +3031,16 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                           )
                         );
                       }
+                      const { revisionId } = current;
                       const manifest = yield* requireDraftHead(
                         catalogRoot,
                         heads,
-                        current.revisionId
+                        revisionId
                       );
                       const decidedAt = now().toISOString();
                       const resolutionBase = {
                         agentFlowId: current.agentFlowId,
+                        boundaryId: null,
                         decidedAt,
                         decision: input.decision,
                         kind: current.kind,
@@ -3079,7 +3097,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                               authorizationId: `auth-${randomUUID()}`,
                               authorizedAt: decidedAt,
                               completedAt: null,
-                              revisionId: current.revisionId,
+                              revisionId,
                               sessionId: null,
                               startedAt: null,
                               startingUrl: input.startingUrl ?? null,
@@ -3091,10 +3109,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                           writeManifest: false,
                         };
                       }
-                      const verification = verificationOf(
-                        heads,
-                        current.revisionId
-                      );
+                      const verification = verificationOf(heads, revisionId);
                       if (
                         verification === null ||
                         verification.status !== "passed"
@@ -3109,7 +3124,7 @@ const makeCatalog = Effect.fn("AgentFlowCatalog.make")(function* makeCatalog(
                       return {
                         heads: {
                           ...baseHeads,
-                          approvedRevisionId: current.revisionId,
+                          approvedRevisionId: revisionId,
                           draftRevisionId: null,
                         },
                         manifest: { ...manifest, status: "approved" },

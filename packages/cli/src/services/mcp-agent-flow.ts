@@ -246,7 +246,7 @@ const AgentPendingDecisionResolveTool = Tool.make(
   {
     dependencies: [AgentSession, AgentFlowCatalog],
     description:
-      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. Use authorize for authorize_verification, approve for approve_flow, or refuse for either. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns agent_flow_conflict; reread pendingDecisions before asking again.",
+      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. Use authorize for authorize_verification, approve for approve_flow, allow for a paused Execution Boundary, or refuse for any of them. An Agent Flow decision answers with the revision; a boundary decision answers with the Agent Session. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns a conflict; reread pendingDecisions before asking again.",
     failure: AgentFlowFailure,
     parameters: Schema.Struct({
       decision: AgentPendingDecisionResolve.fields.decision,
@@ -254,7 +254,7 @@ const AgentPendingDecisionResolveTool = Tool.make(
       pendingDecisionId: AgentPendingDecisionResolve.fields.pendingDecisionId,
       userMessage: AgentPendingDecisionResolve.fields.userMessage,
     }),
-    success: AgentFlowRevision,
+    success: Schema.Union([AgentFlowRevision, AgentSessionSnapshot]),
   }
 );
 
@@ -504,6 +504,17 @@ export const AgentFlowToolHandlersLive = AgentFlowTools.toLayer({
         catalog.pendingDecision(params.pendingDecisionId)
       );
       if (Result.isFailure(pendingResult)) {
+        // A paused Execution Boundary belongs to its Agent Session rather than
+        // the catalog, so the same id resolves there. Only an id neither owns
+        // falls through to the catalog's structured conflict.
+        const boundary = yield* Effect.result(
+          session.pendingDecision(params.pendingDecisionId)
+        );
+        if (Result.isSuccess(boundary)) {
+          return yield* session
+            .resolvePendingDecision(params)
+            .pipe(Effect.mapError(failure));
+        }
         return yield* catalog
           .resolvePendingDecision({ ...params, startingUrl: null })
           .pipe(Effect.mapError(failure));

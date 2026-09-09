@@ -34,7 +34,6 @@ import {
   AgentSessionStartResult,
   AgentSessionStreamSubscribe,
   AgentSessionReturnControl,
-  AgentBoundaryResolve,
   AgentSessionTakeover,
 } from "./agent-session.ts";
 import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
@@ -811,10 +810,6 @@ export const AgentSessionTakeoverStarted = response(
   { session: AgentSessionSnapshot }
 );
 
-export const AgentBoundaryResolveRequest = request("agent.boundary.resolve", {
-  ...AgentBoundaryResolve.fields,
-});
-
 export const AgentSessionControlReturnRequest = request(
   "agent.session.control.return",
   {
@@ -1250,12 +1245,6 @@ const AgentSessionTakeoverRpc = Rpc.make("agent.session.takeover", {
   payload: AgentSessionTakeoverRequest,
   success: AgentSessionTakeoverStarted,
 });
-const AgentBoundaryResolveRpc = Rpc.make("agent.boundary.resolve", {
-  error: BrowserRpcError,
-  payload: AgentBoundaryResolveRequest,
-  success: AgentSessionControlReturned,
-});
-
 const AgentSessionControlReturnRpc = Rpc.make("agent.session.control.return", {
   error: BrowserRpcError,
   payload: AgentSessionControlReturnRequest,
@@ -1383,7 +1372,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserFrameAckRpc,
   AgentSessionTakeoverRpc,
   AgentSessionControlReturnRpc,
-  AgentBoundaryResolveRpc,
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
   AgentBrowserNavigateRpc,

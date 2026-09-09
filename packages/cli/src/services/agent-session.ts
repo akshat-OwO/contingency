@@ -5,6 +5,7 @@ import {
   advancesAgentRun,
   AgentProcessId,
   AgentElementRef,
+  AgentPendingDecisionId,
   AgentSessionId,
   describeAgentAction,
   makeBrowserRpcError,
@@ -14,7 +15,6 @@ import type {
   AgentActionResult,
   AgentActionIntent,
   AgentActionSubject,
-  AgentBoundaryResolve,
   AgentExecutionBoundary,
   DomainScope,
   AgentAssessmentEvidence,
@@ -28,6 +28,7 @@ import type {
   AgentFlowDraftRef,
   AgentPendingDecision,
   AgentPendingDecisionResolution,
+  AgentPendingDecisionResolve,
   AgentFlowVerificationOutcome,
   AgentSessionVerification,
   DraftEmulation,
@@ -141,9 +142,18 @@ export interface AgentSessionStartInput {
 }
 
 export interface AgentSessionService {
-  readonly resolveBoundary: (
-    input: AgentBoundaryResolve
+  /**
+   * Apply the user's explicit choice to one paused Execution Boundary, as the
+   * agent relayed it from the MCP conversation
+   * ([ADR 0037](../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
+   */
+  readonly resolvePendingDecision: (
+    input: AgentPendingDecisionResolve
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /** The open boundary decision this session minted, for the MCP adapter. */
+  readonly pendingDecision: (
+    pendingDecisionId: AgentPendingDecisionId
+  ) => Effect.Effect<AgentPendingDecision, AgentSessionError>;
   /**
    * Perform one agent browser action. The action is dispatched on a child
    * fiber so a user Takeover can interrupt it and wait for its cleanup; a
@@ -880,6 +890,8 @@ interface BoundaryControl {
   pending:
     | {
         readonly boundary: AgentExecutionBoundary;
+        /** The pending decision the agent resolves to release this pause. */
+        readonly decision: AgentPendingDecision;
         readonly fingerprint: string;
       }
     | undefined;
@@ -1013,6 +1025,106 @@ const boundaryObjective = (
     (step) => step.index === record.snapshot.verification?.activeStepIndex
   )?.description ??
   "An action the agent did not name an objective for";
+
+/**
+ * What the user is being asked to release, in one line the agent can quote in
+ * its conversation before asking. It names the exact host for a domain pause
+ * and the exact attempt for a confirmation or new-objective pause, because a
+ * boundary grant covers one host for the Run or one action attempt, never the
+ * whole Run.
+ */
+const boundaryScopeSummary = (boundary: AgentExecutionBoundary): string => {
+  if (boundary.reason === "domain") {
+    return `Allow ${boundary.requested} for this Run. The saved Domain Scope stays unchanged.`;
+  }
+  const what =
+    boundary.reason === "confirmation"
+      ? "Confirm this irreversible action attempt once"
+      : "Allow this objective outside the approved Agent Steps once";
+  return `${what}: ${boundary.description} (${boundary.requested}). A retry needs another decision.`;
+};
+
+/**
+ * The Agent Flow this session is running, when it has one. A bare session that
+ * pauses at an Execution Boundary names no revision, so the decision carries
+ * `null` rather than inventing an identity the catalog never issued.
+ */
+const boundaryDecisionTarget = (
+  snapshot: AgentSessionSnapshot
+): Pick<AgentPendingDecision, "agentFlowId" | "revisionId"> => ({
+  agentFlowId:
+    snapshot.verification?.agentFlowId ?? snapshot.run?.agentFlowId ?? null,
+  revisionId:
+    snapshot.verification?.revisionId ?? snapshot.run?.revisionId ?? null,
+});
+
+const boundaryPendingDecision = (
+  snapshot: AgentSessionSnapshot,
+  boundary: AgentExecutionBoundary,
+  at: string
+): AgentPendingDecision => ({
+  ...boundaryDecisionTarget(snapshot),
+  boundaryId: boundary.id,
+  createdAt: at,
+  kind: "boundary",
+  pendingDecisionId: AgentPendingDecisionId.make(`pending-${randomUUID()}`),
+  scopeSummary: boundaryScopeSummary(boundary),
+  sessionId: snapshot.id,
+});
+
+/**
+ * Record what an allowed Boundary grants: an allowed host covers the Run, and
+ * an allowed confirmation or new objective covers one action attempt. A
+ * non-HTTP destination is refused rather than added to the host set.
+ */
+const grantBoundary = (
+  control: BoundaryControl,
+  pending: NonNullable<BoundaryControl["pending"]>
+): Effect.Effect<void, AgentSessionError> => {
+  if (pending.boundary.reason !== "domain") {
+    control.grants.add(pending.boundary.reason + pending.fingerprint);
+    return Effect.void;
+  }
+  const url = new URL(pending.boundary.requested);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return Effect.fail(
+      error(
+        "agent_session_invalid",
+        "Only HTTP and HTTPS domains can be approved."
+      )
+    );
+  }
+  control.hosts.add(url.hostname.toLowerCase());
+  return Effect.void;
+};
+
+/** The durable audit record of one relayed Execution Boundary choice. */
+const boundaryResolution = (
+  pending: NonNullable<BoundaryControl["pending"]>,
+  input: AgentPendingDecisionResolve,
+  decidedAt: string
+): AgentPendingDecisionResolution => {
+  const base = {
+    agentFlowId: pending.decision.agentFlowId,
+    boundaryId: pending.boundary.id,
+    decidedAt,
+    decision: input.decision,
+    kind: "boundary",
+    operationId: input.operationId,
+    pendingDecisionId: pending.decision.pendingDecisionId,
+    revisionId: pending.decision.revisionId,
+  } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
+  if (input.userMessage === undefined || input.userMessage === null) {
+    return base;
+  }
+  return { ...base, userMessage: input.userMessage };
+};
+
+/** Catalog-mirrored decisions, without the boundary decision this session owns. */
+const catalogDecisions = (
+  decisions: readonly AgentPendingDecision[]
+): readonly AgentPendingDecision[] =>
+  decisions.filter((decision) => decision.kind !== "boundary");
 
 interface TeachingArtifacts {
   readonly retentionFile: string | undefined;
@@ -1812,19 +1924,31 @@ const makeAgentSession = (
         if (control === undefined || control.pending !== undefined) {
           return;
         }
-        control.pending = { boundary, fingerprint };
+        const at = now().toISOString();
+        // Read the live snapshot rather than the caller's handle: the pause
+        // must not resurrect decisions a concurrent mirror already replaced.
+        const current =
+          Ref.getUnsafe(sessions).get(sessionId)?.snapshot ?? record.snapshot;
+        const decision = boundaryPendingDecision(current, boundary, at);
+        control.pending = { boundary, decision, fingerprint };
         yield* recordEntry(
           sessionId,
           {
             actor: "agent",
-            at: now().toISOString(),
+            at,
             description: boundary.description,
             detail: `${boundary.reason}: ${boundary.requested}`,
             dispatched: false,
             id: boundary.id,
             outcome: "refused",
           },
-          { boundary }
+          {
+            boundary,
+            pendingDecisions: [
+              ...catalogDecisions(current.pendingDecisions),
+              decision,
+            ],
+          }
         );
       });
 
@@ -3996,6 +4120,21 @@ const makeAgentSession = (
             ({ browserSessionId }) => browserSessionId === sessionId
           )
         ),
+      pendingDecision: (pendingDecisionId) =>
+        Effect.gen(function* findBoundaryDecision() {
+          for (const record of Ref.getUnsafe(sessions).values()) {
+            const pending = record.boundaryControl?.pending;
+            if (pending?.decision.pendingDecisionId === pendingDecisionId) {
+              return pending.decision;
+            }
+          }
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Pending decision ${pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+            )
+          );
+        }),
       recordDraft: (sessionId, draft) =>
         Effect.gen(function* recordSavedDraft() {
           const { capture } = yield* requireTeaching(sessionId);
@@ -4028,7 +4167,15 @@ const makeAgentSession = (
           const next = yield* mutate(sessionId, (snapshot) => ({
             ...snapshot,
             decisionHistory,
-            pendingDecisions,
+            // A paused Execution Boundary is this session's own decision, so a
+            // catalog mirror must not drop the pause the user still owes an
+            // answer to.
+            pendingDecisions: [
+              ...snapshot.pendingDecisions.filter(
+                (decision) => decision.kind === "boundary"
+              ),
+              ...pendingDecisions,
+            ],
             updatedAt: now().toISOString(),
           }));
           return next ?? record.snapshot;
@@ -4054,14 +4201,18 @@ const makeAgentSession = (
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
         ),
-      resolveBoundary: (input) =>
+      resolvePendingDecision: (input) =>
         lock.withPermit(
           Effect.gen(function* resolveExecutionBoundary() {
-            const requestInput = JSON.stringify(input);
+            const requestInput = JSON.stringify({
+              decision: input.decision,
+              pendingDecisionId: input.pendingDecisionId,
+              userMessage: input.userMessage ?? null,
+            });
             const replayed = replaySession(
               input.operationId,
               "boundary",
-              input.sessionId,
+              input.pendingDecisionId,
               requestInput
             );
             if (replayed?._tag === "conflict") {
@@ -4070,13 +4221,29 @@ const makeAgentSession = (
             if (replayed?._tag === "replay") {
               return replayed.snapshot;
             }
-            const record = yield* requireLiveRecord(input.sessionId);
+            // A pause names its session, so the id the agent relays is enough
+            // to find it; a resolved or replaced pause names none and is a
+            // conflict the agent answers by rereading pendingDecisions.
+            const located = [...Ref.getUnsafe(sessions).values()].find(
+              (candidate) =>
+                candidate.boundaryControl?.pending?.decision
+                  .pendingDecisionId === input.pendingDecisionId
+            );
+            if (located === undefined) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+                )
+              );
+            }
+            const record = yield* requireLiveRecord(located.snapshot.id);
             const control = record.boundaryControl;
             const pending = control?.pending;
             if (
               control === undefined ||
               pending === undefined ||
-              pending.boundary.id !== input.boundaryId
+              pending.decision.pendingDecisionId !== input.pendingDecisionId
             ) {
               return yield* Effect.fail(
                 error(
@@ -4085,50 +4252,56 @@ const makeAgentSession = (
                 )
               );
             }
-            if (input.decision === "allow" && agentIsPaused(record.snapshot)) {
+            const allowed = input.decision === "allow";
+            if (!(allowed || input.decision === "refuse")) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Pending decision ${input.pendingDecisionId} accepts allow or refuse, not ${input.decision}.`
+                )
+              );
+            }
+            // Takeover is exclusive, so only the user's refusal is meaningful
+            // while they hold the browser (ADR 0027).
+            if (allowed && agentIsPaused(record.snapshot)) {
               return yield* Effect.fail(
                 takenOver("Return control before confirming an agent attempt.")
               );
             }
-            if (input.decision === "allow") {
-              if (pending.boundary.reason === "domain") {
-                const url = new URL(pending.boundary.requested);
-                if (url.protocol !== "http:" && url.protocol !== "https:") {
-                  return yield* Effect.fail(
-                    error(
-                      "agent_session_invalid",
-                      "Only HTTP and HTTPS domains can be approved."
-                    )
-                  );
-                }
-                control.hosts.add(url.hostname.toLowerCase());
-              } else {
-                control.grants.add(
-                  pending.boundary.reason + pending.fingerprint
-                );
-              }
+            if (allowed) {
+              yield* grantBoundary(control, pending);
             }
             control.pending = undefined;
+            const decidedAt = now().toISOString();
+            const resolution = boundaryResolution(pending, input, decidedAt);
             const snapshot = yield* recordEntry(
-              input.sessionId,
+              record.snapshot.id,
               {
                 actor: "user",
-                at: now().toISOString(),
-                description:
-                  input.decision === "allow"
-                    ? "Confirmed boundary request"
-                    : "Refused boundary request",
+                at: decidedAt,
+                description: allowed
+                  ? "Confirmed boundary request"
+                  : "Refused boundary request",
                 detail: `${pending.boundary.description}: ${pending.boundary.requested}`,
                 dispatched: false,
                 id: randomUUID(),
-                outcome: input.decision === "allow" ? "completed" : "refused",
+                outcome: allowed ? "completed" : "refused",
               },
-              { boundary: null }
+              {
+                boundary: null,
+                decisionHistory: [
+                  ...record.snapshot.decisionHistory,
+                  resolution,
+                ],
+                pendingDecisions: catalogDecisions(
+                  record.snapshot.pendingDecisions
+                ),
+              }
             );
             yield* rememberSession(
               input.operationId,
               "boundary",
-              input.sessionId,
+              input.pendingDecisionId,
               requestInput,
               snapshot
             );
