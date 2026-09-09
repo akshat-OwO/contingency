@@ -27,7 +27,7 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { findNode, makeCall } from "./agent-harness.ts";
+import { findNode, makeCall, requireRevision } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
 const viewport = {
@@ -203,12 +203,14 @@ it.live(
         const authorizingFrom = yield* localSession.get(taught.id);
         const startingUrl = verificationStartingUrl(authorizingFrom.currentUrl);
         expect(startingUrl).toBe(loginUrl);
-        const authorized = yield* flow("agent_pending_decision_resolve", {
-          decision: "authorize",
-          operationId: OperationId.make("authorize-run"),
-          pendingDecisionId: authorizationPending.pendingDecisionId,
-          userMessage: "Yes, authorize that verification.",
-        });
+        const authorized = requireRevision(
+          yield* flow("agent_pending_decision_resolve", {
+            decision: "authorize",
+            operationId: OperationId.make("authorize-run"),
+            pendingDecisionId: authorizationPending.pendingDecisionId,
+            userMessage: "Yes, authorize that verification.",
+          })
+        );
         expect(authorized.heads.verification).toMatchObject({
           revisionId,
           startingUrl: loginUrl,
@@ -514,12 +516,14 @@ it.live(
         if (approvalPending === undefined) {
           throw new Error("The passed Run has no approval decision.");
         }
-        const approved = yield* flow("agent_pending_decision_resolve", {
-          decision: "approve",
-          operationId: OperationId.make("approve-verified"),
-          pendingDecisionId: approvalPending.pendingDecisionId,
-          userMessage: "Save it as approved.",
-        });
+        const approved = requireRevision(
+          yield* flow("agent_pending_decision_resolve", {
+            decision: "approve",
+            operationId: OperationId.make("approve-verified"),
+            pendingDecisionId: approvalPending.pendingDecisionId,
+            userMessage: "Save it as approved.",
+          })
+        );
         expect(approved.manifest.status).toBe("approved");
         expect(approved.manifest.steps[0]?.name).toBe("Sign in and confirm");
         expect(approved.heads.approvedRevisionId).toBe(correctedRevisionId);
