@@ -312,8 +312,32 @@ it.live(
           expect(step.evidence.hash).toMatch(/^sha256-[\da-f]+$/u);
         }
 
-        // The user reviews Variables and Domain Scope, then corrects the
-        // proposal: the last Step becomes a Confirmation Step.
+        const refusedCorrection = yield* Effect.flip(
+          flowTool("agent_flow_draft_update", {
+            agentFlowId,
+            basedOnRevisionId: saved.manifest.revisionId,
+            draft: {
+              ...proposal,
+              domainScope: { hosts: ["outside.example.com"] },
+            },
+            operationId: OperationId.make("journey-refuse-correction"),
+            sessionId: teaching.id,
+          })
+        );
+        expect(refusedCorrection.code).toBe("agent_flow_invalid");
+        expect(
+          (refusedCorrection.diagnostics ?? []).map(({ code }) => code)
+        ).toEqual(
+          expect.arrayContaining(["unobserved_domain", "uncovered_host"])
+        );
+        expect(
+          (yield* flowTool("agent_flow_get", { agentFlowId })).manifest
+            .revisionId
+        ).toBe(saved.manifest.revisionId);
+
+        // The user reviews Variables and Domain Scope, then confirms an agent
+        // correction in the MCP conversation. The last Step becomes a
+        // Confirmation Step.
         const review = yield* user("agent.flow.revision.get", {
           data: { agentFlowId, revisionId: saved.manifest.revisionId },
           type: "agent.flow.revision.get",
@@ -337,17 +361,14 @@ it.live(
             },
           ],
         };
-        const corrected = yield* user("agent.flow.draft.update", {
-          data: {
-            agentFlowId,
-            basedOnRevisionId: saved.manifest.revisionId,
-            draft: correctedProposal,
-            operationId: OperationId.make("journey-correct-draft"),
-            sessionId: teaching.id,
-          },
-          type: "agent.flow.draft.update",
+        const corrected = yield* flowTool("agent_flow_draft_update", {
+          agentFlowId,
+          basedOnRevisionId: saved.manifest.revisionId,
+          draft: correctedProposal,
+          operationId: OperationId.make("journey-correct-draft"),
+          sessionId: teaching.id,
         });
-        const { revisionId } = corrected.data.revision.manifest;
+        const { revisionId } = corrected.manifest;
         expect(revisionId).not.toBe(saved.manifest.revisionId);
 
         // Verification is unfunded until the user says so, and the correction

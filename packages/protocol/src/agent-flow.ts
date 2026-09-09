@@ -755,11 +755,12 @@ export const AgentFlowRevisionDetail = Schema.Struct({
 export type AgentFlowRevisionDetail = typeof AgentFlowRevisionDetail.Type;
 
 /**
- * The user's correction of the agent's proposal, applied through Agent View.
- * It is the same shape the compiler produces, so merging, splitting, renaming,
- * clarifying, and editing Domain Scope all resolve to Evidence Slices
- * Contingency derives from the demonstrated spans — never to hand-edited
- * evidence ([ADR 0025](../../../docs/adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
+ * A correction the external agent saves after the user confirms it in the MCP
+ * conversation. It is the same shape the compiler produces, so merging,
+ * splitting, renaming, clarifying, and editing Domain Scope all resolve to
+ * Evidence Slices Contingency derives from the demonstrated spans, never to
+ * agent-authored evidence
+ * ([ADR 0025](../../../docs/adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
  */
 export const AgentFlowDraftUpdate = Schema.Struct({
   agentFlowId: AgentFlowId,

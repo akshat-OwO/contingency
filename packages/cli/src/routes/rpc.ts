@@ -15,7 +15,7 @@ import type {
   RunSnapshot,
   SessionId,
 } from "@contingency/protocol";
-import { Effect, Layer, Option, Result, Stream } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 import type { FileSystem } from "effect";
 import {
   HttpRouter,
@@ -29,7 +29,6 @@ import type {
   AgentFlowCatalogError,
   AgentFlowCatalogService,
 } from "../services/agent-flow-catalog.ts";
-import { compileAgentFlowDraft } from "../services/agent-flow-compiler.ts";
 import { AgentRunStore } from "../services/agent-run-store.ts";
 import type {
   AgentRunStoreError,
@@ -813,85 +812,6 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           catalogUnavailable((catalog) =>
             catalog.get(data.agentFlowId, data.revisionId)
           )
-        ),
-      /**
-       * The user's correction of the agent's proposal. It compiles against the
-       * same Demonstration the agent compiled from, so merging, splitting,
-       * renaming, and clarifying still produce Contingency-derived Evidence
-       * Slices — and the resulting draft revision holds no authorization.
-       */
-      "agent.flow.draft.update": ({ data }) =>
-        revisionResult(
-          Effect.gen(function* updateDraftFromAgentView() {
-            const source = yield* agentUnavailable((service) =>
-              service.teachingSource(data.sessionId)
-            );
-            const compiled = compileAgentFlowDraft(
-              data.draft,
-              source.demonstration
-            );
-            if (Result.isFailure(compiled)) {
-              return yield* Effect.fail(
-                makeBrowserRpcError(
-                  "agent_flow_invalid",
-                  `This correction was not saved: ${compiled.failure
-                    .map(
-                      (diagnostic) =>
-                        `${diagnostic.message} (${diagnostic.path.join(".") || "the draft"})`
-                    )
-                    .join(" ")}`
-                )
-              );
-            }
-            const saved = yield* catalogUnavailable((catalog) =>
-              catalog.saveDraft({
-                agentFlowId: data.agentFlowId,
-                basedOnRevisionId: data.basedOnRevisionId,
-                compiler: {
-                  clientName: source.session.clientName,
-                  clientVersion: source.session.clientVersion,
-                },
-                emulation: source.emulation,
-                operationId: data.operationId,
-                proposal: data.draft,
-                screenshots: [
-                  ...source.demonstration.screenshotContents.values(),
-                ],
-                slices: compiled.success,
-                sourceArtifacts: {
-                  retentionFile: source.retentionFile,
-                  traceFile: source.traceFile,
-                  videoFile: source.videoFile,
-                },
-                sourceSessionId: data.sessionId,
-              })
-            );
-            yield* agentUnavailable((service) =>
-              service.recordDraft(data.sessionId, {
-                agentFlowId: saved.manifest.agentFlowId,
-                revisionId: saved.manifest.revisionId,
-                savedAt: saved.manifest.createdAt,
-                steps: saved.manifest.steps.map((step, index) => ({
-                  confirmation: step.confirmation,
-                  description: step.description,
-                  evidenceHash: step.evidence.hash,
-                  firstActionId: step.firstActionId,
-                  index,
-                  lastActionId: step.lastActionId,
-                  name: step.name,
-                })),
-                title: saved.manifest.title,
-              })
-            );
-            yield* agentUnavailable((service) =>
-              service.recordPendingDecisionState(
-                data.sessionId,
-                saved.heads.pendingDecisions,
-                saved.heads.decisionHistory
-              )
-            );
-            return saved;
-          })
         ),
       /**
        * The two gestures no MCP tool can reach. They are handlers on Agent

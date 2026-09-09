@@ -5,7 +5,6 @@ import type {
   AgentFlowManifest,
   AgentFlowRevisionId,
   AgentFlowVerification,
-  AgentSessionId,
   AgentSessionSnapshot,
 } from "@contingency/protocol";
 import { OperationId } from "@contingency/protocol";
@@ -22,43 +21,20 @@ import { useEffect, useRef } from "react";
 
 import {
   authorizationPresentation,
-  draftCorrectionsAtom,
   draftDeletionConfirmationAtom,
-  draftEditFromManifest,
-  draftGestureAtom,
-  draftIsEdited,
-  draftProposalFrom,
-  draftSplitAtom,
   draftVariableDraftAtom,
-  editHosts,
-  editStep,
-  mergeStepWithNext,
-  parseHosts,
-  demonstratedActions,
   refusal,
   shownRevision,
-  spanActions,
-  spanEvidence,
-  splitStepAt,
 } from "@/components/agent/draft-review-state";
 import type {
   AuthorizationPresentation,
-  DemonstratedAction,
   DraftRevisionDetail,
-  DraftReviewEdit,
-  DraftReviewKey,
 } from "@/components/agent/draft-review-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
-import { Textarea } from "@/components/ui/textarea";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const operationId = () => OperationId.make(crypto.randomUUID());
@@ -68,6 +44,8 @@ const headsForMutation = (heads: AgentFlowHeads) => ({
   archived: heads.archived,
   draftRevisionId: heads.draftRevisionId,
 });
+
+type DemonstratedAction = AgentFlowEvidenceSummary["actions"][number];
 
 /**
  * What one Step was demonstrated by. A merged or split span has no compiled
@@ -122,143 +100,32 @@ const StepEvidence = ({
   );
 };
 
-/** Moving one Step's boundaries: merge it with the next, or split its span. */
-const StepSpanControls = ({
-  actions,
-  index,
-  isLast,
-  onMerge,
-  onSplit,
-  reviewKey,
-}: {
-  readonly actions: readonly DemonstratedAction[];
-  readonly index: number;
-  readonly isLast: boolean;
-  readonly onMerge: () => void;
-  readonly onSplit: (actionId: string) => void;
-  readonly reviewKey: DraftReviewKey;
-}) => {
-  const [splitAt, setSplitAt] = useAtom(draftSplitAtom(reviewKey)(index));
-  // A Step always covers at least one action, so its first action can never
-  // start the second half of a split.
-  const splitPoints = actions.slice(1);
-  return (
-    <div className="flex flex-wrap items-end gap-2">
-      {isLast ? null : (
-        <Button onClick={onMerge} size="sm" type="button" variant="outline">
-          Merge with next Step
-        </Button>
-      )}
-      {splitPoints.length === 0 ? null : (
-        <>
-          <div className="space-y-1">
-            <Label htmlFor={`agent-step-split-${index}`}>
-              Split Agent Step {index + 1} before
-            </Label>
-            <NativeSelect
-              id={`agent-step-split-${index}`}
-              onChange={(event) => setSplitAt(event.target.value)}
-              value={splitAt}
-            >
-              <NativeSelectOption value="">Choose an action</NativeSelectOption>
-              {splitPoints.map((action) => (
-                <NativeSelectOption key={action.id} value={action.id}>
-                  {action.description}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </div>
-          <Button
-            disabled={splitAt === ""}
-            onClick={() => onSplit(splitAt)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Split Step
-          </Button>
-        </>
-      )}
-    </div>
-  );
-};
-
-const StepEditor = ({
-  actions,
-  canEdit,
+const StepReview = ({
   evidence,
   index,
-  isLast,
-  onChange,
-  onMerge,
-  onSplit,
-  reviewKey,
   step,
 }: {
-  /** The captured actions this Step's span covers, in demonstrated order. */
-  readonly actions: readonly DemonstratedAction[];
-  readonly canEdit: boolean;
   readonly evidence: AgentFlowEvidenceSummary | undefined;
   readonly index: number;
-  readonly isLast: boolean;
-  readonly onChange: (patch: {
-    readonly confirmation?: boolean;
-    readonly description?: string;
-    readonly name?: string;
-  }) => void;
-  readonly onMerge: () => void;
-  readonly onSplit: (actionId: string) => void;
-  readonly reviewKey: DraftReviewKey;
-  readonly step: DraftReviewEdit["steps"][number];
+  readonly step: AgentFlowManifest["steps"][number];
 }) => (
   <li className="space-y-3 p-3">
-    <div className="space-y-2">
-      <Label htmlFor={`agent-step-name-${index}`}>
-        Agent Step {index + 1} name
-      </Label>
-      <Input
-        disabled={!canEdit}
-        id={`agent-step-name-${index}`}
-        onChange={(event) => onChange({ name: event.target.value })}
-        value={step.name}
-      />
+    <div className="space-y-1">
+      <h3 className="text-xs font-semibold">
+        Agent Step {index + 1}: {step.name}
+      </h3>
+      <p className="text-muted-foreground text-xs">{step.description}</p>
+      <p className="text-muted-foreground text-xs">
+        {step.confirmation
+          ? "Confirmation Step: asks before each irreversible attempt."
+          : "No confirmation required."}
+      </p>
     </div>
-    <div className="space-y-2">
-      <Label htmlFor={`agent-step-description-${index}`}>
-        Agent Step {index + 1} description
-      </Label>
-      <Textarea
-        disabled={!canEdit}
-        id={`agent-step-description-${index}`}
-        onChange={(event) => onChange({ description: event.target.value })}
-        rows={2}
-        value={step.description}
-      />
-    </div>
-    <div className="flex items-center gap-2">
-      <Checkbox
-        checked={step.confirmation}
-        disabled={!canEdit}
-        id={`agent-step-confirmation-${index}`}
-        onCheckedChange={(checked) =>
-          onChange({ confirmation: checked === true })
-        }
-      />
-      <Label htmlFor={`agent-step-confirmation-${index}`}>
-        {`Agent Step ${index + 1} Confirmation Step: ask me before each irreversible attempt`}
-      </Label>
-    </div>
-    <StepEvidence actions={actions} evidence={evidence} index={index} />
-    {canEdit ? (
-      <StepSpanControls
-        actions={actions}
-        index={index}
-        isLast={isLast}
-        onMerge={onMerge}
-        onSplit={onSplit}
-        reviewKey={reviewKey}
-      />
-    ) : null}
+    <StepEvidence
+      actions={evidence?.actions ?? []}
+      evidence={evidence}
+      index={index}
+    />
   </li>
 );
 
@@ -569,49 +436,27 @@ const DraftReviewLoading = ({ message }: { readonly message: string }) => (
 );
 
 const DraftReviewContent = ({
-  actions,
   archiveFailure,
   authorization,
-  canEdit,
   confirmation,
   deleteFailure,
   deleted,
   detail,
-  edit,
-  edited,
-  hostsText,
   onArchive,
   onConfirmationChange,
-  onCorrect,
   onDelete,
-  onHostsChange,
-  onSave,
-  pending,
   retirementPending,
-  reviewKey,
 }: {
-  readonly actions: readonly DemonstratedAction[];
   readonly archiveFailure: string | undefined;
   readonly authorization: AuthorizationPresentation;
-  readonly canEdit: boolean;
   readonly confirmation: string;
   readonly deleteFailure: string | undefined;
   readonly deleted: boolean;
   readonly detail: DraftRevisionDetail;
-  readonly edit: DraftReviewEdit;
-  readonly edited: boolean;
-  readonly hostsText: string;
   readonly onArchive: () => void;
   readonly onConfirmationChange: (value: string) => void;
-  readonly onCorrect: (
-    change: (current: DraftReviewEdit) => DraftReviewEdit
-  ) => void;
   readonly onDelete: () => void;
-  readonly onHostsChange: (value: string) => void;
-  readonly onSave: () => void;
-  readonly pending: boolean;
   readonly retirementPending: boolean;
-  readonly reviewKey: DraftReviewKey;
 }) => {
   const { manifest } = detail.revision;
   return (
@@ -638,69 +483,37 @@ const DraftReviewContent = ({
         </div>
 
         <ul aria-label="Agent Steps" className="divide-y rounded-lg border">
-          {edit.steps.map((step, index) => {
-            const covered = spanActions(actions, step);
-            return (
-              <StepEditor
-                actions={covered}
-                canEdit={canEdit}
-                evidence={spanEvidence(detail.evidence, step)}
-                index={index}
-                isLast={index === edit.steps.length - 1}
-                // Steps are reordered by merging and splitting, so the
-                // demonstrated span they cover is what identifies one across
-                // an edit.
-                key={`${step.firstActionId}-${step.lastActionId}`}
-                onChange={(patch) =>
-                  onCorrect((current) => editStep(current, index, patch))
-                }
-                onMerge={() =>
-                  onCorrect((current) => mergeStepWithNext(current, index))
-                }
-                onSplit={(actionId) =>
-                  onCorrect((current) =>
-                    splitStepAt(
-                      current,
-                      index,
-                      covered.map(({ id }) => id),
-                      actionId
-                    )
-                  )
-                }
-                reviewKey={reviewKey}
-                step={step}
-              />
-            );
-          })}
+          {manifest.steps.map((step, index) => (
+            <StepReview
+              evidence={detail.evidence.find(
+                (summary) => summary.stepIndex === index
+              )}
+              index={index}
+              key={step.index}
+              step={step}
+            />
+          ))}
         </ul>
 
         <div className="space-y-2">
-          <Label htmlFor="agent-domain-scope">Domain Scope</Label>
+          <h3 className="text-xs font-semibold">Domain Scope</h3>
           <p className="text-muted-foreground text-xs">
-            One exact host or explicit <code>*.example.com</code> pattern per
-            line. The agent may not visit anything else.
+            The agent may visit only these exact hosts or explicit wildcard
+            patterns.
           </p>
-          <Textarea
-            disabled={!canEdit}
-            id="agent-domain-scope"
-            onChange={(event) => onHostsChange(event.target.value)}
-            rows={3}
-            value={hostsText}
-          />
+          <ul aria-label="Domain Scope" className="font-mono text-xs">
+            {manifest.domainScope.hosts.map((host) => (
+              <li key={host}>{host}</li>
+            ))}
+          </ul>
         </div>
 
         <DraftFacts manifest={manifest} />
 
-        {canEdit ? (
-          <Button
-            disabled={pending || !edited}
-            onClick={onSave}
-            size="sm"
-            type="button"
-          >
-            Save corrections
-          </Button>
-        ) : null}
+        <p className="text-muted-foreground text-xs">
+          To correct this draft, describe the change in your agent conversation
+          and confirm when it should be saved.
+        </p>
 
         <VerificationGestures
           authorization={authorization}
@@ -733,7 +546,6 @@ export const DraftReview = ({
   agentFlowId,
   refreshToken,
   revisionId,
-  sessionId,
 }: {
   readonly agentFlowId: AgentFlowId;
   /**
@@ -744,28 +556,19 @@ export const DraftReview = ({
    */
   readonly refreshToken: string;
   readonly revisionId: AgentFlowRevisionId;
-  /** The Teaching session whose Demonstration corrections compile against. */
-  readonly sessionId: AgentSessionId | undefined;
 }) => {
   const {
     agentFlowArchiveMutation,
     agentFlowDeleteMutation,
-    agentFlowDraftUpdateMutation,
     agentFlowRevisionAtom,
   } = useRpcDependencies();
-  const reviewKey: DraftReviewKey = { agentFlowId, revisionId };
   const revisionAtom = agentFlowRevisionAtom(agentFlowId, revisionId);
   const revisionResult = useAtomValue(revisionAtom);
   const rereadRevision = useAtomRefresh(revisionAtom);
-  const [updateResult, updateDraft] = useAtom(agentFlowDraftUpdateMutation);
   const [archiveResult, archive] = useAtom(agentFlowArchiveMutation);
   const [deleteResult, deleteAgentFlow] = useAtom(agentFlowDeleteMutation);
-  const [gesture, setGesture] = useAtom(draftGestureAtom(reviewKey));
   const [deleteConfirmation, setDeleteConfirmation] = useAtom(
-    draftDeletionConfirmationAtom(reviewKey)
-  );
-  const [corrections, setCorrections] = useAtom(
-    draftCorrectionsAtom(reviewKey)
+    draftDeletionConfirmationAtom({ agentFlowId, revisionId })
   );
 
   /**
@@ -782,17 +585,8 @@ export const DraftReview = ({
     rereadRevision();
   }, [refreshToken, rereadRevision]);
 
-  const gestureResult = (() => {
-    if (gesture === "archive") {
-      return archiveResult;
-    }
-    return gesture === "update" ? updateResult : undefined;
-  })();
-  const detail = shownRevision(revisionResult, gestureResult);
-  const pending =
-    gestureResult !== undefined && AsyncResult.isWaiting(gestureResult);
-  const archiveFailure =
-    gesture === "archive" ? refusal(archiveResult) : undefined;
+  const detail = shownRevision(revisionResult, archiveResult);
+  const archiveFailure = refusal(archiveResult);
   const deleteFailure = refusal(deleteResult);
   const deleted =
     AsyncResult.isSuccess(deleteResult) &&
@@ -807,52 +601,13 @@ export const DraftReview = ({
   }
 
   const { manifest } = detail.revision;
-  /**
-   * Unsaved corrections outrank a reread: a refresh that arrives while the
-   * user is still editing updates what the draft is verified as, never what
-   * the user has typed.
-   */
-  const edit =
-    corrections === null ? draftEditFromManifest(manifest) : corrections.edit;
-  const hostsText =
-    corrections === null
-      ? manifest.domainScope.hosts.join("\n")
-      : corrections.hostsText;
-  const correct = (change: (current: DraftReviewEdit) => DraftReviewEdit) => {
-    setCorrections({ edit: change(edit), hostsText });
-  };
-  /** Every demonstrated action behind the draft, whatever the edit did. */
-  const actions = demonstratedActions(detail.evidence);
-  const edited = draftIsEdited(manifest, edit);
-  const canEdit = sessionId !== undefined && manifest.status === "draft";
   const authorization = authorizationPresentation({
-    edited,
     revisionId: manifest.revisionId,
     revisionStatus: manifest.status,
     verification: detail.revision.heads.verification,
   });
 
-  const saveCorrections = () => {
-    if (sessionId === undefined) {
-      return;
-    }
-    setGesture("update");
-    updateDraft({
-      payload: {
-        data: {
-          agentFlowId: manifest.agentFlowId,
-          basedOnRevisionId: manifest.revisionId,
-          draft: draftProposalFrom(manifest, edit),
-          operationId: operationId(),
-          sessionId,
-        },
-        type: "agent.flow.draft.update",
-      },
-    });
-  };
-
   const setArchiveState = () => {
-    setGesture("archive");
     archive({
       payload: {
         data: {
@@ -883,39 +638,21 @@ export const DraftReview = ({
     });
   };
 
-  const changeHosts = (text: string) => {
-    setCorrections({
-      edit: editHosts(edit, parseHosts(text)),
-      hostsText: text,
-    });
-  };
-
   return (
     <DraftReviewContent
-      actions={actions}
       archiveFailure={archiveFailure}
       authorization={authorization}
-      canEdit={canEdit}
       confirmation={deleteConfirmation}
       deleteFailure={deleteFailure}
       deleted={deleted}
       detail={detail}
-      edit={edit}
-      edited={edited}
-      hostsText={hostsText}
       onArchive={setArchiveState}
       onConfirmationChange={setDeleteConfirmation}
-      onCorrect={correct}
       onDelete={permanentlyDelete}
-      onHostsChange={changeHosts}
-      onSave={saveCorrections}
-      pending={pending}
       retirementPending={
-        pending ||
         AsyncResult.isWaiting(deleteResult) ||
         AsyncResult.isWaiting(archiveResult)
       }
-      reviewKey={reviewKey}
     />
   );
 };
@@ -961,7 +698,6 @@ export const VerificationDetails = ({
         agentFlowId={verification.agentFlowId}
         refreshToken={session.updatedAt}
         revisionId={verification.revisionId}
-        sessionId={undefined}
       />
     </>
   );

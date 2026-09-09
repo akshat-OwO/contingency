@@ -616,14 +616,14 @@ const SessionDetails = ({
 
         {/*
           The draft review appears as soon as Teaching has compiled one, so the
-          user reviews and corrects the proposal before authorizing anything.
+          user reviews the proposal before authorizing anything. Corrections
+          are saved through the MCP conversation.
         */}
         {session.teaching?.draft ? (
           <DraftReview
             agentFlowId={session.teaching.draft.agentFlowId}
             refreshToken={session.updatedAt}
             revisionId={session.teaching.draft.revisionId}
-            sessionId={session.id}
           />
         ) : null}
 
