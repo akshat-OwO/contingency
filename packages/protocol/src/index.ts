@@ -12,7 +12,6 @@ import {
   AgentFlowArchive,
   AgentFlowDelete,
   AgentFlowDeleteResult,
-  AgentFlowDraftUpdate,
   AgentFlowGet,
   AgentFlowRevisionDetail,
   AgentFlowVerificationAuthorize,
@@ -383,7 +382,6 @@ export const BrandId = Schema.Literals([
   "agent.session.variable.supplied",
   "agent.flow.revision.get",
   "agent.flow.revision.result",
-  "agent.flow.draft.update",
   "agent.flow.verification.authorize",
   "agent.flow.approve",
   "agent.run.summary.get",
@@ -890,19 +888,6 @@ export const AgentFlowRevisionResult = response("agent.flow.revision.result", {
 });
 
 /**
- * The user's correction of the proposed Agent Steps, Domain Scope, and
- * Confirmation markers. It saves another draft revision, which spends any
- * authorization the previous draft held.
- */
-export const AgentFlowDraftUpdateRequest = request("agent.flow.draft.update", {
-  agentFlowId: AgentFlowDraftUpdate.fields.agentFlowId,
-  basedOnRevisionId: AgentFlowDraftUpdate.fields.basedOnRevisionId,
-  draft: AgentFlowDraftUpdate.fields.draft,
-  operationId: AgentFlowDraftUpdate.fields.operationId,
-  sessionId: AgentFlowDraftUpdate.fields.sessionId,
-});
-
-/**
  * The two gestures the external agent may ask for but never perform. They
  * exist only on Agent View's loopback RPC
  * ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
@@ -1296,11 +1281,6 @@ const AgentFlowRevisionGetRpc = Rpc.make("agent.flow.revision.get", {
   payload: AgentFlowRevisionGet,
   success: AgentFlowRevisionResult,
 });
-const AgentFlowDraftUpdateRpc = Rpc.make("agent.flow.draft.update", {
-  error: BrowserRpcError,
-  payload: AgentFlowDraftUpdateRequest,
-  success: AgentFlowRevisionResult,
-});
 const AgentFlowVerificationAuthorizeRpc = Rpc.make(
   "agent.flow.verification.authorize",
   {
@@ -1397,7 +1377,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserNavigateRpc,
   AgentSessionVariableSupplyRpc,
   AgentFlowRevisionGetRpc,
-  AgentFlowDraftUpdateRpc,
   AgentFlowVerificationAuthorizeRpc,
   AgentFlowApproveRpc,
   AgentFlowArchiveRpc,

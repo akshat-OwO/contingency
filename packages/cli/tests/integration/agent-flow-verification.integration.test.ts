@@ -423,7 +423,7 @@ it.live(
           operationId: OperationId.make("authorize-again"),
           pendingDecisionId: retryPending.pendingDecisionId,
         });
-        const corrected = yield* flow("agent_flow_draft_save", {
+        const correction = {
           agentFlowId,
           basedOnRevisionId: revisionId,
           draft: {
@@ -444,7 +444,11 @@ it.live(
           },
           operationId: OperationId.make("save-corrected-draft"),
           sessionId: taught.id,
-        });
+        } as const;
+        const corrected = yield* flow("agent_flow_draft_update", correction);
+        expect(yield* flow("agent_flow_draft_update", correction)).toEqual(
+          corrected
+        );
         const correctedRevisionId = corrected.manifest.revisionId;
         expect(correctedRevisionId).not.toBe(revisionId);
         expect(corrected.heads.verification).toBeNull();

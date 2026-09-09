@@ -3,7 +3,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import type { ReactNode } from "react";
@@ -14,13 +13,9 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 /**
  * Agent View's sidebar refreshes constantly while a session is live, and each
- * region is gated on a field of the session snapshot. These tests drive the
- * whole workspace and let the registry's idle window elapse before asserting:
- * state the user entered must survive the region leaving the screen, which a
- * synchronous assertion would not prove.
+ * region is gated on a field of the session snapshot. This test drives the
+ * whole workspace through enough updates for retained state to be collected.
  */
-const IDLE_WINDOW = 700;
-
 const rpc = vi.hoisted(() => ({
   detail: undefined,
   emit: undefined,
@@ -34,7 +29,6 @@ const rpcOverrides = {
   agentFlowApproveMutation: Atom.fn(() => Effect.never),
   agentFlowArchiveMutation: Atom.fn(() => Effect.never),
   agentFlowDeleteMutation: Atom.fn(() => Effect.never),
-  agentFlowDraftUpdateMutation: Atom.fn(() => Effect.never),
   agentFlowRevisionAtom: () =>
     Atom.make(Effect.suspend(() => Effect.succeed({ data: rpc.detail }))),
   agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),
@@ -198,60 +192,14 @@ const renderWorkspace = () => {
   );
 };
 
-/**
- * One update that omits the saved draft, as a snapshot rebuilt without it
- * would, followed by the update that carries it again. This is what takes the
- * review off screen for long enough for its state to be collected.
- */
-const updateWithoutTheDraft = async () => {
-  rpc.emit?.(
-    sessionAt("2026-09-02T00:00:01.000Z", {
-      teaching: { actionCount: 3, draft: null, instructionCount: 0 },
-    })
-  );
-  await delay(IDLE_WINDOW);
-  rpc.emit?.(sessionAt("2026-09-02T00:00:02.000Z"));
-  await screen.findByLabelText("Agent Step 1 name");
-};
-
 afterEach(() => {
   cleanup();
   rpc.emit = undefined;
 });
 
-test("keeps a correction through a session update that omits the draft", async () => {
-  const user = userEvent.setup();
-  renderWorkspace();
-
-  const name = await screen.findByLabelText("Agent Step 1 name");
-  await user.clear(name);
-  await user.type(name, "Sign in as the demo shopper");
-  await updateWithoutTheDraft();
-
-  expect(screen.getByLabelText("Agent Step 1 name")).toHaveValue(
-    "Sign in as the demo shopper"
-  );
-});
-
-test("keeps a Confirmation Step marker through the same update", async () => {
-  const user = userEvent.setup();
-  renderWorkspace();
-
-  await user.click(
-    await screen.findByRole("checkbox", {
-      name: /Agent Step 1 Confirmation Step/u,
-    })
-  );
-  await updateWithoutTheDraft();
-
-  expect(
-    screen.getByRole("checkbox", { name: /Agent Step 1 Confirmation Step/u })
-  ).toBeChecked();
-});
-
 test("keeps an Execution Boundary on screen through a burst of updates", async () => {
   renderWorkspace();
-  await screen.findByLabelText("Agent Step 1 name");
+  await screen.findByText("Agent Step 1: Sign in");
 
   const boundary = {
     action: { type: "click" },
