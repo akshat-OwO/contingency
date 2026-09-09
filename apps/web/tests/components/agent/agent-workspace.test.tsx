@@ -25,7 +25,6 @@ const rpc = vi.hoisted(() => ({
     waiting: true,
   } satisfies unknown,
   takeoverCalls: [] satisfies unknown[],
-  variableInputCalls: [] satisfies unknown[],
 }));
 
 /** The draft review is not what this test reads, so its revision never lands. */
@@ -60,12 +59,6 @@ const rpcOverrides = {
   agentTakeoverMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
-      return {};
-    })
-  ),
-  agentTeachingVariableInputMutation: Atom.fn(<Payload,>(payload: Payload) =>
-    Effect.sync(() => {
-      rpc.variableInputCalls.push(payload);
       return {};
     })
   ),
@@ -135,7 +128,6 @@ afterEach(() => {
   rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
   rpc.takeoverCalls = [];
-  rpc.variableInputCalls = [];
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -401,8 +393,7 @@ const takenOverSession = {
   },
 } satisfies unknown;
 
-test("enters a private Variable during Teaching Takeover", async () => {
-  const user = userEvent.setup();
+test("keeps Teaching private Variable entry out of Agent View", async () => {
   renderWorkspace(
     resultFor([
       {
@@ -413,31 +404,15 @@ test("enters a private Variable during Teaching Takeover", async () => {
     ]),
     session.id
   );
-  await user.click(
-    await screen.findByRole("button", { name: "Enter private value" })
-  );
   expect(
-    screen.getByRole("heading", { name: "Enter a private Variable" })
+    await screen.findByRole("heading", { name: "Teaching" })
   ).toBeVisible();
-  await user.type(screen.getByLabelText("Variable name"), "otp");
-  await user.type(screen.getByLabelText("Value"), "246810");
-  await user.click(
-    screen.getByRole("checkbox", { name: /Ask during each Run/u })
-  );
-  await user.click(screen.getByRole("button", { name: "Enter private value" }));
-  await waitFor(() => {
-    expect(rpc.variableInputCalls).toHaveLength(1);
-  });
-  expect(rpc.variableInputCalls[0]).toMatchObject({
-    payload: {
-      data: {
-        sessionId: session.id,
-        value: "246810",
-        variable: { name: "OTP", runtime: true, secret: true },
-      },
-      type: "agent.teaching.variable.input",
-    },
-  });
+  expect(
+    screen.queryByRole("button", { name: "Enter private value" })
+  ).toBeNull();
+  expect(
+    screen.queryByRole("heading", { name: "Enter a private Variable" })
+  ).toBeNull();
 });
 
 test("offers browser navigation only while the user holds the browser", async () => {

@@ -23,7 +23,6 @@ import {
   CircleDotIcon,
   LoaderCircleIcon,
   LockKeyholeIcon,
-  KeyRoundIcon,
   RotateCwIcon,
   UserRoundIcon,
 } from "lucide-react";
@@ -51,25 +50,13 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { Label } from "@/components/ui/label";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { ExecutionBoundary } from "./execution-boundary";
-
-const VARIABLE_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/u;
 
 const errorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
@@ -381,137 +368,16 @@ const TeachingDetails = ({
   </section>
 );
 
-const PrivateVariableDialog = ({
-  onChange,
-  onOpenChange,
-  onSubmit,
-  state,
-}: {
-  readonly onChange: (
-    patch: Partial<AgentViewState["privateVariable"]>
-  ) => void;
-  readonly onOpenChange: (open: boolean) => void;
-  readonly onSubmit: () => void;
-  readonly state: AgentViewState["privateVariable"];
-}) => {
-  const validName = VARIABLE_NAME_PATTERN.test(state.name);
-  return (
-    <Dialog onOpenChange={onOpenChange} open={state.open}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Enter a private Variable</DialogTitle>
-          <DialogDescription>
-            Focus the field in the live browser first. Contingency enters this
-            value once and records only the Variable reference. Screenshots use
-            best-effort masking.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <div className="space-y-2">
-            <Label htmlFor="agent-private-variable-name">Variable name</Label>
-            <Input
-              autoCapitalize="characters"
-              autoComplete="off"
-              id="agent-private-variable-name"
-              onChange={(event) =>
-                onChange({ name: event.target.value.toUpperCase() })
-              }
-              placeholder="PASSWORD"
-              spellCheck={false}
-              value={state.name}
-            />
-            {state.name.length > 0 && !validName ? (
-              <p className="text-destructive text-xs">
-                Use uppercase letters, numbers, and underscores, starting with a
-                letter.
-              </p>
-            ) : null}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="agent-private-variable-value">Value</Label>
-            <Input
-              autoComplete="off"
-              id="agent-private-variable-value"
-              onChange={(event) => onChange({ value: event.target.value })}
-              type="password"
-              value={state.value}
-            />
-          </div>
-          <div className="space-y-3 rounded-md border p-3 text-sm">
-            <label
-              className="flex items-start gap-2"
-              htmlFor="agent-variable-secret"
-            >
-              <input
-                checked={state.secret}
-                className="mt-0.5"
-                id="agent-variable-secret"
-                onChange={(event) => onChange({ secret: event.target.checked })}
-                type="checkbox"
-              />
-              <span>
-                <span className="block font-medium">Secret</span>
-                <span className="text-muted-foreground block text-xs">
-                  Redact the value from persisted data where possible.
-                </span>
-              </span>
-            </label>
-            <label
-              className="flex items-start gap-2"
-              htmlFor="agent-variable-runtime"
-            >
-              <input
-                checked={state.runtime}
-                className="mt-0.5"
-                id="agent-variable-runtime"
-                onChange={(event) =>
-                  onChange({ runtime: event.target.checked })
-                }
-                type="checkbox"
-              />
-              <span>
-                <span className="block font-medium">Ask during each Run</span>
-                <span className="text-muted-foreground block text-xs">
-                  Use this for values such as one-time codes.
-                </span>
-              </span>
-            </label>
-          </div>
-          {state.error === undefined ? null : (
-            <p className="text-destructive text-sm">{state.error}</p>
-          )}
-          <DialogFooter>
-            <Button
-              disabled={state.pending || !validName || state.value.length === 0}
-              type="submit"
-            >
-              {state.pending ? "Entering value…" : "Enter private value"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
 const SessionDetails = ({
   controlError,
   controlPending,
   onControl,
-  onPrivateVariableOpen,
   session,
   status,
 }: {
   readonly controlError: string | undefined;
   readonly controlPending: boolean;
   readonly onControl: () => void;
-  readonly onPrivateVariableOpen: () => void;
   readonly session: AgentSessionSnapshot;
   readonly status: string;
 }) => {
@@ -588,18 +454,6 @@ const SessionDetails = ({
             >
               {control.action}
             </Button>
-            {session.activity === "teaching" &&
-            session.controller === "user" ? (
-              <Button
-                onClick={onPrivateVariableOpen}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <KeyRoundIcon aria-hidden="true" />
-                Enter private value
-              </Button>
-            ) : null}
             {controlError === undefined ? null : (
               <p className="text-destructive text-xs">{controlError}</p>
             )}
@@ -693,7 +547,6 @@ const AgentLiveView = ({
   onAddressSubmit,
   onControl,
   onNavigate,
-  onPrivateVariableOpen,
   session,
   state,
 }: {
@@ -703,7 +556,6 @@ const AgentLiveView = ({
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onControl: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
-  readonly onPrivateVariableOpen: () => void;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
 }) => {
@@ -759,7 +611,6 @@ const AgentLiveView = ({
           controlError={state.controlError}
           controlPending={state.controlPending}
           onControl={onControl}
-          onPrivateVariableOpen={onPrivateVariableOpen}
           session={session}
           status={status}
         />
@@ -779,7 +630,6 @@ const useAgentView = (
     agentReturnControlMutation,
     agentSessionsAtom,
     agentTakeoverMutation,
-    agentTeachingVariableInputMutation,
     runAgentBrowserStream,
     runAgentSessionStream,
   } = useRpcDependencies();
@@ -800,9 +650,6 @@ const useAgentView = (
     mode: "promise",
   });
   const navigateBrowser = useAtomSet(agentBrowserNavigateMutation, {
-    mode: "promise",
-  });
-  const enterTeachingVariable = useAtomSet(agentTeachingVariableInputMutation, {
     mode: "promise",
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1286,97 +1133,6 @@ const useAgentView = (
 
   const input = makeBrowserInputHandlers(dispatchInput);
 
-  const changePrivateVariable = (
-    patch: Partial<AgentViewState["privateVariable"]>
-  ) => {
-    setState((current) => ({
-      ...current,
-      privateVariable: { ...current.privateVariable, ...patch },
-    }));
-  };
-  const clearPrivateVariableFromEffect = useEffectEvent(changePrivateVariable);
-
-  // A private value belongs to one selected session and no longer than this
-  // View. The Atom outlives the component, so clear the literal explicitly.
-  useEffect(
-    () => () => {
-      clearPrivateVariableFromEffect({
-        error: undefined,
-        open: false,
-        pending: false,
-        value: "",
-      });
-    },
-    [selectedSessionId]
-  );
-
-  const setPrivateVariableOpen = (open: boolean) => {
-    setState((current) => ({
-      ...current,
-      privateVariable: open
-        ? { ...current.privateVariable, error: undefined, open }
-        : { ...current.privateVariable, error: undefined, open, value: "" },
-    }));
-  };
-
-  const submitPrivateVariable = () => {
-    const sessionId = activeSessionRef.current;
-    const inputState = state.privateVariable;
-    if (
-      sessionId === null ||
-      inputState.pending ||
-      inputState.value.length === 0 ||
-      !VARIABLE_NAME_PATTERN.test(inputState.name)
-    ) {
-      return;
-    }
-    changePrivateVariable({ error: undefined, pending: true });
-    Effect.runFork(
-      Effect.result(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            enterTeachingVariable({
-              payload: {
-                data: {
-                  operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                  sessionId,
-                  value: inputState.value,
-                  variable: {
-                    name: inputState.name,
-                    runtime: inputState.runtime,
-                    secret: inputState.secret,
-                  },
-                },
-                type: "agent.teaching.variable.input",
-              },
-            }),
-        })
-      ).pipe(
-        Effect.flatMap((outcome) =>
-          Effect.sync(() => {
-            setState((current) => ({
-              ...current,
-              privateVariable: Result.isSuccess(outcome)
-                ? {
-                    ...current.privateVariable,
-                    error: undefined,
-                    open: false,
-                    pending: false,
-                    value: "",
-                  }
-                : {
-                    ...current.privateVariable,
-                    error: errorMessage(outcome.failure),
-                    pending: false,
-                  },
-            }));
-          })
-        )
-      )
-    );
-  };
-
   /**
    * Scrolling is a wheel event, and React only offers it passively, so the
    * canvas listens itself to keep the page from scrolling underneath it.
@@ -1430,17 +1186,14 @@ const useAgentView = (
   return {
     canvasRef,
     changeControl,
-    changePrivateVariable,
     input,
     navigate,
     selectSession,
     sessions,
     sessionsResult,
     setAddress,
-    setPrivateVariableOpen,
     state,
     submitAddress,
-    submitPrivateVariable,
   };
 };
 
@@ -1507,15 +1260,8 @@ export const AgentWorkspace = ({
         onAddressSubmit={view.submitAddress}
         onControl={view.changeControl}
         onNavigate={view.navigate}
-        onPrivateVariableOpen={() => view.setPrivateVariableOpen(true)}
         session={state.session}
         state={state}
-      />
-      <PrivateVariableDialog
-        onChange={view.changePrivateVariable}
-        onOpenChange={view.setPrivateVariableOpen}
-        onSubmit={view.submitPrivateVariable}
-        state={state.privateVariable}
       />
     </div>
   );
