@@ -148,7 +148,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    "Perform one browser action. Name a new objective in intent.objective and declare known irreversible effects in intent.irreversible. Contingency enforces domain scope and Confirmation Steps. An intervention means the action was refused; direct user confirmation in Agent View is required before retrying that exact operation id. A new operation id needs fresh confirmation.",
+    'Perform one browser action. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent\'s own words. Set intent.objectiveKind to "new" only when deliberately starting work outside the approved Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and Confirmation Steps. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,

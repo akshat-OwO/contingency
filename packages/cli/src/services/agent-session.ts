@@ -964,11 +964,6 @@ const actionBoundaryReasons = (
       (candidate) =>
         candidate.index === record.snapshot.verification?.activeStepIndex
     );
-  const { objective } = intent;
-  const knownObjective =
-    objective === undefined ||
-    (step !== undefined &&
-      (objective === step.description || objective === step.name));
   const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
     action.type
   );
@@ -985,7 +980,7 @@ const actionBoundaryReasons = (
   if (action.type === "navigate" && !inScopeNavigate) {
     reasons.push("domain");
   }
-  if (!(knownObjective || inScopeNavigate)) {
+  if (intent.objectiveKind === "new" && !inScopeNavigate) {
     reasons.push("objective");
   }
   if (needsConfirmation) {

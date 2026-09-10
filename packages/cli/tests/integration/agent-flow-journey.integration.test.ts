@@ -456,7 +456,7 @@ it.live(
               .ref,
             type: "hover",
           },
-          intent: { objective: "Delete the account" },
+          intent: { objective: "Delete the account", objectiveKind: "new" },
           operationId: OperationId.make("journey-verify-unknown-objective"),
           sessionId: verifying.id,
         });
