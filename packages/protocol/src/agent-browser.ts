@@ -136,6 +136,7 @@ export type AgentBrowserAction = typeof AgentBrowserAction.Type;
 export const AgentActionIntent = Schema.Struct({
   irreversible: optionalNullable(Schema.Boolean),
   objective: optionalNullable(nonEmptyString),
+  objectiveKind: optionalNullable(Schema.Literals(["active-step", "new"])),
 });
 export type AgentActionIntent = typeof AgentActionIntent.Type;
 

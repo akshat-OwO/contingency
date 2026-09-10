@@ -210,7 +210,10 @@ const approveJourney = (
           text: "555",
           type: "fill",
         },
-        intent: { objective: "Enter the mobile number" },
+        intent: {
+          objective: "Enter the mobile number",
+          objectiveKind: "new",
+        },
         operationId: OperationId.make("verify-unmarked-objective"),
         sessionId: verifying.id,
       });
@@ -223,7 +226,7 @@ const approveJourney = (
       });
       const request = {
         action: { ref, text: "Ada", type: "fill" as const },
-        intent: { objective: "Enter the display name" },
+        intent: { objective: "Fill in the display name" },
         operationId: OperationId.make("verify-confirmation"),
         sessionId: verifying.id,
       };
@@ -832,7 +835,7 @@ it.live(
         const objective = yield* act(
           "new-objective",
           { ref: target.ref, type: "hover" },
-          { objective: "Delete the account" }
+          { objective: "Delete the account", objectiveKind: "new" }
         );
         expect(requireBoundary(objective).reason).toBe("objective");
         yield* user("agent.session.takeover", {
@@ -883,14 +886,14 @@ it.live(
         const reasked = yield* act(
           "new-objective-again",
           { ref: target.ref, type: "hover" },
-          { objective: "Delete the account" }
+          { objective: "Delete the account", objectiveKind: "new" }
         );
         expect(requireBoundary(reasked).reason).toBe("objective");
         yield* decide(requireBoundary(reasked).id, "allow");
         const resumed = yield* act(
           "new-objective-again",
           { ref: target.ref, type: "hover" },
-          { objective: "Delete the account" }
+          { objective: "Delete the account", objectiveKind: "new" }
         );
         expect(resumed.entry.outcome).toBe("completed");
         const purchase = { ref: target.ref, type: "click" as const };
