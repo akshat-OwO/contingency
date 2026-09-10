@@ -449,20 +449,21 @@ it.live(
         ).toBe("");
         expect(JSON.stringify(verificationPage)).not.toContain(MOBILE_LITERAL);
 
-        // A non-navigate action with an unrecognised objective still pauses.
-        const unnamed = yield* sessionTool("agent_browser_act", {
+        // A non-navigate action explicitly classified as a new objective still
+        // pauses.
+        const newObjective = yield* sessionTool("agent_browser_act", {
           action: {
             ref: findNode(verificationPage.snapshot.nodes, "button", "Sign in")
               .ref,
             type: "hover",
           },
           intent: { objective: "Delete the account", objectiveKind: "new" },
-          operationId: OperationId.make("journey-verify-unknown-objective"),
+          operationId: OperationId.make("journey-verify-new-objective"),
           sessionId: verifying.id,
         });
-        expect(requireBoundary(unnamed).reason).toBe("objective");
+        expect(requireBoundary(newObjective).reason).toBe("objective");
         yield* resolveBoundary({
-          boundaryId: requireBoundary(unnamed).id,
+          boundaryId: requireBoundary(newObjective).id,
           decision: "refuse",
           operationId: "journey-verify-unknown-refuse",
           sessionId: verifying.id,
