@@ -361,7 +361,7 @@ it.effect("refuses a persisted operation with an invalid head transition", () =>
 );
 
 it.effect("revises a draft only from its current head", () =>
-  withCatalog((catalog) =>
+  withCatalog((catalog, root, fileSystem) =>
     Effect.gen(function* optimisticConcurrency() {
       const first = yield* catalog.saveDraft(saveInput("Shop front", "rev-1"));
       const id = first.manifest.agentFlowId;
@@ -397,10 +397,16 @@ it.effect("revises a draft only from its current head", () =>
       expect(second.manifest.basedOnRevisionId).toBe(first.manifest.revisionId);
       expect(second.heads.draftRevisionId).toBe(second.manifest.revisionId);
       expect(second.manifest.steps[0]?.name).toBe("Visit storefront");
-      // Unchanged evidence is the same content-addressed file.
+      // Unchanged evidence is the same content-addressed file: two revisions
+      // of one Agent Flow cite the same span and share a single slice on disk.
       expect(second.manifest.steps[0]?.evidence).toEqual(
         first.manifest.steps[0]?.evidence
       );
+      expect(
+        yield* fileSystem.readDirectory(
+          path.join(root, AGENT_FLOWS_DIRECTORY, id, "evidence")
+        )
+      ).toHaveLength(1);
 
       // The earlier revision is immutable and still readable.
       const earlier = yield* catalog.get(id, first.manifest.revisionId);
@@ -1857,4 +1863,54 @@ it.effect(
         );
       })
     )
+);
+
+// The evidence store is scoped to one Agent Flow
+// ([ADR 0033](../../../../docs/adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)),
+// so two flows that demonstrate the same span each keep their own copy under
+// the same content hash. Catalog-wide sharing was rejected deliberately; this
+// test fails if the storage scope drifts.
+it.effect("keeps each Agent Flow's copy of identical evidence", () =>
+  withCatalog((catalog, root, fileSystem) =>
+    Effect.gen(function* evidenceIsScopedToOneFlow() {
+      const demonstrated = slice("Open the shop", "https://shop.example.com/");
+      const first = yield* catalog.saveDraft(
+        saveInput("Shop front", "scope-1")
+      );
+      const second = yield* catalog.saveDraft(
+        saveInput("Shop front, retaught", "scope-2")
+      );
+      expect(second.manifest.agentFlowId).not.toBe(first.manifest.agentFlowId);
+
+      // The same span hashes the same way in both flows.
+      const hash = evidenceHash(demonstrated);
+      const relative = `evidence/${hash}.json`;
+      for (const saved of [first, second]) {
+        expect(saved.manifest.steps[0]?.evidence).toEqual({
+          hash,
+          path: relative,
+        });
+        const stored = path.join(
+          root,
+          AGENT_FLOWS_DIRECTORY,
+          saved.manifest.agentFlowId,
+          relative
+        );
+        expect(yield* fileSystem.exists(stored)).toBe(true);
+        expect(
+          Schema.decodeUnknownSync(EvidenceSlice)(
+            JSON.parse(yield* fileSystem.readFileString(stored))
+          )
+        ).toEqual(demonstrated);
+      }
+
+      // Two physical copies, and nothing shared at the Catalog Root.
+      expect(yield* fileSystem.exists(path.join(root, "evidence"))).toBe(false);
+      expect(
+        yield* fileSystem.exists(
+          path.join(root, AGENT_FLOWS_DIRECTORY, "evidence")
+        )
+      ).toBe(false);
+    })
+  )
 );
