@@ -31,7 +31,7 @@ This is why the repo has no changesets: with one publishable package and no inte
 
 1. **Preflight** resolves the version, rejects anything that is not a semantic version, and fails if that version already exists on npm — registry versions are immutable, so a re-tag has to become a new version.
 2. **Quality** and **Integration** run the same gate as CI, against the exact commit being published. A tag can point at any commit, including one that never went through a pull request, so this is not redundant.
-3. **Publish** stamps the version, builds, packs, and publishes with npm provenance, then creates the GitHub Release with the tarball attached.
+3. **Publish** stamps the version, builds, packs, and publishes with npm provenance, then creates the GitHub Release with the tarball attached. Stable releases generate notes from the previous stable GitHub Release, so a `v0.2.1` published after `v0.2.1-alpha.1` still covers everything since `v0.2.0`. Prereleases use GitHub's default baseline, which is the immediately preceding release.
 
 The publish job is serialized (`concurrency: release`, no cancellation): a run killed between `npm publish` and the GitHub Release would leave a version on the registry with nothing in git behind it.
 

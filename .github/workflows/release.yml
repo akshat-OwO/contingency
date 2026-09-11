@@ -207,9 +207,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes_start_tag=""
+          if [ "${{ needs.preflight.outputs.is_prerelease }}" = "false" ]; then
+            prev_stable="$(gh release list \
+              --exclude-pre-releases \
+              --limit 1 \
+              --json tagName \
+              -q '.[0].tagName' || true)"
+            if [ -n "${prev_stable}" ]; then
+              notes_start_tag="--notes-start-tag ${prev_stable}"
+              echo "Generating notes from previous stable release ${prev_stable}."
+            else
+              echo "No previous stable release; using GitHub's default baseline."
+            fi
+          fi
+
           gh release create "${{ needs.preflight.outputs.tag }}" \
             --title "${{ needs.preflight.outputs.name }}" \
             --generate-notes \
+            ${notes_start_tag} \
             --prerelease=${{ needs.preflight.outputs.is_prerelease }} \
             --latest=${{ needs.preflight.outputs.make_latest }} \
             packages/cli/*.tgz
