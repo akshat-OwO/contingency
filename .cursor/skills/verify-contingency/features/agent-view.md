@@ -1,6 +1,6 @@
 # Agent View
 
-Agent View watches Teaching and Interactive Runs owned by one local MCP process, and hands the browser to the user on request during a Run. Teaching is user-led throughout: the user drives the browser and the agent only observes. On `contingency web` there is no Agent Session registry, so the page reports that sessions are unavailable. On `contingency mcp` with no activity it reports that none are active. With a live session it shows the browser, the action timeline, and one control button; during Takeover the user drives that browser with the toolbar and the canvas.
+Agent View watches Teaching and Interactive Runs owned by one local MCP process, and hands the browser to the user on request during a Run. Teaching is user-led throughout: the user drives the browser and the agent only observes. On `contingency web` there is no Agent Session registry, so the page reports that sessions are unavailable. On `contingency mcp` with no activity it reports that none are active. With a live Interactive Run it shows the browser, the action timeline, and one control button; during Takeover the user drives that browser with the toolbar and the canvas. A live Teaching session has no control button — the canvas and toolbar are already the user's.
 
 ## Sub-features
 
