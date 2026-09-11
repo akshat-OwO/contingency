@@ -1,4 +1,5 @@
 import {
+  AgentProcessId,
   AgentSessionId,
   OperationId,
   UserAgentProfileId,
@@ -12,6 +13,7 @@ import {
   AgentFlowCatalog,
   makeAgentFlowCatalogLayer,
 } from "../../src/services/agent-flow-catalog.ts";
+import { emptyDemonstration } from "../../src/services/agent-flow-compiler.ts";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
   AgentFlowToolHandlersLive,
@@ -187,6 +189,81 @@ it.effect(
         const results = yield* Stream.runCollect(stream);
         expect(results).toHaveLength(1);
         expect(results[0]?.result).toEqual(corrected);
+      }).pipe(Effect.provide(layer));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "tells the agent to retry finalization when a closed Teaching analysis failed",
+  () =>
+    Effect.gen(function* retryClosedTeachingAnalysis() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-mcp-analysis-retry-",
+      });
+      const sessionId = AgentSessionId.make("agent-analysis-failed");
+      const failedTeaching = Layer.mock(AgentSession, {
+        teachingSource: () =>
+          Effect.succeed({
+            artifactRetention: { location: "local", sensitive: true },
+            demonstration: emptyDemonstration(),
+            emulation: {
+              permissions: [],
+              userAgentProfile: UserAgentProfileId.make("default"),
+              viewport,
+            },
+            retentionFile: undefined,
+            session: {
+              activity: "teaching",
+              boundary: null,
+              clientName: "compiler",
+              clientVersion: "1",
+              controller: "agent",
+              createdAt: at,
+              currentUrl: "https://shop.example.com/",
+              decisionHistory: [],
+              id: sessionId,
+              interruptedAction: null,
+              ownerProcessId: AgentProcessId.make("test-process"),
+              pendingDecisions: [],
+              phase: "closed",
+              run: null,
+              takeover: null,
+              teaching: {
+                actionCount: 0,
+                draft: null,
+                instructionCount: 0,
+              },
+              timeline: [],
+              updatedAt: at,
+              verification: null,
+              viewUrl: "http://127.0.0.1:7777/agent/agent-analysis-failed",
+            },
+            traceFile: undefined,
+            videoFile: undefined,
+          }),
+      });
+      const layer = AgentFlowToolHandlersLive.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            makeAgentFlowCatalogLayer({ now: () => new Date(at), root }),
+            failedTeaching
+          ).pipe(Layer.provide(NodeServices.layer))
+        )
+      );
+      yield* Effect.gen(function* exerciseRetryMessage() {
+        const handlers = yield* AgentFlowTools;
+        const stream = yield* handlers.handle("agent_flow_draft_save", {
+          basedOnRevisionId: null,
+          draft: proposal,
+          operationId: OperationId.make("retry-analysis"),
+          sessionId,
+        });
+        const refused = yield* Effect.flip(Stream.runCollect(stream));
+        expect(refused.message).toContain(
+          "Close the Teaching session again to retry finalization"
+        );
+        expect(refused.message).not.toContain("End Teaching");
       }).pipe(Effect.provide(layer));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

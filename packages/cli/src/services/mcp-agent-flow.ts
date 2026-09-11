@@ -283,12 +283,16 @@ const saveDraftFromTeaching = (params: AgentFlowDraftSave) =>
       .teachingSource(params.sessionId)
       .pipe(Effect.mapError(failure));
     if (source.demonstration.playByPlay === null) {
+      const message =
+        source.session.phase === "closed" ||
+        source.session.phase === "interrupted"
+          ? "The Teaching PlayByPlay is unavailable because analysis did not complete. Close the Teaching session again to retry finalization. (agent_session_invalid)"
+          : "End Teaching before compiling a draft so Contingency can finalize the local video and generate its PlayByPlay. (agent_session_invalid)";
       return yield* Effect.fail(
         new AgentFlowFailure({
           code: "agent_session_invalid",
           diagnostics: [],
-          message:
-            "End Teaching before compiling a draft so Contingency can finalize the local video and generate its PlayByPlay. (agent_session_invalid)",
+          message,
         })
       );
     }
