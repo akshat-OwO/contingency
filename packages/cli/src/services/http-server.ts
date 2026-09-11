@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import type { Server } from "node:http";
+import type { Socket } from "node:net";
 import path from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
@@ -17,6 +19,39 @@ import { makeRunSessionLayer } from "./run-session.ts";
 import type { RunSessionInput } from "./run-session.ts";
 
 export { isAllowedWebSocketOrigin } from "./web-url.ts";
+
+/**
+ * A Node server that does not outlive Ctrl-C.
+ *
+ * `server.close()` resolves only once every live connection is gone, and the
+ * web UI holds an RPC WebSocket open for as long as its tab is open. An
+ * upgraded socket is detached from Node's own connection list, so neither
+ * `close()` nor `closeAllConnections()` ever lets go of it: the shutdown
+ * finalizer waits forever and Ctrl-C appears to wedge the CLI. Sockets are
+ * tracked from `connection`, before any upgrade can detach them, and dropped
+ * the moment a close is asked for. A shutting-down local server has nothing
+ * left to say to its own UI, so tearing the sockets down is the whole answer.
+ */
+export const createTrackedServer = (): Server => {
+  const server = createServer();
+  const sockets = new Set<Socket>();
+  server.on("connection", (socket: Socket) => {
+    sockets.add(socket);
+    socket.on("close", () => {
+      sockets.delete(socket);
+    });
+  });
+  const close = server.close.bind(server);
+  server.close = (...args: Parameters<Server["close"]>) => {
+    const closing = close(...args);
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    sockets.clear();
+    return closing;
+  };
+  return server;
+};
 
 export const resolveWebRoot = (moduleDirectory: string): string =>
   path.basename(moduleDirectory) === "dist"
@@ -100,7 +135,7 @@ export const makeHttpServerLayer = ({
   // to the served router rather than to the route layers.
   const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>
     HttpRouter.serve(Layer.mergeAll(routes, mcp, webRoutes)).pipe(
-      Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
+      Layer.provide(NodeHttpServer.layer(createTrackedServer, { host, port })),
       Layer.provide(runSession)
     );
   // The Agent Run video route exists only where a Run store does: a process
