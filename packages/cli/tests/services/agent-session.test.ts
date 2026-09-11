@@ -26,6 +26,7 @@ import {
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
+import { playByPlayFromAnalysis } from "../../src/services/play-by-play.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 
 const viewport = {
@@ -184,6 +185,13 @@ const startInput = (operationId: string): AgentSessionStartInput => ({
 const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
   makeAgentSessionService(fake.browser, {
     baseUrl,
+    playByPlayAnalyzer: ({ demonstration }) =>
+      Effect.succeed(
+        playByPlayFromAnalysis(demonstration, {
+          sampledFrames: 2,
+          visualChanges: 1,
+        })
+      ),
     processId: "test-owner",
   });
 
@@ -606,7 +614,14 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     fake.visit("https://shop.example.com/cart");
     yield* service.get(teaching.id);
 
+    const unavailable = yield* Effect.flip(service.teachingFeed(teaching.id));
+    expect(unavailable.message).toContain("End Teaching");
+    yield* service.close(
+      teaching.id,
+      OperationId.make("close-teaching-for-analysis")
+    );
     const feed = yield* service.teachingFeed(teaching.id);
+    expect(feed.playByPlay).toContain("local Teaching video");
     expect(feed.sessionId).toBe(teaching.id);
     expect(feed.instructions.map(({ text }) => text)).toEqual([
       "Add the first item to the cart.",

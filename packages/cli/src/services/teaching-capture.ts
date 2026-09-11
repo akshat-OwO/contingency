@@ -18,7 +18,6 @@ import type {
 
 import { observedHosts } from "./agent-flow-compiler.ts";
 import type { Demonstration } from "./agent-flow-compiler.ts";
-import { stubPlayByPlay } from "./play-by-play.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 
 /** How many captured actions one Demonstration keeps. */
@@ -65,7 +64,9 @@ export interface DemonstrationCapture {
   readonly feed: (
     sessionId: AgentSessionId,
     includeSnapshots: boolean
-  ) => TeachingFeed;
+  ) => TeachingFeed | undefined;
+  /** Store the analysis result once the browser has finalized its video. */
+  readonly finalizePlayByPlay: (playByPlay: string) => void;
   readonly latestSnapshotId: () => AgentSnapshotId | null;
   readonly progress: (draft: AgentFlowDraftRef | null) => TeachingProgress;
   /** Record one attempt and the URL change it caused, if any. */
@@ -138,6 +139,7 @@ export const makeDemonstrationCapture = (
   const privateValues = new Set<string>();
   const privateSelectors = new Set<string>();
   let latestSnapshot: AgentSnapshotId | null = null;
+  let playByPlay: string | null = null;
   const startUrl = sanitizeTeachingUrl(initialUrl);
   let currentUrl = startUrl;
   let lastEventAt = Number.NEGATIVE_INFINITY;
@@ -241,6 +243,7 @@ export const makeDemonstrationCapture = (
   const current = (): Demonstration => ({
     actions: [...actions],
     instructions: [...instructions],
+    playByPlay,
     screenshotContents: new Map(
       screenshots.flatMap((reference) => {
         const content = contentOf(reference);
@@ -271,6 +274,9 @@ export const makeDemonstrationCapture = (
     current,
     feed: (sessionId, includeSnapshots) => {
       const demonstration = current();
+      if (demonstration.playByPlay === null) {
+        return;
+      }
       const referenced = new Set<AgentSnapshotId>();
       for (const action of demonstration.actions) {
         if (action.snapshotBefore !== null) {
@@ -283,7 +289,7 @@ export const makeDemonstrationCapture = (
       // Encoded in the order the agent reads it: PlayByPlay first.
       // oxlint-disable-next-line eslint/sort-keys
       return {
-        playByPlay: stubPlayByPlay(demonstration, startUrl),
+        playByPlay: demonstration.playByPlay,
         actions: demonstration.actions,
         instructions: demonstration.instructions,
         observedHosts: observedHosts(demonstration),
@@ -297,6 +303,9 @@ export const makeDemonstrationCapture = (
         urlTransitions: demonstration.urlTransitions,
         variables: demonstration.variables,
       };
+    },
+    finalizePlayByPlay: (finalized) => {
+      playByPlay = finalized;
     },
     latestSnapshotId: () => latestSnapshot,
     progress: (draft) => ({

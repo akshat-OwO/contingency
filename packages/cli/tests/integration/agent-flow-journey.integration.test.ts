@@ -211,6 +211,10 @@ it.live(
           });
         }
 
+        yield* sessionTool("agent_session_close", {
+          operationId: OperationId.make("journey-close-teaching"),
+          sessionId: teaching.id,
+        });
         // The Teaching Feed is bounded evidence: enough to compile, and none
         // of the literals or raw Trace data
         // (ADR 0032).
@@ -588,10 +592,8 @@ it.live(
         ) {
           throw new Error("Teaching allocated no local sensitive artifacts.");
         }
-        // Both are on disk while Teaching is still live — the browser only
-        // flushes the recording on context close, so their size proves nothing
-        // yet, but their later absence is a deletion rather than a capture
-        // that never happened.
+        // Both are on disk after finalization, so their later absence is an
+        // approval-policy deletion rather than a capture that never happened.
         expect(yield* fileSystem.exists(videoFile)).toBe(true);
         expect(yield* fileSystem.exists(retentionFile)).toBe(true);
 
@@ -610,12 +612,6 @@ it.live(
           revisionId
         );
 
-        // The first Agent Session ends and releases everything it owned.
-        const closed = yield* sessionTool("agent_session_close", {
-          operationId: OperationId.make("journey-close-teaching"),
-          sessionId: teaching.id,
-        });
-        expect(closed.phase).toBe("closed");
         expect((yield* sessionTool("agent_sessions_get", {})).sessions).toEqual(
           []
         );
@@ -1044,6 +1040,10 @@ const approveSanityFlow = (loginUrl: string, fixtureHost: string) =>
         type: "agent.browser.input.send",
       });
     }
+    yield* sessionTool("agent_session_close", {
+      operationId: OperationId.make("fixture-close-teaching"),
+      sessionId: teaching.id,
+    });
     const feed = yield* flowTool("agent_teaching_feed_get", {
       includeSnapshots: false,
       sessionId: teaching.id,
@@ -1134,10 +1134,6 @@ const approveSanityFlow = (loginUrl: string, fixtureHost: string) =>
         revisionId,
       },
       type: "agent.flow.approve",
-    });
-    yield* sessionTool("agent_session_close", {
-      operationId: OperationId.make("fixture-close-teaching"),
-      sessionId: teaching.id,
     });
     return { agentFlowId, revisionId };
   });
