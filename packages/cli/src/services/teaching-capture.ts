@@ -18,6 +18,7 @@ import type {
 
 import { observedHosts } from "./agent-flow-compiler.ts";
 import type { Demonstration } from "./agent-flow-compiler.ts";
+import { stubPlayByPlay } from "./play-by-play.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 
 /** How many captured actions one Demonstration keeps. */
@@ -60,6 +61,7 @@ export interface CapturedActionInput {
  */
 export interface DemonstrationCapture {
   readonly current: () => Demonstration;
+  /** The bounded feed, led by the PlayByPlay prose the agent compiles from. */
   readonly feed: (
     sessionId: AgentSessionId,
     includeSnapshots: boolean
@@ -136,7 +138,8 @@ export const makeDemonstrationCapture = (
   const privateValues = new Set<string>();
   const privateSelectors = new Set<string>();
   let latestSnapshot: AgentSnapshotId | null = null;
-  let currentUrl = sanitizeTeachingUrl(initialUrl);
+  const startUrl = sanitizeTeachingUrl(initialUrl);
+  let currentUrl = startUrl;
   let lastEventAt = Number.NEGATIVE_INFINITY;
   let lastCoalesced:
     | { readonly index: number; readonly key: string }
@@ -281,6 +284,7 @@ export const makeDemonstrationCapture = (
         actions: demonstration.actions,
         instructions: demonstration.instructions,
         observedHosts: observedHosts(demonstration),
+        playByPlay: stubPlayByPlay(demonstration, startUrl),
         screenshots: demonstration.screenshots,
         sessionId,
         snapshots: includeSnapshots

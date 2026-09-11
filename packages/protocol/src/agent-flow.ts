@@ -295,15 +295,25 @@ export type UrlTransition = typeof UrlTransition.Type;
 /**
  * The bounded view of a Demonstration the external agent compiles from
  * ([ADR 0032](../../../docs/adr/0032-external-agents-receive-a-bounded-teaching-feed.md)).
- * It carries instructions, captured actions, Browser Snapshots, and URL
- * transitions. Cookies, authorization headers, network bodies, video, and the
- * full Trace never appear here.
+ * Compilation leads with its PlayByPlay prose timeline and reads the
+ * instructions, captured actions, Browser Snapshots, and URL transitions as
+ * the evidence that cross-checks that narrative. Cookies, authorization
+ * headers, network bodies, video, and the full Trace never appear here.
  */
 export const TeachingFeed = Schema.Struct({
   actions: Schema.Array(CapturedAction),
   instructions: Schema.Array(TeachingInstruction),
   /** Exact hosts the Demonstration visited: the proposed Domain Scope. */
   observedHosts: Schema.Array(nonEmptyString),
+  /**
+   * The prose timeline of the Demonstration, and the Teaching Feed's primary
+   * compilation input: the agent reads it before the structured evidence that
+   * cross-checks it
+   * ([ADR 0038](../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
+   * Never empty. Until the video-analysis pass lands, Contingency derives it
+   * from the captured actions, URL transitions, and relayed Instructions.
+   */
+  playByPlay: nonEmptyString,
   screenshots: Schema.Array(TeachingScreenshot),
   sessionId: AgentSessionId,
   /** The Browser Snapshots the actions reference, when the caller asked. */

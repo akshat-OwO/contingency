@@ -43,6 +43,27 @@ test("Teaching contracts carry Variable declarations without literal values", ()
   expect(draftSchema).toContain("runtime");
 });
 
+test("the Teaching Feed requires a PlayByPlay and keeps the video local", () => {
+  const feed = {
+    actions: [],
+    instructions: [],
+    observedHosts: ["example.com"],
+    playByPlay: "Teaching started on https://example.com/.",
+    screenshots: [],
+    sessionId: "agent-teaching",
+    snapshots: [],
+    urlTransitions: [],
+    variables: [],
+  };
+  const decode = Schema.decodeUnknownSync(TeachingFeed);
+  expect(decode(feed).playByPlay).toBe(
+    "Teaching started on https://example.com/."
+  );
+  expect(() => decode({ ...feed, playByPlay: "" })).toThrow();
+  const { playByPlay: _omitted, ...withoutPlayByPlay } = feed;
+  expect(() => decode(withoutPlayByPlay)).toThrow();
+});
+
 test("a draft save mints a new identity for null and for an omitted id", () => {
   const draft = {
     description: "Search the catalog",
