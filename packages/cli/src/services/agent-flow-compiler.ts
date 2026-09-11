@@ -22,6 +22,8 @@ import { Result } from "effect";
 export interface Demonstration {
   readonly actions: readonly CapturedAction[];
   readonly instructions: readonly TeachingInstruction[];
+  /** Finalized prose derived from the local Teaching video. */
+  readonly playByPlay: string | null;
   /** The bytes behind the screenshot references, addressed by content. */
   readonly screenshotContents: ReadonlyMap<
     ScreenshotHash,
@@ -36,6 +38,7 @@ export interface Demonstration {
 export const emptyDemonstration = (): Demonstration => ({
   actions: [],
   instructions: [],
+  playByPlay: null,
   screenshotContents: new Map(),
   screenshots: [],
   snapshots: new Map(),

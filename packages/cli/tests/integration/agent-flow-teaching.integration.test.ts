@@ -157,10 +157,13 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         viewport,
       });
       const localSession = yield* AgentSession;
-      const { traceFile } = yield* localSession.teachingSource(started.id);
+      const { traceFile, videoFile } = yield* localSession.teachingSource(
+        started.id
+      );
       expect(traceFile).toBeDefined();
-      if (traceFile === undefined) {
-        throw new Error("Teaching did not allocate a local Trace file.");
+      expect(videoFile).toBeDefined();
+      if (traceFile === undefined || videoFile === undefined) {
+        throw new Error("Teaching did not allocate local artifacts.");
       }
       expect(yield* fileSystem.exists(traceFile)).toBe(false);
       expect(started.teaching).toEqual({
@@ -238,6 +241,48 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       );
       expect(failure.code).toBeDefined();
 
+      const unfinishedFeed = yield* Effect.flip(
+        flow("agent_teaching_feed_get", {
+          includeSnapshots: true,
+          sessionId: started.id,
+        })
+      );
+      expect(unfinishedFeed.code).toBe("agent_session_invalid");
+      expect(unfinishedFeed.message).toContain("End Teaching");
+      const unfinishedDraft = yield* Effect.flip(
+        flow("agent_flow_draft_save", {
+          basedOnRevisionId: null,
+          draft: {
+            description: "Cannot compile before video analysis.",
+            domainScope: { hosts: [fixtureHost] },
+            schemaVersion: 1,
+            steps: [
+              {
+                confirmation: false,
+                description: "This proposal must not be compiled yet.",
+                firstActionId: "action-not-read-yet",
+                lastActionId: "action-not-read-yet",
+                name: "Too early",
+              },
+            ],
+            title: "Too early",
+          },
+          operationId: OperationId.make("save-before-analysis"),
+          sessionId: started.id,
+        })
+      );
+      expect(unfinishedDraft.code).toBe("agent_session_invalid");
+      expect(unfinishedDraft.message).toContain("End Teaching");
+
+      yield* session("agent_session_close", {
+        operationId: OperationId.make("close-teaching"),
+        sessionId: started.id,
+      });
+      expect(yield* fileSystem.exists(traceFile)).toBe(true);
+      expect((yield* fileSystem.stat(traceFile)).size).toBeGreaterThan(0n);
+      expect(yield* fileSystem.exists(videoFile)).toBe(true);
+      expect((yield* fileSystem.stat(videoFile)).size).toBeGreaterThan(0n);
+
       const feed = yield* flow("agent_teaching_feed_get", {
         includeSnapshots: true,
         sessionId: started.id,
@@ -247,7 +292,12 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       // user relayed, and the outcome of every captured action.
       expect(Object.keys(feed)[0]).toBe("playByPlay");
       expect(feed.playByPlay.length).toBeGreaterThan(0);
-      expect(feed.playByPlay.startsWith("Provisional PlayByPlay")).toBe(true);
+      expect(feed.playByPlay.startsWith("Contingency analyzed")).toBe(true);
+      expect(feed.playByPlay).toContain("local Teaching video");
+      expect(feed.playByPlay).toContain("cross-checked against 3 captured");
+      expect(feed.playByPlay).toContain(
+        "Browser evidence identified “Anvil Works”"
+      );
       expect(feed.playByPlay).toContain(shopUrl);
       expect(feed.playByPlay).toContain("Search the catalogue for an anvil.");
       expect(feed.playByPlay).toContain("which failed");
@@ -445,13 +495,6 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         instructionCount: 2,
       });
 
-      yield* session("agent_session_close", {
-        operationId: OperationId.make("close-teaching"),
-        sessionId: started.id,
-      });
-      expect(yield* fileSystem.exists(traceFile)).toBe(true);
-      expect((yield* fileSystem.stat(traceFile)).size).toBeGreaterThan(0n);
-
       // A later conversation finds the finalized draft, labelled as one.
       const found = yield* flow("agent_catalog_search", {
         query: "anvil cart",
@@ -541,6 +584,10 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
         sessionId: started.id,
       });
       expect(screenshot.url).not.toContain("url-secret");
+      yield* session("agent_session_close", {
+        operationId: OperationId.make("close-sensitive-teaching"),
+        sessionId: started.id,
+      });
       const feed = yield* flow("agent_teaching_feed_get", {
         includeSnapshots: true,
         sessionId: started.id,
@@ -565,11 +612,6 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       expect(
         capturedTokens.some(({ valueWithheld }) => valueWithheld === true)
       ).toBe(true);
-
-      yield* session("agent_session_close", {
-        operationId: OperationId.make("close-sensitive-teaching"),
-        sessionId: started.id,
-      });
     }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
@@ -708,6 +750,10 @@ it.live(
         yield* clickAsUser(started.id, OPEN_HELP);
         yield* session("agent_browser_screenshot", { sessionId: started.id });
 
+        yield* session("agent_session_close", {
+          operationId: OperationId.make("close-private-teaching"),
+          sessionId: started.id,
+        });
         const feed = yield* flow("agent_teaching_feed_get", {
           includeSnapshots: true,
           sessionId: started.id,
@@ -862,10 +908,6 @@ it.live(
         for (const literal of literals) {
           expect(persisted).not.toContain(literal);
         }
-        yield* session("agent_session_close", {
-          operationId: OperationId.make("close-private-teaching"),
-          sessionId: started.id,
-        });
         if (
           artifacts.traceFile === undefined ||
           artifacts.videoFile === undefined ||
@@ -944,6 +986,10 @@ it.live(
         );
         expect(embedded).toBeGreaterThan(200_000);
 
+        yield* session("agent_session_close", {
+          operationId: OperationId.make("close-bounded-teaching"),
+          sessionId: started.id,
+        });
         const feed = yield* flow("agent_teaching_feed_get", {
           includeSnapshots: false,
           sessionId: started.id,
@@ -978,11 +1024,6 @@ it.live(
           })
         );
         expect(unknown.code).toBe("agent_session_invalid");
-
-        yield* session("agent_session_close", {
-          operationId: OperationId.make("close-bounded-teaching"),
-          sessionId: started.id,
-        });
       }).pipe(Effect.scoped, Effect.provide(teachingLayer(catalogRoot)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

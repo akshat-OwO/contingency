@@ -112,7 +112,8 @@ const AgentSessionGetTool = Tool.make("agent_session_get", {
 
 const AgentSessionCloseTool = Tool.make("agent_session_close", {
   dependencies: [AgentSession],
-  description: "Close an Agent Session and release its owned browser.",
+  description:
+    "Close an Agent Session and release its owned browser. For Teaching, this finalizes the local video and generates the PlayByPlay before the Teaching Feed becomes available.",
   failure: AgentSessionFailure,
   parameters: AgentSessionCloseParameters,
   success: AgentSessionSnapshot,

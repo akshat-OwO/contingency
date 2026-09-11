@@ -155,7 +155,7 @@ const TeachingInstructionRecordTool = Tool.make(
 const TeachingFeedGetTool = Tool.make("agent_teaching_feed_get", {
   dependencies: [AgentSession],
   description:
-    "Read the bounded Teaching Feed of a Teaching session. It leads with playByPlay, the prose timeline of the Demonstration: compile the Agent Flow from that narrative, and read the rest of the feed as the evidence that cross-checks it — user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are never inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are never included.",
+    "Read the bounded Teaching Feed after the Teaching session has ended and local video analysis has finished. It leads with playByPlay, the prose timeline of the Demonstration: compile the Agent Flow from that narrative, and read the rest of the feed as the evidence that cross-checks it — user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are never inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are never included.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     includeSnapshots: TeachingFeedGet.fields.includeSnapshots,
@@ -282,6 +282,20 @@ const saveDraftFromTeaching = (params: AgentFlowDraftSave) =>
     const source = yield* session
       .teachingSource(params.sessionId)
       .pipe(Effect.mapError(failure));
+    if (source.demonstration.playByPlay === null) {
+      const message =
+        source.session.phase === "closed" ||
+        source.session.phase === "interrupted"
+          ? "The Teaching PlayByPlay is unavailable because analysis did not complete. Close the Teaching session again to retry finalization. (agent_session_invalid)"
+          : "End Teaching before compiling a draft so Contingency can finalize the local video and generate its PlayByPlay. (agent_session_invalid)";
+      return yield* Effect.fail(
+        new AgentFlowFailure({
+          code: "agent_session_invalid",
+          diagnostics: [],
+          message,
+        })
+      );
+    }
     const compiled = compileAgentFlowDraft(params.draft, source.demonstration);
     if (Result.isFailure(compiled)) {
       return yield* Effect.fail(invalidDraft(compiled.failure));

@@ -79,6 +79,7 @@ const demonstration: Demonstration = {
     { at: at(0), id: "i0", text: "Open the shop" },
     { at: at(3), id: "i3", text: "Now pay for it" },
   ],
+  playByPlay: "The user demonstrated the journey.",
   screenshotContents: new Map([
     [
       contentHash,

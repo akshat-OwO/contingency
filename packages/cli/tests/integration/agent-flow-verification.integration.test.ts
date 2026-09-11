@@ -154,6 +154,10 @@ it.live(
         yield* clickSignInAsUser(localSession, taught.id);
         expect(entered.snapshot.snapshotId).toBeDefined();
 
+        yield* session("agent_session_close", {
+          operationId: OperationId.make("close-teaching"),
+          sessionId: taught.id,
+        });
         const feed = yield* flow("agent_teaching_feed_get", {
           includeSnapshots: false,
           sessionId: taught.id,
@@ -766,10 +770,6 @@ it.live(
         expect(persisted).not.toContain(taughtLiteral);
         expect(persisted).not.toContain(runLiteral);
 
-        yield* session("agent_session_close", {
-          operationId: OperationId.make("close-teaching"),
-          sessionId: taught.id,
-        });
         const retainedFiles = yield* fileSystem.readDirectory(
           path.join(catalogRoot, "sessions"),
           { recursive: true }

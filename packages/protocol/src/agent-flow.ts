@@ -309,8 +309,8 @@ export const TeachingFeed = Schema.Struct({
    * compilation input: the agent reads it before the structured evidence that
    * cross-checks it
    * ([ADR 0038](../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
-   * Never empty. Until the video-analysis pass lands, Contingency derives it
-   * from the captured actions, URL transitions, and relayed Instructions.
+   * Never empty. Contingency produces it from the finalized local Teaching
+   * video and cross-checks it against browser evidence before exposing it.
    */
   playByPlay: nonEmptyString,
   actions: Schema.Array(CapturedAction),

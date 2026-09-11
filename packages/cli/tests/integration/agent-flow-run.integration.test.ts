@@ -154,6 +154,10 @@ const approveJourney = (
     yield* clickAsUser(280, 152);
     yield* typeAsUser("555");
     yield* clickAsUser(70, 220);
+    yield* session("agent_session_close", {
+      operationId: OperationId.make("close-teaching"),
+      sessionId: taught.id,
+    });
     const feed = yield* flow("agent_teaching_feed_get", {
       includeSnapshots: false,
       sessionId: taught.id,
@@ -319,10 +323,6 @@ const approveJourney = (
       })
     );
     expect(refusedDraft.code).toBe("agent_flow_conflict");
-    yield* session("agent_session_close", {
-      operationId: OperationId.make("close-teaching"),
-      sessionId: taught.id,
-    });
     return { agentFlowId, revisionId };
   });
 

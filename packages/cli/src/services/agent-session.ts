@@ -92,6 +92,8 @@ import type { Demonstration } from "./agent-flow-compiler.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import { analyzePlayByPlay } from "./play-by-play.ts";
+import type { PlayByPlayAnalyzer } from "./play-by-play.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
@@ -105,6 +107,8 @@ export interface AgentSessionServiceOptions {
   readonly processId?: string;
   /** Injectable clock for deterministic protocol tests. */
   readonly now?: () => Date;
+  /** Injectable local-video pass for focused session tests. */
+  readonly playByPlayAnalyzer?: PlayByPlayAnalyzer;
   /** Exact process-owner directory for per-session temporary resources. */
   readonly resourceDirectory?: string;
   /** Durable local directory for Teaching Trace archives, resolved at start. */
@@ -1307,6 +1311,7 @@ const makeAgentSession = (
     const lock = Semaphore.makeUnsafe(1);
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
+    const playByPlayAnalyzer = options.playByPlayAnalyzer ?? analyzePlayByPlay;
 
     const read = (
       sessionId: AgentSessionId
@@ -1634,6 +1639,36 @@ const makeAgentSession = (
       });
     };
 
+    const finalizeTeachingPlayByPlay = (
+      record: SessionRecord
+    ): Effect.Effect<void, AgentSessionError> => {
+      const { capture } = record;
+      if (capture === undefined || capture.current().playByPlay !== null) {
+        return Effect.void;
+      }
+      return playByPlayAnalyzer({
+        demonstration: capture.current(),
+        videoFile: record.videoFile,
+      }).pipe(
+        Effect.flatMap((playByPlay) => {
+          const finalized = playByPlay.trim();
+          if (finalized.length === 0) {
+            return Effect.fail(
+              new Error("Teaching video analysis produced no PlayByPlay.")
+            );
+          }
+          capture.finalizePlayByPlay(finalized);
+          return Effect.void;
+        }),
+        Effect.mapError((cause) =>
+          error(
+            "agent_session_invalid",
+            `Could not finalize the Teaching PlayByPlay: ${cause.message}`
+          )
+        )
+      );
+    };
+
     const closeUnlocked = Effect.fn("AgentSession.close")(
       function* closeSession(
         sessionId: AgentSessionId,
@@ -1654,6 +1689,7 @@ const makeAgentSession = (
         }
         const record = yield* read(sessionId);
         if (!isLive(record.snapshot.phase)) {
+          yield* finalizeTeachingPlayByPlay(record);
           yield* rememberSession(
             operationId,
             "close",
@@ -1694,6 +1730,7 @@ const makeAgentSession = (
             // record are one uninterruptible mutation.
             yield* save(sessionId, record, closed);
             yield* Scope.close(record.scope, Exit.void);
+            yield* finalizeTeachingPlayByPlay(record);
             yield* rememberSession(
               operationId,
               "close",
@@ -4739,7 +4776,25 @@ const makeAgentSession = (
         ),
       teachingFeed: (sessionId, includeSnapshots = false) =>
         requireTeaching(sessionId).pipe(
-          Effect.map(({ capture }) => capture.feed(sessionId, includeSnapshots))
+          Effect.flatMap(({ capture, record }) => {
+            if (isLive(record.snapshot.phase)) {
+              return Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  "End Teaching before reading the Teaching Feed so Contingency can finalize the local video and generate its PlayByPlay."
+                )
+              );
+            }
+            const feed = capture.feed(sessionId, includeSnapshots);
+            return feed === undefined
+              ? Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "The Teaching Feed is unavailable because PlayByPlay analysis did not complete. Close the Teaching session again to retry finalization."
+                  )
+                )
+              : Effect.succeed(feed);
+          })
         ),
       teachingScreenshot: (sessionId, screenshotId) =>
         requireTeaching(sessionId).pipe(
