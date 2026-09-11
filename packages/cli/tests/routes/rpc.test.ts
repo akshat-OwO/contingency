@@ -215,7 +215,6 @@ const agentSessionOwnership: AgentSessionService = {
   close: rpcNotUnderTest,
   closeAll: () => Effect.void,
   completeRun: rpcNotUnderTest,
-  enterAgentVariable: rpcNotUnderTest,
   enterSuppliedVariable: rpcNotUnderTest,
   enterUserVariable: rpcNotUnderTest,
   extendCeiling: rpcNotUnderTest,

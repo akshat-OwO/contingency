@@ -589,12 +589,20 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     );
     expect(conflict.code).toBe("agent_session_conflict");
 
-    // A URL the user reaches during Takeover is a transition with no action.
-    yield* service.takeover(
-      teaching.id,
-      "I will pick the item.",
-      OperationId.make("takeover-teaching")
+    // Teaching is user-led throughout, so there is no Takeover to enter: the
+    // user holds the browser from the first action to the last.
+    expect(teaching.controller).toBe("user");
+    const refusedTakeover = yield* Effect.flip(
+      service.takeover(
+        teaching.id,
+        "I will pick the item.",
+        OperationId.make("takeover-teaching")
+      )
     );
+    expect(refusedTakeover.code).toBe("agent_control_unavailable");
+
+    // A URL the user reaches by driving the browser is a transition with no
+    // captured action behind it.
     fake.visit("https://shop.example.com/cart");
     yield* service.get(teaching.id);
 

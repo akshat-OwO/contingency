@@ -445,15 +445,17 @@ const SessionDetails = ({
                 </AlertDescription>
               </Alert>
             )}
-            <Button
-              disabled={controlPending}
-              onClick={onControl}
-              size="sm"
-              type="button"
-              variant={session.controller === "user" ? "outline" : "default"}
-            >
-              {control.action}
-            </Button>
+            {control.action === null ? null : (
+              <Button
+                disabled={controlPending}
+                onClick={onControl}
+                size="sm"
+                type="button"
+                variant={session.controller === "user" ? "outline" : "default"}
+              >
+                {control.action}
+              </Button>
+            )}
             {controlError === undefined ? null : (
               <p className="text-destructive text-xs">{controlError}</p>
             )}
@@ -965,11 +967,16 @@ const useAgentView = (
 
   /**
    * Taking control is a direct user action from this View, and returning it is
-   * another: the agent can ask, but only the user moves the boundary.
+   * another: the agent can ask, but only the user moves the boundary. Teaching
+   * has no boundary to move — the user holds the browser throughout.
    */
   const changeControl = () => {
     const current = state.session;
-    if (current === undefined || state.controlPending) {
+    if (
+      current === undefined ||
+      state.controlPending ||
+      current.activity === "teaching"
+    ) {
       return;
     }
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
