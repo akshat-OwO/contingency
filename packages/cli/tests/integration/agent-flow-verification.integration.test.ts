@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { OperationId } from "@contingency/protocol";
+import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Result } from "effect";
@@ -14,6 +15,7 @@ import {
   makeAgentSessionLayer,
   verificationStartingUrl,
 } from "../../src/services/agent-session.ts";
+import type { AgentSessionService } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import {
   AgentFlowToolHandlersLive,
@@ -66,6 +68,30 @@ const verificationLayer = (catalogRoot: string) =>
     )
   );
 
+/** Where the user's pointer lands on the login fixture's sign-in button. */
+const SIGN_IN = { x: 70, y: 220 } as const;
+
+/**
+ * The user clicking sign in, the way the Workspace forwards their pointer to
+ * the browser it streams. Teaching accepts no agent action at all.
+ */
+const clickSignInAsUser = (
+  service: AgentSessionService,
+  sessionId: AgentSessionId
+) =>
+  Effect.gen(function* clickAsTheUser() {
+    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+      yield* service.sendInput(sessionId, {
+        button: "left",
+        clickCount: 1,
+        eventType,
+        type: "input_mouse",
+        x: SIGN_IN.x,
+        y: SIGN_IN.y,
+      });
+    }
+  });
+
 /**
  * The whole review-verify-approve boundary over one real Chromium: the agent
  * teaches a private-input login, relays explicit user decisions through MCP,
@@ -107,28 +133,26 @@ it.live(
           sessionId: taught.id,
         });
         const password = findNode(observed.nodes, "textbox", "Password");
-        const signIn = findNode(observed.nodes, "button", "Sign in");
+        findNode(observed.nodes, "button", "Sign in");
         yield* flow("agent_teaching_instruction_record", {
           operationId: OperationId.make("instruct-login"),
           sessionId: taught.id,
           text: "Sign in with my password.",
         });
         const taughtLiteral = "taught-secret-value";
-        const entered = yield* session("agent_teaching_variable_input", {
-          operationId: OperationId.make("enter-password"),
-          ref: password.ref,
-          sessionId: taught.id,
-          value: taughtLiteral,
-          variable: { name: "PASSWORD", runtime: true, secret: true },
-        });
-        const clicked = yield* session("agent_browser_act", {
-          action: { ref: signIn.ref, type: "click" },
-          operationId: OperationId.make("click-sign-in"),
-          sessionId: taught.id,
-        });
-        expect(entered.snapshot.snapshotId).not.toBe(
-          clicked.snapshot.snapshotId
+        // Teaching is user-led: the user enters the private value and clicks
+        // sign in themselves, and the agent reads the Feed afterwards.
+        const entered = yield* localSession.enterUserVariable(
+          taught.id,
+          {
+            ref: password.ref,
+            value: taughtLiteral,
+            variable: { name: "PASSWORD", runtime: true, secret: true },
+          },
+          OperationId.make("enter-password")
         );
+        yield* clickSignInAsUser(localSession, taught.id);
+        expect(entered.snapshot.snapshotId).toBeDefined();
 
         const feed = yield* flow("agent_teaching_feed_get", {
           includeSnapshots: false,

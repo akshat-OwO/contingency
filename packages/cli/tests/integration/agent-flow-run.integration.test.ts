@@ -115,29 +115,58 @@ const approveJourney = (
     const observed = yield* session("agent_browser_snapshot", {
       sessionId: taught.id,
     });
-    const display = findNode(observed.nodes, "textbox", "Display name");
-    const mobile = findNode(observed.nodes, "textbox", "Mobile number");
-    const signIn = findNode(observed.nodes, "button", "Sign in");
-    yield* session("agent_browser_act", {
-      action: { ref: display.ref, text: "Ada", type: "fill" },
-      operationId: OperationId.make("teach-display"),
-      sessionId: taught.id,
-    });
-    yield* session("agent_browser_act", {
-      action: { ref: mobile.ref, text: "555", type: "fill" },
-      operationId: OperationId.make("teach-mobile"),
-      sessionId: taught.id,
-    });
-    yield* session("agent_browser_act", {
-      action: { ref: signIn.ref, type: "click" },
-      operationId: OperationId.make("teach-sign-in"),
-      sessionId: taught.id,
-    });
+    findNode(observed.nodes, "textbox", "Display name");
+    findNode(observed.nodes, "textbox", "Mobile number");
+    findNode(observed.nodes, "button", "Sign in");
+    // Teaching is user-led: the user types into the field the Page focused,
+    // clicks into the next one, types again, and signs in (ADR 0038).
+    const localSession = yield* AgentSession;
+    const typeAsUser = (text: string) =>
+      Effect.gen(function* typeAsTheUser() {
+        for (const character of text) {
+          yield* localSession.sendInput(taught.id, {
+            eventType: "keyDown",
+            key: character,
+            text: character,
+            type: "input_keyboard",
+          });
+          yield* localSession.sendInput(taught.id, {
+            eventType: "keyUp",
+            key: character,
+            type: "input_keyboard",
+          });
+        }
+      });
+    const clickAsUser = (x: number, y: number) =>
+      Effect.gen(function* clickAsTheUser() {
+        for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+          yield* localSession.sendInput(taught.id, {
+            button: "left",
+            clickCount: 1,
+            eventType,
+            type: "input_mouse",
+            x,
+            y,
+          });
+        }
+      });
+    yield* typeAsUser("Ada");
+    yield* clickAsUser(280, 152);
+    yield* typeAsUser("555");
+    yield* clickAsUser(70, 220);
     const feed = yield* flow("agent_teaching_feed_get", {
       includeSnapshots: false,
       sessionId: taught.id,
     });
-    const [first, second, third] = feed.actions;
+    // The demonstrated spans: the two Fills the user typed, and the Click
+    // that submitted the form.
+    const first = feed.actions.find(({ action }) => action.type === "fill");
+    const second = feed.actions.findLast(
+      ({ action }) => action.type === "fill"
+    );
+    const third = feed.actions.findLast(
+      ({ action }) => action.type === "click"
+    );
     if (first === undefined || second === undefined || third === undefined) {
       throw new Error("Teaching lost the demonstrated actions.");
     }

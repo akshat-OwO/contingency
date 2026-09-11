@@ -57,8 +57,11 @@ export const agentSessionLabel = (session: AgentSessionSnapshot): string =>
  * three states are told apart rather than collapsed into "not the agent".
  */
 export interface AgentControlPresentation {
-  /** What the one control button does next. */
-  readonly action: string;
+  /**
+   * What the one control button does next, or `null` when there is no control
+   * to exchange: Teaching is user-led for the whole Demonstration.
+   */
+  readonly action: string | null;
   /** Who holds the browser right now. */
   readonly holder: string;
   /** Why control changed hands, when something asked for it. */
@@ -81,6 +84,13 @@ export const agentControlPresentation = (
 ): AgentControlPresentation => {
   const { takeover } = session;
   const reason = takeoverReason(takeover);
+  if (session.activity === "teaching") {
+    return {
+      action: null,
+      holder: "You are demonstrating this journey",
+      reason: "The agent watches and never drives the browser while teaching.",
+    };
+  }
   if (session.controller === "user") {
     return { action: "Return control", holder: "You have control", reason };
   }

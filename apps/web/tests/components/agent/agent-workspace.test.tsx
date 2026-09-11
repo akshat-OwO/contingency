@@ -349,6 +349,25 @@ test("takes control from Agent View and returns it explicitly", async () => {
   });
 });
 
+test("offers no control exchange during a user-led Demonstration", async () => {
+  renderWorkspace(
+    resultFor([
+      {
+        ...session,
+        activity: "teaching",
+        controller: "user",
+        teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+      } satisfies unknown,
+    ]),
+    session.id
+  );
+  expect(
+    await screen.findByText("You are demonstrating this journey")
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
+});
+
 test("forwards browser input only while the user holds the browser", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([session]), session.id);

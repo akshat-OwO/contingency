@@ -11,7 +11,6 @@ import {
   AgentSessions,
   AgentSessionTakeover,
   AgentVariableEnter,
-  TeachingVariableInput,
 } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
@@ -79,14 +78,6 @@ const AgentTakeoverParameters = Schema.Struct({
   sessionId: AgentSessionTakeover.fields.sessionId,
 });
 
-const TeachingVariableInputParameters = Schema.Struct({
-  operationId: TeachingVariableInput.fields.operationId,
-  ref: TeachingVariableInput.fields.ref,
-  sessionId: TeachingVariableInput.fields.sessionId,
-  value: TeachingVariableInput.fields.value,
-  variable: TeachingVariableInput.fields.variable,
-});
-
 // `agent_sessions_get` takes no arguments. An empty `Schema.Struct({})` encodes
 // to `anyOf: [object, array]`, which MCP clients reject because `tools/list`
 // requires `inputSchema.type` to be `"object"` — one bad entry fails the whole
@@ -148,7 +139,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    'Perform one browser action. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent\'s own words. Set intent.objectiveKind to "new" only when deliberately starting work outside the approved Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and Confirmation Steps. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation.',
+    'Perform one browser action during a Run. Teaching refuses this tool: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent\'s own words. Set intent.objectiveKind to "new" only when deliberately starting work outside the approved Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and Confirmation Steps. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,
@@ -157,19 +148,10 @@ const AgentBrowserActTool = Tool.make("agent_browser_act", {
 const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
   dependencies: [AgentSession],
   description:
-    "Ask the user to take control. This pauses agent actions and answers immediately with the Agent View link; only the user can return control.",
+    "Ask the user to take control of an Interactive Run. This pauses agent actions and answers immediately with the Agent View link; only the user can return control. Teaching has no Takeover: the user already holds the browser.",
   failure: AgentSessionFailure,
   parameters: AgentTakeoverParameters,
   success: AgentSessionSnapshot,
-});
-
-const TeachingVariableInputTool = Tool.make("agent_teaching_variable_input", {
-  dependencies: [AgentSession],
-  description:
-    "Enter a user-supplied private value into one current Teaching control. The value is used for this action only; captured actions and future Runs use the declared Variable reference. The ref is required when the agent has control.",
-  failure: AgentSessionFailure,
-  parameters: TeachingVariableInputParameters,
-  success: AgentActionResult,
 });
 
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
@@ -187,9 +169,9 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
 });
 
 /**
- * The external agent's whole surface. Observation, action, and the Takeover
- * request are MCP tools and nothing else: Agent View's loopback RPC exposes
- * only what the user does ([ADR 0026](../../../../docs/adr/0026-external-agents-control-agent-flows-through-mcp.md)).
+ * The external agent's whole surface. Observation, Run action, and the
+ * Takeover request are MCP tools and nothing else: Agent View's loopback RPC
+ * exposes only what the user does, and during Teaching that is everything ([ADR 0026](../../../../docs/adr/0026-external-agents-control-agent-flows-through-mcp.md)).
  */
 export const AgentSessionTools = withStrictParameters(
   Toolkit.make(
@@ -201,7 +183,6 @@ export const AgentSessionTools = withStrictParameters(
     AgentBrowserScreenshotTool,
     AgentBrowserActTool,
     AgentTakeoverRequestTool,
-    TeachingVariableInputTool,
     AgentVariableEnterTool
   )
 );
@@ -259,30 +240,6 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
     Effect.gen(function* listAgentSessions() {
       const service = yield* AgentSession;
       return { sessions: yield* service.list() };
-    }),
-  agent_teaching_variable_input: (params) =>
-    Effect.gen(function* enterTeachingVariable() {
-      const service = yield* AgentSession;
-      if (params.ref === undefined) {
-        return yield* Effect.fail(
-          new AgentSessionFailure({
-            code: "agent_session_invalid",
-            message:
-              "An agent must name the current element reference for private input. (agent_session_invalid)",
-          })
-        );
-      }
-      return yield* service
-        .enterAgentVariable(
-          params.sessionId,
-          {
-            ref: params.ref,
-            value: params.value,
-            variable: params.variable,
-          },
-          params.operationId
-        )
-        .pipe(Effect.mapError(failure));
     }),
   agent_variable_enter: (params) =>
     Effect.gen(function* enterSuppliedVariable() {

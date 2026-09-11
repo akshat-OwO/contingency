@@ -124,27 +124,15 @@ it.live(
         const observed = yield* sessionTool("agent_browser_snapshot", {
           sessionId: teaching.id,
         });
-        const display = findNode(observed.nodes, "textbox", "Display name");
+        findNode(observed.nodes, "textbox", "Display name");
         const mobile = findNode(observed.nodes, "textbox", "Mobile number");
         const password = findNode(observed.nodes, "textbox", "Password");
         const otp = findNode(observed.nodes, "textbox", "digit 1 of 6");
-        const signIn = findNode(observed.nodes, "button", "Sign in");
+        findNode(observed.nodes, "button", "Sign in");
 
-        // The agent focuses the field, and the user types the public name
-        // itself: mixed control, not a transcript of agent clicks.
-        yield* sessionTool("agent_browser_act", {
-          action: { ref: display.ref, type: "click" },
-          operationId: OperationId.make("journey-focus-display"),
-          sessionId: teaching.id,
-        });
-        yield* user("agent.session.takeover", {
-          data: {
-            operationId: OperationId.make("journey-takeover-display"),
-            reason: "Type the display name yourself.",
-            sessionId: teaching.id,
-          },
-          type: "agent.session.takeover",
-        });
+        // The user demonstrates the journey themselves: Teaching is user-led,
+        // so the agent observes and never drives the browser (ADR 0038). The
+        // display-name field is focused at load, so typing goes straight in.
         for (const key of ["A", "d", "a"]) {
           for (const eventType of ["keyDown", "keyUp"] as const) {
             const input = {
@@ -163,73 +151,65 @@ it.live(
           }
         }
 
-        // A reusable private identifier: the user enters it while holding the
-        // browser, and only the declaration is captured.
-        yield* user("agent.session.control.return", {
+        // The private values are the user's to enter, named by the Variable
+        // the Demonstration declares rather than held by anyone.
+        for (const [name, ref, value, operationId] of [
+          ["MOBILE", mobile.ref, MOBILE_LITERAL, "journey-enter-mobile"],
+          [
+            "PASSWORD",
+            password.ref,
+            PASSWORD_LITERAL,
+            "journey-enter-password",
+          ],
+        ] as const) {
+          yield* user("agent.teaching.variable.input", {
+            data: {
+              operationId: OperationId.make(operationId),
+              ref,
+              sessionId: teaching.id,
+              value,
+              variable: { name, runtime: true, secret: true },
+            },
+            type: "agent.teaching.variable.input",
+          });
+        }
+        const enteredOtp = yield* user("agent.teaching.variable.input", {
           data: {
-            operationId: OperationId.make("journey-return-display"),
+            operationId: OperationId.make("journey-enter-otp"),
+            ref: otp.ref,
             sessionId: teaching.id,
-          },
-          type: "agent.session.control.return",
-        });
-        yield* sessionTool("agent_browser_act", {
-          action: { ref: mobile.ref, type: "click" },
-          operationId: OperationId.make("journey-focus-mobile"),
-          sessionId: teaching.id,
-        });
-        yield* user("agent.session.takeover", {
-          data: {
-            operationId: OperationId.make("journey-takeover-mobile"),
-            reason: "Enter your mobile number privately.",
-            sessionId: teaching.id,
-          },
-          type: "agent.session.takeover",
-        });
-        yield* user("agent.teaching.variable.input", {
-          data: {
-            operationId: OperationId.make("journey-enter-mobile"),
-            sessionId: teaching.id,
-            value: MOBILE_LITERAL,
-            variable: { name: "MOBILE", runtime: true, secret: true },
+            value: TEACHING_OTP,
+            variable: { name: "OTP", runtime: true, secret: true },
           },
           type: "agent.teaching.variable.input",
         });
-        yield* user("agent.session.control.return", {
-          data: {
-            operationId: OperationId.make("journey-return-mobile"),
-            sessionId: teaching.id,
-          },
-          type: "agent.session.control.return",
-        });
-
-        // The agent enters the remaining private values on the user's behalf,
-        // naming the Variable rather than holding the literal.
-        yield* sessionTool("agent_teaching_variable_input", {
-          operationId: OperationId.make("journey-enter-password"),
-          ref: password.ref,
-          sessionId: teaching.id,
-          value: PASSWORD_LITERAL,
-          variable: { name: "PASSWORD", runtime: true, secret: true },
-        });
-        const enteredOtp = yield* sessionTool("agent_teaching_variable_input", {
-          operationId: OperationId.make("journey-enter-otp"),
-          ref: otp.ref,
-          sessionId: teaching.id,
-          value: TEACHING_OTP,
-          variable: { name: "OTP", runtime: true, secret: true },
-        });
         expect(
-          findNode(enteredOtp.snapshot.nodes, "output", "Verification ready")
-            .name
+          findNode(
+            enteredOtp.data.action.snapshot.nodes,
+            "output",
+            "Verification ready"
+          ).name
         ).toBe("Verification ready");
         yield* sessionTool("agent_browser_screenshot", {
           sessionId: teaching.id,
         });
-        yield* sessionTool("agent_browser_act", {
-          action: { ref: signIn.ref, type: "click" },
-          operationId: OperationId.make("journey-click-sign-in"),
-          sessionId: teaching.id,
-        });
+        // The user clicks sign in with their own pointer.
+        for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+          yield* user("agent.browser.input.send", {
+            data: {
+              input: {
+                button: "left",
+                clickCount: 1,
+                eventType,
+                type: "input_mouse",
+                x: 70,
+                y: 220,
+              },
+              sessionId: teaching.id,
+            },
+            type: "agent.browser.input.send",
+          });
+        }
 
         // The Teaching Feed is bounded evidence: enough to compile, and none
         // of the literals or raw Trace data
@@ -1033,23 +1013,37 @@ const approveSanityFlow = (loginUrl: string, fixtureHost: string) =>
     const observed = yield* sessionTool("agent_browser_snapshot", {
       sessionId: teaching.id,
     });
-    yield* sessionTool("agent_browser_act", {
-      action: {
-        ref: findNode(observed.nodes, "textbox", "Display name").ref,
-        text: "Ada",
-        type: "fill",
-      },
-      operationId: OperationId.make("fixture-fill-display"),
-      sessionId: teaching.id,
-    });
-    yield* sessionTool("agent_browser_act", {
-      action: {
-        ref: findNode(observed.nodes, "button", "Sign in").ref,
-        type: "click",
-      },
-      operationId: OperationId.make("fixture-click-sign-in"),
-      sessionId: teaching.id,
-    });
+    findNode(observed.nodes, "textbox", "Display name");
+    // The user demonstrates: typing into the field the Page focused, then
+    // clicking sign in. Teaching accepts no agent action at all.
+    for (const key of ["A", "d", "a"]) {
+      for (const eventType of ["keyDown", "keyUp"] as const) {
+        const input = { eventType, key, type: "input_keyboard" as const };
+        yield* user("agent.browser.input.send", {
+          data: {
+            input: eventType === "keyDown" ? { ...input, text: key } : input,
+            sessionId: teaching.id,
+          },
+          type: "agent.browser.input.send",
+        });
+      }
+    }
+    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+      yield* user("agent.browser.input.send", {
+        data: {
+          input: {
+            button: "left",
+            clickCount: 1,
+            eventType,
+            type: "input_mouse",
+            x: 70,
+            y: 220,
+          },
+          sessionId: teaching.id,
+        },
+        type: "agent.browser.input.send",
+      });
+    }
     const feed = yield* flowTool("agent_teaching_feed_get", {
       includeSnapshots: false,
       sessionId: teaching.id,

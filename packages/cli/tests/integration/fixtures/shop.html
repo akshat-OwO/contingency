@@ -14,10 +14,30 @@
       -->
       <form>
         <label for="search">Search the catalogue</label>
-        <input id="search" name="search" type="text" />
+        <!--
+          A user-led Demonstration types without clicking first, so the field a
+          demonstration starts in is focused at load.
+        -->
+        <input autofocus id="search" name="search" type="text" />
       </form>
       <button id="add" type="button">Add giant anvil to cart</button>
-      <button id="view-cart" type="button">View cart</button>
+      <!--
+        The user clicks this one by coordinate, the way a pointer reaches it
+        through the Workspace, so it is laid out at a fixed place.
+      -->
+      <button
+        id="view-cart"
+        style="
+          height: 32px;
+          left: 20px;
+          position: fixed;
+          top: 300px;
+          width: 160px;
+        "
+        type="button"
+      >
+        View cart
+      </button>
       <output id="cart-count">0 items</output>
     </main>
     <script>

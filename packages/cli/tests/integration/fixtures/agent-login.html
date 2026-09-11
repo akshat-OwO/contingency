@@ -8,9 +8,22 @@
     <main>
       <h1>Sign in</h1>
       <label for="display">Display name</label>
-      <input id="display" name="display" type="text" />
+      <!-- A user-led Demonstration types before it clicks anything. -->
+      <input autofocus id="display" name="display" type="text" />
       <label for="mobile">Mobile number</label>
-      <input id="mobile" name="mobile" type="tel" />
+      <!-- Clicked by coordinate during a user-led Demonstration. -->
+      <input
+        id="mobile"
+        name="mobile"
+        style="
+          height: 24px;
+          left: 200px;
+          position: fixed;
+          top: 140px;
+          width: 160px;
+        "
+        type="tel"
+      />
       <label for="password">Password</label>
       <input id="password" name="password" type="password" />
       <label for="rejected">Rejected private value</label>
@@ -38,7 +51,18 @@
       >
         Sign in
       </button>
-      <button onclick="window.open('about:blank')" type="button">
+      <!-- Clicked by coordinate, the way the user's pointer reaches it. -->
+      <button
+        onclick="window.open('about:blank')"
+        style="
+          height: 30px;
+          left: 200px;
+          position: fixed;
+          top: 300px;
+          width: 120px;
+        "
+        type="button"
+      >
         Open help
       </button>
       <output aria-live="polite" id="echo"></output>

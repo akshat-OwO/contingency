@@ -177,13 +177,7 @@ export interface AgentSessionService {
   readonly get: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /** Enter one conversation-supplied Variable while the agent has control. */
-  readonly enterAgentVariable: (
-    sessionId: AgentSessionId,
-    input: PrivateVariableInput,
-    operationId?: OperationId | string
-  ) => Effect.Effect<AgentActionResult, AgentSessionError>;
-  /** Enter one Variable into the focused control during exclusive Takeover. */
+  /** Enter one Variable into the control the user focused while teaching. */
   readonly enterUserVariable: (
     sessionId: AgentSessionId,
     input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string },
@@ -487,11 +481,10 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
 
 /** Compare retries without retaining a conversation-supplied private value. */
 const privateInputFingerprint = (
-  actor: AgentSessionSnapshot["controller"],
   input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string }
 ): string =>
   JSON.stringify({
-    actor,
+    actor: "user",
     ref: input.ref ?? null,
     valueHash: createHash("sha256").update(input.value).digest("hex"),
     variable: input.variable,
@@ -529,6 +522,22 @@ const takenOver = (description: string): BrowserRpcErrorType =>
   makeBrowserRpcError(
     "agent_control_unavailable",
     `${description} The user holds the browser; agent actions resume when the user returns control.`
+  );
+
+/**
+ * Teaching is user-led: the user demonstrates the journey and the agent only
+ * observes ([ADR 0038](../../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
+ * There is no control to hand over, so browser actions and Takeover are both
+ * refused for the whole Demonstration.
+ */
+const userLedTeaching = (snapshot: AgentSessionSnapshot): boolean =>
+  snapshot.activity === "teaching";
+
+/** Why an agent browser action cannot run during a Demonstration. */
+const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
+  makeBrowserRpcError(
+    "agent_control_unavailable",
+    `${description} Teaching is user-led: the user drives the browser and you observe. Record an Instruction with agent_teaching_instruction_record and ask the user to demonstrate the step; browser actions are yours to make during an Interactive Run.`
   );
 
 const isLive = (phase: AgentSessionSnapshot["phase"]): boolean =>
@@ -2239,7 +2248,10 @@ const makeAgentSession = (
                   boundary: null,
                   clientName: input.clientName?.trim() || "unknown",
                   clientVersion: input.clientVersion?.trim() || "unknown",
-                  controller: "agent",
+                  // Teaching opens with the user holding the browser: the
+                  // Demonstration is theirs from the first action, and the
+                  // agent never takes control back (ADR 0038).
+                  controller: activity === "teaching" ? "user" : "agent",
                   createdAt: at,
                   currentUrl: "about:blank",
                   decisionHistory: [],
@@ -2919,6 +2931,11 @@ const makeAgentSession = (
         const outcome = yield* Effect.result(
           Effect.gen(function* attemptBrowserAction() {
             const record = yield* requireLiveRecord(sessionId);
+            if (userLedTeaching(record.snapshot)) {
+              return yield* Effect.fail(
+                teachingIsUserLed("This action was not dispatched.")
+              );
+            }
             if (agentIsPaused(record.snapshot)) {
               return yield* Effect.fail(
                 takenOver("This action was not dispatched.")
@@ -3231,7 +3248,7 @@ const makeAgentSession = (
       input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string },
       operationId?: OperationId | string
     ) {
-      const requestInput = privateInputFingerprint("user", input);
+      const requestInput = privateInputFingerprint(input);
       const replayed = replay(
         operationId,
         "private-input",
@@ -3407,6 +3424,14 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
+        if (userLedTeaching(record.snapshot)) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_control_unavailable",
+              "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
+            )
+          );
+        }
         record.boundaryControl?.grants.clear();
         const inFlight = by === "user" ? record.control.inFlight : undefined;
         let interruptedAction: AgentTimelineEntry | null = null;
@@ -3505,6 +3530,14 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
+        if (userLedTeaching(record.snapshot)) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_control_unavailable",
+              "Teaching control stays with the user: there is nothing to return. End the Demonstration to hand the agent a Teaching Feed to compile."
+            )
+          );
+        }
         // There must be something to hand back: the user holds the browser, or
         // the agent asked for help and is waiting. Without this the loopback
         // RPC would record a handover that never happened while the agent was
@@ -4289,32 +4322,14 @@ const makeAgentSession = (
         lock.withPermit(
           completeRunUnlocked(sessionId, summaryText, operationId)
         ),
-      enterAgentVariable: (sessionId, input, operationId) =>
-        Effect.gen(function* enterPrivateVariableAsAgent() {
-          const { record } = yield* requireTeaching(sessionId);
-          if (agentIsPaused(record.snapshot)) {
-            return yield* Effect.fail(
-              takenOver("This private input was not dispatched.")
-            );
-          }
-          const action = {
-            ref: input.ref,
-            text: input.value,
-            type: "fill" as const,
-          };
-          return yield* actUnlocked(sessionId, action, operationId, {
-            action: {
-              ...action,
-              text: variableReference(input.variable.name),
-            },
-            requestInput: privateInputFingerprint("agent", input),
-            value: input.value,
-            variable: input.variable,
-          });
-        }),
       enterSuppliedVariable: (sessionId, name, ref, operationId) =>
         Effect.gen(function* enterSuppliedVerificationVariable() {
           const record = yield* requireLiveRecord(sessionId);
+          if (userLedTeaching(record.snapshot)) {
+            return yield* Effect.fail(
+              teachingIsUserLed("This private input was not dispatched.")
+            );
+          }
           const declared = requireDeclaredVariable(record, name);
           if (declared._tag === "error") {
             return yield* Effect.fail(declared.error);

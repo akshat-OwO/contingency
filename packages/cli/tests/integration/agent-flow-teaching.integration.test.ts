@@ -7,7 +7,11 @@ import {
   OperationId,
   TEACHING_SCREENSHOT_BUDGET_CHARACTERS,
 } from "@contingency/protocol";
-import type { TeachingFeed, TeachingScreenshot } from "@contingency/protocol";
+import type {
+  AgentSessionId,
+  TeachingFeed,
+  TeachingScreenshot,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Schema } from "effect";
@@ -46,6 +50,54 @@ const firstScreenshot = (feed: TeachingFeed): TeachingScreenshot => {
 
 const session = makeCall(AgentSessionTools);
 const flow = makeCall(AgentFlowTools);
+
+/** Where the user's pointer lands on the shop fixture's cart button. */
+const VIEW_CART = { x: 100, y: 316 } as const;
+
+/** Where it lands on the login fixture's sign-in and help buttons. */
+const SIGN_IN = { x: 70, y: 220 } as const;
+const OPEN_HELP = { x: 260, y: 315 } as const;
+
+/**
+ * One user click, sent the way the Workspace forwards a pointer event to the
+ * browser it is streaming. Teaching has no other way in: the agent observes.
+ */
+const clickAsUser = (
+  sessionId: AgentSessionId,
+  at: { readonly x: number; readonly y: number }
+) =>
+  Effect.gen(function* clickAsTheUser() {
+    const service = yield* AgentSession;
+    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+      yield* service.sendInput(sessionId, {
+        button: "left",
+        clickCount: 1,
+        eventType,
+        type: "input_mouse",
+        x: at.x,
+        y: at.y,
+      });
+    }
+  });
+
+/** The user typing into whichever control the Page has focused. */
+const typeAsUser = (sessionId: AgentSessionId, text: string) =>
+  Effect.gen(function* typeAsTheUser() {
+    const service = yield* AgentSession;
+    for (const character of text) {
+      yield* service.sendInput(sessionId, {
+        eventType: "keyDown",
+        key: character,
+        text: character,
+        type: "input_keyboard",
+      });
+      yield* service.sendInput(sessionId, {
+        eventType: "keyUp",
+        key: character,
+        type: "input_keyboard",
+      });
+    }
+  });
 
 /**
  * The whole Teaching surface over one real Chromium and one temporary Catalog
@@ -117,7 +169,43 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         instructionCount: 0,
       });
 
-      // The user says what to do; the agent relays it and acts.
+      // The agent cannot act during a Demonstration, however it asks: the
+      // refusal names the tool it should reach for instead.
+      const refusedAct = yield* Effect.flip(
+        session("agent_browser_act", {
+          action: { action: "reload", type: "history" },
+          operationId: OperationId.make("act-while-teaching"),
+          sessionId: started.id,
+        })
+      );
+      expect(refusedAct.code).toBe("agent_control_unavailable");
+      expect(refusedAct.message).toContain("Teaching is user-led");
+      expect(refusedAct.message).toContain("agent_teaching_instruction_record");
+
+      // Nor is there control to move: the user holds the browser throughout.
+      const refusedTakeover = yield* Effect.flip(
+        localSession.takeover(
+          started.id,
+          "Let me drive this myself.",
+          OperationId.make("takeover-teaching")
+        )
+      );
+      expect(refusedTakeover.code).toBe("agent_control_unavailable");
+      expect(refusedTakeover.message).toContain("Teaching has no Takeover");
+      const refusedReturn = yield* Effect.flip(
+        localSession.returnControl(
+          started.id,
+          OperationId.make("return-teaching")
+        )
+      );
+      expect(refusedReturn.code).toBe("agent_control_unavailable");
+      expect(
+        (yield* session("agent_session_get", { sessionId: started.id }))
+          .controller
+      ).toBe("user");
+
+      // The user says what to do and then demonstrates it themselves. The
+      // agent observes: a Browser Snapshot and a screenshot, nothing else.
       yield* flow("agent_teaching_instruction_record", {
         operationId: OperationId.make("instruct-search"),
         sessionId: started.id,
@@ -130,62 +218,26 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         sessionId: started.id,
       });
       expect(visual.image.length).toBeGreaterThan(0);
-      const search = findNode(
-        observed.nodes,
-        "textbox",
-        "Search the catalogue"
-      );
-      const filled = yield* session("agent_browser_act", {
-        action: { ref: search.ref, text: "anvil", type: "fill" },
-        operationId: OperationId.make("act-fill"),
-        sessionId: started.id,
-      });
+      findNode(observed.nodes, "textbox", "Search the catalogue");
+      yield* typeAsUser(started.id, "anvil");
 
       yield* flow("agent_teaching_instruction_record", {
         operationId: OperationId.make("instruct-cart"),
         sessionId: started.id,
         text: "Now open the cart and make sure it has one item.",
       });
-      const viewCart = findNode(filled.snapshot.nodes, "button", "View cart");
-      const clicked = yield* session("agent_browser_act", {
-        action: { ref: viewCart.ref, type: "click" },
-        operationId: OperationId.make("act-view-cart"),
-        sessionId: started.id,
-      });
-      const waited = yield* session("agent_browser_act", {
-        action: { text: "1 item", type: "wait_for_text" },
-        operationId: OperationId.make("act-wait-cart"),
-        sessionId: started.id,
-      });
-      // A failed attempt is part of the Demonstration too.
+      yield* clickAsUser(started.id, VIEW_CART);
+
+      // A failed attempt is part of the Demonstration too: the user mistyped
+      // a URL in the Workspace address bar and the browser refused it.
       const failure = yield* Effect.flip(
-        session("agent_browser_act", {
-          action: { text: "Sold out", timeoutMs: 300, type: "wait_for_text" },
-          operationId: OperationId.make("act-wait-missing"),
-          sessionId: started.id,
+        localSession.userNavigate(started.id, {
+          type: "navigate",
+          url: "http://127.0.0.1:9/",
         })
       );
-      expect(failure.code).toBe("agent_browser_failed");
+      expect(failure.code).toBeDefined();
 
-      // A user input event during Takeover is part of the mixed-control
-      // Demonstration and is attributed to the user, not the agent.
-      yield* localSession.takeover(
-        started.id,
-        "Let me check the page.",
-        OperationId.make("takeover-input")
-      );
-      yield* localSession.sendInput(started.id, {
-        eventType: "keyDown",
-        key: "a",
-        type: "input_keyboard",
-      });
-      yield* localSession.returnControl(
-        started.id,
-        OperationId.make("return-after-input")
-      );
-
-      // The bounded feed: instructions, actor-attributed actions, URL
-      // transitions, and observed hosts. No cookies, headers, or network.
       const feed = yield* flow("agent_teaching_feed_get", {
         includeSnapshots: true,
         sessionId: started.id,
@@ -199,31 +251,34 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       expect(feed.playByPlay).toContain(shopUrl);
       expect(feed.playByPlay).toContain("Search the catalogue for an anvil.");
       expect(feed.playByPlay).toContain("which failed");
+      expect(feed.playByPlay).toContain("The user");
+      expect(feed.playByPlay).not.toContain("The agent");
+      // The bounded feed: instructions, actor-attributed actions, URL
+      // transitions, and observed hosts. No cookies, headers, or network.
       expect(feed.instructions.map(({ text }) => text)).toEqual([
         "Search the catalogue for an anvil.",
         "Now open the cart and make sure it has one item.",
       ]);
-      expect(feed.actions.map(({ outcome }) => outcome)).toEqual([
-        "completed",
-        "completed",
-        "completed",
-        "failed",
-        "completed",
-      ]);
+      // Every captured action is the user's: the typing coalesces into one
+      // Fill, the pointer becomes one semantic Click, and the refused
+      // navigation is kept as the failure it was.
+      expect(feed.actions.every(({ actor }) => actor === "user")).toBe(true);
       expect(
-        feed.actions.slice(0, 4).every(({ actor }) => actor === "agent")
-      ).toBe(true);
-      expect(feed.actions.at(-1)?.actor).toBe("user");
-      expect(feed.actions.at(-1)?.action).toEqual({
-        input: {
-          eventType: "keyDown",
-          inputType: "keyboard",
-          key: "[user input]",
-        },
-        type: "input",
-      });
-      expect(feed.actions[0]?.snapshotBefore).toBe(observed.snapshotId);
-      expect(feed.actions[0]?.snapshotAfter).toBe(filled.snapshot.snapshotId);
+        feed.actions.map(({ action, outcome }) => [action.type, outcome])
+      ).toEqual([
+        ["fill", "completed"],
+        ["click", "completed"],
+        ["navigate", "failed"],
+      ]);
+      expect(feed.actions[0]?.action).toEqual(
+        expect.objectContaining({ text: "anvil", type: "fill" })
+      );
+      // The user path observes the control it is about to edit, so the Fill
+      // anchors to a Snapshot of its own rather than the agent's last read.
+      expect(feed.actions[0]?.snapshotBefore).not.toBeNull();
+      expect(feed.snapshots.map(({ snapshotId }) => snapshotId)).toContain(
+        feed.actions[0]?.snapshotBefore
+      );
       expect(feed.actions[0]?.urlBefore).toBe(shopUrl);
       expect(feed.observedHosts).toEqual([fixtureHost]);
       // The feed carries a reference, never the bytes. The agent fetches one
@@ -237,33 +292,32 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       });
       expect(fetched.image).toBe(visual.image);
       expect(fetched.contentHash).toBe(reference.contentHash);
-      expect(feed.urlTransitions).toEqual([
-        expect.objectContaining({
-          actionId: null,
-          from: "about:blank",
-          to: shopUrl,
-        }),
-      ]);
-      expect(feed.snapshots.map(({ snapshotId }) => snapshotId)).toEqual(
+      expect(feed.urlTransitions).toEqual(
         expect.arrayContaining([
-          observed.snapshotId,
-          filled.snapshot.snapshotId,
-          clicked.snapshot.snapshotId,
-          waited.snapshot.snapshotId,
+          expect.objectContaining({
+            actionId: null,
+            from: "about:blank",
+            to: shopUrl,
+          }),
         ])
       );
       const serialized = JSON.stringify(feed);
       expect(serialized).not.toContain("cookie");
       expect(serialized).not.toContain("<");
 
-      const [fillAction, clickAction, waitAction] = feed.actions;
-      if (
-        fillAction === undefined ||
-        clickAction === undefined ||
-        waitAction === undefined
-      ) {
+      const [fillAction, clickAction] = feed.actions;
+      if (fillAction === undefined || clickAction === undefined) {
         throw new Error("The feed lost captured actions.");
       }
+      // The Snapshots the user's own actions produced are in the feed, so a
+      // compiler can anchor Step boundaries to the Page either side of them.
+      expect(feed.snapshots.map(({ snapshotId }) => snapshotId)).toEqual(
+        expect.arrayContaining([
+          fillAction.snapshotBefore,
+          fillAction.snapshotAfter,
+          clickAction.snapshotAfter,
+        ])
+      );
       const catalogBefore = yield* flow("agent_catalog_get", {});
       expect(catalogBefore).toEqual({ agentFlowCount: 0, root: catalogRoot });
 
@@ -316,7 +370,7 @@ it.live("teaches a public journey and saves a searchable draft", () =>
               confirmation: false,
               description: "Open the cart and see one item in it.",
               firstActionId: clickAction.id,
-              lastActionId: waitAction.id,
+              lastActionId: clickAction.id,
               name: "Open the cart",
             },
           ],
@@ -354,15 +408,12 @@ it.live("teaches a public journey and saves a searchable draft", () =>
           )
         )
       );
-      expect(slice.actions.map(({ id }) => id)).toEqual([
-        clickAction.id,
-        waitAction.id,
-      ]);
+      expect(slice.actions.map(({ id }) => id)).toEqual([clickAction.id]);
       expect(slice.instructions.map(({ text }) => text)).toEqual([
         "Now open the cart and make sure it has one item.",
       ]);
-      expect(slice.before?.snapshotId).toBe(filled.snapshot.snapshotId);
-      expect(slice.after?.snapshotId).toBe(waited.snapshot.snapshotId);
+      expect(slice.before?.snapshotId).toBe(clickAction.snapshotBefore);
+      expect(slice.after?.snapshotId).toBe(clickAction.snapshotAfter);
       expect(
         findNode(slice.after?.nodes ?? [], "main", "1 item").name
       ).toContain("1 item");
@@ -375,7 +426,7 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         sessionId: started.id,
       });
       expect(current.teaching).toEqual({
-        actionCount: 5,
+        actionCount: 3,
         draft: {
           agentFlowId: saved.manifest.agentFlowId,
           revisionId: saved.manifest.revisionId,
@@ -474,53 +525,40 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
       expect(observed.url).not.toContain("url-secret");
       const token = findNode(observed.nodes, "textbox", "Token");
       expect(token.valueWithheld).toBeUndefined();
-      const filled = yield* session("agent_browser_act", {
-        action: { ref: token.ref, text: "top-secret", type: "fill" },
-        operationId: OperationId.make("fill-sensitive-input"),
-        sessionId: started.id,
-      });
+      // The user types the credential into the focused field themselves. A
+      // known-sensitive control never yields a semantic Fill: its keystrokes
+      // are captured as masked raw input, so the literal is never recorded.
+      yield* typeAsUser(started.id, "top-secret");
       const after = yield* session("agent_browser_snapshot", {
         sessionId: started.id,
       });
-      expect(findNode(filled.snapshot.nodes, "textbox", "Token").value).toBe(
-        undefined
-      );
       const redactedToken = findNode(after.nodes, "textbox", "Token");
       expect(redactedToken.value).toBeUndefined();
       expect(redactedToken.valueWithheld).toBe(true);
       expect(JSON.stringify(after)).not.toContain("top-secret");
-      expect(filled.snapshot.url).not.toContain("url-secret");
+      expect(after.url).not.toContain("url-secret");
       const screenshot = yield* session("agent_browser_screenshot", {
         sessionId: started.id,
       });
       expect(screenshot.url).not.toContain("url-secret");
-      const failedPress = yield* Effect.flip(
-        session("agent_browser_act", {
-          action: {
-            key: "literal-secret-key",
-            ref: token.ref,
-            type: "press",
-          },
-          operationId: OperationId.make("fail-sensitive-press"),
-          sessionId: started.id,
-        })
-      );
-      expect(JSON.stringify(failedPress)).not.toContain("literal-secret-key");
       const feed = yield* flow("agent_teaching_feed_get", {
         includeSnapshots: true,
         sessionId: started.id,
       });
-      const capturedFill = feed.actions.find(
-        ({ action }) => action.type === "fill"
+      expect(feed.actions.every(({ actor }) => actor === "user")).toBe(true);
+      expect(feed.actions.every(({ action }) => action.type === "input")).toBe(
+        true
       );
-      expect(capturedFill?.action).toEqual({
-        ref: token.ref,
-        text: "[sensitive input]",
-        type: "fill",
-      });
+      expect(
+        feed.actions.every(
+          ({ action }) =>
+            action.type !== "input" ||
+            action.input.inputType !== "keyboard" ||
+            action.input.key === "[user input]"
+        )
+      ).toBe(true);
       expect(JSON.stringify(feed)).not.toContain("top-secret");
       expect(JSON.stringify(feed)).not.toContain("url-secret");
-      expect(JSON.stringify(feed)).not.toContain("literal-secret-key");
       const capturedTokens = feed.snapshots.flatMap(({ nodes }) =>
         nodes.filter(({ name, role }) => name === "Token" && role === "textbox")
       );
@@ -566,7 +604,7 @@ it.live(
         const observed = yield* session("agent_browser_snapshot", {
           sessionId: started.id,
         });
-        const display = findNode(observed.nodes, "textbox", "Display name");
+        findNode(observed.nodes, "textbox", "Display name");
         const mobile = findNode(observed.nodes, "textbox", "Mobile number");
         const password = findNode(observed.nodes, "textbox", "Password");
         const rejected = findNode(
@@ -575,118 +613,81 @@ it.live(
           "Rejected private value"
         );
         const otp = findNode(observed.nodes, "textbox", "digit 1 of 6");
-        const help = findNode(observed.nodes, "button", "Open help");
-        yield* session("agent_browser_act", {
-          action: { ref: display.ref, type: "click" },
-          operationId: OperationId.make("focus-display"),
-          sessionId: started.id,
-        });
-        yield* localSession.takeover(
-          started.id,
-          "Enter the public display name.",
-          OperationId.make("takeover-display")
-        );
-        for (const text of ["A", "B"]) {
-          yield* localSession.sendInput(started.id, {
-            eventType: "keyDown",
-            key: text,
-            text,
-            type: "input_keyboard",
-          });
-          yield* localSession.sendInput(started.id, {
-            eventType: "keyUp",
-            key: text,
-            type: "input_keyboard",
-          });
-        }
-        for (const eventType of ["mousePressed", "mouseReleased"] as const) {
-          yield* localSession.sendInput(started.id, {
-            button: "left",
-            clickCount: 1,
-            eventType,
-            type: "input_mouse",
-            x: 30,
-            y: 210,
-          });
-        }
-        yield* localSession.returnControl(
-          started.id,
-          OperationId.make("return-display")
-        );
-        yield* session("agent_browser_act", {
-          action: { ref: mobile.ref, type: "click" },
-          operationId: OperationId.make("focus-mobile"),
-          sessionId: started.id,
-        });
-        yield* localSession.takeover(
-          started.id,
-          "Enter the reusable mobile identifier privately.",
-          OperationId.make("takeover-mobile")
-        );
+
+        // The user demonstrates: they type the public display name into the
+        // focused field, then click sign in with their own pointer.
+        yield* typeAsUser(started.id, "AB");
+        yield* clickAsUser(started.id, SIGN_IN);
+
+        // Private values are the user's to enter, named by the Variable the
+        // Demonstration declares. The literal never leaves Contingency.
         const mobileLiteral = "5551234";
         yield* localSession.enterUserVariable(
           started.id,
           {
+            ref: mobile.ref,
             value: mobileLiteral,
             variable: { name: "MOBILE", runtime: false, secret: true },
           },
           OperationId.make("enter-mobile")
         );
-        yield* localSession.returnControl(
-          started.id,
-          OperationId.make("return-mobile")
-        );
-        yield* session("agent_browser_act", {
-          action: { ref: help.ref, type: "click" },
-          operationId: OperationId.make("open-login-help"),
-          sessionId: started.id,
-        });
 
         const passwordLiteral = "x5551234x";
         const ignoredLiteral = "ignored-private-value";
+        // A control that discards what it was given registers no Variable,
+        // and the refusal never carries the literal back.
         const ignored = yield* Effect.flip(
-          session("agent_teaching_variable_input", {
-            operationId: OperationId.make("reject-private-input"),
-            ref: rejected.ref,
-            sessionId: started.id,
-            value: ignoredLiteral,
-            variable: { name: "IGNORED", runtime: false, secret: true },
-          })
+          localSession.enterUserVariable(
+            started.id,
+            {
+              ref: rejected.ref,
+              value: ignoredLiteral,
+              variable: { name: "IGNORED", runtime: false, secret: true },
+            },
+            OperationId.make("reject-private-input")
+          )
         );
         expect(ignored.code).toBe("agent_browser_failed");
         expect(JSON.stringify(ignored)).not.toContain(ignoredLiteral);
         const failed = yield* Effect.flip(
-          session("agent_teaching_variable_input", {
-            operationId: OperationId.make("fail-private-input"),
-            ref: AgentElementRef.make("e999999"),
-            sessionId: started.id,
-            value: "must-not-register",
-            variable: { name: "FAILED", runtime: false, secret: true },
-          })
+          localSession.enterUserVariable(
+            started.id,
+            {
+              ref: AgentElementRef.make("e999999"),
+              value: "must-not-register",
+              variable: { name: "FAILED", runtime: false, secret: true },
+            },
+            OperationId.make("fail-private-input")
+          )
         );
         expect(failed.code).toBe("agent_element_stale");
         const passwordInput = {
-          operationId: OperationId.make("enter-password"),
           ref: password.ref,
-          sessionId: started.id,
           value: passwordLiteral,
           variable: { name: "PASSWORD", runtime: false, secret: true },
         } as const;
-        const enteredPassword = yield* session(
-          "agent_teaching_variable_input",
-          passwordInput
+        const enteredPassword = yield* localSession.enterUserVariable(
+          started.id,
+          passwordInput,
+          OperationId.make("enter-password")
         );
         expect(
-          yield* session("agent_teaching_variable_input", passwordInput)
+          yield* localSession.enterUserVariable(
+            started.id,
+            passwordInput,
+            OperationId.make("enter-password")
+          )
         ).toEqual(enteredPassword);
         const otpLiteral = "246801";
-        const enteredOtp = yield* session("agent_teaching_variable_input", {
-          operationId: OperationId.make("enter-otp"),
-          ref: otp.ref,
-          sessionId: started.id,
-          value: otpLiteral,
-          variable: { name: "OTP", runtime: true, secret: true },
-        });
+        const enteredOtp = yield* localSession.enterUserVariable(
+          started.id,
+          {
+            ref: otp.ref,
+            value: otpLiteral,
+            variable: { name: "OTP", runtime: true, secret: true },
+          },
+          OperationId.make("enter-otp")
+        );
         expect(
           findNode(enteredOtp.snapshot.nodes, "output", "Verification ready")
             .name
@@ -703,6 +704,8 @@ it.live(
           expect(box.value).toBe("[sensitive input]");
           expect(box.valueWithheld).toBe(true);
         }
+        // A second Page the user opened is captured too, video and all.
+        yield* clickAsUser(started.id, OPEN_HELP);
         yield* session("agent_browser_screenshot", { sessionId: started.id });
 
         const feed = yield* flow("agent_teaching_feed_get", {
@@ -757,20 +760,21 @@ it.live(
           feed.actions.filter(
             ({ action, actor }) => actor === "user" && action.type === "click"
           )
-        ).toHaveLength(1);
+        ).toHaveLength(2);
         expect(
           feed.actions.some(
             ({ action }) =>
               action.type === "input" && action.input.inputType === "mouse"
           )
         ).toBe(false);
+        expect(feed.actions.every(({ actor }) => actor === "user")).toBe(true);
         const privateActions = feed.actions.filter(
           ({ action }) => action.type === "fill" && action.text.startsWith("{{")
         );
         expect(privateActions.map(({ actor }) => actor)).toEqual([
           "user",
-          "agent",
-          "agent",
+          "user",
+          "user",
         ]);
         expect(
           privateActions.map(({ action }) =>
@@ -922,16 +926,16 @@ it.live(
           viewport: { deviceScaleFactor: 2, height: 800, width: 1280 },
         });
 
+        const localSession = yield* AgentSession;
         const captured: string[] = [];
         for (let index = 0; index < 5; index += 1) {
           const visual = yield* session("agent_browser_screenshot", {
             sessionId: started.id,
           });
           captured.push(visual.image);
-          yield* session("agent_browser_act", {
-            action: { action: "reload", type: "history" },
-            operationId: OperationId.make(`bounded-reload-${index}`),
-            sessionId: started.id,
+          yield* localSession.userNavigate(started.id, {
+            action: "reload",
+            type: "history",
           });
         }
         const embedded = captured.reduce(
