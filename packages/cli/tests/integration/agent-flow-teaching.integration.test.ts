@@ -190,6 +190,15 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         includeSnapshots: true,
         sessionId: started.id,
       });
+      // The PlayByPlay leads the feed and stays consistent with the
+      // instrumentation behind it: the URL it started on, the Instructions the
+      // user relayed, and the outcome of every captured action.
+      expect(Object.keys(feed)[0]).toBe("playByPlay");
+      expect(feed.playByPlay.length).toBeGreaterThan(0);
+      expect(feed.playByPlay.startsWith("Provisional PlayByPlay")).toBe(true);
+      expect(feed.playByPlay).toContain(shopUrl);
+      expect(feed.playByPlay).toContain("Search the catalogue for an anvil.");
+      expect(feed.playByPlay).toContain("which failed");
       expect(feed.instructions.map(({ text }) => text)).toEqual([
         "Search the catalogue for an anvil.",
         "Now open the cart and make sure it has one item.",

@@ -155,7 +155,7 @@ const TeachingInstructionRecordTool = Tool.make(
 const TeachingFeedGetTool = Tool.make("agent_teaching_feed_get", {
   dependencies: [AgentSession],
   description:
-    "Read the bounded Teaching Feed of a Teaching session: user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are never inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are never included.",
+    "Read the bounded Teaching Feed of a Teaching session. It leads with playByPlay, the prose timeline of the Demonstration: compile the Agent Flow from that narrative, and read the rest of the feed as the evidence that cross-checks it — user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are never inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are never included.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     includeSnapshots: TeachingFeedGet.fields.includeSnapshots,
