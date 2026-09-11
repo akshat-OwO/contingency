@@ -193,6 +193,7 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       // The PlayByPlay leads the feed and stays consistent with the
       // instrumentation behind it: the URL it started on, the Instructions the
       // user relayed, and the outcome of every captured action.
+      expect(Object.keys(feed)[0]).toBe("playByPlay");
       expect(feed.playByPlay.length).toBeGreaterThan(0);
       expect(feed.playByPlay.startsWith("Provisional PlayByPlay")).toBe(true);
       expect(feed.playByPlay).toContain(shopUrl);

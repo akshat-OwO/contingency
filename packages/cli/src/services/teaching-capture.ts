@@ -280,11 +280,13 @@ export const makeDemonstrationCapture = (
           referenced.add(action.snapshotAfter);
         }
       }
+      // Encoded in the order the agent reads it: PlayByPlay first.
+      // oxlint-disable-next-line eslint/sort-keys
       return {
+        playByPlay: stubPlayByPlay(demonstration, startUrl),
         actions: demonstration.actions,
         instructions: demonstration.instructions,
         observedHosts: observedHosts(demonstration),
-        playByPlay: stubPlayByPlay(demonstration, startUrl),
         screenshots: demonstration.screenshots,
         sessionId,
         snapshots: includeSnapshots

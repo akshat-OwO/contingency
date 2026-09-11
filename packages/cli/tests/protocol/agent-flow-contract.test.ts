@@ -62,6 +62,9 @@ test("the Teaching Feed requires a PlayByPlay and keeps the video local", () => 
   expect(() => decode({ ...feed, playByPlay: "" })).toThrow();
   const { playByPlay: _omitted, ...withoutPlayByPlay } = feed;
   expect(() => decode(withoutPlayByPlay)).toThrow();
+  // The feed leads with the narrative: a client walking the fields in order
+  // compiles from the PlayByPlay before the evidence that cross-checks it.
+  expect(Object.keys(TeachingFeed.fields)[0]).toBe("playByPlay");
 });
 
 test("a draft save mints a new identity for null and for an omitted id", () => {

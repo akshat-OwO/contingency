@@ -300,11 +300,10 @@ export type UrlTransition = typeof UrlTransition.Type;
  * the evidence that cross-checks that narrative. Cookies, authorization
  * headers, network bodies, video, and the full Trace never appear here.
  */
+// The key order is the read order: the feed leads with the PlayByPlay so a
+// client walking the fields compiles from the narrative before the evidence.
+// oxlint-disable-next-line eslint/sort-keys
 export const TeachingFeed = Schema.Struct({
-  actions: Schema.Array(CapturedAction),
-  instructions: Schema.Array(TeachingInstruction),
-  /** Exact hosts the Demonstration visited: the proposed Domain Scope. */
-  observedHosts: Schema.Array(nonEmptyString),
   /**
    * The prose timeline of the Demonstration, and the Teaching Feed's primary
    * compilation input: the agent reads it before the structured evidence that
@@ -314,6 +313,10 @@ export const TeachingFeed = Schema.Struct({
    * from the captured actions, URL transitions, and relayed Instructions.
    */
   playByPlay: nonEmptyString,
+  actions: Schema.Array(CapturedAction),
+  instructions: Schema.Array(TeachingInstruction),
+  /** Exact hosts the Demonstration visited: the proposed Domain Scope. */
+  observedHosts: Schema.Array(nonEmptyString),
   screenshots: Schema.Array(TeachingScreenshot),
   sessionId: AgentSessionId,
   /** The Browser Snapshots the actions reference, when the caller asked. */
