@@ -12,7 +12,7 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
-import { DraftEmulation, Variable } from "./flow.ts";
+import { DraftEmulation, Variable } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));

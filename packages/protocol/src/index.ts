@@ -39,12 +39,11 @@ import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
-  AuditKind,
   DraftEmulation,
   Geolocation,
   PermissionDecisions,
-  RecordingSnapshot,
-} from "./flow.ts";
+} from "./emulation.ts";
+import { AuditKind, RecordingSnapshot } from "./flow.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { RunSnapshot } from "./run.ts";
 import {
@@ -56,6 +55,8 @@ import {
 import { Viewport } from "./viewport.ts";
 
 // The protocol package intentionally exposes one public contract surface.
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./emulation.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./flow.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
