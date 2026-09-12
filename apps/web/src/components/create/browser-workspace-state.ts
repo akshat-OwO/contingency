@@ -161,4 +161,4 @@ export const canvasHoldAfterFirstFrame = (
 export const shouldRevealCanvasAfterPaint = (hold: CanvasFrameHold): boolean =>
   !shouldDropStaleCanvasFrame(hold);
 
-export { viewportForIdentity } from "@/components/browser/browser-device-presets";
+export { viewportForIdentity } from "@contingency/protocol";

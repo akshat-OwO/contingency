@@ -2,6 +2,7 @@ import {
   BrowserTabId,
   ContingencyRpcs,
   OperationId,
+  profileViewport,
   UserAgentProfileId,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -90,7 +91,6 @@ it.live("configures the MCP-owned browser Teaching demonstrates in", () =>
         sessionId,
         timezoneId: "Europe/Berlin",
         userAgentProfile: UserAgentProfileId.make("chrome-android-mobile"),
-        viewport: phoneViewport,
       },
       type: "agent.browser.emulation.set",
     });
@@ -98,16 +98,27 @@ it.live("configures the MCP-owned browser Teaching demonstrates in", () =>
     expect(configured.data.emulation.locale).toBe("de-DE");
     expect(configured.data.emulation.timezoneId).toBe("Europe/Berlin");
     expect(configured.data.userAgentProfile).toBe("chrome-android-mobile");
-    // Identity and viewport travel together, so a phone identity is applied
-    // at the phone's own metrics rather than over a desktop window.
-    expect(configured.data.emulation.viewport).toEqual(phoneViewport);
+    // An identity brings its own device metrics, so a phone identity is never
+    // applied over the desktop window the session opened at (ADR 0013).
+    expect(configured.data.emulation.viewport).toEqual(
+      profileViewport(UserAgentProfileId.make("chrome-android-mobile"))
+    );
+    expect(configured.data.emulation.viewport).not.toEqual(viewport);
     expect(configured.data.emulation.browser?.mobile).toBe(true);
+
+    // An explicit viewport in the same patch outranks the identity's metrics.
+    const resized = yield* client("agent.browser.emulation.set", {
+      data: { sessionId, viewport: phoneViewport },
+      type: "agent.browser.emulation.set",
+    });
+    expect(resized.data.emulation.viewport).toEqual(phoneViewport);
+    expect(resized.data.userAgentProfile).toBe("chrome-android-mobile");
 
     const reread = yield* client("agent.browser.emulation.get", {
       data: { sessionId },
       type: "agent.browser.emulation.get",
     });
-    expect(reread.data.emulation).toEqual(configured.data.emulation);
+    expect(reread.data.emulation).toEqual(resized.data.emulation);
     expect(reread.data.userAgentProfile).toBe("chrome-android-mobile");
 
     const tabs = yield* client("agent.browser.tabs.get", {

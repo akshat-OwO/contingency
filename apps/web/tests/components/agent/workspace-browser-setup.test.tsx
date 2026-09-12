@@ -128,8 +128,9 @@ test("reads the Agent Session's Emulation and shows what the browser applies", a
 
 test("applies a device preset to the browser the Agent Session owns", async () => {
   renderSetup();
+  expect(await screen.findByText("1280 × 720")).toBeVisible();
   const user = userEvent.setup();
-  await user.click(await screen.findByLabelText("Device"));
+  await user.click(screen.getByLabelText("Device"));
   await user.click(await screen.findByRole("option", { name: "iPhone SE" }));
   await waitFor(() => {
     expect(rpc.emulationPatches).toHaveLength(1);
@@ -145,31 +146,25 @@ test("applies a device preset to the browser the Agent Session owns", async () =
   });
 });
 
-test("moves an identity's own device metrics with it", async () => {
+test("sends an identity alone so the session applies its own device metrics", async () => {
   renderSetup();
+  // The applied Emulation has landed, so nothing below is racing the read.
+  expect(await screen.findByText("1280 × 720")).toBeVisible();
   const user = userEvent.setup();
-  await user.click(await screen.findByLabelText("User agent"));
+  await user.click(screen.getByLabelText("User agent"));
   await user.click(
     await screen.findByRole("option", { name: "Chrome — Android Mobile" })
   );
   await waitFor(() => {
     expect(rpc.emulationPatches).toHaveLength(1);
   });
-  expect(rpc.emulationPatches.at(0)).toMatchObject({
-    payload: {
-      data: {
-        sessionId,
-        userAgentProfile: "chrome-android-mobile",
-      },
-      type: "agent.browser.emulation.set",
-    },
-  });
   const [patch] = rpc.emulationPatches;
-  expect(patch?.payload.data.viewport).not.toEqual({
-    deviceScaleFactor: 1,
-    height: 720,
-    width: 1280,
+  expect(patch?.payload).toEqual({
+    data: { sessionId, userAgentProfile: "chrome-android-mobile" },
+    type: "agent.browser.emulation.set",
   });
+  // A viewport here would overwrite the metrics the identity brings with it.
+  expect(patch?.payload.data.viewport).toBeUndefined();
 });
 
 test("refuses browser setup while the agent holds the browser", async () => {

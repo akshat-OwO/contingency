@@ -122,6 +122,7 @@ export {
   UserAgentMetadata,
   UserAgentProfileId,
   userAgentProfiles,
+  viewportForIdentity,
 } from "./browser-identity.ts";
 export type {
   MatchedUserAgentProfile,

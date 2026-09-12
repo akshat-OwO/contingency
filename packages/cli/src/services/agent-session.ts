@@ -10,6 +10,7 @@ import {
   describeAgentAction,
   makeBrowserRpcError,
   UserAgentProfileId,
+  viewportForIdentity,
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
@@ -4957,7 +4958,18 @@ const makeAgentSession = (
           }
           const userAgentProfile =
             patch.userAgentProfile ?? record.emulation.userAgentProfile;
-          const viewport = patch.viewport ?? record.emulation.viewport;
+          // An identity moves every signal it implies together, so an
+          // identity-only change is applied at that identity's own device
+          // metrics rather than over the viewport the session already had
+          // (ADR 0013). An explicit viewport in the same patch outranks it.
+          const viewport =
+            patch.viewport ??
+            (patch.userAgentProfile === undefined
+              ? record.emulation.viewport
+              : viewportForIdentity(
+                  patch.userAgentProfile,
+                  record.emulation.viewport
+                ));
           if (patch.userAgentProfile === undefined) {
             if (patch.viewport !== undefined) {
               yield* browser.setViewport(record.browserSessionId, viewport);

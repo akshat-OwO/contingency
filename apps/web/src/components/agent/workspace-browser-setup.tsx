@@ -16,7 +16,6 @@ import { useEffect, useEffectEvent } from "react";
 import {
   devicePresets,
   RESPONSIVE_PRESET_ID,
-  viewportForIdentity,
 } from "@/components/browser/browser-device-presets";
 import { BrowserDevtools } from "@/components/browser/browser-devtools";
 import { useAgentBrowserTooling } from "@/components/browser/browser-tooling";
@@ -252,9 +251,10 @@ export const WorkspaceBrowserSetup = ({
     >
       <div className="bg-background flex flex-wrap items-center gap-1.5 border-b px-2 py-1.5">
         {/*
-          An identity moves every signal it implies together: a phone identity
-          brings its own device metrics rather than sitting over a desktop
-          viewport (ADR 0013).
+          An identity moves every signal it implies together (ADR 0013). The
+          session applies the identity's own device metrics, so the identity
+          travels alone rather than beside a viewport this View may not have
+          read yet.
         */}
         <UserAgentPicker
           disabled={disabled}
@@ -263,13 +263,7 @@ export const WorkspaceBrowserSetup = ({
               ...current,
               presetId: RESPONSIVE_PRESET_ID,
             }));
-            patch({
-              userAgentProfile,
-              viewport:
-                applied === undefined
-                  ? undefined
-                  : viewportForIdentity(userAgentProfile, applied.viewport),
-            });
+            patch({ userAgentProfile });
           }}
           value={state.identity}
         />
