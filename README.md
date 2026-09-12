@@ -27,7 +27,7 @@ nub install
 nub run dev
 ```
 
-`nub run dev` starts the CLI and the Vite dev server together. Vite proxies `/ws` to the CLI, so open the Vite URL and changes on either side reload.
+`nub run dev` starts `contingency web` and the Vite dev server together. Vite proxies `/ws` to the CLI, so open the Vite URL and changes on either side reload. That loop serves the Workspace over the local catalog; it owns no Agent Sessions, so run `nub exec contingency mcp` in its own terminal to teach a journey or drive an Interactive Run.
 
 ## Checks
 

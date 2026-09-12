@@ -45,7 +45,7 @@ Once approved, the agent works within an Execution Boundary you approved: it may
 contingency web
 ```
 
-This serves the Workspace alone. Teaching and Interactive Runs need `contingency mcp`, which owns Agent Sessions; `contingency web` is for inspecting finished Runs. `--no-browser` starts the server without opening a browser window, which is what you want over SSH.
+This serves the Workspace over the local Catalog Root, so you can browse Agent Flows and inspect a finished Run and its video without starting an MCP client. It owns no Agent Sessions, so Teaching and Interactive Runs need `contingency mcp`. `--no-browser` starts the server without opening a browser window, which is what you want over SSH.
 
 ## Artifacts
 

@@ -1,6 +1,11 @@
 import { Config, Console, Effect, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
+import {
+  defaultCatalogRoot,
+  makeAgentFlowCatalogLayer,
+} from "../services/agent-flow-catalog.ts";
+import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { UiInterface } from "../services/ui-interface.ts";
 import {
@@ -27,8 +32,30 @@ export const webCommand = Command.make(
 
     return yield* Effect.scoped(
       Effect.gen(function* serveWebInterface() {
+        // The catalog and its Run evidence are durable and process-independent,
+        // so this server can read an Agent Flow and a finished Run written by
+        // whichever MCP process produced them. Agent Sessions are the one thing
+        // it deliberately lacks: MCP owns those and the browsers behind them.
+        let selectedCatalogRoot = defaultCatalogRoot();
+        const catalog = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentFlowCatalogLayer({
+              onSelect: (root) => {
+                selectedCatalogRoot = root;
+              },
+              root: selectedCatalogRoot,
+            })
+          )
+        );
+        const runStore = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
+          )
+        );
         yield* Layer.build(
           makeHttpServerLayer({
+            agentFlowCatalog: catalog,
+            agentRunStore: runStore,
             allowedOrigins: resolveAllowedOrigins(browserUrl),
             host: config.host,
             port: config.port,
@@ -47,6 +74,6 @@ export const webCommand = Command.make(
   })
 ).pipe(
   Command.withDescription(
-    "Open the Contingency Workspace. Teaching and Interactive Runs need `contingency mcp`, which owns Agent Sessions."
+    "Open the Contingency Workspace over the local catalog. Teaching and Interactive Runs need `contingency mcp`, which owns Agent Sessions."
   )
 );
