@@ -18,15 +18,13 @@ This directory is the maintained source for verifying Contingency's user-facing 
 - Treat every command as literal. Keep quoted names and flags unchanged.
 - Run Contingency chrome actions through `control-contingency browser`.
 - Run nested Workspace site actions through `computerUse` at the verification URL.
-- Run headless Flows through `control-contingency cli --`.
-- Restore nothing in the user's `~/.local/state/contingency`. Isolated state is deleted on cleanup. Proof artifacts are not.
+- Restore nothing in the user's real `.contingency` catalog. Isolated state is deleted on cleanup. Proof artifacts are not.
 
 ## Proof and skip reporting
 
 - Capture the user action and the resulting state, not only the final screen.
 - UI proof includes an ARIA snapshot and a screenshot with the Contingency wordmark visible.
-- CLI proof includes the command, stdout, stderr, exit code, and the Run directory printed by the CLI.
-- Mutation proof includes a read-only second view: reopen the route, or read `run.json` under the isolated runs directory.
+- Mutation proof includes a read-only second view: reopen the route, or read the written catalog files under the isolated state directory.
 - Record the feature ID and entry point used with every artifact.
 - Report an unreachable path with the attempted command and the unmet precondition.
 - Do not report a skipped entry point as verified through a different path.
@@ -44,7 +42,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Workspace](./workspace.md) is the current UI recipe for navigation, user-led Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries.
-- [Headless Run](./cli-run.md) covers the deterministic CLI retained until #165 Phase 6.
-
-Create View, Audit View, and the old ecommerce drive are historical recipes for removed routes. They are not current verification paths.
+- [Workspace](./workspace.md) is the UI recipe for navigation, user-led Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries.

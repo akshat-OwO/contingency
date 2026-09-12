@@ -2,7 +2,7 @@ import { ContingencyRpcs, OperationId } from "@contingency/protocol";
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Stream } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { RpcTest } from "effect/unstable/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -12,9 +12,6 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
-import type { RunSessionService } from "../../src/services/run-session.ts";
 import { makeCall } from "./agent-harness.ts";
 import {
   CART_VIEWED_BEACON,
@@ -29,15 +26,6 @@ const viewport = {
   width: 640,
 } as const;
 
-const runSession: RunSessionService = {
-  answerVariable: () => Effect.die("Not under test."),
-  artifactPath: () => Effect.die("Not under test."),
-  changes: () => Stream.never,
-  get: () => Effect.succeed(null),
-  loadFlow: () => Effect.die("Not under test."),
-  start: () => Effect.die("Not under test."),
-};
-
 /**
  * Two public seams over one Agent Session, exactly as the product has them:
  * the external agent observes and acts through MCP tools, and the user acts
@@ -50,15 +38,11 @@ const AgentBrowserLive = Layer.mergeAll(
   AgentSessionToolHandlersLive
 ).pipe(
   Layer.provideMerge(
-    Layer.mergeAll(
-      makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }),
-      RecordingLive
-    ).pipe(
+    makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }).pipe(
       Layer.provideMerge(CreateBrowserLive),
       Layer.provideMerge(NodeServices.layer)
     )
-  ),
-  Layer.provide(Layer.succeed(RunSession, runSession))
+  )
 );
 
 const client = RpcTest.makeClient(ContingencyRpcs, { flatten: true });

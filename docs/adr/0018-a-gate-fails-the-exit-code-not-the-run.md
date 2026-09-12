@@ -1,5 +1,7 @@
 # A Gate fails the exit code, not the Run
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 A Flow may declare a **Gate**: a list of accessibility rule ids that must produce no Finding. With no Gate declared, a Run reports every violation and fails nothing, which is [ADR 0009](./0009-run-execution-semantics.md)'s position unchanged. When a Gate is declared and breached, the Run's outcome stays `completed` and the CLI exits non-zero.
 
 ## Consequences

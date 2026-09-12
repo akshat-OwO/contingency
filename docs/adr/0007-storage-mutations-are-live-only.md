@@ -1,5 +1,7 @@
 # Storage mutations are live-only screwdriver operations
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Create View Storage inspects and mutates the current tab’s top-level origin cookies, `localStorage`, and `sessionStorage`. Mutations are live screwdriver operations on that browser. They are never Flow Steps, never part of a Recording, and never a glossary term.
 
 While a Recording exists for that browser session and `phase !== "finished"` (`active`, `paused`, or `incomplete`), inspect stays on and mutate is off in both the UI and the CLI. Get RPCs remain allowed. The lock is session-scoped: another Create View browser session can still mutate.

@@ -1,5 +1,7 @@
 # Runs are Chromium-only, deliberately
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Contingency executes Flows in Chromium only. This was inherited rather than chosen — the bundled `agent-browser` supported nothing else — and [ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md) removes the constraint by making Firefox and WebKit available from the same API. It is kept anyway for now, and recorded here so it reads as a decision rather than an assumption.
 
 ## Consequences

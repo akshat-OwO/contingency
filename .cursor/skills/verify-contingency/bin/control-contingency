@@ -35,9 +35,8 @@ const usage = () => {
   process.stdout.write(`control-contingency <command>
 
 Commands:
-  launch [--flow <path>]
+  launch
   doctor
-  reload --flow <path>
   cleanup
   browser goto --path <path> | --url <absolute-url>
   browser click --role <role> --name <name> [--partial]
@@ -435,12 +434,9 @@ const waitForFile = async (file, timeoutMs) => {
   throw new Error(`Timed out waiting for ${file}`);
 };
 
-const launchCli = async ({ directory, flow, port, stateDir }) => {
+const launchCli = async ({ directory, port, stateDir }) => {
   const cli = ensureBuiltCli();
   const args = [cli, "web", "--no-browser"];
-  if (flow !== undefined) {
-    args.push(path.resolve(flow));
-  }
   mkdirSync(directory, { recursive: true });
   const logPath = path.join(directory, "server.log");
   const logFd = openSync(logPath, "a");
@@ -449,7 +445,7 @@ const launchCli = async ({ directory, flow, port, stateDir }) => {
     detached: true,
     env: {
       ...process.env,
-      CONTINGENCY_STATE_DIR: stateDir,
+      CONTINGENCY_CATALOG_ROOT: path.join(stateDir, "catalog"),
       CONTINGENCY_WEB_HOST: "127.0.0.1",
       CONTINGENCY_WEB_PORT: String(port),
       NODE_ENV: "production",
@@ -561,11 +557,7 @@ const cmdDriverServe = async (url, userDataDir) => {
   );
 };
 
-const cmdLaunch = async (flags) => {
-  const flow = typeof flags.flow === "string" ? flags.flow : undefined;
-  if (flow !== undefined && !existsSync(flow)) {
-    fail(`Flow file does not exist: ${flow}`);
-  }
+const cmdLaunch = async () => {
   const stamp = `${Date.now()}-${process.pid}`;
   const directory =
     process.env.CONTINGENCY_VERIFY_DIR?.trim() ??
@@ -588,7 +580,7 @@ const cmdLaunch = async (flags) => {
       `Port ${port} is owned by pid ${owner}. Do not drive that instance; pick another port.`
     );
   }
-  const child = await launchCli({ directory, flow, port, stateDir });
+  const child = await launchCli({ directory, port, stateDir });
   const url = `http://127.0.0.1:${port}/`;
   let driver;
   try {
@@ -602,7 +594,6 @@ const cmdLaunch = async (flags) => {
   writeInstance(directory, {
     driverPid: driver.driverPid,
     driverUrl: driver.driverUrl,
-    flow: flow === undefined ? null : path.resolve(flow),
     pid: child.pid,
     port,
     repoRoot,
@@ -679,46 +670,6 @@ const cmdDoctor = async () => {
   );
 };
 
-const cmdReload = async (flags) => {
-  const flow = flags.flow;
-  if (typeof flow !== "string" || !existsSync(flow)) {
-    fail("reload needs --flow pointing at an existing Flow file.");
-  }
-  const directory = verifyDir();
-  const instance = readInstance();
-  const stopPid = async (pid) => {
-    if (!pidAlive(pid)) {
-      return;
-    }
-    process.kill(pid, "SIGTERM");
-    const deadline = Date.now() + 10_000;
-    while (pidAlive(pid) && Date.now() < deadline) {
-      await delay(100);
-    }
-    if (pidAlive(pid)) {
-      process.kill(pid, "SIGKILL");
-    }
-  };
-  if (typeof instance.pid === "number") {
-    await stopPid(instance.pid);
-  }
-  const child = await launchCli({
-    directory,
-    flow: path.resolve(flow),
-    port: instance.port,
-    stateDir: instance.stateDir,
-  });
-  writeInstance(directory, {
-    ...instance,
-    flow: path.resolve(flow),
-    pid: child.pid,
-  });
-  await waitForHttp(instance.url, 30_000);
-  process.stdout.write(
-    `reloaded web pid=${child.pid} flow=${path.resolve(flow)}\n`
-  );
-};
-
 const cmdCleanup = async () => {
   const directory = verifyDir();
   const file = instancePath(directory);
@@ -773,7 +724,7 @@ const cmdBrowser = async (action, flags) => {
 
 const cmdCli = async (rest) => {
   if (rest.length === 0) {
-    fail("cli needs arguments after --, for example: cli -- run ./flow.json");
+    fail("cli needs arguments after --, for example: cli -- mcp --help");
   }
   const instance = existsSync(instancePath()) ? readInstance() : undefined;
   const cli = ensureBuiltCli();
@@ -785,7 +736,7 @@ const cmdCli = async (rest) => {
     cwd: repoRoot,
     env: {
       ...process.env,
-      CONTINGENCY_STATE_DIR: stateDir,
+      CONTINGENCY_CATALOG_ROOT: path.join(stateDir, "catalog"),
       HOME: instance === undefined ? homedir() : path.join(verifyDir(), "home"),
       NODE_ENV: "production",
     },
@@ -854,28 +805,13 @@ const cmdFixtureStart = async () => {
     CONTINGENCY_VERIFY_DIR: directory,
   });
   const shopUrl = await waitForFile(readyFile, 10_000);
-  const flowPath = path.join(directory, "verify-flow.json");
-  writeFileSync(
-    flowPath,
-    `${JSON.stringify(
-      {
-        steps: [{ type: "navigate", url: shopUrl }],
-        title: "Contingency Shop smoke",
-      },
-      null,
-      2
-    )}\n`
-  );
   writeInstance(directory, {
     ...instance,
     ecommerceUrl: shopUrl,
     fixturePid: child.pid,
     fixtureUrl: shopUrl,
-    flowPath,
   });
-  process.stdout.write(
-    `ecommerce=${shopUrl}\nfixture=${shopUrl}\nflow=${flowPath}\n`
-  );
+  process.stdout.write(`ecommerce=${shopUrl}\nfixture=${shopUrl}\n`);
 };
 
 const cmdMcpStart = async () => {
@@ -916,7 +852,6 @@ const cmdMcpStart = async () => {
         CONTINGENCY_CATALOG_ROOT: path.join(instance.stateDir, "catalog"),
         CONTINGENCY_MCP_HOST: "127.0.0.1",
         CONTINGENCY_MCP_PORT: String(port),
-        CONTINGENCY_STATE_DIR: instance.stateDir,
         NODE_ENV: "production",
       },
       stdio: ["ignore", logFd, logFd],
@@ -1042,15 +977,11 @@ const main = async () => {
   }
   const command = argv[0];
   if (command === "launch") {
-    await cmdLaunch(parseArgs(argv.slice(1)).flags);
+    await cmdLaunch();
     return;
   }
   if (command === "doctor") {
     await cmdDoctor();
-    return;
-  }
-  if (command === "reload") {
-    await cmdReload(parseArgs(argv.slice(1)).flags);
     return;
   }
   if (command === "cleanup") {

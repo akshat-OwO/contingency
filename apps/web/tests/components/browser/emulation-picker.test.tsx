@@ -1,16 +1,8 @@
-import { SessionId } from "@contingency/protocol";
-import type { RecordingSnapshot } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { EmulationPicker } from "@/components/browser/emulation-picker";
-import { recordingLocksBrowser } from "@/components/create/create-workspace-state";
-
-const sessionId = SessionId.make("create-checkout");
-const otherSessionId = SessionId.make("create-other");
-/** No session selected yet: nothing is locked, because nothing is shown. */
-const noSelection: SessionId | undefined = undefined;
 
 afterEach(cleanup);
 
@@ -133,22 +125,10 @@ test("reads back both granted and denied decisions", async () => {
   ).toBeInTheDocument();
 });
 
-test("locks the browser controls only for the Recording's own session", () => {
-  const recording = {
-    phase: "incomplete",
-    sessionId,
-  } satisfies RecordingSnapshot;
-
-  expect(recordingLocksBrowser(recording, sessionId)).toBe(true);
-  expect(recordingLocksBrowser(recording, otherSessionId)).toBe(false);
-  expect(recordingLocksBrowser(recording, noSelection)).toBe(false);
-  expect(recordingLocksBrowser(null, sessionId)).toBe(false);
-});
-
 /**
- * Chromium cannot narrow a context-wide grant back down for one site, so a
- * Flow may not declare both. Granting to every site therefore drops that
- * permission's origin denials rather than composing a set the Flow would
+ * Chromium cannot narrow a context-wide grant back down for one site, so an
+ * Emulation may not declare both. Granting to every site therefore drops that
+ * permission's origin denials rather than composing a set the Emulation would
  * refuse to save.
  */
 test("granting to every site drops that permission's origin denials", async () => {

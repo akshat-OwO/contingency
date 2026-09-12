@@ -81,7 +81,7 @@ test("the default profile applies no identity at all", () => {
 
 /**
  * Chromium can wear a Safari, Firefox, or iOS string but never reproduce
- * those engines, so Create View stops offering them for new work while
+ * those engines, so the picker stops offering them for new work while
  * existing Flows naming them still decode.
  */
 test("identities Chromium cannot reproduce are no longer selectable", () => {

@@ -1,6 +1,6 @@
 # Run artifacts are properties of the Run, and video is derived from the trace
 
-> Amends [ADR 0010](./0010-run-video-is-unredacted.md).
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Amends [ADR 0010](./0010-run-video-is-unredacted.md).
 
 A Run captures a Playwright trace by default (`--trace`, on unless disabled) and can additionally emit a video (`--video`). Both are CLI flags; the `video` field is removed from the Flow, because whether to keep an artifact is a fact about how a Run was invoked — CI wants traces and no video, local work wants both — and not a fact about the Flow. The video is **generated from the trace's per-action screenshots** rather than captured live.
 

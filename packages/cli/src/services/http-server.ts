@@ -10,13 +10,10 @@ import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
 import { makeAgentRunArtifactRoutes } from "../routes/agent-run-artifacts.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
-import { makeRunArtifactRoutes } from "../routes/run-artifacts.ts";
 import type { AgentFlowCatalogService } from "./agent-flow-catalog.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
-import { makeRunSessionLayer } from "./run-session.ts";
-import type { RunSessionInput } from "./run-session.ts";
 
 export { isAllowedWebSocketOrigin } from "./web-url.ts";
 
@@ -62,17 +59,17 @@ const webRoot = resolveWebRoot(import.meta.dirname);
 
 export interface HttpServerOptions {
   /**
-   * The durable Agent Flow Catalog behind Agent View's draft review. It is the
-   * same value MCP reads, so the user reviews the draft the agent saved.
+   * The durable Agent Flow Catalog behind the Workspace's draft review. It is
+   * the same value MCP reads, so the user reviews the draft the agent saved.
    */
   readonly agentFlowCatalog?: Layer.Layer<AgentFlowCatalogService>;
   /**
-   * Persisted Interactive Run evidence, behind Agent View's summary mode and
-   * the read-only viewer. Absent in a process that serves Audit View alone.
+   * Persisted Interactive Run evidence, behind the Workspace's summary mode
+   * and the read-only viewer. Absent in a process that serves no Runs.
    */
   readonly agentRunStore?: Layer.Layer<AgentRunStoreService>;
   readonly allowedOrigins: ReadonlySet<string>;
-  /** A shared process-owned registry for MCP and Agent View, when supplied. */
+  /** A shared process-owned registry for MCP and the Workspace, when supplied. */
   readonly agentSession?: Layer.Layer<
     AgentSessionService,
     never,
@@ -80,7 +77,7 @@ export interface HttpServerOptions {
   >;
   readonly host: string;
   /**
-   * Streamable HTTP MCP on this process's Agent View server. Absent on
+   * Streamable HTTP MCP on this process's Workspace server. Absent on
    * `contingency web`, which must not own Agent Sessions.
    */
   readonly mcp?: Layer.Layer<
@@ -89,8 +86,6 @@ export interface HttpServerOptions {
     HttpRouter.HttpRouter
   >;
   readonly port: number;
-  /** The one Flow Audit View can run, and where its Runs are written. */
-  readonly run: RunSessionInput;
   readonly serveWebUi: boolean;
 }
 
@@ -102,22 +97,17 @@ export const makeHttpServerLayer = ({
   host,
   mcp = Layer.empty,
   port,
-  run,
   serveWebUi,
 }: HttpServerOptions) => {
   const webRoutes = serveWebUi
     ? HttpStaticServer.layer({ root: webRoot, spa: true })
     : Layer.empty;
-  // One Run session behind both surfaces: the RPC group that starts and
-  // streams the Run, and the route that serves the video it derived. The same
-  // layer value reaches both, so both see the same Run rather than two.
-  const runSession = makeRunSessionLayer(run);
   // `web` deliberately has no Agent Session registry. MCP is the explicit
   // owner of that process-scoped service and passes the same layer to both
-  // stdio tools and Agent View. Keeping this optional also makes an ordinary
+  // stdio tools and the Workspace. Keeping this optional also makes an ordinary
   // web server answer a typed `agent_session_unavailable` error rather than
   // accidentally launching Chromium on behalf of an HTTP caller.
-  const rpcRoutes = makeRpcRoutes({ allowedOrigins, runSession });
+  const rpcRoutes = makeRpcRoutes({ allowedOrigins });
   const sessionRpcRoutes =
     agentSession === undefined
       ? rpcRoutes
@@ -130,22 +120,19 @@ export const makeHttpServerLayer = ({
     agentRunStore === undefined
       ? catalogRpcRoutes
       : catalogRpcRoutes.pipe(Layer.provide(agentRunStore));
-  const artifactRoutes = makeRunArtifactRoutes({ allowedOrigins });
   // The artifact routes read their stores per request, so those are provided
   // to the served router rather than to the route layers.
   const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>
     HttpRouter.serve(Layer.mergeAll(routes, mcp, webRoutes)).pipe(
-      Layer.provide(NodeHttpServer.layer(createTrackedServer, { host, port })),
-      Layer.provide(runSession)
+      Layer.provide(NodeHttpServer.layer(createTrackedServer, { host, port }))
     );
   // The Agent Run video route exists only where a Run store does: a process
-  // serving Audit View alone has no persisted Interactive Runs to serve.
+  // that owns no Agent Sessions has no persisted Interactive Runs to serve.
   return agentRunStore === undefined
-    ? serveRoutes(Layer.mergeAll(agentRpcRoutes, artifactRoutes))
+    ? serveRoutes(agentRpcRoutes)
     : serveRoutes(
         Layer.mergeAll(
           agentRpcRoutes,
-          artifactRoutes,
           makeAgentRunArtifactRoutes({ allowedOrigins })
         )
       ).pipe(Layer.provide(agentRunStore));

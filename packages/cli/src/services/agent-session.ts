@@ -345,8 +345,6 @@ export interface AgentSessionService {
     tabId: BrowserTabId,
     kind: StorageKind
   ) => Effect.Effect<void, AgentSessionError>;
-  /** Internal ownership check for generic browser RPC isolation. */
-  readonly ownsBrowserSession: (sessionId: SessionId) => Effect.Effect<boolean>;
   readonly start: (
     input: AgentSessionStartInput
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
@@ -1997,7 +1995,7 @@ const makeAgentSession = (
           };
         }
         const traceFile = path.join(directory, `${sessionId}.trace.zip`);
-        const target = yield* browser.recorderTarget(browserSessionId);
+        const target = yield* browser.activeTarget(browserSessionId);
         const rememberVideo = (page: Page): void => {
           const video = page.video();
           if (video !== null) {
@@ -2512,7 +2510,7 @@ const makeAgentSession = (
                   // named no URL. Otherwise an identity asked for here would
                   // never apply to the pages the agent later visits.
                   if (record.boundaryControl !== undefined) {
-                    const target = yield* browser.recorderTarget(acquired);
+                    const target = yield* browser.activeTarget(acquired);
                     yield* installAgentNavigationBoundary(
                       target.context,
                       target.page,
@@ -4613,12 +4611,6 @@ const makeAgentSession = (
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>
             browser.getNetworkRequests(record.browserSessionId, tabId)
-          )
-        ),
-      ownsBrowserSession: (sessionId) =>
-        Effect.sync(() =>
-          [...Ref.getUnsafe(sessions).values()].some(
-            ({ browserSessionId }) => browserSessionId === sessionId
           )
         ),
       pendingDecision: (pendingDecisionId) =>

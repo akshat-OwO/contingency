@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { BrowserTabId, SessionId } from "./browser-identifiers.ts";
+import { BrowserTabId } from "./browser-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -71,42 +71,6 @@ export const BrowserStorageSnapshot = Schema.Union([
   BrowserStorageWebSnapshot,
 ]);
 export type BrowserStorageSnapshot = typeof BrowserStorageSnapshot.Type;
-
-export const BrowserStorageSetPayload = Schema.Union([
-  Schema.Struct({
-    cookie: BrowserCookieWrite,
-    kind: Schema.Literal("cookies"),
-    sessionId: SessionId,
-    tabId: BrowserTabId,
-  }),
-  Schema.Struct({
-    key: nonEmptyString,
-    kind: Schema.Literals(["local", "session"]),
-    sessionId: SessionId,
-    tabId: BrowserTabId,
-    value: Schema.String,
-  }),
-]);
-export type BrowserStorageSetPayload = typeof BrowserStorageSetPayload.Type;
-
-export const BrowserStorageDeletePayload = Schema.Union([
-  Schema.Struct({
-    domain: nonEmptyString,
-    kind: Schema.Literal("cookies"),
-    name: Schema.String,
-    path: nonEmptyString,
-    sessionId: SessionId,
-    tabId: BrowserTabId,
-  }),
-  Schema.Struct({
-    key: nonEmptyString,
-    kind: Schema.Literals(["local", "session"]),
-    sessionId: SessionId,
-    tabId: BrowserTabId,
-  }),
-]);
-export type BrowserStorageDeletePayload =
-  typeof BrowserStorageDeletePayload.Type;
 
 const HTTP_ORIGIN_PATTERN =
   /^(?<scheme>https?):\/\/(?<host>\[[^\]]+\]|[^/?#:]+)(?::(?<port>\d+))?/u;
@@ -226,4 +190,4 @@ export const cookieIdentityOf = (
 });
 
 export const STORAGE_LOCKED_MESSAGE =
-  "Storage is locked while the Recording is in progress.";
+  "Storage is locked while the agent controls the browser.";

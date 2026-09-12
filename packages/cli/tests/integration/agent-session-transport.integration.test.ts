@@ -31,24 +31,12 @@ import {
   AgentSession,
 } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
-import type { RunSessionService } from "../../src/services/run-session.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
   height: 480,
   width: 640,
 } as const;
-
-const runSession: RunSessionService = {
-  answerVariable: () => Effect.die("Not under test."),
-  artifactPath: () => Effect.die("Not under test."),
-  changes: () => Stream.never,
-  get: () => Effect.succeed(null),
-  loadFlow: () => Effect.die("Not under test."),
-  start: () => Effect.die("Not under test."),
-};
 
 const isTcpAddress = (
   address: AddressInfo | string | null
@@ -199,8 +187,7 @@ it.live(
         makeAgentSessionLayer({
           baseUrl: origin,
           resourceDirectory: ownerMarker,
-        }),
-        RecordingLive
+        })
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
@@ -209,7 +196,6 @@ it.live(
         HttpRouter.serve(
           makeRpcRoutes({
             allowedOrigins: new Set([origin]),
-            runSession: Layer.succeed(RunSession, runSession),
           })
         ).pipe(
           Layer.provideMerge(browserServices),

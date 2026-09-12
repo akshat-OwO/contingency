@@ -21,7 +21,7 @@ description: Update verify-contingency when Contingency's user-facing behavior c
 
 Agents proving Contingency should follow `verify-contingency/SKILL.md` and the feature files. The primary UI recipe is `features/workspace.md`. It covers the sole route at `/`, user-led Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries. Start the local ecommerce fixture for browser journeys.
 
-The Create View, Audit View, and ecommerce-drive recipes are historical until deterministic stack deletion in #165 Phase 6. Keep current UI instructions in the Workspace recipe.
+`features/workspace.md` is the only recipe: the deterministic Create View, Audit View, headless-Run, and ecommerce-drive recipes were deleted with that stack.
 
 ## Two driving surfaces in the Workspace
 

@@ -1,9 +1,9 @@
 import { Schema } from "effect";
 
 /**
- * `create-` sessions author a Recording in Create View. `run-` sessions execute
- * a Flow in the Runner: headless, non-streaming, no recorder sidecar. The
- * prefix keeps the two distinguishable wherever a session name is read.
+ * `create-` sessions stream a live browser a user or agent drives. `run-`
+ * sessions execute headlessly: non-streaming, no live viewer. The prefix keeps
+ * the two distinguishable wherever a session name is read.
  */
 export const sessionPrefixes = ["create-", "run-"] as const;
 export type SessionPrefix = (typeof sessionPrefixes)[number];

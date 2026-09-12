@@ -462,18 +462,18 @@ export const reapplyViewport = (
  * Chromium's per-origin grant is a replacement rather than an addition — it
  * grants what it names for that origin and rejects every other permission
  * there. Sending only an origin's own names would therefore withdraw the
- * Flow's context-wide grants at exactly the site the author singled out.
+ * Emulation's context-wide grants at exactly the site the author singled out.
  *
  * Denials need no call of their own: Chromium grants exactly what it is told
  * to and denies the rest outright, so an explicit denial and an absent
  * decision reach a site the same way — as a refusal, never as the native
- * prompt Create View cannot operate. What the denial buys is durability: the
- * Flow says the author meant it. Shared by the Runner's context-open path and
- * Create View's live session, so both reproduce a decision identically ([ADR
+ * prompt a live browser session cannot operate. What the denial buys is
+ * durability: the Emulation says the author meant it. Shared by every
+ * context-open path, so all of them reproduce a decision identically ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  *
  * A grant is never subtracted for one origin: an origin denial beside a
- * context-wide grant of the same permission is not a set a Flow may declare,
+ * context-wide grant of the same permission is not a set an Emulation may declare,
  * because no union of grants could express it.
  */
 export interface GrantedPermissionScopes {

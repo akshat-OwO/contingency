@@ -11,9 +11,6 @@ import { RpcTest } from "effect/unstable/rpc";
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
-import type { RunSessionService } from "../../src/services/run-session.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -21,30 +18,19 @@ const viewport = {
   width: 640,
 } as const;
 
-const runSession: RunSessionService = {
-  answerVariable: () => Effect.die("Not under test."),
-  artifactPath: () => Effect.die("Not under test."),
-  changes: () => Stream.never,
-  get: () => Effect.succeed(null),
-  loadFlow: () => Effect.die("Not under test."),
-  start: () => Effect.die("Not under test."),
-};
-
 /**
  * The RPC client is the public seam for MCP and Workspace adapters. The
  * browser below is real Chromium; only unrelated Recording/Run handlers are
  * supplied with services because this test exercises Agent Session ownership.
  */
-const BrowserServices = Layer.mergeAll(
-  makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }),
-  RecordingLive
-).pipe(
+const BrowserServices = makeAgentSessionLayer({
+  baseUrl: "http://127.0.0.1:7777",
+}).pipe(
   Layer.provideMerge(CreateBrowserLive),
   Layer.provideMerge(NodeServices.layer)
 );
 const AgentSessionIntegrationLive = RpcHandlersLive.pipe(
-  Layer.provide(BrowserServices),
-  Layer.provide(Layer.succeed(RunSession, runSession))
+  Layer.provide(BrowserServices)
 );
 
 it.live(

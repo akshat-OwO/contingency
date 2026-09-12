@@ -1,5 +1,7 @@
 # Performance is a navigation Step toggle, not an Audit
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Performance is measured by toggling `contingency.performance` on a Step that navigates — a `navigate` Step, or a `click` Step carrying an `assertedEvents` navigation. The Runner collects Core Web Vitals for that navigation from the page the Flow already loaded. This supersedes the performance half of [ADR 0005](./0005-audits-are-ordered-custom-steps.md): **Audit** now means accessibility only, and `AuditKind` collapses to a single literal.
 
 Core Web Vitals are the product promise, and an ordered Audit Step cannot deliver them: a check placed at an arbitrary point mid-Flow either measures nothing time-based or has to re-navigate and destroy the state that made the page reachable. Attaching the measurement to a navigation the Flow already performs avoids both.

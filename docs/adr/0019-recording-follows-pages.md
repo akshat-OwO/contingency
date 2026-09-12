@@ -1,6 +1,6 @@
 # Recording follows Pages, and captures hover by gesture
 
-> Amends [ADR 0006](./0006-incomplete-recordings-recover-from-checkpoints.md).
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Amends [ADR 0006](./0006-incomplete-recordings-recover-from-checkpoints.md).
 
 A Recording follows a popup or additional tab as a new Page instead of failing on it, and captures the two continuous new actions differently: `hover` only when the author asks for it, `scroll` automatically at each resting position.
 

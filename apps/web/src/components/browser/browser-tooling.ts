@@ -5,7 +5,6 @@ import type {
   BrowserNetworkRequestDetail,
   BrowserStorageSnapshot,
   BrowserTabId,
-  SessionId,
   StorageKind,
 } from "@contingency/protocol";
 import { useAtomSet } from "@effect/atom-react";
@@ -33,10 +32,9 @@ export type StorageErase =
 
 /**
  * The browser setup operations the storage and devtools panels need, named
- * without the browser handle they run against. Create View addresses a generic
- * browser session directly; the Workspace addresses an Agent Session, whose
- * lower-level browser handle never leaves the server process (ADR 0038). The
- * panels are the same either way because they only ever see this port.
+ * without the browser handle they run against. The Workspace addresses an
+ * Agent Session, whose lower-level browser handle never leaves the server
+ * process (ADR 0038); the panels only ever see this port.
  */
 export interface BrowserTooling {
   readonly clearStorage: (
@@ -60,78 +58,6 @@ export interface BrowserTooling {
     input: StorageWrite
   ) => Promise<void>;
 }
-
-/** Browser setup against a generic browser session, as Create View drives it. */
-export const useSessionBrowserTooling = (
-  sessionId: SessionId
-): BrowserTooling => {
-  const {
-    browserNetworkRequestMutation,
-    browserStorageClearMutation,
-    browserStorageDeleteMutation,
-    browserStorageGetMutation,
-    browserStorageSetMutation,
-  } = useRpcDependencies();
-  const getNetworkRequest = useAtomSet(browserNetworkRequestMutation, {
-    mode: "promise",
-  });
-  const clearStorage = useAtomSet(browserStorageClearMutation, {
-    mode: "promise",
-  });
-  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
-    mode: "promise",
-  });
-  const getStorage = useAtomSet(browserStorageGetMutation, {
-    mode: "promise",
-  });
-  const setStorage = useAtomSet(browserStorageSetMutation, {
-    mode: "promise",
-  });
-  return {
-    clearStorage: async (tabId, kind) => {
-      await clearStorage({
-        payload: {
-          data: { kind, sessionId, tabId },
-          type: "browser.storage.clear",
-        },
-      });
-    },
-    deleteStorage: async (tabId, input) => {
-      await deleteStorage({
-        payload: {
-          data: { ...input, sessionId, tabId },
-          type: "browser.storage.delete",
-        },
-      });
-    },
-    getNetworkRequest: async (tabId, requestId) => {
-      const result = await getNetworkRequest({
-        payload: {
-          data: { requestId, sessionId, tabId },
-          type: "browser.network.request.get",
-        },
-      });
-      return result.data.request;
-    },
-    getStorage: async (tabId, kind) => {
-      const result = await getStorage({
-        payload: {
-          data: { kind, sessionId, tabId },
-          type: "browser.storage.get",
-        },
-      });
-      return result.data.snapshot;
-    },
-    setStorage: async (tabId, input) => {
-      await setStorage({
-        payload: {
-          data: { ...input, sessionId, tabId },
-          type: "browser.storage.set",
-        },
-      });
-    },
-  };
-};
 
 /** Browser setup against the MCP-owned browser an Agent Session holds. */
 export const useAgentBrowserTooling = (

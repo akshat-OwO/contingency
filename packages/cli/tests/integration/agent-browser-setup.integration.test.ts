@@ -7,15 +7,12 @@ import {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer } from "effect";
 import { RpcTest } from "effect/unstable/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
-import type { RunSessionService } from "../../src/services/run-session.ts";
 import { fixtureServer } from "./harness.ts";
 
 const viewport = {
@@ -24,30 +21,19 @@ const viewport = {
   width: 640,
 } as const;
 
-const runSession: RunSessionService = {
-  answerVariable: () => Effect.die("Not under test."),
-  artifactPath: () => Effect.die("Not under test."),
-  changes: () => Stream.never,
-  get: () => Effect.succeed(null),
-  loadFlow: () => Effect.die("Not under test."),
-  start: () => Effect.die("Not under test."),
-};
-
 /**
  * Browser setup tooling over the same loopback RPC boundary the Workspace
  * uses, against real Chromium. The browser handle stays inside the Agent
  * Session; every call here names the Agent Session instead (ADR 0038).
  */
-const BrowserServices = Layer.mergeAll(
-  makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }),
-  RecordingLive
-).pipe(
+const BrowserServices = makeAgentSessionLayer({
+  baseUrl: "http://127.0.0.1:7777",
+}).pipe(
   Layer.provideMerge(CreateBrowserLive),
   Layer.provideMerge(NodeServices.layer)
 );
 const AgentBrowserSetupLive = RpcHandlersLive.pipe(
   Layer.provide(BrowserServices),
-  Layer.provide(Layer.succeed(RunSession, runSession)),
   // The fixture server reads its pages from disk inside the test itself.
   Layer.provideMerge(NodeServices.layer)
 );

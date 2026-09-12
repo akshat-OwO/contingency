@@ -4,8 +4,7 @@
 | --- | --- |
 | [`../CONTEXT.md`](../CONTEXT.md) | Ubiquitous language (glossary only) |
 | [`adr/`](./adr/) | Hard-to-reverse decisions |
-| [`architecture/create-browser-streaming.md`](./architecture/create-browser-streaming.md) | Create View live browser (as built) |
-| [`future/product-path.md`](./future/product-path.md) | Flow → Recording → Runner → Alerts → Handoff |
+| [`architecture/browser-streaming.md`](./architecture/browser-streaming.md) | Workspace live browser (as built) |
 | [`future/agent-flow.md`](./future/agent-flow.md) | Agent-controlled sanity: Teaching → Agent Flow → verification → Suites |
 | [`releases.md`](./releases.md) | Cutting and publishing a release |
 

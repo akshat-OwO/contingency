@@ -1,5 +1,7 @@
 # Emulation belongs to the Flow
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Browser emulation — viewport, user agent, geolocation, website permissions, locale, timezone, and color scheme — is a field on the Flow, applied identically by Create View and by every Run. [Issue #4](https://github.com/akshat-OwO/contingency/issues/4) had scoped geolocation as a Create View control held in process memory, which lets an author _build_ a location-dependent Flow that then cannot be _run_: a headless CI Run would execute it from wherever the CI machine appears to be. Since the CLI is the sole Runner ([ADR 0002](./0002-cli-is-the-sole-runner.md)), emulation belongs to the artifact the Runner reads.
 
 ## Consequences

@@ -1,4 +1,4 @@
-import { BrowserTabId, SessionId } from "@contingency/protocol";
+import { AgentSessionId, BrowserTabId } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { BrowserDevtools } from "@/components/browser/browser-devtools";
 import type { BrowserDevtoolsProps } from "@/components/browser/browser-devtools";
-import { useSessionBrowserTooling } from "@/components/browser/browser-tooling";
+import { useAgentBrowserTooling } from "@/components/browser/browser-tooling";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 const rpc = vi.hoisted(() => ({
@@ -19,7 +19,7 @@ const rpc = vi.hoisted(() => ({
   set: vi.fn(),
 }));
 
-const sessionId = SessionId.make("create-storage");
+const sessionId = AgentSessionId.make("agent-storage");
 const tabId = BrowserTabId.make("tab-1");
 
 const cookies = [
@@ -38,9 +38,9 @@ const cookies = [
 ];
 
 const rpcOverrides = (() => {
-  const updated = { data: {}, type: "browser.storage.updated" as const };
+  const updated = { data: {}, type: "agent.browser.storage.updated" as const };
   return {
-    browserNetworkRequestMutation: Atom.fn(() =>
+    agentBrowserNetworkRequestMutation: Atom.fn(() =>
       Effect.succeed({
         data: {
           request: {
@@ -53,18 +53,18 @@ const rpcOverrides = (() => {
             url: "https://app.example.com",
           },
         },
-        type: "browser.network.request.result" as const,
+        type: "agent.browser.network.request.result" as const,
       })
     ),
-    browserStorageClearMutation: Atom.fn((request) => {
+    agentBrowserStorageClearMutation: Atom.fn((request) => {
       rpc.clear(request);
       return Effect.succeed(updated);
     }),
-    browserStorageDeleteMutation: Atom.fn((request) => {
+    agentBrowserStorageDeleteMutation: Atom.fn((request) => {
       rpc.delete(request);
       return Effect.succeed(updated);
     }),
-    browserStorageGetMutation: Atom.fn(
+    agentBrowserStorageGetMutation: Atom.fn(
       (request: {
         readonly payload: { readonly data: { readonly kind: string } };
       }) => {
@@ -73,7 +73,7 @@ const rpcOverrides = (() => {
         if (kind === "cookies") {
           return Effect.succeed({
             data: { snapshot: { cookies, kind: "cookies" as const, tabId } },
-            type: "browser.storage.result" as const,
+            type: "agent.browser.storage.result" as const,
           });
         }
         return Effect.succeed({
@@ -87,22 +87,22 @@ const rpcOverrides = (() => {
               tabId,
             },
           },
-          type: "browser.storage.result" as const,
+          type: "agent.browser.storage.result" as const,
         });
       }
     ),
-    browserStorageSetMutation: Atom.fn((request) => {
+    agentBrowserStorageSetMutation: Atom.fn((request) => {
       rpc.set(request);
       return Effect.succeed(updated);
     }),
   };
 })();
 
-/** Devtools as Create View mounts it: over a generic browser session's port. */
+/** Devtools as the Workspace mounts it: over an Agent Session's port. */
 const SessionDevtools = (props: Omit<BrowserDevtoolsProps, "tooling">) =>
   createElement(BrowserDevtools, {
     ...props,
-    tooling: useSessionBrowserTooling(sessionId),
+    tooling: useAgentBrowserTooling(sessionId),
   });
 
 const renderDevtools = (mutationsLocked = false) =>
@@ -177,7 +177,7 @@ test("opens Storage beside Console and Network with Cookies as the default inner
   });
 });
 
-test("keeps inspect and search available while mutate controls stay visible and disabled during a Recording", async () => {
+test("keeps inspect and search available while mutate controls stay visible and disabled while the agent controls the browser", async () => {
   renderDevtools(true);
   const user = await openStorage();
   expect(screen.getByText("jwt-fragment-xyz")).toBeInTheDocument();
@@ -187,7 +187,7 @@ test("keeps inspect and search available while mutate controls stay visible and 
     screen.getByRole("button", { name: "Delete cookie sid" })
   ).toBeDisabled();
   expect(
-    screen.getByText("Storage is locked while the Recording is in progress.")
+    screen.getByText("Storage is locked while the agent controls the browser.")
   ).toBeInTheDocument();
   await user.type(
     screen.getByRole("textbox", { name: "Search storage" }),
