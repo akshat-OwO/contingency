@@ -30,7 +30,7 @@ import {
   validateStorageKey,
   visibleCookies,
   visibleWebStorageEntries,
-} from "../../../src/components/create/browser-storage-state";
+} from "../../../src/components/browser/browser-storage-state";
 
 const cookie = (
   overrides: Partial<BrowserCookie> & Pick<BrowserCookie, "name" | "domain">

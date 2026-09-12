@@ -22,6 +22,7 @@ Workspace watches Teaching and Interactive Runs owned by one local MCP process, 
 - `agent-pending-decisions` relays verification authorization, approval, and Execution Boundary allow or refuse through MCP while Workspace mirrors pending and resolved status without action buttons.
 - `agent-runtime-variables` creates one Pending Decision for each missing runtime Variable, accepts supply or refusal through MCP, and keeps Workspace read-only.
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Feed or draft.
+- `workspace-browser-setup` configures the MCP-owned browser during teaching setup: identity, viewport, Emulation environment, and the storage and network panels for the tab the session is showing.
 
 ## How to get to it (user POV)
 
@@ -121,6 +122,15 @@ Preconditions:
 - **Use the supplied Variable.** Call `agent_browser_snapshot`, then `agent_variable_enter` with the Variable name and destination ref. The action succeeds and returns a redacted Snapshot. Assess the Step as `working`; the ordered Run can proceed.
 - **Capture proof.** Save `workspace/runtime-variable-pending.aria.txt` and `.png` before resolving, then `workspace/runtime-variable-refused.*` and `workspace/runtime-variable-supplied.*`. Search every ARIA artifact and MCP result for the disposable literals and require zero matches. Cleanup must remove the isolated catalog, Trace, and video while these proof files remain.
 
+### Browser setup
+
+- **Open the panel.** With a live Teaching session open at its `viewUrl`, run `control-contingency browser click --role button --name "Browser setup"`. The `Browser setup` region appears under the canvas with `User agent`, `Device`, and `Emulation` controls and the Console, Network, and Storage tabs.
+- **Change the identity.** Run `control-contingency browser click --role combobox --name "User agent"` and choose `Chrome — Android Mobile`. The identity brings its own device metrics: the applied viewport beside the controls changes with it, and the live canvas re-renders at phone width.
+- **Change the environment.** Open `Emulation`, fill `Locale` with `de-DE` and `Time zone` with `Europe/Berlin`, and choose a colour scheme. Read the session's browser back with `agent_browser_snapshot`; the page observes the values it was given.
+- **Inspect storage.** Choose the `Storage` tab, then the `Cookies`, `localStorage`, and `sessionStorage` inner tabs. Entries belong to the tab the session is showing. Add and delete an entry and confirm `Clear this store?` before clearing.
+- **Refuse during agent control.** On an Interactive Run, open the same panel while the agent holds the browser. The controls are disabled and the panel explains that the agent holds the browser. Taking control enables storage inspection but Emulation still refuses: a Run reproduces its Agent Flow's declared Emulation.
+- **Proof.** Save `workspace/browser-setup.aria.txt` and `workspace/browser-setup.png` with the applied identity and viewport visible, plus `workspace/browser-setup-storage.png` over the Storage tab.
+
 ## Gotchas
 
 - `Loading Agent Sessions…` is transient. Wait for the alert or the empty heading. Do not snapshot the spinner.
@@ -138,4 +148,6 @@ Preconditions:
 - A Teaching Feed is final compilation input, not a live event stream. End Teaching with `agent_session_close` before `agent_teaching_feed_get` or `agent_flow_draft_save`; the close waits for local-video PlayByPlay analysis.
 - Domain Scope is judged against the hosts the compiled Steps visit, not every URL the session saw. Exploration outside every span neither widens nor is required in the scope.
 - An instruction belongs to the Step whose span it falls before or inside. One given between two actions of the same Step lands in that Step's Evidence Slice, not the next one.
+- Browser setup writes need the user to hold the browser, and Emulation changes need a Teaching session. An Interactive Run reproduces its Agent Flow's declared Emulation, so `agent.browser.emulation.set` is refused there even during Takeover.
+- The setup panel names the Agent Session, never a browser session id. There is no generic `browser.*` route into an Agent Session's browser.
 - A saved draft is not approved coverage. `agent_catalog_search` labels it `"status":"draft"`, and `{"status":"approved"}` stays empty until the user approves the Pending Decision in the MCP conversation.

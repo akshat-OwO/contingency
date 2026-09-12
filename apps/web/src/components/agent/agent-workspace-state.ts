@@ -1,6 +1,7 @@
 import type {
   AgentSessionId,
   AgentSessionSnapshot,
+  BrowserConsoleEntry,
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
@@ -15,6 +16,8 @@ export interface AgentViewState {
   /** What the address bar shows while the user holds the browser. */
   readonly address: string;
   readonly browserStreamError: string | undefined;
+  /** What the page has logged while this Workspace watched it. */
+  readonly consoleEntries: readonly BrowserConsoleEntry[];
   /** What went wrong the last time this View tried to change control. */
   readonly controlError: string | undefined;
   /** A control change is in flight, so the control button is not offered twice. */
@@ -27,6 +30,8 @@ export interface AgentViewState {
   readonly phase: AgentViewPhase;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
+  /** Whether the browser setup panel is showing beside the live canvas. */
+  readonly setupOpen: boolean;
   readonly streamConnected: boolean;
   readonly viewportHeight: number;
   readonly viewportWidth: number;
@@ -35,6 +40,7 @@ export interface AgentViewState {
 export const agentViewStateAtom = Atom.make<AgentViewState>({
   address: "",
   browserStreamError: undefined,
+  consoleEntries: [],
   controlError: undefined,
   controlPending: false,
   frameReady: false,
@@ -43,10 +49,23 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   phase: "loading",
   selectedSessionId: undefined,
   session: undefined,
+  setupOpen: false,
   streamConnected: false,
   viewportHeight: 0,
   viewportWidth: 0,
 });
+
+/**
+ * The console keeps the most recent entries only. A page can log without
+ * bound, and the Workspace holds this in memory for as long as it watches.
+ */
+const MAX_WORKSPACE_CONSOLE_ENTRIES = 500;
+
+export const appendConsoleEntry = (
+  entries: readonly BrowserConsoleEntry[],
+  entry: BrowserConsoleEntry
+): readonly BrowserConsoleEntry[] =>
+  [...entries, entry].slice(-MAX_WORKSPACE_CONSOLE_ENTRIES);
 
 export const agentSessionLabel = (session: AgentSessionSnapshot): string =>
   `${session.clientName} · ${session.activity} · ${session.id}`;

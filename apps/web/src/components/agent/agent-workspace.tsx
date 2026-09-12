@@ -24,6 +24,7 @@ import {
   LoaderCircleIcon,
   LockKeyholeIcon,
   RotateCwIcon,
+  SlidersHorizontalIcon,
   UserRoundIcon,
 } from "lucide-react";
 import type { FormEvent } from "react";
@@ -34,6 +35,7 @@ import {
   agentSessionLabel,
   agentStatusLabel,
   agentViewStateAtom,
+  appendConsoleEntry,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import {
@@ -41,12 +43,13 @@ import {
   VerificationDetails,
 } from "@/components/agent/draft-review";
 import { RunDetails, RunSummaryPanel } from "@/components/agent/run-view";
+import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
 import {
   keyboardModifiers,
   makeBrowserInputHandlers,
   mousePosition,
   renderFrame,
-} from "@/components/create/browser-input";
+} from "@/components/browser/browser-input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -219,7 +222,9 @@ const AgentBrowserToolbar = ({
   onAddressChange,
   onAddressSubmit,
   onNavigate,
+  onToggleSetup,
   readOnly,
+  setupOpen,
 }: {
   readonly address: string;
   readonly navigationError: string | undefined;
@@ -227,7 +232,9 @@ const AgentBrowserToolbar = ({
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
+  readonly onToggleSetup: () => void;
   readonly readOnly: boolean;
+  readonly setupOpen: boolean;
 }) => (
   <>
     <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
@@ -293,6 +300,21 @@ const AgentBrowserToolbar = ({
           />
         </InputGroup>
       </form>
+      {/*
+        Browser setup belongs beside the browser it configures: Emulation,
+        storage, and network inspection for the MCP-owned browser this session
+        holds (ADR 0038).
+      */}
+      <Button
+        aria-label="Browser setup"
+        aria-pressed={setupOpen}
+        onClick={onToggleSetup}
+        size="icon-sm"
+        type="button"
+        variant={setupOpen ? "secondary" : "ghost"}
+      >
+        <SlidersHorizontalIcon />
+      </Button>
     </div>
     {navigationError === undefined ? null : (
       <p className="text-destructive border-b px-3 py-1.5 text-xs">
@@ -547,8 +569,10 @@ const AgentLiveView = ({
   input,
   onAddressChange,
   onAddressSubmit,
+  onClearConsole,
   onControl,
   onNavigate,
+  onToggleSetup,
   session,
   state,
 }: {
@@ -556,8 +580,10 @@ const AgentLiveView = ({
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onClearConsole: () => void;
   readonly onControl: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
+  readonly onToggleSetup: () => void;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
 }) => {
@@ -599,7 +625,9 @@ const AgentLiveView = ({
             onAddressChange={onAddressChange}
             onAddressSubmit={onAddressSubmit}
             onNavigate={onNavigate}
+            onToggleSetup={onToggleSetup}
             readOnly={readOnly}
+            setupOpen={state.setupOpen}
           />
           <AgentBrowserCanvas
             canvasRef={canvasRef}
@@ -607,6 +635,15 @@ const AgentLiveView = ({
             input={input}
             readOnly={readOnly}
           />
+          {state.setupOpen ? (
+            <WorkspaceBrowserSetup
+              consoleEntries={state.consoleEntries}
+              onClearConsole={onClearConsole}
+              onClose={onToggleSetup}
+              sessionId={session.id}
+              userHoldsBrowser={!readOnly}
+            />
+          ) : null}
           {state.phase === "switching" ? <SwitchingState /> : null}
         </div>
         <SessionDetails
@@ -865,6 +902,7 @@ const useAgentView = (
     setState((current) => ({
       ...current,
       browserStreamError: undefined,
+      consoleEntries: [],
       frameReady: false,
       phase: "switching",
       streamConnected: false,
@@ -929,6 +967,16 @@ const useAgentView = (
                   session: current.session
                     ? { ...current.session, currentUrl: event.url }
                     : current.session,
+                }));
+                return;
+              }
+              if (event.type === "console" || event.type === "page_error") {
+                setState((current) => ({
+                  ...current,
+                  consoleEntries: appendConsoleEntry(
+                    current.consoleEntries,
+                    event
+                  ),
                 }));
               }
             })
@@ -1190,9 +1238,18 @@ const useAgentView = (
     }));
   };
 
+  const clearConsole = () => {
+    setState((current) => ({ ...current, consoleEntries: [] }));
+  };
+
+  const toggleSetup = () => {
+    setState((current) => ({ ...current, setupOpen: !current.setupOpen }));
+  };
+
   return {
     canvasRef,
     changeControl,
+    clearConsole,
     input,
     navigate,
     selectSession,
@@ -1201,6 +1258,7 @@ const useAgentView = (
     setAddress,
     state,
     submitAddress,
+    toggleSetup,
   };
 };
 
@@ -1265,8 +1323,10 @@ export const AgentWorkspace = ({
         input={view.input}
         onAddressChange={view.setAddress}
         onAddressSubmit={view.submitAddress}
+        onClearConsole={view.clearConsole}
         onControl={view.changeControl}
         onNavigate={view.navigate}
+        onToggleSetup={view.toggleSetup}
         session={state.session}
         state={state}
       />

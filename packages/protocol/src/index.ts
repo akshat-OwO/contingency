@@ -47,6 +47,7 @@ import { AuditKind, RecordingSnapshot } from "./flow.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { RunSnapshot } from "./run.ts";
 import {
+  BrowserCookieWrite,
   BrowserStorageDeletePayload,
   BrowserStorageSetPayload,
   BrowserStorageSnapshot,
@@ -121,6 +122,7 @@ export {
   UserAgentMetadata,
   UserAgentProfileId,
   userAgentProfiles,
+  viewportForIdentity,
 } from "./browser-identity.ts";
 export type {
   MatchedUserAgentProfile,
@@ -860,6 +862,132 @@ export const AgentBrowserNavigated = response("agent.browser.navigated", {
   session: AgentSessionSnapshot,
 });
 
+/**
+ * Browser setup tooling in the Workspace. The Agent Session owns the browser,
+ * so its lower-level session id never leaves the process: every setup call is
+ * addressed by Agent Session id and delegated inside the boundary
+ * ([ADR 0038](../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
+ */
+export const AgentBrowserEmulationGet = request("agent.browser.emulation.get", {
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+/**
+ * Update the whole Emulation the Agent Session's browser applies. Absent
+ * leaves a part unchanged and `null` clears it (ADR 0013); identity and
+ * viewport travel with the same request, so a phone identity is never applied
+ * over a desktop viewport.
+ */
+export const AgentBrowserEmulationSet = request("agent.browser.emulation.set", {
+  colorScheme: Schema.optional(
+    Schema.NullOr(Schema.Literals(["light", "dark"]))
+  ),
+  geolocation: Schema.optional(Schema.NullOr(Geolocation)),
+  locale: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
+  permissions: Schema.optional(Schema.NullOr(PermissionDecisions)),
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  timezoneId: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
+  userAgentProfile: Schema.optional(UserAgentProfileId),
+  viewport: Schema.optional(Viewport),
+});
+export const AgentBrowserEmulationUpdated = response(
+  "agent.browser.emulation.updated",
+  {
+    emulation: SessionEmulation,
+    /**
+     * The identity the session was asked for. A session reports the concrete
+     * identity it resolved to, so the profile behind it is named separately
+     * rather than guessed back out of a user agent string.
+     */
+    userAgentProfile: UserAgentProfileId,
+  }
+);
+
+export const AgentBrowserTabsGet = request("agent.browser.tabs.get", {
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+export const AgentBrowserTabsResult = response("agent.browser.tabs.result", {
+  tabs: Schema.Array(BrowserTab),
+});
+
+export const AgentBrowserNetworkRequestsGet = request(
+  "agent.browser.network.requests.get",
+  { sessionId: AgentBrowserObserve.fields.sessionId, tabId: BrowserTabId }
+);
+export const AgentBrowserNetworkRequestsResult = response(
+  "agent.browser.network.requests.result",
+  { requests: Schema.Array(BrowserNetworkRequest) }
+);
+export const AgentBrowserNetworkRequestGet = request(
+  "agent.browser.network.request.get",
+  {
+    requestId: BrowserRequestId,
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    tabId: BrowserTabId,
+  }
+);
+export const AgentBrowserNetworkRequestResult = response(
+  "agent.browser.network.request.result",
+  { request: BrowserNetworkRequestDetail }
+);
+
+export const AgentBrowserStorageGet = request("agent.browser.storage.get", {
+  kind: StorageKind,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  tabId: BrowserTabId,
+});
+export const AgentBrowserStorageResult = response(
+  "agent.browser.storage.result",
+  { snapshot: BrowserStorageSnapshot }
+);
+export const AgentBrowserStorageSetPayload = Schema.Union([
+  Schema.Struct({
+    cookie: BrowserCookieWrite,
+    kind: Schema.Literal("cookies"),
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    tabId: BrowserTabId,
+  }),
+  Schema.Struct({
+    key: nonEmptyProtocolString,
+    kind: Schema.Literals(["local", "session"]),
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    tabId: BrowserTabId,
+    value: Schema.String,
+  }),
+]);
+export const AgentBrowserStorageSet = Schema.Struct({
+  data: AgentBrowserStorageSetPayload,
+  type: Schema.Literal("agent.browser.storage.set"),
+});
+export const AgentBrowserStorageDeletePayload = Schema.Union([
+  Schema.Struct({
+    domain: nonEmptyProtocolString,
+    kind: Schema.Literal("cookies"),
+    name: Schema.String,
+    path: nonEmptyProtocolString,
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    tabId: BrowserTabId,
+  }),
+  Schema.Struct({
+    key: nonEmptyProtocolString,
+    kind: Schema.Literals(["local", "session"]),
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    tabId: BrowserTabId,
+  }),
+]);
+export const AgentBrowserStorageDelete = Schema.Struct({
+  data: AgentBrowserStorageDeletePayload,
+  type: Schema.Literal("agent.browser.storage.delete"),
+});
+export const AgentBrowserStorageClear = request("agent.browser.storage.clear", {
+  kind: StorageKind,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  tabId: BrowserTabId,
+});
+export const AgentBrowserStorageUpdated = response(
+  "agent.browser.storage.updated",
+  {}
+);
+
 /** Reading the draft under review. Agent View shows what verification covers. */
 export const AgentFlowRevisionGet = request("agent.flow.revision.get", {
   agentFlowId: AgentFlowGet.fields.agentFlowId,
@@ -1251,6 +1379,57 @@ const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   payload: AgentBrowserNavigate,
   success: AgentBrowserNavigated,
 });
+const AgentBrowserEmulationGetRpc = Rpc.make("agent.browser.emulation.get", {
+  error: BrowserRpcError,
+  payload: AgentBrowserEmulationGet,
+  success: AgentBrowserEmulationUpdated,
+});
+const AgentBrowserEmulationSetRpc = Rpc.make("agent.browser.emulation.set", {
+  error: BrowserRpcError,
+  payload: AgentBrowserEmulationSet,
+  success: AgentBrowserEmulationUpdated,
+});
+const AgentBrowserTabsGetRpc = Rpc.make("agent.browser.tabs.get", {
+  error: BrowserRpcError,
+  payload: AgentBrowserTabsGet,
+  success: AgentBrowserTabsResult,
+});
+const AgentBrowserNetworkRequestsGetRpc = Rpc.make(
+  "agent.browser.network.requests.get",
+  {
+    error: BrowserRpcError,
+    payload: AgentBrowserNetworkRequestsGet,
+    success: AgentBrowserNetworkRequestsResult,
+  }
+);
+const AgentBrowserNetworkRequestGetRpc = Rpc.make(
+  "agent.browser.network.request.get",
+  {
+    error: BrowserRpcError,
+    payload: AgentBrowserNetworkRequestGet,
+    success: AgentBrowserNetworkRequestResult,
+  }
+);
+const AgentBrowserStorageGetRpc = Rpc.make("agent.browser.storage.get", {
+  error: BrowserRpcError,
+  payload: AgentBrowserStorageGet,
+  success: AgentBrowserStorageResult,
+});
+const AgentBrowserStorageSetRpc = Rpc.make("agent.browser.storage.set", {
+  error: BrowserRpcError,
+  payload: AgentBrowserStorageSet,
+  success: AgentBrowserStorageUpdated,
+});
+const AgentBrowserStorageDeleteRpc = Rpc.make("agent.browser.storage.delete", {
+  error: BrowserRpcError,
+  payload: AgentBrowserStorageDelete,
+  success: AgentBrowserStorageUpdated,
+});
+const AgentBrowserStorageClearRpc = Rpc.make("agent.browser.storage.clear", {
+  error: BrowserRpcError,
+  payload: AgentBrowserStorageClear,
+  success: AgentBrowserStorageUpdated,
+});
 const AgentFlowRevisionGetRpc = Rpc.make("agent.flow.revision.get", {
   error: BrowserRpcError,
   payload: AgentFlowRevisionGet,
@@ -1350,6 +1529,15 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
   AgentBrowserNavigateRpc,
+  AgentBrowserEmulationGetRpc,
+  AgentBrowserEmulationSetRpc,
+  AgentBrowserTabsGetRpc,
+  AgentBrowserNetworkRequestsGetRpc,
+  AgentBrowserNetworkRequestGetRpc,
+  AgentBrowserStorageGetRpc,
+  AgentBrowserStorageSetRpc,
+  AgentBrowserStorageDeleteRpc,
+  AgentBrowserStorageClearRpc,
   AgentFlowRevisionGetRpc,
   AgentFlowVerificationAuthorizeRpc,
   AgentFlowApproveRpc,

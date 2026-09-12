@@ -433,6 +433,30 @@ export const profileViewport = (
   profileId: UserAgentProfileId
 ): Viewport | undefined => profileIdentities[profileId]?.viewport;
 
+/** What a browser with no declared pixel ratio renders at. */
+const DEFAULT_DEVICE_SCALE_FACTOR = 1;
+
+/**
+ * The viewport a browser identity applies. A mobile identity brings its own
+ * device metrics — a phone user agent over a desktop viewport is the
+ * incoherence [ADR
+ * 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md) removes —
+ * while an identity that declares none leaves the caller's viewport exactly as
+ * it is. A later explicit viewport edit overwrites either.
+ */
+export const viewportForIdentity = (
+  profileId: UserAgentProfileId,
+  current: Viewport
+): Viewport =>
+  profileViewport(profileId) ?? {
+    ...current,
+    // The scale factor belongs to the identity, so an identity that declares
+    // none takes back whatever a mobile one applied rather than rendering a
+    // desktop browser at a phone's pixel ratio. Width and height are the
+    // caller's and stay put.
+    deviceScaleFactor: DEFAULT_DEVICE_SCALE_FACTOR,
+  };
+
 const resolveBrands = (
   brands: readonly BrandVersion[] | undefined,
   chromiumMajor: string

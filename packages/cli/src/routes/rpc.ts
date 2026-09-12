@@ -708,6 +708,91 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.browser.input.sent" as const,
           })
         ),
+      "agent.browser.emulation.get": ({ data }) =>
+        agentUnavailable((service) => service.emulation(data.sessionId)).pipe(
+          Effect.map((applied) => ({
+            data: applied,
+            type: "agent.browser.emulation.updated" as const,
+          }))
+        ),
+      "agent.browser.emulation.set": ({ data }) =>
+        agentUnavailable((service) =>
+          service.setEmulation(data.sessionId, {
+            colorScheme: data.colorScheme,
+            geolocation: data.geolocation,
+            locale: data.locale,
+            permissions: data.permissions,
+            timezoneId: data.timezoneId,
+            userAgentProfile: data.userAgentProfile,
+            viewport: data.viewport,
+          })
+        ).pipe(
+          Effect.map((applied) => ({
+            data: applied,
+            type: "agent.browser.emulation.updated" as const,
+          }))
+        ),
+      "agent.browser.tabs.get": ({ data }) =>
+        agentUnavailable((service) => service.tabs(data.sessionId)).pipe(
+          Effect.map((tabs) => ({
+            data: { tabs },
+            type: "agent.browser.tabs.result" as const,
+          }))
+        ),
+      "agent.browser.network.requests.get": ({ data }) =>
+        agentUnavailable((service) =>
+          service.networkRequests(data.sessionId, data.tabId)
+        ).pipe(
+          Effect.map((requests) => ({
+            data: { requests },
+            type: "agent.browser.network.requests.result" as const,
+          }))
+        ),
+      "agent.browser.network.request.get": ({ data }) =>
+        agentUnavailable((service) =>
+          service.networkRequest(data.sessionId, data.tabId, data.requestId)
+        ).pipe(
+          Effect.map((request) => ({
+            data: { request },
+            type: "agent.browser.network.request.result" as const,
+          }))
+        ),
+      "agent.browser.storage.get": ({ data }) =>
+        agentUnavailable((service) =>
+          service.storage(data.sessionId, data.tabId, data.kind)
+        ).pipe(
+          Effect.map((snapshot) => ({
+            data: { snapshot },
+            type: "agent.browser.storage.result" as const,
+          }))
+        ),
+      "agent.browser.storage.set": ({ data }) =>
+        agentUnavailable((service) =>
+          service.setStorage(data.sessionId, data.tabId, data)
+        ).pipe(
+          Effect.as({
+            data: {},
+            type: "agent.browser.storage.updated" as const,
+          })
+        ),
+      "agent.browser.storage.delete": ({ data }) =>
+        agentUnavailable((service) =>
+          service.deleteStorage(data.sessionId, data.tabId, data)
+        ).pipe(
+          Effect.as({
+            data: {},
+            type: "agent.browser.storage.updated" as const,
+          })
+        ),
+      "agent.browser.storage.clear": ({ data }) =>
+        agentUnavailable((service) =>
+          service.clearStorage(data.sessionId, data.tabId, data.kind)
+        ).pipe(
+          Effect.as({
+            data: {},
+            type: "agent.browser.storage.updated" as const,
+          })
+        ),
       "agent.teaching.variable.input": ({ data }) =>
         agentUnavailable((service) =>
           service.enterUserVariable(

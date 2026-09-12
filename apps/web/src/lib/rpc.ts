@@ -119,6 +119,37 @@ export const agentBrowserInputMutation = ContingencyRpcClient.mutation(
 export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
   "agent.browser.navigate"
 );
+/**
+ * Browser setup tooling in the Workspace. Every call is addressed by Agent
+ * Session id: the Agent Session owns the browser, and its lower-level session
+ * id never leaves the server process (ADR 0038).
+ */
+export const agentBrowserEmulationQuery = ContingencyRpcClient.mutation(
+  "agent.browser.emulation.get"
+);
+export const agentBrowserEmulationMutation = ContingencyRpcClient.mutation(
+  "agent.browser.emulation.set"
+);
+export const agentBrowserTabsMutation = ContingencyRpcClient.mutation(
+  "agent.browser.tabs.get"
+);
+export const agentBrowserNetworkRequestsMutation =
+  ContingencyRpcClient.mutation("agent.browser.network.requests.get");
+export const agentBrowserNetworkRequestMutation = ContingencyRpcClient.mutation(
+  "agent.browser.network.request.get"
+);
+export const agentBrowserStorageGetMutation = ContingencyRpcClient.mutation(
+  "agent.browser.storage.get"
+);
+export const agentBrowserStorageSetMutation = ContingencyRpcClient.mutation(
+  "agent.browser.storage.set"
+);
+export const agentBrowserStorageDeleteMutation = ContingencyRpcClient.mutation(
+  "agent.browser.storage.delete"
+);
+export const agentBrowserStorageClearMutation = ContingencyRpcClient.mutation(
+  "agent.browser.storage.clear"
+);
 /** Takeover is a direct user action: Agent View alone initiates it. */
 export const agentTakeoverMutation = ContingencyRpcClient.mutation(
   "agent.session.takeover"

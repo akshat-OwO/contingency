@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getTabDevtoolsData,
   mergeNetworkRequests,
-} from "../../../src/components/create/browser-devtools-state";
+} from "../../../src/components/browser/browser-devtools-state";
 
 describe("mergeNetworkRequests", () => {
   it("attributes requests to their originating tab after the active tab changes", () => {

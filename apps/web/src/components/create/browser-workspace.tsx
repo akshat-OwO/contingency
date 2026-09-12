@@ -36,8 +36,9 @@ import {
   devicePresets,
   presetName,
   RESPONSIVE_PRESET_ID,
-} from "@/components/create/browser-device-presets";
-import { BrowserDevtools } from "@/components/create/browser-devtools";
+} from "@/components/browser/browser-device-presets";
+import { BrowserDevtools } from "@/components/browser/browser-devtools";
+import type { BrowserDevtoolsProps } from "@/components/browser/browser-devtools";
 import {
   appendConsoleEntry,
   browserDevtoolsAtom,
@@ -46,14 +47,18 @@ import {
   getTabDevtoolsData,
   mergeNetworkRequests,
   removeSessionDevtools,
-} from "@/components/create/browser-devtools-state";
+} from "@/components/browser/browser-devtools-state";
 import {
   keyboardKeyInfo,
   keyboardModifiers,
   mousePosition,
   pointerButton,
   renderFrame,
-} from "@/components/create/browser-input";
+} from "@/components/browser/browser-input";
+import { useSessionBrowserTooling } from "@/components/browser/browser-tooling";
+import { EmulationPicker } from "@/components/browser/emulation-picker";
+import type { SessionEmulationState } from "@/components/browser/emulation-picker";
+import { UserAgentPicker } from "@/components/browser/user-agent-picker";
 import { BrowserSessionPicker } from "@/components/create/browser-session-picker";
 import {
   browserAddressEditingAfter,
@@ -86,9 +91,6 @@ import {
   emulationDraftAtom,
 } from "@/components/create/emulation-draft";
 import type { EmulationPatch } from "@/components/create/emulation-draft";
-import { EmulationPicker } from "@/components/create/emulation-picker";
-import type { SessionEmulationState } from "@/components/create/emulation-picker";
-import { UserAgentPicker } from "@/components/create/user-agent-picker";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -1660,6 +1662,21 @@ const BrowserDeviceToolbar = ({
   );
 };
 
+/**
+ * Create View drives a generic browser session, so it supplies the browser
+ * setup port the shared panels read. The Workspace supplies an Agent
+ * Session-scoped one instead.
+ */
+const SessionBrowserDevtools = ({
+  sessionId,
+  ...props
+}: Omit<BrowserDevtoolsProps, "tooling"> & {
+  readonly sessionId: SessionId;
+}) => {
+  const tooling = useSessionBrowserTooling(sessionId);
+  return <BrowserDevtools {...props} tooling={tooling} />;
+};
+
 const BrowserViewportPanels = ({
   controller,
 }: {
@@ -1775,7 +1792,7 @@ const BrowserViewportPanels = ({
         <>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={30} minSize={15}>
-            <BrowserDevtools
+            <SessionBrowserDevtools
               consoleEntries={activeTabData.consoleEntries}
               key={`${visibleDevtools.sessionId}:${visibleDevtools.activeTab.tabId}`}
               networkRequests={activeTabData.networkRequests}

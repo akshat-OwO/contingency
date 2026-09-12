@@ -4,10 +4,9 @@ import type {
   BrowserNetworkRequestDetail,
   BrowserRequestId,
   BrowserTabId,
-  SessionId,
   StorageKind,
 } from "@contingency/protocol";
-import { useAtom, useAtomSet } from "@effect/atom-react";
+import { useAtom } from "@effect/atom-react";
 import { createHighlighter } from "@tanstack/highlight/core";
 import { html } from "@tanstack/highlight/languages/html";
 import { js } from "@tanstack/highlight/languages/js";
@@ -27,22 +26,22 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { BrowserStoragePanel } from "@/components/create/browser-storage-panel";
-import type { StoragePanelUiState } from "@/components/create/browser-storage-panel";
+import { BrowserStoragePanel } from "@/components/browser/browser-storage-panel";
+import type { StoragePanelUiState } from "@/components/browser/browser-storage-panel";
 import {
   initialStoragePanelUiState,
   isStorageDraftDirty,
-} from "@/components/create/browser-storage-state";
+} from "@/components/browser/browser-storage-state";
 import type {
   StorageDraft,
   StorageSelection,
   StorageSnapshots,
-} from "@/components/create/browser-storage-state";
-import { HighlightedCode } from "@/components/create/highlighted-code";
+} from "@/components/browser/browser-storage-state";
+import type { BrowserTooling } from "@/components/browser/browser-tooling";
+import { HighlightedCode } from "@/components/browser/highlighted-code";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 type DevtoolsTab = "console" | "network" | "storage";
@@ -59,7 +58,7 @@ type NetworkFilter =
   | "websocket"
   | "other";
 
-interface BrowserDevtoolsProps {
+export interface BrowserDevtoolsProps {
   readonly consoleEntries: readonly BrowserConsoleEntry[];
   readonly mutationsLocked: boolean;
   readonly networkRequests: readonly BrowserNetworkRequest[];
@@ -69,7 +68,7 @@ interface BrowserDevtoolsProps {
   readonly onError: (message: string) => void;
   readonly onRefreshNetwork: () => void;
   readonly refreshingNetwork: boolean;
-  readonly sessionId: SessionId;
+  readonly tooling: BrowserTooling;
   readonly tabId: BrowserTabId;
   readonly tabTitle: string;
   readonly tabUrl: string;
@@ -678,19 +677,13 @@ export const BrowserDevtools = ({
   onError,
   onRefreshNetwork,
   refreshingNetwork,
-  sessionId,
+  tooling,
   tabId,
   tabTitle,
   tabUrl,
 }: BrowserDevtoolsProps) => {
-  const { browserNetworkRequestMutation } = useRpcDependencies();
-  const getNetworkRequest = useAtomSet(browserNetworkRequestMutation, {
-    mode: "promise",
-  });
   const [refreshingStorage, setRefreshingStorage] = useState(false);
-  const [uiState, setUiState] = useAtom(
-    devtoolsUiStateAtoms(`${sessionId}:${tabId}`)
-  );
+  const [uiState, setUiState] = useAtom(devtoolsUiStateAtoms(tabId));
   const {
     detail,
     detailLoading,
@@ -728,16 +721,10 @@ export const BrowserDevtools = ({
     Effect.runFork(
       Effect.tryPromise({
         catch: (cause) => cause,
-        try: () =>
-          getNetworkRequest({
-            payload: {
-              data: { requestId: request.requestId, sessionId, tabId },
-              type: "browser.network.request.get",
-            },
-          }),
+        try: () => tooling.getNetworkRequest(tabId, request.requestId),
       }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => updateUiState({ detail: result.data.request }))
+        Effect.tap((requestDetail) =>
+          Effect.sync(() => updateUiState({ detail: requestDetail }))
         ),
         Effect.catchCause(() =>
           Effect.sync(() => updateUiState({ detail: undefined }))
@@ -809,7 +796,7 @@ export const BrowserDevtools = ({
             onError={onError}
             onRefreshStateChange={setRefreshingStorage}
             refreshNonce={uiState.storageRefreshNonce}
-            sessionId={sessionId}
+            tooling={tooling}
             setUiState={updateStorageUiState}
             tabId={tabId}
             tabUrl={tabUrl}
