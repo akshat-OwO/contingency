@@ -38,7 +38,7 @@ Preconditions:
 - For `agent-empty-mcp`, run `control-contingency mcp start` on the same verify directory after `launch` and `doctor`. That binds MCP on an ephemeral port with the isolated `stateDir`. Do not attach to an MCP process you did not start.
 - For every live-session sub-feature, `mcp start` and `ecommerce start` must both be running. Create the session with `control-contingency mcp call`, which speaks MCP to that same process — a session exists only inside the process that owns it, so nothing else can conjure one.
 
-- **Nav entry.** Open the Workspace. Run `control-contingency browser goto --path /`, then `control-contingency browser click --role link --name Workspace`. The `Workspace` link is current.
+- **Nav entry.** Open the Workspace. Run `control-contingency browser goto --path /`, then `control-contingency browser click --role link --name Workspace`. The `Workspace` link is current. Workspace and the Contingency wordmark are home links: both clear the selected session or Run Summary and return to the session workspace.
 - **Unavailable on web.** After the query settles, wait for the destructive alert. Run `control-contingency browser wait --role alert --has-text "Agent Session unavailable" --timeout-ms 15000`. The description includes `Agent Sessions are unavailable in this server process.`
 - **Direct route.** Open `/` without using nav. Run `control-contingency browser goto --path /`, then the same alert wait as above.
 - **Unknown session query.** Open a fake session id. Run `control-contingency browser goto --path "/?session=not-a-session"`, then the same alert wait. The page does not treat the query value as a credential.

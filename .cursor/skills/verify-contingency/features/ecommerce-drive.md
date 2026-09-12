@@ -2,7 +2,7 @@
 
 Historical recipe. Its Create and Audit routes were removed in #170. Use [Workspace](./workspace.md) for current UI verification. The deterministic CLI remains until #165 Phase 6.
 
-This is the canonical verification story for Contingency: browse a local ecommerce site in Create View, record a cart Flow in a fresh session, download the Flow JSON, then replay it in Audit View with video scrubbing.
+This historical drive covered deterministic Flow authoring: browse a local ecommerce site in Create View, record a cart Flow in a fresh session, download the Flow JSON, then replay it in Audit View with video scrubbing.
 
 ## Sub-features
 
