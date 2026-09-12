@@ -1,4 +1,9 @@
 import { RegistryProvider } from "@effect/atom-react";
+import {
+  createMemoryHistory,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cause, Effect } from "effect";
@@ -12,6 +17,7 @@ import {
   RunViewer,
 } from "@/components/agent/run-view";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   ceilingCalls: [] satisfies unknown[],
@@ -114,7 +120,7 @@ const session = {
   timeline: [],
   updatedAt: "2026-09-04T00:00:00.000Z",
   verification: null,
-  viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
+  viewUrl: "http://127.0.0.1:7777/?session=agent-one",
 };
 
 const summary = {
@@ -141,7 +147,7 @@ const summary = {
 const successfulSummary = {
   _tag: "Success",
   value: {
-    data: { summary, viewUrl: "http://127.0.0.1:7777/agent?run=agentrun-one" },
+    data: { summary, viewUrl: "http://127.0.0.1:7777/?run=agentrun-one" },
   },
   waiting: false,
 };
@@ -263,11 +269,16 @@ test("embeds the local Run video in the summary of a finished Run", () => {
   expect(video).toHaveAttribute("src", "/agent-runs/agentrun-one/video");
 });
 
-test("opens persisted Run evidence read-only without a live session", () => {
+test("opens persisted Run evidence in the Workspace route without a live session", async () => {
   rpc.summaryResult = successfulSummary;
+  const router = createRouter({
+    history: createMemoryHistory({ initialEntries: ["/?run=agentrun-one"] }),
+    routeTree,
+  });
+  await router.load();
   render(
     <TestRegistry>
-      <RunViewer runId={"agentrun-one"} />
+      <RouterProvider router={router} />
     </TestRegistry>
   );
   expect(
@@ -279,6 +290,18 @@ test("opens persisted Run evidence read-only without a live session", () => {
     )
   ).toBeVisible();
   expect(screen.getByText("ended-early")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+  expect(
+    screen.queryByRole("combobox", { name: "Agent Session" })
+  ).not.toBeInTheDocument();
+  for (const name of ["Create", "Audit", "Agent"]) {
+    expect(
+      screen.queryByRole("link", { exact: true, name })
+    ).not.toBeInTheDocument();
+  }
 });
 
 test("explains when a persisted Run cannot be opened", () => {

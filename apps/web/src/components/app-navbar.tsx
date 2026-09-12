@@ -2,54 +2,33 @@ import { Link, useMatchRoute } from "@tanstack/react-router";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { buttonVariants } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 
 const AppNavbar = () => {
   const matchRoute = useMatchRoute();
-  const isCreateView = Boolean(matchRoute({ fuzzy: false, to: "/" }));
-  const isAuditView = Boolean(matchRoute({ fuzzy: false, to: "/audit" }));
-  const isAgentView = Boolean(matchRoute({ fuzzy: false, to: "/agent" }));
+  const isWorkspace = Boolean(matchRoute({ fuzzy: false, to: "/" }));
 
   return (
     <header className="grid h-14 grid-cols-[1fr_auto_1fr] items-center border-b px-4 sm:px-6">
-      <Link className="w-fit text-base font-semibold tracking-tight" to="/">
+      <Link
+        className="w-fit text-base font-semibold tracking-tight"
+        to="/"
+        search={{ run: undefined, session: undefined }}
+      >
         Contingency
       </Link>
 
       <nav aria-label="Primary navigation">
-        <ButtonGroup>
-          <Link
-            aria-current={isCreateView ? "page" : undefined}
-            className={buttonVariants({
-              variant: isCreateView ? "default" : "outline",
-            })}
-            data-slot="button"
-            to="/"
-          >
-            Create
-          </Link>
-          <Link
-            aria-current={isAuditView ? "page" : undefined}
-            className={buttonVariants({
-              variant: isAuditView ? "default" : "outline",
-            })}
-            data-slot="button"
-            to="/audit"
-          >
-            Audit
-          </Link>
-          <Link
-            aria-current={isAgentView ? "page" : undefined}
-            className={buttonVariants({
-              variant: isAgentView ? "default" : "outline",
-            })}
-            data-slot="button"
-            to="/agent"
-            search={{ run: undefined, session: undefined }}
-          >
-            Agent
-          </Link>
-        </ButtonGroup>
+        <Link
+          aria-current={isWorkspace ? "page" : undefined}
+          className={buttonVariants({
+            variant: isWorkspace ? "default" : "outline",
+          })}
+          data-slot="button"
+          to="/"
+          search={{ run: undefined, session: undefined }}
+        >
+          Workspace
+        </Link>
       </nav>
 
       <div className="justify-self-end">

@@ -101,7 +101,7 @@ import { isLoopbackHost } from "./web-url.ts";
 
 /** Options for the one process-owned Agent Session registry. */
 export interface AgentSessionServiceOptions {
-  /** The URL at which Agent View is served, normally loopback. */
+  /** The URL at which Workspace is served, normally loopback. */
   readonly baseUrl: string;
   /** The owner marker written into every in-memory snapshot. */
   readonly processId?: string;
@@ -199,14 +199,14 @@ export interface AgentSessionService {
   ) => Effect.Effect<void, AgentSessionError>;
   readonly list: () => Effect.Effect<readonly AgentSessionSnapshot[]>;
   /**
-   * Note the draft a Teaching session was compiled into, so Agent View can
+   * Note the draft a Teaching session was compiled into, so Workspace can
    * show it. The catalog write itself happens elsewhere; this only records it.
    */
   readonly recordDraft: (
     sessionId: AgentSessionId,
     draft: AgentFlowDraftRef
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /** Mirror catalog consent state into this session's read-only Agent View. */
+  /** Mirror catalog consent state into this session's read-only Workspace. */
   readonly recordPendingDecisionState: (
     sessionId: AgentSessionId,
     pendingDecisions: readonly AgentPendingDecision[],
@@ -289,7 +289,7 @@ export interface AgentSessionService {
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * End the Run: finalize the Trace and video, close the live browser, and
-   * answer with the persistent Run Summary. Agent View stays alive in summary
+   * answer with the persistent Run Summary. Workspace stays alive in summary
    * mode; the browser does not.
    */
   readonly completeRun: (
@@ -297,21 +297,21 @@ export interface AgentSessionService {
     summary?: string,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentRunSummary, AgentSessionError>;
-  /** A direct user action in Agent View raising one ceiling. */
+  /** A direct user action in Workspace raising one ceiling. */
   readonly extendCeiling: (
     sessionId: AgentSessionId,
     scope: "run" | "step",
     additionalMs: number,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /** The read-only Agent View link for one persisted Run. */
+  /** The read-only Workspace link for one persisted Run. */
   readonly runViewUrl: (
     runId: AgentRunId
   ) => Effect.Effect<string, AgentSessionError>;
   readonly verification: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AgentSessionVerification, AgentSessionError>;
-  /** Note how the Verification Run ended, so Agent View can offer approval. */
+  /** Note how the Verification Run ended, so Workspace can offer approval. */
   readonly recordVerificationOutcome: (
     sessionId: AgentSessionId,
     outcome: AgentFlowVerificationOutcome
@@ -422,7 +422,7 @@ const processId = (configured: string | undefined): string =>
   configured?.trim() || `mcp-${process.pid}-${randomUUID()}`;
 
 const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
-  const url = new URL("/agent", baseUrl);
+  const url = new URL("/", baseUrl);
   url.searchParams.set("session", sessionId);
   return url.href;
 };
@@ -433,12 +433,12 @@ const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
  * ([ADR 0030](../../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
 const runViewUrl = (baseUrl: string, runId: AgentRunId): string => {
-  const url = new URL("/agent", baseUrl);
+  const url = new URL("/", baseUrl);
   url.searchParams.set("run", runId);
   return url.href;
 };
 
-/** Agent View is a local control surface and never receives a public URL. */
+/** Workspace is a local control surface and never receives a public URL. */
 export const isAllowedAgentSessionBaseUrl = (baseUrl: string): boolean => {
   try {
     const url = new URL(baseUrl);
@@ -1401,7 +1401,7 @@ const makeAgentSession = (
      *
      * `currentUrl` is a local read on the active Page, not a browser round
      * trip, and the state is only written when the URL actually changed, so a
-     * change reaches Agent View through the same stream every other change
+     * change reaches Workspace through the same stream every other change
      * does. No timeline entry is invented for it: the moment a read notices a
      * navigation is not the moment the user made it.
      */
@@ -2191,7 +2191,7 @@ const makeAgentSession = (
           return yield* Effect.fail(
             error(
               "agent_session_invalid",
-              "Agent View must be served from a loopback URL."
+              "Workspace must be served from a loopback URL."
             )
           );
         }
@@ -3436,7 +3436,7 @@ const makeAgentSession = (
      * priority: it interrupts the in-flight agent action and waits for its
      * cleanup. An agent request only pauses agent actions and publishes the
      * reason — the agent cannot hand the user control the user has not taken,
-     * and Agent View still shows a Take control action
+     * and Workspace still shows a Take control action
      * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
      */
     const beginTakeoverUnlocked = Effect.fn("AgentSession.takeover")(
@@ -4642,7 +4642,7 @@ const makeAgentSession = (
           : Effect.fail(
               error(
                 "agent_session_invalid",
-                "Agent View must be served from a loopback URL."
+                "Workspace must be served from a loopback URL."
               )
             ),
       screenshot: (sessionId) =>
@@ -4942,7 +4942,7 @@ export const makeAgentSessionService = (
 
 export type AgentSessionLayerOptions = AgentSessionServiceOptions;
 
-/** Build one process-owned registry for both MCP and Agent View adapters. */
+/** Build one process-owned registry for both MCP and Workspace adapters. */
 export const makeAgentSessionLayer = (
   options: AgentSessionLayerOptions
 ): Layer.Layer<

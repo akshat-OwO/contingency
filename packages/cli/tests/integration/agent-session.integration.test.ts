@@ -31,7 +31,7 @@ const runSession: RunSessionService = {
 };
 
 /**
- * The RPC client is the public seam for MCP and Agent View adapters. The
+ * The RPC client is the public seam for MCP and Workspace adapters. The
  * browser below is real Chromium; only unrelated Recording/Run handlers are
  * supplied with services because this test exercises Agent Session ownership.
  */
@@ -82,7 +82,7 @@ it.live(
       const secondSession = second.data.session;
       expect(firstSession.id).not.toBe(secondSession.id);
       expect(firstSession.viewUrl).toContain(
-        `/agent?session=${encodeURIComponent(firstSession.id)}`
+        `/?session=${encodeURIComponent(firstSession.id)}`
       );
 
       const listed = yield* client("agent.sessions.get", {

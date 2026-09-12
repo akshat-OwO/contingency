@@ -96,7 +96,7 @@ const AgentSessionsGetTool = Tool.make("agent_sessions_get", {
 const AgentSessionStartTool = Tool.make("agent_session_start", {
   dependencies: [AgentSession],
   description:
-    "Start a process-owned Agent Session and return its loopback Agent View URL. Pass `emulation` to run under a whole browser identity — a user agent profile such as chrome-iphone or safari-iphone, its viewport, and the environment around it — rather than a default desktop identity at `viewport`.",
+    "Start a process-owned Agent Session and return its loopback Workspace URL. Pass `emulation` to run under a whole browser identity — a user agent profile such as chrome-iphone or safari-iphone, its viewport, and the environment around it — rather than a default desktop identity at `viewport`.",
   failure: AgentSessionFailure,
   parameters: AgentSessionStartParameters,
   success: AgentSessionSnapshot,
@@ -149,7 +149,7 @@ const AgentBrowserActTool = Tool.make("agent_browser_act", {
 const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
   dependencies: [AgentSession],
   description:
-    "Ask the user to take control of an Interactive Run. This pauses agent actions and answers immediately with the Agent View link; only the user can return control. Teaching has no Takeover: the user already holds the browser.",
+    "Ask the user to take control of an Interactive Run. This pauses agent actions and answers immediately with the Workspace link; only the user can return control. Teaching has no Takeover: the user already holds the browser.",
   failure: AgentSessionFailure,
   parameters: AgentTakeoverParameters,
   success: AgentSessionSnapshot,
@@ -158,7 +158,7 @@ const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a Variable the user supplied to this Run into one element from the latest Browser Snapshot. You name the Variable and the element; the literal value stays inside Contingency and never reaches you or the Run's artifacts. Fails until the user has supplied that Variable in Agent View.",
+    "Enter a Variable the user supplied to this Run into one element from the latest Browser Snapshot. You name the Variable and the element; the literal value stays inside Contingency and never reaches you or the Run's artifacts. Fails until the user has supplied that Variable in Workspace.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     name: AgentVariableEnter.fields.name,
@@ -171,7 +171,7 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
 
 /**
  * The external agent's whole surface. Observation, Run action, and the
- * Takeover request are MCP tools and nothing else: Agent View's loopback RPC
+ * Takeover request are MCP tools and nothing else: Workspace's loopback RPC
  * exposes only what the user does, and during Teaching that is everything ([ADR 0026](../../../../docs/adr/0026-external-agents-control-agent-flows-through-mcp.md)).
  */
 export const AgentSessionTools = withStrictParameters(

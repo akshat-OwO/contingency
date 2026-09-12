@@ -1,5 +1,7 @@
 # Create View
 
+Historical recipe. Its Create and Audit routes were removed in #170. Use [Workspace](./workspace.md) for current UI verification. The deterministic CLI remains until #165 Phase 6.
+
 Create View is the default local UI: a live browser workspace beside Flow authoring. A user can name a Flow, pick or create a browser session, type a URL, start a Recording, and see captured Steps appear in the authoring panel.
 
 ## Sub-features

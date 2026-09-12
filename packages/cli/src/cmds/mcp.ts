@@ -59,7 +59,7 @@ const isListenAddressInUse = (error: McpHttpFailure): boolean => {
 /**
  * Start one local MCP process. Its Agent Session layer is passed to both the
  * stdio adapter (Claude, Codex) and the Streamable HTTP `/mcp` route plus
- * Agent View, so all browser handles and shutdown finalizers remain owned by
+ * Workspace, so all browser handles and shutdown finalizers remain owned by
  * this one process.
  */
 export const mcpCommand = Command.make(
@@ -157,7 +157,7 @@ export const mcpCommand = Command.make(
             `Contingency MCP available at ${browserUrl.origin}/mcp`
           );
           yield* Console.error(
-            `Contingency MCP Agent View available at ${browserUrl.origin}/agent`
+            `Contingency MCP Workspace available at ${browserUrl.origin}/`
           );
           return yield* Effect.never;
         }
@@ -166,7 +166,7 @@ export const mcpCommand = Command.make(
         // the occupied-port integration test pins.
         if (isListenAddressInUse(httpOutcome.failure) && !process.stdin.isTTY) {
           yield* Console.error(
-            `Contingency MCP Agent View could not bind ${host}:${port}; tools still run on stdio.`
+            `Contingency MCP Workspace could not bind ${host}:${port}; tools still run on stdio.`
           );
           return yield* Effect.never;
         }
@@ -176,6 +176,6 @@ export const mcpCommand = Command.make(
   })
 ).pipe(
   Command.withDescription(
-    "Run one process-owned local MCP server and Agent View endpoint."
+    "Run one process-owned local MCP server and Workspace endpoint."
   )
 );

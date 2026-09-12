@@ -92,7 +92,7 @@ const session = {
   timeline: [],
   updatedAt: "2026-08-31T00:00:00.000Z",
   verification: null,
-  viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
+  viewUrl: "http://127.0.0.1:7777/?session=agent-one",
 };
 
 type Session = typeof session;
@@ -156,7 +156,7 @@ test("explains when Agent Sessions cannot be loaded", async () => {
 test("opens an owned session and shows the live browser view", async () => {
   renderWorkspace(resultFor([session]), session.id);
   expect(
-    await screen.findByRole("heading", { name: "Agent View" })
+    await screen.findByRole("heading", { name: "Workspace" })
   ).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Agent Session" })).toHaveValue(
     session.id
@@ -197,11 +197,11 @@ test("keeps a selected Agent Session in the route query", async () => {
     ...session,
     currentUrl: "https://www.1mg.com/",
     id: "agent-two",
-    viewUrl: "http://127.0.0.1:7777/agent?session=agent-two",
+    viewUrl: "http://127.0.0.1:7777/?session=agent-two",
   };
   rpc.sessionsResult = resultFor([session, secondSession]);
   const history = createMemoryHistory({
-    initialEntries: [`/agent?session=${session.id}`],
+    initialEntries: [`/?session=${session.id}`],
   });
   const testRouter = createRouter({ history, routeTree });
   await testRouter.load();
@@ -303,11 +303,11 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
 
 test("does not show Teaching details for an Interactive Run", async () => {
   renderWorkspace(resultFor([session]), session.id);
-  await screen.findByRole("heading", { name: "Agent View" });
+  await screen.findByRole("heading", { name: "Workspace" });
   expect(screen.queryByRole("heading", { name: "Teaching" })).toBeNull();
 });
 
-test("takes control from Agent View and returns it explicitly", async () => {
+test("takes control from Workspace and returns it explicitly", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([session]), session.id);
   await user.click(await screen.findByRole("button", { name: "Take control" }));
@@ -412,7 +412,7 @@ const takenOverSession = {
   },
 } satisfies unknown;
 
-test("keeps Teaching private Variable entry out of Agent View", async () => {
+test("keeps Teaching private Variable entry out of Workspace", async () => {
   renderWorkspace(
     resultFor([
       {

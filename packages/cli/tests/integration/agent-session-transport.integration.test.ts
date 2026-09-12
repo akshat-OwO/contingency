@@ -606,7 +606,9 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     );
     const fileSystem = yield* FileSystem.FileSystem;
     yield* Effect.promise(() =>
-      mcp.waitForText(`Agent View available at http://127.0.0.1:${port}/agent`)
+      mcp.waitForText(
+        `Contingency MCP Workspace available at http://127.0.0.1:${port}/`
+      )
     );
     const ownerPid = mcp.child.pid;
     if (ownerPid === undefined) {
@@ -785,8 +787,8 @@ it.live("serves the real MCP stdio child-process boundary", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.live("keeps MCP stdio up when the configured Agent View port is taken", () =>
-  Effect.gen(function* occupiedAgentViewPort() {
+it.live("keeps MCP stdio up when the configured Workspace port is taken", () =>
+  Effect.gen(function* occupiedWorkspacePort() {
     const occupiedPort = yield* reservePort;
     const occupier = createServer();
     yield* Effect.acquireRelease(
@@ -821,7 +823,7 @@ it.live("keeps MCP stdio up when the configured Agent View port is taken", () =>
     );
     yield* Effect.promise(() =>
       mcp.waitForText(
-        `Contingency MCP Agent View could not bind 127.0.0.1:${occupiedPort}; tools still run on stdio.`
+        `Contingency MCP Workspace could not bind 127.0.0.1:${occupiedPort}; tools still run on stdio.`
       )
     );
     yield* Effect.promise(() =>
