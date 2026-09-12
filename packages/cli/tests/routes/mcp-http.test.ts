@@ -13,7 +13,6 @@ import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
 } from "../../src/services/mcp-http.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
 
 const initializeBody = JSON.stringify({
   id: 1,
@@ -36,8 +35,7 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp() {
         Layer.mergeAll(
           makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7783" }),
           makeAgentFlowCatalogLayer({ root: catalogRoot }),
-          makeAgentRunStoreLayer({ root: () => catalogRoot }),
-          RecordingLive
+          makeAgentRunStoreLayer({ root: () => catalogRoot })
         ).pipe(
           Layer.provideMerge(CreateBrowserLive),
           Layer.provideMerge(NodeServices.layer)

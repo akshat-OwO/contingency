@@ -1,5 +1,7 @@
 # Agent View is separate from Audit View
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Agent-controlled work uses a dedicated local **Agent View** rather than extending Audit View. Agent View shows the live browser alongside Agent Step summaries, Agent Assessments, the action timeline, current controller, and intervention requests reported through MCP. The user may initiate Takeover at any moment and has priority over agent control; the agent may also request Takeover with a reason. Audit View remains the deterministic Flow execution and inspection interface.
 
 The MCP start tool returns a loopback `/agent?session=<id>` URL that selects the new activity. The session id selects an Agent Session and is not an authentication token. The first version has no local login: the server binds only to loopback, rejects cross-origin mutations and WebSockets, and does not enable permissive CORS. Agent View may switch among only the running Agent Sessions owned by its MCP process.

@@ -124,7 +124,7 @@ export type Geolocation = typeof Geolocation.Type;
  */
 export const Emulation = Schema.Struct({
   /**
-   * The concrete browser the Flow presents, applied identically by Create View
+   * The concrete browser the Emulation presents, applied identically by the Workspace
    * and every Run. It supersedes `userAgent`, which stays for Flows written
    * before an identity was concrete and for custom strings that declare
    * nothing further.

@@ -30,8 +30,6 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
 
 /** A small viewport: these suites read the accessibility tree, not pixels. */
 export const agentViewport = {
@@ -291,7 +289,6 @@ export const agentProcessLayer = (
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
-        RecordingLive,
         makeAgentSessionLayer(
           options.resourceDirectory === undefined
             ? sessionOptions
@@ -315,18 +312,6 @@ export const agentProcessLayer = (
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
       )
-    ),
-    Layer.provide(
-      // Audit View's Run Session is a different workspace: an Agent Session
-      // never reaches it, and a test that finds otherwise should fail loudly.
-      Layer.succeed(RunSession, {
-        answerVariable: () => Effect.die("Not under test"),
-        artifactPath: () => Effect.die("Not under test"),
-        changes: () => Stream.never,
-        get: () => Effect.succeed(null),
-        loadFlow: () => Effect.die("Not under test"),
-        start: () => Effect.die("Not under test"),
-      })
     )
   );
 };

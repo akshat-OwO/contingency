@@ -1,6 +1,6 @@
 # Flow is a native Contingency format
 
-> Supersedes [ADR 0001](./0001-flow-as-chrome-recorder-json.md).
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Supersedes [ADR 0001](./0001-flow-as-chrome-recorder-json.md).
 
 A Flow is Contingency's own JSON document, no longer constrained to be Chrome DevTools Recorder–compatible. Chrome's action model admitted only `navigate`, `click`, `change`, and `keyDown`/`keyUp`, which left a tool that audits real sites unable to express hovering, scrolling, selecting an option, or waiting — and lazy-loaded content that is never scrolled to is invisible to an accessibility Audit. Chrome Recorder import is dropped entirely rather than kept as a converter.
 

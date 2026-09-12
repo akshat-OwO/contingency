@@ -1,11 +1,11 @@
 ---
 name: verify-contingency
-description: Drive Contingency's local web UI and CLI the way a user does. Use when proving Workspace or `contingency run` behavior, capturing screenshots or ARIA snapshots, or checking a UI change against the live app rather than unit tests.
+description: Drive Contingency's local web UI and MCP server the way a user does. Use when proving Workspace, Teaching, or Run behavior, capturing screenshots or ARIA snapshots, or checking a UI change against the live app rather than unit tests.
 ---
 
 # Verify Contingency
 
-Contingency's local UI has one Workspace route at `/`. Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries share it. The deterministic `contingency run` CLI remains until #165 Phase 6. `contingency mcp` is a separate process that owns Agent Sessions; an ordinary `web` instance cannot invent them.
+Contingency's local UI has one Workspace route at `/`. Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries share it. `contingency mcp` is a separate process that owns Agent Sessions; an ordinary `web` instance cannot invent them.
 
 This skill drives a disposable production build of that UI through Playwright. It does not drive the user's existing `localhost:5173` or `127.0.0.1:7777` session.
 
@@ -38,7 +38,7 @@ export CONTINGENCY_VERIFY_DIR=...
 
 Chromium for the driver (and for Agent Sessions and Runs) comes from `playwright-core` in `packages/cli`. If launch fails on the driver, install it with `nub exec --cwd packages/cli playwright-core install chromium` and retry.
 
-Default developer `nub exec contingency web` is a different mode: Vite on 5173 plus CLI on 7777, and it opens a real browser. Verification never uses that pair. It runs `NODE_ENV=production node packages/cli/dist/index.js web --no-browser` on a private port with `CONTINGENCY_STATE_DIR` under the verify directory.
+Default developer `nub exec contingency web` is a different mode: Vite on 5173 plus CLI on 7777, and it opens a real browser. Verification never uses that pair. It runs `NODE_ENV=production node packages/cli/dist/index.js web --no-browser` on a private port with `CONTINGENCY_CATALOG_ROOT` under the verify directory.
 
 ## Doctor
 
@@ -76,7 +76,6 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 "$CONTROL" browser click --role link --name Workspace
 "$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
 "$CONTROL" browser screenshot --path workspace/entry.png
-"$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0 --output "$CONTINGENCY_VERIFY_DIR/state/runs"
 ```
 
 ### Two surfaces in Workspace
@@ -112,13 +111,13 @@ Put proof under `.cursor/skills/verify-contingency/artifacts/<feature-id>/`. Rel
 A proof is incomplete unless it includes:
 
 - The user action (command plus handle), not an RPC or test helper that skips the UI.
-- The resulting state (ARIA snapshot and screenshot for UI; stdout, stderr, exit code, and `run.json` path for CLI).
-- A second observation for mutations: reopen the view or read the written Run directory under `$CONTINGENCY_VERIFY_DIR/state/runs`.
+- The resulting state (ARIA snapshot and screenshot for UI; stdout, stderr, and exit code for MCP tool calls).
+- A second observation for mutations: reopen the view or read the written catalog under `$CONTINGENCY_VERIFY_DIR/state/catalog`.
 - The feature id and entry point used.
 
-Traces and Run videos are sensitive. Verification Runs and Teaching may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's default `~/.local/state/contingency`.
+Traces and Run videos are sensitive. Verification Runs and Teaching may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's real catalog.
 
-Mocks are not allowed for the Runner, Playwright, or the web UI. The ecommerce HTTP server (`control-contingency ecommerce start`) is verification scaffolding. Cleanup removes that server.
+Mocks are not allowed for Agent Sessions, Playwright, or the web UI. The ecommerce HTTP server (`control-contingency ecommerce start`) is verification scaffolding. Cleanup removes that server.
 
 ## Cleanup
 
@@ -146,8 +145,7 @@ export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" mcp call --tool agent_sessions_get
 "$CONTROL" mcp stop
 "$CONTROL" fixture start            # alias for ecommerce start
-"$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0
 "$CONTROL" cleanup
 ```
 
-`launch` refuses if that verify dir already has a live pid. Two verification instances may run side by side because each picks its own port and `CONTINGENCY_STATE_DIR`. They must not share 7777, 5173, or the user's real state directory.
+`launch` refuses if that verify dir already has a live pid. Two verification instances may run side by side because each picks its own port and catalog root. They must not share 7777, 5173, or the user's real catalog.

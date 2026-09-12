@@ -28,7 +28,7 @@ const waitUntil = (ready: () => boolean) =>
   }).pipe(Effect.timeout("10 seconds"));
 
 it.live(
-  "opens, streams, stores state, changes emulation, and closes a Create View session",
+  "opens, streams, stores state, changes emulation, and closes a live browser session",
   () =>
     Effect.gen(function* browserSessionLifecycle() {
       const browser = yield* CreateBrowser;
@@ -420,7 +420,7 @@ it.live(
 );
 
 /**
- * Create View reproduces a decision the same way a Run does. A denial keeps the
+ * A live session reproduces a decision the same way a headless Run does. A denial keeps the
  * coordinates installed and still refuses the site, and an origin narrows a
  * grant to the one site under test. Neither answer waits on Chromium's native
  * permission bubble, which sits outside the streamed canvas: a prompt here

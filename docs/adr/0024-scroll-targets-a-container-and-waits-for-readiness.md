@@ -1,5 +1,7 @@
 # Scroll targets a container and waits for bounded readiness
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 A Scroll Step names the element it scrolls, omitting the target only for the document, and retains the relative wheel distance rather than an absolute scroll position. Replay moves the pointer onto the resolved target and dispatches a real wheel action. The Runner then waits for the scroll position to stabilize, for DOM mutations to stay quiet for 250 milliseconds, and for finite requests begun by the scroll to finish. The wait uses at most the smaller of two seconds and the Step's remaining timeout. If readiness cannot be proven, the Step succeeds with a structured diagnostic instead of hanging an infinite page or failing an otherwise valid Flow.
 
 ## Consequences

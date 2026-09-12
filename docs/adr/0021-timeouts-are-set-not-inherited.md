@@ -1,5 +1,7 @@
 # Runner timeouts are set explicitly, not inherited
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 The Runner sets Playwright's `actionTimeout` and `navigationTimeout` explicitly and drops the timeouts that existed to work around the previous browser tool's subprocess queue.
 
 ## Consequences

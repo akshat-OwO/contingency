@@ -2,29 +2,16 @@ import { createServer, request } from "node:http";
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, Layer, Stream } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 
 import { makeRpcRoutes } from "../../src/routes/rpc.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
-import type { RunSessionService } from "../../src/services/run-session.ts";
 
-const runSession: RunSessionService = {
-  answerVariable: () => Effect.die("Not under test."),
-  artifactPath: () => Effect.die("Not under test."),
-  changes: () => Stream.never,
-  get: () => Effect.succeed(null),
-  loadFlow: () => Effect.die("Not under test."),
-  start: () => Effect.die("Not under test."),
-};
-
-const browserServices = Layer.mergeAll(
-  makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }),
-  RecordingLive
-).pipe(
+const browserServices = makeAgentSessionLayer({
+  baseUrl: "http://127.0.0.1:7777",
+}).pipe(
   Layer.provideMerge(CreateBrowserLive),
   Layer.provideMerge(NodeServices.layer)
 );
@@ -32,12 +19,7 @@ const browserServices = Layer.mergeAll(
 const serving = Effect.fn("servingRpcSecurity")(function* servingRpcSecurity() {
   const allowedOrigins = new Set(["http://127.0.0.1:7777"]);
   const context = yield* Layer.build(
-    HttpRouter.serve(
-      makeRpcRoutes({
-        allowedOrigins,
-        runSession: Layer.succeed(RunSession, runSession),
-      })
-    ).pipe(
+    HttpRouter.serve(makeRpcRoutes({ allowedOrigins })).pipe(
       Layer.provide(browserServices),
       Layer.provideMerge(
         NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 0 })

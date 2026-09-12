@@ -7,22 +7,18 @@ import { Command } from "effect/unstable/cli";
 import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index.ts";
 import { CreateBrowserLive } from "./services/create-browser.ts";
-import { RecordingLive } from "./services/recorder.ts";
-import { RunnerLive } from "./services/runner.ts";
 import { UiInterfaceLive } from "./services/ui-interface.ts";
 
-const servicesLayer = Layer.mergeAll(
-  RecordingLive.pipe(Layer.provideMerge(CreateBrowserLive)),
-  RunnerLive,
-  UiInterfaceLive
-).pipe(Layer.provideMerge(NodeServices.layer));
+const servicesLayer = Layer.mergeAll(CreateBrowserLive, UiInterfaceLive).pipe(
+  Layer.provideMerge(NodeServices.layer)
+);
 
 /**
  * How soon after the first signal a second one is read as a reflex rather
  * than as insistence.
  *
  * Ctrl-C is often pressed twice out of habit. The first signal starts an
- * unwind whose finalizers flush a recording and close Chromium; asking the
+ * unwind whose finalizers flush a Demonstration and close Chromium; asking the
  * runtime to interrupt again mid-teardown wedges it instead of hurrying it
  * along. So the runtime is handed exactly one signal, and every later one is
  * answered here: swallowed inside the reflex window, honoured past it.

@@ -24,11 +24,11 @@ import { Context } from "effect";
 import type { BrowserContext, Page } from "playwright-core";
 
 /**
- * What the Recorder attaches to: the pinned session's context, the Page the
- * Recording starts on, and that Page's identity in Create View. A Recording
- * spans the Pages this context opens and never migrates to another one.
+ * The session's active tab, handed over as the three things a caller that
+ * instruments a browser needs together: the context to trace and watch for new
+ * pages, the Page itself, and that Page's identity in the session.
  */
-export interface RecorderTarget {
+export interface BrowserTarget {
   readonly context: BrowserContext;
   readonly page: Page;
   readonly tabId: BrowserTabId;
@@ -55,6 +55,15 @@ export type BrowserStorageDeleteInput =
   | { readonly key: string; readonly kind: "local" | "session" };
 
 export interface CreateBrowserService {
+  /**
+   * The session's active tab, or the named one. Teaching traces the context
+   * this returns and follows the pages it opens; an Execution Boundary is
+   * installed on it.
+   */
+  readonly activeTarget: (
+    sessionId: SessionId,
+    tabId?: BrowserTabId
+  ) => Effect.Effect<BrowserTarget, BrowserRpcErrorType>;
   readonly acknowledgeFrame: (
     sessionId: SessionId,
     sequence: FrameSequence,
@@ -95,10 +104,7 @@ export interface CreateBrowserService {
     tabId: BrowserTabId,
     input: BrowserStorageDeleteInput
   ) => Effect.Effect<void, BrowserRpcErrorType>;
-  /**
-   * The Emulation the session currently applies — what a Recording declares on
-   * the Flow it produces, and what the interface shows as applied.
-   */
+  /** The Emulation the session currently applies to every Page it opens. */
   readonly getEmulation: (
     sessionId: SessionId
   ) => Effect.Effect<SessionEmulation, BrowserRpcErrorType>;
@@ -141,14 +147,6 @@ export interface CreateBrowserService {
     { readonly sessionId: SessionId; readonly url: string },
     BrowserRpcErrorType
   >;
-  /**
-   * The Page a Recording attaches to: the named tab when recovery re-pins the
-   * one it already names, and the active tab when a Recording starts.
-   */
-  readonly recorderTarget: (
-    sessionId: SessionId,
-    tabId?: BrowserTabId
-  ) => Effect.Effect<RecorderTarget, BrowserRpcErrorType>;
   readonly sendInput: (
     sessionId: SessionId,
     input: BrowserInput

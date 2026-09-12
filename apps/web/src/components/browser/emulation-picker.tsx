@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 
 /**
- * The website permissions Create View can decide by name. Geolocation leads
+ * The website permissions the Workspace can decide by name. Geolocation leads
  * because an emulated location only reaches a site that asks when its
  * permission is genuinely granted, and only a deliberate denial makes that
  * site observe refusal ([ADR
@@ -294,7 +294,7 @@ export type SessionEmulationState =
 interface EmulationPickerProps {
   /** The Emulation the session applies, once the interface has read it. */
   readonly applied: SessionEmulationState;
-  /** The active Page's HTTP origin, when Create View has one. */
+  /** The active Page's HTTP origin, when the Workspace has one. */
   readonly currentOrigin?: string | undefined;
   readonly disabled: boolean;
   readonly onPatch: (patch: EmulationPatch) => void;

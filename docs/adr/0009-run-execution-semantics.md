@@ -1,5 +1,7 @@
 # Run execution semantics
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 A **Run** validates before it opens a browser, aborts and retries on Step failure, classifies why it failed, and persists a self-contained artifact on every path that reaches an outcome — completed or failed, first attempt or last. A Run cancelled before it reaches one writes no Run record; what it did produce still says which Run produced it, so nothing on disk is unattributable. The consequences below give the reasoning. These rules apply to headless CLI Runs and, later, to Audit View, because [ADR 0002](./0002-cli-is-the-sole-runner.md) gives both one engine.
 
 ## Preflight

@@ -1,5 +1,7 @@
 # axe-core is a direct dependency, pinned by Contingency
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Accessibility Audits run `axe-core` through `@axe-core/playwright` against the page, replacing the `a11y --json` subprocess that disappears with the bundled binary ([ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md)). This is forced work, not opportunistic: the engine was always axe — the nested `target` paths the Runner already decodes are axe's own format — but it arrived through a tool that pinned it on Contingency's behalf.
 
 ## Considered Options

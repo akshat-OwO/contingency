@@ -1,5 +1,7 @@
 # Pre-step conditions gain selectorHidden and urlMatches
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 `PreStep.when` accepts `selectorHidden` and `urlMatches` alongside the original `selectorVisible`. The same condition machinery backs the `waitFor` Step introduced in [ADR 0011](./0011-flow-is-a-native-format.md).
 
 ## Consequences

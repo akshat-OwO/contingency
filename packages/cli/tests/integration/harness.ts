@@ -3,47 +3,19 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { Run as RunSchema } from "@contingency/protocol";
 import type {
   DraftEmulation,
-  Flow,
-  Run as RunType,
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import { NodeServices } from "@effect/platform-node";
-import { Effect, FileSystem, Layer, Schema } from "effect";
-import type { Scope } from "effect/Scope";
-
-import type {
-  RunnerRunOptions,
-  RunnerService,
-} from "../../src/services/runner.ts";
-import { Runner, RunnerLive } from "../../src/services/runner.ts";
+import { Effect, FileSystem } from "effect";
 
 const isTcpAddress = (
   address: AddressInfo | string | null
 ): address is AddressInfo => address !== null && typeof address !== "string";
-
-/**
- * The real Runner, driving a real Chromium in process.
- *
- * Tests here run with `it.live`. A real browser runs on the real clock, and a
- * Runner that waits for anything — a navigation, a metric — waits forever
- * against a test clock.
- *
- * Nothing here is stubbed. Every other suite substitutes the browser or its
- * inputs, and so can never falsify the risks that actually bite: whether a
- * Flow's locators resolve against real DOM, and whether the browser answers
- * in a shape the Runner can read.
- */
-export const IntegrationLive = RunnerLive.pipe(
-  Layer.provideMerge(NodeServices.layer)
-);
 
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, "fixtures");
 
@@ -332,57 +304,3 @@ export const draftEmulation = (
   userAgentProfile,
   viewport,
 });
-
-/** A Flow, with the boilerplate a Recorder would have written for it. */
-export const flow = (
-  steps: Flow["steps"],
-  title = "Integration",
-  variables?: Flow["variables"]
-): Flow =>
-  variables === undefined ? { steps, title } : { steps, title, variables };
-
-/**
- * Execute a Flow through the real Runner and hand back the Run, plus the
- * Run as it was actually written to disk — the two should agree, and a Run
- * that never persisted is not a Run.
- */
-export const runFlow = (
-  target: Flow,
-  options?: Partial<RunnerRunOptions>
-): Effect.Effect<
-  {
-    readonly directory: string;
-    readonly persisted: RunType;
-    readonly run: RunType;
-  },
-  unknown,
-  RunnerService | FileSystem.FileSystem | Scope
-> =>
-  Effect.gen(function* executeFlow() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const runner = yield* Runner;
-    const outputDirectory = yield* fileSystem.makeTempDirectoryScoped({
-      directory: tmpdir(),
-      prefix: "contingency-integration-",
-    });
-
-    const { directory, run } = yield* runner.run(target, {
-      outputDirectory,
-      // One attempt: a retry would mask exactly the flakiness this suite is
-      // here to expose.
-      retry: 0,
-      ...options,
-    });
-
-    const persisted = yield* fileSystem
-      .readFileString(path.join(directory, "run.json"))
-      .pipe(
-        Effect.map((contents) =>
-          Schema.decodeUnknownSync(RunSchema)(JSON.parse(contents))
-        )
-      );
-
-    // The temporary output directory belongs to the caller's scope, not this
-    // one: a test that reads the Run's artifacts has to outlive the Run.
-    return { directory, persisted, run };
-  });

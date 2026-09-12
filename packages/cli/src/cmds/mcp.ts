@@ -32,7 +32,6 @@ import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { makeMcpHttpLayer } from "../services/mcp-http.ts";
-import { defaultRunsDirectory } from "../services/state-directory.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
 
 const mcpTools = Layer.mergeAll(
@@ -148,7 +147,6 @@ export const mcpCommand = Command.make(
             host,
             mcp: makeMcpHttpLayer(allowedOrigins).pipe(Layer.provide(shared)),
             port,
-            run: { flow: null, outputDirectory: defaultRunsDirectory() },
             serveWebUi: true,
           }).pipe(Layer.provide(agentSession))
         ).pipe(Effect.result);

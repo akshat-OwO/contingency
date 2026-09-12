@@ -6,12 +6,9 @@ import {
   BUSY_TICK_BEACON,
   CART_STATE_BEACON,
   fixtureServer,
-  flow,
-  IntegrationLive,
   LAZY_LOADED_BEACON,
   LATE_CONTENT_BEACON,
   SCROLL_READY_BEACON,
-  runFlow,
   STEP_BEACON,
 } from "./harness";
 
@@ -71,36 +68,4 @@ it.live("serves every fixture page a later stack tests against", () =>
       expect(body, `${page} names its beacon`).toContain(beacon);
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
-);
-
-/**
- * The busy page polls from load onwards. Navigation and final quiescence are
- * both bounded, so the Run completes and leaves ticks in the request log.
- */
-it.live("busy fixture keeps requesting while a Run is on it", () =>
-  Effect.gen(function* watchBusyFixture() {
-    const fixtures = yield* fixtureServer;
-
-    const { run } = yield* runFlow(
-      flow(
-        [
-          { type: "navigate", url: fixtures.url("busy.html") },
-          {
-            target: [{ kind: "css", selector: "h1" }],
-            timeout: 100,
-            type: "click",
-          },
-        ],
-        "Busy"
-      )
-    );
-
-    expect(run.outcome).toBe("completed");
-    expect(run.environment.navigationReadiness).toBe(
-      "load-then-bounded-network-idle"
-    );
-    expect(
-      fixtures.requests.filter((url) => url === BUSY_TICK_BEACON).length
-    ).toBeGreaterThan(0);
-  }).pipe(Effect.scoped, Effect.provide(IntegrationLive))
 );

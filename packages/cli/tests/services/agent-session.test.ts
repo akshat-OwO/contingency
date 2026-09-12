@@ -89,6 +89,7 @@ const makeFakeBrowser = (options?: {
       activePageCalls += 1;
       return Effect.fail(failure);
     },
+    activeTarget: notUnderTest,
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {
@@ -147,7 +148,6 @@ const makeFakeBrowser = (options?: {
       emulations.push(emulation);
       return Effect.succeed({ sessionId, url });
     },
-    recorderTarget: notUnderTest,
     sendInput: notUnderTest,
     setEmulation: notUnderTest,
     setStorage: notUnderTest,
@@ -701,7 +701,7 @@ it.effect("installs no Execution Boundary during Teaching", () =>
   Effect.gen(function* teachingIsUnenforced() {
     const fake = makeFakeBrowser();
     const service = yield* serviceFor(fake);
-    // The fake's `recorderTarget` dies, so a session that reached for a page to
+    // The fake's `activeTarget` dies, so a session that reached for a page to
     // install a boundary on would fail here rather than start.
     const teaching = yield* service.start({
       ...startInput("start-teaching-unenforced"),

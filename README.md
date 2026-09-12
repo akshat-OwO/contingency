@@ -1,12 +1,10 @@
 # Contingency
 
-Author website Flows, re-run them, and report accessibility and performance Findings. A Flow you record in the browser is the same Flow your CI runs headlessly, so the check that passed on your machine is the check that runs on every commit.
-
-Contingency also teaches agents. You demonstrate a journey once, an agent compiles it into a reusable Agent Flow, and you approve it before it ever runs on its own.
+Monitor whether your product's features still work. You demonstrate a journey once, an agent compiles it into a reusable Agent Flow, and you approve it before it ever runs on its own.
 
 ```sh
 npm install -g @contingencyhq/cli
-contingency web
+contingency mcp
 ```
 
 Usage lives in [`packages/cli/README.md`](./packages/cli/README.md), which is also the npm landing page.
@@ -17,10 +15,10 @@ A Turborepo workspace managed by [`nub`](https://github.com/nubjs/nub). One pack
 
 | Path | What it is |
 | --- | --- |
-| `packages/cli` | `@contingencyhq/cli`, the Runner, MCP server, and web server |
+| `packages/cli` | `@contingencyhq/cli`, the MCP server, browser runtime, and web server |
 | `packages/protocol` | Shared schemas and RPC contracts, bundled into the CLI |
 | `packages/release` | Release tooling the publish workflow runs |
-| `apps/web` | Create View, Audit View, and Agent View, built into the CLI |
+| `apps/web` | The Workspace, built into the CLI |
 
 ## Development
 

@@ -20,7 +20,7 @@ export interface EnvironmentEmulation {
 
 /**
  * The environment half of an Emulation — what a site senses about its place
- * and its moment — as browser context options. Create View's authoring session
+ * and its moment — as browser context options. A live browser session
  * and every Run translate it here, so a headless Run and the session the Flow
  * was authored in present the same environment ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).

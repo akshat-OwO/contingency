@@ -1,5 +1,7 @@
 # A Run starts fresh, navigates through bounded readiness, and ends quiescent
 
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack.
+
 Each Run executes in a fresh Playwright browser context unless the Flow opts into persisted state. A navigating Step waits for `load`, then gives the page up to two seconds within that Step's navigation timeout to reach Playwright's `networkidle` state. Network idle is best effort: a page with polling, analytics, or a long-lived connection proceeds after the bound instead of failing a valid Flow. New Runs record this readiness contract in their environment so a Baseline written under older navigation semantics remains distinguishable. After the final Step, the Runner waits for the page to go quiet, network idle and DOM stability bounded at roughly two seconds, before stopping capture and closing the context.
 
 ## Consequences

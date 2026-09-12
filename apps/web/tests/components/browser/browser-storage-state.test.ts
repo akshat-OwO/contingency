@@ -5,7 +5,6 @@ import {
   cookieIdentityOf,
   filterCookiesForOriginHost,
   httpOriginFromUrl,
-  recordingLocksStorageMutations,
 } from "@contingency/protocol";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -388,48 +387,6 @@ describe("fetched cookie snapshots", () => {
       "a",
       "light",
     ]);
-  });
-});
-
-describe("mutation lock", () => {
-  it("locks mutations for an in-progress Recording on that session", () => {
-    expect(
-      recordingLocksStorageMutations(
-        { phase: "active", sessionId: "create-a" },
-        "create-a"
-      )
-    ).toBe(true);
-    expect(
-      recordingLocksStorageMutations(
-        { phase: "paused", sessionId: "create-a" },
-        "create-a"
-      )
-    ).toBe(true);
-    expect(
-      recordingLocksStorageMutations(
-        { phase: "incomplete", sessionId: "create-a" },
-        "create-a"
-      )
-    ).toBe(true);
-  });
-
-  it("allows mutations when there is no Recording or it is finished", () => {
-    expect(recordingLocksStorageMutations(null, "create-a")).toBe(false);
-    expect(
-      recordingLocksStorageMutations(
-        { phase: "finished", sessionId: "create-a" },
-        "create-a"
-      )
-    ).toBe(false);
-  });
-
-  it("does not lock a different browser session", () => {
-    expect(
-      recordingLocksStorageMutations(
-        { phase: "active", sessionId: "create-a" },
-        "create-b"
-      )
-    ).toBe(false);
   });
 });
 

@@ -40,7 +40,7 @@ export type UserAgentMetadata = typeof UserAgentMetadata.Type;
  *
  * The identity deliberately carries no viewport of its own. Viewport and
  * device scale factor stay on the Emulation's `viewport`, which is the single
- * durable answer both Create View and the Runner apply; selecting a mobile
+ * durable answer every session applies; selecting a mobile
  * identity writes that identity's defaults into it, and a later explicit
  * viewport edit overwrites them. Two viewports — one here, one there — could
  * disagree about the same page.
@@ -101,12 +101,12 @@ export interface UserAgentProfile {
   readonly id: UserAgentProfileId;
   readonly label: string;
   /**
-   * Whether Create View offers this identity for new work. Safari, Firefox,
+   * Whether the picker offers this identity for new work. Safari, Firefox,
    * and the iOS browsers are not selectable: every one of them is WebKit or
    * Gecko, so Chromium can wear their string but never reproduce their
    * engine, and promising otherwise would mean reopening [ADR
-   * 0016](../../../docs/adr/0016-runs-are-chromium-only.md). Existing Flows
-   * naming them keep running as legacy string-only overrides.
+   * 0016](../../../docs/adr/0016-runs-are-chromium-only.md). Existing
+   * Emulations naming them keep running as legacy string-only overrides.
    */
   readonly selectable: boolean;
   readonly template: string | undefined;
@@ -340,7 +340,7 @@ export const userAgentProfiles: readonly UserAgentProfile[] = [
 ];
 
 /**
- * What one Create View profile applies beyond its user-agent string, and the
+ * What one profile applies beyond its user-agent string, and the
  * viewport selecting it starts from. `%s` in a version stands for the
  * browser's major version, matching the user-agent templates.
  */
@@ -423,7 +423,7 @@ const profileIdentities: Partial<Record<UserAgentProfileId, ProfileIdentity>> =
     },
   };
 
-/** The identity a Create View profile applies, when it declares more than a string. */
+/** The identity a profile applies, when it declares more than a string. */
 export const profileIdentity = (
   profileId: UserAgentProfileId
 ): ProfileIdentity | undefined => profileIdentities[profileId];
@@ -493,8 +493,8 @@ export const resolveUserAgentMetadata = (
 /**
  * The identity a profile and a running browser produce together: one value
  * covering the string, the client hints, the mobile metrics, and touch.
- * Create View stores this in the Flow rather than the profile id, so what the
- * Flow means cannot change when the profile list does (ADR 0013).
+ * An Emulation stores this rather than the profile id, so what it means
+ * cannot change when the profile list does (ADR 0013).
  *
  * A profile that declares no further signals — every desktop identity, and any
  * custom string — resolves to the string alone.
@@ -526,9 +526,9 @@ export const browserIdentityFor = (
 };
 
 /**
- * The identities Create View offers for new work, in the order the picker
- * shows them. The full list stays available for decoding, so an existing Flow
- * naming a legacy profile still resolves (ADR 0013).
+ * The identities offered for new work, in the order the picker shows them.
+ * The full list stays available for decoding, so an existing Emulation naming
+ * a legacy profile still resolves (ADR 0013).
  */
 export const selectableUserAgentProfiles: readonly UserAgentProfile[] =
   userAgentProfiles.filter(({ selectable }) => selectable);
@@ -604,8 +604,8 @@ const majorVersion = (browserVersion: string): string =>
 
 /**
  * The user-agent string a profile applies against the browser actually
- * running. Shared by Create View and the Runner so both normalize a profile
- * the same way.
+ * running. Shared by every session so all of them normalize a profile the
+ * same way.
  */
 export const resolveUserAgent = (
   profileId: UserAgentProfileId,

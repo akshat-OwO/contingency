@@ -1,50 +1,18 @@
-import type {
-  BrandVersion,
-  BrowserIdentity,
-  Flow,
-  Viewport,
-} from "@contingency/protocol";
-import {
-  browserIdentityCompatibilityWarning,
-  stringOnlyIdentity,
-} from "@contingency/protocol";
-
 /**
- * How a concrete browser identity reaches a Page. Create View and the Runner
- * both apply an identity through these payloads, so a headless Run exposes the
- * identity the authoring session did ([ADR
+ * How a concrete browser identity reaches a Page. Every session applies its
+ * identity through these CDP payloads, so Teaching and Interactive Runs expose
+ * the same identity ([ADR
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
 
+import type {
+  BrandVersion,
+  BrowserIdentity,
+  Viewport,
+} from "@contingency/protocol";
+
 /** A real Android touchscreen reports more than one contact point. */
 const TOUCH_POINTS = 5;
-
-/**
- * The identity a Flow's Emulation declares. `browser` is the concrete answer;
- * a bare `userAgent` is a string-only desktop override, because inferring
- * mobile behaviour from a fragment such as `Mobile` would be a guess rather
- * than a migration rule (ADR 0013).
- */
-export const flowBrowserIdentity = (
-  emulation: Flow["emulation"]
-): BrowserIdentity | undefined => {
-  if (emulation?.browser !== undefined) {
-    return emulation.browser;
-  }
-  return emulation?.userAgent === undefined
-    ? undefined
-    : stringOnlyIdentity(emulation.userAgent);
-};
-
-/** Warnings attached to an older Flow before Chromium applies its identity. */
-export const flowBrowserIdentityWarnings = (
-  emulation: Flow["emulation"]
-): readonly string[] => {
-  const warning = browserIdentityCompatibilityWarning(
-    emulation?.browser?.userAgent ?? emulation?.userAgent
-  );
-  return warning === undefined ? [] : [warning];
-};
 
 /** The client-hint metadata shape Chromium's own override takes. */
 interface CdpUserAgentMetadata {

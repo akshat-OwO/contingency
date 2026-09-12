@@ -1,6 +1,6 @@
 # CLI owns the sole Runner
 
-> Superseded by [ADR 0029](./0029-contingency-owns-the-sole-runner.md): the CLI and MCP server are now adapters over a Contingency-owned Runner.
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Superseded by [ADR 0029](./0029-contingency-owns-the-sole-runner.md): the CLI and MCP server are now adapters over a Contingency-owned Runner.
 >
 > Amended by [ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md): the Runner and Create View now share one browser stack, which the last consequence below left open.
 

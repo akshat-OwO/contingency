@@ -1,6 +1,6 @@
 # Audit View starts Runs; it does not attach to one
 
-> Amended by [ADR 0029](./0029-contingency-owns-the-sole-runner.md): the CLI, web interfaces, and MCP server are adapters over a Contingency-owned Runner.
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Amended by [ADR 0029](./0029-contingency-owns-the-sole-runner.md): the CLI, web interfaces, and MCP server are adapters over a Contingency-owned Runner.
 
 [ADR 0002](./0002-cli-is-the-sole-runner.md) made the CLI the sole Runner and left one question open, in its own words: Audit View must "invoke **or** attach to" it. Audit View **invokes**. `contingency web` takes the Flow to audit as an argument and hosts the Runner in its own process; the browser is a viewer over a Run that process started.
 

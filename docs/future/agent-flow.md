@@ -1,6 +1,6 @@
 # Future: Agent Flow
 
-Vocabulary: [`CONTEXT.md`](../../CONTEXT.md). Decisions: [`docs/adr/`](../adr/). Product sequence: [`product-path.md`](./product-path.md).
+Vocabulary: [`CONTEXT.md`](../../CONTEXT.md). Decisions: [`docs/adr/`](../adr/).
 
 The design is settled. Implementation has not started. The first milestone proves one Agent Flow end to end; Suite orchestration follows immediately afterward.
 
@@ -30,7 +30,7 @@ Agent searches the selected Agent Flow Catalog
                          ↓ bounded Teaching Feed
                   agent compiles draft
                          ↓
-              user reviews in Agent View
+              user reviews in the Workspace
                          ↓ authorize once
                  Verification Run
                          ↓ successful
@@ -45,7 +45,7 @@ Agent searches the selected Agent Flow Catalog
 
 Teaching is mixed-control. The user may act directly, tell the agent what to do, or mark a field for private input. Contingency records the actor, browser actions, Browser Snapshots, screenshots, URL transitions, timing, and the full Trace. Known entered secrets become Variable references rather than Agent Flow literals.
 
-The external agent receives a bounded **Teaching Feed**, not the raw Trace ([ADR 0032](../adr/0032-external-agents-receive-a-bounded-teaching-feed.md)). The feed excludes cookies, authorization headers, network bodies, the full video, and the full Trace. Screenshots travel as references whose bytes the agent fetches one at a time, so the feed stays small enough to read. They mask known sensitive fields, but visible page content can still be sensitive, so Agent View discloses that the feed is sent to the selected agent.
+The external agent receives a bounded **Teaching Feed**, not the raw Trace ([ADR 0032](../adr/0032-external-agents-receive-a-bounded-teaching-feed.md)). The feed excludes cookies, authorization headers, network bodies, the full video, and the full Trace. Screenshots travel as references whose bytes the agent fetches one at a time, so the feed stays small enough to read. They mask known sensitive fields, but visible page content can still be sensitive, so The Workspace discloses that the feed is sent to the selected agent.
 
 ### Agent Flow Revision
 
@@ -82,13 +82,13 @@ Every mutating call carries an operation id. Repeating an operation id returns i
 
 The MCP client name and version are stored automatically. Provider or model metadata is stored when the client supplies it and is marked unverified.
 
-## Agent Session and Agent View
+## Agent Session and the Workspace
 
-An **Agent Session** is an ephemeral envelope binding one MCP process, external agent, browser, and **Agent View** to at most one active Teaching or Run activity. Effect scopes acquire and release every browser, context, page, stream, temporary file, and lock. Normal completion, failure, interruption, `SIGINT`, and `SIGTERM` finalize available artifacts and release resources. Startup removes only stale temporary resources carrying a dead process's ownership marker.
+An **Agent Session** is an ephemeral envelope binding one MCP process, external agent, browser, and **the Workspace** to at most one active Teaching or Run activity. Effect scopes acquire and release every browser, context, page, stream, temporary file, and lock. Normal completion, failure, interruption, `SIGINT`, and `SIGTERM` finalize available artifacts and release resources. Startup removes only stale temporary resources carrying a dead process's ownership marker.
 
 The MCP start tool returns `http://127.0.0.1:<port>/agent?session=<id>`. The session id selects a session and is not an authentication token. The server binds only to loopback, rejects cross-origin mutations and WebSockets, and does not enable permissive CORS. The dropdown shows only sessions owned by that MCP process.
 
-Agent View is separate from Audit View ([ADR 0030](../adr/0030-agent-view-is-separate-from-audit-view.md)). It shows:
+One unified Workspace is the only UI ([ADR 0038](../adr/0038-contingency-is-an-agent-sanity-monitor.md)). It shows:
 
 - the live browser stream;
 - the active Agent Step;
@@ -97,7 +97,7 @@ Agent View is separate from Audit View ([ADR 0030](../adr/0030-agent-view-is-sep
 - Agent Step summaries and assessments reported through MCP;
 - the final Run Summary and embedded local video.
 
-Agent View may close without pausing the Run. The agent can return the same link again. After the MCP process exits, `open_run` starts a new read-only local viewer for a persisted Run Summary.
+The Workspace may close without pausing the Run. The agent can return the same link again. After the MCP process exits, `open_run` starts a new read-only local viewer for a persisted Run Summary.
 
 ## Control and safety
 
@@ -108,14 +108,14 @@ The agent generates its own plan and controls reversible browser actions. Contin
 - Confirmation authorizes one specific irreversible action attempt. A retry requires fresh confirmation.
 - A new objective outside the approved Agent Steps pauses for confirmation.
 - Agent and user control are exclusive. User Takeover interrupts the in-flight Effect and has priority, but it cannot undo an action already dispatched to the browser.
-- Recording continues during Takeover. Sensitive values become Variable references.
-- Agent View alone authorizes one Verification Run and final Agent Flow approval. The external agent may request those actions but cannot invoke them.
+- Capture continues during Takeover. Sensitive values become Variable references.
+- The Workspace alone authorizes one Verification Run and final Agent Flow approval. The external agent may request those actions but cannot invoke them.
 
 The design intentionally trusts the model to plan within that boundary. Video provides evidence after an action and is not a preventive control.
 
 ## Verification and approval
 
-Agent View presents the draft's Agent Steps, Variables, Domain Scope, and Confirmation Steps. The user may authorize exactly one Verification Run for that exact draft.
+The Workspace presents the draft's Agent Steps, Variables, Domain Scope, and Confirmation Steps. The user may authorize exactly one Verification Run for that exact draft.
 
 Verification uses a fresh browser context with the declared Emulation and Variables supplied again. Confirmation Steps still require confirmation. If verification fails, the agent may use its evidence to compile a changed draft, but the user must authorize another Verification Run. A successful verification enables a separate user-only approval control.
 
@@ -172,8 +172,8 @@ After a member fails, the agent asks the user whether to retry it in a fresh con
    - Expose session-scoped lifecycle, Browser Snapshot, screenshot, browser action, Variable, Takeover, assessment, and Run Summary tools.
    - Keep Playwright private to Runner services.
 
-5. **Agent View**
-   - Add `/agent?session=<id>`, the session dropdown, live stream, action timeline, active Step, controller state, Takeover, draft review, verification authorization, approval, and read-only summary mode.
+5. **the Workspace**
+   - Add `/?session=<id>`, the session dropdown, live stream, action timeline, active Step, controller state, Takeover, draft review, verification authorization, approval, and read-only summary mode.
    - Enforce loopback binding and browser-origin checks.
 
 6. **Teaching and compilation**
@@ -184,10 +184,10 @@ After a member fails, the agent asks the user whether to retry it in a fresh con
 7. **Verification and approved execution**
    - Run exact-draft verification in a fresh context.
    - Require per-attempt Confirmation Step approval.
-   - Approve only through Agent View, then search and execute the Approved Agent Flow in a new Interactive Run.
+   - Approve only through the Workspace, then search and execute the Approved Agent Flow in a new Interactive Run.
    - Produce structured assessments, coverage, Trace, video, attribution, and Run Summary.
 
-The milestone is complete when a user can teach one login journey, inspect and verify the generated Agent Flow, approve it, start a later agent conversation, find the approved Agent Flow, run it against a fresh browser context, intervene through Agent View, and inspect the final evidence.
+The milestone is complete when a user can teach one login journey, inspect and verify the generated Agent Flow, approve it, start a later agent conversation, find the approved Agent Flow, run it against a fresh browser context, intervene through the Workspace, and inspect the final evidence.
 
 ### Milestone 2: company sanity Suites
 

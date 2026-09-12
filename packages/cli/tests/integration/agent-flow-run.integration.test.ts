@@ -36,8 +36,6 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { RecordingLive } from "../../src/services/recorder.ts";
-import { RunSession } from "../../src/services/run-session.ts";
 import {
   findNode,
   makeCall,
@@ -69,7 +67,6 @@ const processLayer = (catalogRoot: string) =>
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
-        RecordingLive,
         makeAgentSessionLayer({
           baseUrl: "http://127.0.0.1:7777",
           traceDirectory: () => path.join(catalogRoot, "teaching"),
@@ -80,16 +77,6 @@ const processLayer = (catalogRoot: string) =>
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
       )
-    ),
-    Layer.provide(
-      Layer.succeed(RunSession, {
-        answerVariable: () => Effect.die("Not under test"),
-        artifactPath: () => Effect.die("Not under test"),
-        changes: () => Stream.never,
-        get: () => Effect.succeed(null),
-        loadFlow: () => Effect.die("Not under test"),
-        start: () => Effect.die("Not under test"),
-      })
     )
   );
 

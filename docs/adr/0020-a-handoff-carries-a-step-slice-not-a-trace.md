@@ -1,6 +1,6 @@
 # A Handoff carries a Step slice, not the whole trace
 
-> Amends [ADR 0003](./0003-fixes-via-external-handoff.md).
+> Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Amends [ADR 0003](./0003-fixes-via-external-handoff.md).
 
 A Handoff may include the failing Step's before and after snapshot drawn from the Run's Trace, and never the Trace itself.
 
