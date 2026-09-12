@@ -14,7 +14,7 @@ import {
   OperationId,
 } from "./agent-identifiers.ts";
 import { AgentRunState } from "./agent-run.ts";
-import { DraftEmulation } from "./flow.ts";
+import { DraftEmulation } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { Viewport } from "./viewport.ts";
 

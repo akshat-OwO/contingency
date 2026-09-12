@@ -28,6 +28,7 @@ export default defineConfig({
         "packages/protocol/src/browser-identifiers.ts",
         "packages/protocol/src/browser-identity.ts",
         "packages/protocol/src/browser-rpc-error.ts",
+        "packages/protocol/src/emulation.ts",
         "packages/protocol/src/flow.ts",
         "packages/protocol/src/index.ts",
         "packages/protocol/src/run.ts",
