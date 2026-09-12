@@ -42,7 +42,7 @@ const failure = (
 const AgentFlowRunStartTool = Tool.make("agent_flow_run_start", {
   dependencies: [AgentSession, AgentFlowCatalog, AgentRunStore],
   description:
-    "Start an Interactive Run of an Approved Agent Flow found in the selected catalog. It opens a fresh browser context under the Agent Flow's Emulation, returns the Agent View link, and activates the first ordered Agent Step. Only approved revisions run; a draft must be verified and approved first. You own your own plan and your own reversible retries inside the current Agent Step; Contingency owns the Step order, the ceilings, and the evidence.",
+    "Start an Interactive Run of an Approved Agent Flow found in the selected catalog. It opens a fresh browser context under the Agent Flow's Emulation, returns the Workspace link, and activates the first ordered Agent Step. Only approved revisions run; a draft must be verified and approved first. You own your own plan and your own reversible retries inside the current Agent Step; Contingency owns the Step order, the ceilings, and the evidence.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentFlowId: AgentFlowRunStart.fields.agentFlowId,
@@ -76,7 +76,7 @@ const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession, AgentRunStore],
   description:
-    "End the Interactive Run. Contingency finalizes the Trace and video, closes the live browser, writes the persistent Run Summary, and switches Agent View to summary mode. The Summary reports assessment counts separately from complete or incomplete coverage. Nothing leaves the machine.",
+    "End the Interactive Run. Contingency finalizes the Trace and video, closes the live browser, writes the persistent Run Summary, and switches Workspace to summary mode. The Summary reports assessment counts separately from complete or incomplete coverage. Nothing leaves the machine.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     operationId: AgentRunComplete.fields.operationId,
@@ -98,7 +98,7 @@ const AgentRunOpenTool = Tool.make("open_run", {
 /**
  * The Interactive Run surface. Extending a ceiling is absent on purpose: the
  * agent whose work a ceiling bounds may not raise its own budget, and only a
- * direct Agent View action can
+ * direct Workspace action can
  * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
  */
 export const AgentRunTools = withStrictParameters(

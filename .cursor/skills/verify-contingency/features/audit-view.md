@@ -1,5 +1,7 @@
 # Audit View
 
+Historical recipe. Its Create and Audit routes were removed in #170. Use [Workspace](./workspace.md) for current UI verification. The deterministic CLI remains until #165 Phase 6.
+
 Audit View runs one Flow at a time. With no Flow it explains how to load one. With a Flow it shows the title and `Run Flow`, then live phase and a finished outcome.
 
 ## Sub-features

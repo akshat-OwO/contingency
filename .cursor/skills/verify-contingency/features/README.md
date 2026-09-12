@@ -17,7 +17,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 - Prefer ARIA roles and accessible names over CSS selectors or canvas coordinates.
 - Treat every command as literal. Keep quoted names and flags unchanged.
 - Run Contingency chrome actions through `control-contingency browser`.
-- Run nested Create View site actions through `computerUse` at the verification URL.
+- Run nested Workspace site actions through `computerUse` at the verification URL.
 - Run headless Flows through `control-contingency cli --`.
 - Restore nothing in the user's `~/.local/state/contingency`. Isolated state is deleted on cleanup. Proof artifacts are not.
 
@@ -44,8 +44,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Ecommerce end-to-end drive](./ecommerce-drive.md) is the canonical proof: browse the local shop, switch sessions, record a cart Flow, download JSON, audit-run it, and scrub/play derived frames.
-- [Create View](./create-view.md) covers the authoring workspace, session picker, address bar, Recording start, and captured Steps.
-- [Audit View](./audit-view.md) covers the empty state, loading a Flow from the process argument or file picker, starting a Run, and derived-frame playback.
-- [Agent View](./agent-view.md) covers the unavailable state on `web`, the empty state when MCP has no session, same-document action snapshots, a live session's Takeover, Teaching and draft compilation, runtime Variable Pending Decisions, and evidence-backed per-Step Verification Run verdicts.
-- [Headless Run](./cli-run.md) covers `contingency run` against the ecommerce smoke Flow.
+- [Workspace](./workspace.md) is the current UI recipe for navigation, user-led Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries.
+- [Headless Run](./cli-run.md) covers the deterministic CLI retained until #165 Phase 6.
+
+Create View, Audit View, and the old ecommerce drive are historical recipes for removed routes. They are not current verification paths.

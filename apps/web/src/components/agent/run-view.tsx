@@ -425,7 +425,7 @@ export const RunViewer = ({ runId }: { readonly runId: AgentRunId }) => {
     );
   }
   return (
-    <main className="mx-auto min-h-0 w-full max-w-3xl overflow-y-auto p-6">
+    <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
       <h1 className="mb-1 text-lg font-semibold tracking-tight">Run Summary</h1>
       <p className="text-muted-foreground mb-5 text-xs">
         A read-only view of persisted evidence. No browser was reopened.

@@ -1,6 +1,6 @@
 # Headless Run
 
-`contingency run` executes a Flow with the same Runner Audit View uses, without opening the web UI. It prints the Run id, outcome, and artifact directory, and exits `0` on a completed Run that did not breach its Gate, `1` if the Run did not complete, and `2` if it completed and breached its Gate.
+`contingency run` executes a deterministic Flow without opening the web UI. This CLI remains until #165 Phase 6; the Workspace uses Agent Flows. It prints the Run id, outcome, and artifact directory, and exits `0` on a completed Run that did not breach its Gate, `1` if the Run did not complete, and `2` if it completed and breached its Gate.
 
 ## Sub-features
 

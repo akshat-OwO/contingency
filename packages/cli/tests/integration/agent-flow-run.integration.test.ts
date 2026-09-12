@@ -712,6 +712,7 @@ it.live(
         for (const runId of Object.values(runIds)) {
           const viewer = yield* run("open_run", { runId });
           expect(viewer.summary.runId).toBe(runId);
+          expect(new URL(viewer.viewUrl).pathname).toBe("/");
           expect(viewer.viewUrl).toContain(`run=${runId}`);
           // The viewer is a link to persisted evidence, not a live session.
           expect(viewer.viewUrl).not.toContain("session=");

@@ -6,7 +6,7 @@ Contingency's end-to-end verification skill lives at `.cursor/skills/verify-cont
 
 Add a **verify-contingency** acceptance criterion to an agent brief when the issue touches:
 
-- Create View, Audit View, Agent View, or headless `contingency run`
+- Workspace, or headless `contingency run`
 - Agent Flow Teaching, verification, approval, catalog search, or MCP tools
 - Browser capture, snapshots, retention, evidence, or Run artifacts
 
@@ -18,9 +18,7 @@ Read `features/README.md`, then point the brief at the closest recipe:
 
 | Area | Feature file |
 | --- | --- |
-| Agent View, Teaching, draft save, verification, approval, MCP | `features/agent-view.md` |
-| Create View, Recording, Flow download | `features/create-view.md` or `features/ecommerce-drive.md` |
-| Audit View, Run scrubbing, derived frames | `features/audit-view.md` |
+| Workspace, Teaching, verification, approval, MCP, Run Summary | `features/workspace.md` |
 | Headless CLI Run | `features/cli-run.md` |
 
 Name the sub-feature or section when the issue is narrow (e.g. "Teaching and the draft catalog", "Execution Boundary").

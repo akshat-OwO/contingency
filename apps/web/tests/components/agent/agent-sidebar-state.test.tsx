@@ -12,7 +12,7 @@ import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 /**
- * Agent View's sidebar refreshes constantly while a session is live, and each
+ * Workspace's sidebar refreshes constantly while a session is live, and each
  * region is gated on a field of the session snapshot. This test drives the
  * whole workspace through enough updates for retained state to be collected.
  */
@@ -170,7 +170,7 @@ const sessionAt = <Overrides extends object>(
   timeline: [],
   updatedAt,
   verification: null,
-  viewUrl: "http://127.0.0.1:7777/agent?session=agent-one",
+  viewUrl: "http://127.0.0.1:7777/?session=agent-one",
   ...overrides,
 });
 

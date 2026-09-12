@@ -1,15 +1,15 @@
 ---
 name: verify-contingency
-description: Drive Contingency's local web UI and CLI the way a user does. Use when proving Create View, Audit View, Agent View, or `contingency run` behavior, capturing screenshots or ARIA snapshots, or checking a UI change against the live app rather than unit tests.
+description: Drive Contingency's local web UI and CLI the way a user does. Use when proving Workspace or `contingency run` behavior, capturing screenshots or ARIA snapshots, or checking a UI change against the live app rather than unit tests.
 ---
 
 # Verify Contingency
 
-Contingency's primary user surface is the local web UI served by the CLI: Create View at `/`, Audit View at `/audit`, Agent View at `/agent`. `contingency run` is the headless CLI for the same Runner Audit View uses. `contingency mcp` is a separate process that owns Agent Sessions; an ordinary `web` instance cannot invent them.
+Contingency's local UI has one Workspace route at `/`. Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries share it. The deterministic `contingency run` CLI remains until #165 Phase 6. `contingency mcp` is a separate process that owns Agent Sessions; an ordinary `web` instance cannot invent them.
 
 This skill drives a disposable production build of that UI through Playwright. It does not drive the user's existing `localhost:5173` or `127.0.0.1:7777` session.
 
-Read `features/README.md`, then the feature file for the behavior under test, before opening the app. For the canonical product proof, start with `features/ecommerce-drive.md`.
+Read `features/README.md`, then the feature file for the behavior under test, before opening the app. For the canonical product proof, start with `features/workspace.md`.
 
 Helper: `.cursor/skills/verify-contingency/bin/control-contingency` (executable). Examples below assume it is on `PATH` or invoked by that path. Evidence lands in `.cursor/skills/verify-contingency/artifacts/` and survives cleanup.
 
@@ -30,15 +30,13 @@ CONTROL=".cursor/skills/verify-contingency/bin/control-contingency"
 "$CONTROL" launch
 ```
 
-Optional: `"$CONTROL" launch --flow /abs/path/to/flow.json` loads that Flow so Audit View is not empty.
-
 Ready when stdout prints `CONTINGENCY_VERIFY_DIR=...` and `url=http://127.0.0.1:<port>/`, and `GET` of that URL returns 200 with `<title>Contingency</title>`. Export the printed directory for every later command:
 
 ```sh
 export CONTINGENCY_VERIFY_DIR=...
 ```
 
-Chromium for the driver (and for Create sessions / Runs) comes from `playwright-core` in `packages/cli`. If launch fails on the driver, install it with `nub exec --cwd packages/cli playwright-core install chromium` and retry.
+Chromium for the driver (and for Agent Sessions and Runs) comes from `playwright-core` in `packages/cli`. If launch fails on the driver, install it with `nub exec --cwd packages/cli playwright-core install chromium` and retry.
 
 Default developer `nub exec contingency web` is a different mode: Vite on 5173 plus CLI on 7777, and it opens a real browser. Verification never uses that pair. It runs `NODE_ENV=production node packages/cli/dist/index.js web --no-browser` on a private port with `CONTINGENCY_STATE_DIR` under the verify directory.
 
@@ -54,7 +52,7 @@ Done when stdout is JSON with `"ok": true` and the `pid`, `port`, `url`, and `st
 
 ## Ecommerce fixture
 
-Start the local shop before Create or Audit drives that need a real site:
+Start the local shop before Workspace drives that need a real site:
 
 ```sh
 "$CONTROL" ecommerce start
@@ -74,43 +72,36 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 
 ```sh
 "$CONTROL" browser goto --path /
-"$CONTROL" browser wait --role link --name Create
-"$CONTROL" browser click --role link --name Audit
-"$CONTROL" browser fill --role textbox --name "Flow title" --value "Pharmacy"
-"$CONTROL" browser set-input-files --label "Open a Flow file" --path "$CONTINGENCY_VERIFY_DIR/recorded-flow.json"
-"$CONTROL" browser download --role button --name ".json" --partial --path ecommerce-drive/recorded-flow.json
-"$CONTROL" browser snapshot --aria --path create-view/create.aria.txt
-"$CONTROL" browser screenshot --path create-view/create.png
+"$CONTROL" browser wait --role link --name Workspace
+"$CONTROL" browser click --role link --name Workspace
+"$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
+"$CONTROL" browser screenshot --path workspace/entry.png
 "$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0 --output "$CONTINGENCY_VERIFY_DIR/state/runs"
 ```
 
-### Two surfaces in Create View
+### Two surfaces in Workspace
 
 | Surface | Drive with |
 | --- | --- |
-| Contingency chrome (nav, session picker, address bar, authoring panel, Recording controls) | `control-contingency browser` |
+| Contingency chrome (nav, session picker, address bar, session sidebar) | `control-contingency browser` |
 | Nested ecommerce site inside the workspace canvas | `computerUse` subagent at the verification URL |
 
 Do not click the canvas through `control-contingency browser` as if it were the nested page DOM.
 
 Stable handles in this repo:
 
-- Primary nav: `link` named `Contingency`, `Create`, `Audit`, `Agent`. Current view sets `aria-current="page"` on that link.
-- Create View: region `Browser workspace`, group `Browser navigation`, textbox `Browser address`, combobox `Choose browser session`, complementary/heading `Flow authoring`, textbox `Flow title`, button `Start Recording` (disabled until a session, URL, and title are set), text `No Recording yet`, heading `Your browser will appear here` before a session exists.
-- Audit View with no Flow: heading `No Flow to audit`, label `Open a Flow file`.
-- Audit View with a Flow: heading is the Flow title, button `Run Flow` (then `Run again`), status `Not started` / `Starting` / `Running` / `Completed` / `Failed`.
-- Audit View after a Run: region `Derived frames`, button `Play`, slider `Scrub the derived frames`, buttons `Previous Step` / `Next Step`, frame pins `Step N` / `Run settled`.
-- Agent View on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
-- Agent View on `mcp` with no session: heading `No active Agent Sessions`.
-- Agent View with a live session: heading `Agent View`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`. An Interactive Run has one control button that reads `Take control` or `Return control`; a Teaching session has neither, and reads `You are demonstrating this journey` — the canvas and toolbar are the user's from the start. Teaching private Variables enter only through the Workspace loopback `agent.teaching.variable.input`; Agent View has no private-value button or dialog.
-- Agent View with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the Teaching Feed disclosure paragraph. Absent for an Interactive Run. End Teaching with `agent_session_close` before reading its feed or saving a draft; close waits for local-video PlayByPlay analysis and the closed session is no longer available as a live Agent View. Prove the finalized feed and saved draft through MCP and catalog results.
-- Agent View draft review shows the proposed Steps, Domain Scope, Pending Decision kind, scope summary, and id as a read-only mirror. It has no draft edit fields, `Save corrections`, `Authorize Verification Run`, or `Approve Agent Flow` buttons. It directs corrections to the agent conversation.
-- Agent View shows each missing runtime Variable in the read-only `Runtime Variables` region with its secret status and Pending Decision id. Values are supplied or refused only through `agent_pending_decision_resolve` in the MCP conversation.
-- Agent View draft review after verification: list `Verification Step verdicts` with each assessed Step's outcome, explanation, and Snapshot or attempt references.
+- Primary nav: `link` named `Contingency` and `Workspace`. The Workspace link has `aria-current="page"` on `/`.
+- Workspace on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
+- Workspace on `mcp` with no session: heading `No active Agent Sessions`.
+- Workspace with a live session: heading `Workspace`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`. An Interactive Run has one control button that reads `Take control` or `Return control`; a Teaching session has neither, and reads `You are demonstrating this journey` . The canvas and toolbar are the user's from the start. Teaching private Variables enter only through the Workspace loopback `agent.teaching.variable.input`; Workspace has no private-value button or dialog.
+- Workspace with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the Teaching Feed disclosure paragraph. Absent for an Interactive Run. End Teaching with `agent_session_close` before reading its feed or saving a draft; close waits for local-video PlayByPlay analysis and the closed session is no longer available as a live Workspace. Prove the finalized feed and saved draft through MCP and catalog results.
+- Workspace draft review shows the proposed Steps, Domain Scope, Pending Decision kind, scope summary, and id as a read-only mirror. It has no draft edit fields, `Save corrections`, `Authorize Verification Run`, or `Approve Agent Flow` buttons. It directs corrections to the agent conversation.
+- Workspace shows each missing runtime Variable in the read-only `Runtime Variables` region with its secret status and Pending Decision id. Values are supplied or refused only through `agent_pending_decision_resolve` in the MCP conversation.
+- Workspace draft review after verification: list `Verification Step verdicts` with each assessed Step's outcome, explanation, and Snapshot or attempt references.
 
-`contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Agent View available at http://127.0.0.1:<port>/agent` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
+`contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Workspace available at http://127.0.0.1:<port>/` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 
-`mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Agent View. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits `2`.
+`mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Workspace. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits `2`.
 
 `mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so drafts saved with `agent_flow_draft_save` land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.
 
@@ -148,14 +139,13 @@ export CONTINGENCY_VERIFY_DIR=...   # from launch stdout
 "$CONTROL" doctor
 "$CONTROL" ecommerce start
 export ECOMMERCE_URL=...            # from ecommerce stdout
-"$CONTROL" browser goto --path /audit
-"$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/agent
+"$CONTROL" browser goto --path /
+"$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/
 "$CONTROL" browser wait --role alert --has-text "Agent Session unavailable"
 "$CONTROL" mcp start
 "$CONTROL" mcp call --tool agent_sessions_get
 "$CONTROL" mcp stop
 "$CONTROL" fixture start            # alias for ecommerce start
-"$CONTROL" reload --flow "$CONTINGENCY_VERIFY_DIR/verify-flow.json"
 "$CONTROL" cli -- run "$CONTINGENCY_VERIFY_DIR/verify-flow.json" --retry 0
 "$CONTROL" cleanup
 ```

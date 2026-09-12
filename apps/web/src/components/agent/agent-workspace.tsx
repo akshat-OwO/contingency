@@ -61,7 +61,7 @@ import { ExecutionBoundary } from "./execution-boundary";
 const errorMessage = <Failure,>(error: Failure): string =>
   error instanceof Error || isBrowserRpcError(error)
     ? error.message
-    : "The Agent View could not connect.";
+    : "The Workspace could not connect.";
 
 const isFrame = (
   event: BrowserStreamEvent
@@ -568,7 +568,7 @@ const AgentLiveView = ({
       <div className="border-b px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">Agent View</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Workspace</h1>
             <p className="text-muted-foreground text-xs">
               Watch the browser and session status in real time.
             </p>
@@ -1004,7 +1004,7 @@ const useAgentView = (
                 payload: {
                   data: {
                     operationId,
-                    reason: "The user took control from Agent View.",
+                    reason: "The user took control from Workspace.",
                     sessionId: current.id,
                   },
                   type: "agent.session.takeover",
