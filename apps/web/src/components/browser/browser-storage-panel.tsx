@@ -1,10 +1,7 @@
 import type {
   BrowserCookie,
   BrowserTabId,
-  BrowserStorageDeletePayload,
-  BrowserStorageSetPayload,
   CookieSameSite,
-  SessionId,
   StorageKind,
 } from "@contingency/protocol";
 import {
@@ -15,7 +12,6 @@ import {
   isBrowserRpcError,
   STORAGE_LOCKED_MESSAGE as storageLockedMessage,
 } from "@contingency/protocol";
-import { useAtomSet } from "@effect/atom-react";
 import { Cause, Effect, Fiber, Schedule } from "effect";
 import { PlusIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -40,14 +36,19 @@ import {
   visibleCookies,
   visibleWebStorageEntries,
   webStorageDraftFromEntry,
-} from "@/components/create/browser-storage-state";
+} from "@/components/browser/browser-storage-state";
 import type {
   CookieDraft,
   StoragePanelUiState,
   StorageSelection,
   WebStorageDraft,
-} from "@/components/create/browser-storage-state";
-import { HighlightedBody } from "@/components/create/highlighted-body";
+} from "@/components/browser/browser-storage-state";
+import type {
+  BrowserTooling,
+  StorageErase,
+  StorageWrite,
+} from "@/components/browser/browser-tooling";
+import { HighlightedBody } from "@/components/browser/highlighted-body";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -71,7 +72,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 const innerTabs: readonly {
@@ -115,14 +115,14 @@ const toErrorMessage = <Failure,>(error: Failure): string =>
     ? error.message
     : "Storage operation failed";
 
-export type { StoragePanelUiState } from "@/components/create/browser-storage-state";
+export type { StoragePanelUiState } from "@/components/browser/browser-storage-state";
 
 export interface BrowserStoragePanelProps {
   readonly mutationsLocked: boolean;
   readonly onError: (message: string) => void;
   readonly onRefreshStateChange: (refreshing: boolean) => void;
   readonly refreshNonce: number;
-  readonly sessionId: SessionId;
+  readonly tooling: BrowserTooling;
   readonly setUiState: (
     update: (current: StoragePanelUiState) => StoragePanelUiState
   ) => void;
@@ -671,33 +671,21 @@ const useStoragePolling = ({
   onRefreshStateChange,
   pollPaused,
   refreshNonce,
-  sessionId,
   setUiState,
   tabId,
   tabUrl,
   uiState,
 }: {
   readonly dirty: boolean;
-  readonly getStorage: (request: {
-    readonly payload: {
-      readonly data: {
-        readonly kind: StorageKind;
-        readonly sessionId: SessionId;
-        readonly tabId: BrowserTabId;
-      };
-      readonly type: "browser.storage.get";
-    };
-  }) => Promise<{
-    readonly data: {
-      readonly snapshot: Parameters<typeof applyFetchedStorageSnapshot>[2];
-    };
-  }>;
+  readonly getStorage: (
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Promise<Parameters<typeof applyFetchedStorageSnapshot>[2]>;
   readonly mutationsLocked: boolean;
   readonly onError: (message: string) => void;
   readonly onRefreshStateChange: (refreshing: boolean) => void;
   readonly pollPaused: boolean;
   readonly refreshNonce: number;
-  readonly sessionId: SessionId;
   readonly setUiState: BrowserStoragePanelProps["setUiState"];
   readonly tabId: BrowserTabId;
   readonly tabUrl: string;
@@ -720,22 +708,12 @@ const useStoragePolling = ({
   const fetchKind = (kind: StorageKind) =>
     Effect.tryPromise({
       catch: (cause) => cause,
-      try: () =>
-        getStorageRef.current({
-          payload: {
-            data: { kind, sessionId, tabId },
-            type: "browser.storage.get",
-          },
-        }),
+      try: () => getStorageRef.current(tabId, kind),
     }).pipe(
-      Effect.tap((result) =>
+      Effect.tap((snapshot) =>
         Effect.sync(() => {
           setUiStateRef.current((current) =>
-            applyFetchedStorageSnapshot(
-              current,
-              tabUrlRef.current,
-              result.data.snapshot
-            )
+            applyFetchedStorageSnapshot(current, tabUrlRef.current, snapshot)
           );
         })
       ),
@@ -811,32 +789,16 @@ type StorageFetchKind = (kind: StorageKind) => Effect.Effect<unknown, unknown>;
 
 type StorageMutationEffect = Effect.Effect<unknown, unknown>;
 
-const useStorageMutations = () => {
-  const { browserStorageDeleteMutation, browserStorageSetMutation } =
-    useRpcDependencies();
-  const setStorage = useAtomSet(browserStorageSetMutation, { mode: "promise" });
-  const deleteStorage = useAtomSet(browserStorageDeleteMutation, {
-    mode: "promise",
-  });
-  const setStorageEffect = (
-    data: BrowserStorageSetPayload
-  ): StorageMutationEffect =>
+const useStorageMutations = (tooling: BrowserTooling, tabId: BrowserTabId) => {
+  const setStorageEffect = (input: StorageWrite): StorageMutationEffect =>
     Effect.tryPromise({
       catch: (cause) => cause,
-      try: () =>
-        setStorage({
-          payload: { data, type: "browser.storage.set" },
-        }),
+      try: () => tooling.setStorage(tabId, input),
     });
-  const deleteStorageEffect = (
-    data: BrowserStorageDeletePayload
-  ): StorageMutationEffect =>
+  const deleteStorageEffect = (input: StorageErase): StorageMutationEffect =>
     Effect.tryPromise({
       catch: (cause) => cause,
-      try: () =>
-        deleteStorage({
-          payload: { data, type: "browser.storage.delete" },
-        }),
+      try: () => tooling.deleteStorage(tabId, input),
     });
   return { deleteStorageEffect, setStorageEffect };
 };
@@ -1020,7 +982,7 @@ interface StorageWorkspaceProps {
   readonly mutationsLocked: boolean;
   readonly onError: (message: string) => void;
   readonly onRefreshStateChange: (refreshing: boolean) => void;
-  readonly sessionId: SessionId;
+  readonly tooling: BrowserTooling;
   readonly setUiState: BrowserStoragePanelProps["setUiState"];
   readonly tabId: BrowserTabId;
   readonly uiState: StoragePanelUiState;
@@ -1031,12 +993,15 @@ const StorageCookiesWorkspace = ({
   mutationsLocked,
   onError,
   onRefreshStateChange,
-  sessionId,
+  tooling,
   setUiState,
   tabId,
   uiState,
 }: StorageWorkspaceProps) => {
-  const { deleteStorageEffect, setStorageEffect } = useStorageMutations();
+  const { deleteStorageEffect, setStorageEffect } = useStorageMutations(
+    tooling,
+    tabId
+  );
   const cookies = visibleCookies(
     uiState.storageSnapshots.cookies,
     uiState.storageSearch
@@ -1079,8 +1044,6 @@ const StorageCookiesWorkspace = ({
                 kind: "cookies",
                 name: cookie.name,
                 path: cookie.path,
-                sessionId,
-                tabId,
               })
             );
           }}
@@ -1166,8 +1129,6 @@ const StorageCookiesWorkspace = ({
                 setStorageEffect({
                   cookie: write,
                   kind: "cookies",
-                  sessionId,
-                  tabId,
                 }),
                 recreate && identity !== undefined
                   ? deleteStorageEffect({
@@ -1175,8 +1136,6 @@ const StorageCookiesWorkspace = ({
                       kind: "cookies",
                       name: identity.name,
                       path: identity.path,
-                      sessionId,
-                      tabId,
                     })
                   : undefined
               )
@@ -1193,12 +1152,15 @@ const StorageWebWorkspace = ({
   mutationsLocked,
   onError,
   onRefreshStateChange,
-  sessionId,
+  tooling,
   setUiState,
   tabId,
   uiState,
 }: StorageWorkspaceProps) => {
-  const { deleteStorageEffect, setStorageEffect } = useStorageMutations();
+  const { deleteStorageEffect, setStorageEffect } = useStorageMutations(
+    tooling,
+    tabId
+  );
   const webKind = uiState.storageKind === "session" ? "session" : "local";
   const webDraft =
     uiState.storageDraft !== undefined && uiState.storageDraft.kind === webKind
@@ -1273,8 +1235,6 @@ const StorageWebWorkspace = ({
               setStorageEffect({
                 key: draft.key,
                 kind: draft.kind,
-                sessionId,
-                tabId,
                 value: draft.value,
               })
             );
@@ -1284,8 +1244,6 @@ const StorageWebWorkspace = ({
               deleteStorageEffect({
                 key,
                 kind: webKind,
-                sessionId,
-                tabId,
               })
             );
           }}
@@ -1348,8 +1306,6 @@ const StorageWebWorkspace = ({
               setStorageEffect({
                 key: draft.key,
                 kind: draft.kind,
-                sessionId,
-                tabId,
                 value: draft.value,
               })
             );
@@ -1379,7 +1335,7 @@ const StorageClearDialog = ({
   onOpenChange,
   onRefreshStateChange,
   open,
-  sessionId,
+  tooling,
   setUiState,
   tabId,
 }: {
@@ -1389,69 +1345,55 @@ const StorageClearDialog = ({
   readonly onOpenChange: (open: boolean) => void;
   readonly onRefreshStateChange: (refreshing: boolean) => void;
   readonly open: boolean;
-  readonly sessionId: SessionId;
+  readonly tooling: BrowserTooling;
   readonly setUiState: BrowserStoragePanelProps["setUiState"];
   readonly tabId: BrowserTabId;
-}) => {
-  const { browserStorageClearMutation } = useRpcDependencies();
-  const clearStorage = useAtomSet(browserStorageClearMutation, {
-    mode: "promise",
-  });
-  return (
-    <AlertDialog onOpenChange={onOpenChange} open={open}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Clear this store?</AlertDialogTitle>
-          <AlertDialogDescription>
-            {clearConfirmCopy(kind)}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              onOpenChange(false);
-              runStorageMutate(
-                Effect.tryPromise({
-                  catch: (cause) => cause,
-                  try: () =>
-                    clearStorage({
-                      payload: {
-                        data: { kind, sessionId, tabId },
-                        type: "browser.storage.clear",
-                      },
-                    }),
-                }),
-                fetchKind,
-                kind,
-                onError,
-                onRefreshStateChange,
-                setUiState
-              );
-            }}
-            variant="destructive"
-          >
-            Clear
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-};
+}) => (
+  <AlertDialog onOpenChange={onOpenChange} open={open}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Clear this store?</AlertDialogTitle>
+        <AlertDialogDescription>
+          {clearConfirmCopy(kind)}
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction
+          onClick={() => {
+            onOpenChange(false);
+            runStorageMutate(
+              Effect.tryPromise({
+                catch: (cause) => cause,
+                try: () => tooling.clearStorage(tabId, kind),
+              }),
+              fetchKind,
+              kind,
+              onError,
+              onRefreshStateChange,
+              setUiState
+            );
+          }}
+          variant="destructive"
+        >
+          Clear
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+);
 
 export const BrowserStoragePanel = ({
   mutationsLocked,
   onError,
   onRefreshStateChange,
   refreshNonce,
-  sessionId,
+  tooling,
   setUiState,
   tabId,
   tabUrl,
   uiState,
 }: BrowserStoragePanelProps) => {
-  const { browserStorageGetMutation } = useRpcDependencies();
-  const getStorage = useAtomSet(browserStorageGetMutation, { mode: "promise" });
   const [confirmClear, setConfirmClear] = useState(false);
   const host = httpOriginFromUrl(tabUrl)?.host;
   const dirty = isStorageDraftDirty(
@@ -1461,13 +1403,12 @@ export const BrowserStoragePanel = ({
   const pollPaused = uiState.storageFocused || dirty;
   const fetchKind = useStoragePolling({
     dirty,
-    getStorage,
+    getStorage: tooling.getStorage,
     mutationsLocked,
     onError,
     onRefreshStateChange,
     pollPaused,
     refreshNonce,
-    sessionId,
     setUiState,
     tabId,
     tabUrl,
@@ -1478,9 +1419,9 @@ export const BrowserStoragePanel = ({
     mutationsLocked,
     onError,
     onRefreshStateChange,
-    sessionId,
     setUiState,
     tabId,
+    tooling,
     uiState,
   };
 
@@ -1507,7 +1448,7 @@ export const BrowserStoragePanel = ({
         onOpenChange={setConfirmClear}
         onRefreshStateChange={onRefreshStateChange}
         open={confirmClear}
-        sessionId={sessionId}
+        tooling={tooling}
         setUiState={setUiState}
         tabId={tabId}
       />

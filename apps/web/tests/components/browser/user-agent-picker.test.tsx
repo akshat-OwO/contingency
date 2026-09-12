@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { UserAgentPicker } from "@/components/create/user-agent-picker";
+import { UserAgentPicker } from "@/components/browser/user-agent-picker";
 
 afterEach(cleanup);
 

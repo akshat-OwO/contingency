@@ -1,27 +1,15 @@
 import type {
   DraftEmulation,
-  Geolocation,
-  PermissionDecision,
   SessionEmulation,
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
+import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { viewportForIdentity } from "@/components/create/browser-workspace-state";
 
-/**
- * One change to an Emulation: an absent field leaves that part unchanged and
- * `null` clears it, matching the wire contract so the draft and a live
- * session's own Emulation move the same way.
- */
-export interface EmulationPatch {
-  readonly colorScheme?: "light" | "dark" | null;
-  readonly geolocation?: Geolocation | null;
-  readonly locale?: string | null;
-  readonly permissions?: readonly PermissionDecision[] | null;
-  readonly timezoneId?: string | null;
-}
+export type { EmulationPatch } from "@/components/browser/emulation-patch";
 
 /** What a browser with no declared identity renders at. */
 const DEFAULT_VIEWPORT: Viewport = {

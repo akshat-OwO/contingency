@@ -32,6 +32,9 @@ import type {
   AgentFlowVerificationOutcome,
   AgentSessionVerification,
   DraftEmulation,
+  Geolocation,
+  PermissionDecision,
+  Viewport,
   AgentHistoryAction,
   AgentNavigateAction,
   BrowserInput,
@@ -46,11 +49,18 @@ import type {
   AgentSessionVariableState,
   BrowserStreamEvent,
   BrowserRpcErrorType,
+  BrowserNetworkRequest,
+  BrowserNetworkRequestDetail,
+  BrowserStorageSnapshot,
   BrowserStreamId,
+  BrowserTab,
+  BrowserTabId,
   CapturedUserInput,
   FrameSequence,
   OperationId,
+  SessionEmulation,
   SessionId,
+  StorageKind,
   TeachingFeed,
   TeachingInstruction,
   TeachingScreenshotContent,
@@ -91,7 +101,11 @@ import { domainScopeCovers } from "./agent-flow-compiler.ts";
 import type { Demonstration } from "./agent-flow-compiler.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
-import type { CreateBrowserService } from "./create-browser-contract.ts";
+import type {
+  BrowserStorageDeleteInput,
+  BrowserStorageSetInput,
+  CreateBrowserService,
+} from "./create-browser-contract.ts";
 import { analyzePlayByPlay } from "./play-by-play.ts";
 import type { PlayByPlayAnalyzer } from "./play-by-play.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
@@ -143,6 +157,31 @@ export interface AgentSessionStartInput {
   readonly operationId?: OperationId | string | undefined;
   readonly url?: string | undefined;
   readonly viewport: AgentSessionStart["viewport"];
+}
+
+/**
+ * One change to the Emulation a live Agent Session browser applies. Absent
+ * leaves that part unchanged and `null` clears it, matching the wire contract
+ * ([ADR 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
+ * Identity and viewport have no cleared form: they are replaced or left alone.
+ */
+/**
+ * What an Agent Session's browser emulates right now, with the identity it was
+ * asked for beside the one it resolved to.
+ */
+export interface AgentAppliedEmulation {
+  readonly emulation: SessionEmulation;
+  readonly userAgentProfile: UserAgentProfileId;
+}
+
+export interface AgentEmulationPatch {
+  readonly colorScheme?: "light" | "dark" | null | undefined;
+  readonly geolocation?: Geolocation | null | undefined;
+  readonly locale?: string | null | undefined;
+  readonly permissions?: readonly PermissionDecision[] | null | undefined;
+  readonly timezoneId?: string | null | undefined;
+  readonly userAgentProfile?: UserAgentProfileId | undefined;
+  readonly viewport?: Viewport | undefined;
 }
 
 export interface AgentSessionService {
@@ -256,6 +295,55 @@ export interface AgentSessionService {
   readonly snapshot: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AgentBrowserSnapshot, AgentSessionError>;
+  /**
+   * Browser setup tooling the Workspace drives during teaching setup. The
+   * Agent Session owns the browser, so these delegate to the shared runtime
+   * inside the boundary rather than handing out its session id (ADR 0038).
+   */
+  readonly emulation: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<AgentAppliedEmulation, AgentSessionError>;
+  /**
+   * Re-apply the whole Emulation the session runs under. Identity, viewport,
+   * and environment move together (ADR 0013), and the session remembers what
+   * it now emulates so a compiled Agent Flow declares what was demonstrated.
+   */
+  readonly setEmulation: (
+    sessionId: AgentSessionId,
+    patch: AgentEmulationPatch
+  ) => Effect.Effect<AgentAppliedEmulation, AgentSessionError>;
+  readonly tabs: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<readonly BrowserTab[], AgentSessionError>;
+  readonly networkRequests: (
+    sessionId: AgentSessionId,
+    tabId: BrowserTabId
+  ) => Effect.Effect<readonly BrowserNetworkRequest[], AgentSessionError>;
+  readonly networkRequest: (
+    sessionId: AgentSessionId,
+    tabId: BrowserTabId,
+    requestId: string
+  ) => Effect.Effect<BrowserNetworkRequestDetail, AgentSessionError>;
+  readonly storage: (
+    sessionId: AgentSessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Effect.Effect<BrowserStorageSnapshot, AgentSessionError>;
+  readonly setStorage: (
+    sessionId: AgentSessionId,
+    tabId: BrowserTabId,
+    input: BrowserStorageSetInput
+  ) => Effect.Effect<void, AgentSessionError>;
+  readonly deleteStorage: (
+    sessionId: AgentSessionId,
+    tabId: BrowserTabId,
+    input: BrowserStorageDeleteInput
+  ) => Effect.Effect<void, AgentSessionError>;
+  readonly clearStorage: (
+    sessionId: AgentSessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Effect.Effect<void, AgentSessionError>;
   /** Internal ownership check for generic browser RPC isolation. */
   readonly ownsBrowserSession: (sessionId: SessionId) => Effect.Effect<boolean>;
   readonly start: (
@@ -464,6 +552,35 @@ const sessionEmulation = (input: AgentSessionStartInput): DraftEmulation =>
     userAgentProfile: UserAgentProfileId.make("default"),
     viewport: input.viewport,
   };
+
+/**
+ * The applied Emulation as the session records it. A session reports the
+ * concrete identity it resolved to, so the profile the user chose is carried
+ * across rather than read back off the browser.
+ */
+const draftFromApplied = (
+  userAgentProfile: UserAgentProfileId,
+  applied: SessionEmulation
+): DraftEmulation => {
+  let draft: DraftEmulation = {
+    permissions: applied.permissions,
+    userAgentProfile,
+    viewport: applied.viewport,
+  };
+  if (applied.colorScheme !== undefined && applied.colorScheme !== null) {
+    draft = { ...draft, colorScheme: applied.colorScheme };
+  }
+  if (applied.geolocation !== undefined && applied.geolocation !== null) {
+    draft = { ...draft, geolocation: applied.geolocation };
+  }
+  if (applied.locale !== undefined && applied.locale !== null) {
+    draft = { ...draft, locale: applied.locale };
+  }
+  if (applied.timezoneId !== undefined && applied.timezoneId !== null) {
+    draft = { ...draft, timezoneId: applied.timezoneId };
+  }
+  return draft;
+};
 
 const normalizedStartInput = (input: AgentSessionStartInput): string =>
   JSON.stringify({
@@ -1983,6 +2100,43 @@ const makeAgentSession = (
               )
         )
       );
+
+    /**
+     * Browser setup mutations. Control is exclusive, so the browser is
+     * configured by whoever holds it — during Teaching that is always the
+     * user, and during an Interactive Run only while they have taken over.
+     */
+    const requireUserHeldRecord = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<SessionRecord, AgentSessionError> =>
+      requireLiveRecord(sessionId).pipe(
+        Effect.flatMap((record) =>
+          record.snapshot.controller === "user"
+            ? Effect.succeed(record)
+            : Effect.fail(
+                makeBrowserRpcError(
+                  "agent_control_unavailable",
+                  "The agent holds the browser. Take control before configuring it yourself."
+                )
+              )
+        )
+      );
+
+    /**
+     * What the session now emulates, kept beside the record so a compiled
+     * Agent Flow declares the Emulation the Demonstration actually ran under
+     * rather than the one the session opened with.
+     */
+    const rememberEmulation = (
+      sessionId: AgentSessionId,
+      emulation: DraftEmulation
+    ): Effect.Effect<void> =>
+      Ref.update(sessions, (current) => {
+        const record = current.get(sessionId);
+        return record === undefined
+          ? current
+          : new Map(current).set(sessionId, { ...record, emulation });
+      });
 
     /** Append one attempt to the timeline and publish the new state. */
     const recordEntry = (
@@ -4338,6 +4492,12 @@ const makeAgentSession = (
             })
           )
         ),
+      clearStorage: (sessionId, tabId, kind) =>
+        requireUserHeldRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.clearStorage(record.browserSessionId, tabId, kind)
+          )
+        ),
       close: (sessionId, operationId) =>
         lock.withPermit(closeUnlocked(sessionId, operationId)),
       closeAll: () => {
@@ -4358,6 +4518,23 @@ const makeAgentSession = (
       completeRun: (sessionId, summaryText, operationId) =>
         lock.withPermit(
           completeRunUnlocked(sessionId, summaryText, operationId)
+        ),
+      deleteStorage: (sessionId, tabId, input) =>
+        requireUserHeldRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.deleteStorage(record.browserSessionId, tabId, input)
+          )
+        ),
+      emulation: (sessionId) =>
+        requireLiveRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.getEmulation(record.browserSessionId).pipe(
+              Effect.map((emulation) => ({
+                emulation,
+                userAgentProfile: record.emulation.userAgentProfile,
+              }))
+            )
+          )
         ),
       enterSuppliedVariable: (sessionId, name, ref, operationId) =>
         Effect.gen(function* enterSuppliedVerificationVariable() {
@@ -4424,6 +4601,18 @@ const makeAgentSession = (
             isLive(snapshot.phase)
           ),
           (record) => refreshedSnapshot(record.snapshot.id, record)
+        ),
+      networkRequest: (sessionId, tabId, requestId) =>
+        requireLiveRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.getNetworkRequest(record.browserSessionId, tabId, requestId)
+          )
+        ),
+      networkRequests: (sessionId, tabId) =>
+        requireLiveRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.getNetworkRequests(record.browserSessionId, tabId)
+          )
         ),
       ownsBrowserSession: (sessionId) =>
         Effect.sync(() =>
@@ -4755,6 +4944,55 @@ const makeAgentSession = (
             { currentUrl: urlAfter }
           ).pipe(Effect.asVoid);
         }),
+      setEmulation: (sessionId, patch) =>
+        Effect.gen(function* configureSessionEmulation() {
+          const record = yield* requireUserHeldRecord(sessionId);
+          if (record.snapshot.activity !== "teaching") {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                "An Interactive Run reproduces the Agent Flow's declared Emulation. Configure the browser while Teaching instead."
+              )
+            );
+          }
+          const userAgentProfile =
+            patch.userAgentProfile ?? record.emulation.userAgentProfile;
+          const viewport = patch.viewport ?? record.emulation.viewport;
+          if (patch.userAgentProfile === undefined) {
+            if (patch.viewport !== undefined) {
+              yield* browser.setViewport(record.browserSessionId, viewport);
+            }
+          } else {
+            // An identity only reaches a document at its navigation, so the
+            // page the user is on is re-opened under it rather than left
+            // claiming an identity it never sent (ADR 0013).
+            const url = yield* browser.currentUrl(record.browserSessionId);
+            yield* browser.setUserAgent(
+              record.browserSessionId,
+              url,
+              viewport,
+              userAgentProfile
+            );
+          }
+          const applied = yield* browser.setEmulation(record.browserSessionId, {
+            colorScheme: patch.colorScheme,
+            geolocation: patch.geolocation,
+            locale: patch.locale,
+            permissions: patch.permissions,
+            timezoneId: patch.timezoneId,
+          });
+          yield* rememberEmulation(
+            sessionId,
+            draftFromApplied(userAgentProfile, applied)
+          );
+          return { emulation: applied, userAgentProfile };
+        }),
+      setStorage: (sessionId, tabId, input) =>
+        requireUserHeldRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.setStorage(record.browserSessionId, tabId, input)
+          )
+        ),
       snapshot: (sessionId) =>
         observe(sessionId, (record, page) =>
           record.registry.snapshot(page).pipe(
@@ -4770,6 +5008,16 @@ const makeAgentSession = (
           )
         ),
       start: (input) => lock.withPermit(startAndWatch(input)),
+      storage: (sessionId, tabId, kind) =>
+        requireLiveRecord(sessionId).pipe(
+          Effect.flatMap((record) =>
+            browser.getStorage(record.browserSessionId, tabId, kind)
+          )
+        ),
+      tabs: (sessionId) =>
+        requireLiveRecord(sessionId).pipe(
+          Effect.flatMap((record) => browser.getTabs(record.browserSessionId))
+        ),
       takeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)

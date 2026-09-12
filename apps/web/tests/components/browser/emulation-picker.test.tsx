@@ -4,8 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
+import { EmulationPicker } from "@/components/browser/emulation-picker";
 import { recordingLocksBrowser } from "@/components/create/create-workspace-state";
-import { EmulationPicker } from "@/components/create/emulation-picker";
 
 const sessionId = SessionId.make("create-checkout");
 const otherSessionId = SessionId.make("create-other");

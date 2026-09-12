@@ -8,7 +8,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { MapPinIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { EmulationPatch } from "@/components/create/emulation-draft";
+import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -295,7 +295,7 @@ interface EmulationPickerProps {
   /** The Emulation the session applies, once the interface has read it. */
   readonly applied: SessionEmulationState;
   /** The active Page's HTTP origin, when Create View has one. */
-  readonly currentOrigin?: string;
+  readonly currentOrigin?: string | undefined;
   readonly disabled: boolean;
   readonly onPatch: (patch: EmulationPatch) => void;
 }

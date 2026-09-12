@@ -2,7 +2,7 @@ import { createHighlighter } from "@tanstack/highlight/core";
 import { json } from "@tanstack/highlight/languages/json";
 import { plaintext } from "@tanstack/highlight/languages/plaintext";
 
-import { HighlightedCode } from "@/components/create/highlighted-code";
+import { HighlightedCode } from "@/components/browser/highlighted-code";
 
 const highlighter = createHighlighter({
   fallbackLanguage: "plaintext",

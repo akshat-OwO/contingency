@@ -7,7 +7,9 @@ import { Atom } from "effect/unstable/reactivity";
 import { createElement } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { BrowserDevtools } from "@/components/create/browser-devtools";
+import { BrowserDevtools } from "@/components/browser/browser-devtools";
+import type { BrowserDevtoolsProps } from "@/components/browser/browser-devtools";
+import { useSessionBrowserTooling } from "@/components/browser/browser-tooling";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 const rpc = vi.hoisted(() => ({
@@ -96,6 +98,13 @@ const rpcOverrides = (() => {
   };
 })();
 
+/** Devtools as Create View mounts it: over a generic browser session's port. */
+const SessionDevtools = (props: Omit<BrowserDevtoolsProps, "tooling">) =>
+  createElement(BrowserDevtools, {
+    ...props,
+    tooling: useSessionBrowserTooling(sessionId),
+  });
+
 const renderDevtools = (mutationsLocked = false) =>
   render(
     createElement(
@@ -104,7 +113,7 @@ const renderDevtools = (mutationsLocked = false) =>
       createElement(
         RegistryProvider,
         null,
-        createElement(BrowserDevtools, {
+        createElement(SessionDevtools, {
           consoleEntries: [],
           mutationsLocked,
           networkRequests: [],
@@ -114,7 +123,6 @@ const renderDevtools = (mutationsLocked = false) =>
           onError: () => {},
           onRefreshNetwork: () => {},
           refreshingNetwork: false,
-          sessionId,
           tabId,
           tabTitle: "App",
           tabUrl: "https://app.example.com/home",
