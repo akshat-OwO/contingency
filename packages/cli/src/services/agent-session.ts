@@ -12,6 +12,7 @@ import {
   UserAgentProfileId,
   TeachingRecordingId,
   FlowSkillName,
+  EvidenceHash,
   OperationId,
   viewportForIdentity,
 } from "@contingency/protocol";
@@ -69,6 +70,8 @@ import type {
   TeachingScreenshotContent,
   TeachingVariableInput,
   Variable,
+  TeachingRecordingArtifact,
+  TeachingRecordingManifest,
 } from "@contingency/protocol";
 import {
   Cause,
@@ -517,6 +520,71 @@ const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
   const url = new URL("/", baseUrl);
   url.searchParams.set("session", sessionId);
   return url.href;
+};
+
+const snapshotFromReadyManifest = (
+  manifest: TeachingRecordingManifest,
+  owner: AgentProcessId,
+  baseUrl: string
+): AgentSessionSnapshot => {
+  const { lifecycle } = manifest;
+  const captureState =
+    lifecycle._tag === "ready"
+      ? {
+          _tag: "ready" as const,
+          readyAt: lifecycle.readyAt,
+          startedAt: lifecycle.startedAt,
+          stoppedAt: lifecycle.stoppedAt,
+        }
+      : lifecycle;
+  return {
+    activity: "teaching",
+    boundary: null,
+    captureState,
+    clientName: "unknown",
+    clientVersion: "unknown",
+    controller: "agent",
+    createdAt: manifest.createdAt,
+    currentUrl: "about:blank",
+    decisionHistory: [],
+    flowSkillName: manifest.flowSkillName,
+    id: manifest.sessionId,
+    interruptedAction: null,
+    ownerProcessId: owner,
+    pendingDecisions: [],
+    phase: "closed",
+    recordingId: manifest.recordingId,
+    run: null,
+    takeover: null,
+    teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+    timeline: [],
+    updatedAt: manifest.updatedAt,
+    verification: null,
+    viewUrl: viewUrl(baseUrl, manifest.sessionId),
+  };
+};
+
+const teachingArtifactKind = (
+  name: string
+): TeachingRecordingArtifact["kind"] | undefined => {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".webm") || lower.endsWith(".mp4")) {
+    return "video";
+  }
+  if (lower.endsWith(".zip")) {
+    return "trace";
+  }
+  if (lower.endsWith(".jsonl")) {
+    return "events";
+  }
+  if (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".webp")
+  ) {
+    return "screenshot";
+  }
 };
 
 /**
@@ -1435,6 +1503,83 @@ const makeAgentSession = (
     const now = options.now ?? (() => new Date());
     const playByPlayAnalyzer = options.playByPlayAnalyzer ?? analyzePlayByPlay;
 
+    const collectTeachingArtifacts = (
+      directory: string
+    ): Effect.Effect<readonly TeachingRecordingArtifact[], AgentSessionError> =>
+      Effect.gen(function* hashTeachingArtifacts() {
+        if (fileSystem === undefined) {
+          return [];
+        }
+        const exists = yield* fileSystem
+          .exists(directory)
+          .pipe(Effect.orElseSucceed(() => false));
+        if (!exists) {
+          return [];
+        }
+        const names = yield* fileSystem
+          .readDirectory(directory)
+          .pipe(
+            Effect.mapError((cause) =>
+              error(
+                "agent_session_invalid",
+                `Could not list Teaching artifacts: ${cause.message}`
+              )
+            )
+          );
+        const capturedAt = now().toISOString();
+        const artifacts: TeachingRecordingArtifact[] = [];
+        for (const name of names) {
+          if (
+            name === "manifest.json" ||
+            name.endsWith(".tmp") ||
+            name.endsWith(".artifacts.json")
+          ) {
+            continue;
+          }
+          const kind = teachingArtifactKind(name);
+          if (kind === undefined) {
+            continue;
+          }
+          const bytes = yield* fileSystem
+            .readFile(path.join(directory, name))
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_invalid",
+                  `Could not read Teaching artifact ${name}: ${cause.message}`
+                )
+              )
+            );
+          artifacts.push({
+            capturedAt,
+            hash: EvidenceHash.make(
+              `sha256-${createHash("sha256").update(bytes).digest("hex")}`
+            ),
+            id: path.parse(name).name,
+            kind,
+            path: name,
+          });
+        }
+        return artifacts;
+      });
+
+    const readyTeachingSnapshot = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<AgentSessionSnapshot | null> =>
+      teachingRecordingStore === undefined
+        ? Effect.succeed(null)
+        : teachingRecordingStore.listReady().pipe(
+            Effect.map((ready) => {
+              const manifest = ready.find(
+                (item) => item.sessionId === sessionId
+              );
+              return manifest === undefined
+                ? null
+                : snapshotFromReadyManifest(manifest, owner, options.baseUrl);
+            }),
+            Effect.orElseSucceed(() => null)
+          );
+
     const read = (
       sessionId: AgentSessionId
     ): Effect.Effect<SessionRecord, AgentSessionError> => {
@@ -1809,9 +1954,12 @@ const makeAgentSession = (
       Effect.gen(function* finishTeachingRecording() {
         yield* finalizeTeachingPlayByPlay(record);
         if (teachingRecordingStore !== undefined) {
+          const artifacts = yield* collectTeachingArtifacts(
+            teachingRecordingStore.directory(finalizing.recordingId)
+          );
           yield* teachingRecordingStore
             .stop({
-              artifacts: [],
+              artifacts,
               operationId: OperationId.make(
                 operationId ?? `close-${sessionId}`
               ),
@@ -1855,6 +2003,20 @@ const makeAgentSession = (
         }
         if (replayed?._tag === "conflict") {
           return yield* Effect.fail(replayed.error);
+        }
+        const existing = Ref.getUnsafe(sessions).get(sessionId);
+        if (existing === undefined) {
+          const durable = yield* readyTeachingSnapshot(sessionId);
+          if (durable !== null) {
+            yield* rememberSession(
+              operationId,
+              "close",
+              sessionId,
+              requestInput,
+              durable
+            );
+            return durable;
+          }
         }
         const record = yield* read(sessionId);
         if (!isLive(record.snapshot.phase)) {
@@ -2105,15 +2267,25 @@ const makeAgentSession = (
           };
         }
         const traceFile = path.join(directory, `${sessionId}.trace.zip`);
-        const target = yield* browser.activeTarget(browserSessionId);
+        const target = yield* browser.activeTarget(browserSessionId).pipe(
+          Effect.map(Option.some),
+          Effect.orElseSucceed(() => Option.none())
+        );
+        if (Option.isNone(target)) {
+          return {
+            retentionFile: undefined,
+            traceFile: undefined,
+            videoFile: undefined,
+          };
+        }
         const rememberVideo = (page: Page): void => {
           const video = page.video();
           if (video !== null) {
             videoPaths.add(video.path());
           }
         };
-        rememberVideo(target.page);
-        target.context.on("page", rememberVideo);
+        rememberVideo(target.value.page);
+        target.value.context.on("page", rememberVideo);
         yield* Scope.provide(sessionScope)(
           Effect.acquireRelease(
             Effect.tryPromise({
@@ -2123,7 +2295,7 @@ const makeAgentSession = (
                   `Could not start the Teaching Trace: ${cause instanceof Error ? cause.message : String(cause)}`
                 ),
               try: () =>
-                target.context.tracing.start({
+                target.value.context.tracing.start({
                   screenshots: true,
                   snapshots: true,
                 }),
@@ -2131,11 +2303,12 @@ const makeAgentSession = (
             () =>
               Effect.tryPromise({
                 catch: () => null,
-                try: () => target.context.tracing.stop({ path: traceFile }),
+                try: () =>
+                  target.value.context.tracing.stop({ path: traceFile }),
               }).pipe(Effect.ignore)
           )
         );
-        const videoFile = yield* teachingVideoFile(target.page);
+        const videoFile = yield* teachingVideoFile(target.value.page);
         // A Run's artifacts are governed by its own Run directory, not by the
         // Teaching retention policy, so no retention manifest is written for it.
         const retentionFile = retention
@@ -2468,6 +2641,126 @@ const makeAgentSession = (
         };
       });
 
+    const adoptExistingTeaching = (
+      begun: TeachingRecordingManifest,
+      startOperationId: OperationId | string | undefined,
+      startRequestInput: string
+    ): Effect.Effect<AgentSessionSnapshot | null, AgentSessionError> => {
+      if (
+        teachingRecordingStore === undefined ||
+        begun.lifecycle._tag === "setup"
+      ) {
+        return Effect.succeed(null);
+      }
+      const store = teachingRecordingStore;
+      return Effect.gen(function* finishExistingTeaching() {
+        const operationId = OperationId.make(
+          startOperationId ?? `start-${begun.sessionId}`
+        );
+        const stopped =
+          begun.lifecycle._tag === "recording" ||
+          begun.lifecycle._tag === "finalizing"
+            ? yield* store
+                .stop({
+                  artifacts: yield* collectTeachingArtifacts(
+                    store.directory(begun.recordingId)
+                  ),
+                  operationId,
+                  recordingId: begun.recordingId,
+                })
+                .pipe(
+                  Effect.mapError((cause) =>
+                    error("agent_session_invalid", cause.message)
+                  )
+                )
+            : begun;
+        const durable = snapshotFromReadyManifest(
+          stopped,
+          owner,
+          options.baseUrl
+        );
+        yield* rememberSession(
+          startOperationId,
+          "start",
+          "start",
+          startRequestInput,
+          durable
+        );
+        return durable;
+      });
+    };
+
+    const resolveTeachingStart = (
+      activity: AgentSessionActivity,
+      emulation: DraftEmulation,
+      startInput: AgentSessionStartInput,
+      startSessionId: AgentSessionId,
+      startRequestInput: string
+    ): Effect.Effect<
+      | {
+          readonly _tag: "durable";
+          readonly snapshot: AgentSessionSnapshot;
+        }
+      | {
+          readonly _tag: "fresh";
+          readonly identity: {
+            readonly flowSkillName: FlowSkillName;
+            readonly recordingId: TeachingRecordingId;
+          };
+        }
+      | { readonly _tag: "none" },
+      AgentSessionError
+    > =>
+      Effect.gen(function* resolveTeachingCapture() {
+        if (activity !== "teaching") {
+          return { _tag: "none" as const };
+        }
+        const identity = {
+          flowSkillName: yield* Schema.decodeUnknownEffect(FlowSkillName)(
+            startInput.name?.trim() || `flow-${randomUUID()}`
+          ).pipe(
+            Effect.mapError(() =>
+              error(
+                "agent_session_invalid",
+                "The Teaching name must be a local Flow Skill name."
+              )
+            )
+          ),
+          recordingId: TeachingRecordingId.make(
+            `recording-${createHash("sha256")
+              .update(String(startInput.operationId ?? startSessionId))
+              .digest("hex")
+              .slice(0, 32)}`
+          ),
+        };
+        if (teachingRecordingStore === undefined) {
+          return { _tag: "fresh" as const, identity };
+        }
+        const begun = yield* teachingRecordingStore
+          .begin({
+            emulation,
+            flowSkillName: identity.flowSkillName,
+            operationId: OperationId.make(
+              startInput.operationId ?? `start-${startSessionId}`
+            ),
+            recordingId: identity.recordingId,
+            sessionId: startSessionId,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              error("agent_session_invalid", cause.message)
+            )
+          );
+        const durable = yield* adoptExistingTeaching(
+          begun,
+          startInput.operationId,
+          startRequestInput
+        );
+        return durable === null
+          ? { _tag: "fresh" as const, identity }
+          : { _tag: "durable" as const, snapshot: durable };
+      });
+
     const startUnlocked = Effect.fn("AgentSession.start")(
       function* startSession(input: AgentSessionStartInput) {
         const requestInput = normalizedStartInput(input);
@@ -2532,50 +2825,47 @@ const makeAgentSession = (
                 // viewport it will navigate under, so the first document is
                 // laid out for the device rather than resized into it.
                 const emulation = sessionEmulation(input);
+                const teachingStart = yield* resolveTeachingStart(
+                  activity,
+                  emulation,
+                  input,
+                  sessionId,
+                  requestInput
+                );
+                if (teachingStart._tag === "durable") {
+                  return teachingStart.snapshot;
+                }
                 const teachingIdentity =
-                  activity === "teaching"
-                    ? {
-                        flowSkillName: yield* Schema.decodeUnknownEffect(
-                          FlowSkillName
-                        )(input.name?.trim() || `flow-${randomUUID()}`).pipe(
-                          Effect.mapError(() =>
-                            error(
-                              "agent_session_invalid",
-                              "The Teaching name must be a local Flow Skill name."
-                            )
-                          )
-                        ),
-                        recordingId: TeachingRecordingId.make(
-                          `recording-${createHash("sha256")
-                            .update(String(input.operationId ?? sessionId))
-                            .digest("hex")
-                            .slice(0, 32)}`
-                        ),
-                      }
+                  teachingStart._tag === "fresh"
+                    ? teachingStart.identity
                     : null;
-                if (
+                const artifactDirectory =
                   teachingRecordingStore !== undefined &&
                   teachingIdentity !== null
+                    ? teachingRecordingStore.directory(
+                        teachingIdentity.recordingId
+                      )
+                    : yield* prepareArtifactDirectory(
+                        activity,
+                        input.artifactDirectory
+                      );
+                if (
+                  teachingRecordingStore !== undefined &&
+                  teachingIdentity !== null &&
+                  artifactDirectory !== undefined &&
+                  fileSystem !== undefined
                 ) {
-                  yield* teachingRecordingStore
-                    .begin({
-                      emulation,
-                      flowSkillName: teachingIdentity.flowSkillName,
-                      operationId: OperationId.make(
-                        input.operationId ?? `start-${sessionId}`
-                      ),
-                      recordingId: teachingIdentity.recordingId,
-                    })
+                  yield* fileSystem
+                    .makeDirectory(artifactDirectory, { recursive: true })
                     .pipe(
                       Effect.mapError((cause) =>
-                        error("agent_session_invalid", cause.message)
+                        error(
+                          "agent_session_invalid",
+                          `Could not create the artifact directory: ${cause.message}`
+                        )
                       )
                     );
                 }
-                const artifactDirectory = yield* prepareArtifactDirectory(
-                  activity,
-                  input.artifactDirectory
-                );
                 const videoPaths = new Set<Promise<string>>();
                 if (
                   artifactDirectory !== undefined &&
@@ -4848,15 +5138,62 @@ const makeAgentSession = (
         ),
       get: (sessionId) =>
         read(sessionId).pipe(
-          Effect.flatMap((record) => refreshedSnapshot(sessionId, record))
+          Effect.flatMap((record) => refreshedSnapshot(sessionId, record)),
+          Effect.catchIf(
+            (cause) => cause.code === "agent_session_not_found",
+            () =>
+              readyTeachingSnapshot(sessionId).pipe(
+                Effect.flatMap((snapshot) =>
+                  snapshot === null
+                    ? Effect.fail(
+                        error(
+                          "agent_session_not_found",
+                          `Agent Session ${sessionId} was not found.`
+                        )
+                      )
+                    : Effect.succeed(snapshot)
+                )
+              )
+          )
         ),
       list: () =>
-        Effect.forEach(
-          [...Ref.getUnsafe(sessions).values()].filter(({ snapshot }) =>
-            isLive(snapshot.phase)
-          ),
-          (record) => refreshedSnapshot(record.snapshot.id, record)
-        ),
+        Effect.gen(function* listAgentSessions() {
+          const liveRecords = [...Ref.getUnsafe(sessions).values()].filter(
+            ({ snapshot }) => isLive(snapshot.phase)
+          );
+          const listed = new Map<AgentSessionId, AgentSessionSnapshot>();
+          for (const record of liveRecords) {
+            const snapshot = yield* refreshedSnapshot(
+              record.snapshot.id,
+              record
+            );
+            listed.set(snapshot.id, snapshot);
+          }
+          for (const record of Ref.getUnsafe(sessions).values()) {
+            const { snapshot } = record;
+            if (
+              !listed.has(snapshot.id) &&
+              snapshot.activity === "teaching" &&
+              snapshot.captureState._tag === "ready"
+            ) {
+              listed.set(snapshot.id, snapshot);
+            }
+          }
+          if (teachingRecordingStore !== undefined) {
+            const ready = yield* teachingRecordingStore
+              .listReady()
+              .pipe(Effect.orElseSucceed(() => []));
+            for (const manifest of ready) {
+              if (!listed.has(manifest.sessionId)) {
+                listed.set(
+                  manifest.sessionId,
+                  snapshotFromReadyManifest(manifest, owner, options.baseUrl)
+                );
+              }
+            }
+          }
+          return [...listed.values()];
+        }),
       networkRequest: (sessionId, tabId, requestId) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>

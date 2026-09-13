@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
 import { EvidenceHash } from "./agent-flow.ts";
-import { OperationId } from "./agent-identifiers.ts";
+import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
 import { DraftEmulation } from "./emulation.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -133,6 +133,7 @@ const TeachingRecordingManifestBase = {
   receipts: Schema.Array(TeachingRecordingReceipt),
   recordingId: TeachingRecordingId,
   schemaVersion: Schema.Literal(1),
+  sessionId: AgentSessionId,
   updatedAt: nonEmptyString,
 };
 

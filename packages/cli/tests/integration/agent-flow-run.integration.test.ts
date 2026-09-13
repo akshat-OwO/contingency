@@ -37,6 +37,10 @@ import {
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
 import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../../src/services/teaching-recording-store.ts";
+import {
   findNode,
   makeCall,
   requireBoundary,
@@ -70,8 +74,13 @@ const processLayer = (catalogRoot: string) =>
         makeAgentSessionLayer({
           allowedActivity: "any",
           baseUrl: "http://127.0.0.1:7777",
-          traceDirectory: () => path.join(catalogRoot, "teaching"),
-        }),
+          traceDirectory: () =>
+            path.join(catalogRoot, TEACHING_RECORDINGS_DIRECTORY),
+        }).pipe(
+          Layer.provide(
+            makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
+          )
+        ),
         makeAgentFlowCatalogLayer({ root: catalogRoot }),
         makeAgentRunStoreLayer({ root: () => catalogRoot })
       ).pipe(

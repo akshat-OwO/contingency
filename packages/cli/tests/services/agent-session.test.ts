@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   AgentElementRef,
   AgentFlowId,
@@ -5,6 +7,7 @@ import {
   makeBrowserRpcError,
   OperationId,
   SessionId,
+  TeachingRecordingManifest,
   UserAgentProfileId,
 } from "@contingency/protocol";
 import type {
@@ -14,7 +17,17 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect";
+import {
+  Context,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Schema,
+  Stream,
+} from "effect";
 
 import {
   AgentSession,
@@ -28,6 +41,10 @@ import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
 import { playByPlayFromAnalysis } from "../../src/services/play-by-play.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../../src/services/teaching-recording-store.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -89,7 +106,7 @@ const makeFakeBrowser = (options?: {
       activePageCalls += 1;
       return Effect.fail(failure);
     },
-    activeTarget: notUnderTest,
+    activeTarget: () => Effect.fail(failure),
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {
@@ -742,6 +759,135 @@ it.effect("installs no Execution Boundary during Teaching", () =>
     });
     expect(teaching.boundary).toBeNull();
   })
+);
+
+const teachingSessionLayer = (
+  fake: FakeBrowser,
+  root: string,
+  processId: string
+) =>
+  makeAgentSessionLayer({
+    allowedActivity: "any",
+    baseUrl: "http://127.0.0.1:7777",
+    playByPlayAnalyzer: ({ demonstration }) =>
+      Effect.succeed(
+        playByPlayFromAnalysis(demonstration, {
+          sampledFrames: 2,
+          visualChanges: 1,
+        })
+      ),
+    processId,
+    traceDirectory: () => path.join(root, TEACHING_RECORDINGS_DIRECTORY),
+  }).pipe(
+    Layer.provide(makeTeachingRecordingStoreLayer({ root: () => root })),
+    Layer.provide(Layer.succeed(CreateBrowser, fake.browser)),
+    Layer.provideMerge(NodeServices.layer)
+  );
+
+it.effect(
+  "lists a stopped Teaching recording from a later Agent Session process",
+  () =>
+    Effect.gen(function* durableReadyAcrossProcesses() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-session-",
+      });
+      const fakeStart = makeFakeBrowser();
+      const fakeLater = makeFakeBrowser();
+      const input = {
+        ...startInput("teach-durable"),
+        activity: "teaching" as const,
+        name: "add-anvil",
+      };
+      const closed = yield* Effect.scoped(
+        Effect.gen(function* firstProcess() {
+          const service = yield* AgentSession;
+          const started = yield* service.start(input);
+          if (started.activity !== "teaching") {
+            throw new Error("Expected a Teaching session.");
+          }
+          yield* fileSystem.writeFileString(
+            path.join(
+              root,
+              TEACHING_RECORDINGS_DIRECTORY,
+              started.recordingId,
+              "trace.zip"
+            ),
+            "trace-bytes"
+          );
+          const finished = yield* service.close(
+            started.id,
+            OperationId.make("close-durable")
+          );
+          if (finished.activity !== "teaching") {
+            throw new Error("Expected a Teaching close snapshot.");
+          }
+          return {
+            finished,
+            listed: yield* service.list(),
+            recordingId: started.recordingId,
+            sessionId: started.id,
+          };
+        }).pipe(
+          Effect.provide(teachingSessionLayer(fakeStart, root, "owner-one"))
+        )
+      );
+
+      expect(closed.finished.captureState._tag).toBe("ready");
+      expect(closed.listed).toEqual([
+        expect.objectContaining({
+          captureState: expect.objectContaining({ _tag: "ready" }),
+          id: closed.sessionId,
+          recordingId: closed.recordingId,
+        }),
+      ]);
+      const manifest = yield* Schema.decodeUnknownEffect(
+        TeachingRecordingManifest
+      )(
+        JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(
+              root,
+              TEACHING_RECORDINGS_DIRECTORY,
+              closed.recordingId,
+              "manifest.json"
+            )
+          )
+        )
+      );
+      expect(manifest.artifacts).toEqual([
+        expect.objectContaining({ kind: "trace", path: "trace.zip" }),
+      ]);
+
+      const later = yield* Effect.scoped(
+        Effect.gen(function* secondProcess() {
+          const service = yield* AgentSession;
+          const got = yield* service.get(closed.sessionId);
+          const replay = yield* service.start(input);
+          if (got.activity !== "teaching" || replay.activity !== "teaching") {
+            throw new Error("Expected durable Teaching snapshots.");
+          }
+          return {
+            got,
+            listed: yield* service.list(),
+            replay,
+          };
+        }).pipe(
+          Effect.provide(teachingSessionLayer(fakeLater, root, "owner-two"))
+        )
+      );
+
+      expect(later.listed).toEqual([
+        expect.objectContaining({
+          captureState: expect.objectContaining({ _tag: "ready" }),
+          recordingId: closed.recordingId,
+        }),
+      ]);
+      expect(later.got.captureState._tag).toBe("ready");
+      expect(later.replay.captureState._tag).toBe("ready");
+      expect(later.replay.id).toBe(closed.sessionId);
+      expect(fakeLater.created).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it("carries only a real page into a Verification Run's starting URL", () => {

@@ -30,6 +30,10 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../../src/services/teaching-recording-store.ts";
 import { findNode, makeCall } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
@@ -115,8 +119,15 @@ const teachingLayer = (initialCatalogRoot: string) => {
         makeAgentSessionLayer({
           allowedActivity: "any",
           baseUrl: "http://127.0.0.1:7777",
-          traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
-        }),
+          traceDirectory: () =>
+            path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
+        }).pipe(
+          Layer.provide(
+            makeTeachingRecordingStoreLayer({
+              root: () => selectedCatalogRoot,
+            })
+          )
+        ),
         makeAgentFlowCatalogLayer({
           onSelect: (root) => {
             selectedCatalogRoot = root;

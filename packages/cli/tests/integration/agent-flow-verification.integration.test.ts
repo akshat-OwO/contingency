@@ -29,6 +29,7 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 import {
   findNode,
   makeCall,
@@ -60,7 +61,11 @@ const verificationLayer = (catalogRoot: string) =>
           allowedActivity: "any",
           baseUrl: "http://127.0.0.1:7777",
           traceDirectory: () => path.join(catalogRoot, "sessions"),
-        }),
+        }).pipe(
+          Layer.provide(
+            makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
+          )
+        ),
         makeAgentFlowCatalogLayer({ root: catalogRoot })
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),

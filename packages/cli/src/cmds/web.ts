@@ -14,7 +14,10 @@ import {
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
-import { makeTeachingRecordingStoreLayer } from "../services/teaching-recording-store.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../services/teaching-recording-store.ts";
 import { UiInterface } from "../services/ui-interface.ts";
 import {
   resolveAllowedOrigins,
@@ -73,7 +76,8 @@ export const webCommand = Command.make(
               allowedActivity: "teaching",
               baseUrl: browserUrl.origin,
               resourceDirectory: ownerMarker,
-              traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+              traceDirectory: () =>
+                path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
             }).pipe(Layer.provide(teachingRecordingStore))
           )
         );

@@ -32,7 +32,10 @@ import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { makeMcpHttpLayer } from "../services/mcp-http.ts";
-import { makeTeachingRecordingStoreLayer } from "../services/teaching-recording-store.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../services/teaching-recording-store.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
 
 const mcpTools = Layer.mergeAll(
@@ -102,7 +105,8 @@ export const mcpCommand = Command.make(
                 return boundOrigin.url;
               },
               resourceDirectory: ownerMarker,
-              traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+              traceDirectory: () =>
+                path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
             }).pipe(Layer.provide(teachingRecordingStore))
           )
         );

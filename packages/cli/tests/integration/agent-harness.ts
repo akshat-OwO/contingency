@@ -30,6 +30,10 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../../src/services/teaching-recording-store.ts";
 
 /** A small viewport: these suites read the accessibility tree, not pixels. */
 export const agentViewport = {
@@ -279,7 +283,8 @@ export const agentProcessLayer = (
   const sessionOptions = {
     allowedActivity: "any" as const,
     baseUrl: "http://127.0.0.1:7777",
-    traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+    traceDirectory: () =>
+      path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
   };
   const catalogOptions = { root: initialCatalogRoot };
   return Layer.mergeAll(
@@ -297,6 +302,12 @@ export const agentProcessLayer = (
                 ...sessionOptions,
                 resourceDirectory: options.resourceDirectory,
               }
+        ).pipe(
+          Layer.provide(
+            makeTeachingRecordingStoreLayer({
+              root: () => selectedCatalogRoot,
+            })
+          )
         ),
         makeAgentFlowCatalogLayer(
           options.followCatalogSelection === true

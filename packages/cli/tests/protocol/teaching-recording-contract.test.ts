@@ -73,6 +73,28 @@ test("a completed cleanup requires a verified recording", () => {
       receipts: [],
       recordingId: "recording-checkout",
       schemaVersion: 1,
+      sessionId: "agent-teaching",
+      updatedAt: at,
+    })
+  ).toThrow();
+});
+
+test("a Teaching Recording manifest requires the Agent Session that created it", () => {
+  expect(() =>
+    decodeManifest({
+      artifacts: [],
+      cleanup: { _tag: "pending" },
+      createdAt: at,
+      emulation: {
+        permissions: [],
+        userAgentProfile: "default",
+        viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+      },
+      flowSkillName: "checkout-flow",
+      lifecycle: { _tag: "ready", readyAt: at, startedAt: at, stoppedAt: at },
+      receipts: [],
+      recordingId: "recording-checkout",
+      schemaVersion: 1,
       updatedAt: at,
     })
   ).toThrow();

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type {
+  AgentSessionId,
   DraftEmulation,
   FlowSkillName,
   OperationId,
@@ -56,6 +57,7 @@ export interface TeachingRecordingBegin {
   readonly flowSkillName: FlowSkillName;
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
+  readonly sessionId: AgentSessionId;
 }
 
 export interface TeachingRecordingMutation {
@@ -78,6 +80,7 @@ export interface TeachingRecordingStoreService {
   readonly cleanup: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly directory: (recordingId: TeachingRecordingId) => string;
   readonly listReady: () => Effect.Effect<
     readonly TeachingRecordingManifest[],
     TeachingRecordingStoreError
@@ -372,28 +375,49 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             ],
             recordingId: input.recordingId,
             schemaVersion: 1,
+            sessionId: input.sessionId,
             updatedAt: at,
           });
         })
       );
 
     const start = (input: TeachingRecordingMutation) =>
-      mutate(input.recordingId, "start", input.operationId, (manifest, at) => {
-        if (manifest.lifecycle._tag === "recording") {
-          return Effect.succeed(manifest);
-        }
-        return manifest.lifecycle._tag === "setup"
-          ? Effect.succeed({
-              ...manifest,
-              lifecycle: { _tag: "recording", startedAt: at },
-            })
-          : Effect.fail(
+      lockFor(input.recordingId).withPermit(
+        Effect.gen(function* startRecording() {
+          const current = yield* read(input.recordingId);
+          if (hasReceipt(current, "start", input.operationId)) {
+            return current;
+          }
+          if (!isPendingManifest(current)) {
+            return yield* Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot start from ${manifest.lifecycle._tag}.`
+                `Teaching Recording ${input.recordingId} was already cleaned up.`
               )
             );
-      });
+          }
+          if (current.lifecycle._tag !== "setup") {
+            return yield* Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot start from ${current.lifecycle._tag}.`
+              )
+            );
+          }
+          const at = now().toISOString();
+          return yield* persist(
+            withReceipt(
+              {
+                ...current,
+                lifecycle: { _tag: "recording", startedAt: at },
+              },
+              "start",
+              input.operationId,
+              at
+            )
+          );
+        })
+      );
 
     const stop = (input: TeachingRecordingStop) =>
       lockFor(input.recordingId).withPermit(
@@ -410,24 +434,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               )
             );
           }
-          if (current.lifecycle._tag === "ready") {
-            const completedAt = now().toISOString();
-            return yield* persist(
-              withReceipt(current, "stop", input.operationId, completedAt)
-            );
-          }
-          let finalizing: PendingTeachingRecordingManifest;
           let startedAt: string;
           let stoppedAt: string;
           if (current.lifecycle._tag === "recording") {
             ({ startedAt } = current.lifecycle);
             stoppedAt = now().toISOString();
-            finalizing = yield* persist({
-              ...current,
-              lifecycle: { _tag: "finalizing", startedAt, stoppedAt },
-            });
           } else if (current.lifecycle._tag === "finalizing") {
-            finalizing = current;
             ({ startedAt, stoppedAt } = current.lifecycle);
           } else {
             return yield* Effect.fail(
@@ -439,7 +451,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           }
           const readyAt = now().toISOString();
           const ready = yield* validateArtifactPaths({
-            ...finalizing,
+            ...current,
             artifacts: input.artifacts,
             lifecycle: {
               _tag: "ready",
@@ -630,6 +642,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     return TeachingRecordingStore.of({
       begin,
       cleanup,
+      directory: recordingDirectory,
       listReady,
       passDryRun,
       read,

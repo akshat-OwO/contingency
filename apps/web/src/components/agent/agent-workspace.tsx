@@ -127,8 +127,7 @@ const EmptyState = () => (
         No active Agent Sessions
       </h1>
       <p className="text-muted-foreground text-sm">
-        Start a Teaching or Interactive Run from your MCP client to watch it
-        here.
+        Start Teaching in this Workspace, or watch an Interactive Run from MCP.
       </p>
     </section>
   </main>

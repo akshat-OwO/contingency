@@ -1,4 +1,5 @@
 import {
+  AgentSessionId,
   FlowSkillName,
   OperationId,
   TeachingRecordingId,
@@ -36,6 +37,7 @@ const program = Effect.gen(function* runProcessCheck() {
       flowSkillName: FlowSkillName.make("checkout-flow"),
       operationId: OperationId.make("process-begin"),
       recordingId,
+      sessionId: AgentSessionId.make("agent-process-restart"),
     });
     yield* store.start({
       operationId: OperationId.make("process-start"),
