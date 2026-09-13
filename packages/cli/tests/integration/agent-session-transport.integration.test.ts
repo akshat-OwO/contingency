@@ -185,6 +185,7 @@ it.live(
       );
       const browserServices = Layer.mergeAll(
         makeAgentSessionLayer({
+          allowedActivity: "any",
           baseUrl: origin,
           resourceDirectory: ownerMarker,
         })

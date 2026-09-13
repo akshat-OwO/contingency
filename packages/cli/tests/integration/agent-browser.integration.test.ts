@@ -38,7 +38,10 @@ const AgentBrowserLive = Layer.mergeAll(
   AgentSessionToolHandlersLive
 ).pipe(
   Layer.provideMerge(
-    makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7777" }).pipe(
+    makeAgentSessionLayer({
+      allowedActivity: "any",
+      baseUrl: "http://127.0.0.1:7777",
+    }).pipe(
       Layer.provideMerge(CreateBrowserLive),
       Layer.provideMerge(NodeServices.layer)
     )

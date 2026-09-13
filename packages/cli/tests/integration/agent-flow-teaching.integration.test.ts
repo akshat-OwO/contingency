@@ -113,6 +113,7 @@ const teachingLayer = (initialCatalogRoot: string) => {
     Layer.provideMerge(
       Layer.mergeAll(
         makeAgentSessionLayer({
+          allowedActivity: "any",
           baseUrl: "http://127.0.0.1:7777",
           traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
         }),

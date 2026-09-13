@@ -277,6 +277,7 @@ export const agentProcessLayer = (
 ) => {
   let selectedCatalogRoot = initialCatalogRoot;
   const sessionOptions = {
+    allowedActivity: "any" as const,
     baseUrl: "http://127.0.0.1:7777",
     traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
   };

@@ -27,6 +27,7 @@ const viewport = {
  * Session; every call here names the Agent Session instead (ADR 0038).
  */
 const BrowserServices = makeAgentSessionLayer({
+  allowedActivity: "any",
   baseUrl: "http://127.0.0.1:7777",
 }).pipe(
   Layer.provideMerge(CreateBrowserLive),

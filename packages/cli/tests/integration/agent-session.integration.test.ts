@@ -24,6 +24,7 @@ const viewport = {
  * supplied with services because this test exercises Agent Session ownership.
  */
 const BrowserServices = makeAgentSessionLayer({
+  allowedActivity: "any",
   baseUrl: "http://127.0.0.1:7777",
 }).pipe(
   Layer.provideMerge(CreateBrowserLive),
