@@ -10,6 +10,9 @@ import {
   describeAgentAction,
   makeBrowserRpcError,
   UserAgentProfileId,
+  TeachingRecordingId,
+  FlowSkillName,
+  OperationId,
   viewportForIdentity,
 } from "@contingency/protocol";
 import type {
@@ -58,7 +61,6 @@ import type {
   BrowserTabId,
   CapturedUserInput,
   FrameSequence,
-  OperationId,
   SessionEmulation,
   SessionId,
   StorageKind,
@@ -112,10 +114,13 @@ import type { PlayByPlayAnalyzer } from "./play-by-play.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
+import { TeachingRecordingStore } from "./teaching-recording-store.ts";
+import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
 import { isLoopbackHost } from "./web-url.ts";
 
 /** Options for the one process-owned Agent Session registry. */
 export interface AgentSessionServiceOptions {
+  readonly allowedActivity: AgentSessionActivity | "any";
   /** The URL at which Workspace is served, normally loopback. */
   readonly baseUrl: string;
   /** The owner marker written into every in-memory snapshot. */
@@ -663,15 +668,6 @@ const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
 const isLive = (phase: AgentSessionSnapshot["phase"]): boolean =>
   phase === "starting" || phase === "running" || phase === "takeover";
 
-/** The Teaching progress a snapshot should carry, given what was captured. */
-const teachingOf = (
-  record: { readonly capture: DemonstrationCapture | undefined } | undefined,
-  snapshot: AgentSessionSnapshot
-): AgentSessionSnapshot["teaching"] =>
-  record?.capture === undefined
-    ? snapshot.teaching
-    : record.capture.progress(snapshot.teaching?.draft ?? null);
-
 /** Keep the control event useful to the compiler without persisting typed text. */
 const teachingInput = (input: BrowserInput): CapturedUserInput => {
   if (input.type === "input_mouse") {
@@ -1042,6 +1038,15 @@ interface SessionRecord {
   readonly supplied: Map<string, string>;
   /** The local sensitive-artifact retention manifest. */
   readonly retentionFile: string | undefined;
+}
+
+interface AgentSessionPatch {
+  readonly boundary?: AgentSessionSnapshot["boundary"];
+  readonly currentUrl?: string;
+  readonly decisionHistory?: AgentSessionSnapshot["decisionHistory"];
+  readonly pendingDecisions?: AgentSessionSnapshot["pendingDecisions"];
+  readonly run?: AgentRunState | null;
+  readonly verification?: AgentSessionVerification | null;
 }
 
 /**
@@ -1415,7 +1420,8 @@ const makeAgentSession = (
   options: AgentSessionServiceOptions,
   events: PubSub.PubSub<AgentSessionSnapshot>,
   fileSystem?: FileSystem.FileSystem,
-  parentScope?: Scope.Scope
+  parentScope?: Scope.Scope,
+  teachingRecordingStore?: TeachingRecordingStoreService
 ): Effect.Effect<AgentSessionService> =>
   Effect.sync(() => {
     const sessions = Ref.makeUnsafe<ReadonlyMap<AgentSessionId, SessionRecord>>(
@@ -1785,6 +1791,53 @@ const makeAgentSession = (
       );
     };
 
+    const finishTeachingClose = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      finalizing: Extract<
+        AgentSessionSnapshot,
+        { readonly activity: "teaching" }
+      > & {
+        readonly captureState: {
+          readonly _tag: "finalizing";
+          readonly startedAt: string;
+          readonly stoppedAt: string;
+        };
+      },
+      operationId?: OperationId | string
+    ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
+      Effect.gen(function* finishTeachingRecording() {
+        yield* finalizeTeachingPlayByPlay(record);
+        if (teachingRecordingStore !== undefined) {
+          yield* teachingRecordingStore
+            .stop({
+              artifacts: [],
+              operationId: OperationId.make(
+                operationId ?? `close-${sessionId}`
+              ),
+              recordingId: finalizing.recordingId,
+            })
+            .pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
+        }
+        const readyAt = now().toISOString();
+        const ready: AgentSessionSnapshot = {
+          ...finalizing,
+          captureState: {
+            _tag: "ready",
+            readyAt,
+            startedAt: finalizing.captureState.startedAt,
+            stoppedAt: finalizing.captureState.stoppedAt,
+          },
+          updatedAt: readyAt,
+        };
+        yield* save(sessionId, record, ready);
+        return ready;
+      });
+
     const closeUnlocked = Effect.fn("AgentSession.close")(
       function* closeSession(
         sessionId: AgentSessionId,
@@ -1805,56 +1858,113 @@ const makeAgentSession = (
         }
         const record = yield* read(sessionId);
         if (!isLive(record.snapshot.phase)) {
-          yield* finalizeTeachingPlayByPlay(record);
+          let { snapshot } = record;
+          if (
+            snapshot.activity === "teaching" &&
+            (snapshot.captureState._tag === "setup" ||
+              snapshot.captureState._tag === "recording" ||
+              snapshot.captureState._tag === "finalizing")
+          ) {
+            const stoppedAt =
+              snapshot.captureState._tag === "finalizing"
+                ? snapshot.captureState.stoppedAt
+                : now().toISOString();
+            const startedAt =
+              snapshot.captureState._tag === "setup"
+                ? stoppedAt
+                : snapshot.captureState.startedAt;
+            const finalizing = {
+              ...snapshot,
+              boundary: null,
+              captureState: {
+                _tag: "finalizing" as const,
+                startedAt,
+                stoppedAt,
+              },
+              controller: "agent" as const,
+              phase: "closed" as const,
+              takeover: null,
+              updatedAt: stoppedAt,
+            };
+            yield* save(sessionId, record, finalizing);
+            snapshot = yield* finishTeachingClose(
+              sessionId,
+              record,
+              finalizing,
+              operationId
+            );
+          }
           yield* rememberSession(
             operationId,
             "close",
             sessionId,
             requestInput,
-            record.snapshot
+            snapshot
           );
-          return record.snapshot;
+          return snapshot;
         }
         return yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* closeAtomically() {
             const at = now().toISOString();
-            const closed: AgentSessionSnapshot = {
-              ...record.snapshot,
-              boundary: null,
-              controller: "agent",
-              phase: "closed",
-              // A Run whose session is closed before it was completed did not
-              // end on a judgment. Its remaining Agent Steps are unexecuted.
-              run:
-                record.snapshot.run === null ||
-                record.snapshot.run.outcome !== null
-                  ? record.snapshot.run
-                  : withDerivedRunTotals({
-                      ...record.snapshot.run,
-                      activeStepIndex: null,
-                      endedAt: at,
-                      outcome: "interrupted",
-                      stepDeadline: null,
-                      steps: markRemainingUnexecuted(record.snapshot.run.steps),
-                    }),
-              takeover: null,
-              updatedAt: at,
-            };
-            // Remove it from the discovery list before closing the browser. A
-            // concurrent View query therefore cannot select a session that is
-            // already being torn down. The snapshot, child scope, and replay
-            // record are one uninterruptible mutation.
+            const closed =
+              record.snapshot.activity === "teaching"
+                ? {
+                    ...record.snapshot,
+                    boundary: null,
+                    captureState: {
+                      _tag: "finalizing" as const,
+                      startedAt:
+                        record.snapshot.captureState._tag === "recording"
+                          ? record.snapshot.captureState.startedAt
+                          : at,
+                      stoppedAt: at,
+                    },
+                    controller: "agent" as const,
+                    phase: "closed" as const,
+                    takeover: null,
+                    updatedAt: at,
+                  }
+                : {
+                    ...record.snapshot,
+                    boundary: null,
+                    controller: "agent" as const,
+                    phase: "closed" as const,
+                    run:
+                      record.snapshot.run === null ||
+                      record.snapshot.run.outcome !== null
+                        ? record.snapshot.run
+                        : withDerivedRunTotals({
+                            ...record.snapshot.run,
+                            activeStepIndex: null,
+                            endedAt: at,
+                            outcome: "interrupted",
+                            stepDeadline: null,
+                            steps: markRemainingUnexecuted(
+                              record.snapshot.run.steps
+                            ),
+                          }),
+                    takeover: null,
+                    updatedAt: at,
+                  };
             yield* save(sessionId, record, closed);
             yield* Scope.close(record.scope, Exit.void);
-            yield* finalizeTeachingPlayByPlay(record);
+            const finished =
+              closed.activity === "teaching"
+                ? yield* finishTeachingClose(
+                    sessionId,
+                    record,
+                    closed,
+                    operationId
+                  )
+                : closed;
             yield* rememberSession(
               operationId,
               "close",
               sessionId,
               requestInput,
-              closed
+              finished
             );
-            return closed;
+            return finished;
           })
         );
       }
@@ -2141,7 +2251,7 @@ const makeAgentSession = (
     const recordEntry = (
       sessionId: AgentSessionId,
       entry: AgentTimelineEntry,
-      patch: Partial<AgentSessionSnapshot> = {}
+      patch: AgentSessionPatch = {}
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
         const record = Ref.getUnsafe(sessions).get(sessionId);
@@ -2182,28 +2292,61 @@ const makeAgentSession = (
               )
             );
         }
-        const next = yield* mutate(sessionId, (snapshot) => ({
-          ...snapshot,
-          ...safePatch,
-          // An attempt inside an Agent Step is what the assessment's `attempts`
-          // count reports, so it is counted where the attempt is recorded.
-          run:
-            snapshot.run === null ||
-            snapshot.run.activeStepIndex === null ||
-            !entry.dispatched
-              ? snapshot.run
-              : {
-                  ...snapshot.run,
-                  steps: snapshot.run.steps.map((step) =>
-                    step.index === snapshot.run?.activeStepIndex
-                      ? { ...step, attempts: step.attempts + 1 }
-                      : step
-                  ),
-                },
-          teaching: teachingOf(record, snapshot),
-          timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
-          updatedAt: now().toISOString(),
-        }));
+        const next = yield* mutate(sessionId, (snapshot) => {
+          const common = {
+            boundary:
+              safePatch.boundary === undefined
+                ? snapshot.boundary
+                : safePatch.boundary,
+            currentUrl: safePatch.currentUrl ?? snapshot.currentUrl,
+            decisionHistory:
+              safePatch.decisionHistory ?? snapshot.decisionHistory,
+            pendingDecisions:
+              safePatch.pendingDecisions ?? snapshot.pendingDecisions,
+            timeline: [...snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
+            updatedAt: now().toISOString(),
+          };
+          if (snapshot.activity === "teaching") {
+            return {
+              ...snapshot,
+              ...common,
+              activity: "teaching" as const,
+              recordingId: snapshot.recordingId,
+              run: null,
+              teaching:
+                record?.capture === undefined
+                  ? snapshot.teaching
+                  : record.capture.progress(snapshot.teaching.draft),
+              verification: null,
+            };
+          }
+          return {
+            ...snapshot,
+            ...common,
+            activity: "run" as const,
+            recordingId: null,
+            run: (() => {
+              const patched = safePatch.run ?? snapshot.run;
+              return patched === null ||
+                patched.activeStepIndex === null ||
+                !entry.dispatched
+                ? patched
+                : {
+                    ...patched,
+                    steps: patched.steps.map((step) =>
+                      step.index === patched.activeStepIndex
+                        ? { ...step, attempts: step.attempts + 1 }
+                        : step
+                    ),
+                  };
+            })(),
+            teaching: null,
+            verification:
+              safePatch.verification === undefined
+                ? snapshot.verification
+                : safePatch.verification,
+          };
+        });
         if (next === undefined) {
           return yield* Effect.fail(
             error(
@@ -2348,6 +2491,18 @@ const makeAgentSession = (
             )
           );
         }
+        const activity = input.activity ?? "run";
+        if (
+          options.allowedActivity !== "any" &&
+          activity !== options.allowedActivity
+        ) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_invalid",
+              `This process only owns ${options.allowedActivity} Agent Sessions.`
+            )
+          );
+        }
         const sessionId = AgentSessionId.make(`agent-${randomUUID()}`);
         const browserName = `create-agent-${randomUUID()}`;
         return yield* Effect.uninterruptibleMask((restore) =>
@@ -2373,11 +2528,50 @@ const makeAgentSession = (
             const acquisitionAndSetup = Effect.gen(
               function* acquireAndSetupAgentSession() {
                 yield* sessionResource(sessionScope, sessionId);
-                const activity = input.activity ?? "run";
                 // One Emulation for the session: the browser is created at the
                 // viewport it will navigate under, so the first document is
                 // laid out for the device rather than resized into it.
                 const emulation = sessionEmulation(input);
+                const teachingIdentity =
+                  activity === "teaching"
+                    ? {
+                        flowSkillName: yield* Schema.decodeUnknownEffect(
+                          FlowSkillName
+                        )(input.name?.trim() || `flow-${randomUUID()}`).pipe(
+                          Effect.mapError(() =>
+                            error(
+                              "agent_session_invalid",
+                              "The Teaching name must be a local Flow Skill name."
+                            )
+                          )
+                        ),
+                        recordingId: TeachingRecordingId.make(
+                          `recording-${createHash("sha256")
+                            .update(String(input.operationId ?? sessionId))
+                            .digest("hex")
+                            .slice(0, 32)}`
+                        ),
+                      }
+                    : null;
+                if (
+                  teachingRecordingStore !== undefined &&
+                  teachingIdentity !== null
+                ) {
+                  yield* teachingRecordingStore
+                    .begin({
+                      emulation,
+                      flowSkillName: teachingIdentity.flowSkillName,
+                      operationId: OperationId.make(
+                        input.operationId ?? `start-${sessionId}`
+                      ),
+                      recordingId: teachingIdentity.recordingId,
+                    })
+                    .pipe(
+                      Effect.mapError((cause) =>
+                        error("agent_session_invalid", cause.message)
+                      )
+                    );
+                }
                 const artifactDirectory = yield* prepareArtifactDirectory(
                   activity,
                   input.artifactDirectory
@@ -2433,15 +2627,10 @@ const makeAgentSession = (
                     activity === "teaching"
                   );
                 const at = now().toISOString();
-                const opening: AgentSessionSnapshot = {
-                  activity,
+                const common = {
                   boundary: null,
                   clientName: input.clientName?.trim() || "unknown",
                   clientVersion: input.clientVersion?.trim() || "unknown",
-                  // Teaching opens with the user holding the browser: the
-                  // Demonstration is theirs from the first action, and the
-                  // agent never takes control back (ADR 0038).
-                  controller: activity === "teaching" ? "user" : "agent",
                   createdAt: at,
                   currentUrl: "about:blank",
                   decisionHistory: [],
@@ -2449,18 +2638,40 @@ const makeAgentSession = (
                   interruptedAction: null,
                   ownerProcessId: owner,
                   pendingDecisions: [],
-                  phase: "starting",
-                  run: input.run ?? null,
+                  phase: "starting" as const,
                   takeover: null,
-                  teaching:
-                    activity === "teaching"
-                      ? { actionCount: 0, draft: null, instructionCount: 0 }
-                      : null,
                   timeline: [],
                   updatedAt: at,
-                  verification: input.verification ?? null,
                   viewUrl: viewUrl(options.baseUrl, sessionId),
                 };
+                const opening: AgentSessionSnapshot =
+                  teachingIdentity === null
+                    ? {
+                        ...common,
+                        activity: "run" as const,
+                        captureState: null,
+                        controller: "agent" as const,
+                        flowSkillName: null,
+                        recordingId: null,
+                        run: input.run ?? null,
+                        teaching: null,
+                        verification: input.verification ?? null,
+                      }
+                    : {
+                        ...common,
+                        activity: "teaching" as const,
+                        captureState: { _tag: "setup", requestedAt: at },
+                        controller: "user" as const,
+                        flowSkillName: teachingIdentity.flowSkillName,
+                        recordingId: teachingIdentity.recordingId,
+                        run: null,
+                        teaching: {
+                          actionCount: 0,
+                          draft: null,
+                          instructionCount: 0,
+                        },
+                        verification: null,
+                      };
                 // A Run asks for each runtime Variable it still needs as its
                 // own Pending Decision, so the user answers them by name in
                 // the agent conversation (ADR 0037).
@@ -2562,13 +2773,42 @@ const makeAgentSession = (
                               : step
                           ),
                         });
-                  const running: AgentSessionSnapshot = {
-                    ...base,
-                    currentUrl,
-                    phase: "running",
-                    run,
-                    updatedAt: startedAt,
-                  };
+                  const running: AgentSessionSnapshot =
+                    base.activity === "teaching"
+                      ? {
+                          ...base,
+                          captureState: {
+                            _tag: "recording",
+                            startedAt,
+                          },
+                          currentUrl,
+                          phase: "running",
+                          updatedAt: startedAt,
+                        }
+                      : {
+                          ...base,
+                          currentUrl,
+                          phase: "running",
+                          run,
+                          updatedAt: startedAt,
+                        };
+                  if (
+                    teachingRecordingStore !== undefined &&
+                    running.activity === "teaching"
+                  ) {
+                    yield* teachingRecordingStore
+                      .start({
+                        operationId: OperationId.make(
+                          input.operationId ?? `start-${sessionId}`
+                        ),
+                        recordingId: running.recordingId,
+                      })
+                      .pipe(
+                        Effect.mapError((cause) =>
+                          error("agent_session_invalid", cause.message)
+                        )
+                      );
+                  }
                   yield* save(sessionId, record, running);
                   yield* rememberSession(
                     input.operationId,
@@ -3679,16 +3919,32 @@ const makeAgentSession = (
           ...(interruptedAction === null ? [] : [interruptedAction]),
           entry,
         ].slice(-TIMELINE_LIMIT);
-        const next: AgentSessionSnapshot = {
-          ...current.snapshot,
-          controller: by === "user" ? "user" : current.snapshot.controller,
-          interruptedAction,
-          phase: "takeover",
-          takeover: { reason, requestedAt: at, requestedBy: by },
-          teaching: teachingOf(current, current.snapshot),
-          timeline,
-          updatedAt: at,
-        };
+        const next: AgentSessionSnapshot =
+          current.snapshot.activity === "teaching"
+            ? {
+                ...current.snapshot,
+                controller:
+                  by === "user" ? "user" : current.snapshot.controller,
+                interruptedAction,
+                phase: "takeover",
+                takeover: { reason, requestedAt: at, requestedBy: by },
+                teaching:
+                  current.capture === undefined
+                    ? current.snapshot.teaching
+                    : current.capture.progress(current.snapshot.teaching.draft),
+                timeline,
+                updatedAt: at,
+              }
+            : {
+                ...current.snapshot,
+                controller:
+                  by === "user" ? "user" : current.snapshot.controller,
+                interruptedAction,
+                phase: "takeover",
+                takeover: { reason, requestedAt: at, requestedBy: by },
+                timeline,
+                updatedAt: at,
+              };
         yield* save(sessionId, current, next);
         yield* rememberSession(
           operationId,
@@ -4639,11 +4895,15 @@ const makeAgentSession = (
       recordDraft: (sessionId, draft) =>
         Effect.gen(function* recordSavedDraft() {
           const { capture } = yield* requireTeaching(sessionId);
-          const next = yield* mutate(sessionId, (snapshot) => ({
-            ...snapshot,
-            teaching: capture.progress(draft),
-            updatedAt: now().toISOString(),
-          }));
+          const next = yield* mutate(sessionId, (snapshot) =>
+            snapshot.activity === "teaching"
+              ? {
+                  ...snapshot,
+                  teaching: capture.progress(draft),
+                  updatedAt: now().toISOString(),
+                }
+              : snapshot
+          );
           if (next === undefined) {
             return yield* Effect.fail(
               error(
@@ -5207,10 +5467,20 @@ export const makeAgentSessionLayer = (
     Effect.gen(function* makeLiveAgentSession() {
       const browser = yield* CreateBrowser;
       const fileSystem = yield* FileSystem.FileSystem;
+      const teachingRecordingStore = Option.getOrUndefined(
+        yield* Effect.serviceOption(TeachingRecordingStore)
+      );
       const parentScope = yield* Scope.Scope;
       const service = yield* PubSub.unbounded<AgentSessionSnapshot>().pipe(
         Effect.flatMap((events) =>
-          makeAgentSession(browser, options, events, fileSystem, parentScope)
+          makeAgentSession(
+            browser,
+            options,
+            events,
+            fileSystem,
+            parentScope,
+            teachingRecordingStore
+          )
         )
       );
       yield* Effect.addFinalizer(() => service.closeAll());

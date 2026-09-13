@@ -1,4 +1,6 @@
-import { Config, Console, Effect, Layer } from "effect";
+import path from "node:path";
+
+import { Config, Console, Effect, FileSystem, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
 import {
@@ -6,7 +8,13 @@ import {
   makeAgentFlowCatalogLayer,
 } from "../services/agent-flow-catalog.ts";
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
+import {
+  defaultAgentResourceDirectory,
+  prepareAgentResourceDirectory,
+} from "../services/agent-session-resources.ts";
+import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
+import { makeTeachingRecordingStoreLayer } from "../services/teaching-recording-store.ts";
 import { UiInterface } from "../services/ui-interface.ts";
 import {
   resolveAllowedOrigins,
@@ -32,10 +40,10 @@ export const webCommand = Command.make(
 
     return yield* Effect.scoped(
       Effect.gen(function* serveWebInterface() {
-        // The catalog and its Run evidence are durable and process-independent,
-        // so this server can read an Agent Flow and a finished Run written by
-        // whichever MCP process produced them. Agent Sessions are the one thing
-        // it deliberately lacks: MCP owns those and the browsers behind them.
+        const fileSystem = yield* FileSystem.FileSystem;
+        const ownerMarker = yield* prepareAgentResourceDirectory(
+          defaultAgentResourceDirectory()
+        );
         let selectedCatalogRoot = defaultCatalogRoot();
         const catalog = Layer.succeedContext(
           yield* Layer.build(
@@ -52,15 +60,38 @@ export const webCommand = Command.make(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
           )
         );
+        const teachingRecordingStore = Layer.succeedContext(
+          yield* Layer.build(
+            makeTeachingRecordingStoreLayer({
+              root: () => selectedCatalogRoot,
+            })
+          )
+        );
+        const agentSession = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentSessionLayer({
+              allowedActivity: "teaching",
+              baseUrl: browserUrl.origin,
+              resourceDirectory: ownerMarker,
+              traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
+            }).pipe(Layer.provide(teachingRecordingStore))
+          )
+        );
+        yield* Effect.addFinalizer(() =>
+          fileSystem
+            .remove(ownerMarker, { recursive: true })
+            .pipe(Effect.ignore)
+        );
         yield* Layer.build(
           makeHttpServerLayer({
             agentFlowCatalog: catalog,
             agentRunStore: runStore,
+            agentSession,
             allowedOrigins: resolveAllowedOrigins(browserUrl),
             host: config.host,
             port: config.port,
             serveWebUi: isProduction,
-          })
+          }).pipe(Layer.provide(agentSession))
         );
         if (noBrowser) {
           yield* Console.log(`Contingency UI available at ${browserUrl}`);
@@ -74,6 +105,6 @@ export const webCommand = Command.make(
   })
 ).pipe(
   Command.withDescription(
-    "Open the Contingency Workspace over the local catalog. Teaching and Interactive Runs need `contingency mcp`, which owns Agent Sessions."
+    "Open the Contingency Workspace with local Teaching sessions and saved flows."
   )
 );

@@ -63,6 +63,8 @@ export * from "./agent-flow.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./teaching-recording.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./optional-field.ts";
 export {
   BrowserTabId,

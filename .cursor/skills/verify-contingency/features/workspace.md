@@ -1,12 +1,12 @@
 # Workspace
 
-Workspace watches Teaching and Interactive Runs owned by one local MCP process, and hands the browser to the user on request during a Run. Teaching is user-led throughout: the user drives the browser and the agent only observes. On `contingency web` there is no Agent Session registry, so the page reports that sessions are unavailable. On `contingency mcp` with no activity it reports that none are active. With a live Interactive Run it shows the browser, the action timeline, and one control button; during Takeover the user drives that browser with the toolbar and the canvas. A live Teaching session has no control button — the canvas and toolbar are already the user's.
+Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp` process, and hands the browser to the user on request during a Run. Teaching is user-led throughout. The user drives the browser and the agent only observes. With no activity, either command reports that no sessions are active. With a live Interactive Run, Workspace shows the browser, the action timeline, and one control button. During Takeover, the user drives that browser with the toolbar and the canvas. A live Teaching session has no control button. The canvas and toolbar are already the user's.
 
 ## Sub-features
 
 - `workspace-nav` opens the sole Workspace route at `/`; Create, Audit, and Agent mode links are absent.
 - `workspace-run-summary` opens a finished Interactive Run at `/?run=<id>` with persisted assessments and video.
-- `agent-unavailable-web` shows unavailability on a `web` launch.
+- `agent-empty-web` shows `No active Agent Sessions` on a `web` launch with no Teaching or Run.
 - `agent-empty-mcp` shows `No active Agent Sessions` on an MCP launch with no Teaching or Run.
 - `agent-bad-session` shows unavailability when `?session=` names a session this process does not own.
 - `agent-live-session` shows a live session's browser, status, and timeline.
@@ -35,16 +35,16 @@ Workspace watches Teaching and Interactive Runs owned by one local MCP process, 
 
 Preconditions:
 
-- For `workspace-nav` and `agent-unavailable-web`, the verification instance is a `web` launch (the default `control-contingency launch`).
+- For `workspace-nav` and `agent-empty-web`, the verification instance is a `web` launch (the default `control-contingency launch`).
 - For `agent-empty-mcp`, run `control-contingency mcp start` on the same verify directory after `launch` and `doctor`. That binds MCP on an ephemeral port with the isolated `stateDir`. Do not attach to an MCP process you did not start.
 - For every live-session sub-feature, `mcp start` and `ecommerce start` must both be running. Create the session with `control-contingency mcp call`, which speaks MCP to that same process — a session exists only inside the process that owns it, so nothing else can conjure one.
 
 - **Nav entry.** Open the Workspace. Run `control-contingency browser goto --path /`, then `control-contingency browser click --role link --name Workspace`. The `Workspace` link is current. Workspace and the Contingency wordmark are home links: both clear the selected session or Run Summary and return to the session workspace.
-- **Unavailable on web.** After the query settles, wait for the destructive alert. Run `control-contingency browser wait --role alert --has-text "Agent Session unavailable" --timeout-ms 15000`. The description includes `Agent Sessions are unavailable in this server process.`
-- **Direct route.** Open `/` without using nav. Run `control-contingency browser goto --path /`, then the same alert wait as above.
-- **Unknown session query.** Open a fake session id. Run `control-contingency browser goto --path "/?session=not-a-session"`, then the same alert wait. The page does not treat the query value as a credential.
+- **Empty on web.** After the query settles, run `control-contingency browser wait --role heading --name "No active Agent Sessions" --timeout-ms 15000`.
+- **Direct route.** Open `/` without using nav. Run `control-contingency browser goto --path /`, then wait for the same empty heading.
+- **Unknown session query.** Open a fake session id. Run `control-contingency browser goto --path "/?session=not-a-session"`, then wait for the session error. The page does not treat the query value as a credential.
 - **Empty on MCP.** Start MCP on the verify instance. Run `control-contingency mcp start`, then `control-contingency browser goto --url "$mcpUrl"` using the printed `mcpUrl`. Wait with `control-contingency browser wait --role heading --name "No active Agent Sessions" --timeout-ms 15000`.
-- **Proof (web unavailable).** Capture the web unavailable state. Run `control-contingency browser goto --path /`, wait for the alert, then `control-contingency browser snapshot --aria --path workspace/unavailable.aria.txt` and `control-contingency browser screenshot --path workspace/unavailable.png`. Both show Contingency, current `Workspace`, and `Agent Session unavailable`.
+- **Proof (web empty).** Capture the empty web state. Run `control-contingency browser goto --path /`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-web.aria.txt` and `control-contingency browser screenshot --path workspace/empty-web.png`. Both show Contingency, current `Workspace`, and `No active Agent Sessions`.
 - **Proof (MCP empty).** After `mcp start`, capture the empty MCP state. Run `control-contingency browser goto --url "$mcpUrl"`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-mcp.aria.txt` and `control-contingency browser screenshot --path workspace/empty-mcp.png`.
 
 ### Live session and Takeover
@@ -67,7 +67,7 @@ Preconditions:
 `mcp start` points the Agent Flow Catalog at `$CONTINGENCY_VERIFY_DIR/state/catalog`, so drafts never land in the repository's `.contingency`.
 
 - **Select the Catalog Root.** Run `control-contingency mcp call --tool agent_catalog_select --params "{\"operationId\":\"verify-select-1\",\"root\":\"$CONTINGENCY_VERIFY_DIR/state/catalog\"}"`. Stdout reports that exact root. Repeating the same call returns the same result.
-- **Start a Teaching session.** Same as above with `"activity":"teaching"` in the params. The snapshot carries `"teaching":{"actionCount":0,"draft":null,"instructionCount":0}`; a Run session carries `"teaching":null`.
+- **Start a Teaching session.** Same as above with `"activity":"teaching"` and `"name":"add-anvil"` in the params. The snapshot carries `flowSkillName`, `recordingId`, `captureState`, and Teaching progress. The `Agent Session` selector shows `add-anvil` and the capture state. A Run session carries null Teaching fields.
 - **Relay an instruction.** Run `control-contingency mcp call --tool agent_teaching_instruction_record --params "{\"sessionId\":\"$sessionId\",\"operationId\":\"verify-instr-1\",\"text\":\"Add the first product to the cart.\"}"`. The timeline gains `The user gave an instruction` and `instructionCount` becomes 1.
 - **Prove the agent cannot act.** Teaching is user-led, so call `agent_browser_act` once with any action and a fresh operation id. It exits `2` with `agent_control_unavailable`, and the message says Teaching is user-led and points at `agent_teaching_instruction_record`. `agent_session_takeover_request` is refused the same way, and the View offers no `Take control` or `Return control` button — only `You are demonstrating this journey`.
 - **Demonstrate.** Open the Teaching session's `viewUrl`; the canvas is live from the start because the user already holds the browser. Drive the fixture through the Workspace with `computerUse` over the streamed viewport (add `ANVIL-001` by SKU, add it to the cart, view the cart), and use the address bar for navigation. `agent_browser_snapshot` still reads the Page at any point. Every action, failed ones included, is captured as `actor: "user"` with the Snapshot before and after; consecutive text edits coalesce into one semantic `fill`.
@@ -133,11 +133,10 @@ Preconditions:
 
 ## Gotchas
 
-- `Loading Agent Sessions…` is transient. Wait for the alert or the empty heading. Do not snapshot the spinner.
-- Unavailable copy is a destructive `alert`, not a heading. `getByRole` name matching is unreliable here; use `browser wait --role alert --has-text "Agent Session unavailable"`.
-- Empty and unavailable are different. Empty means this MCP process is up and currently has zero sessions. Unavailable means this process is not an MCP owner, or the requested id is gone.
-- `?session=` on web still shows unavailable. On MCP with other sessions, a bad id may show a more specific message (`…is not owned by this MCP process…`).
-- Closing Workspace does not pause a real session. That sentence appears only on the live view, which this `web` launch cannot show.
+- `Loading Agent Sessions…` is transient. Wait for the empty heading or the requested session result. Do not snapshot the spinner.
+- Empty means the current `web` or `mcp` process owns zero sessions.
+- A bad `?session=` value names a session that the current process does not own. The error names the server process, not MCP. The page does not fall back to a session from another process.
+- Closing Workspace does not pause a real session.
 - Do not start `mcp` on 7777 if the user already has Contingency there. `mcp start` picks its own port.
 - Only the user returns control. There is no MCP tool for it by design; an agent may only ask with `agent_session_takeover_request`. A drive that needs the agent driving again must click `Return control`.
 - Consecutive ordinary text edits during Takeover are coalesced into one semantic `fill`. Other low-level user input remains a redacted mouse or keyboard event.

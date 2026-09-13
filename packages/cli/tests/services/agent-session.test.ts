@@ -184,6 +184,7 @@ const startInput = (operationId: string): AgentSessionStartInput => ({
 
 const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
   makeAgentSessionService(fake.browser, {
+    allowedActivity: "any",
     baseUrl,
     playByPlayAnalyzer: ({ demonstration }) =>
       Effect.succeed(
@@ -244,6 +245,25 @@ it.effect("replays identical mutations and rejects operation-id reuse", () =>
   })
 );
 
+it.effect("rejects Interactive Runs at a Teaching-only process boundary", () =>
+  Effect.gen(function* teachingOnlyBoundary() {
+    const fake = makeFakeBrowser();
+    const service = yield* makeAgentSessionService(fake.browser, {
+      allowedActivity: "teaching",
+      baseUrl: "http://127.0.0.1:7777",
+      processId: "test-owner",
+    });
+
+    const failure = yield* Effect.flip(service.start(startInput("run")));
+
+    expect(failure.code).toBe("agent_session_invalid");
+    expect(failure.message).toBe(
+      "This process only owns teaching Agent Sessions."
+    );
+    expect(fake.created).toEqual([]);
+  })
+);
+
 it.effect("closes and forgets a session when setup fails", () =>
   Effect.gen(function* failedAgentSession() {
     const fake = makeFakeBrowser({ failOpen: true });
@@ -265,6 +285,7 @@ it.effect("closes a browser when setup is interrupted", () =>
     const fake = makeFakeBrowser({ blockCurrentUrl: setupEntered });
     const context = yield* Layer.build(
       makeAgentSessionLayer({
+        allowedActivity: "any",
         baseUrl: "http://127.0.0.1:7777",
         processId: "test-owner",
       }).pipe(
@@ -552,7 +573,12 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     const fake = makeFakeBrowser();
     const service = yield* serviceFor(fake);
     const run = yield* service.start(startInput("start-run-no-feed"));
-    expect(run.teaching).toBeNull();
+    expect(run).toMatchObject({
+      captureState: null,
+      flowSkillName: null,
+      recordingId: null,
+      teaching: null,
+    });
     const refused = yield* Effect.flip(service.teachingFeed(run.id));
     expect(refused.code).toBe("agent_session_invalid");
     const refusedInstruction = yield* Effect.flip(
@@ -563,12 +589,18 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     const teaching = yield* service.start({
       ...startInput("start-teaching"),
       activity: "teaching",
+      name: "add-first-item",
       url: "https://shop.example.com/",
     });
-    expect(teaching.teaching).toEqual({
-      actionCount: 0,
-      draft: null,
-      instructionCount: 0,
+    expect(teaching).toMatchObject({
+      captureState: { _tag: "recording" },
+      flowSkillName: "add-first-item",
+      recordingId: expect.stringMatching(/^recording-/u),
+      teaching: {
+        actionCount: 0,
+        draft: null,
+        instructionCount: 0,
+      },
     });
 
     const instructed = yield* service.recordInstruction(

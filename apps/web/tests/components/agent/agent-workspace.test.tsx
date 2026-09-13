@@ -135,7 +135,7 @@ test("announces that Agent Sessions are loading", () => {
   expect(screen.getByText("Loading Agent Sessions…")).toBeVisible();
 });
 
-test("explains when this MCP process has no active sessions", async () => {
+test("explains when this server process has no active sessions", async () => {
   renderWorkspace(resultFor([]));
   expect(await screen.findByText("No active Agent Sessions")).toBeVisible();
 });
@@ -168,7 +168,7 @@ test("opens an owned session and shows the live browser view", async () => {
 test("does not use a foreign URL session id", async () => {
   renderWorkspace(resultFor([session]), "agent-foreign");
   expect(
-    await screen.findByText(/not owned by this MCP process/u)
+    await screen.findByText(/not owned by this server process/u)
   ).toBeVisible();
   expect(screen.queryByLabelText("Live browser viewport")).toBeNull();
 });
@@ -263,6 +263,16 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
       {
         ...session,
         activity: "teaching",
+        captureState: {
+          _tag: "skill-drafted",
+          draftedAt: "2026-08-31T00:00:05.000Z",
+          readyAt: "2026-08-31T00:00:04.000Z",
+          skillPath: "browse-catalogue/SKILL.md",
+          startedAt: "2026-08-31T00:00:01.000Z",
+          stoppedAt: "2026-08-31T00:00:03.000Z",
+        },
+        flowSkillName: "browse-catalogue",
+        recordingId: "recording-browse-catalogue",
         teaching: {
           actionCount: 4,
           draft: {
@@ -289,6 +299,11 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
   );
   expect(
     await screen.findByRole("heading", { name: "Teaching" })
+  ).toBeVisible();
+  expect(
+    screen.getByRole("option", {
+      name: "browse-catalogue · skill-drafted",
+    })
   ).toBeVisible();
   expect(screen.getByText("Captured actions").nextSibling).toHaveTextContent(
     "4"
@@ -355,7 +370,13 @@ test("offers no control exchange during a user-led Demonstration", async () => {
       {
         ...session,
         activity: "teaching",
+        captureState: {
+          _tag: "recording",
+          startedAt: "2026-08-31T00:00:01.000Z",
+        },
         controller: "user",
+        flowSkillName: "browse-catalogue",
+        recordingId: "recording-browse-catalogue",
         teaching: { actionCount: 0, draft: null, instructionCount: 0 },
       } satisfies unknown,
     ]),
@@ -418,6 +439,12 @@ test("keeps Teaching private Variable entry out of Workspace", async () => {
       {
         ...takenOverSession,
         activity: "teaching",
+        captureState: {
+          _tag: "recording",
+          startedAt: "2026-08-31T00:00:01.000Z",
+        },
+        flowSkillName: "private-variable-flow",
+        recordingId: "recording-private-variable-flow",
         teaching: { actionCount: 0, draft: null, instructionCount: 0 },
       } satisfies unknown,
     ]),

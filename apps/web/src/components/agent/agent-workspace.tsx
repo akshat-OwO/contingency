@@ -1286,7 +1286,7 @@ export const AgentWorkspace = ({
           state.browserStreamError ??
           (requestedSessionId === undefined
             ? "The selected Agent Session is no longer available."
-            : `Agent Session ${requestedSessionId} is not owned by this MCP process or is no longer running.`)
+            : `Agent Session ${requestedSessionId} is not owned by this server process or is no longer running.`)
         }
       />
     );

@@ -27,6 +27,7 @@ export default defineConfig({
         "packages/protocol/src/agent-identifiers.ts",
         "packages/protocol/src/agent-run.ts",
         "packages/protocol/src/agent-session.ts",
+        "packages/protocol/src/teaching-recording.ts",
         "packages/protocol/src/browser-identifiers.ts",
         "packages/protocol/src/browser-identity.ts",
         "packages/protocol/src/browser-rpc-error.ts",

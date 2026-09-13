@@ -68,7 +68,9 @@ export const appendConsoleEntry = (
   [...entries, entry].slice(-MAX_WORKSPACE_CONSOLE_ENTRIES);
 
 export const agentSessionLabel = (session: AgentSessionSnapshot): string =>
-  `${session.clientName} · ${session.activity} · ${session.id}`;
+  session.activity === "teaching"
+    ? `${session.flowSkillName} · ${session.captureState._tag}`
+    : `${session.clientName} · ${session.activity} · ${session.id}`;
 
 /**
  * How Agent View describes control. Control is exclusive, and an agent that
