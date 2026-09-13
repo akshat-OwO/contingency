@@ -5157,43 +5157,12 @@ const makeAgentSession = (
           )
         ),
       list: () =>
-        Effect.gen(function* listAgentSessions() {
-          const liveRecords = [...Ref.getUnsafe(sessions).values()].filter(
-            ({ snapshot }) => isLive(snapshot.phase)
-          );
-          const listed = new Map<AgentSessionId, AgentSessionSnapshot>();
-          for (const record of liveRecords) {
-            const snapshot = yield* refreshedSnapshot(
-              record.snapshot.id,
-              record
-            );
-            listed.set(snapshot.id, snapshot);
-          }
-          for (const record of Ref.getUnsafe(sessions).values()) {
-            const { snapshot } = record;
-            if (
-              !listed.has(snapshot.id) &&
-              snapshot.activity === "teaching" &&
-              snapshot.captureState._tag === "ready"
-            ) {
-              listed.set(snapshot.id, snapshot);
-            }
-          }
-          if (teachingRecordingStore !== undefined) {
-            const ready = yield* teachingRecordingStore
-              .listReady()
-              .pipe(Effect.orElseSucceed(() => []));
-            for (const manifest of ready) {
-              if (!listed.has(manifest.sessionId)) {
-                listed.set(
-                  manifest.sessionId,
-                  snapshotFromReadyManifest(manifest, owner, options.baseUrl)
-                );
-              }
-            }
-          }
-          return [...listed.values()];
-        }),
+        Effect.forEach(
+          [...Ref.getUnsafe(sessions).values()].filter(({ snapshot }) =>
+            isLive(snapshot.phase)
+          ),
+          (record) => refreshedSnapshot(record.snapshot.id, record)
+        ),
       networkRequest: (sessionId, tabId, requestId) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>

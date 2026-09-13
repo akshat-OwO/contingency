@@ -785,7 +785,7 @@ const teachingSessionLayer = (
   );
 
 it.effect(
-  "lists a stopped Teaching recording from a later Agent Session process",
+  "gets a stopped Teaching recording from a later Agent Session process",
   () =>
     Effect.gen(function* durableReadyAcrossProcesses() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -824,6 +824,7 @@ it.effect(
           }
           return {
             finished,
+            got: yield* service.get(started.id),
             listed: yield* service.list(),
             recordingId: started.recordingId,
             sessionId: started.id,
@@ -834,13 +835,14 @@ it.effect(
       );
 
       expect(closed.finished.captureState._tag).toBe("ready");
-      expect(closed.listed).toEqual([
+      expect(closed.listed).toEqual([]);
+      expect(closed.got).toEqual(
         expect.objectContaining({
           captureState: expect.objectContaining({ _tag: "ready" }),
           id: closed.sessionId,
           recordingId: closed.recordingId,
-        }),
-      ]);
+        })
+      );
       const manifest = yield* Schema.decodeUnknownEffect(
         TeachingRecordingManifest
       )(
@@ -877,13 +879,9 @@ it.effect(
         )
       );
 
-      expect(later.listed).toEqual([
-        expect.objectContaining({
-          captureState: expect.objectContaining({ _tag: "ready" }),
-          recordingId: closed.recordingId,
-        }),
-      ]);
+      expect(later.listed).toEqual([]);
       expect(later.got.captureState._tag).toBe("ready");
+      expect(later.got.recordingId).toBe(closed.recordingId);
       expect(later.replay.captureState._tag).toBe("ready");
       expect(later.replay.id).toBe(closed.sessionId);
       expect(fakeLater.created).toEqual([]);
