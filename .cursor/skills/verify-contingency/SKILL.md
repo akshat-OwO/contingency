@@ -5,7 +5,7 @@ description: Drive Contingency's local web UI and MCP server the way a user does
 
 # Verify Contingency
 
-Contingency's local UI has one Workspace route at `/`. Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries share it. `contingency mcp` is a separate process that owns Agent Sessions; an ordinary `web` instance cannot invent them.
+Contingency's local UI has one Workspace route at `/`. Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries share it. Both `contingency web` and `contingency mcp` own Agent Sessions. Each process owns a separate live registry and reads Teaching Recordings from the shared Catalog Root.
 
 This skill drives a disposable production build of that UI through Playwright. It does not drive the user's existing `localhost:5173` or `127.0.0.1:7777` session.
 
@@ -90,8 +90,8 @@ Do not click the canvas through `control-contingency browser` as if it were the 
 Stable handles in this repo:
 
 - Primary nav: `link` named `Contingency` and `Workspace`. The Workspace link has `aria-current="page"` on `/`.
-- Workspace on `web` (no MCP): destructive `alert` titled `Agent Session unavailable` and text `Agent Sessions are unavailable in this server process.` Use `browser wait --role alert --has-text "Agent Session unavailable"`.
-- Workspace on `mcp` with no session: heading `No active Agent Sessions`.
+- Workspace on `web` or `mcp` with no session: heading `No active Agent Sessions`.
+- A Teaching option in the `Agent Session` selector uses the Flow Skill name and the `TeachingCaptureState` tag. It does not use the raw session id as its label.
 - Workspace with a live session: heading `Workspace`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`. An Interactive Run has one control button that reads `Take control` or `Return control`; a Teaching session has neither, and reads `You are demonstrating this journey`. The canvas and toolbar are the user's from the start. Teaching private Variables enter only through the Workspace loopback `agent.teaching.variable.input`; Workspace has no private-value button or dialog.
 - Workspace with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the Teaching Feed disclosure paragraph. Absent for an Interactive Run. End Teaching with `agent_session_close` before reading its feed or saving a draft; close waits for local-video PlayByPlay analysis and the closed session is no longer available as a live Workspace. Prove the finalized feed and saved draft through MCP and catalog results.
 - Workspace draft review shows the proposed Steps, Domain Scope, Pending Decision kind, scope summary, and id as a read-only mirror. It has no draft edit fields, `Save corrections`, `Authorize Verification Run`, or `Approve Agent Flow` buttons. It directs corrections to the agent conversation.
@@ -140,7 +140,7 @@ export CONTINGENCY_VERIFY_DIR=...   # from launch stdout
 export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" browser goto --path /
 "$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/
-"$CONTROL" browser wait --role alert --has-text "Agent Session unavailable"
+"$CONTROL" browser wait --role heading --name "No active Agent Sessions"
 "$CONTROL" mcp start
 "$CONTROL" mcp call --tool agent_sessions_get
 "$CONTROL" mcp stop

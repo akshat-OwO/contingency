@@ -127,8 +127,7 @@ const EmptyState = () => (
         No active Agent Sessions
       </h1>
       <p className="text-muted-foreground text-sm">
-        Start a Teaching or Interactive Run from your MCP client to watch it
-        here.
+        Start Teaching in this Workspace, or watch an Interactive Run from MCP.
       </p>
     </section>
   </main>
@@ -1286,7 +1285,7 @@ export const AgentWorkspace = ({
           state.browserStreamError ??
           (requestedSessionId === undefined
             ? "The selected Agent Session is no longer available."
-            : `Agent Session ${requestedSessionId} is not owned by this MCP process or is no longer running.`)
+            : `Agent Session ${requestedSessionId} is not owned by this server process or is no longer running.`)
         }
       />
     );

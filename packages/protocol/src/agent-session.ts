@@ -16,6 +16,11 @@ import {
 import { AgentRunState } from "./agent-run.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
+import {
+  FlowSkillName,
+  TeachingCaptureState,
+  TeachingRecordingId,
+} from "./teaching-recording.ts";
 import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -46,7 +51,7 @@ export type AgentTakeoverRequest = typeof AgentTakeoverRequest.Type;
  * intentionally made entirely of protocol data: browser and Playwright
  * objects never cross this boundary.
  */
-export const AgentSessionSnapshot = Schema.Struct({
+const AgentSessionSnapshotBase = {
   activity: AgentSessionActivity,
   boundary: Schema.optional(Schema.NullOr(AgentExecutionBoundary)),
   clientName: nonEmptyString,
@@ -72,28 +77,41 @@ export const AgentSessionSnapshot = Schema.Struct({
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
   phase: AgentSessionPhase,
-  /**
-   * The Interactive Run this session is performing: its ordered Agent Steps,
-   * ceilings, assessments, and coverage. `null` for Teaching and for a bare
-   * session that is not running an Approved Agent Flow.
-   */
-  run: Schema.NullOr(AgentRunState),
   takeover: Schema.NullOr(AgentTakeoverRequest),
-  /**
-   * What a Teaching session has captured and whether a draft has been saved
-   * from it. `null` for an Interactive Run, which records no Demonstration.
-   */
-  teaching: Schema.NullOr(TeachingProgress),
   /** The most recent attempts, oldest first, in the order they were made. */
   timeline: Schema.Array(AgentTimelineEntry),
   updatedAt: nonEmptyString,
-  /**
-   * The exact draft revision this session is verifying under one spent user
-   * authorization. `null` for Teaching and for an ordinary Interactive Run.
-   */
-  verification: Schema.NullOr(AgentSessionVerification),
   viewUrl: nonEmptyString,
+};
+
+export const TeachingSessionSnapshot = Schema.Struct({
+  ...AgentSessionSnapshotBase,
+  activity: Schema.Literal("teaching"),
+  captureState: TeachingCaptureState,
+  flowSkillName: FlowSkillName,
+  recordingId: TeachingRecordingId,
+  run: Schema.Null,
+  teaching: TeachingProgress,
+  verification: Schema.Null,
 });
+export type TeachingSessionSnapshot = typeof TeachingSessionSnapshot.Type;
+
+export const RunSessionSnapshot = Schema.Struct({
+  ...AgentSessionSnapshotBase,
+  activity: Schema.Literal("run"),
+  captureState: Schema.Null,
+  flowSkillName: Schema.Null,
+  recordingId: Schema.Null,
+  run: Schema.NullOr(AgentRunState),
+  teaching: Schema.Null,
+  verification: Schema.NullOr(AgentSessionVerification),
+});
+export type RunSessionSnapshot = typeof RunSessionSnapshot.Type;
+
+export const AgentSessionSnapshot = Schema.Union([
+  TeachingSessionSnapshot,
+  RunSessionSnapshot,
+]);
 export type AgentSessionSnapshot = typeof AgentSessionSnapshot.Type;
 
 export const AgentSessions = Schema.Struct({

@@ -10,6 +10,7 @@ import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 
 const browserServices = makeAgentSessionLayer({
+  allowedActivity: "any",
   baseUrl: "http://127.0.0.1:7777",
 }).pipe(
   Layer.provideMerge(CreateBrowserLive),

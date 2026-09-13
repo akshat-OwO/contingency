@@ -1,7 +1,9 @@
 import {
   AgentProcessId,
   AgentSessionId,
+  FlowSkillName,
   OperationId,
+  TeachingRecordingId,
   UserAgentProfileId,
 } from "@contingency/protocol";
 import type { AgentFlowDraftProposal } from "@contingency/protocol";
@@ -216,17 +218,26 @@ it.effect(
             session: {
               activity: "teaching",
               boundary: null,
+              captureState: {
+                _tag: "failed",
+                error: "Analysis failed",
+                failedAt: at,
+              },
               clientName: "compiler",
               clientVersion: "1",
               controller: "agent",
               createdAt: at,
               currentUrl: "https://shop.example.com/",
               decisionHistory: [],
+              flowSkillName: FlowSkillName.make("analysis-failed"),
               id: sessionId,
               interruptedAction: null,
               ownerProcessId: AgentProcessId.make("test-process"),
               pendingDecisions: [],
               phase: "closed",
+              recordingId: TeachingRecordingId.make(
+                "recording-analysis-failed"
+              ),
               run: null,
               takeover: null,
               teaching: {

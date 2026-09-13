@@ -76,10 +76,6 @@ export interface HttpServerOptions {
     CreateBrowserService | FileSystem.FileSystem
   >;
   readonly host: string;
-  /**
-   * Streamable HTTP MCP on this process's Workspace server. Absent on
-   * `contingency web`, which must not own Agent Sessions.
-   */
   readonly mcp?: Layer.Layer<
     never,
     Cause.IllegalArgumentError,
@@ -102,11 +98,6 @@ export const makeHttpServerLayer = ({
   const webRoutes = serveWebUi
     ? HttpStaticServer.layer({ root: webRoot, spa: true })
     : Layer.empty;
-  // `web` deliberately has no Agent Session registry. MCP is the explicit
-  // owner of that process-scoped service and passes the same layer to both
-  // stdio tools and the Workspace. Keeping this optional also makes an ordinary
-  // web server answer a typed `agent_session_unavailable` error rather than
-  // accidentally launching Chromium on behalf of an HTTP caller.
   const rpcRoutes = makeRpcRoutes({ allowedOrigins });
   const sessionRpcRoutes =
     agentSession === undefined

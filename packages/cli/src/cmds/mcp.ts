@@ -32,6 +32,10 @@ import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { makeMcpHttpLayer } from "../services/mcp-http.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../services/teaching-recording-store.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
 
 const mcpTools = Layer.mergeAll(
@@ -86,15 +90,24 @@ export const mcpCommand = Command.make(
           defaultAgentResourceDirectory()
         );
         let selectedCatalogRoot = defaultCatalogRoot();
+        const teachingRecordingStore = Layer.succeedContext(
+          yield* Layer.build(
+            makeTeachingRecordingStoreLayer({
+              root: () => selectedCatalogRoot,
+            })
+          )
+        );
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
+              allowedActivity: "any",
               get baseUrl() {
                 return boundOrigin.url;
               },
               resourceDirectory: ownerMarker,
-              traceDirectory: () => path.join(selectedCatalogRoot, "teaching"),
-            })
+              traceDirectory: () =>
+                path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
+            }).pipe(Layer.provide(teachingRecordingStore))
           )
         );
         // The catalog is durable and process-independent: it is selected per
@@ -116,7 +129,12 @@ export const mcpCommand = Command.make(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
           )
         );
-        const shared = Layer.mergeAll(agentSession, catalog, runStore);
+        const shared = Layer.mergeAll(
+          agentSession,
+          catalog,
+          runStore,
+          teachingRecordingStore
+        );
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })

@@ -33,7 +33,10 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp() {
     HttpRouter.serve(makeMcpHttpLayer(allowedOrigins)).pipe(
       Layer.provide(
         Layer.mergeAll(
-          makeAgentSessionLayer({ baseUrl: "http://127.0.0.1:7783" }),
+          makeAgentSessionLayer({
+            allowedActivity: "any",
+            baseUrl: "http://127.0.0.1:7783",
+          }),
           makeAgentFlowCatalogLayer({ root: catalogRoot }),
           makeAgentRunStoreLayer({ root: () => catalogRoot })
         ).pipe(

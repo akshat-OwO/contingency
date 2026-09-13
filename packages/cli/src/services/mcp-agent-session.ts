@@ -104,7 +104,8 @@ const AgentSessionStartTool = Tool.make("agent_session_start", {
 
 const AgentSessionGetTool = Tool.make("agent_session_get", {
   dependencies: [AgentSession],
-  description: "Read one process-owned Agent Session.",
+  description:
+    "Read one Agent Session by id, including a ready Teaching recording after capture has stopped.",
   failure: AgentSessionFailure,
   parameters: AgentSessionGetParameters,
   success: AgentSessionSnapshot,
