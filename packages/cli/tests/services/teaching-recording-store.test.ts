@@ -125,12 +125,19 @@ it.effect(
         };
         yield* store.cleanup(cleanup);
         const cleaned = yield* store.cleanup(cleanup);
-        return cleaned;
+        const duplicateCleanup = yield* Effect.flip(
+          store.cleanup({
+            operationId: OperationId.make("cleanup-again"),
+            recordingId,
+          })
+        );
+        return { cleaned, duplicateCleanup };
       }).pipe(Effect.provide(layerFor(root)));
 
-      const cleaned = yield* exercise;
+      const { cleaned, duplicateCleanup } = yield* exercise;
       expect(cleaned.cleanup._tag).toBe("completed");
       expect(cleaned.lifecycle._tag).toBe("verified");
+      expect(duplicateCleanup.code).toBe("teaching_recording_conflict");
       expect(cleaned.receipts.map((receipt) => receipt.operation)).toEqual([
         "begin",
         "start",
