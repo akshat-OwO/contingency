@@ -8,6 +8,14 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist/index.css"
     />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/fill/style.css"
+    />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style type="text/tailwindcss">
       @theme inline {
@@ -102,11 +110,23 @@
       @utility btn-ghost {
         @apply btn hover:bg-accent hover:text-accent-foreground;
       }
-      @utility pill {
-        @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium;
+      @utility badge {
+        @apply inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium;
       }
       @utility mono {
         font-family: ui-monospace, "SFMono-Regular", "Geist Mono", monospace;
+      }
+
+      /* The mock page inside the frame stands in for the browser screencast. */
+      @utility mock-field {
+        @apply bg-background h-9 rounded-md border px-3 text-sm;
+      }
+
+      [data-inspecting="true"] {
+        cursor: crosshair;
+      }
+      [data-inspecting="true"] * {
+        cursor: crosshair !important;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -126,15 +146,6 @@
         class="bg-muted/60 flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 text-xs"
       >
         <span class="font-semibold">Prototype #185</span>
-        <div class="flex items-center gap-2">
-          <span id="variant-label" class="text-muted-foreground">Layout</span>
-          <div
-            aria-labelledby="variant-label"
-            class="flex gap-1"
-            id="variant-switcher"
-            role="tablist"
-          ></div>
-        </div>
         <div class="flex items-center gap-2">
           <label class="text-muted-foreground" for="state-select"
             >Teaching state</label
@@ -167,7 +178,6 @@
             Dark mode
           </button>
         </div>
-        <p class="mono text-muted-foreground w-full" id="variant-note"></p>
       </div>
 
       <main class="relative flex min-h-0 flex-1 flex-col" id="app"></main>

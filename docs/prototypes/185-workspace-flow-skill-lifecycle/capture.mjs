@@ -31,10 +31,7 @@ for (const viewport of VIEWPORTS) {
   await page.goto(PAGE_URL, { waitUntil: "networkidle" });
   const states = await page.evaluate(async () => {
     const module = await import("./states.js");
-    return {
-      states: module.STATES.map((state) => state.id),
-      variants: module.VARIANTS.map((variant) => variant.id),
-    };
+    return { states: module.STATES.map((state) => state.id) };
   });
 
   for (const theme of ["light", "dark"]) {
@@ -43,52 +40,47 @@ for (const viewport of VIEWPORTS) {
         document.documentElement.classList.toggle("dark", mode === "dark"),
       theme
     );
-    for (const variant of states.variants) {
-      for (const state of states.states) {
-        await page.evaluate(
-          ([s, v]) => window.setPrototype(s, v),
-          [state, variant]
+    for (const state of states.states) {
+      await page.evaluate((id) => window.setPrototype(id), state);
+      const names = await page.evaluate(() =>
+        [...document.querySelectorAll("main button")].map(
+          (button) =>
+            button.getAttribute("aria-label") ?? button.textContent.trim()
+        )
+      );
+      const distinct = new Set(names);
+      if (distinct.size !== names.length) {
+        failures.push(
+          `${viewport.name}/${theme}/${state}: duplicate accessible names ${JSON.stringify(names)}`
         );
-        const names = await page.evaluate(() =>
-          [...document.querySelectorAll("main button")].map(
-            (button) =>
-              button.getAttribute("aria-label") ?? button.textContent.trim()
-          )
-        );
-        const distinct = new Set(names.map((name) => name.split("\n")[0]));
-        if (distinct.size !== names.length) {
-          failures.push(
-            `${viewport.name}/${theme}/${variant}/${state}: duplicate accessible names ${JSON.stringify(names)}`
-          );
-        }
-        const clipped = await page.evaluate(() =>
-          [...document.querySelectorAll("main button, main input, main select")]
-            .filter((element) => {
-              const rect = element.getBoundingClientRect();
-              return rect.right > window.innerWidth + 1 || rect.left < -1;
-            })
-            .map(
-              (element) =>
-                element.getAttribute("aria-label") ?? element.textContent.trim()
-            )
-        );
-        if (clipped.length > 0) {
-          failures.push(
-            `${viewport.name}/${theme}/${variant}/${state}: controls clipped ${JSON.stringify(clipped)}`
-          );
-        }
-        const overflow = await page.evaluate(
-          () => document.documentElement.scrollHeight - window.innerHeight
-        );
-        if (overflow > 1) {
-          failures.push(
-            `${viewport.name}/${theme}/${variant}/${state}: page overflows by ${overflow}px`
-          );
-        }
-        await page.screenshot({
-          path: `${OUT}${viewport.name}-${theme}-${variant}-${state}.png`,
-        });
       }
+      const clipped = await page.evaluate(() =>
+        [...document.querySelectorAll("main button, main input, main select")]
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.right > window.innerWidth + 1 || rect.left < -1;
+          })
+          .map(
+            (element) =>
+              element.getAttribute("aria-label") ?? element.textContent.trim()
+          )
+      );
+      if (clipped.length > 0) {
+        failures.push(
+          `${viewport.name}/${theme}/${state}: controls clipped ${JSON.stringify(clipped)}`
+        );
+      }
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollHeight - window.innerHeight
+      );
+      if (overflow > 1) {
+        failures.push(
+          `${viewport.name}/${theme}/${state}: page overflows by ${overflow}px`
+        );
+      }
+      await page.screenshot({
+        path: `${OUT}${viewport.name}-${theme}-${state}.png`,
+      });
     }
   }
   await page.close();
@@ -100,3 +92,4 @@ await writeFile(
   failures.length === 0 ? "all checks passed\n" : `${failures.join("\n")}\n`
 );
 console.log(failures.length === 0 ? "all checks passed" : failures.join("\n"));
+process.exit(failures.length === 0 ? 0 : 1);
