@@ -12,6 +12,8 @@ export default defineConfig({
   ignorePatterns: [
     ...(core.ignorePatterns ?? []),
     "apps/web/src/components/ui/**",
+    // Throwaway design prototypes are not production source.
+    "docs/prototypes/**",
     "apps/web/src/routeTree.gen.ts",
   ],
   jsPlugins: jsPlugins.jsPlugins,

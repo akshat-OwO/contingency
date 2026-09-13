@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype: recorded flow skill lifecycle</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist/index.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      @theme inline {
+        --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+        --color-background: var(--background);
+        --color-foreground: var(--foreground);
+        --color-card: var(--card);
+        --color-card-foreground: var(--card-foreground);
+        --color-muted: var(--muted);
+        --color-muted-foreground: var(--muted-foreground);
+        --color-primary: var(--primary);
+        --color-primary-foreground: var(--primary-foreground);
+        --color-secondary: var(--secondary);
+        --color-secondary-foreground: var(--secondary-foreground);
+        --color-accent: var(--accent);
+        --color-accent-foreground: var(--accent-foreground);
+        --color-destructive: var(--destructive);
+        --color-border: var(--border);
+        --color-input: var(--input);
+        --color-ring: var(--ring);
+        --radius-sm: calc(var(--radius) * 0.6);
+        --radius-md: calc(var(--radius) * 0.8);
+        --radius-lg: var(--radius);
+        --radius-xl: calc(var(--radius) * 1.4);
+      }
+
+      :root {
+        --background: oklch(1 0 0);
+        --foreground: oklch(0.145 0 0);
+        --card: oklch(1 0 0);
+        --card-foreground: oklch(0.145 0 0);
+        --primary: oklch(0.205 0 0);
+        --primary-foreground: oklch(0.985 0 0);
+        --secondary: oklch(0.97 0 0);
+        --secondary-foreground: oklch(0.205 0 0);
+        --muted: oklch(0.97 0 0);
+        --muted-foreground: oklch(0.556 0 0);
+        --accent: oklch(0.97 0 0);
+        --accent-foreground: oklch(0.205 0 0);
+        --destructive: oklch(0.577 0.245 27.325);
+        --border: oklch(0.922 0 0);
+        --input: oklch(0.922 0 0);
+        --ring: oklch(0.708 0 0);
+        --radius: 0.625rem;
+      }
+
+      .dark {
+        --background: oklch(0.145 0 0);
+        --foreground: oklch(0.985 0 0);
+        --card: oklch(0.205 0 0);
+        --card-foreground: oklch(0.985 0 0);
+        --primary: oklch(0.922 0 0);
+        --primary-foreground: oklch(0.205 0 0);
+        --secondary: oklch(0.269 0 0);
+        --secondary-foreground: oklch(0.985 0 0);
+        --muted: oklch(0.269 0 0);
+        --muted-foreground: oklch(0.708 0 0);
+        --accent: oklch(0.269 0 0);
+        --accent-foreground: oklch(0.985 0 0);
+        --destructive: oklch(0.704 0.191 22.216);
+        --border: oklch(1 0 0 / 10%);
+        --input: oklch(1 0 0 / 15%);
+        --ring: oklch(0.556 0 0);
+      }
+
+      @layer base {
+        * {
+          border-color: var(--border);
+        }
+        body {
+          background-color: var(--background);
+          color: var(--foreground);
+        }
+        :focus-visible {
+          outline: 2px solid var(--ring);
+          outline-offset: 2px;
+        }
+      }
+
+      @utility btn {
+        @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50;
+      }
+      @utility btn-primary {
+        @apply btn bg-primary text-primary-foreground hover:opacity-90;
+      }
+      @utility btn-destructive {
+        @apply btn bg-destructive text-white hover:opacity-90;
+      }
+      @utility btn-outline {
+        @apply btn bg-background hover:bg-accent hover:text-accent-foreground border;
+      }
+      @utility btn-ghost {
+        @apply btn hover:bg-accent hover:text-accent-foreground;
+      }
+      @utility pill {
+        @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium;
+      }
+      @utility mono {
+        font-family: ui-monospace, "SFMono-Regular", "Geist Mono", monospace;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          transition-duration: 0.001ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="h-svh overflow-hidden font-sans antialiased">
+    <div class="flex h-full flex-col">
+      <!-- Prototype control strip. Not part of the proposed Workspace. -->
+      <div
+        class="bg-muted/60 flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 text-xs"
+      >
+        <span class="font-semibold">Prototype #185</span>
+        <div class="flex items-center gap-2">
+          <span id="variant-label" class="text-muted-foreground">Layout</span>
+          <div
+            aria-labelledby="variant-label"
+            class="flex gap-1"
+            id="variant-switcher"
+            role="tablist"
+          ></div>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-muted-foreground" for="state-select"
+            >Teaching state</label
+          >
+          <select
+            class="bg-background h-7 rounded-md border px-2 text-xs"
+            id="state-select"
+          ></select>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="btn-outline h-7 px-2 text-xs"
+            id="prev-state"
+            type="button"
+          >
+            Previous state
+          </button>
+          <button
+            class="btn-outline h-7 px-2 text-xs"
+            id="next-state"
+            type="button"
+          >
+            Next state
+          </button>
+          <button
+            class="btn-outline h-7 px-2 text-xs"
+            id="theme-toggle"
+            type="button"
+          >
+            Dark mode
+          </button>
+        </div>
+        <p class="mono text-muted-foreground w-full" id="variant-note"></p>
+      </div>
+
+      <main class="relative flex min-h-0 flex-1 flex-col" id="app"></main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
