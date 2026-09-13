@@ -29,7 +29,10 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
+import {
+  makeTeachingRecordingStoreLayer,
+  TEACHING_RECORDINGS_DIRECTORY,
+} from "../../src/services/teaching-recording-store.ts";
 import {
   findNode,
   makeCall,
@@ -60,7 +63,8 @@ const verificationLayer = (catalogRoot: string) =>
         makeAgentSessionLayer({
           allowedActivity: "any",
           baseUrl: "http://127.0.0.1:7777",
-          traceDirectory: () => path.join(catalogRoot, "sessions"),
+          traceDirectory: () =>
+            path.join(catalogRoot, TEACHING_RECORDINGS_DIRECTORY),
         }).pipe(
           Layer.provide(
             makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
@@ -777,7 +781,7 @@ it.live(
         expect(persisted).not.toContain(runLiteral);
 
         const retainedFiles = yield* fileSystem.readDirectory(
-          path.join(catalogRoot, "sessions"),
+          path.join(catalogRoot, TEACHING_RECORDINGS_DIRECTORY),
           { recursive: true }
         );
         expect(
