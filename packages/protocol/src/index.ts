@@ -302,6 +302,10 @@ export const BrandId = Schema.Literals([
   "agent.run.summary.get",
   "agent.run.summary.result",
   "agent.run.ceiling.extend",
+  "agent.teaching.recording.start",
+  "agent.teaching.recording.started",
+  "agent.teaching.recording.stop",
+  "agent.teaching.recording.stopped",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -361,6 +365,38 @@ export const AgentSessionCloseRequest = request("agent.session.close", {
 export const AgentSessionClosed = response("agent.session.closed", {
   session: AgentSessionCloseResult.fields.session,
 });
+
+/**
+ * Start and Stop are the Teaching privacy boundary ([ADR
+ * 0039](../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * Nothing is captured until the user starts a recording, and every capture
+ * source stops against one end timestamp. `operationId` makes each gesture
+ * safe to retry: a repeated id returns the same recording rather than opening
+ * a second one.
+ */
+export const AgentTeachingRecordingStartRequest = request(
+  "agent.teaching.recording.start",
+  {
+    operationId: AgentSessionClose.fields.operationId,
+    sessionId: AgentSessionClose.fields.sessionId,
+  }
+);
+export const AgentTeachingRecordingStarted = response(
+  "agent.teaching.recording.started",
+  { session: AgentSessionSnapshot }
+);
+
+export const AgentTeachingRecordingStopRequest = request(
+  "agent.teaching.recording.stop",
+  {
+    operationId: AgentSessionClose.fields.operationId,
+    sessionId: AgentSessionClose.fields.sessionId,
+  }
+);
+export const AgentTeachingRecordingStopped = response(
+  "agent.teaching.recording.stopped",
+  { session: AgentSessionSnapshot }
+);
 
 export const AgentSessionStreamSubscribeRequest = request(
   "agent.session.stream.subscribe",
@@ -666,6 +702,24 @@ const AgentSessionGetRpc = Rpc.make("agent.session.get", {
   payload: AgentSessionGetRequest,
   success: AgentSessionResult,
 });
+const AgentTeachingRecordingStartRpc = Rpc.make(
+  "agent.teaching.recording.start",
+  {
+    error: BrowserRpcError,
+    payload: AgentTeachingRecordingStartRequest,
+    success: AgentTeachingRecordingStarted,
+  }
+);
+
+const AgentTeachingRecordingStopRpc = Rpc.make(
+  "agent.teaching.recording.stop",
+  {
+    error: BrowserRpcError,
+    payload: AgentTeachingRecordingStopRequest,
+    success: AgentTeachingRecordingStopped,
+  }
+);
+
 const AgentSessionCloseRpc = Rpc.make("agent.session.close", {
   error: BrowserRpcError,
   payload: AgentSessionCloseRequest,
@@ -817,6 +871,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionStartRpc,
   AgentSessionGetRpc,
   AgentSessionCloseRpc,
+  AgentTeachingRecordingStartRpc,
+  AgentTeachingRecordingStopRpc,
   AgentSessionStreamSubscribeRpc,
   AgentBrowserStreamSubscribeRpc,
   AgentBrowserFrameAckRpc,

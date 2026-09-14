@@ -171,6 +171,47 @@ it.effect(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
+it.effect(
+  "retains artifacts when capture stops with a recoverable failure",
+  () =>
+    Effect.gen(function* recoverableCaptureFailure() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-failure-",
+      });
+      const failedRecordingId = TeachingRecordingId.make(
+        "recording-store-failure"
+      );
+      const failed = yield* Effect.gen(function* persistFailure() {
+        const store = yield* TeachingRecordingStore;
+        yield* store.begin({
+          emulation,
+          flowSkillName: FlowSkillName.make("failed-flow"),
+          operationId: OperationId.make("begin-failure"),
+          recordingId: failedRecordingId,
+          sessionId,
+        });
+        yield* store.start({
+          operationId: OperationId.make("start-failure"),
+          recordingId: failedRecordingId,
+        });
+        return yield* store.stop({
+          artifacts: [],
+          failure: "The Teaching video encoder stopped unexpectedly.",
+          operationId: OperationId.make("stop-failure"),
+          recordingId: failedRecordingId,
+        });
+      }).pipe(Effect.provide(layerFor(root)));
+
+      expect(failed.lifecycle).toEqual({
+        _tag: "failed",
+        error: "The Teaching video encoder stopped unexpectedly.",
+        failedAt: at,
+      });
+      expect(failed.receipts.at(-1)?.operation).toBe("stop");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
 it.effect("a Ready manifest survives two real process lifetimes", () =>
   Effect.gen(function* restartTeachingStore() {
     const fileSystem = yield* FileSystem.FileSystem;

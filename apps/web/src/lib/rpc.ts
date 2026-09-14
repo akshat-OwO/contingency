@@ -92,6 +92,12 @@ export const agentTakeoverMutation = ContingencyRpcClient.mutation(
 export const agentReturnControlMutation = ContingencyRpcClient.mutation(
   "agent.session.control.return"
 );
+/** Start and Stop are user gestures, never agent-owned MCP operations. */
+export const agentTeachingRecordingStartMutation =
+  ContingencyRpcClient.mutation("agent.teaching.recording.start");
+export const agentTeachingRecordingStopMutation = ContingencyRpcClient.mutation(
+  "agent.teaching.recording.stop"
+);
 /**
  * Raising an Agent Step or Run ceiling. It is a direct user action and has no
  * MCP tool: the agent whose work a ceiling bounds cannot raise its own budget.

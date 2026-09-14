@@ -233,6 +233,24 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.session.closed" as const,
           }))
         ),
+      "agent.teaching.recording.start": ({ data }) =>
+        agentUnavailable((service) =>
+          service.startTeachingRecording(data.sessionId, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.teaching.recording.started" as const,
+          }))
+        ),
+      "agent.teaching.recording.stop": ({ data }) =>
+        agentUnavailable((service) =>
+          service.stopTeachingRecording(data.sessionId, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.teaching.recording.stopped" as const,
+          }))
+        ),
       "agent.session.stream.subscribe": ({ data }) =>
         agentStream((service) => service.changes(data.sessionId)),
       "agent.browser.frame.ack": ({ data }) =>

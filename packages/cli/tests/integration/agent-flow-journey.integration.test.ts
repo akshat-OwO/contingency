@@ -113,6 +113,13 @@ it.live(
           viewport: agentViewport,
         });
         expect(teaching.viewUrl).toContain(`session=${teaching.id}`);
+        yield* user("agent.teaching.recording.start", {
+          data: {
+            operationId: OperationId.make("journey-start-recording"),
+            sessionId: teaching.id,
+          },
+          type: "agent.teaching.recording.start",
+        });
 
         // What the user told the agent to do, as the agent relayed it.
         yield* flowTool("agent_teaching_instruction_record", {
@@ -211,6 +218,13 @@ it.live(
           });
         }
 
+        yield* user("agent.teaching.recording.stop", {
+          data: {
+            operationId: OperationId.make("journey-stop-recording"),
+            sessionId: teaching.id,
+          },
+          type: "agent.teaching.recording.stop",
+        });
         yield* sessionTool("agent_session_close", {
           operationId: OperationId.make("journey-close-teaching"),
           sessionId: teaching.id,
@@ -1006,6 +1020,13 @@ const approveSanityFlow = (loginUrl: string, fixtureHost: string) =>
       url: loginUrl,
       viewport: agentViewport,
     });
+    yield* user("agent.teaching.recording.start", {
+      data: {
+        operationId: OperationId.make("fixture-start-recording"),
+        sessionId: teaching.id,
+      },
+      type: "agent.teaching.recording.start",
+    });
     const observed = yield* sessionTool("agent_browser_snapshot", {
       sessionId: teaching.id,
     });
@@ -1040,6 +1061,13 @@ const approveSanityFlow = (loginUrl: string, fixtureHost: string) =>
         type: "agent.browser.input.send",
       });
     }
+    yield* user("agent.teaching.recording.stop", {
+      data: {
+        operationId: OperationId.make("fixture-stop-recording"),
+        sessionId: teaching.id,
+      },
+      type: "agent.teaching.recording.stop",
+    });
     yield* sessionTool("agent_session_close", {
       operationId: OperationId.make("fixture-close-teaching"),
       sessionId: teaching.id,

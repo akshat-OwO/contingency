@@ -109,6 +109,11 @@ const approveJourney = (
       url: loginUrl,
       viewport,
     });
+    const localSession = yield* AgentSession;
+    yield* localSession.startTeachingRecording(
+      taught.id,
+      OperationId.make("start-teaching-recording")
+    );
     const observed = yield* session("agent_browser_snapshot", {
       sessionId: taught.id,
     });
@@ -117,7 +122,6 @@ const approveJourney = (
     findNode(observed.nodes, "button", "Sign in");
     // Teaching is user-led: the user types into the field the Page focused,
     // clicks into the next one, types again, and signs in (ADR 0038).
-    const localSession = yield* AgentSession;
     const typeAsUser = (text: string) =>
       Effect.gen(function* typeAsTheUser() {
         for (const character of text) {
@@ -151,6 +155,10 @@ const approveJourney = (
     yield* clickAsUser(280, 152);
     yield* typeAsUser("555");
     yield* clickAsUser(70, 220);
+    yield* localSession.stopTeachingRecording(
+      taught.id,
+      OperationId.make("stop-teaching-recording")
+    );
     yield* session("agent_session_close", {
       operationId: OperationId.make("close-teaching"),
       sessionId: taught.id,

@@ -144,6 +144,10 @@ it.live(
         });
         const password = findNode(observed.nodes, "textbox", "Password");
         findNode(observed.nodes, "button", "Sign in");
+        yield* localSession.startTeachingRecording(
+          taught.id,
+          OperationId.make("start-teaching-recording")
+        );
         yield* flow("agent_teaching_instruction_record", {
           operationId: OperationId.make("instruct-login"),
           sessionId: taught.id,
@@ -164,6 +168,10 @@ it.live(
         yield* clickSignInAsUser(localSession, taught.id);
         expect(entered.snapshot.snapshotId).toBeDefined();
 
+        yield* localSession.stopTeachingRecording(
+          taught.id,
+          OperationId.make("stop-teaching-recording")
+        );
         yield* session("agent_session_close", {
           operationId: OperationId.make("close-teaching"),
           sessionId: taught.id,

@@ -5,12 +5,13 @@ import {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, FileSystem, Layer, Stream } from "effect";
 import { RpcTest } from "effect/unstable/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -33,6 +34,21 @@ const BrowserServices = makeAgentSessionLayer({
 const AgentSessionIntegrationLive = RpcHandlersLive.pipe(
   Layer.provide(BrowserServices)
 );
+
+const teachingIntegrationLive = (root: string) =>
+  RpcHandlersLive.pipe(
+    Layer.provide(
+      makeAgentSessionLayer({
+        allowedActivity: "teaching",
+        baseUrl: "http://127.0.0.1:7777",
+        traceDirectory: () => root,
+      }).pipe(
+        Layer.provide(makeTeachingRecordingStoreLayer({ root: () => root })),
+        Layer.provideMerge(CreateBrowserLive),
+        Layer.provideMerge(NodeServices.layer)
+      )
+    )
+  );
 
 it.live(
   "starts multiple sessions, streams each browser, and releases owned browsers",
@@ -141,4 +157,99 @@ it.live(
         secondSession.id,
       ]);
     }).pipe(Effect.scoped, Effect.provide(AgentSessionIntegrationLive))
+);
+
+it.live("records only between Teaching Start and Stop RPCs", () =>
+  Effect.gen(function* teachingCaptureBoundary() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-teaching-boundary-",
+    });
+    yield* Effect.gen(function* driveTeachingBoundary() {
+      const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+        flatten: true,
+      });
+      const opened = yield* client("agent.session.start", {
+        data: {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          name: "capture-boundary",
+          operationId: OperationId.make("open-teaching-boundary"),
+          url: "about:blank",
+          viewport,
+        },
+        type: "agent.session.start",
+      });
+      const setup = opened.data.session;
+      expect(setup.captureState?._tag).toBe("setup");
+      const recordingDirectory = `${root}/.recordings/${setup.recordingId}`;
+      expect(yield* fileSystem.readDirectory(recordingDirectory)).toEqual([
+        "manifest.json",
+      ]);
+
+      const started = yield* client("agent.teaching.recording.start", {
+        data: {
+          operationId: OperationId.make("start-teaching-boundary"),
+          sessionId: setup.id,
+        },
+        type: "agent.teaching.recording.start",
+      });
+      expect(started.data.session.captureState?._tag).toBe("recording");
+      yield* client("agent.browser.navigate", {
+        data: {
+          action: {
+            type: "navigate",
+            url: "data:text/html,<title>recorded</title><main>recorded</main>",
+          },
+          sessionId: setup.id,
+        },
+        type: "agent.browser.navigate",
+      });
+      const stopped = yield* client("agent.teaching.recording.stop", {
+        data: {
+          operationId: OperationId.make("stop-teaching-boundary"),
+          sessionId: setup.id,
+        },
+        type: "agent.teaching.recording.stop",
+      });
+      expect(stopped.data.session.captureState?._tag).toBe("ready");
+      expect(stopped.data.session.phase).toBe("running");
+      const events = yield* fileSystem.readFileString(
+        `${recordingDirectory}/events.jsonl`
+      );
+      expect(events).toContain('"_tag":"started"');
+      expect(events).toContain('"_tag":"action"');
+      expect(events.trimEnd().split("\n").at(-1)).toContain('"_tag":"stopped"');
+      expect(
+        yield* fileSystem.exists(`${recordingDirectory}/recording.webm`)
+      ).toBe(true);
+      expect(yield* fileSystem.exists(`${recordingDirectory}/trace.zip`)).toBe(
+        true
+      );
+
+      const second = yield* client("agent.teaching.recording.start", {
+        data: {
+          operationId: OperationId.make("start-second-teaching-boundary"),
+          sessionId: setup.id,
+        },
+        type: "agent.teaching.recording.start",
+      });
+      expect(second.data.session.recordingId).not.toBe(setup.recordingId);
+      yield* client("agent.teaching.recording.stop", {
+        data: {
+          operationId: OperationId.make("stop-second-teaching-boundary"),
+          sessionId: setup.id,
+        },
+        type: "agent.teaching.recording.stop",
+      });
+      yield* client("agent.session.close", {
+        data: {
+          operationId: OperationId.make("close-teaching-boundary"),
+          sessionId: setup.id,
+        },
+        type: "agent.session.close",
+      });
+    }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

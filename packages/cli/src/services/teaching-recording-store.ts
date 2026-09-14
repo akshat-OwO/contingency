@@ -67,6 +67,8 @@ export interface TeachingRecordingMutation {
 
 export interface TeachingRecordingStop extends TeachingRecordingMutation {
   readonly artifacts: readonly TeachingRecordingArtifact[];
+  /** Capture ended, but the retained artifacts may still be recovered. */
+  readonly failure?: string | undefined;
 }
 
 export interface TeachingRecordingSkillDraft extends TeachingRecordingMutation {
@@ -450,15 +452,23 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
           }
           const readyAt = now().toISOString();
+          const lifecycle =
+            input.failure === undefined
+              ? {
+                  _tag: "ready" as const,
+                  readyAt,
+                  startedAt,
+                  stoppedAt,
+                }
+              : {
+                  _tag: "failed" as const,
+                  error: input.failure,
+                  failedAt: readyAt,
+                };
           const ready = yield* validateArtifactPaths({
             ...current,
             artifacts: input.artifacts,
-            lifecycle: {
-              _tag: "ready",
-              readyAt,
-              startedAt,
-              stoppedAt,
-            },
+            lifecycle,
           });
           return yield* persist(
             withReceipt(ready, "stop", input.operationId, readyAt)
