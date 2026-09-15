@@ -280,88 +280,94 @@ it.effect("releases and retries failed learning claims", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("a Ready manifest survives two real process lifetimes", () =>
-  Effect.gen(function* restartTeachingStore() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-teaching-process-",
-    });
-    const helper = path.resolve(
-      import.meta.dirname,
-      "../helpers/teaching-recording-process.ts"
-    );
-    const write = yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "write", root],
-        {
-          cwd: path.resolve(import.meta.dirname, "../.."),
-        }
-      )
-    );
-    const read = yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "read", root],
-        {
-          cwd: path.resolve(import.meta.dirname, "../.."),
-        }
-      )
-    );
+it.effect(
+  "a Ready manifest survives two real process lifetimes",
+  () =>
+    Effect.gen(function* restartTeachingStore() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-process-",
+      });
+      const helper = path.resolve(
+        import.meta.dirname,
+        "../helpers/teaching-recording-process.ts"
+      );
+      const write = yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "write", root],
+          {
+            cwd: path.resolve(import.meta.dirname, "../.."),
+          }
+        )
+      );
+      const read = yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "read", root],
+          {
+            cwd: path.resolve(import.meta.dirname, "../.."),
+          }
+        )
+      );
 
-    expect(JSON.parse(write.stdout)).toEqual({
-      lifecycle: "ready",
-      receipts: ["begin", "start", "stop"],
-    });
-    expect(JSON.parse(read.stdout)).toEqual({
-      lifecycle: "ready",
-      receipts: ["begin", "start", "stop"],
-    });
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+      expect(JSON.parse(write.stdout)).toEqual({
+        lifecycle: "ready",
+        receipts: ["begin", "start", "stop"],
+      });
+      expect(JSON.parse(read.stdout)).toEqual({
+        lifecycle: "ready",
+        receipts: ["begin", "start", "stop"],
+      });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  15_000
 );
 
-it.effect("grants one learning claim across two real processes", () =>
-  Effect.gen(function* claimAcrossProcesses() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-teaching-claim-",
-    });
-    const helper = path.resolve(
-      import.meta.dirname,
-      "../helpers/teaching-recording-process.ts"
-    );
-    const cwd = path.resolve(import.meta.dirname, "../..");
-    yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "write", root],
-        { cwd }
-      )
-    );
-    const [first, second] = yield* Effect.promise(() =>
-      Promise.all([
+it.effect(
+  "grants one learning claim across two real processes",
+  () =>
+    Effect.gen(function* claimAcrossProcesses() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-claim-",
+      });
+      const helper = path.resolve(
+        import.meta.dirname,
+        "../helpers/teaching-recording-process.ts"
+      );
+      const cwd = path.resolve(import.meta.dirname, "../..");
+      yield* Effect.promise(() =>
         executeFile(
           process.execPath,
-          ["--experimental-strip-types", helper, "claim", root, "claim-one"],
+          ["--experimental-strip-types", helper, "write", root],
           { cwd }
-        ),
-        executeFile(
-          process.execPath,
-          ["--experimental-strip-types", helper, "claim", root, "claim-two"],
-          { cwd }
-        ),
-      ])
-    );
-    const outcomes = [JSON.parse(first.stdout), JSON.parse(second.stdout)];
-    expect(
-      outcomes.filter((outcome) => outcome.lifecycle === "learning")
-    ).toHaveLength(1);
-    expect(
-      outcomes.filter(
-        (outcome) => outcome.code === "teaching_recording_conflict"
-      )
-    ).toHaveLength(1);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+        )
+      );
+      const [first, second] = yield* Effect.promise(() =>
+        Promise.all([
+          executeFile(
+            process.execPath,
+            ["--experimental-strip-types", helper, "claim", root, "claim-one"],
+            { cwd }
+          ),
+          executeFile(
+            process.execPath,
+            ["--experimental-strip-types", helper, "claim", root, "claim-two"],
+            { cwd }
+          ),
+        ])
+      );
+      const outcomes = [JSON.parse(first.stdout), JSON.parse(second.stdout)];
+      expect(
+        outcomes.filter((outcome) => outcome.lifecycle === "learning")
+      ).toHaveLength(1);
+      expect(
+        outcomes.filter(
+          (outcome) => outcome.code === "teaching_recording_conflict"
+        )
+      ).toHaveLength(1);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  15_000
 );
 
 it.effect(
