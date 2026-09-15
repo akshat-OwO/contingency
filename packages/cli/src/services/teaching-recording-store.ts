@@ -21,6 +21,7 @@ import {
   FileSystem,
   Layer,
   Option,
+  Result,
   Schema,
   Semaphore,
 } from "effect";
@@ -28,6 +29,7 @@ import type { PlatformError } from "effect/PlatformError";
 
 export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
 const MANIFEST_FILE = "manifest.json";
+const LOCK_FILE = ".manifest.lock";
 
 interface TeachingRecordingStoreDomainError {
   readonly _tag: "TeachingRecordingStoreError";
@@ -72,7 +74,17 @@ export interface TeachingRecordingStop extends TeachingRecordingMutation {
 }
 
 export interface TeachingRecordingSkillDraft extends TeachingRecordingMutation {
+  readonly claimOperationId: OperationId;
+  readonly files: readonly string[];
   readonly skillPath: string;
+}
+
+export interface TeachingRecordingClaimMutation extends TeachingRecordingMutation {
+  readonly claimOperationId: OperationId;
+}
+
+export interface TeachingRecordingLearningFailure extends TeachingRecordingClaimMutation {
+  readonly error: string;
 }
 
 export interface TeachingRecordingRename extends TeachingRecordingMutation {
@@ -101,6 +113,16 @@ export interface TeachingRecordingStoreService {
   >;
   readonly read: (
     recordingId: TeachingRecordingId
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly readClaimed: (
+    recordingId: TeachingRecordingId,
+    claimOperationId: OperationId
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly failLearning: (
+    input: TeachingRecordingLearningFailure
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly releaseLearning: (
+    input: TeachingRecordingClaimMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   /** Rename the Flow Skill a bundle is for, before anything is captured. */
   readonly rename: (
@@ -165,12 +187,41 @@ const withReceipt = (
   manifest: TeachingRecordingManifest,
   operation: TeachingRecordingOperation,
   operationId: OperationId,
-  completedAt: string
-): TeachingRecordingManifest => ({
-  ...manifest,
-  receipts: [...manifest.receipts, { completedAt, operation, operationId }],
-  updatedAt: completedAt,
-});
+  completedAt: string,
+  files?: readonly string[]
+): TeachingRecordingManifest => {
+  const receipt = { completedAt, operation, operationId };
+  return {
+    ...manifest,
+    receipts: [
+      ...manifest.receipts,
+      files === undefined ? receipt : { ...receipt, files },
+    ],
+    updatedAt: completedAt,
+  };
+};
+
+const ProcessError = Schema.Struct({ code: Schema.optional(Schema.String) });
+
+/** EPERM means the process exists; only ESRCH proves the claim is abandoned. */
+const processIsStale = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return Schema.decodeUnknownOption(ProcessError)(error).pipe(
+      Option.exists(({ code }) => code === "ESRCH")
+    );
+  }
+};
+
+const ownsClaim = (
+  manifest: PendingTeachingRecordingManifest,
+  claimOperationId: OperationId
+): boolean =>
+  manifest.lifecycle._tag === "learning" &&
+  manifest.lifecycle.claim.ownerPid === process.pid &&
+  manifest.lifecycle.claim.operationId === claimOperationId;
 
 const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
   function* makeStore(options: TeachingRecordingStoreOptions) {
@@ -192,6 +243,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       root = rootFor(recordingId)
     ): string =>
       path.join(recordingDirectory(recordingId, root), MANIFEST_FILE);
+    const manifestLockFile = (
+      recordingId: TeachingRecordingId,
+      root = rootFor(recordingId)
+    ): string => path.join(recordingDirectory(recordingId, root), LOCK_FILE);
     const lockFor = (recordingId: TeachingRecordingId): Semaphore.Semaphore => {
       const existing = locks.get(recordingId);
       if (existing !== undefined) {
@@ -223,6 +278,73 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             )
           );
     };
+
+    const recordingLockConflict = (recordingId: TeachingRecordingId) =>
+      storeError(
+        "teaching_recording_conflict",
+        `Teaching Recording ${recordingId} is being changed by another process.`
+      );
+
+    /** Serialize manifest compare-and-swap mutations across MCP processes. */
+    const withDiskLock = <A, E>(
+      recordingId: TeachingRecordingId,
+      operation: Effect.Effect<A, E>
+    ): Effect.Effect<A, E | TeachingRecordingStoreError> => {
+      const directory = recordingDirectory(recordingId);
+      const lockPath = manifestLockFile(recordingId);
+      const conflict = recordingLockConflict(recordingId);
+      const create = fileSystem
+        .writeFileString(lockPath, `${process.pid}\n`, {
+          flag: "wx",
+          mode: 0o600,
+        })
+        .pipe(Effect.mapError(() => conflict));
+      return Effect.gen(function* lockManifest() {
+        yield* fileSystem
+          .makeDirectory(directory, { recursive: true })
+          .pipe(
+            Effect.mapError(
+              ioError(`Could not prepare Teaching Recording ${recordingId}`)
+            )
+          );
+        const firstAttempt = yield* Effect.result(create);
+        if (Result.isSuccess(firstAttempt)) {
+          return yield* operation.pipe(
+            Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+          );
+        }
+        const observed = yield* fileSystem
+          .readFileString(lockPath)
+          .pipe(Effect.mapError(() => conflict));
+        const ownerPid = /^(?<pid>[1-9][0-9]*)\n$/u.exec(observed)?.groups?.pid;
+        const parsedPid = ownerPid === undefined ? 0 : Number(ownerPid);
+        if (!Number.isSafeInteger(parsedPid) || !processIsStale(parsedPid)) {
+          return yield* Effect.fail(conflict);
+        }
+        const confirmed = yield* fileSystem
+          .readFileString(lockPath)
+          .pipe(Effect.mapError(() => conflict));
+        if (confirmed !== observed) {
+          return yield* Effect.fail(conflict);
+        }
+        yield* fileSystem
+          .remove(lockPath)
+          .pipe(Effect.mapError(() => conflict));
+        const retry = yield* Effect.result(create);
+        if (Result.isFailure(retry)) {
+          return yield* Effect.fail(conflict);
+        }
+        return yield* operation.pipe(
+          Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+        );
+      });
+    };
+
+    const withRecordingLock = <A, E>(
+      recordingId: TeachingRecordingId,
+      operation: Effect.Effect<A, E>
+    ): Effect.Effect<A, E | TeachingRecordingStoreError> =>
+      lockFor(recordingId).withPermit(withDiskLock(recordingId, operation));
 
     const readAt = (recordingId: TeachingRecordingId, root: string) =>
       Effect.gen(function* readManifest() {
@@ -277,9 +399,6 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         return yield* validateArtifactPaths(manifest);
       });
 
-    const read = (recordingId: TeachingRecordingId) =>
-      readAt(recordingId, rootFor(recordingId));
-
     const persist = <Manifest extends TeachingRecordingManifest>(
       manifest: Manifest
     ): Effect.Effect<Manifest, TeachingRecordingStoreError> =>
@@ -316,6 +435,48 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         return manifest;
       });
 
+    const readAndRecoverAt = (recordingId: TeachingRecordingId, root: string) =>
+      Effect.gen(function* readAndRecoverClaim() {
+        const current = yield* readAt(recordingId, root);
+        if (
+          current.lifecycle._tag !== "learning" ||
+          !processIsStale(current.lifecycle.claim.ownerPid)
+        ) {
+          return current;
+        }
+        return yield* withRecordingLock(
+          recordingId,
+          Effect.gen(function* recoverAbandonedClaim() {
+            const confirmed = yield* readAt(recordingId, root);
+            if (
+              confirmed.lifecycle._tag !== "learning" ||
+              !processIsStale(confirmed.lifecycle.claim.ownerPid)
+            ) {
+              return confirmed;
+            }
+            if (!isPendingManifest(confirmed)) {
+              return yield* Effect.die(
+                "A cleaned Teaching Recording carried a learning claim."
+              );
+            }
+            const at = now().toISOString();
+            return yield* persist({
+              ...confirmed,
+              lifecycle: {
+                _tag: "ready",
+                readyAt: confirmed.lifecycle.readyAt,
+                startedAt: confirmed.lifecycle.startedAt,
+                stoppedAt: confirmed.lifecycle.stoppedAt,
+              },
+              updatedAt: at,
+            });
+          })
+        );
+      });
+
+    const read = (recordingId: TeachingRecordingId) =>
+      readAndRecoverAt(recordingId, rootFor(recordingId));
+
     const mutate = (
       recordingId: TeachingRecordingId,
       operation: TeachingRecordingOperation,
@@ -323,11 +484,16 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       transition: (
         manifest: PendingTeachingRecordingManifest,
         at: string
-      ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>
+      ) => Effect.Effect<
+        TeachingRecordingManifest,
+        TeachingRecordingStoreError
+      >,
+      receiptFiles?: readonly string[]
     ) =>
-      lockFor(recordingId).withPermit(
+      withRecordingLock(
+        recordingId,
         Effect.gen(function* mutateManifest() {
-          const current = yield* read(recordingId);
+          const current = yield* readAt(recordingId, rootFor(recordingId));
           if (hasReceipt(current, operation, operationId)) {
             return current;
           }
@@ -342,13 +508,14 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           const at = now().toISOString();
           const transitioned = yield* transition(current, at);
           return yield* persist(
-            withReceipt(transitioned, operation, operationId, at)
+            withReceipt(transitioned, operation, operationId, at, receiptFiles)
           );
         })
       );
 
     const begin = (input: TeachingRecordingBegin) =>
-      lockFor(input.recordingId).withPermit(
+      withRecordingLock(
+        input.recordingId,
         Effect.gen(function* beginRecording() {
           const root = options.root();
           recordingRoots.set(input.recordingId, root);
@@ -362,7 +529,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               )
             );
           if (exists) {
-            const existing = yield* read(input.recordingId);
+            const existing = yield* readAt(input.recordingId, root);
             if (
               existing.flowSkillName === input.flowSkillName &&
               hasReceipt(existing, "begin", input.operationId)
@@ -400,9 +567,13 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
 
     const start = (input: TeachingRecordingMutation) =>
-      lockFor(input.recordingId).withPermit(
+      withRecordingLock(
+        input.recordingId,
         Effect.gen(function* startRecording() {
-          const current = yield* read(input.recordingId);
+          const current = yield* readAt(
+            input.recordingId,
+            rootFor(input.recordingId)
+          );
           if (hasReceipt(current, "start", input.operationId)) {
             return current;
           }
@@ -438,9 +609,13 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
 
     const stop = (input: TeachingRecordingStop) =>
-      lockFor(input.recordingId).withPermit(
+      withRecordingLock(
+        input.recordingId,
         Effect.gen(function* stopRecording() {
-          const current = yield* read(input.recordingId);
+          const current = yield* readAt(
+            input.recordingId,
+            rootFor(input.recordingId)
+          );
           if (hasReceipt(current, "stop", input.operationId)) {
             return current;
           }
@@ -497,18 +672,145 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         input.recordingId,
         "start-learning",
         input.operationId,
-        (manifest) =>
-          manifest.lifecycle._tag === "ready"
-            ? Effect.succeed({
-                ...manifest,
-                lifecycle: { ...manifest.lifecycle, _tag: "learning" },
-              })
-            : Effect.fail(
-                storeError(
-                  "teaching_recording_conflict",
-                  `Teaching Recording ${input.recordingId} cannot start learning from ${manifest.lifecycle._tag}.`
-                )
+        (manifest, at) => {
+          const lifecycle =
+            manifest.lifecycle._tag === "learning" &&
+            processIsStale(manifest.lifecycle.claim.ownerPid)
+              ? {
+                  _tag: "ready" as const,
+                  readyAt: manifest.lifecycle.readyAt,
+                  startedAt: manifest.lifecycle.startedAt,
+                  stoppedAt: manifest.lifecycle.stoppedAt,
+                }
+              : manifest.lifecycle;
+          if (lifecycle._tag === "ready") {
+            return Effect.succeed({
+              ...manifest,
+              lifecycle: {
+                ...lifecycle,
+                _tag: "learning" as const,
+                claim: {
+                  claimedAt: at,
+                  operationId: input.operationId,
+                  ownerPid: process.pid,
+                },
+              },
+            });
+          }
+          if (
+            lifecycle._tag !== "failed" ||
+            lifecycle.readyAt === undefined ||
+            lifecycle.startedAt === undefined ||
+            lifecycle.stoppedAt === undefined
+          ) {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot start learning from ${lifecycle._tag}.`
               )
+            );
+          }
+          return Effect.succeed({
+            ...manifest,
+            lifecycle: {
+              _tag: "learning" as const,
+              claim: {
+                claimedAt: at,
+                operationId: input.operationId,
+                ownerPid: process.pid,
+              },
+              readyAt: lifecycle.readyAt,
+              startedAt: lifecycle.startedAt,
+              stoppedAt: lifecycle.stoppedAt,
+            },
+          });
+        }
+      );
+
+    const readClaimed = (
+      recordingId: TeachingRecordingId,
+      claimOperationId: OperationId
+    ) =>
+      Effect.gen(function* readOwnedLearningClaim() {
+        const manifest = yield* read(recordingId);
+        if (
+          !isPendingManifest(manifest) ||
+          !ownsClaim(manifest, claimOperationId)
+        ) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_conflict",
+              `This process does not own the learning claim for Teaching Recording ${recordingId}.`
+            )
+          );
+        }
+        return manifest;
+      });
+
+    const releaseLearning = (input: TeachingRecordingClaimMutation) =>
+      mutate(
+        input.recordingId,
+        "release-learning",
+        input.operationId,
+        (manifest) => {
+          if (!ownsClaim(manifest, input.claimOperationId)) {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `This process does not own the learning claim for Teaching Recording ${input.recordingId}.`
+              )
+            );
+          }
+          const { lifecycle } = manifest;
+          if (lifecycle._tag !== "learning") {
+            return Effect.die(
+              "The checked learning claim changed unexpectedly."
+            );
+          }
+          return Effect.succeed({
+            ...manifest,
+            lifecycle: {
+              _tag: "ready" as const,
+              readyAt: lifecycle.readyAt,
+              startedAt: lifecycle.startedAt,
+              stoppedAt: lifecycle.stoppedAt,
+            },
+          });
+        }
+      );
+
+    const failLearning = (input: TeachingRecordingLearningFailure) =>
+      mutate(
+        input.recordingId,
+        "fail-learning",
+        input.operationId,
+        (manifest, at) => {
+          if (!ownsClaim(manifest, input.claimOperationId)) {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `This process does not own the learning claim for Teaching Recording ${input.recordingId}.`
+              )
+            );
+          }
+          const { lifecycle } = manifest;
+          if (lifecycle._tag !== "learning") {
+            return Effect.die(
+              "The checked learning claim changed unexpectedly."
+            );
+          }
+          return Effect.succeed({
+            ...manifest,
+            lifecycle: {
+              _tag: "failed" as const,
+              error: input.error,
+              failedAt: at,
+              readyAt: lifecycle.readyAt,
+              startedAt: lifecycle.startedAt,
+              stoppedAt: lifecycle.stoppedAt,
+            },
+          });
+        }
       );
 
     const saveSkill = (input: TeachingRecordingSkillDraft) =>
@@ -516,23 +818,34 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         input.recordingId,
         "save-skill",
         input.operationId,
-        (manifest, at) =>
-          manifest.lifecycle._tag === "learning"
-            ? Effect.succeed({
-                ...manifest,
-                lifecycle: {
-                  ...manifest.lifecycle,
-                  _tag: "skill-drafted",
-                  draftedAt: at,
-                  skillPath: input.skillPath,
-                },
-              })
-            : Effect.fail(
-                storeError(
-                  "teaching_recording_conflict",
-                  `Teaching Recording ${input.recordingId} cannot save a Flow Skill from ${manifest.lifecycle._tag}.`
-                )
+        (manifest, at) => {
+          if (!ownsClaim(manifest, input.claimOperationId)) {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `This process does not own the learning claim for Teaching Recording ${input.recordingId}.`
               )
+            );
+          }
+          const { lifecycle } = manifest;
+          if (lifecycle._tag !== "learning") {
+            return Effect.die(
+              "The checked learning claim changed unexpectedly."
+            );
+          }
+          return Effect.succeed({
+            ...manifest,
+            lifecycle: {
+              _tag: "skill-drafted" as const,
+              draftedAt: at,
+              readyAt: lifecycle.readyAt,
+              skillPath: input.skillPath,
+              startedAt: lifecycle.startedAt,
+              stoppedAt: lifecycle.stoppedAt,
+            },
+          });
+        },
+        input.files
       );
 
     const startDryRun = (input: TeachingRecordingMutation) =>
@@ -705,21 +1018,34 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           return Option.isSome(decoded) ? [decoded.value] : [];
         });
         const manifests = yield* Effect.all(
-          recordingIds.map((recordingId) => readAt(recordingId, root))
+          recordingIds.map((recordingId) =>
+            readAndRecoverAt(recordingId, root)
+          ),
+          { concurrency: 1 }
         );
         return manifests.filter(
-          (manifest) => manifest.lifecycle._tag === "ready"
+          (manifest) =>
+            manifest.lifecycle._tag === "ready" ||
+            (manifest.lifecycle._tag === "failed" &&
+              manifest.lifecycle.readyAt !== undefined)
         );
       });
+
+    // Startup recovery is best-effort. A later list, wait, read, or claim
+    // retries the same durable check and returns any typed filesystem failure.
+    yield* listReady().pipe(Effect.ignore);
 
     return TeachingRecordingStore.of({
       begin,
       cleanup,
       directory: recordingDirectory,
       discard,
+      failLearning,
       listReady,
       passDryRun,
       read,
+      readClaimed,
+      releaseLearning,
       rename,
       saveSkill,
       start,

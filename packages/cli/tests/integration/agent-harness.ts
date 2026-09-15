@@ -31,6 +31,10 @@ import {
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
 import {
+  TeachingRecordingToolHandlersLive,
+  TeachingRecordingTools,
+} from "../../src/services/mcp-teaching-recording.ts";
+import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
 } from "../../src/services/teaching-recording-store.ts";
@@ -115,6 +119,7 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
 export const sessionTool = makeCall(AgentSessionTools);
 export const flowTool = makeCall(AgentFlowTools);
 export const runTool = makeCall(AgentRunTools);
+export const teachingRecordingTool = makeCall(TeachingRecordingTools);
 
 /** One node of a Browser Snapshot, or a failure naming what was actually there. */
 export const findNode = (
@@ -287,11 +292,15 @@ export const agentProcessLayer = (
       path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
   };
   const catalogOptions = { root: initialCatalogRoot };
+  const recordingStore = makeTeachingRecordingStoreLayer({
+    root: () => selectedCatalogRoot,
+  });
   return Layer.mergeAll(
     RpcHandlersLive,
     AgentSessionToolHandlersLive,
     AgentFlowToolHandlersLive,
-    AgentRunToolHandlersLive
+    AgentRunToolHandlersLive,
+    TeachingRecordingToolHandlersLive
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -302,13 +311,7 @@ export const agentProcessLayer = (
                 ...sessionOptions,
                 resourceDirectory: options.resourceDirectory,
               }
-        ).pipe(
-          Layer.provide(
-            makeTeachingRecordingStoreLayer({
-              root: () => selectedCatalogRoot,
-            })
-          )
-        ),
+        ).pipe(Layer.provide(recordingStore)),
         makeAgentFlowCatalogLayer(
           options.followCatalogSelection === true
             ? {
@@ -319,7 +322,8 @@ export const agentProcessLayer = (
               }
             : catalogOptions
         ),
-        makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
+        makeAgentRunStoreLayer({ root: () => selectedCatalogRoot }),
+        recordingStore
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)

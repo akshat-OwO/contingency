@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { NodeServices } from "@effect/platform-node";
 import {
   Config,
   Console,
@@ -32,6 +33,7 @@ import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { makeMcpHttpLayer } from "../services/mcp-http.ts";
+import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -41,7 +43,8 @@ import { resolveAllowedOrigins } from "../services/web-url.ts";
 const mcpTools = Layer.mergeAll(
   McpAgentSessionLayer,
   McpAgentFlowLayer,
-  McpAgentRunLayer
+  McpAgentRunLayer,
+  McpTeachingRecordingLayer
 );
 
 const ListenError = Schema.Struct({ code: Schema.String });
@@ -133,7 +136,8 @@ export const mcpCommand = Command.make(
           agentSession,
           catalog,
           runStore,
-          teachingRecordingStore
+          teachingRecordingStore,
+          NodeServices.layer
         );
         yield* Effect.addFinalizer(() =>
           fileSystem

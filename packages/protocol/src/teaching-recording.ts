@@ -32,6 +32,11 @@ const Ready = Schema.TaggedStruct("ready", {
   stoppedAt: nonEmptyString,
 });
 const Learning = Schema.TaggedStruct("learning", {
+  claim: Schema.Struct({
+    claimedAt: nonEmptyString,
+    operationId: OperationId,
+    ownerPid: Schema.Int.check(Schema.isGreaterThan(0)),
+  }),
   readyAt: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
@@ -73,6 +78,9 @@ const Verified = Schema.TaggedStruct("verified", {
 const Failed = Schema.TaggedStruct("failed", {
   error: nonEmptyString,
   failedAt: nonEmptyString,
+  readyAt: Schema.optional(nonEmptyString),
+  startedAt: Schema.optional(nonEmptyString),
+  stoppedAt: Schema.optional(nonEmptyString),
 });
 
 export const TeachingCaptureState = Schema.Union([
@@ -110,6 +118,8 @@ export const TeachingRecordingOperation = Schema.Literals([
   "start",
   "stop",
   "start-learning",
+  "release-learning",
+  "fail-learning",
   "save-skill",
   "start-dry-run",
   "pass-dry-run",
@@ -122,6 +132,7 @@ export type TeachingRecordingOperation = typeof TeachingRecordingOperation.Type;
 
 export const TeachingRecordingReceipt = Schema.Struct({
   completedAt: nonEmptyString,
+  files: Schema.optional(Schema.Array(nonEmptyString)),
   operation: TeachingRecordingOperation,
   operationId: OperationId,
 });
@@ -274,6 +285,88 @@ export const TeachingEvent = Schema.Union([
   TeachingStoppedEvent,
 ]);
 export type TeachingEvent = typeof TeachingEvent.Type;
+
+// ---------------------------------------------------------------------------
+// Learning-agent projection
+// ---------------------------------------------------------------------------
+
+/**
+ * The largest JSON timeline page returned through MCP. A page that cannot fit
+ * one event is refused; a longer recording is split across explicit cursors.
+ */
+export const TEACHING_TIMELINE_BUDGET_CHARACTERS = 64 * 1024;
+export const TEACHING_TIMELINE_MAX_EVENTS = 100;
+export const TEACHING_RECORDING_WAIT_MAX_MS = 60_000;
+
+export const TeachingRecordingSummary = Schema.Struct({
+  failure: Schema.NullOr(Schema.String),
+  flowSkillName: FlowSkillName,
+  lifecycle: Schema.Literals(["recording", "ready", "learning", "failed"]),
+  recordingId: TeachingRecordingId,
+  updatedAt: nonEmptyString,
+});
+export type TeachingRecordingSummary = typeof TeachingRecordingSummary.Type;
+
+export const TeachingRecordingList = Schema.Struct({
+  recordings: Schema.Array(TeachingRecordingSummary),
+});
+export type TeachingRecordingList = typeof TeachingRecordingList.Type;
+
+export const TeachingRecordingClaim = Schema.Struct({
+  claimedAt: nonEmptyString,
+  flowSkillName: FlowSkillName,
+  operationId: OperationId,
+  recordingId: TeachingRecordingId,
+});
+export type TeachingRecordingClaim = typeof TeachingRecordingClaim.Type;
+
+export const TeachingTimelineKeyframe = Schema.TaggedStruct("keyframe", {
+  actionId: Schema.NullOr(Schema.String),
+  at: nonEmptyString,
+  hash: EvidenceHash,
+  id: nonEmptyString,
+  seq: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+
+export const TeachingTimelineEntry = Schema.Union([
+  TeachingStartedEvent,
+  TeachingActionEvent,
+  TeachingUrlEvent,
+  TeachingInstructionEvent,
+  TeachingTimelineKeyframe,
+  TeachingStoppedEvent,
+]);
+export type TeachingTimelineEntry = typeof TeachingTimelineEntry.Type;
+
+export const TeachingTimeline = Schema.Struct({
+  entries: Schema.Array(TeachingTimelineEntry),
+  maxCharacters: Schema.Literal(TEACHING_TIMELINE_BUDGET_CHARACTERS),
+  nextCursor: Schema.NullOr(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  recordingId: TeachingRecordingId,
+});
+export type TeachingTimeline = typeof TeachingTimeline.Type;
+
+export const TeachingKeyframeContent = Schema.Struct({
+  format: Schema.Literal("png"),
+  hash: EvidenceHash,
+  id: nonEmptyString,
+  image: nonEmptyString,
+  recordingId: TeachingRecordingId,
+});
+export type TeachingKeyframeContent = typeof TeachingKeyframeContent.Type;
+
+export const FlowSkillFile = Schema.Struct({
+  content: nonEmptyString,
+  path: nonEmptyString,
+});
+export type FlowSkillFile = typeof FlowSkillFile.Type;
+
+export const FlowSkillSaveResult = Schema.Struct({
+  files: Schema.Array(nonEmptyString),
+  flowSkillName: FlowSkillName,
+  recordingId: TeachingRecordingId,
+});
+export type FlowSkillSaveResult = typeof FlowSkillSaveResult.Type;
 
 /**
  * The size ceilings one recording may reach. Reaching any of them stops the

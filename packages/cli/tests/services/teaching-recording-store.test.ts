@@ -118,11 +118,17 @@ it.effect(
           operationId: OperationId.make("learning-once"),
           recordingId,
         });
-        yield* store.saveSkill({
+        const drafted = yield* store.saveSkill({
+          claimOperationId: OperationId.make("learning-once"),
+          files: ["SKILL.md"],
           operationId: OperationId.make("save-skill-once"),
           recordingId,
           skillPath: "checkout-flow/SKILL.md",
         });
+        expect(
+          drafted.receipts.find((receipt) => receipt.operation === "save-skill")
+            ?.files
+        ).toEqual(["SKILL.md"]);
         yield* store.startDryRun({
           operationId: OperationId.make("dry-run-once"),
           recordingId,
@@ -212,44 +218,201 @@ it.effect(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("a Ready manifest survives two real process lifetimes", () =>
-  Effect.gen(function* restartTeachingStore() {
+it.effect("releases and retries failed learning claims", () =>
+  Effect.gen(function* retryLearningClaim() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-teaching-process-",
+      prefix: "contingency-teaching-learning-retry-",
     });
-    const helper = path.resolve(
-      import.meta.dirname,
-      "../helpers/teaching-recording-process.ts"
-    );
-    const write = yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "write", root],
-        {
-          cwd: path.resolve(import.meta.dirname, "../.."),
-        }
-      )
-    );
-    const read = yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "read", root],
-        {
-          cwd: path.resolve(import.meta.dirname, "../.."),
-        }
-      )
-    );
+    const retryId = TeachingRecordingId.make("recording-learning-retry");
+    yield* Effect.gen(function* exerciseRetries() {
+      const store = yield* TeachingRecordingStore;
+      yield* store.begin({
+        emulation,
+        flowSkillName: FlowSkillName.make("retry-flow"),
+        operationId: OperationId.make("retry-begin"),
+        recordingId: retryId,
+        sessionId,
+      });
+      yield* store.start({
+        operationId: OperationId.make("retry-start"),
+        recordingId: retryId,
+      });
+      yield* store.stop({
+        artifacts: [],
+        operationId: OperationId.make("retry-stop"),
+        recordingId: retryId,
+      });
+      yield* store.startLearning({
+        operationId: OperationId.make("retry-claim-one"),
+        recordingId: retryId,
+      });
+      const released = yield* store.releaseLearning({
+        claimOperationId: OperationId.make("retry-claim-one"),
+        operationId: OperationId.make("retry-release"),
+        recordingId: retryId,
+      });
+      expect(released.lifecycle._tag).toBe("ready");
 
-    expect(JSON.parse(write.stdout)).toEqual({
-      lifecycle: "ready",
-      receipts: ["begin", "start", "stop"],
-    });
-    expect(JSON.parse(read.stdout)).toEqual({
-      lifecycle: "ready",
-      receipts: ["begin", "start", "stop"],
-    });
+      yield* store.startLearning({
+        operationId: OperationId.make("retry-claim-two"),
+        recordingId: retryId,
+      });
+      const failed = yield* store.failLearning({
+        claimOperationId: OperationId.make("retry-claim-two"),
+        error: "The proposed steps were incomplete.",
+        operationId: OperationId.make("retry-fail"),
+        recordingId: retryId,
+      });
+      expect(failed.lifecycle).toMatchObject({
+        _tag: "failed",
+        error: "The proposed steps were incomplete.",
+      });
+      expect(
+        (yield* store.listReady()).map((manifest) => manifest.recordingId)
+      ).toContain(retryId);
+      const retried = yield* store.startLearning({
+        operationId: OperationId.make("retry-claim-three"),
+        recordingId: retryId,
+      });
+      expect(retried.lifecycle._tag).toBe("learning");
+    }).pipe(Effect.provide(layerFor(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "a Ready manifest survives two real process lifetimes",
+  () =>
+    Effect.gen(function* restartTeachingStore() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-process-",
+      });
+      const helper = path.resolve(
+        import.meta.dirname,
+        "../helpers/teaching-recording-process.ts"
+      );
+      const write = yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "write", root],
+          {
+            cwd: path.resolve(import.meta.dirname, "../.."),
+          }
+        )
+      );
+      const read = yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "read", root],
+          {
+            cwd: path.resolve(import.meta.dirname, "../.."),
+          }
+        )
+      );
+
+      expect(JSON.parse(write.stdout)).toEqual({
+        lifecycle: "ready",
+        receipts: ["begin", "start", "stop"],
+      });
+      expect(JSON.parse(read.stdout)).toEqual({
+        lifecycle: "ready",
+        receipts: ["begin", "start", "stop"],
+      });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  15_000
+);
+
+it.effect(
+  "grants one learning claim across two real processes",
+  () =>
+    Effect.gen(function* claimAcrossProcesses() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-claim-",
+      });
+      const helper = path.resolve(
+        import.meta.dirname,
+        "../helpers/teaching-recording-process.ts"
+      );
+      const cwd = path.resolve(import.meta.dirname, "../..");
+      yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "write", root],
+          { cwd }
+        )
+      );
+      const [first, second] = yield* Effect.promise(() =>
+        Promise.all([
+          executeFile(
+            process.execPath,
+            ["--experimental-strip-types", helper, "claim", root, "claim-one"],
+            { cwd }
+          ),
+          executeFile(
+            process.execPath,
+            ["--experimental-strip-types", helper, "claim", root, "claim-two"],
+            { cwd }
+          ),
+        ])
+      );
+      const outcomes = [JSON.parse(first.stdout), JSON.parse(second.stdout)];
+      expect(
+        outcomes.filter((outcome) => outcome.lifecycle === "learning")
+      ).toHaveLength(1);
+      expect(
+        outcomes.filter(
+          (outcome) => outcome.code === "teaching_recording_conflict"
+        )
+      ).toHaveLength(1);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  15_000
+);
+
+it.effect(
+  "reclaims a learning claim after its process exits",
+  () =>
+    Effect.gen(function* reclaimDeadLearner() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-dead-claim-",
+      });
+      const helper = path.resolve(
+        import.meta.dirname,
+        "../helpers/teaching-recording-process.ts"
+      );
+      const cwd = path.resolve(import.meta.dirname, "../..");
+      yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "write", root],
+          { cwd }
+        )
+      );
+      yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "claim", root, "dead-claim"],
+          { cwd }
+        )
+      );
+      const reclaimed = yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          [
+            "--experimental-strip-types",
+            helper,
+            "claim",
+            root,
+            "reclaimed-claim",
+          ],
+          { cwd }
+        )
+      );
+      expect(JSON.parse(reclaimed.stdout)).toEqual({ lifecycle: "learning" });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  15_000
 );
 
 it.effect(

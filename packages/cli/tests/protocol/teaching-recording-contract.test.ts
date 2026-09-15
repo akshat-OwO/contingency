@@ -1,7 +1,13 @@
 import {
   AgentSessionSnapshot,
+  FlowSkillSaveResult,
+  TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TeachingCaptureState,
+  TeachingKeyframeContent,
+  TeachingRecordingClaim,
+  TeachingRecordingList,
   TeachingRecordingManifest,
+  TeachingTimeline,
 } from "@contingency/protocol";
 import { Schema } from "effect";
 import { expect, test } from "vitest";
@@ -9,6 +15,11 @@ import { expect, test } from "vitest";
 const decodeState = Schema.decodeUnknownSync(TeachingCaptureState);
 const decodeSession = Schema.decodeUnknownSync(AgentSessionSnapshot);
 const decodeManifest = Schema.decodeUnknownSync(TeachingRecordingManifest);
+const decodeClaim = Schema.decodeUnknownSync(TeachingRecordingClaim);
+const decodeList = Schema.decodeUnknownSync(TeachingRecordingList);
+const decodeTimeline = Schema.decodeUnknownSync(TeachingTimeline);
+const decodeKeyframe = Schema.decodeUnknownSync(TeachingKeyframeContent);
+const decodeSkillSave = Schema.decodeUnknownSync(FlowSkillSaveResult);
 const at = "2026-09-13T10:00:00.000Z";
 
 const progressive = {
@@ -28,7 +39,13 @@ test("Teaching capture accepts every lifecycle state", () => {
     { _tag: "recording", startedAt: at },
     { _tag: "finalizing", startedAt: at, stoppedAt: at },
     { _tag: "ready", readyAt: at, startedAt: at, stoppedAt: at },
-    { _tag: "learning", readyAt: at, startedAt: at, stoppedAt: at },
+    {
+      _tag: "learning",
+      claim: { claimedAt: at, operationId: "claim-one", ownerPid: 123 },
+      readyAt: at,
+      startedAt: at,
+      stoppedAt: at,
+    },
     { _tag: "skill-drafted", ...progressive },
     { _tag: "dry-running", ...progressive },
     { _tag: "dry-run-passed", ...progressive },
@@ -55,6 +72,63 @@ test("Teaching capture rejects a state missing its required lifecycle data", () 
   expect(() =>
     decodeState({ _tag: "verified", ...progressive, verifiedAt: "" })
   ).toThrow();
+});
+
+test("learning-agent contracts use recording ids and bounded references", () => {
+  expect(
+    decodeList({
+      recordings: [
+        {
+          failure: null,
+          flowSkillName: "checkout-flow",
+          lifecycle: "ready",
+          recordingId: "recording-checkout",
+          updatedAt: at,
+        },
+      ],
+    }).recordings[0]?.recordingId
+  ).toBe("recording-checkout");
+  expect(
+    decodeClaim({
+      claimedAt: at,
+      flowSkillName: "checkout-flow",
+      operationId: "claim-checkout",
+      recordingId: "recording-checkout",
+    }).operationId
+  ).toBe("claim-checkout");
+
+  const timeline = decodeTimeline({
+    entries: [
+      {
+        _tag: "keyframe",
+        actionId: "action-checkout",
+        at,
+        hash: "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        id: "screenshot-checkout",
+        seq: 1,
+      },
+    ],
+    maxCharacters: TEACHING_TIMELINE_BUDGET_CHARACTERS,
+    nextCursor: null,
+    recordingId: "recording-checkout",
+  });
+  expect(timeline.entries[0]).not.toHaveProperty("path");
+  expect(
+    decodeKeyframe({
+      format: "png",
+      hash: "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      id: "screenshot-checkout",
+      image: "cG5n",
+      recordingId: "recording-checkout",
+    }).format
+  ).toBe("png");
+  expect(
+    decodeSkillSave({
+      files: ["SKILL.md", "references/accessibility.md"],
+      flowSkillName: "checkout-flow",
+      recordingId: "recording-checkout",
+    }).files
+  ).toEqual(["SKILL.md", "references/accessibility.md"]);
 });
 
 test("a completed cleanup requires a verified recording", () => {
