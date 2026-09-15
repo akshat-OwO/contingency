@@ -72,8 +72,8 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 
 ```sh
 "$CONTROL" browser goto --path /
-"$CONTROL" browser wait --role link --name Workspace
-"$CONTROL" browser click --role link --name Workspace
+"$CONTROL" browser wait --role region --name "Workspace dock"
+"$CONTROL" browser resize --width 390 --height 844
 "$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
 "$CONTROL" browser screenshot --path workspace/entry.png
 ```
@@ -89,9 +89,11 @@ Do not click the canvas through `control-contingency browser` as if it were the 
 
 Stable handles in this repo:
 
-- Primary nav: `link` named `Contingency` and `Workspace`. The Workspace link has `aria-current="page"` on `/`.
-- Workspace on `web` or `mcp` with no session: heading `No active Agent Sessions`.
-- A Teaching option in the `Agent Session` selector uses the Flow Skill name and the `TeachingCaptureState` tag. It does not use the raw session id as its label.
+- Primary nav: `link` named `Contingency` and `Workspace`, with `aria-current="page"` on `/`. The header band is not unconditional: the recorded Flow Skill Workspace — the empty Workspace and every live Teaching session — is one floating dock over a full-bleed browser, so the wordmark moves into the dock and the header steps aside. A Run Summary, an Interactive Run, and an unknown route keep the header.
+- The dock is `region` named `Workspace dock`. It carries `Contingency`, the `Agent Session` combobox, the state badge, the next-step sentence, the secondary actions, and at most one primary action.
+- Workspace on `web` or `mcp` with no session: heading `No browser session`, badge `No session` in the dock, and exactly one button named `Open browser session`, on the canvas. `contingency web` opens a Teaching session from it without MCP.
+- A Teaching option in the `Agent Session` selector is the Flow Skill name alone. The capture state lives in the badge, and a raw session id is never a label.
+- Inspect during `recording` is the button `Inspect an element and comment`. It outlines the live element, opens `Describe the change`, and `Attach` records a Teaching instruction. `Start recording`, `Stop recording`, `Open browser session`, and the inspect toggle all have distinct accessible names.
 - Workspace with a live session: heading `Workspace`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`. An Interactive Run has one control button that reads `Take control` or `Return control`; a Teaching session has neither, and reads `You are demonstrating this journey`. The canvas and toolbar are the user's from the start. Teaching private Variables enter only through the Workspace loopback `agent.teaching.variable.input`; Workspace has no private-value button or dialog.
 - Workspace with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the Teaching Feed disclosure paragraph. Absent for an Interactive Run. End Teaching with `agent_session_close` before reading its feed or saving a draft; close waits for local-video PlayByPlay analysis and the closed session is no longer available as a live Workspace. Prove the finalized feed and saved draft through MCP and catalog results.
 - Workspace draft review shows the proposed Steps, Domain Scope, Pending Decision kind, scope summary, and id as a read-only mirror. It has no draft edit fields, `Save corrections`, `Authorize Verification Run`, or `Approve Agent Flow` buttons. It directs corrections to the agent conversation.
@@ -140,7 +142,8 @@ export CONTINGENCY_VERIFY_DIR=...   # from launch stdout
 export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" browser goto --path /
 "$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/
-"$CONTROL" browser wait --role heading --name "No active Agent Sessions"
+"$CONTROL" browser wait --role heading --name "No browser session"
+"$CONTROL" browser resize --width 390 --height 844
 "$CONTROL" mcp start
 "$CONTROL" mcp call --tool agent_sessions_get
 "$CONTROL" mcp stop

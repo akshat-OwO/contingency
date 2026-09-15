@@ -251,6 +251,47 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.teaching.recording.stopped" as const,
           }))
         ),
+      "agent.teaching.recording.discard": ({ data }) =>
+        agentUnavailable((service) =>
+          service.discardTeachingRecording(data.sessionId, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.teaching.recording.discarded" as const,
+          }))
+        ),
+      /*
+        The Workspace's own instruction path. It is the same Teaching
+        instruction the agent relays over MCP, so an inspect comment joins the
+        one Demonstration rather than opening a second instruction surface.
+      */
+      "agent.teaching.instruction.record": ({ data }) =>
+        agentUnavailable((service) =>
+          service.recordInstruction(data.sessionId, data.text, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.teaching.instruction.recorded" as const,
+          }))
+        ),
+      "agent.teaching.flow.rename": ({ data }) =>
+        agentUnavailable((service) =>
+          service.renameFlowSkill(data.sessionId, data.name, data.operationId)
+        ).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.teaching.flow.renamed" as const,
+          }))
+        ),
+      "agent.browser.element.inspect": ({ data }) =>
+        agentUnavailable((service) =>
+          service.inspectPoint(data.sessionId, data.x, data.y)
+        ).pipe(
+          Effect.map((element) => ({
+            data: { element },
+            type: "agent.browser.element.inspected" as const,
+          }))
+        ),
       "agent.session.stream.subscribe": ({ data }) =>
         agentStream((service) => service.changes(data.sessionId)),
       "agent.browser.frame.ack": ({ data }) =>

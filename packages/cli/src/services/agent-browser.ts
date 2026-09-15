@@ -406,6 +406,17 @@ const disposeHandles = (
  * Nothing is written into the page, so a Snapshot never changes the website
  * under test.
  */
+/** One element the Snapshot located, with the box it occupied in the viewport. */
+export interface AgentElementBounds {
+  readonly rectangle: {
+    readonly height: number;
+    readonly width: number;
+    readonly x: number;
+    readonly y: number;
+  };
+  readonly ref: AgentElementRef;
+}
+
 export interface AgentElementRegistry {
   /** Drop every reference, releasing the handles the browser still holds. */
   readonly clear: () => Effect.Effect<void>;
@@ -433,6 +444,14 @@ export interface AgentElementRegistry {
     x: number,
     y: number
   ) => Effect.Effect<AgentElementRef, BrowserRpcErrorType>;
+  /**
+   * The same resolution with the bounds the Snapshot read, so a caller can
+   * outline the element it hit rather than guess at where it sits.
+   */
+  readonly pointElement: (
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
   /** Resolve the currently focused element to one minted reference. */
   readonly focusedRef: () => Effect.Effect<
     AgentElementRef,
@@ -754,10 +773,10 @@ export const makeAgentElementRegistry = (
       )
     );
 
-  const pointRef = (
+  const pointElement = (
     x: number,
     y: number
-  ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> => {
+  ): Effect.Effect<AgentElementBounds, BrowserRpcErrorType> => {
     const matches = [...bounds].filter(
       ([, rectangle]) =>
         x >= rectangle.x &&
@@ -776,14 +795,24 @@ export const makeAgentElementRegistry = (
             "No control in the current Browser Snapshot contains that point."
           )
         )
-      : Effect.succeed(AgentElementRef.make(closest[0]));
+      : Effect.succeed({
+          rectangle: closest[1],
+          ref: AgentElementRef.make(closest[0]),
+        });
   };
+
+  const pointRef = (
+    x: number,
+    y: number
+  ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
+    pointElement(x, y).pipe(Effect.map(({ ref }) => ref));
 
   return {
     clear,
     describe: (ref) => subjects.get(ref),
     focusedRef,
     isSensitive,
+    pointElement,
     pointRef,
     privateSelector,
     resolve,

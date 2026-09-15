@@ -4,6 +4,7 @@ import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import {
   AgentActionResult,
   AgentBrowserObserve,
+  AgentElementRef,
   AgentHistoryAction,
   AgentNavigateAction,
 } from "./agent-browser.ts";
@@ -45,6 +46,7 @@ import {
   BrowserStorageSnapshot,
   StorageKind,
 } from "./storage.ts";
+import { FlowSkillName } from "./teaching-recording.ts";
 import { Viewport } from "./viewport.ts";
 
 // The protocol package intentionally exposes one public contract surface.
@@ -306,6 +308,14 @@ export const BrandId = Schema.Literals([
   "agent.teaching.recording.started",
   "agent.teaching.recording.stop",
   "agent.teaching.recording.stopped",
+  "agent.teaching.recording.discard",
+  "agent.teaching.recording.discarded",
+  "agent.teaching.instruction.record",
+  "agent.teaching.instruction.recorded",
+  "agent.teaching.flow.rename",
+  "agent.teaching.flow.renamed",
+  "agent.browser.element.inspect",
+  "agent.browser.element.inspected",
 ]);
 export type BrandId = typeof BrandId.Type;
 
@@ -396,6 +406,85 @@ export const AgentTeachingRecordingStopRequest = request(
 export const AgentTeachingRecordingStopped = response(
   "agent.teaching.recording.stopped",
   { session: AgentSessionSnapshot }
+);
+
+/**
+ * Discarding a recording the user does not want to keep. It removes the
+ * captured artifacts and returns the session to `setup`, so the next Start
+ * records into a clean bundle in the same browser setup.
+ */
+export const AgentTeachingRecordingDiscardRequest = request(
+  "agent.teaching.recording.discard",
+  {
+    operationId: AgentSessionClose.fields.operationId,
+    sessionId: AgentSessionClose.fields.sessionId,
+  }
+);
+export const AgentTeachingRecordingDiscarded = response(
+  "agent.teaching.recording.discarded",
+  { session: AgentSessionSnapshot }
+);
+
+/**
+ * An instruction the user attached from the Workspace while recording. It is
+ * the same Teaching instruction the agent relays over MCP, so an inspect
+ * comment and a relayed instruction land in one Demonstration rather than two.
+ */
+export const AgentTeachingInstructionRecordRequest = request(
+  "agent.teaching.instruction.record",
+  {
+    operationId: AgentSessionClose.fields.operationId,
+    sessionId: AgentSessionClose.fields.sessionId,
+    text: Schema.String.check(Schema.isMinLength(1)),
+  }
+);
+export const AgentTeachingInstructionRecorded = response(
+  "agent.teaching.instruction.recorded",
+  { session: AgentSessionSnapshot }
+);
+
+/** Renaming the Flow Skill a Teaching session is about to demonstrate. */
+export const AgentTeachingFlowRenameRequest = request(
+  "agent.teaching.flow.rename",
+  {
+    name: FlowSkillName,
+    operationId: AgentSessionClose.fields.operationId,
+    sessionId: AgentSessionClose.fields.sessionId,
+  }
+);
+export const AgentTeachingFlowRenamed = response(
+  "agent.teaching.flow.renamed",
+  { session: AgentSessionSnapshot }
+);
+
+/**
+ * The element under a point of the live Page, read through the Browser
+ * Snapshot rather than the screencast bitmap the Workspace draws. Inspect
+ * needs the real element to outline and to name in an instruction.
+ */
+export const AgentBrowserElementInspectRequest = request(
+  "agent.browser.element.inspect",
+  {
+    sessionId: AgentSessionClose.fields.sessionId,
+    x: Schema.Finite,
+    y: Schema.Finite,
+  }
+);
+export const AgentInspectedElement = Schema.Struct({
+  /** The role and accessible name, as the Browser Snapshot read them. */
+  description: Schema.String,
+  height: Schema.Finite,
+  ref: AgentElementRef,
+  width: Schema.Finite,
+  /** Page viewport coordinates, in CSS pixels. */
+  x: Schema.Finite,
+  y: Schema.Finite,
+});
+export type AgentInspectedElement = typeof AgentInspectedElement.Type;
+
+export const AgentBrowserElementInspected = response(
+  "agent.browser.element.inspected",
+  { element: AgentInspectedElement }
 );
 
 export const AgentSessionStreamSubscribeRequest = request(
@@ -720,6 +809,39 @@ const AgentTeachingRecordingStopRpc = Rpc.make(
   }
 );
 
+const AgentTeachingRecordingDiscardRpc = Rpc.make(
+  "agent.teaching.recording.discard",
+  {
+    error: BrowserRpcError,
+    payload: AgentTeachingRecordingDiscardRequest,
+    success: AgentTeachingRecordingDiscarded,
+  }
+);
+
+const AgentTeachingInstructionRecordRpc = Rpc.make(
+  "agent.teaching.instruction.record",
+  {
+    error: BrowserRpcError,
+    payload: AgentTeachingInstructionRecordRequest,
+    success: AgentTeachingInstructionRecorded,
+  }
+);
+
+const AgentTeachingFlowRenameRpc = Rpc.make("agent.teaching.flow.rename", {
+  error: BrowserRpcError,
+  payload: AgentTeachingFlowRenameRequest,
+  success: AgentTeachingFlowRenamed,
+});
+
+const AgentBrowserElementInspectRpc = Rpc.make(
+  "agent.browser.element.inspect",
+  {
+    error: BrowserRpcError,
+    payload: AgentBrowserElementInspectRequest,
+    success: AgentBrowserElementInspected,
+  }
+);
+
 const AgentSessionCloseRpc = Rpc.make("agent.session.close", {
   error: BrowserRpcError,
   payload: AgentSessionCloseRequest,
@@ -873,6 +995,10 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionCloseRpc,
   AgentTeachingRecordingStartRpc,
   AgentTeachingRecordingStopRpc,
+  AgentTeachingRecordingDiscardRpc,
+  AgentTeachingInstructionRecordRpc,
+  AgentTeachingFlowRenameRpc,
+  AgentBrowserElementInspectRpc,
   AgentSessionStreamSubscribeRpc,
   AgentBrowserStreamSubscribeRpc,
   AgentBrowserFrameAckRpc,

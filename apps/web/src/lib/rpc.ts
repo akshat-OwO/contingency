@@ -92,11 +92,35 @@ export const agentTakeoverMutation = ContingencyRpcClient.mutation(
 export const agentReturnControlMutation = ContingencyRpcClient.mutation(
   "agent.session.control.return"
 );
+/**
+ * Opening a Teaching session from the Workspace's empty canvas. `contingency
+ * web` owns Teaching (ADR 0039), so the Workspace can start one without an
+ * agent; it never starts an Interactive Run.
+ */
+export const agentSessionStartMutation = ContingencyRpcClient.mutation(
+  "agent.session.start"
+);
 /** Start and Stop are user gestures, never agent-owned MCP operations. */
 export const agentTeachingRecordingStartMutation =
   ContingencyRpcClient.mutation("agent.teaching.recording.start");
 export const agentTeachingRecordingStopMutation = ContingencyRpcClient.mutation(
   "agent.teaching.recording.stop"
+);
+/** Throwing away a recording is a user gesture with no MCP counterpart. */
+export const agentTeachingRecordingDiscardMutation =
+  ContingencyRpcClient.mutation("agent.teaching.recording.discard");
+/**
+ * An inspect comment, recorded as a Teaching instruction on the live
+ * recording. It is the same instruction path the agent relays over MCP.
+ */
+export const agentTeachingInstructionRecordMutation =
+  ContingencyRpcClient.mutation("agent.teaching.instruction.record");
+export const agentTeachingFlowRenameMutation = ContingencyRpcClient.mutation(
+  "agent.teaching.flow.rename"
+);
+/** The element the live Page has under a point, for the inspect outline. */
+export const agentBrowserElementInspectMutation = ContingencyRpcClient.mutation(
+  "agent.browser.element.inspect"
 );
 /**
  * Raising an Agent Step or Run ceiling. It is a direct user action and has no

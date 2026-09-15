@@ -17,6 +17,16 @@ export interface TeachingRecordingAction {
   readonly label: string;
 }
 
+/**
+ * The secondary actions a Teaching state offers. They are not capture
+ * gestures: none of them starts or stops capture, so they stay apart from
+ * `TeachingRecordingGesture` and the privacy boundary it names.
+ */
+export type TeachingSecondaryAction =
+  | "copy-prompt"
+  | "delete-recording"
+  | "rename-flow";
+
 export interface TeachingRecordingPresentation {
   /** The one action this state offers, or `null` when it offers none. */
   readonly action: TeachingRecordingAction | null;
@@ -24,8 +34,16 @@ export interface TeachingRecordingPresentation {
   readonly badge: string;
   /** What the user can do next, in one sentence. */
   readonly nextStep: string;
+  /** The secondary actions beside the primary one, in dock order. */
+  readonly secondaries: readonly TeachingSecondaryAction[];
   /** Whether this state shows a live elapsed timer. */
   readonly showsElapsed: boolean;
+  /**
+   * Whether the user can inspect the Page and comment on it. Only a live
+   * recording can carry an instruction, so only `recording` offers it here.
+   * Correcting a drafted Flow Skill belongs to the learning work.
+   */
+  readonly showsInspect: boolean;
   readonly tone: "default" | "failed" | "recording";
 }
 
@@ -59,7 +77,9 @@ export const teachingRecordingPresentation = (
         badge: "Not recording",
         nextStep:
           "Sign in, pick emulation, and edit storage. Nothing is captured until you start recording.",
+        secondaries: ["rename-flow"],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -69,7 +89,9 @@ export const teachingRecordingPresentation = (
         badge: "Recording",
         nextStep:
           "Do the journey once. Press stop on the page that proves it worked.",
+        secondaries: [],
         showsElapsed: true,
+        showsInspect: true,
         tone: "recording",
       };
     }
@@ -79,7 +101,9 @@ export const teachingRecordingPresentation = (
         badge: "Saving",
         nextStep:
           "Writing video, trace, and actions. This takes a few seconds.",
+        secondaries: [],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -89,7 +113,9 @@ export const teachingRecordingPresentation = (
         badge: "Recording saved",
         nextStep:
           "Ask an agent to learn this recording, or start another recording in the same browser setup.",
+        secondaries: ["copy-prompt", "delete-recording"],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -99,7 +125,9 @@ export const teachingRecordingPresentation = (
         badge: "Learning",
         nextStep:
           "Keep using the browser. The flow skill appears here when it is drafted.",
+        secondaries: [],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -108,7 +136,9 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Flow skill drafted",
         nextStep: `The agent saved the flow skill to ${captureState.skillPath}.`,
+        secondaries: [],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -117,7 +147,9 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Dry run",
         nextStep: "The flow skill is running in a fresh browser.",
+        secondaries: [],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -126,7 +158,9 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Dry run passed",
         nextStep: "The recording is kept until the flow is verified.",
+        secondaries: [],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -135,7 +169,9 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Recording deleted",
         nextStep: "The flow skill and its references are all that is left.",
+        secondaries: [],
         showsElapsed: false,
+        showsInspect: false,
         tone: "default",
       };
     }
@@ -144,7 +180,9 @@ export const teachingRecordingPresentation = (
         action: START,
         badge: "Recording failed",
         nextStep: `${captureState.error} You can start another recording in this browser setup.`,
+        secondaries: ["delete-recording"],
         showsElapsed: false,
+        showsInspect: false,
         tone: "failed",
       };
     }
@@ -183,3 +221,14 @@ export const elapsedLabel = (startedAt: string, now: number): string => {
 /** The same duration, spoken rather than shown, for the timer's label. */
 export const elapsedSpokenLabel = (startedAt: string, now: number): string =>
   `Elapsed recording time ${elapsedLabel(startedAt, now)}`;
+
+/**
+ * What the user hands an agent to learn a saved recording. #187 gives the
+ * agent an MCP operation for this; until then the prompt is the honest way to
+ * ask for it, so the Workspace copies text rather than offering a dead button.
+ */
+export const teachingAgentPrompt = (
+  flowSkillName: string,
+  recordingId: string
+): string =>
+  `Learn the Contingency Teaching Recording ${recordingId} and write the Flow Skill "${flowSkillName}" from it.`;
