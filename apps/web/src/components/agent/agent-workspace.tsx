@@ -43,6 +43,8 @@ import {
   VerificationDetails,
 } from "@/components/agent/draft-review";
 import { RunDetails, RunSummaryPanel } from "@/components/agent/run-view";
+import { TeachingRecordingDock } from "@/components/agent/teaching-recording-dock";
+import type { TeachingRecordingGesture } from "@/components/agent/teaching-recording-state";
 import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
 import {
   keyboardModifiers,
@@ -668,6 +670,8 @@ const useAgentView = (
     agentReturnControlMutation,
     agentSessionsAtom,
     agentTakeoverMutation,
+    agentTeachingRecordingStartMutation,
+    agentTeachingRecordingStopMutation,
     runAgentBrowserStream,
     runAgentSessionStream,
   } = useRpcDependencies();
@@ -690,6 +694,13 @@ const useAgentView = (
   const navigateBrowser = useAtomSet(agentBrowserNavigateMutation, {
     mode: "promise",
   });
+  const startTeachingRecording = useAtomSet(
+    agentTeachingRecordingStartMutation,
+    { mode: "promise" }
+  );
+  const stopTeachingRecording = useAtomSet(agentTeachingRecordingStopMutation, {
+    mode: "promise",
+  });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const pendingFrameRef = useRef<Extract<
@@ -698,6 +709,7 @@ const useAgentView = (
   > | null>(null);
   const activeSessionRef = useRef<AgentSessionId | null>(null);
   const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
+  const recordingFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   // The address bar belongs to whoever is typing in it: a URL event never
   // overwrites what the user has not submitted yet.
   const addressEditingRef = useRef(false);
@@ -1089,9 +1101,78 @@ const useAgentView = (
       if (fiber !== null) {
         Effect.runFork(Fiber.interrupt(fiber));
       }
+      const recordingFiber = recordingFiberRef.current;
+      recordingFiberRef.current = null;
+      if (recordingFiber !== null) {
+        Effect.runFork(Fiber.interrupt(recordingFiber));
+      }
     },
     []
   );
+
+  const changeRecording = (gesture: TeachingRecordingGesture) => {
+    const current = state.session;
+    if (
+      current === undefined ||
+      current.activity !== "teaching" ||
+      state.recordingPending
+    ) {
+      return;
+    }
+    const operationId = OperationId.make(globalThis.crypto.randomUUID());
+    setState((previous) => ({
+      ...previous,
+      recordingError: undefined,
+      recordingPending: true,
+    }));
+    const mutation: Effect.Effect<void, Error> =
+      gesture === "start"
+        ? Effect.tryPromise({
+            catch: (cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            try: async () => {
+              await startTeachingRecording({
+                payload: {
+                  data: { operationId, sessionId: current.id },
+                  type: "agent.teaching.recording.start",
+                },
+              });
+            },
+          })
+        : Effect.tryPromise({
+            catch: (cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            try: async () => {
+              await stopTeachingRecording({
+                payload: {
+                  data: { operationId, sessionId: current.id },
+                  type: "agent.teaching.recording.stop",
+                },
+              });
+            },
+          });
+    recordingFiberRef.current = Effect.runFork(
+      Effect.result(mutation).pipe(
+        Effect.tap((outcome) =>
+          Effect.sync(() => {
+            setState((previous) => ({
+              ...previous,
+              recordingError: Result.isFailure(outcome)
+                ? errorMessage(outcome.failure)
+                : undefined,
+              recordingPending: false,
+            }));
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            recordingFiberRef.current = null;
+          })
+        ),
+        Effect.asVoid
+      )
+    );
+  };
 
   const currentUrl = state.session?.currentUrl;
   useEffect(() => {
@@ -1248,6 +1329,7 @@ const useAgentView = (
   return {
     canvasRef,
     changeControl,
+    changeRecording,
     clearConsole,
     input,
     navigate,
@@ -1317,6 +1399,16 @@ export const AgentWorkspace = ({
           ))}
         </select>
       </div>
+      {state.session.activity === "teaching" ? (
+        <TeachingRecordingDock
+          captureState={state.session.captureState}
+          error={state.recordingError}
+          flowSkillName={state.session.flowSkillName}
+          onGesture={view.changeRecording}
+          pending={state.recordingPending}
+          recordingId={state.session.recordingId}
+        />
+      ) : null}
       <AgentLiveView
         canvasRef={view.canvasRef}
         input={view.input}

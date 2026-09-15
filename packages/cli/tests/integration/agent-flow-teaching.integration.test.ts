@@ -169,6 +169,13 @@ it.live("teaches a public journey and saves a searchable draft", () =>
         viewport,
       });
       const localSession = yield* AgentSession;
+      const setupArtifacts = yield* localSession.teachingSource(started.id);
+      expect(setupArtifacts.traceFile).toBeUndefined();
+      expect(setupArtifacts.videoFile).toBeUndefined();
+      yield* localSession.startTeachingRecording(
+        started.id,
+        OperationId.make("start-teaching-recording")
+      );
       const { traceFile, videoFile } = yield* localSession.teachingSource(
         started.id
       );
@@ -286,6 +293,10 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       expect(unfinishedDraft.code).toBe("agent_session_invalid");
       expect(unfinishedDraft.message).toContain("End Teaching");
 
+      yield* localSession.stopTeachingRecording(
+        started.id,
+        OperationId.make("stop-teaching-recording")
+      );
       yield* session("agent_session_close", {
         operationId: OperationId.make("close-teaching"),
         sessionId: started.id,
@@ -354,15 +365,8 @@ it.live("teaches a public journey and saves a searchable draft", () =>
       });
       expect(fetched.image).toBe(visual.image);
       expect(fetched.contentHash).toBe(reference.contentHash);
-      expect(feed.urlTransitions).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            actionId: null,
-            from: "about:blank",
-            to: shopUrl,
-          }),
-        ])
-      );
+      // Opening the setup URL happened before Start and is not evidence.
+      expect(feed.urlTransitions).toEqual([]);
       const serialized = JSON.stringify(feed);
       expect(serialized).not.toContain("cookie");
       expect(serialized).not.toContain("<");
@@ -573,6 +577,11 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
         url: fixtures.url("secret-echo.html?access_token=url-secret"),
         viewport,
       });
+      const localSession = yield* AgentSession;
+      yield* localSession.startTeachingRecording(
+        started.id,
+        OperationId.make("start-sensitive-recording")
+      );
       expect(started.currentUrl).not.toContain("url-secret");
       const observed = yield* session("agent_browser_snapshot", {
         sessionId: started.id,
@@ -596,6 +605,10 @@ it.live("masks known-sensitive values from Browser Snapshots", () =>
         sessionId: started.id,
       });
       expect(screenshot.url).not.toContain("url-secret");
+      yield* localSession.stopTeachingRecording(
+        started.id,
+        OperationId.make("stop-sensitive-recording")
+      );
       yield* session("agent_session_close", {
         operationId: OperationId.make("close-sensitive-teaching"),
         sessionId: started.id,
@@ -647,17 +660,23 @@ it.live(
           viewport,
         });
         const localSession = yield* AgentSession;
-        const artifacts = yield* localSession.teachingSource(started.id);
-        expect(artifacts.artifactRetention).toEqual({
-          location: "local",
-          sensitive: true,
-        });
-        expect(artifacts.traceFile).toBeDefined();
-        expect(artifacts.videoFile).toBeDefined();
-        expect(artifacts.retentionFile).toBeDefined();
         const observed = yield* session("agent_browser_snapshot", {
           sessionId: started.id,
         });
+        yield* localSession.startTeachingRecording(
+          started.id,
+          OperationId.make("start-private-recording")
+        );
+        const recordingArtifacts = yield* localSession.teachingSource(
+          started.id
+        );
+        expect(recordingArtifacts.artifactRetention).toEqual({
+          location: "local",
+          sensitive: true,
+        });
+        expect(recordingArtifacts.traceFile).toBeDefined();
+        expect(recordingArtifacts.videoFile).toBeDefined();
+        expect(recordingArtifacts.retentionFile).toBeUndefined();
         findNode(observed.nodes, "textbox", "Display name");
         const mobile = findNode(observed.nodes, "textbox", "Mobile number");
         const password = findNode(observed.nodes, "textbox", "Password");
@@ -762,6 +781,11 @@ it.live(
         yield* clickAsUser(started.id, OPEN_HELP);
         yield* session("agent_browser_screenshot", { sessionId: started.id });
 
+        yield* localSession.stopTeachingRecording(
+          started.id,
+          OperationId.make("stop-private-recording")
+        );
+        const artifacts = yield* localSession.teachingSource(started.id);
         yield* session("agent_session_close", {
           operationId: OperationId.make("close-private-teaching"),
           sessionId: started.id,
@@ -951,7 +975,7 @@ it.live(
         expect(retention.files.videos).toContain(
           path.basename(artifacts.videoFile)
         );
-        expect(retention.files.videos).toHaveLength(2);
+        expect(retention.files.videos).toHaveLength(1);
         expect(
           (yield* fileSystem.stat(artifacts.videoFile)).size
         ).toBeGreaterThan(0n);
@@ -981,6 +1005,10 @@ it.live(
         });
 
         const localSession = yield* AgentSession;
+        yield* localSession.startTeachingRecording(
+          started.id,
+          OperationId.make("start-bounded-recording")
+        );
         const captured: string[] = [];
         for (let index = 0; index < 5; index += 1) {
           const visual = yield* session("agent_browser_screenshot", {
@@ -998,6 +1026,10 @@ it.live(
         );
         expect(embedded).toBeGreaterThan(200_000);
 
+        yield* localSession.stopTeachingRecording(
+          started.id,
+          OperationId.make("stop-bounded-recording")
+        );
         yield* session("agent_session_close", {
           operationId: OperationId.make("close-bounded-teaching"),
           sessionId: started.id,

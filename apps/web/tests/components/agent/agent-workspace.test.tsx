@@ -24,6 +24,8 @@ const rpc = vi.hoisted(() => ({
     _tag: "Initial",
     waiting: true,
   } satisfies unknown,
+  startRecordingCalls: [] satisfies unknown[],
+  stopRecordingCalls: [] satisfies unknown[],
   takeoverCalls: [] satisfies unknown[],
 }));
 
@@ -59,6 +61,18 @@ const rpcOverrides = {
   agentTakeoverMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
+      return {};
+    })
+  ),
+  agentTeachingRecordingStartMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.startRecordingCalls.push(payload);
+      return {};
+    })
+  ),
+  agentTeachingRecordingStopMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.stopRecordingCalls.push(payload);
       return {};
     })
   ),
@@ -127,6 +141,8 @@ afterEach(() => {
   rpc.inputCalls = [];
   rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
+  rpc.startRecordingCalls = [];
+  rpc.stopRecordingCalls = [];
   rpc.takeoverCalls = [];
 });
 
@@ -387,6 +403,60 @@ test("offers no control exchange during a user-led Demonstration", async () => {
   ).toBeVisible();
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
+});
+
+test("starts and stops Teaching recording from the privacy dock", async () => {
+  const user = userEvent.setup();
+  const setup = {
+    ...session,
+    activity: "teaching",
+    captureState: {
+      _tag: "setup",
+      requestedAt: "2026-08-31T00:00:00.000Z",
+    },
+    controller: "user",
+    flowSkillName: "browse-catalogue",
+    recordingId: "recording-browse-catalogue",
+    teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+  } satisfies unknown;
+  renderWorkspace(resultFor([setup]), session.id);
+  expect(await screen.findByText("Not recording")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Start recording" }));
+  await waitFor(() => {
+    expect(rpc.startRecordingCalls).toHaveLength(1);
+  });
+  expect(rpc.startRecordingCalls[0]).toMatchObject({
+    payload: {
+      data: { sessionId: session.id },
+      type: "agent.teaching.recording.start",
+    },
+  });
+
+  cleanup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...setup,
+        captureState: {
+          _tag: "recording",
+          startedAt: "2026-08-31T00:00:01.000Z",
+        },
+      } satisfies unknown,
+    ]),
+    session.id
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Stop recording" })
+  );
+  await waitFor(() => {
+    expect(rpc.stopRecordingCalls).toHaveLength(1);
+  });
+  expect(rpc.stopRecordingCalls[0]).toMatchObject({
+    payload: {
+      data: { sessionId: session.id },
+      type: "agent.teaching.recording.stop",
+    },
+  });
 });
 
 test("forwards browser input only while the user holds the browser", async () => {

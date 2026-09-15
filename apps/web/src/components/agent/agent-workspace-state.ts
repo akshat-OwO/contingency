@@ -28,6 +28,10 @@ export interface AgentViewState {
   /** A navigation is in flight, so the toolbar does not dispatch it twice. */
   readonly navigationPending: boolean;
   readonly phase: AgentViewPhase;
+  /** What went wrong when Start or Stop was last dispatched. */
+  readonly recordingError: string | undefined;
+  /** A Teaching recording gesture is in flight. */
+  readonly recordingPending: boolean;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
   /** Whether the browser setup panel is showing beside the live canvas. */
@@ -47,6 +51,8 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   navigationError: undefined,
   navigationPending: false,
   phase: "loading",
+  recordingError: undefined,
+  recordingPending: false,
   selectedSessionId: undefined,
   session: undefined,
   setupOpen: false,

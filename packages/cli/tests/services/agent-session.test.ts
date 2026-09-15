@@ -610,7 +610,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       url: "https://shop.example.com/",
     });
     expect(teaching).toMatchObject({
-      captureState: { _tag: "recording" },
+      captureState: { _tag: "setup" },
       flowSkillName: "add-first-item",
       recordingId: expect.stringMatching(/^recording-/u),
       teaching: {
@@ -620,31 +620,14 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       },
     });
 
-    const instructed = yield* service.recordInstruction(
-      teaching.id,
-      "Add the first item to the cart.",
-      OperationId.make("instruction-1")
-    );
-    expect(instructed.teaching?.instructionCount).toBe(1);
-    expect(instructed.timeline.at(-1)).toMatchObject({
-      actor: "user",
-      description: "The user gave an instruction",
-      detail: "Add the first item to the cart.",
-    });
-    const replayed = yield* service.recordInstruction(
-      teaching.id,
-      "Add the first item to the cart.",
-      OperationId.make("instruction-1")
-    );
-    expect(replayed).toEqual(instructed);
-    const conflict = yield* Effect.flip(
+    const beforeStart = yield* Effect.flip(
       service.recordInstruction(
         teaching.id,
-        "Something else.",
+        "Add the first item to the cart.",
         OperationId.make("instruction-1")
       )
     );
-    expect(conflict.code).toBe("agent_session_conflict");
+    expect(beforeStart.code).toBe("agent_session_conflict");
 
     // Teaching is user-led throughout, so there is no Takeover to enter: the
     // user holds the browser from the first action to the last.
@@ -658,8 +641,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     );
     expect(refusedTakeover.code).toBe("agent_control_unavailable");
 
-    // A URL the user reaches by driving the browser is a transition with no
-    // captured action behind it.
+    // Setup browsing remains outside the Demonstration.
     fake.visit("https://shop.example.com/cart");
     yield* service.get(teaching.id);
 
@@ -669,31 +651,14 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       teaching.id,
       OperationId.make("close-teaching-for-analysis")
     );
-    const feed = yield* service.teachingFeed(teaching.id);
-    expect(feed.playByPlay).toContain("local Teaching video");
-    expect(feed.sessionId).toBe(teaching.id);
-    expect(feed.instructions.map(({ text }) => text)).toEqual([
-      "Add the first item to the cart.",
-    ]);
-    expect(feed.actions).toEqual([]);
-    expect(feed.snapshots).toEqual([]);
-    expect(feed.observedHosts).toEqual([]);
-    expect(feed.urlTransitions).toEqual([
-      expect.objectContaining({
-        actionId: null,
-        from: "about:blank",
-        to: "https://shop.example.com/",
-      }),
-      expect.objectContaining({
-        actionId: null,
-        from: "https://shop.example.com/",
-        to: "https://shop.example.com/cart",
-      }),
-    ]);
+    const noRecording = yield* Effect.flip(service.teachingFeed(teaching.id));
+    expect(noRecording.message).toContain(
+      "PlayByPlay analysis did not complete"
+    );
 
     const source = yield* service.teachingSource(teaching.id);
     expect(source.emulation.viewport).toEqual(viewport);
-    expect(source.demonstration.instructions).toHaveLength(1);
+    expect(source.demonstration.instructions).toHaveLength(0);
 
     const withDraft = yield* service.recordDraft(teaching.id, {
       agentFlowId: AgentFlowId.make("flow-one"),
@@ -703,7 +668,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       title: "Shop cart",
     });
     expect(withDraft.teaching?.draft?.title).toBe("Shop cart");
-    expect(withDraft.teaching?.instructionCount).toBe(1);
+    expect(withDraft.teaching?.instructionCount).toBe(0);
   })
 );
 
@@ -785,7 +750,7 @@ const teachingSessionLayer = (
   );
 
 it.effect(
-  "gets a stopped Teaching recording from a later Agent Session process",
+  "keeps an unstarted Teaching recording in setup when the session closes",
   () =>
     Effect.gen(function* durableReadyAcrossProcesses() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -793,7 +758,6 @@ it.effect(
         prefix: "contingency-teaching-session-",
       });
       const fakeStart = makeFakeBrowser();
-      const fakeLater = makeFakeBrowser();
       const input = {
         ...startInput("teach-durable"),
         activity: "teaching" as const,
@@ -834,11 +798,11 @@ it.effect(
         )
       );
 
-      expect(closed.finished.captureState._tag).toBe("ready");
+      expect(closed.finished.captureState._tag).toBe("setup");
       expect(closed.listed).toEqual([]);
       expect(closed.got).toEqual(
         expect.objectContaining({
-          captureState: expect.objectContaining({ _tag: "ready" }),
+          captureState: expect.objectContaining({ _tag: "setup" }),
           id: closed.sessionId,
           recordingId: closed.recordingId,
         })
@@ -857,34 +821,7 @@ it.effect(
           )
         )
       );
-      expect(manifest.artifacts).toEqual([
-        expect.objectContaining({ kind: "trace", path: "trace.zip" }),
-      ]);
-
-      const later = yield* Effect.scoped(
-        Effect.gen(function* secondProcess() {
-          const service = yield* AgentSession;
-          const got = yield* service.get(closed.sessionId);
-          const replay = yield* service.start(input);
-          if (got.activity !== "teaching" || replay.activity !== "teaching") {
-            throw new Error("Expected durable Teaching snapshots.");
-          }
-          return {
-            got,
-            listed: yield* service.list(),
-            replay,
-          };
-        }).pipe(
-          Effect.provide(teachingSessionLayer(fakeLater, root, "owner-two"))
-        )
-      );
-
-      expect(later.listed).toEqual([]);
-      expect(later.got.captureState._tag).toBe("ready");
-      expect(later.got.recordingId).toBe(closed.recordingId);
-      expect(later.replay.captureState._tag).toBe("ready");
-      expect(later.replay.id).toBe(closed.sessionId);
-      expect(fakeLater.created).toEqual([]);
+      expect(manifest.artifacts).toEqual([]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

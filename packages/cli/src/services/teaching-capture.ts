@@ -58,7 +58,21 @@ export interface CapturedActionInput {
  * Teaching Feed from it. Nothing here touches the browser: the session feeds
  * it what the browser already answered.
  */
+/**
+ * The sizes a capture ceiling is measured against, without building the
+ * Demonstration. A live watchdog reads these on every tick, so they must stay
+ * O(1).
+ */
+export interface DemonstrationCounts {
+  readonly actions: number;
+  readonly instructions: number;
+  readonly keyframes: number;
+  readonly urlTransitions: number;
+}
+
 export interface DemonstrationCapture {
+  /** O(1) sizes for the capture ceilings. */
+  readonly counts: () => DemonstrationCounts;
   readonly current: () => Demonstration;
   /** The bounded feed, led by the PlayByPlay prose the agent compiles from. */
   readonly feed: (
@@ -271,6 +285,12 @@ export const makeDemonstrationCapture = (
             existing.secret === variable.secret))
       );
     },
+    counts: () => ({
+      actions: actions.length,
+      instructions: instructions.length,
+      keyframes: screenshots.length,
+      urlTransitions: urlTransitions.length,
+    }),
     current,
     feed: (sessionId, includeSnapshots) => {
       const demonstration = current();

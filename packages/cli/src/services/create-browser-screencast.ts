@@ -194,9 +194,13 @@ export const acknowledgeFrame = (
       );
     }
     if (acknowledgement._tag === "frame_missing") {
-      return yield* Effect.fail(
-        makeBrowserRpcError("stream_failed", "The frame is no longer pending.")
-      );
+      // Two consumers acknowledge the same frame: the Teaching recorder, which
+      // must keep the stream flowing whether or not anyone is watching, and the
+      // Workspace, which acknowledges what it painted. Whichever arrives second
+      // finds the frame already retired. That is the normal case once a
+      // recording is running, not a failure, so the loser succeeds quietly
+      // rather than tearing down a healthy stream.
+      return;
     }
     yield* tryBrowser("Could not acknowledge the canvas frame", () =>
       acknowledgement.cdp.send("Page.screencastFrameAck", {
