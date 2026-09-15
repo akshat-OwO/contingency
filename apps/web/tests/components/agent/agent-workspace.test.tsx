@@ -819,3 +819,41 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
     },
   });
 });
+
+test("leaves inspect and its pins with the recording they belong to", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Inspect an element and comment",
+    })
+  );
+  const canvas = screen.getByLabelText("Live browser viewport");
+  // SAFETY: inspect mode is open, so the overlay is the canvas's next sibling.
+  await user.click(canvas.nextElementSibling as Element);
+  await user.type(
+    await screen.findByLabelText("Describe the change"),
+    "Use the express checkout here."
+  );
+  await user.click(screen.getByRole("button", { name: "Attach" }));
+  expect(await screen.findByText("1 comment")).toBeVisible();
+
+  cleanup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingSetup,
+        captureState: {
+          _tag: "ready",
+          readyAt: "2026-08-31T00:00:04.000Z",
+          startedAt: "2026-08-31T00:00:01.000Z",
+          stoppedAt: "2026-08-31T00:00:03.000Z",
+        },
+      } satisfies unknown,
+    ]),
+    session.id
+  );
+  await screen.findByText("Recording saved");
+  expect(screen.queryByText("1 comment")).toBeNull();
+  expect(screen.queryByLabelText("Describe the change")).toBeNull();
+});

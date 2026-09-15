@@ -1890,6 +1890,24 @@ const useAgentView = (
     };
   }, [chrome, setChrome]);
 
+  /*
+    Inspect and its pins belong to the recording they were attached to. Stop,
+    a discarded bundle, or a second Start leaves inspect mode and clears the
+    pins rather than carrying markers from a recording that has ended.
+  */
+  const recordingKey =
+    state.session?.activity === "teaching" &&
+    state.session.captureState._tag === "recording"
+      ? state.session.recordingId
+      : undefined;
+  useEffect(() => {
+    setState((current) =>
+      current.inspect === emptyInspectState
+        ? current
+        : { ...current, inspect: emptyInspectState }
+    );
+  }, [recordingKey, setState]);
+
   const clearConsole = () => {
     setState((current) => ({ ...current, consoleEntries: [] }));
   };
@@ -2040,7 +2058,7 @@ export const AgentWorkspace = ({
         }
         input={view.input}
         inspect={
-          state.inspect.open
+          recording && state.inspect.open
             ? (canvas) => (
                 <InspectOverlay
                   canvas={canvas}

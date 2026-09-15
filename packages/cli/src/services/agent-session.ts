@@ -2319,10 +2319,14 @@ const makeAgentSession = (
           )
         );
       }
+      // The timeline describes the discarded Demonstration, so it goes with
+      // it: `setup` after a deletion is a clean bundle, not one that still
+      // lists actions whose evidence is gone.
       const discarded: AgentSessionSnapshot = {
         ...record.snapshot,
         captureState: manifest.lifecycle,
         teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+        timeline: [],
         updatedAt: manifest.lifecycle.requestedAt,
       };
       yield* saveRecord(sessionId, {
