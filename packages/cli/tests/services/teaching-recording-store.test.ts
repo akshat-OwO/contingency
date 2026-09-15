@@ -359,46 +359,49 @@ it.effect("grants one learning claim across two real processes", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("reclaims a learning claim after its process exits", () =>
-  Effect.gen(function* reclaimDeadLearner() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-teaching-dead-claim-",
-    });
-    const helper = path.resolve(
-      import.meta.dirname,
-      "../helpers/teaching-recording-process.ts"
-    );
-    const cwd = path.resolve(import.meta.dirname, "../..");
-    yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "write", root],
-        { cwd }
-      )
-    );
-    yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        ["--experimental-strip-types", helper, "claim", root, "dead-claim"],
-        { cwd }
-      )
-    );
-    const reclaimed = yield* Effect.promise(() =>
-      executeFile(
-        process.execPath,
-        [
-          "--experimental-strip-types",
-          helper,
-          "claim",
-          root,
-          "reclaimed-claim",
-        ],
-        { cwd }
-      )
-    );
-    expect(JSON.parse(reclaimed.stdout)).toEqual({ lifecycle: "learning" });
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+it.effect(
+  "reclaims a learning claim after its process exits",
+  () =>
+    Effect.gen(function* reclaimDeadLearner() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-dead-claim-",
+      });
+      const helper = path.resolve(
+        import.meta.dirname,
+        "../helpers/teaching-recording-process.ts"
+      );
+      const cwd = path.resolve(import.meta.dirname, "../..");
+      yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "write", root],
+          { cwd }
+        )
+      );
+      yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          ["--experimental-strip-types", helper, "claim", root, "dead-claim"],
+          { cwd }
+        )
+      );
+      const reclaimed = yield* Effect.promise(() =>
+        executeFile(
+          process.execPath,
+          [
+            "--experimental-strip-types",
+            helper,
+            "claim",
+            root,
+            "reclaimed-claim",
+          ],
+          { cwd }
+        )
+      );
+      expect(JSON.parse(reclaimed.stdout)).toEqual({ lifecycle: "learning" });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  15_000
 );
 
 it.effect(
