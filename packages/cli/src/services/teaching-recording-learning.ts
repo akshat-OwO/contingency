@@ -509,15 +509,22 @@ const makeTeachingRecordingLearning = Effect.fn(
       const existing = yield* store
         .read(input.recordingId)
         .pipe(Effect.mapError(fromStoreError));
-      if (
-        existing.receipts.some(
-          (receipt) =>
-            receipt.operation === "save-skill" &&
-            receipt.operationId === input.operationId
-        )
-      ) {
+      const replay = existing.receipts.find(
+        (receipt) =>
+          receipt.operation === "save-skill" &&
+          receipt.operationId === input.operationId
+      );
+      if (replay !== undefined) {
+        if (replay.files === undefined) {
+          return yield* Effect.fail(
+            learningError(
+              "teaching_recording_invalid",
+              `Teaching Recording ${input.recordingId} has an incomplete save receipt.`
+            )
+          );
+        }
         return {
-          files: files.map((file) => file.path),
+          files: replay.files,
           flowSkillName: existing.flowSkillName,
           recordingId: existing.recordingId,
         } satisfies FlowSkillSaveResult;
@@ -607,6 +614,7 @@ const makeTeachingRecordingLearning = Effect.fn(
           const recorded = yield* Effect.result(
             store.saveSkill({
               claimOperationId: input.claimOperationId,
+              files: files.map((file) => file.path),
               operationId: input.operationId,
               recordingId: input.recordingId,
               skillPath: `${manifest.flowSkillName}/${SKILL_FILE}`,

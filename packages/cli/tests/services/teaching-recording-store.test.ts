@@ -118,12 +118,17 @@ it.effect(
           operationId: OperationId.make("learning-once"),
           recordingId,
         });
-        yield* store.saveSkill({
+        const drafted = yield* store.saveSkill({
           claimOperationId: OperationId.make("learning-once"),
+          files: ["SKILL.md"],
           operationId: OperationId.make("save-skill-once"),
           recordingId,
           skillPath: "checkout-flow/SKILL.md",
         });
+        expect(
+          drafted.receipts.find((receipt) => receipt.operation === "save-skill")
+            ?.files
+        ).toEqual(["SKILL.md"]);
         yield* store.startDryRun({
           operationId: OperationId.make("dry-run-once"),
           recordingId,

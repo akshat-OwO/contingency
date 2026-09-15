@@ -86,12 +86,30 @@ it.live(
           );
           expect(waited.lifecycle).toBe("ready");
 
-          const claimOperationId = OperationId.make("learning-claim");
+          const releasedClaimOperationId = OperationId.make("learning-claim");
           const claimed = yield* teachingRecordingTool(
             "agent_teaching_recording_claim",
-            { operationId: claimOperationId, recordingId }
+            { operationId: releasedClaimOperationId, recordingId }
           );
           expect(claimed.flowSkillName).toBe("learn-anvil");
+          yield* teachingRecordingTool("agent_teaching_recording_release", {
+            claimOperationId: releasedClaimOperationId,
+            operationId: OperationId.make("learning-release"),
+            recordingId,
+          });
+          const staleClaimReplay = yield* Effect.flip(
+            teachingRecordingTool("agent_teaching_recording_claim", {
+              operationId: releasedClaimOperationId,
+              recordingId,
+            })
+          );
+          expect(staleClaimReplay.code).toBe("teaching_recording_conflict");
+
+          const claimOperationId = OperationId.make("learning-active-claim");
+          yield* teachingRecordingTool("agent_teaching_recording_claim", {
+            operationId: claimOperationId,
+            recordingId,
+          });
 
           const timeline = yield* teachingRecordingTool(
             "agent_teaching_timeline_get",
@@ -173,6 +191,17 @@ it.live(
           ).toContain("# Learn anvil");
           expect(
             yield* teachingRecordingTool("agent_flow_skill_save", saveInput)
+          ).toEqual(saved);
+          expect(
+            yield* teachingRecordingTool("agent_flow_skill_save", {
+              ...saveInput,
+              files: [
+                {
+                  content: "# This package was never written\n",
+                  path: "SKILL.md",
+                },
+              ],
+            })
           ).toEqual(saved);
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );

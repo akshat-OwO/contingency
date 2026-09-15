@@ -75,6 +75,7 @@ export interface TeachingRecordingStop extends TeachingRecordingMutation {
 
 export interface TeachingRecordingSkillDraft extends TeachingRecordingMutation {
   readonly claimOperationId: OperationId;
+  readonly files: readonly string[];
   readonly skillPath: string;
 }
 
@@ -186,12 +187,19 @@ const withReceipt = (
   manifest: TeachingRecordingManifest,
   operation: TeachingRecordingOperation,
   operationId: OperationId,
-  completedAt: string
-): TeachingRecordingManifest => ({
-  ...manifest,
-  receipts: [...manifest.receipts, { completedAt, operation, operationId }],
-  updatedAt: completedAt,
-});
+  completedAt: string,
+  files?: readonly string[]
+): TeachingRecordingManifest => {
+  const receipt = { completedAt, operation, operationId };
+  return {
+    ...manifest,
+    receipts: [
+      ...manifest.receipts,
+      files === undefined ? receipt : { ...receipt, files },
+    ],
+    updatedAt: completedAt,
+  };
+};
 
 const ProcessError = Schema.Struct({ code: Schema.optional(Schema.String) });
 
@@ -476,7 +484,11 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       transition: (
         manifest: PendingTeachingRecordingManifest,
         at: string
-      ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>
+      ) => Effect.Effect<
+        TeachingRecordingManifest,
+        TeachingRecordingStoreError
+      >,
+      receiptFiles?: readonly string[]
     ) =>
       withRecordingLock(
         recordingId,
@@ -496,7 +508,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           const at = now().toISOString();
           const transitioned = yield* transition(current, at);
           return yield* persist(
-            withReceipt(transitioned, operation, operationId, at)
+            withReceipt(transitioned, operation, operationId, at, receiptFiles)
           );
         })
       );
@@ -832,7 +844,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               stoppedAt: lifecycle.stoppedAt,
             },
           });
-        }
+        },
+        input.files
       );
 
     const startDryRun = (input: TeachingRecordingMutation) =>

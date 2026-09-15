@@ -214,26 +214,14 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
     agent_teaching_recording_claim: (params) =>
       Effect.gen(function* claimTeachingRecording() {
         const store = yield* TeachingRecordingStore;
-        const current = yield* store
-          .read(params.recordingId)
-          .pipe(Effect.mapError(failure));
-        const replay = current.receipts.find(
-          (receipt) =>
-            receipt.operation === "start-learning" &&
-            receipt.operationId === params.operationId
-        );
-        if (replay !== undefined) {
-          return {
-            claimedAt: replay.completedAt,
-            flowSkillName: current.flowSkillName,
-            operationId: params.operationId,
-            recordingId: current.recordingId,
-          };
-        }
         const manifest = yield* store
           .startLearning(params)
           .pipe(Effect.mapError(failure));
-        if (manifest.lifecycle._tag !== "learning") {
+        if (
+          manifest.lifecycle._tag !== "learning" ||
+          manifest.lifecycle.claim.operationId !== params.operationId ||
+          manifest.lifecycle.claim.ownerPid !== process.pid
+        ) {
           return yield* Effect.fail(
             new TeachingRecordingFailure({
               code: "teaching_recording_conflict",

@@ -132,6 +132,7 @@ export type TeachingRecordingOperation = typeof TeachingRecordingOperation.Type;
 
 export const TeachingRecordingReceipt = Schema.Struct({
   completedAt: nonEmptyString,
+  files: Schema.optional(Schema.Array(nonEmptyString)),
   operation: TeachingRecordingOperation,
   operationId: OperationId,
 });
