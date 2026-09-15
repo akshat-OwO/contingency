@@ -115,6 +115,8 @@ export const TeachingRecordingOperation = Schema.Literals([
   "pass-dry-run",
   "cleanup",
   "verification",
+  "rename",
+  "discard",
 ]);
 export type TeachingRecordingOperation = typeof TeachingRecordingOperation.Type;
 

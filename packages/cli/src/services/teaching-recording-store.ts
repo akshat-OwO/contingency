@@ -75,11 +75,23 @@ export interface TeachingRecordingSkillDraft extends TeachingRecordingMutation {
   readonly skillPath: string;
 }
 
+export interface TeachingRecordingRename extends TeachingRecordingMutation {
+  readonly flowSkillName: FlowSkillName;
+}
+
 export interface TeachingRecordingStoreService {
   readonly begin: (
     input: TeachingRecordingBegin
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly cleanup: (
+    input: TeachingRecordingMutation
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  /**
+   * Throw away a recording the user does not want to keep. The captured
+   * artifacts are removed and the bundle returns to `setup`, so the same
+   * browser setup can record again without carrying the discarded evidence.
+   */
+  readonly discard: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly directory: (recordingId: TeachingRecordingId) => string;
@@ -89,6 +101,10 @@ export interface TeachingRecordingStoreService {
   >;
   readonly read: (
     recordingId: TeachingRecordingId
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  /** Rename the Flow Skill a bundle is for, before anything is captured. */
+  readonly rename: (
+    input: TeachingRecordingRename
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly start: (
     input: TeachingRecordingMutation
@@ -595,6 +611,53 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         })
       );
 
+    const rename = (input: TeachingRecordingRename) =>
+      mutate(input.recordingId, "rename", input.operationId, (manifest) =>
+        manifest.lifecycle._tag === "setup"
+          ? Effect.succeed({
+              ...manifest,
+              flowSkillName: input.flowSkillName,
+            })
+          : Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot be renamed from ${manifest.lifecycle._tag}.`
+              )
+            )
+      );
+
+    const discard = (input: TeachingRecordingMutation) =>
+      mutate(input.recordingId, "discard", input.operationId, (manifest, at) =>
+        Effect.gen(function* discardRecording() {
+          if (
+            manifest.lifecycle._tag !== "ready" &&
+            manifest.lifecycle._tag !== "failed"
+          ) {
+            return yield* Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot be discarded from ${manifest.lifecycle._tag}.`
+              )
+            );
+          }
+          const directory = recordingDirectory(input.recordingId);
+          for (const artifact of manifest.artifacts) {
+            yield* fileSystem
+              .remove(path.resolve(directory, artifact.path), { force: true })
+              .pipe(
+                Effect.mapError(
+                  ioError(`Could not discard Teaching artifact ${artifact.id}`)
+                )
+              );
+          }
+          return {
+            ...manifest,
+            artifacts: [],
+            lifecycle: { _tag: "setup" as const, requestedAt: at },
+          };
+        })
+      );
+
     const verify = (input: TeachingRecordingMutation) =>
       mutate(
         input.recordingId,
@@ -653,9 +716,11 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       begin,
       cleanup,
       directory: recordingDirectory,
+      discard,
       listReady,
       passDryRun,
       read,
+      rename,
       saveSkill,
       start,
       startDryRun,

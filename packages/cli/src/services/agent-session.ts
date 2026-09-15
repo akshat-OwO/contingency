@@ -46,6 +46,7 @@ import type {
   AgentBrowserAction,
   AgentBrowserSnapshot,
   AgentScreenshot,
+  AgentInspectedElement,
   AgentSessionActivity,
   AgentSnapshotId,
   AgentTimelineEntry,
@@ -237,6 +238,30 @@ export interface AgentSessionService {
     operationId: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** End capture without closing the browser setup. */
+  /**
+   * Discard a recording the user does not want. The captured artifacts are
+   * removed and the session returns to `setup` in the same browser setup.
+   */
+  readonly discardTeachingRecording: (
+    sessionId: AgentSessionId,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /** Rename the Flow Skill this Teaching session is about to demonstrate. */
+  readonly renameFlowSkill: (
+    sessionId: AgentSessionId,
+    name: FlowSkillName,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * The element the live Page has under a viewport point, read through the
+   * Browser Snapshot. Inspect hit-tests the Page, never the screencast frame
+   * the Workspace happens to be drawing.
+   */
+  readonly inspectPoint: (
+    sessionId: AgentSessionId,
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentInspectedElement, AgentSessionError>;
   readonly stopTeachingRecording: (
     sessionId: AgentSessionId,
     operationId: OperationId | string
@@ -1474,6 +1499,8 @@ type AgentOperationKind =
   | "control"
   | "instruction"
   | "private-input"
+  | "recording-discard"
+  | "recording-rename"
   | "recording-start"
   | "recording-stop"
   | "start"
@@ -2209,6 +2236,191 @@ const makeAgentSession = (
       );
       return finished;
     });
+
+    /**
+     * Throwing away a recording the user does not want to keep. Deletion is a
+     * user gesture, never an agent one: the Workspace is the only caller, and
+     * it returns the session to `setup` so the same browser setup records
+     * again without carrying the discarded evidence (ADR 0039).
+     */
+    const discardTeachingRecordingUnlocked = Effect.fn(
+      "AgentSession.discardTeachingRecording"
+    )(function* discardTeachingRecording(
+      sessionId: AgentSessionId,
+      operationId: OperationId | string
+    ) {
+      const requestInput = "";
+      const replayed = replaySession(
+        operationId,
+        "recording-discard",
+        sessionId,
+        requestInput
+      );
+      if (replayed?._tag === "replay") {
+        return replayed.snapshot;
+      }
+      if (replayed?._tag === "conflict") {
+        return yield* Effect.fail(replayed.error);
+      }
+      const record = yield* read(sessionId);
+      if (
+        record.snapshot.activity !== "teaching" ||
+        !isLive(record.snapshot.phase)
+      ) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Agent Session ${sessionId} is not a live Teaching session.`
+          )
+        );
+      }
+      if (
+        record.snapshot.captureState._tag !== "ready" &&
+        record.snapshot.captureState._tag !== "failed"
+      ) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `A Teaching Recording cannot be discarded from ${record.snapshot.captureState._tag}.`
+          )
+        );
+      }
+      if (teachingRecordingStore === undefined) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_unavailable",
+            "Teaching recording storage is unavailable in this process."
+          )
+        );
+      }
+      // The retention manifest names the Trace and the video this recording
+      // wrote. Discarding removes those files, so the note that points at them
+      // goes with them rather than outliving what it describes.
+      if (record.retentionFile !== undefined && fileSystem !== undefined) {
+        yield* fileSystem
+          .remove(record.retentionFile, { force: true })
+          .pipe(Effect.ignore);
+      }
+      const manifest = yield* teachingRecordingStore
+        .discard({
+          operationId: OperationId.make(operationId),
+          recordingId: record.snapshot.recordingId,
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            error("agent_session_invalid", cause.message)
+          )
+        );
+      if (manifest.lifecycle._tag !== "setup") {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Teaching Recording ${record.snapshot.recordingId} did not return to setup.`
+          )
+        );
+      }
+      // The timeline describes the discarded Demonstration, so it goes with
+      // it: `setup` after a deletion is a clean bundle, not one that still
+      // lists actions whose evidence is gone.
+      const discarded: AgentSessionSnapshot = {
+        ...record.snapshot,
+        captureState: manifest.lifecycle,
+        teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+        timeline: [],
+        updatedAt: manifest.lifecycle.requestedAt,
+      };
+      yield* saveRecord(sessionId, {
+        ...record,
+        artifactDirectory: undefined,
+        capture: undefined,
+        retentionFile: undefined,
+        snapshot: discarded,
+        traceFile: undefined,
+        videoFile: undefined,
+      });
+      yield* rememberSession(
+        operationId,
+        "recording-discard",
+        sessionId,
+        requestInput,
+        discarded
+      );
+      return discarded;
+    });
+
+    /**
+     * Renaming the Flow Skill before anything is captured. The name is only
+     * changeable in `setup`: once a recording exists the bundle on disk is
+     * already filed under the name it was begun with.
+     */
+    const renameFlowSkillUnlocked = Effect.fn("AgentSession.renameFlowSkill")(
+      function* renameFlowSkill(
+        sessionId: AgentSessionId,
+        name: FlowSkillName,
+        operationId: OperationId | string
+      ) {
+        const requestInput = JSON.stringify({ name });
+        const replayed = replaySession(
+          operationId,
+          "recording-rename",
+          sessionId,
+          requestInput
+        );
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        const record = yield* read(sessionId);
+        if (
+          record.snapshot.activity !== "teaching" ||
+          !isLive(record.snapshot.phase)
+        ) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `Agent Session ${sessionId} is not a live Teaching session.`
+            )
+          );
+        }
+        if (record.snapshot.captureState._tag !== "setup") {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              `A Flow Skill cannot be renamed from ${record.snapshot.captureState._tag}.`
+            )
+          );
+        }
+        if (teachingRecordingStore !== undefined) {
+          yield* teachingRecordingStore
+            .rename({
+              flowSkillName: name,
+              operationId: OperationId.make(operationId),
+              recordingId: record.snapshot.recordingId,
+            })
+            .pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
+        }
+        const renamed: AgentSessionSnapshot = {
+          ...record.snapshot,
+          flowSkillName: name,
+          updatedAt: now().toISOString(),
+        };
+        yield* save(sessionId, record, renamed);
+        yield* rememberSession(
+          operationId,
+          "recording-rename",
+          sessionId,
+          requestInput,
+          renamed
+        );
+        return renamed;
+      }
+    );
 
     const startTeachingRecordingUnlocked = Effect.fn(
       "AgentSession.startTeachingRecording"
@@ -3117,6 +3329,44 @@ const makeAgentSession = (
           ? { _tag: "fresh" as const, identity }
           : { _tag: "durable" as const, snapshot: durable };
       });
+
+    /**
+     * What the live Page has under one viewport point. The Workspace draws a
+     * screencast, so hit-testing its bitmap would outline a picture; this
+     * resolves the point through a fresh Browser Snapshot instead. It records
+     * nothing into the Demonstration: hovering is not a demonstrated action.
+     */
+    const inspectPointUnlocked = (
+      sessionId: AgentSessionId,
+      x: number,
+      y: number
+    ): Effect.Effect<AgentInspectedElement, AgentSessionError> =>
+      observe(sessionId, (record, page) =>
+        Effect.gen(function* inspectPointedElement() {
+          const snapshot = redactCapturedSnapshot(
+            record,
+            yield* record.registry.snapshot(page)
+          );
+          const located = yield* record.registry.pointElement(x, y);
+          const node = snapshot.nodes.find(
+            (candidate) => candidate.ref === located.ref
+          );
+          const subject = node ?? record.registry.describe(located.ref);
+          return {
+            description:
+              subject === undefined
+                ? "element"
+                : `${subject.role}${
+                    subject.name === "" ? "" : `: ${subject.name}`
+                  }`,
+            height: located.rectangle.height,
+            ref: located.ref,
+            width: located.rectangle.width,
+            x: located.rectangle.x,
+            y: located.rectangle.y,
+          };
+        })
+      );
 
     const startUnlocked = Effect.fn("AgentSession.start")(
       function* startSession(input: AgentSessionStartInput) {
@@ -5400,6 +5650,13 @@ const makeAgentSession = (
             browser.deleteStorage(record.browserSessionId, tabId, input)
           )
         ),
+      discardTeachingRecording: (sessionId, operationId) =>
+        lock.withPermit(
+          discardTeachingRecordingUnlocked(
+            sessionId,
+            operationId ?? OperationId.make(`discard-${randomUUID()}`)
+          )
+        ),
       emulation: (sessionId) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>
@@ -5486,6 +5743,7 @@ const makeAgentSession = (
               )
           )
         ),
+      inspectPoint: inspectPointUnlocked,
       list: () =>
         Effect.forEach(
           [...Ref.getUnsafe(sessions).values()].filter(({ snapshot }) =>
@@ -5595,6 +5853,14 @@ const makeAgentSession = (
           );
           return next ?? record.snapshot;
         }),
+      renameFlowSkill: (sessionId, name, operationId) =>
+        lock.withPermit(
+          renameFlowSkillUnlocked(
+            sessionId,
+            name,
+            operationId ?? OperationId.make(`rename-${randomUUID()}`)
+          )
+        ),
       requestTakeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)

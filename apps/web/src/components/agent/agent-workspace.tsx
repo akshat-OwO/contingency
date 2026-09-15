@@ -1,5 +1,6 @@
 import type {
   AgentHistoryAction,
+  AgentInspectedElement,
   AgentNavigateAction,
   AgentSessionId,
   AgentSessionSnapshot,
@@ -7,14 +8,18 @@ import type {
   BrowserStreamEvent,
   TeachingProgress,
 } from "@contingency/protocol";
-import { isBrowserRpcError, OperationId } from "@contingency/protocol";
+import {
+  FlowSkillName,
+  isBrowserRpcError,
+  OperationId,
+} from "@contingency/protocol";
 import {
   useAtom,
   useAtomRefresh,
   useAtomSet,
   useAtomValue,
 } from "@effect/atom-react";
-import { Effect, Fiber, Result, Schedule } from "effect";
+import { Effect, Fiber, Result, Schedule, Schema } from "effect";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -28,7 +33,7 @@ import {
   UserRoundIcon,
 } from "lucide-react";
 import type { FormEvent } from "react";
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
   agentControlPresentation,
@@ -36,6 +41,7 @@ import {
   agentStatusLabel,
   agentViewStateAtom,
   appendConsoleEntry,
+  workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import {
@@ -43,8 +49,18 @@ import {
   VerificationDetails,
 } from "@/components/agent/draft-review";
 import { RunDetails, RunSummaryPanel } from "@/components/agent/run-view";
-import { TeachingRecordingDock } from "@/components/agent/teaching-recording-dock";
-import type { TeachingRecordingGesture } from "@/components/agent/teaching-recording-state";
+import { InspectOverlay } from "@/components/agent/teaching-inspect";
+import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
+import type { InspectComment } from "@/components/agent/teaching-inspect-state";
+import {
+  TeachingRecordingDock,
+  WorkspaceEmptyDock,
+} from "@/components/agent/teaching-recording-dock";
+import type {
+  TeachingRecordingGesture,
+  TeachingSecondaryAction,
+} from "@/components/agent/teaching-recording-state";
+import { teachingAgentPrompt } from "@/components/agent/teaching-recording-state";
 import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
 import {
   keyboardModifiers,
@@ -52,6 +68,7 @@ import {
   mousePosition,
   renderFrame,
 } from "@/components/browser/browser-input";
+import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -97,7 +114,15 @@ const navigationUrl = (address: string): string => {
   return /^[a-z][\w+.-]*:/iu.test(trimmed) ? trimmed : `https://${trimmed}`;
 };
 
+const isFlowSkillName = Schema.is(FlowSkillName);
+
 const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
+
+/** What a Workspace-opened Teaching session is called before it is renamed. */
+const DEFAULT_FLOW_SKILL_NAME = "new-flow";
+
+/** The viewport a Workspace-opened Teaching session starts under. */
+const WORKSPACE_SESSION_VIEWPORT = { height: 800, width: 1280 };
 
 const LoadingState = () => (
   <main
@@ -122,18 +147,65 @@ const LoadingState = () => (
   </main>
 );
 
-const EmptyState = () => (
-  <main className="grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
-    <section className="max-w-md space-y-2 text-center">
-      <h1 className="text-xl font-semibold tracking-tight">
-        No active Agent Sessions
-      </h1>
-      <p className="text-muted-foreground text-sm">
-        Start Teaching in this Workspace, or watch an Interactive Run from MCP.
-      </p>
-    </section>
-  </main>
-);
+/**
+ * The Workspace with no Agent Session behind it. The canvas owns the
+ * invitation, and the dock beside it carries the state without repeating the
+ * action: `contingency web` opens Teaching sessions itself, so the user does
+ * not need an agent to start (#191).
+ */
+const EmptyState = ({
+  error,
+  onOpenSession,
+  pending,
+}: {
+  readonly error: string | undefined;
+  readonly onOpenSession: (name: string) => void;
+  readonly pending: boolean;
+}) => {
+  // The name is asked for here rather than generated, so the dock's session
+  // label is something the user recognizes from the first frame.
+  const [name, setName] = useState(DEFAULT_FLOW_SKILL_NAME);
+  return (
+    <main className="relative flex h-svh min-h-0 flex-col">
+      <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
+        <section className="max-w-md space-y-4 text-center">
+          <h1 className="text-xl font-semibold tracking-tight">
+            No browser session
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Open a session to set the browser up, then start recording when the
+            journey begins.
+          </p>
+          <form
+            className="mx-auto flex max-w-sm items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onOpenSession(name);
+            }}
+          >
+            <input
+              aria-label="Flow skill name"
+              className="bg-background focus-visible:ring-ring h-9 min-w-0 flex-1 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
+              onChange={(event) => setName(event.target.value)}
+              value={name}
+            />
+            <Button disabled={pending} type="submit">
+              Open browser session
+            </Button>
+          </form>
+          {error === undefined ? null : (
+            <Alert className="text-left" variant="destructive">
+              <CircleAlertIcon aria-hidden="true" />
+              <AlertTitle>The session did not open</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </section>
+      </div>
+      <WorkspaceEmptyDock />
+    </main>
+  );
+};
 
 const UnavailableState = ({ message }: { readonly message: string }) => (
   <main className="grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
@@ -168,53 +240,87 @@ const SwitchingState = () => (
 
 const AgentBrowserCanvas = ({
   canvasRef,
+  dockedBelow,
   frameReady,
   input,
+  inspect,
   readOnly,
+  recording,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  /** Whether the floating dock overlaps the bottom of this column. */
+  readonly dockedBelow: boolean;
   readonly frameReady: boolean;
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
+  /** Renders inspect mode over the frame, given the canvas it is drawn on. */
+  readonly inspect:
+    | ((canvas: HTMLCanvasElement | null) => React.ReactNode)
+    | undefined;
   readonly readOnly: boolean;
-}) => (
-  <div className="bg-muted/20 relative grid min-h-0 flex-1 place-items-center overflow-hidden p-2">
-    {frameReady ? null : (
-      <div className="absolute inset-0 grid place-items-center p-6">
-        <div className="space-y-2 text-center">
-          <LoaderCircleIcon
-            aria-hidden="true"
-            className="text-muted-foreground mx-auto size-6 animate-spin"
-          />
-          <p className="text-muted-foreground text-sm">
-            Connecting to the live browser…
-          </p>
+  /** A live recording draws a red inset ring around the whole frame. */
+  readonly recording: boolean;
+}) => {
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
+  return (
+    <div
+      /*
+        The dock floats over this column, so the frame keeps a bottom margin
+        wide enough that no part of the browser, and nothing inspect opens over
+        it, ends up underneath the dock.
+      */
+      className={`bg-muted/20 relative grid min-h-0 flex-1 place-items-center overflow-hidden p-2${
+        dockedBelow ? " pb-24" : ""
+      }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
+    >
+      {frameReady ? null : (
+        <div className="absolute inset-0 grid place-items-center p-6">
+          <div className="space-y-2 text-center">
+            <LoaderCircleIcon
+              aria-hidden="true"
+              className="text-muted-foreground mx-auto size-6 animate-spin"
+            />
+            <p className="text-muted-foreground text-sm">
+              Connecting to the live browser…
+            </p>
+          </div>
         </div>
+      )}
+      {/*
+        The inspect overlay shares the canvas box so a Page rectangle scales
+        onto the frame that drew it, instead of onto the padded column around
+        it.
+      */}
+      <div className="relative max-h-full max-w-full">
+        {/*
+          Watching is read-only; Takeover is not. Control is exclusive, so the
+          canvas only forwards input while the user actually holds the browser.
+        */}
+        <canvas
+          aria-label="Live browser viewport"
+          aria-readonly={readOnly}
+          className="focus-visible:ring-ring max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 aria-readonly:cursor-default aria-readonly:opacity-95"
+          onKeyDown={
+            readOnly ? undefined : (event) => input.handleKey(event, "keyDown")
+          }
+          onKeyUp={
+            readOnly ? undefined : (event) => input.handleKey(event, "keyUp")
+          }
+          onPointerCancel={readOnly ? undefined : input.handlePointerUp}
+          onPointerDown={readOnly ? undefined : input.handlePointerDown}
+          onPointerMove={readOnly ? undefined : input.handlePointerMove}
+          onPointerUp={readOnly ? undefined : input.handlePointerUp}
+          ref={(node) => {
+            canvasRef.current = node;
+            setCanvas(node);
+          }}
+          style={{ display: frameReady ? "block" : "none" }}
+          tabIndex={readOnly ? undefined : 0}
+        />
+        {inspect?.(canvas)}
       </div>
-    )}
-    {/*
-      Watching is read-only; Takeover is not. Control is exclusive, so the
-      canvas only forwards input while the user actually holds the browser.
-    */}
-    <canvas
-      aria-label="Live browser viewport"
-      aria-readonly={readOnly}
-      className="focus-visible:ring-ring max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 aria-readonly:cursor-default aria-readonly:opacity-95"
-      onKeyDown={
-        readOnly ? undefined : (event) => input.handleKey(event, "keyDown")
-      }
-      onKeyUp={
-        readOnly ? undefined : (event) => input.handleKey(event, "keyUp")
-      }
-      onPointerCancel={readOnly ? undefined : input.handlePointerUp}
-      onPointerDown={readOnly ? undefined : input.handlePointerDown}
-      onPointerMove={readOnly ? undefined : input.handlePointerMove}
-      onPointerUp={readOnly ? undefined : input.handlePointerUp}
-      ref={canvasRef}
-      style={{ display: frameReady ? "block" : "none" }}
-      tabIndex={readOnly ? undefined : 0}
-    />
-  </div>
-);
+    </div>
+  );
+};
 
 const AgentBrowserToolbar = ({
   address,
@@ -226,6 +332,7 @@ const AgentBrowserToolbar = ({
   onToggleSetup,
   readOnly,
   setupOpen,
+  showThemeToggle,
 }: {
   readonly address: string;
   readonly navigationError: string | undefined;
@@ -236,6 +343,8 @@ const AgentBrowserToolbar = ({
   readonly onToggleSetup: () => void;
   readonly readOnly: boolean;
   readonly setupOpen: boolean;
+  /** Only the chrome layout carries the theme control; the navbar owns it otherwise. */
+  readonly showThemeToggle: boolean;
 }) => (
   <>
     <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
@@ -316,6 +425,11 @@ const AgentBrowserToolbar = ({
       >
         <SlidersHorizontalIcon />
       </Button>
+      {/*
+        The theme control lives on the browser chrome rather than in a second
+        header band: the Teaching Workspace has no app header to hold it.
+      */}
+      {showThemeToggle ? <ModeToggle /> : null}
     </div>
     {navigationError === undefined ? null : (
       <p className="text-destructive border-b px-3 py-1.5 text-xs">
@@ -567,24 +681,40 @@ const SessionDetails = ({
 
 const AgentLiveView = ({
   canvasRef,
+  chrome,
+  dock,
   input,
+  inspect,
   onAddressChange,
   onAddressSubmit,
   onClearConsole,
   onControl,
   onNavigate,
   onToggleSetup,
+  recording,
   session,
   state,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  /**
+   * Whether this View is the full-bleed Teaching chrome. The chrome has no app
+   * header and no in-flow heading: the dock carries the wordmark, the session,
+   * and the state, so the browser gets every pixel the dock does not (#185).
+   */
+  readonly chrome: boolean;
+  /** The floating dock, overlaid on the canvas column rather than stacked. */
+  readonly dock: React.ReactNode;
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
+  readonly inspect:
+    | ((canvas: HTMLCanvasElement | null) => React.ReactNode)
+    | undefined;
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onClearConsole: () => void;
   readonly onControl: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly onToggleSetup: () => void;
+  readonly recording: boolean;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
 }) => {
@@ -592,24 +722,31 @@ const AgentLiveView = ({
   const readOnly = session.controller !== "user";
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="border-b px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">Workspace</h1>
-            <p className="text-muted-foreground text-xs">
-              Watch the browser and session status in real time.
-            </p>
+      {chrome ? null : (
+        <div className="border-b px-4 py-3 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight">
+                Workspace
+              </h1>
+              <p className="text-muted-foreground text-xs">
+                Watch the browser and session status in real time.
+              </p>
+            </div>
+            <output
+              aria-live="polite"
+              className="text-muted-foreground text-xs"
+            >
+              {state.streamConnected
+                ? "Browser stream connected"
+                : "Browser stream disconnected"}
+              {state.viewportWidth > 0 && state.viewportHeight > 0
+                ? ` · ${state.viewportWidth} × ${state.viewportHeight}`
+                : ""}
+            </output>
           </div>
-          <output aria-live="polite" className="text-muted-foreground text-xs">
-            {state.streamConnected
-              ? "Browser stream connected"
-              : "Browser stream disconnected"}
-            {state.viewportWidth > 0 && state.viewportHeight > 0
-              ? ` · ${state.viewportWidth} × ${state.viewportHeight}`
-              : ""}
-          </output>
         </div>
-      </div>
+      )}
       {state.browserStreamError === undefined ? null : (
         <Alert className="m-3" variant="destructive">
           <CircleAlertIcon aria-hidden="true" />
@@ -629,15 +766,16 @@ const AgentLiveView = ({
             onToggleSetup={onToggleSetup}
             readOnly={readOnly}
             setupOpen={state.setupOpen}
+            showThemeToggle={chrome}
           />
-          <AgentBrowserCanvas
-            canvasRef={canvasRef}
-            frameReady={state.frameReady}
-            input={input}
-            readOnly={readOnly}
-          />
-          {state.setupOpen ? (
+          {/*
+            Browser setup stays available in every Teaching state, recording
+            included: the device, the Emulation, and the storage a journey needs
+            are part of the setup the recording runs under (ADR 0038).
+          */}
+          {chrome ? (
             <WorkspaceBrowserSetup
+              chromeOnly={!state.setupOpen}
               consoleEntries={state.consoleEntries}
               onClearConsole={onClearConsole}
               onClose={onToggleSetup}
@@ -645,6 +783,26 @@ const AgentLiveView = ({
               userHoldsBrowser={!readOnly}
             />
           ) : null}
+          <AgentBrowserCanvas
+            canvasRef={canvasRef}
+            dockedBelow={chrome}
+            frameReady={state.frameReady}
+            input={input}
+            inspect={inspect}
+            readOnly={readOnly}
+            recording={recording}
+          />
+          {chrome || !state.setupOpen ? null : (
+            <WorkspaceBrowserSetup
+              chromeOnly={false}
+              consoleEntries={state.consoleEntries}
+              onClearConsole={onClearConsole}
+              onClose={onToggleSetup}
+              sessionId={session.id}
+              userHoldsBrowser={!readOnly}
+            />
+          )}
+          {dock}
           {state.phase === "switching" ? <SwitchingState /> : null}
         </div>
         <SessionDetails
@@ -666,10 +824,15 @@ const useAgentView = (
   const {
     agentBrowserFrameAckMutation,
     agentBrowserInputMutation,
+    agentBrowserElementInspectMutation,
     agentBrowserNavigateMutation,
     agentReturnControlMutation,
+    agentSessionStartMutation,
     agentSessionsAtom,
     agentTakeoverMutation,
+    agentTeachingFlowRenameMutation,
+    agentTeachingInstructionRecordMutation,
+    agentTeachingRecordingDiscardMutation,
     agentTeachingRecordingStartMutation,
     agentTeachingRecordingStopMutation,
     runAgentBrowserStream,
@@ -701,6 +864,22 @@ const useAgentView = (
   const stopTeachingRecording = useAtomSet(agentTeachingRecordingStopMutation, {
     mode: "promise",
   });
+  const discardTeachingRecording = useAtomSet(
+    agentTeachingRecordingDiscardMutation,
+    { mode: "promise" }
+  );
+  const recordInstruction = useAtomSet(agentTeachingInstructionRecordMutation, {
+    mode: "promise",
+  });
+  const renameFlowSkill = useAtomSet(agentTeachingFlowRenameMutation, {
+    mode: "promise",
+  });
+  const inspectElement = useAtomSet(agentBrowserElementInspectMutation, {
+    mode: "promise",
+  });
+  const startSession = useAtomSet(agentSessionStartMutation, {
+    mode: "promise",
+  });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const pendingFrameRef = useRef<Extract<
@@ -713,6 +892,9 @@ const useAgentView = (
   // The address bar belongs to whoever is typing in it: a URL event never
   // overwrites what the user has not submitted yet.
   const addressEditingRef = useRef(false);
+  // One inspect read at a time: a pointer moves far more often than the Page
+  // can answer a Browser Snapshot, and a queue of them would outline the past.
+  const inspectPendingRef = useRef(false);
 
   const sessions =
     sessionsResult._tag === "Success"
@@ -1110,6 +1292,42 @@ const useAgentView = (
     []
   );
 
+  /**
+   * One Teaching mutation dispatched from the dock, reported where the other
+   * gesture failures are: the dock is the one place a Teaching refusal is
+   * readable, so a rename or a deletion does not invent a second error slot.
+   */
+  const runTeachingMutation = <Success,>(
+    mutation: Effect.Effect<Success, unknown>
+  ) => {
+    setState((previous) => ({
+      ...previous,
+      recordingError: undefined,
+      recordingPending: true,
+    }));
+    recordingFiberRef.current = Effect.runFork(
+      Effect.result(mutation).pipe(
+        Effect.tap((outcome) =>
+          Effect.sync(() => {
+            setState((previous) => ({
+              ...previous,
+              recordingError: Result.isFailure(outcome)
+                ? errorMessage(outcome.failure)
+                : undefined,
+              recordingPending: false,
+            }));
+          })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            recordingFiberRef.current = null;
+          })
+        ),
+        Effect.asVoid
+      )
+    );
+  };
+
   const changeRecording = (gesture: TeachingRecordingGesture) => {
     const current = state.session;
     if (
@@ -1171,6 +1389,345 @@ const useAgentView = (
         ),
         Effect.asVoid
       )
+    );
+  };
+
+  /**
+   * Opening a Teaching session from the empty canvas. `contingency web` owns
+   * Teaching, and refuses `run`, so the activity is named rather than left to
+   * the default: the Workspace never opens an Interactive Run (ADR 0039).
+   */
+  const openSession = (name: string) => {
+    if (state.startPending) {
+      return;
+    }
+    const operationId = OperationId.make(globalThis.crypto.randomUUID());
+    setState((current) => ({
+      ...current,
+      startError: undefined,
+      startPending: true,
+    }));
+    Effect.runFork(
+      Effect.result(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            startSession({
+              payload: {
+                data: {
+                  activity: "teaching",
+                  clientName: "Workspace",
+                  clientVersion: "web",
+                  name: name.trim() === "" ? undefined : name.trim(),
+                  operationId,
+                  viewport: {
+                    deviceScaleFactor: 1,
+                    height: WORKSPACE_SESSION_VIEWPORT.height,
+                    width: WORKSPACE_SESSION_VIEWPORT.width,
+                  },
+                },
+                type: "agent.session.start",
+              },
+            }),
+        })
+      ).pipe(
+        Effect.flatMap((outcome) =>
+          Effect.sync(() => {
+            if (Result.isFailure(outcome)) {
+              setState((current) => ({
+                ...current,
+                startError: errorMessage(outcome.failure),
+                startPending: false,
+              }));
+              return;
+            }
+            const started = outcome.success.data.session;
+            onSelectSession?.(started.id);
+            setState((current) => ({
+              ...current,
+              phase: "switching",
+              selectedSessionId: started.id,
+              session: started,
+              startError: undefined,
+              startPending: false,
+            }));
+            refreshSessions();
+          })
+        )
+      )
+    );
+  };
+
+  /** The element the live Page has under a point, for the inspect outline. */
+  const readInspectedElement = (
+    x: number,
+    y: number
+  ): Effect.Effect<AgentInspectedElement, unknown> => {
+    const sessionId = activeSessionRef.current;
+    if (sessionId === null) {
+      return Effect.fail(new Error("No Agent Session is selected."));
+    }
+    return Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        inspectElement({
+          payload: {
+            data: { sessionId, x, y },
+            type: "agent.browser.element.inspect",
+          },
+        }),
+    }).pipe(Effect.map((answer) => answer.data.element));
+  };
+
+  const toggleInspect = () => {
+    setState((current) => ({
+      ...current,
+      inspect: current.inspect.open
+        ? { ...emptyInspectState, comments: current.inspect.comments }
+        : { ...current.inspect, open: true },
+    }));
+  };
+
+  const exitInspect = () => {
+    setState((current) =>
+      current.inspect.open
+        ? {
+            ...current,
+            inspect: {
+              ...emptyInspectState,
+              comments: current.inspect.comments,
+            },
+          }
+        : current
+    );
+  };
+
+  const hoverInspect = (x: number, y: number) => {
+    if (inspectPendingRef.current) {
+      return;
+    }
+    inspectPendingRef.current = true;
+    Effect.runFork(
+      Effect.result(readInspectedElement(x, y)).pipe(
+        Effect.flatMap((outcome) =>
+          Effect.sync(() => {
+            inspectPendingRef.current = false;
+            setState((current) =>
+              current.inspect.open && current.inspect.frozen === undefined
+                ? {
+                    ...current,
+                    inspect: {
+                      ...current.inspect,
+                      hovered: Result.isFailure(outcome)
+                        ? undefined
+                        : outcome.success,
+                    },
+                  }
+                : current
+            );
+          })
+        )
+      )
+    );
+  };
+
+  const freezeInspect = (x: number, y: number) => {
+    Effect.runFork(
+      Effect.result(readInspectedElement(x, y)).pipe(
+        Effect.flatMap((outcome) =>
+          Effect.sync(() => {
+            setState((current) =>
+              current.inspect.open
+                ? {
+                    ...current,
+                    inspect: {
+                      ...current.inspect,
+                      draft: "",
+                      error: Result.isFailure(outcome)
+                        ? errorMessage(outcome.failure)
+                        : undefined,
+                      frozen: Result.isFailure(outcome)
+                        ? undefined
+                        : outcome.success,
+                    },
+                  }
+                : current
+            );
+          })
+        )
+      )
+    );
+  };
+
+  const cancelInspectComment = () => {
+    setState((current) => ({
+      ...current,
+      inspect: {
+        ...current.inspect,
+        draft: "",
+        error: undefined,
+        frozen: undefined,
+      },
+    }));
+  };
+
+  const setInspectDraft = (draft: string) => {
+    setState((current) => ({
+      ...current,
+      inspect: { ...current.inspect, draft },
+    }));
+  };
+
+  /**
+   * Attaching a comment records a Teaching instruction on the live recording.
+   * It is the same instruction path the agent relays over MCP, so the
+   * Demonstration has one instruction stream rather than two (#191).
+   */
+  const attachInspectComment = () => {
+    const sessionId = activeSessionRef.current;
+    const { frozen } = state.inspect;
+    const text = state.inspect.draft.trim();
+    if (sessionId === null || frozen === undefined || text === "") {
+      return;
+    }
+    const operationId = OperationId.make(globalThis.crypto.randomUUID());
+    setState((current) => ({
+      ...current,
+      inspect: { ...current.inspect, error: undefined, pending: true },
+    }));
+    Effect.runFork(
+      Effect.result(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            recordInstruction({
+              payload: {
+                data: {
+                  operationId,
+                  sessionId,
+                  text: `${frozen.description}: ${text}`,
+                },
+                type: "agent.teaching.instruction.record",
+              },
+            }),
+        })
+      ).pipe(
+        Effect.flatMap((outcome) =>
+          Effect.sync(() => {
+            setState((current) => {
+              if (Result.isFailure(outcome)) {
+                return {
+                  ...current,
+                  inspect: {
+                    ...current.inspect,
+                    error: errorMessage(outcome.failure),
+                    pending: false,
+                  },
+                };
+              }
+              const comment: InspectComment = {
+                description: frozen.description,
+                height: frozen.height,
+                index: current.inspect.comments.length + 1,
+                width: frozen.width,
+                x: frozen.x,
+                y: frozen.y,
+              };
+              return {
+                ...current,
+                inspect: {
+                  ...current.inspect,
+                  comments: [...current.inspect.comments, comment],
+                  draft: "",
+                  error: undefined,
+                  frozen: undefined,
+                  hovered: undefined,
+                  pending: false,
+                },
+              };
+            });
+          })
+        )
+      )
+    );
+  };
+
+  /**
+   * The dock's secondary actions. Each one is backed by real behavior: a
+   * clipboard write, a rename, or a deletion. A control with nothing behind it
+   * is absent instead (#191).
+   */
+  const runSecondary = (action: TeachingSecondaryAction, detail?: string) => {
+    const current = state.session;
+    if (current === undefined || current.activity !== "teaching") {
+      return;
+    }
+    if (action === "copy-prompt") {
+      Effect.runFork(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            globalThis.navigator.clipboard.writeText(
+              teachingAgentPrompt(current.flowSkillName, current.recordingId)
+            ),
+        }).pipe(
+          Effect.result,
+          Effect.flatMap((outcome) =>
+            Effect.sync(() => {
+              setState((previous) => ({
+                ...previous,
+                recordingError: Result.isFailure(outcome)
+                  ? "The agent prompt could not be copied to the clipboard."
+                  : undefined,
+              }));
+            })
+          )
+        )
+      );
+      return;
+    }
+    if (action === "rename-flow") {
+      const name = (detail ?? "").trim();
+      if (!isFlowSkillName(name)) {
+        setState((previous) => ({
+          ...previous,
+          recordingError:
+            "A flow skill name uses letters, numbers, spaces, dots, dashes, and underscores.",
+        }));
+        return;
+      }
+      runTeachingMutation(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            renameFlowSkill({
+              payload: {
+                data: {
+                  name,
+                  operationId: OperationId.make(globalThis.crypto.randomUUID()),
+                  sessionId: current.id,
+                },
+                type: "agent.teaching.flow.rename",
+              },
+            }),
+        })
+      );
+      return;
+    }
+    runTeachingMutation(
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () =>
+          discardTeachingRecording({
+            payload: {
+              data: {
+                operationId: OperationId.make(globalThis.crypto.randomUUID()),
+                sessionId: current.id,
+              },
+              type: "agent.teaching.recording.discard",
+            },
+          }),
+      })
     );
   };
 
@@ -1318,6 +1875,39 @@ const useAgentView = (
     }));
   };
 
+  /*
+    The full-bleed chrome belongs to the recorded Flow Skill journey: the empty
+    Workspace and a Teaching session. An Interactive Run and a Run Summary keep
+    the app header, so they keep their navigation (#191).
+  */
+  const chrome =
+    state.phase === "empty" || state.session?.activity === "teaching";
+  const setChrome = useAtomSet(workspaceChromeAtom);
+  useEffect(() => {
+    setChrome(chrome);
+    return () => {
+      setChrome(false);
+    };
+  }, [chrome, setChrome]);
+
+  /*
+    Inspect and its pins belong to the recording they were attached to. Stop,
+    a discarded bundle, or a second Start leaves inspect mode and clears the
+    pins rather than carrying markers from a recording that has ended.
+  */
+  const recordingKey =
+    state.session?.activity === "teaching" &&
+    state.session.captureState._tag === "recording"
+      ? state.session.recordingId
+      : undefined;
+  useEffect(() => {
+    setState((current) =>
+      current.inspect === emptyInspectState
+        ? current
+        : { ...current, inspect: emptyInspectState }
+    );
+  }, [recordingKey, setState]);
+
   const clearConsole = () => {
     setState((current) => ({ ...current, consoleEntries: [] }));
   };
@@ -1327,18 +1917,27 @@ const useAgentView = (
   };
 
   return {
+    attachInspectComment,
+    cancelInspectComment,
     canvasRef,
     changeControl,
     changeRecording,
     clearConsole,
+    exitInspect,
+    freezeInspect,
+    hoverInspect,
     input,
     navigate,
+    openSession,
+    runSecondary,
     selectSession,
     sessions,
     sessionsResult,
     setAddress,
+    setInspectDraft,
     state,
     submitAddress,
+    toggleInspect,
     toggleSetup,
   };
 };
@@ -1373,52 +1972,115 @@ export const AgentWorkspace = ({
     );
   }
   if (state.phase === "empty") {
-    return <EmptyState />;
+    return (
+      <EmptyState
+        error={state.startError}
+        onOpenSession={view.openSession}
+        pending={state.startPending}
+      />
+    );
   }
   if (state.session === undefined) {
     return <LoadingState />;
   }
 
-  return (
-    <div className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b px-4 py-2 sm:px-6">
-        <label className="text-sm font-medium" htmlFor="agent-session-select">
-          Agent Session
-        </label>
-        <select
-          aria-label="Agent Session"
-          className="bg-background focus-visible:ring-ring h-8 max-w-full min-w-0 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
-          id="agent-session-select"
-          onChange={(event) => view.selectSession(event.target.value)}
-          value={state.selectedSessionId ?? ""}
-        >
-          {view.sessions.map((session) => (
-            <option key={session.id} value={session.id}>
-              {agentSessionLabel(session)}
-            </option>
-          ))}
-        </select>
-      </div>
-      {state.session.activity === "teaching" ? (
-        <TeachingRecordingDock
-          captureState={state.session.captureState}
-          error={state.recordingError}
-          flowSkillName={state.session.flowSkillName}
-          onGesture={view.changeRecording}
-          pending={state.recordingPending}
-          recordingId={state.session.recordingId}
+  const teaching = state.session.activity === "teaching";
+  const recording = teaching && state.session.captureState._tag === "recording";
+
+  /*
+    An Interactive Run and a Run Summary keep the app header: they are not the
+    recorded Flow Skill journey, and hiding the wordmark there would leave them
+    with no navigation and no replacement (#191).
+  */
+  if (!teaching) {
+    return (
+      <div className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col">
+        <div className="flex shrink-0 items-center gap-3 border-b px-4 py-2 sm:px-6">
+          <label className="text-sm font-medium" htmlFor="agent-session-select">
+            Agent Session
+          </label>
+          <select
+            aria-label="Agent Session"
+            className="bg-background focus-visible:ring-ring h-8 max-w-full min-w-0 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
+            id="agent-session-select"
+            onChange={(event) => view.selectSession(event.target.value)}
+            value={state.selectedSessionId ?? ""}
+          >
+            {view.sessions.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {agentSessionLabel(candidate)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <AgentLiveView
+          canvasRef={view.canvasRef}
+          chrome={false}
+          dock={null}
+          input={view.input}
+          inspect={undefined}
+          onAddressChange={view.setAddress}
+          onAddressSubmit={view.submitAddress}
+          onClearConsole={view.clearConsole}
+          onControl={view.changeControl}
+          onNavigate={view.navigate}
+          onToggleSetup={view.toggleSetup}
+          recording={false}
+          session={state.session}
+          state={state}
         />
-      ) : null}
+      </div>
+    );
+  }
+
+  const teachingSession = state.session;
+  return (
+    <div className="flex h-svh min-h-0 flex-col">
       <AgentLiveView
         canvasRef={view.canvasRef}
+        chrome
+        dock={
+          <TeachingRecordingDock
+            captureState={teachingSession.captureState}
+            commentCount={state.inspect.comments.length}
+            error={state.recordingError}
+            flowSkillName={teachingSession.flowSkillName}
+            inspecting={state.inspect.open}
+            onGesture={view.changeRecording}
+            onSecondary={view.runSecondary}
+            onSelectSession={view.selectSession}
+            onToggleInspect={view.toggleInspect}
+            pending={state.recordingPending}
+            recordingId={teachingSession.recordingId}
+            selectedSessionId={state.selectedSessionId}
+            sessions={view.sessions}
+          />
+        }
         input={view.input}
+        inspect={
+          recording && state.inspect.open
+            ? (canvas) => (
+                <InspectOverlay
+                  canvas={canvas}
+                  onAttach={view.attachInspectComment}
+                  onCancel={view.cancelInspectComment}
+                  onDraftChange={view.setInspectDraft}
+                  onExit={view.exitInspect}
+                  onFreeze={view.freezeInspect}
+                  onHover={view.hoverInspect}
+                  state={state.inspect}
+                />
+              )
+            : undefined
+        }
         onAddressChange={view.setAddress}
         onAddressSubmit={view.submitAddress}
         onClearConsole={view.clearConsole}
         onControl={view.changeControl}
         onNavigate={view.navigate}
         onToggleSetup={view.toggleSetup}
-        session={state.session}
+        recording={recording}
+        session={teachingSession}
         state={state}
       />
     </div>

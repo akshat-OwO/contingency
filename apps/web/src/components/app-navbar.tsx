@@ -1,11 +1,20 @@
+import { useAtomValue } from "@effect/atom-react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 
+import { workspaceChromeAtom } from "@/components/agent/agent-workspace-state";
 import { ModeToggle } from "@/components/mode-toggle";
 import { buttonVariants } from "@/components/ui/button";
 
 const AppNavbar = () => {
   const matchRoute = useMatchRoute();
   const isWorkspace = Boolean(matchRoute({ fuzzy: false, to: "/" }));
+  // The Workspace chrome owns the whole viewport and carries the wordmark in
+  // its dock, so the header band steps aside rather than stacking above it.
+  const chrome = useAtomValue(workspaceChromeAtom);
+
+  if (chrome) {
+    return null;
+  }
 
   return (
     <header className="grid h-14 grid-cols-[1fr_auto_1fr] items-center border-b px-4 sm:px-6">

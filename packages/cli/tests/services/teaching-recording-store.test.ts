@@ -398,3 +398,78 @@ it.effect(
       expect(ready.sessionId).toBe(sessionId);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.effect("renames before capture and discards a recording back to setup", () =>
+  Effect.gen(function* renameAndDiscard() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-teaching-discard-",
+    });
+    const discardedId = TeachingRecordingId.make("recording-store-discard");
+    const artifactDirectory = path.join(
+      root,
+      TEACHING_RECORDINGS_DIRECTORY,
+      discardedId
+    );
+    const artifactFile = path.join(artifactDirectory, "keyframe-1.png");
+    const outcome = yield* Effect.gen(function* exercise() {
+      const store = yield* TeachingRecordingStore;
+      yield* store.begin({
+        emulation,
+        flowSkillName: FlowSkillName.make("first-name"),
+        operationId: OperationId.make("begin-discard"),
+        recordingId: discardedId,
+        sessionId,
+      });
+      const rename = {
+        flowSkillName: FlowSkillName.make("second-name"),
+        operationId: OperationId.make("rename-once"),
+        recordingId: discardedId,
+      };
+      yield* store.rename(rename);
+      const renamed = yield* store.rename(rename);
+      yield* store.start({
+        operationId: OperationId.make("start-discard"),
+        recordingId: discardedId,
+      });
+      // A recording cannot be renamed once it holds captured evidence: the
+      // bundle on disk is already filed under the name it began with.
+      const lateRename = yield* Effect.flip(
+        store.rename({
+          flowSkillName: FlowSkillName.make("third-name"),
+          operationId: OperationId.make("rename-late"),
+          recordingId: discardedId,
+        })
+      );
+      yield* fileSystem.writeFileString(artifactFile, "one keyframe");
+      yield* store.stop({
+        artifacts: [
+          {
+            capturedAt: at,
+            hash: EvidenceHash.make(
+              "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            id: "keyframe-1",
+            kind: "keyframe" as const,
+            path: "keyframe-1.png",
+          },
+        ],
+        operationId: OperationId.make("stop-discard"),
+        recordingId: discardedId,
+      });
+      const discard = {
+        operationId: OperationId.make("discard-once"),
+        recordingId: discardedId,
+      };
+      yield* store.discard(discard);
+      const discarded = yield* store.discard(discard);
+      return { discarded, lateRename, renamed };
+    }).pipe(Effect.provide(layerFor(root)));
+
+    expect(outcome.renamed.flowSkillName).toBe("second-name");
+    expect(outcome.lateRename.code).toBe("teaching_recording_conflict");
+    expect(outcome.discarded.lifecycle._tag).toBe("setup");
+    expect(outcome.discarded.artifacts).toEqual([]);
+    expect(yield* fileSystem.exists(artifactFile)).toBe(false);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

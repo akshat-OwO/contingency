@@ -96,12 +96,19 @@ const EMPTY_REQUESTS: readonly BrowserNetworkRequest[] = [];
  * the MCP-owned browser has no handle the Workspace can name (ADR 0038).
  */
 export const WorkspaceBrowserSetup = ({
+  chromeOnly,
   consoleEntries,
   onClearConsole,
   onClose,
   sessionId,
   userHoldsBrowser,
 }: {
+  /**
+   * Render the chrome bar alone: device, identity, and Emulation stay on the
+   * browser chrome in every Teaching state, while the devtools panels below
+   * them stay behind the **Browser setup** toggle (#191).
+   */
+  readonly chromeOnly: boolean;
   readonly consoleEntries: readonly BrowserConsoleEntry[];
   readonly onClearConsole: () => void;
   readonly onClose: () => void;
@@ -247,7 +254,7 @@ export const WorkspaceBrowserSetup = ({
   return (
     <section
       aria-label="Browser setup"
-      className="flex min-h-0 flex-col border-t"
+      className={chromeOnly ? "shrink-0" : "flex min-h-0 flex-col border-t"}
     >
       <div className="bg-background flex flex-wrap items-center gap-1.5 border-b px-2 py-1.5">
         {/*
@@ -304,15 +311,17 @@ export const WorkspaceBrowserSetup = ({
             {applied.viewport.width} × {applied.viewport.height}
           </span>
         )}
-        <Button
-          className="ml-auto"
-          onClick={onClose}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          Hide setup
-        </Button>
+        {chromeOnly ? null : (
+          <Button
+            className="ml-auto"
+            onClick={onClose}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Hide setup
+          </Button>
+        )}
       </div>
       {state.error === undefined ? null : (
         <p className="text-destructive border-b px-3 py-1.5 text-xs">
@@ -325,11 +334,12 @@ export const WorkspaceBrowserSetup = ({
           storage.
         </p>
       )}
-      {state.activeTab === undefined ? (
+      {chromeOnly || state.activeTab !== undefined ? null : (
         <p className="text-muted-foreground p-3 text-xs">
           Waiting for the browser to open a page.
         </p>
-      ) : (
+      )}
+      {chromeOnly || state.activeTab === undefined ? null : (
         <div className="flex min-h-0 flex-1 flex-col">
           <BrowserDevtools
             consoleEntries={consoleEntries}

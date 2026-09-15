@@ -39,6 +39,8 @@ Commands:
   doctor
   cleanup
   browser goto --path <path> | --url <absolute-url>
+  browser resize --width <px> [--height <px>]
+  browser mouse --x <px> --y <px> [--click]
   browser click --role <role> --name <name> [--partial]
   browser fill --role <role> --name <name> --value <value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
@@ -265,6 +267,33 @@ const runPageAction = async (page, appUrl, action, flags) => {
             ).href;
       await page.goto(target, { waitUntil: "load" });
       return page.url();
+    }
+    case "resize": {
+      // The Workspace dock has responsive rules, so a drive has to be able to
+      // stand at a phone width without launching a second driver.
+      const width = Number(flags.width);
+      const height = Number(flags.height ?? "844");
+      if (!Number.isFinite(width) || !Number.isFinite(height)) {
+        throw new Error("browser resize needs --width and --height.");
+      }
+      await page.setViewportSize({ height, width });
+      return `${width}x${height}`;
+    }
+    case "mouse": {
+      // Inspect mode outlines whatever the pointer is over, and its overlay
+      // has no accessible name to aim at, so a drive needs raw viewport
+      // coordinates over the Workspace canvas.
+      const x = Number(flags.x);
+      const y = Number(flags.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("browser mouse needs --x and --y.");
+      }
+      await page.mouse.move(x, y);
+      if (flags.click === true || flags.click === "true") {
+        await page.mouse.down();
+        await page.mouse.up();
+      }
+      return `${x},${y}`;
     }
     case "click": {
       await locator(page, flags).click();

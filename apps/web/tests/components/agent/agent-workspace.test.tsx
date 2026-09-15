@@ -4,7 +4,13 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -17,14 +23,27 @@ import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
+  discardCalls: [] satisfies unknown[],
   inputCalls: [] satisfies unknown[],
+  inspectedElement: {
+    description: "button: Place order",
+    height: 40,
+    ref: "e12",
+    width: 120,
+    x: 20,
+    y: 60,
+  } satisfies unknown,
+  instructionCalls: [] satisfies unknown[],
   navigateCalls: [] satisfies unknown[],
+  renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
   sessionsResult: {
     _tag: "Initial",
     waiting: true,
   } satisfies unknown,
   startRecordingCalls: [] satisfies unknown[],
+  startSessionCalls: [] satisfies unknown[],
+  startedSession: {} satisfies unknown,
   stopRecordingCalls: [] satisfies unknown[],
   takeoverCalls: [] satisfies unknown[],
 }));
@@ -33,6 +52,9 @@ const rpc = vi.hoisted(() => ({
 const pendingRevisionAtom = Atom.make(Effect.never);
 
 const rpcOverrides = {
+  agentBrowserElementInspectMutation: Atom.fn(() =>
+    Effect.sync(() => ({ data: { element: rpc.inspectedElement } }))
+  ),
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -57,10 +79,35 @@ const rpcOverrides = {
       return {};
     })
   ),
+  agentSessionStartMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.startSessionCalls.push(payload);
+      return { data: { session: rpc.startedSession } };
+    })
+  ),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
   agentTakeoverMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
+      return {};
+    })
+  ),
+  agentTeachingFlowRenameMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.renameCalls.push(payload);
+      return {};
+    })
+  ),
+  agentTeachingInstructionRecordMutation: Atom.fn(
+    <Payload,>(payload: Payload) =>
+      Effect.sync(() => {
+        rpc.instructionCalls.push(payload);
+        return {};
+      })
+  ),
+  agentTeachingRecordingDiscardMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.discardCalls.push(payload);
       return {};
     })
   ),
@@ -111,6 +158,8 @@ const session = {
 
 type Session = typeof session;
 
+rpc.startedSession = { ...session, id: "agent-started" };
+
 const resultFor = (sessions: readonly Session[]) => ({
   _tag: "Success",
   value: {
@@ -138,7 +187,11 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
 afterEach(() => {
   cleanup();
   rpc.agentStreamFailureMessage = undefined;
+  rpc.discardCalls = [];
   rpc.inputCalls = [];
+  rpc.instructionCalls = [];
+  rpc.renameCalls = [];
+  rpc.startSessionCalls = [];
   rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
   rpc.startRecordingCalls = [];
@@ -151,9 +204,29 @@ test("announces that Agent Sessions are loading", () => {
   expect(screen.getByText("Loading Agent Sessions…")).toBeVisible();
 });
 
-test("explains when this server process has no active sessions", async () => {
+test("invites the user to open a session from the empty canvas", async () => {
+  const user = userEvent.setup();
   renderWorkspace(resultFor([]));
-  expect(await screen.findByText("No active Agent Sessions")).toBeVisible();
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  // The canvas owns the invitation, so the dock shows the state without
+  // repeating the action under the same name.
+  expect(
+    screen.getAllByRole("button", { name: "Open browser session" })
+  ).toHaveLength(1);
+  expect(screen.getByText("No session")).toBeVisible();
+
+  await user.click(
+    screen.getByRole("button", { name: "Open browser session" })
+  );
+  await waitFor(() => {
+    expect(rpc.startSessionCalls).toHaveLength(1);
+  });
+  expect(rpc.startSessionCalls[0]).toMatchObject({
+    payload: {
+      data: { activity: "teaching" },
+      type: "agent.session.start",
+    },
+  });
 });
 
 test("explains when Agent Sessions cannot be loaded", async () => {
@@ -318,7 +391,7 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
   ).toBeVisible();
   expect(
     screen.getByRole("option", {
-      name: "browse-catalogue · skill-drafted",
+      name: "browse-catalogue",
     })
   ).toBeVisible();
   expect(screen.getByText("Captured actions").nextSibling).toHaveTextContent(
@@ -602,4 +675,185 @@ test("scrolls the browser with the wheel only during Takeover", async () => {
       },
     },
   });
+});
+
+const teachingSetup = {
+  ...session,
+  activity: "teaching",
+  captureState: { _tag: "setup", requestedAt: "2026-08-31T00:00:00.000Z" },
+  controller: "user",
+  flowSkillName: "browse-catalogue",
+  recordingId: "recording-browse-catalogue",
+  teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+} satisfies unknown;
+
+const teachingRecording = {
+  ...teachingSetup,
+  captureState: { _tag: "recording", startedAt: "2026-08-31T00:00:01.000Z" },
+} satisfies unknown;
+
+test("composes the Teaching dock with distinct accessible names", async () => {
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("Contingency");
+  expect(dock).toHaveTextContent("Recording");
+  // A Teaching option is the Flow Skill name; the state lives in the badge.
+  expect(
+    within(dock).getByRole("option", { name: "browse-catalogue" })
+  ).toBeVisible();
+  expect(
+    within(dock).getByRole("button", { name: "Stop recording" })
+  ).toBeVisible();
+  expect(
+    within(dock).getByRole("button", { name: "Inspect an element and comment" })
+  ).toBeVisible();
+  expect(
+    within(dock).queryByRole("button", { name: "Start recording" })
+  ).toBeNull();
+  // Later-state actions have no RPC yet, so they are absent, not disabled.
+  expect(screen.queryByRole("button", { name: "Learn flow" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
+});
+
+test("keeps every dock control reachable from the keyboard", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const controls = [
+    within(dock).getByRole("combobox", { name: "Agent Session" }),
+    within(dock).getByRole("button", {
+      name: "Inspect an element and comment",
+    }),
+    within(dock).getByRole("button", { name: "Stop recording" }),
+  ];
+  for (const control of controls) {
+    control.focus();
+    expect(control).toHaveFocus();
+  }
+  await user.tab();
+  expect(dock).not.toHaveFocus();
+});
+
+test("attaches an inspect comment as a Teaching instruction", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Inspect an element and comment",
+    })
+  );
+  const canvas = screen.getByLabelText("Live browser viewport");
+  const overlay = canvas.nextElementSibling;
+  expect(overlay).not.toBeNull();
+  // SAFETY: the assertion above proves the overlay element exists.
+  await user.click(overlay as Element);
+  const field = await screen.findByLabelText("Describe the change");
+  await user.type(field, "Use the express checkout here.");
+  await user.click(screen.getByRole("button", { name: "Attach" }));
+
+  await waitFor(() => {
+    expect(rpc.instructionCalls).toHaveLength(1);
+  });
+  expect(rpc.instructionCalls[0]).toMatchObject({
+    payload: {
+      data: {
+        sessionId: session.id,
+        text: "button: Place order: Use the express checkout here.",
+      },
+      type: "agent.teaching.instruction.record",
+    },
+  });
+  // The comment count is the only instruction surface the dock adds.
+  expect(await screen.findByText("1 comment")).toBeVisible();
+  expect(screen.queryByLabelText("Add instruction")).toBeNull();
+});
+
+test("offers Rename flow in setup and deletion once a recording is saved", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingSetup]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Rename flow" }));
+  const name = screen.getByLabelText("Flow skill name");
+  await user.clear(name);
+  await user.type(name, "place-order");
+  await user.click(screen.getByRole("button", { name: "Save name" }));
+  await waitFor(() => {
+    expect(rpc.renameCalls).toHaveLength(1);
+  });
+  expect(rpc.renameCalls[0]).toMatchObject({
+    payload: {
+      data: { name: "place-order", sessionId: session.id },
+      type: "agent.teaching.flow.rename",
+    },
+  });
+
+  cleanup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingSetup,
+        captureState: {
+          _tag: "ready",
+          readyAt: "2026-08-31T00:00:04.000Z",
+          startedAt: "2026-08-31T00:00:01.000Z",
+          stoppedAt: "2026-08-31T00:00:03.000Z",
+        },
+      } satisfies unknown,
+    ]),
+    session.id
+  );
+  // `ready` still offers Start recording for a second bundle in the same setup.
+  expect(
+    await screen.findByRole("button", { name: "Start recording" })
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Copy agent prompt" })
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Delete recording" }));
+  await waitFor(() => {
+    expect(rpc.discardCalls).toHaveLength(1);
+  });
+  expect(rpc.discardCalls[0]).toMatchObject({
+    payload: {
+      data: { sessionId: session.id },
+      type: "agent.teaching.recording.discard",
+    },
+  });
+});
+
+test("leaves inspect and its pins with the recording they belong to", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Inspect an element and comment",
+    })
+  );
+  const canvas = screen.getByLabelText("Live browser viewport");
+  // SAFETY: inspect mode is open, so the overlay is the canvas's next sibling.
+  await user.click(canvas.nextElementSibling as Element);
+  await user.type(
+    await screen.findByLabelText("Describe the change"),
+    "Use the express checkout here."
+  );
+  await user.click(screen.getByRole("button", { name: "Attach" }));
+  expect(await screen.findByText("1 comment")).toBeVisible();
+
+  cleanup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingSetup,
+        captureState: {
+          _tag: "ready",
+          readyAt: "2026-08-31T00:00:04.000Z",
+          startedAt: "2026-08-31T00:00:01.000Z",
+          stoppedAt: "2026-08-31T00:00:03.000Z",
+        },
+      } satisfies unknown,
+    ]),
+    session.id
+  );
+  await screen.findByText("Recording saved");
+  expect(screen.queryByText("1 comment")).toBeNull();
+  expect(screen.queryByLabelText("Describe the change")).toBeNull();
 });

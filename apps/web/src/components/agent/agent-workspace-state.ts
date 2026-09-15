@@ -5,6 +5,9 @@ import type {
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
+import type { InspectState } from "@/components/agent/teaching-inspect-state";
+import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
+
 export type AgentViewPhase =
   | "loading"
   | "empty"
@@ -23,6 +26,8 @@ export interface AgentViewState {
   /** A control change is in flight, so the control button is not offered twice. */
   readonly controlPending: boolean;
   readonly frameReady: boolean;
+  /** Inspect mode over the live frame, and the comments it has attached. */
+  readonly inspect: InspectState;
   /** What went wrong the last time the user navigated the browser. */
   readonly navigationError: string | undefined;
   /** A navigation is in flight, so the toolbar does not dispatch it twice. */
@@ -36,6 +41,10 @@ export interface AgentViewState {
   readonly session: AgentSessionSnapshot | undefined;
   /** Whether the browser setup panel is showing beside the live canvas. */
   readonly setupOpen: boolean;
+  /** What went wrong the last time the empty canvas tried to open a session. */
+  readonly startError: string | undefined;
+  /** A session is being opened from the empty canvas. */
+  readonly startPending: boolean;
   readonly streamConnected: boolean;
   readonly viewportHeight: number;
   readonly viewportWidth: number;
@@ -48,6 +57,7 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   controlError: undefined,
   controlPending: false,
   frameReady: false,
+  inspect: emptyInspectState,
   navigationError: undefined,
   navigationPending: false,
   phase: "loading",
@@ -56,10 +66,19 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   selectedSessionId: undefined,
   session: undefined,
   setupOpen: false,
+  startError: undefined,
+  startPending: false,
   streamConnected: false,
   viewportHeight: 0,
   viewportWidth: 0,
 });
+
+/**
+ * Whether the Workspace is showing the full-bleed recorded Flow Skill chrome.
+ * The app header reads it so one View can own the whole viewport without a
+ * second header band above its dock (#191).
+ */
+export const workspaceChromeAtom = Atom.make(false);
 
 /**
  * The console keeps the most recent entries only. A page can log without
@@ -73,9 +92,14 @@ export const appendConsoleEntry = (
 ): readonly BrowserConsoleEntry[] =>
   [...entries, entry].slice(-MAX_WORKSPACE_CONSOLE_ENTRIES);
 
+/**
+ * How a session reads in a picker. A Teaching label is the Flow Skill name
+ * alone: the capture state has its own badge in the dock, and a raw session id
+ * is never a label a person can act on (#191).
+ */
 export const agentSessionLabel = (session: AgentSessionSnapshot): string =>
   session.activity === "teaching"
-    ? `${session.flowSkillName} · ${session.captureState._tag}`
+    ? session.flowSkillName
     : `${session.clientName} · ${session.activity} · ${session.id}`;
 
 /**
