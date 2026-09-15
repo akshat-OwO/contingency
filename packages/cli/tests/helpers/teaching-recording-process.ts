@@ -13,9 +13,12 @@ import {
   TeachingRecordingStore,
 } from "../../src/services/teaching-recording-store.ts";
 
-const [mode, root] = process.argv.slice(2);
-if ((mode !== "write" && mode !== "read") || root === undefined) {
-  throw new Error("Expected write|read and a Catalog Root.");
+const [mode, root, operation] = process.argv.slice(2);
+if (
+  (mode !== "write" && mode !== "read" && mode !== "claim") ||
+  root === undefined
+) {
+  throw new Error("Expected write|read|claim and a Catalog Root.");
 }
 
 const recordingId = TeachingRecordingId.make("recording-process-restart");
@@ -48,6 +51,25 @@ const program = Effect.gen(function* runProcessCheck() {
       operationId: OperationId.make("process-stop"),
       recordingId,
     });
+  }
+  if (mode === "claim") {
+    const result = yield* Effect.result(
+      store.startLearning({
+        operationId: OperationId.make(operation ?? "process-claim"),
+        recordingId,
+      })
+    );
+    if (result._tag === "Success") {
+      yield* Effect.sleep("1 second");
+      process.stdout.write(
+        `${JSON.stringify({ lifecycle: result.success.lifecycle._tag })}\n`
+      );
+    } else {
+      process.stdout.write(
+        `${JSON.stringify({ code: result.failure.code })}\n`
+      );
+    }
+    return;
   }
   const manifest = yield* store.read(recordingId);
   process.stdout.write(

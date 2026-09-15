@@ -23,6 +23,7 @@ import {
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
 import { withStrictParameters } from "../../src/services/mcp-strict-parameters.ts";
+import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
 
 const at = "2026-09-01T00:00:00.000Z";
 
@@ -164,7 +165,12 @@ it("leaves every published JSON Schema unchanged", () => {
   const wrapped = withStrictParameters(Toolkit.make(tool));
   expect(Tool.getJsonSchema(wrapped.tools.sample)).toEqual(published);
 
-  for (const toolkit of [AgentFlowTools, AgentRunTools, AgentSessionTools]) {
+  for (const toolkit of [
+    AgentFlowTools,
+    AgentRunTools,
+    AgentSessionTools,
+    TeachingRecordingTools,
+  ]) {
     for (const shipped of Object.values(toolkit.tools)) {
       expect(Tool.getJsonSchema(shipped)).toEqual(
         Tool.getJsonSchemaFromSchema(shipped.parametersSchema)

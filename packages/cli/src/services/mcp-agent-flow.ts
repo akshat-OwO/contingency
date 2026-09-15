@@ -155,7 +155,7 @@ const TeachingInstructionRecordTool = Tool.make(
 const TeachingFeedGetTool = Tool.make("agent_teaching_feed_get", {
   dependencies: [AgentSession],
   description:
-    "Read the bounded Teaching Feed after the Teaching session has ended and local video analysis has finished. It leads with playByPlay, the prose timeline of the Demonstration: compile the Agent Flow from that narrative, and read the rest of the feed as the evidence that cross-checks it — user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and the observed hosts to propose as Domain Scope. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are never inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are never included.",
+    "Legacy Agent Flow compilation only. Flow Skill learning uses agent_teaching_recordings_list and agent_teaching_timeline_get instead. Read the bounded Teaching Feed after the Teaching session has ended and local video analysis has finished. It leads with playByPlay, followed by the evidence that cross-checks it: user instructions, captured actions with actor and outcome, URL transitions, screenshot references, and observed hosts. Pass includeSnapshots to receive the Browser Snapshots the actions reference. Screenshot bytes are not inlined; fetch one with agent_teaching_screenshot_get. Cookies, headers, network bodies, video, and the full Trace are excluded.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     includeSnapshots: TeachingFeedGet.fields.includeSnapshots,
@@ -167,7 +167,7 @@ const TeachingFeedGetTool = Tool.make("agent_teaching_feed_get", {
 const TeachingScreenshotGetTool = Tool.make("agent_teaching_screenshot_get", {
   dependencies: [AgentSession],
   description:
-    "Fetch the bytes of one screenshot the Teaching Feed referenced, as base64 PNG. The feed carries references so it stays readable; ask for an image only when you need to look at it. An unknown reference is refused.",
+    "Legacy Agent Flow compilation only. Fetch one base64 PNG that agent_teaching_feed_get referenced. Flow Skill learning fetches recording keyframes with agent_teaching_keyframe_get. An unknown reference is refused.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     screenshotId: TeachingScreenshotGet.fields.screenshotId,
@@ -179,7 +179,7 @@ const TeachingScreenshotGetTool = Tool.make("agent_teaching_screenshot_get", {
 const AgentFlowDraftSaveTool = Tool.make("agent_flow_draft_save", {
   dependencies: [AgentSession, AgentFlowCatalog],
   description:
-    "Compile a Teaching session's Demonstration into a draft Agent Flow revision and save it to the selected catalog. Each Agent Step names an inclusive span of captured action ids; Contingency derives the Evidence Slices. Domain Scope may only cover hosts the demonstrated Steps visited. Invalid output is refused with structured diagnostics and never enters the catalog. Pass agentFlowId and basedOnRevisionId to revise the current draft or Approved Agent Flow; a moved head is a conflict.",
+    "Legacy Agent Flow compilation only. Flow Skill learning saves SKILL.md and references with agent_flow_skill_save. Compile a Teaching session's Demonstration into a draft Agent Flow revision and save it to the selected catalog. Each Agent Step names an inclusive span of captured action ids; Contingency derives the Evidence Slices. Domain Scope may only cover hosts the demonstrated Steps visited. Invalid output is refused with structured diagnostics and never enters the catalog. Pass agentFlowId and basedOnRevisionId to revise the current draft or Approved Agent Flow; a moved head is a conflict.",
   failure: AgentFlowFailure,
   parameters: Schema.Struct({
     agentFlowId: AgentFlowDraftSave.fields.agentFlowId,

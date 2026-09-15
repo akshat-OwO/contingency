@@ -624,7 +624,7 @@ const teachingArtifactKind = (
     lower.endsWith(".jpg") ||
     lower.endsWith(".webp")
   ) {
-    return "screenshot";
+    return "keyframe";
   }
 };
 

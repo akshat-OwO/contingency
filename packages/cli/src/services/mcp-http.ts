@@ -5,6 +5,7 @@ import { makeHostMiddleware } from "../routes/rpc.ts";
 import { McpAgentFlowLayer } from "./mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "./mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
+import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
 
 /** Streamable HTTP path Cursor and other URL MCP clients POST to. */
 export const MCP_HTTP_PATH = "/mcp";
@@ -24,5 +25,6 @@ export const makeMcpHttpLayer = (allowedOrigins: ReadonlySet<string>) =>
     }),
     McpAgentSessionLayer,
     McpAgentFlowLayer,
-    McpAgentRunLayer
+    McpAgentRunLayer,
+    McpTeachingRecordingLayer
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));

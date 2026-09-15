@@ -13,6 +13,7 @@ import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
 } from "../../src/services/mcp-http.ts";
+import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
 const initializeBody = JSON.stringify({
   id: 1,
@@ -38,7 +39,8 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp() {
             baseUrl: "http://127.0.0.1:7783",
           }),
           makeAgentFlowCatalogLayer({ root: catalogRoot }),
-          makeAgentRunStoreLayer({ root: () => catalogRoot })
+          makeAgentRunStoreLayer({ root: () => catalogRoot }),
+          makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
         ).pipe(
           Layer.provideMerge(CreateBrowserLive),
           Layer.provideMerge(NodeServices.layer)

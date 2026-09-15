@@ -5,6 +5,7 @@ import { expect, test } from "vitest";
 import { AgentFlowTools } from "../../src/services/mcp-agent-flow.ts";
 import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";
 import { AgentSessionTools } from "../../src/services/mcp-agent-session.ts";
+import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
 
 interface JsonSchema {
   readonly anyOf?: readonly JsonSchema[];
@@ -61,3 +62,4 @@ const verifyToolkit = <Tools extends Record<string, Tool.Any>>(
 verifyToolkit("agent flow", AgentFlowTools);
 verifyToolkit("agent run", AgentRunTools);
 verifyToolkit("agent session", AgentSessionTools);
+verifyToolkit("Teaching Recording", TeachingRecordingTools);
