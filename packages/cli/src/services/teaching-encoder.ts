@@ -52,6 +52,8 @@ export interface TeachingEncoder {
   readonly bytesWritten: Effect.Effect<number>;
   /** Set when ffmpeg died or the size bound tripped. */
   readonly failure: Effect.Effect<string | undefined>;
+  /** The same reading, for the recorder's synchronous watchdog tick. */
+  readonly unsafeFailure: () => string | undefined;
 }
 
 export interface TeachingEncoderOptions {
@@ -157,6 +159,7 @@ export const makeTeachingEncoder = (
     Effect.map(({ child, state }) => ({
       bytesWritten: Effect.sync(() => state.bytes),
       failure: Effect.sync(() => state.failure),
+      unsafeFailure: () => state.failure,
       write: (jpegBase64: string) =>
         Effect.suspend(() => {
           const { stdin } = child;

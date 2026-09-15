@@ -70,6 +70,7 @@ import type {
   TeachingScreenshotContent,
   TeachingVariableInput,
   Variable,
+  TeachingCaptureLimits,
   TeachingRecordingArtifact,
   TeachingRecordingManifest,
   TeachingStopReason,
@@ -129,6 +130,8 @@ export interface AgentSessionServiceOptions {
   readonly allowedActivity: AgentSessionActivity | "any";
   /** The URL at which Workspace is served, normally loopback. */
   readonly baseUrl: string;
+  /** Injectable capture ceilings, lowered by focused recording tests. */
+  readonly captureLimits?: TeachingCaptureLimits;
   /** The owner marker written into every in-memory snapshot. */
   readonly processId?: string;
   /** Injectable clock for deterministic protocol tests. */
@@ -2087,190 +2090,6 @@ const makeAgentSession = (
         return ready;
       });
 
-    const startTeachingRecordingUnlocked = Effect.fn(
-      "AgentSession.startTeachingRecording"
-    )(function* startTeachingRecording(
-      sessionId: AgentSessionId,
-      operationId: OperationId | string
-    ) {
-      const requestInput = "";
-      const replayed = replaySession(
-        operationId,
-        "recording-start",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "replay") {
-        return replayed.snapshot;
-      }
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      const record = yield* read(sessionId);
-      if (
-        record.snapshot.activity !== "teaching" ||
-        !isLive(record.snapshot.phase)
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Agent Session ${sessionId} is not a live Teaching session.`
-          )
-        );
-      }
-      if (
-        record.snapshot.captureState._tag !== "setup" &&
-        record.snapshot.captureState._tag !== "ready" &&
-        record.snapshot.captureState._tag !== "failed"
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Teaching cannot start from ${record.snapshot.captureState._tag}.`
-          )
-        );
-      }
-      if (teachingRecordingStore === undefined || fileSystem === undefined) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_unavailable",
-            "Teaching recording storage is unavailable in this process."
-          )
-        );
-      }
-      const operation = OperationId.make(operationId);
-      const recordingId =
-        record.snapshot.captureState._tag === "setup"
-          ? record.snapshot.recordingId
-          : TeachingRecordingId.make(
-              `recording-${createHash("sha256")
-                .update(`${sessionId}:${String(operationId)}`)
-                .digest("hex")
-                .slice(0, 32)}`
-            );
-      if (record.snapshot.captureState._tag !== "setup") {
-        yield* teachingRecordingStore
-          .begin({
-            emulation: record.emulation,
-            flowSkillName: record.snapshot.flowSkillName,
-            operationId: operation,
-            recordingId,
-            sessionId,
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              error("agent_session_invalid", cause.message)
-            )
-          );
-      }
-      const directory = teachingRecordingStore.directory(recordingId);
-      yield* fileSystem
-        .makeDirectory(directory, { recursive: true })
-        .pipe(
-          Effect.mapError((cause) =>
-            error(
-              "agent_session_invalid",
-              `Could not create the Teaching recording directory: ${cause.message}`
-            )
-          )
-        );
-      const manifest = yield* teachingRecordingStore
-        .start({ operationId: operation, recordingId })
-        .pipe(
-          Effect.mapError((cause) =>
-            error("agent_session_invalid", cause.message)
-          )
-        );
-      if (manifest.lifecycle._tag !== "recording") {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Teaching Recording ${recordingId} did not enter recording.`
-          )
-        );
-      }
-      const capture = makeDemonstrationCapture(record.snapshot.currentUrl);
-      const recorderScope = yield* Scope.make("sequential");
-      yield* Scope.addFinalizer(
-        record.scope,
-        Scope.close(recorderScope, Exit.interrupt()).pipe(Effect.ignore)
-      );
-      const recorderResult = yield* Effect.result(
-        Scope.provide(recorderScope)(
-          makeTeachingRecorder({
-            browser,
-            browserSessionId: record.browserSessionId,
-            directory,
-            emulation: record.emulation,
-            fileSystem,
-            startedAt: manifest.lifecycle.startedAt,
-          })
-        )
-      );
-      if (Result.isFailure(recorderResult)) {
-        const { message } = recorderResult.failure;
-        yield* Scope.close(recorderScope, Exit.void);
-        yield* teachingRecordingStore
-          .stop({
-            artifacts: [],
-            failure: message,
-            operationId: operation,
-            recordingId,
-          })
-          .pipe(Effect.ignore);
-        const failedAt = now().toISOString();
-        const failed: AgentSessionSnapshot = {
-          ...record.snapshot,
-          captureState: { _tag: "failed", error: message, failedAt },
-          recordingId,
-          updatedAt: failedAt,
-        };
-        yield* saveRecord(sessionId, {
-          ...record,
-          artifactDirectory: directory,
-          capture,
-          snapshot: failed,
-        });
-        yield* rememberSession(
-          operationId,
-          "recording-start",
-          sessionId,
-          requestInput,
-          failed
-        );
-        return failed;
-      }
-      const recorder = recorderResult.success;
-      const recording: AgentSessionSnapshot = {
-        ...record.snapshot,
-        captureState: {
-          _tag: "recording",
-          startedAt: manifest.lifecycle.startedAt,
-        },
-        recordingId,
-        teaching: capture.progress(record.snapshot.teaching.draft),
-        updatedAt: manifest.lifecycle.startedAt,
-      };
-      yield* saveRecord(sessionId, {
-        ...record,
-        artifactDirectory: directory,
-        capture,
-        retentionFile: undefined,
-        snapshot: recording,
-        teachingRecorder: recorder,
-        traceFile: recorder.traceFile,
-        videoFile: recorder.videoFile,
-      });
-      yield* rememberSession(
-        operationId,
-        "recording-start",
-        sessionId,
-        requestInput,
-        recording
-      );
-      return recording;
-    });
-
     const stopTeachingRecordingUnlocked = Effect.fn(
       "AgentSession.stopTeachingRecording"
     )(function* stopTeachingRecording(
@@ -2389,6 +2208,213 @@ const makeAgentSession = (
         finished
       );
       return finished;
+    });
+
+    const startTeachingRecordingUnlocked = Effect.fn(
+      "AgentSession.startTeachingRecording"
+    )(function* startTeachingRecording(
+      sessionId: AgentSessionId,
+      operationId: OperationId | string
+    ) {
+      const requestInput = "";
+      const replayed = replaySession(
+        operationId,
+        "recording-start",
+        sessionId,
+        requestInput
+      );
+      if (replayed?._tag === "replay") {
+        return replayed.snapshot;
+      }
+      if (replayed?._tag === "conflict") {
+        return yield* Effect.fail(replayed.error);
+      }
+      const record = yield* read(sessionId);
+      if (
+        record.snapshot.activity !== "teaching" ||
+        !isLive(record.snapshot.phase)
+      ) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Agent Session ${sessionId} is not a live Teaching session.`
+          )
+        );
+      }
+      if (
+        record.snapshot.captureState._tag !== "setup" &&
+        record.snapshot.captureState._tag !== "ready" &&
+        record.snapshot.captureState._tag !== "failed"
+      ) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Teaching cannot start from ${record.snapshot.captureState._tag}.`
+          )
+        );
+      }
+      if (teachingRecordingStore === undefined || fileSystem === undefined) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_unavailable",
+            "Teaching recording storage is unavailable in this process."
+          )
+        );
+      }
+      const operation = OperationId.make(operationId);
+      const recordingId =
+        record.snapshot.captureState._tag === "setup"
+          ? record.snapshot.recordingId
+          : TeachingRecordingId.make(
+              `recording-${createHash("sha256")
+                .update(`${sessionId}:${String(operationId)}`)
+                .digest("hex")
+                .slice(0, 32)}`
+            );
+      if (record.snapshot.captureState._tag !== "setup") {
+        yield* teachingRecordingStore
+          .begin({
+            emulation: record.emulation,
+            flowSkillName: record.snapshot.flowSkillName,
+            operationId: operation,
+            recordingId,
+            sessionId,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              error("agent_session_invalid", cause.message)
+            )
+          );
+      }
+      const directory = teachingRecordingStore.directory(recordingId);
+      yield* fileSystem
+        .makeDirectory(directory, { recursive: true })
+        .pipe(
+          Effect.mapError((cause) =>
+            error(
+              "agent_session_invalid",
+              `Could not create the Teaching recording directory: ${cause.message}`
+            )
+          )
+        );
+      const manifest = yield* teachingRecordingStore
+        .start({ operationId: operation, recordingId })
+        .pipe(
+          Effect.mapError((cause) =>
+            error("agent_session_invalid", cause.message)
+          )
+        );
+      if (manifest.lifecycle._tag !== "recording") {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Teaching Recording ${recordingId} did not enter recording.`
+          )
+        );
+      }
+      const capture = makeDemonstrationCapture(record.snapshot.currentUrl);
+      const recorderScope = yield* Scope.make("sequential");
+      yield* Scope.addFinalizer(
+        record.scope,
+        Scope.close(recorderScope, Exit.interrupt()).pipe(Effect.ignore)
+      );
+      const recorderResult = yield* Effect.result(
+        Scope.provide(recorderScope)(
+          makeTeachingRecorder({
+            browser,
+            browserSessionId: record.browserSessionId,
+            counts: capture.counts,
+            demonstration: capture.current,
+            directory,
+            emulation: record.emulation,
+            fileSystem,
+            limits: options.captureLimits,
+            startedAt: manifest.lifecycle.startedAt,
+          })
+        )
+      );
+      if (Result.isFailure(recorderResult)) {
+        const { message } = recorderResult.failure;
+        yield* Scope.close(recorderScope, Exit.void);
+        yield* teachingRecordingStore
+          .stop({
+            artifacts: [],
+            failure: message,
+            operationId: operation,
+            recordingId,
+          })
+          .pipe(Effect.ignore);
+        const failedAt = now().toISOString();
+        const failed: AgentSessionSnapshot = {
+          ...record.snapshot,
+          captureState: { _tag: "failed", error: message, failedAt },
+          recordingId,
+          updatedAt: failedAt,
+        };
+        yield* saveRecord(sessionId, {
+          ...record,
+          artifactDirectory: directory,
+          capture,
+          snapshot: failed,
+        });
+        yield* rememberSession(
+          operationId,
+          "recording-start",
+          sessionId,
+          requestInput,
+          failed
+        );
+        return failed;
+      }
+      const recorder = recorderResult.success;
+      // A capture ceiling ends the recording on its own. The recorder only
+      // detects the breach; driving `captureState` out of `recording` belongs
+      // to the session, so this fiber waits on the signal and takes the lock
+      // the same way the user's Stop does. It lives in the session scope, not
+      // the recorder scope, because `stop` closes the recorder scope and would
+      // otherwise interrupt the very fiber running it; a Stop that lands first
+      // simply leaves this fiber parked on a signal that never comes.
+      yield* recorder.limitReached.pipe(
+        Effect.flatMap(() =>
+          lock.withPermit(
+            stopTeachingRecordingUnlocked(
+              sessionId,
+              `limit-recording-${recordingId}`,
+              "limit-reached"
+            )
+          )
+        ),
+        Effect.ignore,
+        Effect.forkIn(record.scope)
+      );
+      const recording: AgentSessionSnapshot = {
+        ...record.snapshot,
+        captureState: {
+          _tag: "recording",
+          startedAt: manifest.lifecycle.startedAt,
+        },
+        recordingId,
+        teaching: capture.progress(record.snapshot.teaching.draft),
+        updatedAt: manifest.lifecycle.startedAt,
+      };
+      yield* saveRecord(sessionId, {
+        ...record,
+        artifactDirectory: directory,
+        capture,
+        retentionFile: undefined,
+        snapshot: recording,
+        teachingRecorder: recorder,
+        traceFile: recorder.traceFile,
+        videoFile: recorder.videoFile,
+      });
+      yield* rememberSession(
+        operationId,
+        "recording-start",
+        sessionId,
+        requestInput,
+        recording
+      );
+      return recording;
     });
 
     const closeUnlocked = Effect.fn("AgentSession.close")(

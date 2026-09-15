@@ -3,14 +3,16 @@ import {
   ContingencyRpcs,
   OperationId,
 } from "@contingency/protocol";
+import type { TeachingCaptureLimits } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Stream } from "effect";
+import { Effect, FileSystem, Layer, Schedule, Stream } from "effect";
 import { RpcTest } from "effect/unstable/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
 const viewport = {
@@ -35,12 +37,16 @@ const AgentSessionIntegrationLive = RpcHandlersLive.pipe(
   Layer.provide(BrowserServices)
 );
 
-const teachingIntegrationLive = (root: string) =>
+const teachingIntegrationLive = (
+  root: string,
+  captureLimits?: TeachingCaptureLimits
+) =>
   RpcHandlersLive.pipe(
     Layer.provide(
       makeAgentSessionLayer({
         allowedActivity: "teaching",
         baseUrl: "http://127.0.0.1:7777",
+        captureLimits: captureLimits ?? DEFAULT_TEACHING_CAPTURE_LIMITS,
         traceDirectory: () => root,
       }).pipe(
         Layer.provide(makeTeachingRecordingStoreLayer({ root: () => root })),
@@ -251,5 +257,92 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
         type: "agent.session.close",
       });
     }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("ends the recording itself when a capture ceiling is reached", () =>
+  Effect.gen(function* teachingCaptureCeiling() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-teaching-ceiling-",
+    });
+    yield* Effect.gen(function* driveTeachingCeiling() {
+      const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+        flatten: true,
+      });
+      const opened = yield* client("agent.session.start", {
+        data: {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          name: "capture-ceiling",
+          operationId: OperationId.make("open-teaching-ceiling"),
+          url: "about:blank",
+          viewport,
+        },
+        type: "agent.session.start",
+      });
+      const setup = opened.data.session;
+      const recordingDirectory = `${root}/.recordings/${setup.recordingId}`;
+      const started = yield* client("agent.teaching.recording.start", {
+        data: {
+          operationId: OperationId.make("start-teaching-ceiling"),
+          sessionId: setup.id,
+        },
+        type: "agent.teaching.recording.start",
+      });
+      expect(started.data.session.captureState?._tag).toBe("recording");
+
+      // Two navigations clear the three-event ceiling on their own; the user
+      // never presses Stop in this journey.
+      for (const title of ["one", "two"]) {
+        yield* client("agent.browser.navigate", {
+          data: {
+            action: {
+              type: "navigate",
+              url: `data:text/html,<title>${title}</title><main>${title}</main>`,
+            },
+            sessionId: setup.id,
+          },
+          type: "agent.browser.navigate",
+        });
+      }
+
+      const settled = yield* Effect.gen(function* awaitCeiling() {
+        const current = yield* client("agent.session.get", {
+          data: { sessionId: setup.id },
+          type: "agent.session.get",
+        });
+        return current.data.session;
+      }).pipe(
+        Effect.repeat({
+          schedule: Schedule.spaced("250 millis"),
+          until: (session) => session.captureState?._tag !== "recording",
+        }),
+        Effect.timeout("30 seconds")
+      );
+      expect(settled.captureState?._tag).not.toBe("recording");
+
+      const events = yield* fileSystem.readFileString(
+        `${recordingDirectory}/events.jsonl`
+      );
+      expect(events).toContain('"reason":"limit-reached"');
+
+      yield* client("agent.session.close", {
+        data: {
+          operationId: OperationId.make("close-teaching-ceiling"),
+          sessionId: setup.id,
+        },
+        type: "agent.session.close",
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        teachingIntegrationLive(root, {
+          ...DEFAULT_TEACHING_CAPTURE_LIMITS,
+          events: 3,
+        })
+      )
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

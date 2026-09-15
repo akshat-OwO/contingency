@@ -10,19 +10,35 @@ import type {
   TeachingStopReason,
 } from "@contingency/protocol";
 import { EvidenceHash } from "@contingency/protocol";
-import { Effect, Exit, Ref, Scope, Stream } from "effect";
+import { Deferred, Effect, Exit, Ref, Scope, Stream } from "effect";
 import type { FileSystem } from "effect";
 
 import type { Demonstration } from "./agent-flow-compiler.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { browserFailure } from "./create-browser-session.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import type { DemonstrationCounts } from "./teaching-capture.ts";
 import { makeTeachingEncoder } from "./teaching-encoder.ts";
 
 const EVENT_FILE = "events.jsonl";
 const TRACE_FILE = "trace.zip";
 const VIDEO_FILE = "recording.webm";
 const CHANGE_SUMMARY_LIMIT = 40;
+
+/**
+ * How often the capture watchdog tests the ceilings. A ceiling ends the
+ * recording on its own, so the reader never waits on a Stop gesture that may
+ * never come; one second is far below every ceiling's own granularity.
+ */
+const WATCHDOG_INTERVAL_MS = 1000;
+
+/**
+ * How many new events may accumulate before the watchdog re-serializes the
+ * stream to measure it. Between measurements the size is projected from the
+ * measured bytes-per-event, so the common tick stays O(1) and the O(n) measure
+ * only runs as the stream approaches its ceiling.
+ */
+const EVENT_BYTES_RECHECK_EVENTS = 64;
 
 export const DEFAULT_TEACHING_CAPTURE_LIMITS: TeachingCaptureLimits = {
   durationMs: 60 * 60 * 1000,
@@ -39,6 +55,12 @@ export interface TeachingRecorderResult {
 }
 
 export interface TeachingRecorder {
+  /**
+   * Completes with the reader-facing detail once a capture ceiling ends the
+   * recording. The Agent Session awaits this and drives the session out of
+   * `recording` itself, because only the session owns that state machine.
+   */
+  readonly limitReached: Effect.Effect<string>;
   readonly stop: (
     demonstration: Demonstration,
     reason: TeachingStopReason,
@@ -50,11 +72,15 @@ export interface TeachingRecorder {
 
 export interface TeachingRecorderOptions {
   readonly browser: CreateBrowserService;
+  /** O(1) capture sizes, read by the watchdog on every tick. */
+  readonly counts: () => DemonstrationCounts;
+  /** The capture so far, serialized only when the byte ceiling is near. */
+  readonly demonstration: () => Demonstration;
   readonly browserSessionId: Parameters<CreateBrowserService["stream"]>[0];
   readonly directory: string;
   readonly emulation: DraftEmulation;
   readonly fileSystem: FileSystem.FileSystem;
-  readonly limits?: TeachingCaptureLimits;
+  readonly limits?: TeachingCaptureLimits | undefined;
   readonly startedAt: string;
 }
 
@@ -128,13 +154,19 @@ const withSequence = (
   seq: number
 ): TeachingEvent => ({ ...event, seq }) as TeachingEvent;
 
+const measureEventBytes = (events: readonly TeachingEvent[]): number =>
+  Buffer.byteLength(
+    `${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+    "utf-8"
+  );
+
 const eventsFor = (
   demonstration: Demonstration,
   emulation: DraftEmulation,
   startedAt: string,
   stoppedAt: string,
   reason: TeachingStopReason,
-  detail: string | undefined
+  detail?: string
 ): readonly TeachingEvent[] => {
   const pending: TeachingEventWithoutSequence[] = [
     {
@@ -279,8 +311,87 @@ export const makeTeachingRecorder = (
       Effect.forkIn(scope)
     );
 
+    // A ceiling is documented to end the recording, not merely to truncate the
+    // artifact at Stop. The watchdog trips `breach`, the loop exits, and the
+    // Agent Session -- which owns `captureState` -- reacts to `limitReached`.
+    const limitReached = yield* Deferred.make<string>();
+    let breach: string | undefined;
+    let measuredBytes = 0;
+    let measuredEvents = 0;
+    const exceededCeiling = (): string | undefined => {
+      const encoderFailure = encoder.unsafeFailure();
+      if (encoderFailure !== undefined) {
+        return encoderFailure;
+      }
+      if (Date.now() - Date.parse(options.startedAt) > limits.durationMs) {
+        return "Teaching stopped because the recording reached its duration limit.";
+      }
+      const counts = options.counts();
+      if (counts.keyframes > limits.keyframes) {
+        return "Teaching stopped because the recording reached its keyframe limit.";
+      }
+      // Mirrors `eventsFor`: one `started`, one per captured entry, one
+      // `stopped`.
+      const events =
+        2 +
+        counts.actions +
+        counts.instructions +
+        counts.keyframes +
+        counts.urlTransitions;
+      if (events > limits.events) {
+        return "Teaching stopped because the recording reached its event limit.";
+      }
+      const perEvent =
+        measuredEvents === 0 ? 0 : measuredBytes / measuredEvents;
+      const projected = measuredBytes + perEvent * (events - measuredEvents);
+      if (
+        measuredEvents !== 0 &&
+        events - measuredEvents < EVENT_BYTES_RECHECK_EVENTS &&
+        projected < limits.eventBytes
+      ) {
+        return;
+      }
+      measuredBytes = measureEventBytes(
+        eventsFor(
+          options.demonstration(),
+          options.emulation,
+          options.startedAt,
+          new Date().toISOString(),
+          "limit-reached"
+        )
+      );
+      measuredEvents = events;
+      return measuredBytes > limits.eventBytes
+        ? "Teaching stopped because the event stream reached its size limit."
+        : undefined;
+    };
+    yield* Effect.whileLoop({
+      body: () =>
+        Effect.sleep(WATCHDOG_INTERVAL_MS).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              breach = exceededCeiling();
+            })
+          )
+        ),
+      step: () => {
+        // The loop condition reads `breach` directly.
+      },
+      while: () => breach === undefined,
+    }).pipe(
+      Effect.andThen(
+        Effect.suspend(() =>
+          breach === undefined
+            ? Effect.void
+            : Deferred.succeed(limitReached, breach).pipe(Effect.asVoid)
+        )
+      ),
+      Effect.forkIn(scope)
+    );
+
     let stopped = false;
     return {
+      limitReached: Deferred.await(limitReached),
       stop: (demonstration, reason, stoppedAt) =>
         Effect.gen(function* stopTeachingRecorder() {
           if (stopped) {
@@ -296,16 +407,21 @@ export const makeTeachingRecorder = (
           const duration =
             Date.parse(stoppedAt) - Date.parse(options.startedAt);
           let captureFailure =
+            breach ??
             encoderFailure ??
             (duration > limits.durationMs
               ? "Teaching stopped because the recording reached its duration limit."
               : ((yield* Ref.get(failure)) ?? undefined));
+          const failureReason: TeachingStopReason =
+            breach === undefined ? "capture-failed" : "limit-reached";
+          const stopReason =
+            captureFailure === undefined ? reason : failureReason;
           const events = eventsFor(
             demonstration,
             options.emulation,
             options.startedAt,
             stoppedAt,
-            captureFailure === undefined ? reason : "capture-failed",
+            stopReason,
             captureFailure
           );
           let boundedEvents = events.slice(1);
