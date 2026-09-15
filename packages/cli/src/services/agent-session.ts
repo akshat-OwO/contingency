@@ -72,6 +72,7 @@ import type {
   Variable,
   TeachingRecordingArtifact,
   TeachingRecordingManifest,
+  TeachingStopReason,
 } from "@contingency/protocol";
 import {
   Cause,
@@ -2274,7 +2275,8 @@ const makeAgentSession = (
       "AgentSession.stopTeachingRecording"
     )(function* stopTeachingRecording(
       sessionId: AgentSessionId,
-      operationId: OperationId | string
+      operationId: OperationId | string,
+      reason: TeachingStopReason = "user"
     ) {
       const requestInput = "";
       const replayed = replaySession(
@@ -2316,12 +2318,15 @@ const makeAgentSession = (
         },
         updatedAt: stoppedAt,
       };
+      // Publish `finalizing` first: `recordingCapture` gates on `recording`, so
+      // this is what actually ends semantic capture on the same timestamp as the
+      // video and the trace, instead of letting it run through encoder drain.
+      yield* save(sessionId, record, finalizing);
       const recorderResult = yield* record.teachingRecorder.stop(
         record.capture.current(),
-        "user",
+        reason,
         stoppedAt
       );
-      yield* save(sessionId, record, finalizing);
       const playByPlayResult = yield* Effect.result(
         finalizeTeachingPlayByPlay(record)
       );
@@ -2427,7 +2432,8 @@ const makeAgentSession = (
         ) {
           yield* stopTeachingRecordingUnlocked(
             sessionId,
-            `close-recording-${String(operationId ?? sessionId)}`
+            `close-recording-${String(operationId ?? sessionId)}`,
+            "session-closed"
           );
           record = yield* read(sessionId);
         }
