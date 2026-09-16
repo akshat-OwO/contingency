@@ -245,6 +245,48 @@ const checkLinks = (
   }
 };
 
+/**
+ * Every submitted file is scanned, not only the procedure. A reference that
+ * introduces `{{city}}` on its own would leave a Dry Run with nothing to
+ * re-prompt for, which is the whole reason inputs are declared.
+ */
+const checkDeclaredInputs = (
+  files: readonly FlowSkillFile[],
+  frontmatter: Frontmatter,
+  report: (entry: FlowSkillDiagnostic) => void
+): void => {
+  const declared = new Set(frontmatter.inputs);
+  for (const file of files) {
+    const scanned =
+      file.path === SKILL_FILE
+        ? `${frontmatter.description ?? ""}\n${frontmatter.body}`
+        : file.content;
+    const used = new Set<string>();
+    PLACEHOLDER.lastIndex = 0;
+    for (
+      let placeholder = PLACEHOLDER.exec(scanned);
+      placeholder !== null;
+      placeholder = PLACEHOLDER.exec(scanned)
+    ) {
+      used.add(placeholder.groups?.input ?? "");
+    }
+    for (const input of used) {
+      if (declared.has(input)) {
+        continue;
+      }
+      report(
+        diagnostic(
+          "flow_skill_undeclared_input",
+          `${file.path} uses {{${input}}} but SKILL.md does not declare ${input} under inputs.`,
+          file.path === SKILL_FILE
+            ? [SKILL_FILE, "frontmatter", "inputs", input]
+            : [file.path, "inputs", input]
+        )
+      );
+    }
+  }
+};
+
 const TARGET_ENTRY = /^\s*-\s+role=/u;
 
 const checkAccessibility = (
@@ -338,27 +380,7 @@ export const validateFlowSkillPackage = (
         )
       );
     }
-    const declared = new Set(frontmatter.inputs);
-    const used = new Set<string>();
-    PLACEHOLDER.lastIndex = 0;
-    for (
-      let placeholder = PLACEHOLDER.exec(frontmatter.body);
-      placeholder !== null;
-      placeholder = PLACEHOLDER.exec(frontmatter.body)
-    ) {
-      used.add(placeholder.groups?.input ?? "");
-    }
-    for (const input of used) {
-      if (!declared.has(input)) {
-        report(
-          diagnostic(
-            "flow_skill_undeclared_input",
-            `SKILL.md uses {{${input}}} but does not declare ${input} under inputs.`,
-            [SKILL_FILE, "frontmatter", "inputs", input]
-          )
-        );
-      }
-    }
+    checkDeclaredInputs(files, frontmatter, report);
     const steps = readSteps(frontmatter.body);
     if (steps.length === 0) {
       report(
@@ -374,7 +396,7 @@ export const validateFlowSkillPackage = (
         report(
           diagnostic(
             "flow_skill_missing_completion_condition",
-            `Step ${step.label} of SKILL.md must end with "${COMPLETION_MARKER} <observable outcome>" so a later run can tell it finished.`,
+            `Step ${step.label} of SKILL.md must carry a "${COMPLETION_MARKER} <observable outcome>" line so a later run can tell it finished.`,
             [SKILL_FILE, "steps", step.label]
           )
         );

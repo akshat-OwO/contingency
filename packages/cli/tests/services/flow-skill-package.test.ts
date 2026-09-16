@@ -142,6 +142,34 @@ test("refuses a placeholder that no declared input covers", () => {
   ]);
 });
 
+test("refuses an undeclared placeholder that only a reference file uses", () => {
+  const files = withAccessibility(
+    `${GOLDEN_ACCESSIBILITY}\nAsk for {{postcode}} when the area is ambiguous.\n`
+  );
+  expect(codesFor(files)).toContain("flow_skill_undeclared_input");
+  expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
+    "references/accessibility.md",
+    "inputs",
+    "postcode",
+  ]);
+});
+
+test("refuses an undeclared placeholder that only the description uses", () => {
+  const files = withSkill(
+    GOLDEN_SKILL.replace(
+      "description: Set the shop's",
+      "description: Set {{region}} for the shop's"
+    )
+  );
+  expect(codesFor(files)).toContain("flow_skill_undeclared_input");
+  expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
+    "SKILL.md",
+    "frontmatter",
+    "inputs",
+    "region",
+  ]);
+});
+
 test("refuses a SKILL.md that carries no numbered procedure", () => {
   const files = withSkill(
     `${GOLDEN_SKILL.slice(0, GOLDEN_SKILL.indexOf("1. "))}Open the delivery chooser and confirm the area.\n`
