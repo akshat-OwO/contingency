@@ -223,12 +223,23 @@ export const elapsedSpokenLabel = (startedAt: string, now: number): string =>
   `Elapsed recording time ${elapsedLabel(startedAt, now)}`;
 
 /**
- * What the user hands an agent to learn a saved recording. #187 gives the
- * agent an MCP operation for this; until then the prompt is the honest way to
- * ask for it, so the Workspace copies text rather than offering a dead button.
+ * The prompt the user hands to a learning agent. It names the authoring skills
+ * by MCP URI because Contingency serves them itself (ADR 0039): the agent must
+ * not fall back to whatever skills its host happens to have installed, and
+ * `skill-creator` is never the right tool for a Flow Skill.
  */
 export const teachingAgentPrompt = (
   flowSkillName: string,
   recordingId: string
 ): string =>
-  `Learn the Contingency Teaching Recording ${recordingId} and write the Flow Skill "${flowSkillName}" from it.`;
+  [
+    `Learn the Contingency Teaching Recording ${recordingId} and write the Flow Skill "${flowSkillName}" from it.`,
+    "",
+    "Read these Contingency MCP resources first, then the recording timeline, then save:",
+    "- contingency://skill/writing-for-agents",
+    "- contingency://skill/writing-for-agents/SKILL-MECHANICS.md",
+    "- contingency://skill/technical-writing",
+    "- contingency://skill/unslop",
+    "",
+    "Do not use skill-creator. Claim the recording, page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.",
+  ].join("\n");

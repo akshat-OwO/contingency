@@ -7,6 +7,7 @@ import {
   TeachingEvent,
 } from "@contingency/protocol";
 import type {
+  FlowSkillDiagnostic,
   FlowSkillFile,
   FlowSkillSaveResult,
   OperationId,
@@ -28,6 +29,7 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { validateFlowSkillPackage } from "./flow-skill-package.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts";
@@ -46,6 +48,7 @@ interface TeachingRecordingLearningDomainError {
     | "teaching_recording_not_found"
     | "teaching_recording_timeout"
     | "teaching_timeline_too_large";
+  readonly diagnostics: readonly FlowSkillDiagnostic[];
   readonly message: string;
 }
 export type TeachingRecordingLearningError =
@@ -57,7 +60,25 @@ const learningError = (
 ): TeachingRecordingLearningError => ({
   _tag: "TeachingRecordingLearningError",
   code,
+  diagnostics: [],
   message,
+});
+
+/**
+ * A refusal that names each broken package property. The agent fixes the exact
+ * file and field rather than guessing at the whole package again.
+ */
+const invalidPackage = (
+  diagnostics: readonly FlowSkillDiagnostic[]
+): TeachingRecordingLearningError => ({
+  _tag: "TeachingRecordingLearningError",
+  code: "teaching_recording_invalid",
+  diagnostics,
+  message: `The Flow Skill package was not saved: ${diagnostics
+    .map(
+      (entry) => `${entry.code} at ${entry.path.join(" > ")}: ${entry.message}`
+    )
+    .join(" ")}`,
 });
 
 const fromStoreError = (
@@ -125,53 +146,63 @@ const isSafeSkillPath = (filePath: string): boolean => {
   );
 };
 
+const pathDiagnostic = (
+  code: string,
+  message: string,
+  filePath: string
+): FlowSkillDiagnostic => ({ code, message, path: [filePath] });
+
 const validateFiles = (
   files: readonly FlowSkillFile[]
 ): Effect.Effect<readonly FlowSkillFile[], TeachingRecordingLearningError> => {
+  const missingSkillFile = pathDiagnostic(
+    "flow_skill_missing_skill_file",
+    "A Flow Skill package must contain SKILL.md.",
+    SKILL_FILE
+  );
   if (files.length === 0) {
-    return Effect.fail(
-      learningError(
-        "teaching_recording_invalid",
-        "A Flow Skill package must contain SKILL.md."
-      )
-    );
+    return Effect.fail(invalidPackage([missingSkillFile]));
   }
   const names = new Set<string>();
   for (const file of files) {
     if (!isSafeSkillPath(file.path)) {
       return Effect.fail(
-        learningError(
-          "teaching_recording_invalid",
-          `Flow Skill file ${file.path} must be SKILL.md or a file under references/.`
-        )
+        invalidPackage([
+          pathDiagnostic(
+            "flow_skill_unsafe_path",
+            `Flow Skill file ${file.path} must be SKILL.md or a file under references/.`,
+            file.path
+          ),
+        ])
       );
     }
     if (file.content.trim().length === 0) {
       return Effect.fail(
-        learningError(
-          "teaching_recording_invalid",
-          `Flow Skill file ${file.path} must not be empty.`
-        )
+        invalidPackage([
+          pathDiagnostic(
+            "flow_skill_empty_file",
+            `Flow Skill file ${file.path} must not be empty.`,
+            file.path
+          ),
+        ])
       );
     }
     if (names.has(file.path)) {
       return Effect.fail(
-        learningError(
-          "teaching_recording_invalid",
-          `Flow Skill file ${file.path} appears more than once.`
-        )
+        invalidPackage([
+          pathDiagnostic(
+            "flow_skill_duplicate_file",
+            `Flow Skill file ${file.path} appears more than once.`,
+            file.path
+          ),
+        ])
       );
     }
     names.add(file.path);
   }
   return names.has(SKILL_FILE)
     ? Effect.succeed(files)
-    : Effect.fail(
-        learningError(
-          "teaching_recording_invalid",
-          "A Flow Skill package must contain SKILL.md."
-        )
-      );
+    : Effect.fail(invalidPackage([missingSkillFile]));
 };
 
 const eventProjection = (
@@ -532,6 +563,13 @@ const makeTeachingRecordingLearning = Effect.fn(
       const manifest = yield* store
         .readClaimed(input.recordingId, input.claimOperationId)
         .pipe(Effect.mapError(fromStoreError));
+      // The package contract is checked here, in the same pre-write window as
+      // the path rules: an invalid package must never become the live
+      // directory, so nothing is staged until every property holds.
+      const validated = validateFlowSkillPackage(manifest.flowSkillName, files);
+      if (Result.isFailure(validated)) {
+        return yield* Effect.fail(invalidPackage(validated.failure));
+      }
       const recordingDirectory = store.directory(input.recordingId);
       const catalogRoot = path.dirname(path.dirname(recordingDirectory));
       return yield* withSkillLock(

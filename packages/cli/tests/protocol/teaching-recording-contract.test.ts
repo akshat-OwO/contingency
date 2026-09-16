@@ -1,5 +1,6 @@
 import {
   AgentSessionSnapshot,
+  FlowSkillDiagnostic,
   FlowSkillSaveResult,
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TeachingCaptureState,
@@ -20,6 +21,7 @@ const decodeList = Schema.decodeUnknownSync(TeachingRecordingList);
 const decodeTimeline = Schema.decodeUnknownSync(TeachingTimeline);
 const decodeKeyframe = Schema.decodeUnknownSync(TeachingKeyframeContent);
 const decodeSkillSave = Schema.decodeUnknownSync(FlowSkillSaveResult);
+const decodeDiagnostic = Schema.decodeUnknownSync(FlowSkillDiagnostic);
 const at = "2026-09-13T10:00:00.000Z";
 
 const progressive = {
@@ -244,6 +246,33 @@ test("session snapshots reject mixed Teaching and Run data", () => {
       run: null,
       teaching: { actionCount: 2, draft: null, instructionCount: 1 },
       verification: null,
+    })
+  ).toThrow();
+});
+
+test("a Flow Skill diagnostic names the file and field it belongs to", () => {
+  const diagnostic = decodeDiagnostic({
+    code: "flow_skill_name_mismatch",
+    message:
+      'SKILL.md declares name "other" but the package is saved as "checkout-flow".',
+    path: ["SKILL.md", "frontmatter", "name"],
+  });
+
+  expect(diagnostic.path[0]).toBe("SKILL.md");
+  // The path is a file route, not a JSON pointer into an Agent Flow draft, so
+  // an index would tell the agent nothing about which line to fix.
+  expect(() =>
+    decodeDiagnostic({
+      code: "flow_skill_name_mismatch",
+      message: "The name is wrong.",
+      path: ["SKILL.md", 0],
+    })
+  ).toThrow();
+  expect(() =>
+    decodeDiagnostic({
+      code: "flow_skill_name_mismatch",
+      message: "",
+      path: ["SKILL.md"],
     })
   ).toThrow();
 });

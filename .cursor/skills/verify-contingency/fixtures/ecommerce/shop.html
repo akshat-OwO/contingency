@@ -96,16 +96,47 @@
       document.getElementById("view-cart").addEventListener("click", () => {
         window.location.assign("/cart.html");
       });
+      // The delivery journey is the parameterized one: a Flow Skill learned
+      // from it must be able to reach a different city and area than the
+      // demonstration used, so both are typed rather than picked by position.
+      const renderManualPicker = () => {
+        document.getElementById("delivery").innerHTML = [
+          "<h2>Delivery area</h2>",
+          "<label for='city'>City</label>",
+          "<input id='city' name='city' type='text' />",
+          "<label for='area'>Search for your delivery area</label>",
+          "<input id='area' name='area' type='text' />",
+          "<button id='confirm-area' type='button'>Confirm delivery area</button>",
+          "<p id='delivery-status' role='status'>No delivery area chosen</p>",
+        ].join("");
+        document
+          .getElementById("confirm-area")
+          .addEventListener("click", () => {
+            const city = document.getElementById("city").value.trim();
+            const area = document.getElementById("area").value.trim();
+            document.getElementById("delivery-status").textContent =
+              city && area
+                ? `Delivering to ${area}, ${city}`
+                : "Enter a city and a delivery area";
+          });
+      };
+      const renderDeliveryChoice = () => {
+        document.getElementById("delivery").innerHTML = [
+          "<h2>Delivery area</h2>",
+          "<button type='button'>Use current location</button>",
+          "<button id='select-manually' type='button'>Select manually</button>",
+        ].join("");
+        document
+          .getElementById("select-manually")
+          .addEventListener("click", renderManualPicker);
+      };
       document
         .getElementById("choose-delivery")
         .addEventListener("click", () => {
           history.pushState({}, "", "/shop.html/delivery");
           requestAnimationFrame(() => {
             setTimeout(() => {
-              requestAnimationFrame(() => {
-                document.getElementById("delivery").innerHTML =
-                  "<h2>Delivery area</h2><button type='button'>Use current location</button>";
-              });
+              requestAnimationFrame(renderDeliveryChoice);
             }, 0);
           });
         });

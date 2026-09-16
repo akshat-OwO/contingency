@@ -1,4 +1,5 @@
 import {
+  FlowSkillDiagnostic,
   FlowSkillFile,
   FlowSkillSaveResult,
   OperationId,
@@ -29,6 +30,7 @@ class TeachingRecordingFailure extends Schema.Error<TeachingRecordingFailure>(
   "TeachingRecordingFailure"
 )({
   code: Schema.String,
+  diagnostics: Schema.Array(FlowSkillDiagnostic),
   message: Schema.String,
 }) {}
 
@@ -37,6 +39,7 @@ const failure = (
 ) =>
   new TeachingRecordingFailure({
     code: cause.code,
+    diagnostics: "diagnostics" in cause ? cause.diagnostics : [],
     message: `${cause.message} (${cause.code})`,
   });
 
@@ -139,7 +142,7 @@ const TeachingKeyframeGetTool = Tool.make("agent_teaching_keyframe_get", {
 const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
   dependencies: [TeachingRecordingLearning],
   description:
-    "Atomically save a proposed Flow Skill package for the claimed Teaching Recording. Supply a non-empty SKILL.md and optional non-empty files under references/. Invalid paths and failed writes leave any previous package unchanged.",
+    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. SKILL.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs, and a "Done when:" line on each numbered step. Optional files under references/ must be reachable from a link. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
@@ -225,6 +228,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           return yield* Effect.fail(
             new TeachingRecordingFailure({
               code: "teaching_recording_conflict",
+              diagnostics: [],
               message: `Teaching Recording ${params.recordingId} no longer has this learning claim. (teaching_recording_conflict)`,
             })
           );
