@@ -46,7 +46,14 @@ yarn-error.log*
 # on the ticket rather than committed
 packages/cli/tests/calibration/results.json
 
-# Agent Flow Catalog: per-machine state, not shared source. Holds saved and
-# approved Agent Flows, the write-ahead operations log, and Teaching Traces
-# and videos, which are unredacted and sensitive.
-.contingency/
+# Catalog Root. A learned Flow Skill is shared source and stays tracked, so the
+# directory is not ignored wholesale. Everything sensitive or per-machine is:
+# Teaching Recordings hold unredacted video, Traces, and events; the Flow Skill
+# lock, staging, and backup entries belong to one save; and Agent Flow packages
+# are per-machine state until the Agent Flow path is removed (#184).
+.contingency/.recordings/
+.contingency/.flow-skill.lock
+.contingency/.flow-skill-*.tmp
+.contingency/.flow-skill-*.backup
+.contingency/agent-flows/
+.contingency/agent-flow-catalog.json

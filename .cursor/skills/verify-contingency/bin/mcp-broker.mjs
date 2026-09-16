@@ -24,6 +24,7 @@ const { Option, Schema } = await import(
 );
 
 const REQUEST_TIMEOUT_MS = 60_000;
+const ResourceRequest = Schema.Struct({ uri: Schema.optional(Schema.String) });
 const CallRequest = Schema.Struct({
   params: Schema.optional(Schema.Record(Schema.String, Schema.Json)),
   tool: Schema.String,
@@ -125,8 +126,33 @@ const handle = async (request, response) => {
     respond(response, 200, { ok: true });
     return;
   }
+  // Resources are how a learning agent reaches Contingency's own authoring
+  // skills, so a drive must be able to list and read them from this same
+  // process rather than from whatever the host has installed.
+  if (request.method === "POST" && request.url === "/resource") {
+    const decodedResource = Schema.decodeUnknownOption(ResourceRequest)(
+      JSON.parse(await readBody(request))
+    );
+    if (Option.isNone(decodedResource)) {
+      respond(response, 400, { error: "resource takes an optional uri" });
+      return;
+    }
+    const { uri } = decodedResource.value;
+    const message =
+      uri === undefined
+        ? await send("resources/list", {})
+        : await send("resources/read", { uri });
+    if (message.error === undefined) {
+      respond(response, 200, message.result);
+      return;
+    }
+    respond(response, 502, { error: message.error });
+    return;
+  }
   if (request.method !== "POST" || request.url !== "/call") {
-    respond(response, 404, { error: "POST /call or GET /health" });
+    respond(response, 404, {
+      error: "POST /call, POST /resource, or GET /health",
+    });
     return;
   }
   const decoded = Schema.decodeUnknownOption(CallRequest)(

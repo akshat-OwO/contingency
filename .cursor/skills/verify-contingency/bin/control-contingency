@@ -48,6 +48,8 @@ Commands:
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
   mcp call --tool <name> [--params <json>]
+  mcp resources
+  mcp resource --uri <uri>
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
@@ -964,6 +966,34 @@ const cmdMcpCall = async (flags) => {
   }
 };
 
+/**
+ * List or read one MCP resource on the running verification server. This is
+ * how a drive reads the authoring skills Contingency serves, in the same MCP
+ * conversation that later saves the Flow Skill.
+ */
+const cmdMcpResource = async (flags) => {
+  const instance = readInstance();
+  if (typeof instance.brokerUrl !== "string") {
+    fail("No MCP instance is recorded. Run mcp start first.");
+  }
+  const uri = typeof flags.uri === "string" ? flags.uri : undefined;
+  const response = await fetch(`${instance.brokerUrl}resource`, {
+    body: JSON.stringify(uri === undefined ? {} : { uri }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    fail(`${uri ?? "resources/list"} failed (${response.status}): ${body}`);
+  }
+  const result = JSON.parse(body);
+  const text = (result.contents ?? [])
+    .filter((entry) => typeof entry.text === "string")
+    .map((entry) => entry.text)
+    .join("\n");
+  process.stdout.write(`${text.length > 0 ? text : body}\n`);
+};
+
 const cmdMcpStop = async () => {
   const instance = readInstance();
   if (typeof instance.mcpPid !== "number" || !pidAlive(instance.mcpPid)) {
@@ -1078,11 +1108,19 @@ const main = async () => {
       await cmdMcpCall(parseArgs(argv.slice(2)).flags);
       return;
     }
+    if (action === "resources") {
+      await cmdMcpResource({});
+      return;
+    }
+    if (action === "resource") {
+      await cmdMcpResource(parseArgs(argv.slice(2)).flags);
+      return;
+    }
     if (action === "stop") {
       await cmdMcpStop();
       return;
     }
-    fail("mcp needs start, call, or stop.");
+    fail("mcp needs start, call, resources, resource, or stop.");
   }
   fail(`Unknown command: ${command}`);
 };

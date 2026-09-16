@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Anvil Works delivery</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+      }
+      /*
+        The user reaches every control by coordinate, the way a pointer reaches
+        it through the streamed Workspace viewport, so each one is laid out at
+        a fixed place that does not move when the section re-renders.
+      */
+      .row {
+        height: 32px;
+        left: 20px;
+        position: fixed;
+        width: 240px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!--
+        The parameterized journey a Flow Skill is learned from: the city and
+        the delivery area are typed, so a later run can reach a pair the
+        demonstration never used. The outcome is a status naming both.
+      -->
+      <section id="delivery" aria-labelledby="delivery-heading">
+        <h2 id="delivery-heading" class="row" style="top: 20px">Delivery</h2>
+        <button
+          class="row"
+          id="choose-delivery"
+          style="top: 100px"
+          type="button"
+        >
+          Choose delivery area
+        </button>
+      </section>
+    </main>
+    <script>
+      const manualPicker = [
+        "<h2 class='row' style='top: 20px'>Delivery area</h2>",
+        "<label class='row' style='top: 70px' for='city'>City</label>",
+        "<input class='row' style='top: 100px' id='city' name='city' type='text' />",
+        "<label class='row' style='top: 150px' for='area'>Search for your delivery area</label>",
+        "<input class='row' style='top: 180px' id='area' name='area' type='text' />",
+        "<button class='row' style='top: 240px' id='confirm-area' type='button'>Confirm delivery area</button>",
+        "<p class='row' style='top: 300px' id='delivery-status' role='status'>No delivery area chosen</p>",
+      ].join("");
+      const deliveryChoice = [
+        "<h2 class='row' style='top: 20px'>Delivery area</h2>",
+        "<button class='row' style='top: 100px' type='button'>Use current location</button>",
+        "<button class='row' style='top: 160px' id='select-manually' type='button'>Select manually</button>",
+      ].join("");
+      const delivery = document.getElementById("delivery");
+      const renderManualPicker = () => {
+        delivery.innerHTML = manualPicker;
+        document
+          .getElementById("confirm-area")
+          .addEventListener("click", () => {
+            const city = document.getElementById("city").value.trim();
+            const area = document.getElementById("area").value.trim();
+            document.getElementById("delivery-status").textContent =
+              city && area
+                ? `Delivering to ${area}, ${city}`
+                : "Enter a city and a delivery area";
+          });
+      };
+      document
+        .getElementById("choose-delivery")
+        .addEventListener("click", () => {
+          delivery.innerHTML = deliveryChoice;
+          document
+            .getElementById("select-manually")
+            .addEventListener("click", renderManualPicker);
+        });
+    </script>
+  </body>
+</html>

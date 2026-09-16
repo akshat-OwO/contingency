@@ -361,6 +361,20 @@ export const FlowSkillFile = Schema.Struct({
 });
 export type FlowSkillFile = typeof FlowSkillFile.Type;
 
+/**
+ * One structured reason a proposed Flow Skill package was refused. The path
+ * starts at the file it belongs to, so an agent can fix the exact line rather
+ * than resubmit the whole package. It is not a JSON pointer: a Flow Skill is
+ * markdown, not a draft object.
+ */
+export const FlowSkillDiagnostic = Schema.Struct({
+  code: nonEmptyString,
+  message: nonEmptyString,
+  /** File first, then the section or field inside it. */
+  path: Schema.Array(nonEmptyString),
+});
+export type FlowSkillDiagnostic = typeof FlowSkillDiagnostic.Type;
+
 export const FlowSkillSaveResult = Schema.Struct({
   files: Schema.Array(nonEmptyString),
   flowSkillName: FlowSkillName,

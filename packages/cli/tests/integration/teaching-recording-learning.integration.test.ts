@@ -15,6 +15,37 @@ import {
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
+/**
+ * The package a learning agent submits after reading Contingency's authoring
+ * skills. It meets the Flow Skill contract, so the save path is exercised the
+ * way a real learning run reaches it rather than through a bare heading.
+ */
+const LEARN_ANVIL_SKILL = `---
+name: learn-anvil
+description: Sign in to the Anvil Works shop and confirm the account page. Use when a run must reach the signed-in shop.
+inputs:
+  - account
+---
+
+# Learn anvil
+
+Read [the accessibility targets](references/accessibility.md) before choosing a control.
+
+1. Fill the textbox named "Username" with {{account}}. Done when: the textbox holds {{account}}.
+2. Choose the button named "Sign in". Done when: the page names the signed-in account.
+`;
+
+const LEARN_ANVIL_ACCESSIBILITY = `# Accessibility targets
+
+- role=textbox name="Username" context="Sign in"
+- role=button name="Sign in" context="Sign in"
+
+## Why these targets are stable
+
+Both controls keep their visible labels, and the sign-in form is the only
+region carrying them.
+`;
+
 it.live(
   "learns a bounded Flow Skill from a recording created in another process lifetime",
   () =>
@@ -160,16 +191,36 @@ it.live(
             )
           ).toBe("# Previous package\n");
 
+          const refusedContent = yield* Effect.flip(
+            teachingRecordingTool("agent_flow_skill_save", {
+              claimOperationId,
+              files: [
+                { content: "# Learn anvil\n\nClick e12.\n", path: "SKILL.md" },
+              ],
+              operationId: OperationId.make("learning-save-uncontracted"),
+              recordingId,
+            })
+          );
+          expect(refusedContent.code).toBe("teaching_recording_invalid");
+          const diagnostics = refusedContent.diagnostics ?? [];
+          expect(diagnostics.map((entry) => entry.code)).toContain(
+            "flow_skill_missing_frontmatter"
+          );
+          expect(
+            diagnostics.every((entry) => entry.path[0] === "SKILL.md")
+          ).toBe(true);
+          expect(
+            yield* fileSystem.readFileString(
+              path.join(skillDirectory, "SKILL.md")
+            )
+          ).toBe("# Previous package\n");
+
           const saveInput = {
             claimOperationId,
             files: [
+              { content: LEARN_ANVIL_SKILL, path: "SKILL.md" },
               {
-                content:
-                  "# Learn anvil\n\nOpen the shop and confirm the Anvil Works page is visible.\n",
-                path: "SKILL.md",
-              },
-              {
-                content: "Use the button named Add to cart.\n",
+                content: LEARN_ANVIL_ACCESSIBILITY,
                 path: "references/accessibility.md",
               },
             ],

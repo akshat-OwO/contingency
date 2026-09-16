@@ -32,6 +32,7 @@ import { makeHttpServerLayer } from "../services/http-server.ts";
 import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
+import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import {
@@ -44,7 +45,8 @@ const mcpTools = Layer.mergeAll(
   McpAgentSessionLayer,
   McpAgentFlowLayer,
   McpAgentRunLayer,
-  McpTeachingRecordingLayer
+  McpTeachingRecordingLayer,
+  McpAuthoringSkillsLayer
 );
 
 const ListenError = Schema.Struct({ code: Schema.String });
