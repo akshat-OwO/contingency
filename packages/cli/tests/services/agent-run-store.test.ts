@@ -173,6 +173,16 @@ it.effect(
       );
       expect(yield* readCeilings).toEqual({ runMs: 60_000, stepMs: 5000 });
 
+      // A Catalog Root written before the file was renamed keeps its budget.
+      yield* fileSystem.remove(path.join(root, "catalog.json"));
+      yield* fileSystem.writeFileString(
+        path.join(root, "agent-flow-catalog.json"),
+        JSON.stringify({
+          agentRunCeilings: { runCeilingMs: 30_000, stepCeilingMs: 2000 },
+        })
+      );
+      expect(yield* readCeilings).toEqual({ runMs: 30_000, stepMs: 2000 });
+
       // An unreadable policy must not stop a Run from starting.
       yield* fileSystem.writeFileString(
         path.join(root, "catalog.json"),

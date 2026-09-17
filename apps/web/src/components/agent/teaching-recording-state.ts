@@ -313,9 +313,10 @@ export const flowSkillRunPrompt = (flowSkillName: string): string =>
   [
     `Run the Contingency flow skill "${flowSkillName}".`,
     "",
-    `Read .contingency/${
+    `Call agent_flow_skills_list to find "${
       flowSkillName
-    }/SKILL.md, ask me for every declared input, then call agent_flow_skill_run_start with those inputs and the page the first step opens.`,
+    }" in the selected Catalog Root and read the SKILL.md at the path it reports.`,
+    "Ask me for every declared input, then call agent_flow_skill_run_start with those inputs and the page the first step opens.",
     'Drive the returned Agent Session with the browser tools and call agent_run_step_assess for each ordered step, judged against its own "Done when:" line.',
     "Call agent_run_complete when the steps are done or one of them could not be completed.",
   ].join("\n");

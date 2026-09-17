@@ -19,9 +19,9 @@ const variableName = Schema.String.check(
 
 /**
  * The exact hosts and explicit wildcard patterns (`*.example.com`) a session
- * may visit without pausing. A Flow Skill Run derives it from the hosts the
- * Teaching Recording observed, so the ceiling is demonstrated rather than
- * asserted ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
+ * may visit without pausing. A Flow Skill Run starts scoped to the host of the
+ * page it opens, and any other top-level document pauses for the user
+ * ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
  */
 export const DomainScope = Schema.Struct({
   hosts: Schema.Array(nonEmptyString).check(Schema.isMinLength(1)),
