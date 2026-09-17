@@ -476,12 +476,13 @@ it.live(
             operationId: OperationId.make("delivery-run-start"),
             url: fixtures.url("delivery.html"),
           });
-          // The Run reproduces the device the journey was demonstrated on.
           expect(run.run?.steps.length).toBeGreaterThan(0);
-          const viewport = yield* sessionTool("agent_browser_snapshot", {
-            sessionId: run.id,
-          });
-          expect(viewport.url).toContain("delivery.html");
+          // The Run reproduces the device the journey was demonstrated on, so
+          // read the Emulation the browser actually applied rather than any
+          // value the start call echoed back.
+          const session = yield* AgentSession;
+          const applied = yield* session.emulation(run.id);
+          expect(applied.emulation.viewport).toEqual(agentViewport);
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
