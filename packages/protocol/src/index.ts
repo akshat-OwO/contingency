@@ -46,7 +46,12 @@ import {
   BrowserStorageSnapshot,
   StorageKind,
 } from "./storage.ts";
-import { FlowSkillName } from "./teaching-recording.ts";
+import {
+  FlowSkillName,
+  TeachingCaptureState,
+  TeachingRecordingCleanupState,
+  TeachingRecordingId,
+} from "./teaching-recording.ts";
 import { Viewport } from "./viewport.ts";
 
 // The protocol package intentionally exposes one public contract surface.
@@ -423,6 +428,48 @@ export const AgentTeachingRecordingDiscardRequest = request(
 export const AgentTeachingRecordingDiscarded = response(
   "agent.teaching.recording.discarded",
   { session: AgentSessionSnapshot }
+);
+
+const teachingFlowLifecycleRequest = {
+  operationId: AgentSessionClose.fields.operationId,
+  recordingId: TeachingRecordingId,
+};
+const teachingFlowLifecycleResponse = {
+  captureState: TeachingCaptureState,
+  cleanup: TeachingRecordingCleanupState,
+};
+
+export const AgentTeachingDryRunStopRequest = request(
+  "agent.teaching.dry-run.stop",
+  teachingFlowLifecycleRequest
+);
+export const AgentTeachingDryRunStopped = response(
+  "agent.teaching.dry-run.stopped",
+  teachingFlowLifecycleResponse
+);
+export const AgentTeachingFlowRejectRequest = request(
+  "agent.teaching.flow.reject",
+  teachingFlowLifecycleRequest
+);
+export const AgentTeachingFlowRejected = response(
+  "agent.teaching.flow.rejected",
+  teachingFlowLifecycleResponse
+);
+export const AgentTeachingFlowVerifyRequest = request(
+  "agent.teaching.flow.verify",
+  teachingFlowLifecycleRequest
+);
+export const AgentTeachingFlowVerified = response(
+  "agent.teaching.flow.verified",
+  teachingFlowLifecycleResponse
+);
+export const AgentTeachingCleanupRetryRequest = request(
+  "agent.teaching.cleanup.retry",
+  teachingFlowLifecycleRequest
+);
+export const AgentTeachingCleanupRetried = response(
+  "agent.teaching.cleanup.retried",
+  teachingFlowLifecycleResponse
 );
 
 /**
@@ -818,6 +865,27 @@ const AgentTeachingRecordingDiscardRpc = Rpc.make(
   }
 );
 
+const AgentTeachingDryRunStopRpc = Rpc.make("agent.teaching.dry-run.stop", {
+  error: BrowserRpcError,
+  payload: AgentTeachingDryRunStopRequest,
+  success: AgentTeachingDryRunStopped,
+});
+const AgentTeachingFlowRejectRpc = Rpc.make("agent.teaching.flow.reject", {
+  error: BrowserRpcError,
+  payload: AgentTeachingFlowRejectRequest,
+  success: AgentTeachingFlowRejected,
+});
+const AgentTeachingFlowVerifyRpc = Rpc.make("agent.teaching.flow.verify", {
+  error: BrowserRpcError,
+  payload: AgentTeachingFlowVerifyRequest,
+  success: AgentTeachingFlowVerified,
+});
+const AgentTeachingCleanupRetryRpc = Rpc.make("agent.teaching.cleanup.retry", {
+  error: BrowserRpcError,
+  payload: AgentTeachingCleanupRetryRequest,
+  success: AgentTeachingCleanupRetried,
+});
+
 const AgentTeachingInstructionRecordRpc = Rpc.make(
   "agent.teaching.instruction.record",
   {
@@ -996,6 +1064,10 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentTeachingRecordingStartRpc,
   AgentTeachingRecordingStopRpc,
   AgentTeachingRecordingDiscardRpc,
+  AgentTeachingDryRunStopRpc,
+  AgentTeachingFlowRejectRpc,
+  AgentTeachingFlowVerifyRpc,
+  AgentTeachingCleanupRetryRpc,
   AgentTeachingInstructionRecordRpc,
   AgentTeachingFlowRenameRpc,
   AgentBrowserElementInspectRpc,

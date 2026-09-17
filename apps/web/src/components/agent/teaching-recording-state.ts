@@ -1,11 +1,20 @@
-import type { TeachingCaptureState } from "@contingency/protocol";
+import type {
+  TeachingCaptureState,
+  TeachingRecordingCleanupState,
+} from "@contingency/protocol";
 
 /**
  * The user gestures that move a Teaching Recording. Start and Stop are the
  * whole privacy boundary (ADR 0039): nothing is captured before Start, and
  * every capture source ends at Stop.
  */
-export type TeachingRecordingGesture = "start" | "stop";
+export type TeachingRecordingGesture =
+  | "dry-run"
+  | "retry-cleanup"
+  | "start"
+  | "stop"
+  | "stop-dry-run"
+  | "verify-flow";
 
 export interface TeachingRecordingAction {
   /**
@@ -25,6 +34,10 @@ export interface TeachingRecordingAction {
 export type TeachingSecondaryAction =
   | "copy-prompt"
   | "delete-recording"
+  | "learn-again"
+  | "read-failure"
+  | "read-flow-skill"
+  | "reject-flow"
   | "rename-flow";
 
 export interface TeachingRecordingPresentation {
@@ -59,16 +72,23 @@ const STOP: TeachingRecordingAction = {
   label: "Stop",
 };
 
+const action = (
+  gesture: TeachingRecordingGesture,
+  label: string
+): TeachingRecordingAction => ({ accessibleName: label, gesture, label });
+
 /**
  * How the Workspace presents one Teaching capture state. The names and
  * sentences come from the settled #185 prototype state contract.
  *
- * States from `learning` onward are rendered honestly but without controls:
- * the learning, dry-run, and verification actions belong to their own work,
- * and a disabled repeat of the previous action is not a status.
+ * `learning` is rendered honestly but without controls: it belongs to the
+ * agent, and a disabled repeat of the previous action is not a status. Every
+ * state a person can act on carries the one action the prototype settled, so
+ * an action the state cannot take is absent rather than disabled.
  */
 export const teachingRecordingPresentation = (
-  captureState: TeachingCaptureState
+  captureState: TeachingCaptureState,
+  cleanup?: TeachingRecordingCleanupState
 ): TeachingRecordingPresentation => {
   switch (captureState._tag) {
     case "setup": {
@@ -133,18 +153,19 @@ export const teachingRecordingPresentation = (
     }
     case "skill-drafted": {
       return {
-        action: null,
+        action: action("dry-run", "Dry run"),
         badge: "Flow skill drafted",
-        nextStep: `The agent saved the flow skill to ${captureState.skillPath}.`,
-        secondaries: [],
+        nextStep:
+          "Dry-run it with different inputs to see whether it reuses the journey.",
+        secondaries: ["read-flow-skill", "learn-again"],
         showsElapsed: false,
-        showsInspect: false,
+        showsInspect: true,
         tone: "default",
       };
     }
     case "dry-running": {
       return {
-        action: null,
+        action: action("stop-dry-run", "Stop dry run"),
         badge: "Dry run",
         nextStep: "The flow skill is running in a fresh browser.",
         secondaries: [],
@@ -153,23 +174,57 @@ export const teachingRecordingPresentation = (
         tone: "default",
       };
     }
+    case "dry-run-failed": {
+      return {
+        action: action("dry-run", "Dry run"),
+        badge: "Dry run failed",
+        nextStep: captureState.dryRunResult.observableOutcome,
+        secondaries: ["read-failure", "learn-again"],
+        showsElapsed: false,
+        showsInspect: true,
+        tone: "failed",
+      };
+    }
     case "dry-run-passed": {
       return {
-        action: null,
+        action: action("verify-flow", "Verify flow"),
         badge: "Dry run passed",
-        nextStep: "The recording is kept until the flow is verified.",
-        secondaries: [],
+        nextStep:
+          "Verify the flow to keep it and delete the recording. Reject to keep the recording.",
+        secondaries: ["reject-flow", "read-flow-skill"],
         showsElapsed: false,
-        showsInspect: false,
+        showsInspect: true,
         tone: "default",
       };
     }
     case "verified": {
+      if (cleanup?._tag === "purge-pending" && cleanup.failure !== null) {
+        return {
+          action: action("retry-cleanup", "Retry cleanup"),
+          badge: "Video and trace still on disk",
+          nextStep: `${cleanup.retainedFiles.join(", ")} could not be deleted. Retry the deletion.`,
+          secondaries: [],
+          showsElapsed: false,
+          showsInspect: false,
+          tone: "failed",
+        };
+      }
+      if (cleanup?._tag !== "purged") {
+        return {
+          action: null,
+          badge: "Deleting recording",
+          nextStep: "The flow is verified. Deleting the temporary recording.",
+          secondaries: [],
+          showsElapsed: false,
+          showsInspect: false,
+          tone: "default",
+        };
+      }
       return {
         action: null,
         badge: "Recording deleted",
         nextStep: "The flow skill and its references are all that is left.",
-        secondaries: [],
+        secondaries: ["read-flow-skill"],
         showsElapsed: false,
         showsInspect: false,
         tone: "default",
@@ -242,4 +297,6 @@ export const teachingAgentPrompt = (
     "- contingency://skill/unslop",
     "",
     "Do not use skill-creator. Claim the recording, page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.",
+    "After saving, ask for the inputs again and call agent_flow_skill_dry_run_start with at least one changed input when the task permits it. Drive the returned fresh Agent Session, check the observable outcome, and call agent_flow_skill_dry_run_report.",
+    "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
   ].join("\n");

@@ -594,6 +594,7 @@ const snapshotFromReadyManifest = (
     ownerProcessId: owner,
     pendingDecisions: [],
     phase: "closed",
+    recordingCleanup: manifest.cleanup,
     recordingId: manifest.recordingId,
     run: null,
     takeover: null,
@@ -1065,6 +1066,7 @@ const deadlineFrom = (from: Date, ms: number): string =>
 const CEILING_POLL_INTERVAL = "250 millis";
 
 const TIMELINE_LIMIT = 200;
+const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
 
 /**
  * The action the agent has dispatched to the browser right now, if any. A user
@@ -1693,9 +1695,11 @@ const makeAgentSession = (
         ? Effect.succeed(null)
         : teachingRecordingStore.listReady().pipe(
             Effect.map((ready) => {
-              const manifest = ready.find(
-                (item) => item.sessionId === sessionId
-              );
+              const [manifest] = ready
+                .filter((item) => item.sessionId === sessionId)
+                .toSorted((left, right) =>
+                  right.updatedAt.localeCompare(left.updatedAt)
+                );
               return manifest === undefined
                 ? null
                 : snapshotFromReadyManifest(manifest, owner, options.baseUrl);
@@ -1806,8 +1810,8 @@ const makeAgentSession = (
     const refreshedSnapshot = (
       sessionId: AgentSessionId,
       record: SessionRecord
-    ): Effect.Effect<AgentSessionSnapshot> =>
-      browser.currentUrl(record.browserSessionId).pipe(
+    ): Effect.Effect<AgentSessionSnapshot> => {
+      const browserRefresh = browser.currentUrl(record.browserSessionId).pipe(
         Effect.flatMap((currentUrl) =>
           mutate(sessionId, (snapshot) => {
             const safeCurrentUrl = sanitizeTeachingUrl(currentUrl);
@@ -1824,6 +1828,85 @@ const makeAgentSession = (
         Effect.map((next) => next ?? record.snapshot),
         Effect.orElseSucceed(() => record.snapshot)
       );
+      if (
+        record.snapshot.activity !== "teaching" ||
+        teachingRecordingStore === undefined
+      ) {
+        return browserRefresh;
+      }
+      return browserRefresh.pipe(
+        Effect.flatMap((snapshot) =>
+          snapshot.activity === "teaching"
+            ? Effect.result(
+                teachingRecordingStore.read(snapshot.recordingId)
+              ).pipe(
+                Effect.flatMap((readResult) => {
+                  if (Result.isSuccess(readResult)) {
+                    const manifest = readResult.success;
+                    return mutate(sessionId, (current) =>
+                      current.activity === "teaching" &&
+                      current.updatedAt !== manifest.updatedAt
+                        ? {
+                            ...current,
+                            captureState: manifest.lifecycle,
+                            recordingCleanup: manifest.cleanup,
+                            updatedAt: manifest.updatedAt,
+                          }
+                        : current
+                    ).pipe(Effect.map((next) => next ?? snapshot));
+                  }
+                  if (
+                    fileSystem === undefined ||
+                    snapshot.captureState._tag !== "dry-run-passed"
+                  ) {
+                    return Effect.succeed(snapshot);
+                  }
+                  const catalogRoot = path.dirname(
+                    path.dirname(
+                      teachingRecordingStore.directory(snapshot.recordingId)
+                    )
+                  );
+                  const verificationFile = path.join(
+                    path.dirname(
+                      path.join(catalogRoot, snapshot.captureState.skillPath)
+                    ),
+                    "references/verification.md"
+                  );
+                  return fileSystem.readFileString(verificationFile).pipe(
+                    Effect.flatMap((contents) => {
+                      const verifiedAt =
+                        VERIFIED_REFERENCE_PATTERN.exec(contents)?.groups
+                          ?.verifiedAt;
+                      if (verifiedAt === undefined) {
+                        return Effect.succeed(snapshot);
+                      }
+                      return mutate(sessionId, (current) =>
+                        current.activity === "teaching" &&
+                        current.captureState._tag === "dry-run-passed"
+                          ? {
+                              ...current,
+                              captureState: {
+                                ...current.captureState,
+                                _tag: "verified" as const,
+                                verifiedAt,
+                              },
+                              recordingCleanup: {
+                                _tag: "purged" as const,
+                                completedAt: verifiedAt,
+                              },
+                              updatedAt: verifiedAt,
+                            }
+                          : current
+                      ).pipe(Effect.map((next) => next ?? snapshot));
+                    }),
+                    Effect.orElseSucceed(() => snapshot)
+                  );
+                })
+              )
+            : Effect.succeed(snapshot)
+        )
+      );
+    };
 
     const remember = (
       operationId: OperationId | string | undefined,
@@ -3532,6 +3615,7 @@ const makeAgentSession = (
                         captureState: { _tag: "setup", requestedAt: at },
                         controller: "user" as const,
                         flowSkillName: teachingIdentity.flowSkillName,
+                        recordingCleanup: { _tag: "pending" as const },
                         recordingId: teachingIdentity.recordingId,
                         run: null,
                         teaching: {
@@ -5606,12 +5690,28 @@ const makeAgentSession = (
           lock.withPermit(
             Effect.gen(function* subscribeToSessionChanges() {
               const subscription = yield* PubSub.subscribe(events);
-              const { snapshot } = yield* read(sessionId);
-              return Stream.concat(
-                Stream.succeed(snapshot),
+              const record = yield* read(sessionId);
+              const pushed = Stream.concat(
+                Stream.succeed(record.snapshot),
                 Stream.fromEffect(PubSub.take(subscription)).pipe(
                   Stream.repeat(Schedule.forever),
                   Stream.filter(({ id }) => id === sessionId)
+                )
+              );
+              if (record.snapshot.activity !== "teaching") {
+                return pushed;
+              }
+              const durable = Stream.fromEffect(
+                refreshedSnapshot(sessionId, record)
+              ).pipe(
+                Stream.repeat(Schedule.spaced("500 millis")),
+                Stream.changesWith(
+                  (left, right) => left.updatedAt === right.updatedAt
+                )
+              );
+              return Stream.merge(pushed, durable).pipe(
+                Stream.changesWith(
+                  (left, right) => left.updatedAt === right.updatedAt
                 )
               );
             })

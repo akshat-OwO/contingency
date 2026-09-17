@@ -27,6 +27,13 @@ const at = "2026-09-13T10:00:00.000Z";
 const progressive = {
   draftedAt: at,
   dryRunEndedAt: at,
+  dryRunResult: {
+    completedAt: at,
+    inputs: [{ changed: true, name: "city", value: "Pune" }],
+    observableOutcome: "Delivery area is Pune.",
+    outcome: "passed" as const,
+  },
+  dryRunSessionId: "agent-dry-run",
   dryRunStartedAt: at,
   readyAt: at,
   skillPath: "checkout-flow/SKILL.md",
@@ -49,7 +56,16 @@ test("Teaching capture accepts every lifecycle state", () => {
       stoppedAt: at,
     },
     { _tag: "skill-drafted", ...progressive },
-    { _tag: "dry-running", ...progressive },
+    {
+      _tag: "dry-running",
+      ...progressive,
+      dryRunInputs: [{ changed: true, name: "city", value: "Pune" }],
+    },
+    {
+      _tag: "dry-run-failed",
+      ...progressive,
+      dryRunResult: { ...progressive.dryRunResult, outcome: "failed" },
+    },
     { _tag: "dry-run-passed", ...progressive },
     { _tag: "verified", ...progressive },
     { _tag: "failed", error: "Capture stopped", failedAt: at },
@@ -63,6 +79,7 @@ test("Teaching capture accepts every lifecycle state", () => {
     "learning",
     "skill-drafted",
     "dry-running",
+    "dry-run-failed",
     "dry-run-passed",
     "verified",
     "failed",
@@ -81,6 +98,7 @@ test("learning-agent contracts use recording ids and bounded references", () => 
     decodeList({
       recordings: [
         {
+          cleanup: { _tag: "pending" },
           failure: null,
           flowSkillName: "checkout-flow",
           lifecycle: "ready",
@@ -137,7 +155,7 @@ test("a completed cleanup requires a verified recording", () => {
   expect(() =>
     decodeManifest({
       artifacts: [],
-      cleanup: { _tag: "completed", completedAt: at },
+      cleanup: { _tag: "purged", completedAt: at },
       createdAt: at,
       emulation: {
         permissions: [],

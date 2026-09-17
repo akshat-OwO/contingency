@@ -33,6 +33,11 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";
+import type {
+  TeachingRecordingStoreError,
+  TeachingRecordingStoreService,
+} from "../services/teaching-recording-store.ts";
 import {
   isAllowedHost,
   isAllowedWebSocketOrigin,
@@ -52,6 +57,19 @@ const agentError = (cause: AgentSessionError): BrowserRpcErrorType =>
   isBrowserRpcError(cause)
     ? cause
     : makeBrowserRpcError(cause.code, cause.message);
+
+const teachingRecordingError = (
+  cause: TeachingRecordingStoreError
+): BrowserRpcErrorType => {
+  let code: BrowserRpcErrorType["code"] = "agent_session_invalid";
+  if (cause.code === "teaching_recording_not_found") {
+    code = "agent_session_not_found";
+  }
+  if (cause.code === "teaching_recording_conflict") {
+    code = "agent_session_conflict";
+  }
+  return makeBrowserRpcError(code, cause.message);
+};
 
 /**
  * Persisted Run evidence, read by the Workspace in summary mode and by the
@@ -100,6 +118,25 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                 makeBrowserRpcError(
                   "agent_session_unavailable",
                   "Agent Sessions are unavailable in this server process."
+                )
+              )
+        )
+      );
+    const teachingRecordingUnavailable = <A>(
+      operation: (
+        service: TeachingRecordingStoreService
+      ) => Effect.Effect<A, TeachingRecordingStoreError>
+    ): Effect.Effect<A, BrowserRpcErrorType> =>
+      Effect.serviceOption(TeachingRecordingStore).pipe(
+        Effect.flatMap((service) =>
+          Option.isSome(service)
+            ? operation(service.value).pipe(
+                Effect.mapError(teachingRecordingError)
+              )
+            : Effect.fail(
+                makeBrowserRpcError(
+                  "agent_session_unavailable",
+                  "Teaching Recording storage is unavailable in this server process."
                 )
               )
         )
@@ -258,6 +295,69 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           Effect.map((session) => ({
             data: { session },
             type: "agent.teaching.recording.discarded" as const,
+          }))
+        ),
+      "agent.teaching.dry-run.stop": ({ data }) =>
+        teachingRecordingUnavailable((store) =>
+          Effect.gen(function* stopDryRun() {
+            // Persist the stop before touching the browser. The store mutation
+            // is the only lock the two processes share, so a passing report
+            // that lands first wins and Stop reports the conflict instead of
+            // killing a Dry Run the user already accepted.
+            const manifest = yield* store.failDryRun({
+              observableOutcome:
+                "The user stopped the Dry Run before it completed.",
+              ...data,
+            });
+            const { lifecycle } = manifest;
+            if (lifecycle._tag === "dry-run-failed") {
+              // Only the process that started the Dry Run owns its session.
+              // Closing here covers a Workspace that owns it; the starting
+              // process closes its own once the manifest leaves dry-running.
+              yield* agentUnavailable((service) =>
+                service.close(lifecycle.dryRunSessionId, data.operationId)
+              ).pipe(Effect.ignore);
+            }
+            return {
+              data: {
+                captureState: manifest.lifecycle,
+                cleanup: manifest.cleanup,
+              },
+              type: "agent.teaching.dry-run.stopped" as const,
+            };
+          })
+        ),
+      "agent.teaching.flow.reject": ({ data }) =>
+        teachingRecordingUnavailable((store) => store.reject(data)).pipe(
+          Effect.map((manifest) => ({
+            data: {
+              captureState: manifest.lifecycle,
+              cleanup: manifest.cleanup,
+            },
+            type: "agent.teaching.flow.rejected" as const,
+          }))
+        ),
+      "agent.teaching.flow.verify": ({ data }) =>
+        teachingRecordingUnavailable((store) =>
+          store.verify(data).pipe(
+            Effect.andThen(store.cleanup(data)),
+            Effect.map((manifest) => ({
+              data: {
+                captureState: manifest.lifecycle,
+                cleanup: manifest.cleanup,
+              },
+              type: "agent.teaching.flow.verified" as const,
+            }))
+          )
+        ),
+      "agent.teaching.cleanup.retry": ({ data }) =>
+        teachingRecordingUnavailable((store) => store.cleanup(data)).pipe(
+          Effect.map((manifest) => ({
+            data: {
+              captureState: manifest.lifecycle,
+              cleanup: manifest.cleanup,
+            },
+            type: "agent.teaching.cleanup.retried" as const,
           }))
         ),
       /*

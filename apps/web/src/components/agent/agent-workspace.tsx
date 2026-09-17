@@ -831,6 +831,10 @@ const useAgentView = (
     agentSessionsAtom,
     agentTakeoverMutation,
     agentTeachingFlowRenameMutation,
+    agentTeachingFlowRejectMutation,
+    agentTeachingFlowVerifyMutation,
+    agentTeachingCleanupRetryMutation,
+    agentTeachingDryRunStopMutation,
     agentTeachingInstructionRecordMutation,
     agentTeachingRecordingDiscardMutation,
     agentTeachingRecordingStartMutation,
@@ -872,6 +876,18 @@ const useAgentView = (
     mode: "promise",
   });
   const renameFlowSkill = useAtomSet(agentTeachingFlowRenameMutation, {
+    mode: "promise",
+  });
+  const rejectFlowSkill = useAtomSet(agentTeachingFlowRejectMutation, {
+    mode: "promise",
+  });
+  const verifyFlowSkill = useAtomSet(agentTeachingFlowVerifyMutation, {
+    mode: "promise",
+  });
+  const retryTeachingCleanup = useAtomSet(agentTeachingCleanupRetryMutation, {
+    mode: "promise",
+  });
+  const stopDryRun = useAtomSet(agentTeachingDryRunStopMutation, {
     mode: "promise",
   });
   const inspectElement = useAtomSet(agentBrowserElementInspectMutation, {
@@ -1343,32 +1359,67 @@ const useAgentView = (
       recordingError: undefined,
       recordingPending: true,
     }));
-    const mutation: Effect.Effect<void, Error> =
-      gesture === "start"
-        ? Effect.tryPromise({
-            catch: (cause) =>
-              cause instanceof Error ? cause : new Error(String(cause)),
-            try: async () => {
-              await startTeachingRecording({
+    const mutation = Effect.tryPromise({
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      try: async () => {
+        if (gesture === "start" || gesture === "stop") {
+          const payload = { operationId, sessionId: current.id };
+          await (gesture === "start"
+            ? startTeachingRecording({
                 payload: {
-                  data: { operationId, sessionId: current.id },
+                  data: payload,
                   type: "agent.teaching.recording.start",
                 },
-              });
-            },
-          })
-        : Effect.tryPromise({
-            catch: (cause) =>
-              cause instanceof Error ? cause : new Error(String(cause)),
-            try: async () => {
-              await stopTeachingRecording({
+              })
+            : stopTeachingRecording({
                 payload: {
-                  data: { operationId, sessionId: current.id },
+                  data: payload,
                   type: "agent.teaching.recording.stop",
                 },
-              });
-            },
-          });
+              }));
+          return;
+        }
+        if (gesture === "dry-run") {
+          await globalThis.navigator.clipboard.writeText(
+            `Dry-run Contingency Teaching Recording ${current.recordingId}. Call agent_flow_skill_dry_run_start with new inputs, drive the returned fresh Agent Session, then call agent_flow_skill_dry_run_report.`
+          );
+          return;
+        }
+        const data = { operationId, recordingId: current.recordingId };
+        let response;
+        switch (gesture) {
+          case "stop-dry-run": {
+            response = await stopDryRun({
+              payload: { data, type: "agent.teaching.dry-run.stop" },
+            });
+            break;
+          }
+          case "verify-flow": {
+            response = await verifyFlowSkill({
+              payload: { data, type: "agent.teaching.flow.verify" },
+            });
+            break;
+          }
+          default: {
+            response = await retryTeachingCleanup({
+              payload: { data, type: "agent.teaching.cleanup.retry" },
+            });
+          }
+        }
+        setState((previous) => ({
+          ...previous,
+          session:
+            previous.session?.activity === "teaching"
+              ? {
+                  ...previous.session,
+                  captureState: response.data.captureState,
+                  recordingCleanup: response.data.cleanup,
+                }
+              : previous.session,
+        }));
+      },
+    });
     recordingFiberRef.current = Effect.runFork(
       Effect.result(mutation).pipe(
         Effect.tap((outcome) =>
@@ -1683,6 +1734,61 @@ const useAgentView = (
             })
           )
         )
+      );
+      return;
+    }
+    if (action === "learn-again") {
+      Effect.runFork(
+        Effect.promise(() =>
+          globalThis.navigator.clipboard.writeText(
+            teachingAgentPrompt(current.flowSkillName, current.recordingId)
+          )
+        )
+      );
+      return;
+    }
+    if (action === "read-flow-skill" || action === "read-failure") {
+      let stateDetail: string = current.flowSkillName;
+      if ("skillPath" in current.captureState) {
+        stateDetail = current.captureState.skillPath;
+      }
+      if (current.captureState._tag === "dry-run-failed") {
+        stateDetail = current.captureState.dryRunResult.observableOutcome;
+      }
+      Effect.runFork(
+        Effect.promise(() =>
+          globalThis.navigator.clipboard.writeText(stateDetail)
+        )
+      );
+      return;
+    }
+    if (action === "reject-flow") {
+      runTeachingMutation(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: async () => {
+            const response = await rejectFlowSkill({
+              payload: {
+                data: {
+                  operationId: OperationId.make(globalThis.crypto.randomUUID()),
+                  recordingId: current.recordingId,
+                },
+                type: "agent.teaching.flow.reject",
+              },
+            });
+            setState((previous) => ({
+              ...previous,
+              session:
+                previous.session?.activity === "teaching"
+                  ? {
+                      ...previous.session,
+                      captureState: response.data.captureState,
+                      recordingCleanup: response.data.cleanup,
+                    }
+                  : previous.session,
+            }));
+          },
+        })
       );
       return;
     }
@@ -2042,6 +2148,7 @@ export const AgentWorkspace = ({
         dock={
           <TeachingRecordingDock
             captureState={teachingSession.captureState}
+            cleanup={teachingSession.recordingCleanup}
             commentCount={state.inspect.comments.length}
             error={state.recordingError}
             flowSkillName={teachingSession.flowSkillName}
