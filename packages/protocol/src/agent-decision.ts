@@ -19,8 +19,10 @@ const variableName = Schema.String.check(
 
 /**
  * The exact hosts and explicit wildcard patterns (`*.example.com`) a session
- * may visit without pausing. A Flow Skill Run starts scoped to the host of the
- * page it opens, and any other top-level document pauses for the user
+ * may visit without pausing. A Flow Skill Run is scoped to the hosts its
+ * package records, which are the hosts the Teaching Recording visited; a
+ * package saved before Contingency stamped them falls back to the host of the
+ * page the Run opens. Any other top-level document pauses for the user
  * ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
  */
 export const DomainScope = Schema.Struct({
