@@ -63,6 +63,63 @@ const typeAsUser = (sessionId: AgentSessionId, text: string) =>
     }
   });
 
+const driveDeliveryAsAgent = (
+  sessionId: AgentSessionId,
+  city: string,
+  area: string,
+  operationPrefix: string
+) =>
+  Effect.gen(function* driveDeliveryFlowSkill() {
+    const first = yield* sessionTool("agent_browser_snapshot", { sessionId });
+    const choose = findNode(first.nodes, "button", "Choose delivery area");
+    const choosing = yield* sessionTool("agent_browser_act", {
+      action: { ref: choose.ref, type: "click" },
+      operationId: OperationId.make(`${operationPrefix}-choose`),
+      sessionId,
+    });
+    const manually = findNode(
+      choosing.snapshot.nodes,
+      "button",
+      "Select manually"
+    );
+    const picking = yield* sessionTool("agent_browser_act", {
+      action: { ref: manually.ref, type: "click" },
+      operationId: OperationId.make(`${operationPrefix}-manual`),
+      sessionId,
+    });
+    const cityField = findNode(picking.snapshot.nodes, "textbox", "City");
+    const cityFilled = yield* sessionTool("agent_browser_act", {
+      action: { ref: cityField.ref, text: city, type: "fill" },
+      operationId: OperationId.make(`${operationPrefix}-city`),
+      sessionId,
+    });
+    const areaField = findNode(
+      cityFilled.snapshot.nodes,
+      "textbox",
+      "Search for your delivery area"
+    );
+    const areaFilled = yield* sessionTool("agent_browser_act", {
+      action: { ref: areaField.ref, text: area, type: "fill" },
+      operationId: OperationId.make(`${operationPrefix}-area`),
+      sessionId,
+    });
+    const confirm = findNode(
+      areaFilled.snapshot.nodes,
+      "button",
+      "Confirm delivery area"
+    );
+    const confirmed = yield* sessionTool("agent_browser_act", {
+      action: { ref: confirm.ref, type: "click" },
+      operationId: OperationId.make(`${operationPrefix}-confirm`),
+      sessionId,
+    });
+    expect(
+      confirmed.snapshot.nodes.some((node) =>
+        node.name.includes(`Delivering to ${area}, ${city}`)
+      )
+    ).toBe(true);
+  });
+
 /**
  * The package the learning agent writes from this recording. It names the city
  * and the delivery area as inputs rather than repeating the demonstrated pair,
@@ -214,6 +271,160 @@ it.live(
           expect(skill).not.toContain(DEMONSTRATED_AREA);
           expect(skill).toContain("{{city}}");
           expect(skill).toContain("{{delivery_area}}");
+
+          const recordingDirectory = path.join(
+            root,
+            ".recordings",
+            recordingId
+          );
+          const failedRun = yield* teachingRecordingTool(
+            "agent_flow_skill_dry_run_start",
+            {
+              inputs: [
+                {
+                  changed: true,
+                  name: "city",
+                  secret: false,
+                  value: "Pune",
+                },
+                {
+                  changed: true,
+                  name: "delivery_area",
+                  secret: false,
+                  value: "Baner",
+                },
+              ],
+              operationId: OperationId.make("delivery-dry-failed-start"),
+              recordingId,
+              url: fixtures.url("delivery.html"),
+            }
+          );
+          expect(failedRun.session.id).not.toBe(recordingId);
+          expect(failedRun.files.map((file) => file.path)).toContain(
+            "SKILL.md"
+          );
+          yield* teachingRecordingTool("agent_flow_skill_dry_run_report", {
+            observableOutcome: "The delivery status did not match.",
+            operationId: OperationId.make("delivery-dry-failed-report"),
+            outcome: "failed",
+            recordingId,
+          });
+          expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
+
+          const passedRun = yield* teachingRecordingTool(
+            "agent_flow_skill_dry_run_start",
+            {
+              inputs: [
+                {
+                  changed: true,
+                  name: "city",
+                  secret: false,
+                  value: "Mumbai",
+                },
+                {
+                  changed: true,
+                  name: "delivery_area",
+                  secret: false,
+                  value: "Bandra",
+                },
+              ],
+              operationId: OperationId.make("delivery-dry-passed-start"),
+              recordingId,
+              url: fixtures.url("delivery.html"),
+            }
+          );
+          yield* driveDeliveryAsAgent(
+            passedRun.session.id,
+            "Mumbai",
+            "Bandra",
+            "delivery-dry-passed"
+          );
+          yield* teachingRecordingTool("agent_flow_skill_dry_run_report", {
+            observableOutcome: "Delivering to Bandra, Mumbai.",
+            operationId: OperationId.make("delivery-dry-passed-report"),
+            outcome: "passed",
+            recordingId,
+          });
+          expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
+          const rejected = yield* teachingRecordingTool(
+            "agent_flow_skill_reject",
+            {
+              operationId: OperationId.make("delivery-reject"),
+              recordingId,
+            }
+          );
+          expect(rejected.lifecycle).toBe("skill-drafted");
+          expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
+
+          const finalRun = yield* teachingRecordingTool(
+            "agent_flow_skill_dry_run_start",
+            {
+              inputs: [
+                {
+                  changed: true,
+                  name: "city",
+                  secret: false,
+                  value: "Pune",
+                },
+                {
+                  changed: true,
+                  name: "delivery_area",
+                  secret: false,
+                  value: "Koregaon Park",
+                },
+              ],
+              operationId: OperationId.make("delivery-dry-final-start"),
+              recordingId,
+              url: fixtures.url("delivery.html"),
+            }
+          );
+          yield* driveDeliveryAsAgent(
+            finalRun.session.id,
+            "Pune",
+            "Koregaon Park",
+            "delivery-dry-final"
+          );
+          yield* teachingRecordingTool("agent_flow_skill_dry_run_report", {
+            observableOutcome: "Delivering to Koregaon Park, Pune.",
+            operationId: OperationId.make("delivery-dry-final-report"),
+            outcome: "passed",
+            recordingId,
+          });
+          const verified = yield* teachingRecordingTool(
+            "agent_flow_skill_verify",
+            {
+              operationId: OperationId.make("delivery-verify"),
+              recordingId,
+            }
+          );
+          expect(verified.cleanup._tag).toBe("purged");
+          expect(yield* fileSystem.exists(recordingDirectory)).toBe(false);
+          expect(
+            yield* fileSystem.exists(path.join(skillDirectory, "SKILL.md"))
+          ).toBe(true);
+          expect(
+            yield* fileSystem.exists(
+              path.join(skillDirectory, "references", "verification.md")
+            )
+          ).toBe(true);
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+
+      yield* Effect.scoped(
+        Effect.gen(function* runVerifiedSkillAfterRestart() {
+          const restarted = yield* sessionTool("agent_session_start", {
+            clientName: "integration-restart",
+            clientVersion: "1.0.0",
+            operationId: OperationId.make("delivery-restart-run"),
+            url: fixtures.url("delivery.html"),
+            viewport: agentViewport,
+          });
+          yield* driveDeliveryAsAgent(
+            restarted.id,
+            "Pune",
+            "Kalyani Nagar",
+            "delivery-restart"
+          );
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

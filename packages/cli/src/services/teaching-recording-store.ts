@@ -4,14 +4,15 @@ import path from "node:path";
 import type {
   AgentSessionId,
   DraftEmulation,
+  FlowSkillDryRunResult,
   FlowSkillName,
-  OperationId,
   TeachingRecordingArtifact,
   TeachingRecordingId,
   TeachingRecordingManifest,
   TeachingRecordingOperation,
 } from "@contingency/protocol";
 import {
+  OperationId,
   TeachingRecordingId as RecordingIdSchema,
   TeachingRecordingManifest as ManifestSchema,
 } from "@contingency/protocol";
@@ -30,6 +31,8 @@ import type { PlatformError } from "effect/PlatformError";
 export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
+const VERIFICATION_FILE = "references/verification.md";
+const VERIFIED_REFERENCE_PATTERN = /^- Verified: /mu;
 
 interface TeachingRecordingStoreDomainError {
   readonly _tag: "TeachingRecordingStoreError";
@@ -65,6 +68,15 @@ export interface TeachingRecordingBegin {
 export interface TeachingRecordingMutation {
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
+}
+
+export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation {
+  readonly inputs: FlowSkillDryRunResult["inputs"];
+  readonly sessionId: AgentSessionId;
+}
+
+export interface TeachingRecordingDryRunReport extends TeachingRecordingMutation {
+  readonly observableOutcome: string;
 }
 
 export interface TeachingRecordingStop extends TeachingRecordingMutation {
@@ -121,6 +133,9 @@ export interface TeachingRecordingStoreService {
   readonly failLearning: (
     input: TeachingRecordingLearningFailure
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly failDryRun: (
+    input: TeachingRecordingDryRunReport
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly releaseLearning: (
     input: TeachingRecordingClaimMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
@@ -135,12 +150,15 @@ export interface TeachingRecordingStoreService {
     input: TeachingRecordingStop
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly startDryRun: (
-    input: TeachingRecordingMutation
+    input: TeachingRecordingDryRunStart
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly startLearning: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly passDryRun: (
+    input: TeachingRecordingDryRunReport
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly reject: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly saveSkill: (
@@ -228,6 +246,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     const fileSystem = yield* FileSystem.FileSystem;
     const now = options.now ?? (() => new Date());
     const locks = new Map<TeachingRecordingId, Semaphore.Semaphore>();
+    const purged = new Map<TeachingRecordingId, TeachingRecordingManifest>();
     const recordingRoots = new Map<TeachingRecordingId, string>();
 
     const rootFor = (recordingId: TeachingRecordingId): string =>
@@ -288,7 +307,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     /** Serialize manifest compare-and-swap mutations across MCP processes. */
     const withDiskLock = <A, E>(
       recordingId: TeachingRecordingId,
-      operation: Effect.Effect<A, E>
+      operation: Effect.Effect<A, E>,
+      createDirectory = false
     ): Effect.Effect<A, E | TeachingRecordingStoreError> => {
       const directory = recordingDirectory(recordingId);
       const lockPath = manifestLockFile(recordingId);
@@ -300,13 +320,30 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         })
         .pipe(Effect.mapError(() => conflict));
       return Effect.gen(function* lockManifest() {
-        yield* fileSystem
-          .makeDirectory(directory, { recursive: true })
-          .pipe(
-            Effect.mapError(
-              ioError(`Could not prepare Teaching Recording ${recordingId}`)
+        if (createDirectory) {
+          yield* fileSystem
+            .makeDirectory(directory, { recursive: true })
+            .pipe(
+              Effect.mapError(
+                ioError(`Could not prepare Teaching Recording ${recordingId}`)
+              )
+            );
+        } else if (
+          !(yield* fileSystem
+            .exists(directory)
+            .pipe(
+              Effect.mapError(
+                ioError(`Could not inspect Teaching Recording ${recordingId}`)
+              )
+            ))
+        ) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_not_found",
+              `Teaching Recording ${recordingId} was not found.`
             )
           );
+        }
         const firstAttempt = yield* Effect.result(create);
         if (Result.isSuccess(firstAttempt)) {
           return yield* operation.pipe(
@@ -342,9 +379,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
 
     const withRecordingLock = <A, E>(
       recordingId: TeachingRecordingId,
-      operation: Effect.Effect<A, E>
+      operation: Effect.Effect<A, E>,
+      createDirectory = false
     ): Effect.Effect<A, E | TeachingRecordingStoreError> =>
-      lockFor(recordingId).withPermit(withDiskLock(recordingId, operation));
+      lockFor(recordingId).withPermit(
+        withDiskLock(recordingId, operation, createDirectory)
+      );
 
     const readAt = (recordingId: TeachingRecordingId, root: string) =>
       Effect.gen(function* readManifest() {
@@ -474,8 +514,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         );
       });
 
-    const read = (recordingId: TeachingRecordingId) =>
-      readAndRecoverAt(recordingId, rootFor(recordingId));
+    const read = (recordingId: TeachingRecordingId) => {
+      const completed = purged.get(recordingId);
+      return completed === undefined
+        ? readAndRecoverAt(recordingId, rootFor(recordingId))
+        : Effect.succeed(completed);
+    };
 
     const mutate = (
       recordingId: TeachingRecordingId,
@@ -563,7 +607,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             sessionId: input.sessionId,
             updatedAt: at,
           });
-        })
+        }),
+        true
       );
 
     const start = (input: TeachingRecordingMutation) =>
@@ -694,6 +739,25 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   operationId: input.operationId,
                   ownerPid: process.pid,
                 },
+              },
+            });
+          }
+          if (
+            lifecycle._tag === "skill-drafted" ||
+            lifecycle._tag === "dry-run-failed"
+          ) {
+            return Effect.succeed({
+              ...manifest,
+              lifecycle: {
+                _tag: "learning" as const,
+                claim: {
+                  claimedAt: at,
+                  operationId: input.operationId,
+                  ownerPid: process.pid,
+                },
+                readyAt: lifecycle.readyAt,
+                startedAt: lifecycle.startedAt,
+                stoppedAt: lifecycle.stoppedAt,
               },
             });
           }
@@ -848,81 +912,296 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         input.files
       );
 
-    const startDryRun = (input: TeachingRecordingMutation) =>
+    const startDryRun = (input: TeachingRecordingDryRunStart) =>
       mutate(
         input.recordingId,
         "start-dry-run",
         input.operationId,
-        (manifest, at) =>
-          manifest.lifecycle._tag === "skill-drafted"
-            ? Effect.succeed({
-                ...manifest,
-                lifecycle: {
-                  ...manifest.lifecycle,
-                  _tag: "dry-running",
-                  dryRunStartedAt: at,
-                },
-              })
-            : Effect.fail(
-                storeError(
-                  "teaching_recording_conflict",
-                  `Teaching Recording ${input.recordingId} cannot start a Dry Run from ${manifest.lifecycle._tag}.`
-                )
-              )
-      );
-
-    const passDryRun = (input: TeachingRecordingMutation) =>
-      mutate(
-        input.recordingId,
-        "pass-dry-run",
-        input.operationId,
-        (manifest, at) =>
-          manifest.lifecycle._tag === "dry-running"
-            ? Effect.succeed({
-                ...manifest,
-                lifecycle: {
-                  ...manifest.lifecycle,
-                  _tag: "dry-run-passed",
-                  dryRunEndedAt: at,
-                },
-              })
-            : Effect.fail(
-                storeError(
-                  "teaching_recording_conflict",
-                  `Teaching Recording ${input.recordingId} cannot pass a Dry Run from ${manifest.lifecycle._tag}.`
-                )
-              )
-      );
-
-    const cleanup = (input: TeachingRecordingMutation) =>
-      mutate(input.recordingId, "cleanup", input.operationId, (manifest, at) =>
-        Effect.gen(function* cleanRecording() {
+        (manifest, at) => {
           const { lifecycle } = manifest;
-          if (lifecycle._tag !== "verified") {
-            return yield* Effect.fail(
+          if (
+            lifecycle._tag !== "skill-drafted" &&
+            lifecycle._tag !== "dry-run-failed"
+          ) {
+            return Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot clean up from ${manifest.lifecycle._tag}.`
+                `Teaching Recording ${input.recordingId} cannot start a Dry Run from ${lifecycle._tag}.`
               )
             );
           }
-          const directory = recordingDirectory(input.recordingId);
-          for (const artifact of manifest.artifacts) {
-            yield* fileSystem
-              .remove(path.resolve(directory, artifact.path), { force: true })
-              .pipe(
-                Effect.mapError(
-                  ioError(`Could not clean Teaching artifact ${artifact.id}`)
+          return Effect.succeed({
+            ...manifest,
+            lifecycle: {
+              _tag: "dry-running" as const,
+              draftedAt: lifecycle.draftedAt,
+              dryRunInputs: input.inputs,
+              dryRunSessionId: input.sessionId,
+              dryRunStartedAt: at,
+              readyAt: lifecycle.readyAt,
+              skillPath: lifecycle.skillPath,
+              startedAt: lifecycle.startedAt,
+              stoppedAt: lifecycle.stoppedAt,
+            },
+          });
+        }
+      );
+
+    const persistDryRunReference = (
+      manifest: PendingTeachingRecordingManifest,
+      result: FlowSkillDryRunResult
+    ) => {
+      if (manifest.lifecycle._tag !== "dry-running") {
+        return Effect.fail(
+          storeError(
+            "teaching_recording_conflict",
+            `Teaching Recording ${manifest.recordingId} has no active Dry Run.`
+          )
+        );
+      }
+      const skillDirectory = path.dirname(
+        path.join(rootFor(manifest.recordingId), manifest.lifecycle.skillPath)
+      );
+      const verificationPath = path.join(skillDirectory, VERIFICATION_FILE);
+      const inputs = result.inputs.map(
+        ({ changed, name, value }) =>
+          `- ${name}${changed ? " (changed)" : ""}: ${
+            value === null ? "<redacted>" : JSON.stringify(value)
+          }`
+      );
+      const contents = [
+        "# Last Dry Run",
+        "",
+        `- Completed: ${result.completedAt}`,
+        `- Result: ${result.outcome}`,
+        `- Observable outcome: ${result.observableOutcome}`,
+        "",
+        "## Inputs",
+        "",
+        ...inputs,
+        "",
+      ].join("\n");
+      return fileSystem
+        .makeDirectory(path.dirname(verificationPath), { recursive: true })
+        .pipe(
+          Effect.andThen(
+            fileSystem.writeFileString(verificationPath, contents, {
+              mode: 0o600,
+            })
+          ),
+          Effect.mapError(
+            ioError(
+              `Could not persist the Dry Run result for ${manifest.recordingId}`
+            )
+          )
+        );
+    };
+
+    const reportDryRun = (
+      input: TeachingRecordingDryRunReport,
+      outcome: FlowSkillDryRunResult["outcome"]
+    ) =>
+      mutate(
+        input.recordingId,
+        outcome === "passed" ? "pass-dry-run" : "fail-dry-run",
+        input.operationId,
+        (manifest, at) =>
+          Effect.gen(function* persistDryRunResult() {
+            const { lifecycle } = manifest;
+            if (lifecycle._tag !== "dry-running") {
+              return yield* Effect.fail(
+                storeError(
+                  "teaching_recording_conflict",
+                  `Teaching Recording ${input.recordingId} cannot report a Dry Run from ${lifecycle._tag}.`
                 )
               );
+            }
+            const result: FlowSkillDryRunResult = {
+              completedAt: at,
+              inputs: lifecycle.dryRunInputs,
+              observableOutcome: input.observableOutcome,
+              outcome,
+            };
+            yield* persistDryRunReference(manifest, result);
+            return {
+              ...manifest,
+              lifecycle: {
+                _tag:
+                  outcome === "passed"
+                    ? ("dry-run-passed" as const)
+                    : ("dry-run-failed" as const),
+                draftedAt: lifecycle.draftedAt,
+                dryRunEndedAt: at,
+                dryRunResult: result,
+                dryRunSessionId: lifecycle.dryRunSessionId,
+                dryRunStartedAt: lifecycle.dryRunStartedAt,
+                readyAt: lifecycle.readyAt,
+                skillPath: lifecycle.skillPath,
+                startedAt: lifecycle.startedAt,
+                stoppedAt: lifecycle.stoppedAt,
+              },
+            };
+          })
+      );
+
+    const passDryRun = (input: TeachingRecordingDryRunReport) =>
+      reportDryRun(input, "passed");
+
+    const failDryRun = (input: TeachingRecordingDryRunReport) =>
+      reportDryRun(input, "failed");
+
+    const markVerificationReference = (
+      manifest: PendingTeachingRecordingManifest,
+      verifiedAt: string
+    ) => {
+      if (manifest.lifecycle._tag !== "dry-run-passed") {
+        return Effect.fail(
+          storeError(
+            "teaching_recording_conflict",
+            `Teaching Recording ${manifest.recordingId} has no passing Dry Run to verify.`
+          )
+        );
+      }
+      const verificationPath = path.join(
+        path.dirname(
+          path.join(rootFor(manifest.recordingId), manifest.lifecycle.skillPath)
+        ),
+        VERIFICATION_FILE
+      );
+      return fileSystem.readFileString(verificationPath).pipe(
+        Effect.flatMap((contents) =>
+          fileSystem.writeFileString(
+            verificationPath,
+            `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n`,
+            { mode: 0o600 }
+          )
+        ),
+        Effect.mapError(
+          ioError(`Could not persist verification for ${manifest.recordingId}`)
+        )
+      );
+    };
+
+    const reject = (input: TeachingRecordingMutation) =>
+      mutate(input.recordingId, "reject", input.operationId, (manifest) => {
+        const { lifecycle } = manifest;
+        return lifecycle._tag === "dry-run-passed"
+          ? Effect.succeed({
+              ...manifest,
+              lifecycle: {
+                _tag: "skill-drafted" as const,
+                draftedAt: lifecycle.draftedAt,
+                readyAt: lifecycle.readyAt,
+                skillPath: lifecycle.skillPath,
+                startedAt: lifecycle.startedAt,
+                stoppedAt: lifecycle.stoppedAt,
+              },
+            })
+          : Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot reject a Flow Skill from ${lifecycle._tag}.`
+              )
+            );
+      });
+
+    const cleanup = (input: TeachingRecordingMutation) => {
+      const replay = purged.get(input.recordingId);
+      if (
+        replay !== undefined &&
+        hasReceipt(replay, "cleanup", input.operationId)
+      ) {
+        return Effect.succeed(replay);
+      }
+      return withRecordingLock(
+        input.recordingId,
+        Effect.gen(function* cleanRecording() {
+          const manifest = yield* readAt(
+            input.recordingId,
+            rootFor(input.recordingId)
+          );
+          if (
+            manifest.lifecycle._tag !== "verified" ||
+            (manifest.cleanup._tag !== "purge-pending" &&
+              manifest.cleanup._tag !== "purged")
+          ) {
+            return yield* Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} is not awaiting cleanup.`
+              )
+            );
           }
-          return {
-            ...manifest,
-            cleanup: { _tag: "completed", completedAt: at },
-            lifecycle,
-          };
+          const { lifecycle } = manifest;
+          const directory = recordingDirectory(input.recordingId);
+          const names = yield* fileSystem
+            .readDirectory(directory)
+            .pipe(
+              Effect.mapError(
+                ioError(
+                  `Could not inspect retained files for ${input.recordingId}`
+                )
+              )
+            );
+          const sensitiveNames = names.filter(
+            (name) => name !== MANIFEST_FILE && name !== LOCK_FILE
+          );
+          for (const name of sensitiveNames) {
+            const removed = yield* Effect.result(
+              fileSystem.remove(path.join(directory, name), {
+                force: true,
+                recursive: true,
+              })
+            );
+            if (Result.isFailure(removed)) {
+              const retainedFiles = yield* fileSystem
+                .readDirectory(directory)
+                .pipe(
+                  Effect.map((entries) =>
+                    entries.filter(
+                      (entry) => entry !== MANIFEST_FILE && entry !== LOCK_FILE
+                    )
+                  ),
+                  Effect.orElseSucceed(() => [name])
+                );
+              return yield* persist({
+                ...manifest,
+                cleanup: {
+                  _tag: "purge-pending" as const,
+                  failure: `Could not delete ${name}: ${removed.failure.message}`,
+                  retainedFiles,
+                },
+                lifecycle,
+                updatedAt: now().toISOString(),
+              });
+            }
+          }
+          const at = now().toISOString();
+          const completed = withReceipt(
+            {
+              ...manifest,
+              cleanup: { _tag: "purged" as const, completedAt: at },
+              lifecycle,
+            },
+            "cleanup",
+            input.operationId,
+            at
+          );
+          yield* persist(completed);
+          yield* fileSystem
+            .remove(directory, { force: true, recursive: true })
+            .pipe(
+              Effect.mapError(
+                ioError(
+                  `Could not remove the directory for ${input.recordingId}`
+                )
+              )
+            );
+          purged.set(input.recordingId, completed);
+          return completed;
         })
       );
+    };
 
     const rename = (input: TeachingRecordingRename) =>
       mutate(input.recordingId, "rename", input.operationId, (manifest) =>
@@ -971,8 +1250,15 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         })
       );
 
-    const verify = (input: TeachingRecordingMutation) =>
-      mutate(
+    const verify = (input: TeachingRecordingMutation) => {
+      const replay = purged.get(input.recordingId);
+      if (
+        replay !== undefined &&
+        hasReceipt(replay, "verification", input.operationId)
+      ) {
+        return Effect.succeed(replay);
+      }
+      return mutate(
         input.recordingId,
         "verification",
         input.operationId,
@@ -980,23 +1266,34 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           if (manifest.lifecycle._tag === "verified") {
             return Effect.succeed(manifest);
           }
-          return manifest.lifecycle._tag === "dry-run-passed"
-            ? Effect.succeed({
-                ...manifest,
-                lifecycle: {
-                  ...manifest.lifecycle,
-                  _tag: "verified",
-                  verifiedAt: at,
-                },
-              })
-            : Effect.fail(
-                storeError(
-                  "teaching_recording_conflict",
-                  `Teaching Recording ${input.recordingId} cannot be verified from ${manifest.lifecycle._tag}.`
-                )
-              );
+          if (manifest.lifecycle._tag !== "dry-run-passed") {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot be verified from ${manifest.lifecycle._tag}.`
+              )
+            );
+          }
+          return markVerificationReference(manifest, at).pipe(
+            Effect.as({
+              ...manifest,
+              cleanup: {
+                _tag: "purge-pending" as const,
+                failure: null,
+                retainedFiles: manifest.artifacts.map(
+                  (artifact) => artifact.path
+                ),
+              },
+              lifecycle: {
+                ...manifest.lifecycle,
+                _tag: "verified" as const,
+                verifiedAt: at,
+              },
+            })
+          );
         }
       );
+    };
 
     const listReady = () =>
       Effect.gen(function* listReadyRecordings() {
@@ -1025,26 +1322,94 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         );
         return manifests.filter(
           (manifest) =>
+            manifest.lifecycle._tag === "recording" ||
             manifest.lifecycle._tag === "ready" ||
+            manifest.lifecycle._tag === "learning" ||
+            manifest.lifecycle._tag === "skill-drafted" ||
+            manifest.lifecycle._tag === "dry-running" ||
+            manifest.lifecycle._tag === "dry-run-failed" ||
+            manifest.lifecycle._tag === "dry-run-passed" ||
+            manifest.lifecycle._tag === "verified" ||
             (manifest.lifecycle._tag === "failed" &&
               manifest.lifecycle.readyAt !== undefined)
         );
       });
 
-    // Startup recovery is best-effort. A later list, wait, read, or claim
-    // retries the same durable check and returns any typed filesystem failure.
-    yield* listReady().pipe(Effect.ignore);
+    // Verification is persisted before purge-pending. If the process exited
+    // between those writes, finish the durable transition before cleanup.
+    yield* listReady().pipe(
+      Effect.flatMap((manifests) =>
+        Effect.forEach(
+          manifests.filter(
+            (manifest) => manifest.lifecycle._tag === "dry-run-passed"
+          ),
+          (manifest) => {
+            if (manifest.lifecycle._tag !== "dry-run-passed") {
+              return Effect.void;
+            }
+            const verificationPath = path.join(
+              path.dirname(
+                path.join(
+                  rootFor(manifest.recordingId),
+                  manifest.lifecycle.skillPath
+                )
+              ),
+              VERIFICATION_FILE
+            );
+            return fileSystem.readFileString(verificationPath).pipe(
+              Effect.flatMap((contents) =>
+                VERIFIED_REFERENCE_PATTERN.test(contents)
+                  ? verify({
+                      operationId: OperationId.make(
+                        `verification-recovery-${manifest.recordingId}`
+                      ),
+                      recordingId: manifest.recordingId,
+                    })
+                  : Effect.void
+              ),
+              Effect.ignore
+            );
+          },
+          { discard: true }
+        )
+      ),
+      Effect.ignore
+    );
+    // Cleanup recovery is best-effort during startup. The manifest remains
+    // purge-pending with the retained file names when a retry still fails.
+    yield* listReady().pipe(
+      Effect.flatMap((manifests) =>
+        Effect.forEach(
+          manifests.filter(
+            (manifest) =>
+              manifest.cleanup._tag === "purge-pending" ||
+              manifest.cleanup._tag === "purged"
+          ),
+          (manifest) =>
+            cleanup({
+              operationId: OperationId.make(
+                `cleanup-recovery-${manifest.recordingId}`
+              ),
+              recordingId: manifest.recordingId,
+            }).pipe(Effect.ignore),
+          { discard: true }
+        )
+      ),
+      Effect.ignore
+    );
 
     return TeachingRecordingStore.of({
       begin,
       cleanup,
       directory: recordingDirectory,
       discard,
+      failDryRun,
       failLearning,
       listReady,
       passDryRun,
       read,
       readClaimed,
+      reject,
       releaseLearning,
       rename,
       saveSkill,

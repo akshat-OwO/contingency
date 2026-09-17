@@ -108,9 +108,24 @@ const summaryOf = (
   switch (lifecycle._tag) {
     case "recording":
     case "ready":
-    case "learning": {
+    case "learning":
+    case "skill-drafted":
+    case "dry-running":
+    case "dry-run-passed":
+    case "verified": {
       return {
+        cleanup: manifest.cleanup,
         failure: null,
+        flowSkillName: manifest.flowSkillName,
+        lifecycle: lifecycle._tag,
+        recordingId: manifest.recordingId,
+        updatedAt: manifest.updatedAt,
+      };
+    }
+    case "dry-run-failed": {
+      return {
+        cleanup: manifest.cleanup,
+        failure: lifecycle.dryRunResult.observableOutcome,
         flowSkillName: manifest.flowSkillName,
         lifecycle: lifecycle._tag,
         recordingId: manifest.recordingId,
@@ -119,6 +134,7 @@ const summaryOf = (
     }
     case "failed": {
       return {
+        cleanup: manifest.cleanup,
         failure: lifecycle.error,
         flowSkillName: manifest.flowSkillName,
         lifecycle: "failed",

@@ -19,6 +19,7 @@ import { optionalNullable } from "./optional-field.ts";
 import {
   FlowSkillName,
   TeachingCaptureState,
+  TeachingRecordingCleanupState,
   TeachingRecordingId,
 } from "./teaching-recording.ts";
 import { Viewport } from "./viewport.ts";
@@ -89,6 +90,7 @@ export const TeachingSessionSnapshot = Schema.Struct({
   activity: Schema.Literal("teaching"),
   captureState: TeachingCaptureState,
   flowSkillName: FlowSkillName,
+  recordingCleanup: optionalNullable(TeachingRecordingCleanupState),
   recordingId: TeachingRecordingId,
   run: Schema.Null,
   teaching: TeachingProgress,

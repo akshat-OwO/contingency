@@ -50,6 +50,39 @@ const SkillDrafted = Schema.TaggedStruct("skill-drafted", {
 });
 const DryRunning = Schema.TaggedStruct("dry-running", {
   draftedAt: nonEmptyString,
+  dryRunInputs: Schema.Array(
+    Schema.Struct({
+      changed: Schema.Boolean,
+      name: nonEmptyString,
+      value: Schema.NullOr(Schema.String),
+    })
+  ),
+  dryRunSessionId: AgentSessionId,
+  dryRunStartedAt: nonEmptyString,
+  readyAt: nonEmptyString,
+  skillPath: nonEmptyString,
+  startedAt: nonEmptyString,
+  stoppedAt: nonEmptyString,
+});
+export const FlowSkillDryRunResult = Schema.Struct({
+  completedAt: nonEmptyString,
+  inputs: Schema.Array(
+    Schema.Struct({
+      changed: Schema.Boolean,
+      name: nonEmptyString,
+      value: Schema.NullOr(Schema.String),
+    })
+  ),
+  observableOutcome: nonEmptyString,
+  outcome: Schema.Literals(["failed", "passed"]),
+});
+export type FlowSkillDryRunResult = typeof FlowSkillDryRunResult.Type;
+
+const DryRunFailed = Schema.TaggedStruct("dry-run-failed", {
+  draftedAt: nonEmptyString,
+  dryRunEndedAt: nonEmptyString,
+  dryRunResult: FlowSkillDryRunResult,
+  dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   readyAt: nonEmptyString,
   skillPath: nonEmptyString,
@@ -59,6 +92,8 @@ const DryRunning = Schema.TaggedStruct("dry-running", {
 const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
+  dryRunResult: FlowSkillDryRunResult,
+  dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   readyAt: nonEmptyString,
   skillPath: nonEmptyString,
@@ -68,6 +103,8 @@ const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
 const Verified = Schema.TaggedStruct("verified", {
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
+  dryRunResult: FlowSkillDryRunResult,
+  dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   readyAt: nonEmptyString,
   skillPath: nonEmptyString,
@@ -91,6 +128,7 @@ export const TeachingCaptureState = Schema.Union([
   Learning,
   SkillDrafted,
   DryRunning,
+  DryRunFailed,
   DryRunPassed,
   Verified,
   Failed,
@@ -108,7 +146,11 @@ export type TeachingRecordingArtifact = typeof TeachingRecordingArtifact.Type;
 
 export const TeachingRecordingCleanupState = Schema.Union([
   Schema.TaggedStruct("pending", {}),
-  Schema.TaggedStruct("completed", { completedAt: nonEmptyString }),
+  Schema.TaggedStruct("purge-pending", {
+    failure: Schema.NullOr(Schema.String),
+    retainedFiles: Schema.Array(nonEmptyString),
+  }),
+  Schema.TaggedStruct("purged", { completedAt: nonEmptyString }),
 ]);
 export type TeachingRecordingCleanupState =
   typeof TeachingRecordingCleanupState.Type;
@@ -122,7 +164,9 @@ export const TeachingRecordingOperation = Schema.Literals([
   "fail-learning",
   "save-skill",
   "start-dry-run",
+  "fail-dry-run",
   "pass-dry-run",
+  "reject",
   "cleanup",
   "verification",
   "rename",
@@ -158,7 +202,15 @@ export const TeachingRecordingManifest = Schema.Union([
   }),
   Schema.Struct({
     ...TeachingRecordingManifestBase,
-    cleanup: Schema.TaggedStruct("completed", {
+    cleanup: Schema.TaggedStruct("purge-pending", {
+      failure: Schema.NullOr(Schema.String),
+      retainedFiles: Schema.Array(nonEmptyString),
+    }),
+    lifecycle: Verified,
+  }),
+  Schema.Struct({
+    ...TeachingRecordingManifestBase,
+    cleanup: Schema.TaggedStruct("purged", {
       completedAt: nonEmptyString,
     }),
     lifecycle: Verified,
@@ -299,9 +351,20 @@ export const TEACHING_TIMELINE_MAX_EVENTS = 100;
 export const TEACHING_RECORDING_WAIT_MAX_MS = 60_000;
 
 export const TeachingRecordingSummary = Schema.Struct({
+  cleanup: TeachingRecordingCleanupState,
   failure: Schema.NullOr(Schema.String),
   flowSkillName: FlowSkillName,
-  lifecycle: Schema.Literals(["recording", "ready", "learning", "failed"]),
+  lifecycle: Schema.Literals([
+    "recording",
+    "ready",
+    "learning",
+    "skill-drafted",
+    "dry-running",
+    "dry-run-failed",
+    "dry-run-passed",
+    "verified",
+    "failed",
+  ]),
   recordingId: TeachingRecordingId,
   updatedAt: nonEmptyString,
 });

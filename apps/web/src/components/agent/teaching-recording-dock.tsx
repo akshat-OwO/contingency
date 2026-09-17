@@ -2,6 +2,7 @@ import type {
   AgentSessionId,
   AgentSessionSnapshot,
   TeachingCaptureState,
+  TeachingRecordingCleanupState,
 } from "@contingency/protocol";
 import {
   CircleAlertIcon,
@@ -39,6 +40,10 @@ const badgeVariant = (
 const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
   "copy-prompt": "Copy agent prompt",
   "delete-recording": "Delete recording",
+  "learn-again": "Learn again",
+  "read-failure": "Read failure",
+  "read-flow-skill": "Read flow skill",
+  "reject-flow": "Reject flow",
   "rename-flow": "Rename flow",
 };
 
@@ -155,6 +160,7 @@ export const WorkspaceEmptyDock = () => (
  */
 export const TeachingRecordingDock = ({
   captureState,
+  cleanup,
   commentCount,
   error,
   flowSkillName,
@@ -169,6 +175,7 @@ export const TeachingRecordingDock = ({
   sessions,
 }: {
   readonly captureState: TeachingCaptureState;
+  readonly cleanup: TeachingRecordingCleanupState | undefined;
   /** How many inspect comments this recording has collected. */
   readonly commentCount: number;
   /** What went wrong the last time this dock dispatched a gesture. */
@@ -187,7 +194,7 @@ export const TeachingRecordingDock = ({
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
-  const presentation = teachingRecordingPresentation(captureState);
+  const presentation = teachingRecordingPresentation(captureState, cleanup);
   const { action } = presentation;
   const [rename, setRename] = useState("");
   const [renaming, setRenaming] = useState(false);
@@ -275,9 +282,13 @@ export const TeachingRecordingDock = ({
             disabled={pending}
             onClick={() => onGesture(action.gesture)}
             type="button"
-            variant={action.gesture === "stop" ? "destructive" : "default"}
+            variant={
+              action.gesture === "stop" || action.gesture === "stop-dry-run"
+                ? "destructive"
+                : "default"
+            }
           >
-            {action.gesture === "stop" ? (
+            {action.gesture === "stop" || action.gesture === "stop-dry-run" ? (
               <SquareIcon aria-hidden="true" className="fill-current" />
             ) : (
               <CircleIcon aria-hidden="true" className="fill-current" />

@@ -109,6 +109,18 @@ export const agentTeachingRecordingStopMutation = ContingencyRpcClient.mutation(
 /** Throwing away a recording is a user gesture with no MCP counterpart. */
 export const agentTeachingRecordingDiscardMutation =
   ContingencyRpcClient.mutation("agent.teaching.recording.discard");
+export const agentTeachingDryRunStopMutation = ContingencyRpcClient.mutation(
+  "agent.teaching.dry-run.stop"
+);
+export const agentTeachingFlowRejectMutation = ContingencyRpcClient.mutation(
+  "agent.teaching.flow.reject"
+);
+export const agentTeachingFlowVerifyMutation = ContingencyRpcClient.mutation(
+  "agent.teaching.flow.verify"
+);
+export const agentTeachingCleanupRetryMutation = ContingencyRpcClient.mutation(
+  "agent.teaching.cleanup.retry"
+);
 /**
  * An inspect comment, recorded as a Teaching instruction on the live
  * recording. It is the same instruction path the agent relays over MCP.
