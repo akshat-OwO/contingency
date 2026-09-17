@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import {
   AgentSessionId,
   FlowSkillName,
-  EvidenceHash,
+  ContentHash,
   OperationId,
   TeachingRecordingId,
   UserAgentProfileId,
@@ -79,7 +79,7 @@ it.effect(
           artifacts: [
             {
               capturedAt: at,
-              hash: EvidenceHash.make(
+              hash: ContentHash.make(
                 "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
               ),
               id: "keyframe-1",
@@ -264,7 +264,7 @@ it.effect(
           artifacts: [
             {
               capturedAt: at,
-              hash: EvidenceHash.make(
+              hash: ContentHash.make(
                 "sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
               ),
               id: "events",
@@ -365,7 +365,7 @@ it.effect("retries purge-pending cleanup when a store starts", () =>
         artifacts: [
           {
             capturedAt: at,
-            hash: EvidenceHash.make(
+            hash: ContentHash.make(
               "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
             ),
             id: "video",
@@ -883,7 +883,7 @@ it.effect("renames before capture and discards a recording back to setup", () =>
         artifacts: [
           {
             capturedAt: at,
-            hash: EvidenceHash.make(
+            hash: ContentHash.make(
               "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             ),
             id: "keyframe-1",

@@ -17,7 +17,6 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
  * whole workspace through enough updates for retained state to be collected.
  */
 const rpc = vi.hoisted(() => ({
-  detail: undefined,
   emit: undefined,
   sessionsResult: undefined,
 }));
@@ -26,12 +25,6 @@ const rpcOverrides = {
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserNavigateMutation: Atom.fn(() => Effect.succeed({})),
-  agentFlowApproveMutation: Atom.fn(() => Effect.never),
-  agentFlowArchiveMutation: Atom.fn(() => Effect.never),
-  agentFlowDeleteMutation: Atom.fn(() => Effect.never),
-  agentFlowRevisionAtom: () =>
-    Atom.make(Effect.suspend(() => Effect.succeed({ data: rpc.detail }))),
-  agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),
   agentReturnControlMutation: Atom.fn(() => Effect.succeed({})),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
   agentTakeoverMutation: Atom.fn(() => Effect.succeed({})),
@@ -55,100 +48,6 @@ const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
 
 const at = "2026-09-02T00:00:00.000Z";
 
-const evidence = [
-  {
-    actions: [
-      {
-        actor: "agent",
-        description: "Navigate to the sign-in page",
-        id: "action-1",
-        outcome: "completed",
-        urlAfter: "https://shop.example.com/sign-in",
-      },
-      {
-        actor: "user",
-        description: "Enter Variable PASSWORD in e3",
-        id: "action-2",
-        outcome: "completed",
-        urlAfter: "https://shop.example.com/sign-in",
-      },
-    ],
-    endedAt: at,
-    hash: `sha256-${"a".repeat(64)}`,
-    instructions: ["Sign in with my account."],
-    screenshotCount: 2,
-    startedAt: at,
-    stepIndex: 0,
-    urlTransitionCount: 1,
-  },
-];
-
-const manifest = {
-  agentFlowId: "flow-shop",
-  basedOnRevisionId: null,
-  compiler: { clientName: "Test agent", clientVersion: "1.0" },
-  createdAt: at,
-  description: "Sign in.",
-  domainScope: { hosts: ["shop.example.com"] },
-  emulation: {
-    permissions: [],
-    userAgentProfile: "default",
-    viewport: { deviceScaleFactor: 1, height: 480, width: 640 },
-  },
-  revisionId: "rev-1",
-  schemaVersion: 1,
-  sourceSessionId: "agent-one",
-  status: "draft",
-  steps: [
-    {
-      confirmation: false,
-      description: "Sign in with the demonstrated account.",
-      evidence: { hash: `sha256-${"a".repeat(64)}`, path: "evidence/a.json" },
-      firstActionId: "action-1",
-      index: 0,
-      lastActionId: "action-2",
-      name: "Sign in",
-    },
-  ],
-  tags: ["shop"],
-  title: "Shop sign-in",
-  variables: [],
-};
-
-rpc.detail = {
-  evidence,
-  revision: {
-    catalogRoot: "/tmp/catalog",
-    heads: {
-      approvedRevisionId: null,
-      archived: false,
-      createdAt: at,
-      draftRevisionId: "rev-1",
-      id: "flow-shop",
-      schemaVersion: 1,
-      updatedAt: at,
-      verification: null,
-    },
-    manifest,
-    path: "/tmp/catalog/agent-flows/flow-shop/revisions/rev-1",
-  },
-};
-
-const savedDraft = {
-  agentFlowId: "flow-shop",
-  revisionId: "rev-1",
-  steps: [
-    {
-      confirmation: false,
-      description: "Sign in with the demonstrated account.",
-      evidenceHash: `sha256-${"a".repeat(64)}`,
-      index: 0,
-      name: "Sign in",
-    },
-  ],
-  title: "Shop sign-in",
-};
-
 const sessionAt = <Overrides extends object>(
   updatedAt: string,
   overrides?: Overrides
@@ -169,10 +68,9 @@ const sessionAt = <Overrides extends object>(
   recordingId: "recording-shop-sign-in",
   run: null,
   takeover: null,
-  teaching: { actionCount: 2, draft: savedDraft, instructionCount: 0 },
+  teaching: { actionCount: 2, instructionCount: 0 },
   timeline: [],
   updatedAt,
-  verification: null,
   viewUrl: "http://127.0.0.1:7777/?session=agent-one",
   ...overrides,
 });
@@ -200,7 +98,7 @@ afterEach(() => {
 
 test("keeps an Execution Boundary on screen through a burst of updates", async () => {
   renderWorkspace();
-  await screen.findByText("Agent Step 1: Sign in");
+  await screen.findByRole("heading", { name: "Session status" });
 
   const boundary = {
     action: { type: "click" },

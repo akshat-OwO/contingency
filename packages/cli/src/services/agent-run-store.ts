@@ -20,7 +20,7 @@ export const AGENT_RUN_TRACE_FILE = "run.trace.zip";
 export const DEFAULT_AGENT_STEP_CEILING_MS = 120_000;
 export const DEFAULT_AGENT_RUN_CEILING_MS = 900_000;
 
-const CONFIG_FILE = "agent-flow-catalog.json";
+const CONFIG_FILE = "catalog.json";
 
 /**
  * The Catalog Root's ceiling policy. Every key is optional and an unreadable

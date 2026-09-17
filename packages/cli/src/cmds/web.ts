@@ -3,16 +3,13 @@ import path from "node:path";
 import { Config, Console, Effect, FileSystem, Layer } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 
-import {
-  defaultCatalogRoot,
-  makeAgentFlowCatalogLayer,
-} from "../services/agent-flow-catalog.ts";
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
   defaultAgentResourceDirectory,
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
+import { defaultCatalogRoot } from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import {
   makeTeachingRecordingStoreLayer,
@@ -47,17 +44,10 @@ export const webCommand = Command.make(
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
-        let selectedCatalogRoot = defaultCatalogRoot();
-        const catalog = Layer.succeedContext(
-          yield* Layer.build(
-            makeAgentFlowCatalogLayer({
-              onSelect: (root) => {
-                selectedCatalogRoot = root;
-              },
-              root: selectedCatalogRoot,
-            })
-          )
-        );
+        // The Workspace process serves one Catalog Root: it holds Teaching
+        // Recordings and persisted Runs, and selecting a different root is an
+        // MCP-process concern.
+        const selectedCatalogRoot = defaultCatalogRoot();
         const runStore = Layer.succeedContext(
           yield* Layer.build(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
@@ -88,7 +78,6 @@ export const webCommand = Command.make(
         );
         yield* Layer.build(
           makeHttpServerLayer({
-            agentFlowCatalog: catalog,
             agentRunStore: runStore,
             agentSession,
             allowedOrigins: resolveAllowedOrigins(browserUrl),

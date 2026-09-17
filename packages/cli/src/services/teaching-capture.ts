@@ -4,11 +4,8 @@ import { ScreenshotHash } from "@contingency/protocol";
 import type {
   AgentBrowserSnapshot,
   AgentScreenshot,
-  AgentFlowDraftRef,
-  AgentSessionId,
   AgentSnapshotId,
   CapturedAction,
-  TeachingFeed,
   TeachingInstruction,
   TeachingProgress,
   TeachingScreenshot,
@@ -16,9 +13,8 @@ import type {
   Variable,
 } from "@contingency/protocol";
 
-import { observedHosts } from "./agent-flow-compiler.ts";
-import type { Demonstration } from "./agent-flow-compiler.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import type { Demonstration } from "./teaching-demonstration.ts";
 
 /** How many captured actions one Demonstration keeps. */
 const ACTION_LIMIT = 2000;
@@ -52,13 +48,6 @@ export interface CapturedActionInput {
 }
 
 /**
- * The in-process recorder behind one Teaching session. It keeps the
- * Demonstration — actor-attributed actions, the Browser Snapshots around them,
- * URL transitions, and relayed user instructions — and derives the bounded
- * Teaching Feed from it. Nothing here touches the browser: the session feeds
- * it what the browser already answered.
- */
-/**
  * The sizes a capture ceiling is measured against, without building the
  * Demonstration. A live watchdog reads these on every tick, so they must stay
  * O(1).
@@ -70,19 +59,19 @@ export interface DemonstrationCounts {
   readonly urlTransitions: number;
 }
 
+/**
+ * The in-process recorder behind one Teaching session. It keeps the
+ * Demonstration — actor-attributed actions, the Browser Snapshots around them,
+ * URL transitions, and relayed user instructions — for the durable Teaching
+ * Recording the encoder writes. Nothing here touches the browser: the session
+ * feeds it what the browser already answered.
+ */
 export interface DemonstrationCapture {
   /** O(1) sizes for the capture ceilings. */
   readonly counts: () => DemonstrationCounts;
   readonly current: () => Demonstration;
-  /** The bounded feed, led by the PlayByPlay prose the agent compiles from. */
-  readonly feed: (
-    sessionId: AgentSessionId,
-    includeSnapshots: boolean
-  ) => TeachingFeed | undefined;
-  /** Store the analysis result once the browser has finalized its video. */
-  readonly finalizePlayByPlay: (playByPlay: string) => void;
   readonly latestSnapshotId: () => AgentSnapshotId | null;
-  readonly progress: (draft: AgentFlowDraftRef | null) => TeachingProgress;
+  readonly progress: () => TeachingProgress;
   /** Record one attempt and the URL change it caused, if any. */
   readonly recordAction: (input: CapturedActionInput) => CapturedAction;
   readonly recordInstruction: (text: string, at: string) => TeachingInstruction;
@@ -153,7 +142,6 @@ export const makeDemonstrationCapture = (
   const privateValues = new Set<string>();
   const privateSelectors = new Set<string>();
   let latestSnapshot: AgentSnapshotId | null = null;
-  let playByPlay: string | null = null;
   const startUrl = sanitizeTeachingUrl(initialUrl);
   let currentUrl = startUrl;
   let lastEventAt = Number.NEGATIVE_INFINITY;
@@ -257,7 +245,6 @@ export const makeDemonstrationCapture = (
   const current = (): Demonstration => ({
     actions: [...actions],
     instructions: [...instructions],
-    playByPlay,
     screenshotContents: new Map(
       screenshots.flatMap((reference) => {
         const content = contentOf(reference);
@@ -292,45 +279,9 @@ export const makeDemonstrationCapture = (
       urlTransitions: urlTransitions.length,
     }),
     current,
-    feed: (sessionId, includeSnapshots) => {
-      const demonstration = current();
-      if (demonstration.playByPlay === null) {
-        return;
-      }
-      const referenced = new Set<AgentSnapshotId>();
-      for (const action of demonstration.actions) {
-        if (action.snapshotBefore !== null) {
-          referenced.add(action.snapshotBefore);
-        }
-        if (action.snapshotAfter !== null) {
-          referenced.add(action.snapshotAfter);
-        }
-      }
-      // Encoded in the order the agent reads it: PlayByPlay first.
-      // oxlint-disable-next-line eslint/sort-keys
-      return {
-        playByPlay: demonstration.playByPlay,
-        actions: demonstration.actions,
-        instructions: demonstration.instructions,
-        observedHosts: observedHosts(demonstration),
-        screenshots: demonstration.screenshots,
-        sessionId,
-        snapshots: includeSnapshots
-          ? [...referenced]
-              .map((id) => demonstration.snapshots.get(id))
-              .filter((snapshot) => snapshot !== undefined)
-          : [],
-        urlTransitions: demonstration.urlTransitions,
-        variables: demonstration.variables,
-      };
-    },
-    finalizePlayByPlay: (finalized) => {
-      playByPlay = finalized;
-    },
     latestSnapshotId: () => latestSnapshot,
-    progress: (draft) => ({
+    progress: () => ({
       actionCount: actions.length,
-      draft,
       instructionCount: instructions.length,
     }),
     recordAction,

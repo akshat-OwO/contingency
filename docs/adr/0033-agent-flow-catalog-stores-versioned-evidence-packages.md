@@ -1,5 +1,7 @@
 # Agent Flow Catalog stores versioned evidence packages
 
+> Superseded by [ADR 0039](./0039-flow-skills-are-learned-from-temporary-teaching-recordings.md). Contingency no longer stores Agent Flow revision packages or Evidence Slices.
+
 Each **Agent Flow Revision** is a directory containing a schema-validated manifest and content-addressed **Evidence Slice** files. The manifest carries an explicit schema version, stable Agent Flow identity, immutable revision identity, title, short description, Domain Scope, Emulation, Variables, ordered Agent Steps, Confirmation Step markers, and evidence references. The content-addressed evidence store is scoped to one Agent Flow: unchanged evidence is reused by content hash across that flow's revisions, and two Agent Flows that demonstrate the same span each keep their own copy under the same hash. Screenshot bytes live beside the slices in a content-addressed `screenshots` directory under the Agent Flow, so two Steps citing the same image store it once and a revision that keeps a Step keeps its bytes. Explicit, non-destructive migrations preserve persisted company knowledge when the schema changes.
 
 The local **Agent Flow Catalog** provides deterministic filters and full-text search over titles, descriptions, optional tags, and Agent Step descriptions. Before Teaching creates a candidate, the agent searches the catalog and asks the user whether a close match should run, receive a draft revision, or remain distinct. Suite membership stays in the Suite manifest rather than creating an Agent Flow revision.

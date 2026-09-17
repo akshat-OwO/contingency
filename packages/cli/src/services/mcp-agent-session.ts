@@ -114,7 +114,7 @@ const AgentSessionGetTool = Tool.make("agent_session_get", {
 const AgentSessionCloseTool = Tool.make("agent_session_close", {
   dependencies: [AgentSession],
   description:
-    "Close an Agent Session and release its owned browser. For Teaching, this finalizes the local video and generates the PlayByPlay before the Teaching Feed becomes available.",
+    "Close an Agent Session and release its owned browser. For Teaching, this finalizes the local video and Trace so the Teaching Recording becomes ready to learn from.",
   failure: AgentSessionFailure,
   parameters: AgentSessionCloseParameters,
   success: AgentSessionSnapshot,
@@ -141,7 +141,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    'Perform one browser action during a Run. Teaching refuses this tool: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent\'s own words. Set intent.objectiveKind to "new" only when deliberately starting work outside the approved Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and Confirmation Steps. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation.',
+    "Perform one browser action during a Run. Teaching refuses this tool: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent's own words. Set intent.objectiveKind to \"new\" only when deliberately starting work outside the Flow Skill's Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation.",
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,

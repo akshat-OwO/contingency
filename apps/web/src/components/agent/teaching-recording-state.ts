@@ -33,6 +33,7 @@ export interface TeachingRecordingAction {
  */
 export type TeachingSecondaryAction =
   | "copy-prompt"
+  | "copy-run-prompt"
   | "delete-recording"
   | "learn-again"
   | "read-failure"
@@ -223,8 +224,9 @@ export const teachingRecordingPresentation = (
       return {
         action: null,
         badge: "Recording deleted",
-        nextStep: "The flow skill and its references are all that is left.",
-        secondaries: ["read-flow-skill"],
+        nextStep:
+          "The flow skill and its references are all that is left. Run it any time.",
+        secondaries: ["copy-run-prompt", "read-flow-skill"],
         showsElapsed: false,
         showsInspect: false,
         tone: "default",
@@ -299,4 +301,21 @@ export const teachingAgentPrompt = (
     "Do not use skill-creator. Claim the recording, page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.",
     "After saving, ask for the inputs again and call agent_flow_skill_dry_run_start with at least one changed input when the task permits it. Drive the returned fresh Agent Session, check the observable outcome, and call agent_flow_skill_dry_run_report.",
     "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
+  ].join("\n");
+
+/**
+ * The prompt the user hands to an agent to run a verified Flow Skill. Running
+ * is the agent's work: Contingency owns the Step order, the ceilings, and the
+ * evidence, but a browser nobody drives finishes nothing, so the Workspace
+ * hands over the exact call rather than opening an idle Run.
+ */
+export const flowSkillRunPrompt = (flowSkillName: string): string =>
+  [
+    `Run the Contingency flow skill "${flowSkillName}".`,
+    "",
+    `Read .contingency/${
+      flowSkillName
+    }/SKILL.md, ask me for every declared input, then call agent_flow_skill_run_start with those inputs and the page the first step opens.`,
+    'Drive the returned Agent Session with the browser tools and call agent_run_step_assess for each ordered step, judged against its own "Done when:" line.',
+    "Call agent_run_complete when the steps are done or one of them could not be completed.",
   ].join("\n");

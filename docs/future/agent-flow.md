@@ -2,7 +2,9 @@
 
 Vocabulary: [`CONTEXT.md`](../../CONTEXT.md). Decisions: [`docs/adr/`](../adr/).
 
-The design is settled. Implementation has not started. The first milestone proves one Agent Flow end to end; Suite orchestration follows immediately afterward.
+> Historical. [ADR 0039](../adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md) replaced the Agent Flow compilation, Evidence Slice, and approval model described below with Flow Skills learned from temporary Teaching Recordings. Read this file for the Suite design only; every Agent Flow authoring term in it is superseded.
+
+Teaching, Flow Skill learning, Dry Runs, and Interactive Runs are built. Suite orchestration has not started.
 
 ## Problem
 

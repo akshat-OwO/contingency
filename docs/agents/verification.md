@@ -7,7 +7,7 @@ Contingency's end-to-end verification skill lives at `.cursor/skills/verify-cont
 Add a **verify-contingency** acceptance criterion to an agent brief when the issue touches:
 
 - Workspace, Teaching, or Interactive Runs
-- Agent Flow Teaching, verification, approval, catalog search, or MCP tools
+- Teaching, Flow Skill learning, Dry Run, verification, catalog listing, or MCP tools
 - Browser capture, snapshots, retention, evidence, or Run artifacts
 
 Unit or service tests alone are enough when the change is purely internal — schema encoding, path helpers, or other behavior already covered by integration tests and invisible outside the catalog filesystem.
@@ -18,9 +18,9 @@ Read `features/README.md`, then point the brief at the closest recipe:
 
 | Area | Feature file |
 | --- | --- |
-| Workspace, Teaching, verification, approval, MCP, Run Summary | `features/workspace.md` |
+| Workspace, Teaching, Flow Skill learning, Dry Run, MCP, Run Summary | `features/workspace.md` |
 
-Name the sub-feature or section when the issue is narrow (e.g. "Teaching and the draft catalog", "Execution Boundary").
+Name the sub-feature or section when the issue is narrow (e.g. "Teaching and Flow Skill learning", "Execution Boundary").
 
 ## Agent brief criterion shape
 

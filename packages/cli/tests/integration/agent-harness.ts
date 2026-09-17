@@ -1,9 +1,8 @@
 import path from "node:path";
 
-import { AgentFlowDiagnostic, OperationId } from "@contingency/protocol";
+import { FlowSkillDiagnostic, OperationId } from "@contingency/protocol";
 import type {
   AgentActionResult,
-  AgentFlowRevision,
   AgentRunState,
   AgentSessionId,
   AgentSessionSnapshot,
@@ -14,14 +13,10 @@ import { Effect, Layer, Option, Schema, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
-import { makeAgentFlowCatalogLayer } from "../../src/services/agent-flow-catalog.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import {
-  AgentFlowToolHandlersLive,
-  AgentFlowTools,
-} from "../../src/services/mcp-agent-flow.ts";
+import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
 import {
   AgentRunToolHandlersLive,
   AgentRunTools,
@@ -30,6 +25,10 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import {
+  AgentCatalogToolHandlersLive,
+  AgentCatalogTools,
+} from "../../src/services/mcp-catalog.ts";
 import {
   TeachingRecordingToolHandlersLive,
   TeachingRecordingTools,
@@ -49,7 +48,7 @@ export const agentViewport = {
 /** The structured failure an MCP client actually reads. */
 export interface ToolFailure {
   readonly code: string;
-  readonly diagnostics?: readonly AgentFlowDiagnostic[] | undefined;
+  readonly diagnostics?: readonly FlowSkillDiagnostic[] | undefined;
   readonly message: string;
 }
 
@@ -60,7 +59,7 @@ const decodeToolSuccess = <Success extends Schema.Top>(
 
 const ToolFailureSchema = Schema.Struct({
   code: Schema.String,
-  diagnostics: Schema.optional(Schema.Array(AgentFlowDiagnostic)),
+  diagnostics: Schema.optional(Schema.Array(FlowSkillDiagnostic)),
   message: Schema.String,
 });
 
@@ -117,7 +116,7 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
 
 /** The agent's session, catalog, and Run tools, called the way MCP calls them. */
 export const sessionTool = makeCall(AgentSessionTools);
-export const flowTool = makeCall(AgentFlowTools);
+export const catalogTool = makeCall(AgentCatalogTools);
 export const runTool = makeCall(AgentRunTools);
 export const teachingRecordingTool = makeCall(TeachingRecordingTools);
 
@@ -157,30 +156,6 @@ export const requireBoundary = (result: AgentActionResult) => {
   return result.intervention;
 };
 
-/**
- * The Agent Flow revision a resolved pending decision answered with. Resolving
- * a boundary decision answers with the Agent Session instead, so the revision
- * is asserted rather than assumed.
- */
-export const requireRevision = (
-  resolved: AgentFlowRevision | AgentSessionSnapshot
-): AgentFlowRevision => {
-  if (!("heads" in resolved)) {
-    throw new Error("The resolved decision was not an Agent Flow decision.");
-  }
-  return resolved;
-};
-
-/** The Agent Session a resolved boundary decision answered with. */
-export const requireSessionSnapshot = (
-  resolved: AgentFlowRevision | AgentSessionSnapshot
-): AgentSessionSnapshot => {
-  if ("heads" in resolved) {
-    throw new Error("The resolved decision was not a boundary decision.");
-  }
-  return resolved;
-};
-
 /** The open boundary decision the session is waiting on, as the agent reads it. */
 export const requireBoundaryDecision = (
   snapshot: AgentSessionSnapshot,
@@ -213,14 +188,12 @@ export const resolveBoundary = (input: {
     const snapshot = yield* sessionTool("agent_session_get", {
       sessionId: input.sessionId,
     });
-    return requireSessionSnapshot(
-      yield* flowTool("agent_pending_decision_resolve", {
-        decision: input.decision,
-        operationId: OperationId.make(input.operationId),
-        pendingDecisionId: requireBoundaryDecision(snapshot, input.boundaryId)
-          .pendingDecisionId,
-      })
-    );
+    return yield* catalogTool("agent_pending_decision_resolve", {
+      decision: input.decision,
+      operationId: OperationId.make(input.operationId),
+      pendingDecisionId: requireBoundaryDecision(snapshot, input.boundaryId)
+        .pendingDecisionId,
+    });
   });
 
 /** The open decision for one runtime Variable, as the agent reads it. */
@@ -257,24 +230,22 @@ export const resolveVariable = (input: {
     const snapshot = yield* sessionTool("agent_session_get", {
       sessionId: input.sessionId,
     });
-    return requireSessionSnapshot(
-      yield* flowTool("agent_pending_decision_resolve", {
-        decision: input.decision,
-        operationId: OperationId.make(input.operationId),
-        pendingDecisionId: requireVariableDecision(snapshot, input.name)
-          .pendingDecisionId,
-        value: input.value,
-      })
-    );
+    return yield* catalogTool("agent_pending_decision_resolve", {
+      decision: input.decision,
+      operationId: OperationId.make(input.operationId),
+      pendingDecisionId: requireVariableDecision(snapshot, input.name)
+        .pendingDecisionId,
+      value: input.value,
+    });
   });
 
 /**
  * One MCP process's whole public surface over one Catalog Root: the agent's
- * three toolkits and Agent View's loopback RPC, over a real Chromium.
+ * toolkits and the Workspace's loopback RPC, over a real Chromium.
  *
  * Each call builds a fresh registry, which is how a test spends more than one
- * process lifetime: nothing but the persisted catalog and Run packages crosses
- * between them.
+ * process lifetime: nothing but the persisted Flow Skill, Teaching Recording,
+ * and Run packages crosses between them.
  */
 export const agentProcessLayer = (
   initialCatalogRoot: string,
@@ -298,7 +269,7 @@ export const agentProcessLayer = (
   return Layer.mergeAll(
     RpcHandlersLive,
     AgentSessionToolHandlersLive,
-    AgentFlowToolHandlersLive,
+    AgentCatalogToolHandlersLive,
     AgentRunToolHandlersLive,
     TeachingRecordingToolHandlersLive
   ).pipe(
@@ -312,7 +283,7 @@ export const agentProcessLayer = (
                 resourceDirectory: options.resourceDirectory,
               }
         ).pipe(Layer.provide(recordingStore)),
-        makeAgentFlowCatalogLayer(
+        makeFlowSkillCatalogLayer(
           options.followCatalogSelection === true
             ? {
                 ...catalogOptions,

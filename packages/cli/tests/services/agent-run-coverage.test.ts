@@ -11,6 +11,7 @@ const step = (
   attempts: 0,
   confirmation: false,
   description: `Step ${index + 1}.`,
+  doneWhen: `Step ${index + 1} shows its outcome.`,
   endedAt: null,
   execution,
   index,

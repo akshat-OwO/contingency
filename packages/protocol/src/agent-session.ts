@@ -4,9 +4,7 @@ import { AgentExecutionBoundary, AgentTimelineEntry } from "./agent-browser.ts";
 import {
   AgentPendingDecision,
   AgentPendingDecisionResolution,
-  AgentSessionVerification,
-  TeachingProgress,
-} from "./agent-flow.ts";
+} from "./agent-decision.ts";
 import {
   AgentProcessId,
   AgentSessionController,
@@ -19,6 +17,7 @@ import { optionalNullable } from "./optional-field.ts";
 import {
   FlowSkillName,
   TeachingCaptureState,
+  TeachingProgress,
   TeachingRecordingCleanupState,
   TeachingRecordingId,
 } from "./teaching-recording.ts";
@@ -60,7 +59,7 @@ const AgentSessionSnapshotBase = {
   controller: AgentSessionController,
   createdAt: nonEmptyString,
   currentUrl: Schema.String,
-  /** Resolutions mirrored from the catalog for Agent View's read-only status. */
+  /** Resolved decisions, for the Workspace's read-only status. */
   decisionHistory: Schema.Array(AgentPendingDecisionResolution).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
@@ -94,7 +93,6 @@ export const TeachingSessionSnapshot = Schema.Struct({
   recordingId: TeachingRecordingId,
   run: Schema.Null,
   teaching: TeachingProgress,
-  verification: Schema.Null,
 });
 export type TeachingSessionSnapshot = typeof TeachingSessionSnapshot.Type;
 
@@ -106,7 +104,6 @@ export const RunSessionSnapshot = Schema.Struct({
   recordingId: Schema.Null,
   run: Schema.NullOr(AgentRunState),
   teaching: Schema.Null,
-  verification: Schema.NullOr(AgentSessionVerification),
 });
 export type RunSessionSnapshot = typeof RunSessionSnapshot.Type;
 

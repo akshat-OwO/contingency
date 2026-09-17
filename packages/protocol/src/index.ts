@@ -9,16 +9,6 @@ import {
   AgentNavigateAction,
 } from "./agent-browser.ts";
 import {
-  AgentFlowApprove,
-  AgentFlowArchive,
-  AgentFlowDelete,
-  AgentFlowDeleteResult,
-  AgentFlowGet,
-  AgentFlowRevisionDetail,
-  AgentFlowVerificationAuthorize,
-  TeachingVariableInput,
-} from "./agent-flow.ts";
-import {
   AgentRunCeilingExtend,
   AgentRunOpen,
   AgentRunSummary,
@@ -51,6 +41,7 @@ import {
   TeachingCaptureState,
   TeachingRecordingCleanupState,
   TeachingRecordingId,
+  TeachingVariableInput,
 } from "./teaching-recording.ts";
 import { Viewport } from "./viewport.ts";
 
@@ -66,7 +57,7 @@ export * from "./agent-session.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-browser.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
-export * from "./agent-flow.ts";
+export * from "./agent-decision.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
@@ -302,10 +293,6 @@ export const BrandId = Schema.Literals([
   "agent.teaching.variable.input.result",
   "agent.browser.navigate",
   "agent.browser.navigated",
-  "agent.flow.revision.get",
-  "agent.flow.revision.result",
-  "agent.flow.verification.authorize",
-  "agent.flow.approve",
   "agent.run.summary.get",
   "agent.run.summary.result",
   "agent.run.ceiling.extend",
@@ -749,35 +736,6 @@ export const AgentBrowserStorageUpdated = response(
   {}
 );
 
-/** Reading the draft under review. Agent View shows what verification covers. */
-export const AgentFlowRevisionGet = request("agent.flow.revision.get", {
-  agentFlowId: AgentFlowGet.fields.agentFlowId,
-  revisionId: AgentFlowGet.fields.revisionId,
-});
-export const AgentFlowRevisionResult = response("agent.flow.revision.result", {
-  evidence: AgentFlowRevisionDetail.fields.evidence,
-  revision: AgentFlowRevisionDetail.fields.revision,
-});
-
-/**
- * The two gestures the external agent may ask for but never perform. They
- * exist only on Agent View's loopback RPC
- * ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
- */
-export const AgentFlowVerificationAuthorizeRequest = request(
-  "agent.flow.verification.authorize",
-  {
-    agentFlowId: AgentFlowVerificationAuthorize.fields.agentFlowId,
-    operationId: AgentFlowVerificationAuthorize.fields.operationId,
-    revisionId: AgentFlowVerificationAuthorize.fields.revisionId,
-    sessionId: AgentFlowVerificationAuthorize.fields.sessionId,
-  }
-);
-export const AgentFlowApproveRequest = request("agent.flow.approve", {
-  agentFlowId: AgentFlowApprove.fields.agentFlowId,
-  operationId: AgentFlowApprove.fields.operationId,
-  revisionId: AgentFlowApprove.fields.revisionId,
-});
 /**
  * Reading a persisted Run Summary. Agent View uses it in summary mode, and a
  * read-only viewer opened by `open_run` uses nothing else: no browser state is
@@ -805,23 +763,6 @@ export const AgentRunCeilingExtendRequest = request(
     sessionId: AgentRunCeilingExtend.fields.sessionId,
   }
 );
-
-export const AgentFlowArchiveRequest = request("agent.flow.archive", {
-  agentFlowId: AgentFlowArchive.fields.agentFlowId,
-  archived: AgentFlowArchive.fields.archived,
-  expectedHeads: AgentFlowArchive.fields.expectedHeads,
-  operationId: AgentFlowArchive.fields.operationId,
-});
-export const AgentFlowDeleteRequest = request("agent.flow.delete", {
-  agentFlowId: AgentFlowDelete.fields.agentFlowId,
-  confirmation: AgentFlowDelete.fields.confirmation,
-  expectedHeads: AgentFlowDelete.fields.expectedHeads,
-  operationId: AgentFlowDelete.fields.operationId,
-});
-export const AgentFlowDeleted = response("agent.flow.deleted", {
-  agentFlowId: AgentFlowDeleteResult.fields.agentFlowId,
-  deleted: AgentFlowDeleteResult.fields.deleted,
-});
 
 const AgentSessionsGetRpc = Rpc.make("agent.sessions.get", {
   error: BrowserRpcError,
@@ -1017,24 +958,6 @@ const AgentBrowserStorageClearRpc = Rpc.make("agent.browser.storage.clear", {
   payload: AgentBrowserStorageClear,
   success: AgentBrowserStorageUpdated,
 });
-const AgentFlowRevisionGetRpc = Rpc.make("agent.flow.revision.get", {
-  error: BrowserRpcError,
-  payload: AgentFlowRevisionGet,
-  success: AgentFlowRevisionResult,
-});
-const AgentFlowVerificationAuthorizeRpc = Rpc.make(
-  "agent.flow.verification.authorize",
-  {
-    error: BrowserRpcError,
-    payload: AgentFlowVerificationAuthorizeRequest,
-    success: AgentFlowRevisionResult,
-  }
-);
-const AgentFlowApproveRpc = Rpc.make("agent.flow.approve", {
-  error: BrowserRpcError,
-  payload: AgentFlowApproveRequest,
-  success: AgentFlowRevisionResult,
-});
 const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   error: BrowserRpcError,
   payload: AgentRunSummaryGet,
@@ -1044,16 +967,6 @@ const AgentRunCeilingExtendRpc = Rpc.make("agent.run.ceiling.extend", {
   error: BrowserRpcError,
   payload: AgentRunCeilingExtendRequest,
   success: AgentSessionResult,
-});
-const AgentFlowArchiveRpc = Rpc.make("agent.flow.archive", {
-  error: BrowserRpcError,
-  payload: AgentFlowArchiveRequest,
-  success: AgentFlowRevisionResult,
-});
-const AgentFlowDeleteRpc = Rpc.make("agent.flow.delete", {
-  error: BrowserRpcError,
-  payload: AgentFlowDeleteRequest,
-  success: AgentFlowDeleted,
 });
 
 export class ContingencyRpcs extends RpcGroup.make(
@@ -1088,11 +1001,6 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserStorageSetRpc,
   AgentBrowserStorageDeleteRpc,
   AgentBrowserStorageClearRpc,
-  AgentFlowRevisionGetRpc,
-  AgentFlowVerificationAuthorizeRpc,
-  AgentFlowApproveRpc,
-  AgentFlowArchiveRpc,
-  AgentFlowDeleteRpc,
   AgentRunSummaryGetRpc,
   AgentRunCeilingExtendRpc
 ) {}

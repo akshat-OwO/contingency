@@ -27,7 +27,7 @@ const diagnostic = (
   path: readonly string[]
 ): FlowSkillDiagnostic => ({ code, message, path: [...path] });
 
-interface Frontmatter {
+export interface FlowSkillFrontmatter {
   /** Everything after the closing delimiter, where the procedure lives. */
   readonly body: string;
   readonly description: string | undefined;
@@ -43,7 +43,9 @@ const FRONTMATTER = /^---\r?\n(?<block>[\s\S]*?)\r?\n---\r?\n?/u;
  * shapes the rest of the product cannot read back, so the grammar stays the one
  * the authoring skills teach.
  */
-const readFrontmatter = (content: string): Frontmatter | undefined => {
+export const readFlowSkillFrontmatter = (
+  content: string
+): FlowSkillFrontmatter | undefined => {
   const match = FRONTMATTER.exec(content);
   if (match === null) {
     return undefined;
@@ -100,12 +102,12 @@ const RESIDUE = [
 const IMAGE_SUFFIXES = [".png", ".jpg", ".jpeg", ".webm", ".webp"] as const;
 
 /** One numbered step and the text that belongs to it, for completion checks. */
-interface Step {
+export interface FlowSkillStep {
   readonly block: string;
   readonly label: string;
 }
 
-const readSteps = (body: string): readonly Step[] => {
+export const readFlowSkillSteps = (body: string): readonly FlowSkillStep[] => {
   const lines = body.split(/\r?\n/u);
   const steps: { block: string[]; label: string }[] = [];
   for (const line of lines) {
@@ -252,7 +254,7 @@ const checkLinks = (
  */
 const checkDeclaredInputs = (
   files: readonly FlowSkillFile[],
-  frontmatter: Frontmatter,
+  frontmatter: FlowSkillFrontmatter,
   report: (entry: FlowSkillDiagnostic) => void
 ): void => {
   const declared = new Set(frontmatter.inputs);
@@ -352,7 +354,7 @@ export const validateFlowSkillPackage = (
       ),
     ]);
   }
-  const frontmatter = readFrontmatter(skill.content);
+  const frontmatter = readFlowSkillFrontmatter(skill.content);
   if (frontmatter === undefined) {
     report(
       diagnostic(
@@ -381,7 +383,7 @@ export const validateFlowSkillPackage = (
       );
     }
     checkDeclaredInputs(files, frontmatter, report);
-    const steps = readSteps(frontmatter.body);
+    const steps = readFlowSkillSteps(frontmatter.body);
     if (steps.length === 0) {
       report(
         diagnostic(
@@ -414,4 +416,56 @@ export const validateFlowSkillPackage = (
   return diagnostics.length === 0
     ? Result.succeed(files)
     : Result.fail(diagnostics);
+};
+
+/** One ordered step of a saved Flow Skill, as a Run executes it. */
+export interface FlowSkillProcedureStep {
+  /** The step's whole text, placeholders included. */
+  readonly description: string;
+  /** The observable outcome that ends the step. */
+  readonly doneWhen: string;
+  readonly index: number;
+  /** The step's first line, for a compact label. */
+  readonly name: string;
+}
+
+const STEP_NUMBER = /^\s{0,3}\d+[.)]\s+/u;
+const NAME_LIMIT = 80;
+
+const firstLine = (block: string): string => {
+  const [line] = block.split(/\r?\n/u);
+  const text = (line ?? "").replace(STEP_NUMBER, "").trim();
+  return text.length > NAME_LIMIT ? `${text.slice(0, NAME_LIMIT - 1)}…` : text;
+};
+
+const completionOf = (block: string): string => {
+  const marker = block.indexOf(COMPLETION_MARKER);
+  return marker === -1
+    ? ""
+    : (block
+        .slice(marker + COMPLETION_MARKER.length)
+        .split(/\r?\n\s*\r?\n/u)[0]
+        ?.trim() ?? "");
+};
+
+/**
+ * The ordered steps a Run follows, read from the saved `SKILL.md`. The Flow
+ * Skill is the single reusable format (ADR 0039), so a Run derives its Agent
+ * Steps from the same numbered procedure a person reads. Validation already
+ * refused a package whose steps lack a completion condition, so a saved
+ * package always yields a `doneWhen` for every step.
+ */
+export const flowSkillProcedureSteps = (
+  skillContent: string
+): readonly FlowSkillProcedureStep[] => {
+  const frontmatter = readFlowSkillFrontmatter(skillContent);
+  if (frontmatter === undefined) {
+    return [];
+  }
+  return readFlowSkillSteps(frontmatter.body).map((step, index) => ({
+    description: step.block.trim(),
+    doneWhen: completionOf(step.block),
+    index,
+    name: firstLine(step.block),
+  }));
 };

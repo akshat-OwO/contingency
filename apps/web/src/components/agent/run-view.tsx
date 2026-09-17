@@ -11,10 +11,10 @@ import { agentRunVideoPath, OperationId } from "@contingency/protocol";
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { CircleAlertIcon, TimerIcon } from "lucide-react";
 
-import { refusal } from "@/components/agent/draft-review-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const operationId = () => OperationId.make(crypto.randomUUID());
@@ -335,7 +335,9 @@ export const RunDetails = ({
         </h2>
         <div className="space-y-2 rounded-lg border p-3 text-sm">
           <p className="font-medium">{run.title}</p>
-          <p className="font-mono text-xs wrap-anywhere">{run.revisionId}</p>
+          <p className="text-muted-foreground text-xs wrap-anywhere">
+            Flow skill {run.flowSkillName}
+          </p>
           {run.outcome === null ? null : (
             <Badge
               variant={run.outcome === "completed" ? "default" : "secondary"}

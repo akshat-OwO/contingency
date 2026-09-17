@@ -2,10 +2,10 @@ import { Layer } from "effect";
 import { McpProtocol, McpServer } from "effect/unstable/ai";
 
 import { makeHostMiddleware } from "../routes/rpc.ts";
-import { McpAgentFlowLayer } from "./mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "./mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
+import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
 import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
 
 /** Streamable HTTP path Cursor and other URL MCP clients POST to. */
@@ -25,7 +25,7 @@ export const makeMcpHttpLayer = (allowedOrigins: ReadonlySet<string>) =>
       version: "0.0.1",
     }),
     McpAgentSessionLayer,
-    McpAgentFlowLayer,
+    McpAgentCatalogLayer,
     McpAgentRunLayer,
     McpTeachingRecordingLayer,
     McpAuthoringSkillsLayer

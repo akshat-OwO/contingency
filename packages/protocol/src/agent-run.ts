@@ -1,20 +1,17 @@
 import { Schema } from "effect";
 
 import { AgentTimelineEntry } from "./agent-browser.ts";
-import {
-  AgentFlowId,
-  AgentFlowRevisionId,
-  AgentSessionVariableState,
-} from "./agent-flow.ts";
+import { AgentSessionVariableState } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { FlowSkillName } from "./teaching-recording.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
 const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
 /**
- * One Interactive Run of an Approved Agent Flow. It is a durable artifact with
+ * One Interactive Run of a verified Flow Skill. It is a durable artifact with
  * its own identity: an Agent Session is the ephemeral envelope that performed
  * it, and dies with its MCP process, while the Run outlives both
  * ([ADR 0029](../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
@@ -88,6 +85,8 @@ export const AgentRunStep = Schema.Struct({
   attempts: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   confirmation: Schema.Boolean,
   description: nonEmptyString,
+  /** The step's own "Done when:" line, copied from SKILL.md. */
+  doneWhen: nonEmptyString,
   endedAt: Schema.NullOr(nonEmptyString),
   execution: AgentStepExecution,
   index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -168,14 +167,22 @@ export const AgentRunState = Schema.Struct({
   activeStepIndex: Schema.NullOr(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
   ),
-  agentFlowId: AgentFlowId,
   assessmentCounts: AgentRunAssessmentCounts,
   attribution: AgentRunAttribution,
   ceilings: AgentRunCeilings,
   coverage: AgentRunCoverage,
   endedAt: Schema.NullOr(nonEmptyString),
+  /** The Flow Skill directory name this Run follows. */
+  flowSkillName: FlowSkillName,
+  /**
+   * The ordinary declared inputs this Run was started with. A secret input is
+   * declared in shouty snake case and supplied as a runtime Variable instead,
+   * so no secret literal ever reaches a tool parameter or this state.
+   */
+  inputs: Schema.Array(
+    Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
+  ),
   outcome: Schema.NullOr(AgentRunOutcome),
-  revisionId: AgentFlowRevisionId,
   runDeadline: nonEmptyString,
   runId: AgentRunId,
   startedAt: nonEmptyString,
@@ -184,9 +191,9 @@ export const AgentRunState = Schema.Struct({
   steps: Schema.Array(AgentRunStep).check(Schema.isMinLength(1)),
   title: nonEmptyString,
   /**
-   * The Agent Flow's runtime Variables. The Run asks for them again rather
-   * than persisting literals, so Agent View reports only whether each has been
-   * supplied ([ADR 0032](../../../docs/adr/0032-external-agents-receive-a-bounded-teaching-feed.md)).
+   * The Flow Skill's declared inputs. The Run asks for them again rather than
+   * persisting literals, so the Workspace reports only whether each has been
+   * supplied (ADR 0039).
    */
   variables: Schema.Array(AgentSessionVariableState),
 });
@@ -198,16 +205,19 @@ export type AgentRunState = typeof AgentRunState.Type;
  * ([ADR 0030](../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
 export const AgentRunSummary = Schema.Struct({
-  agentFlowId: AgentFlowId,
   assessmentCounts: AgentRunAssessmentCounts,
   attribution: AgentRunAttribution,
   ceilings: AgentRunCeilings,
   coverage: AgentRunCoverage,
   endedAt: nonEmptyString,
+  flowSkillName: FlowSkillName,
+  /** Ordinary declared inputs. Secret values are runtime Variables, not these. */
+  inputs: Schema.Array(
+    Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
+  ),
   outcome: AgentRunOutcome,
-  revisionId: AgentFlowRevisionId,
   runId: AgentRunId,
-  schemaVersion: Schema.Literal(1),
+  schemaVersion: Schema.Literal(2),
   /** The Agent Session that performed it, for correlating with Run history. */
   sessionId: AgentSessionId,
   startedAt: nonEmptyString,
@@ -234,20 +244,33 @@ export const agentRunVideoPath = (runId: AgentRunId | string): string =>
 // Requests
 // ---------------------------------------------------------------------------
 
-export const AgentFlowRunStart = Schema.Struct({
-  agentFlowId: AgentFlowId,
+/**
+ * Start an Interactive Run of a verified Flow Skill. There is no revision to
+ * name: the Flow Skill directory in the selected Catalog Root is the single
+ * reusable source of truth (ADR 0039).
+ */
+export const FlowSkillRunStart = Schema.Struct({
   clientName: optionalNullable(nonEmptyString),
   clientVersion: optionalNullable(nonEmptyString),
+  flowSkillName: FlowSkillName,
+  /**
+   * The ordinary declared inputs, supplied again for this Run. A secret input
+   * is declared in shouty snake case and is refused here: Contingency asks the
+   * user for it as a runtime Variable so the literal never enters a tool call.
+   */
+  inputs: Schema.Array(
+    Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
+  ),
   operationId: OperationId,
   /** Client-asserted, stored unverified. */
   reportedModel: optionalNullable(nonEmptyString),
   reportedProvider: optionalNullable(nonEmptyString),
-  /** The approved head when omitted. Only approved revisions may be run. */
-  revisionId: optionalNullable(AgentFlowRevisionId),
   runCeilingMs: optionalNullable(positiveInt),
   stepCeilingMs: optionalNullable(positiveInt),
+  /** Where the Run opens. The Flow Skill's first step names the page. */
+  url: nonEmptyString,
 });
-export type AgentFlowRunStart = typeof AgentFlowRunStart.Type;
+export type FlowSkillRunStart = typeof FlowSkillRunStart.Type;
 
 export const AgentRunStepAssess = Schema.Struct({
   evidence: AgentAssessment.fields.evidence,

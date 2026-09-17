@@ -1,5 +1,7 @@
 # Pending Decisions relay user consent over MCP
 
+> Partly superseded by [ADR 0039](./0039-flow-skills-are-learned-from-temporary-teaching-recordings.md). The `authorize_verification` and `approve_flow` decision kinds are removed; `boundary` and `supply_variable` remain.
+
 Contingency represents an in-scope user choice as a server-issued **Pending Decision**. Session and Agent Flow revision snapshots expose each open decision's id, kind, scope summary, Agent Flow id, revision id, and related session id. The external agent presents that scope in its conversation and calls `agent_pending_decision_resolve` only after the user explicitly chooses. Agent View mirrors pending and resolved status but does not authorize verification or approve revisions.
 
 Resolution requires a `pendingDecisionId`, an operation id, and a decision enum. `authorize_verification` accepts `authorize` or `refuse`; `approve_flow` accepts `approve` or `refuse`; `boundary` accepts `allow` or `refuse`; `supply_variable` accepts `supply` with a value or `refuse`. An optional `userMessage` is audit context, not proof. The agent must ask a follow-up question instead of resolving an ambiguous reply. Unknown, invalidated, or already resolved ids return `agent_flow_conflict`. Replaying the same operation id and request returns the original result.

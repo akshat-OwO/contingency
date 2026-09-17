@@ -15,6 +15,7 @@ const step = {
   attempts: 0,
   confirmation: false,
   description: "Open the catalogue.",
+  doneWhen: "the catalogue lists at least one product.",
   endedAt: null,
   execution: "pending",
   index: 0,
@@ -23,7 +24,6 @@ const step = {
 };
 
 const summary = {
-  agentFlowId: "flow-catalogue",
   assessmentCounts: {
     blocked: 0,
     inconclusive: 0,
@@ -40,10 +40,11 @@ const summary = {
   ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
   coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
   endedAt: "2026-09-04T00:01:00.000Z",
+  flowSkillName: "browse-catalogue",
+  inputs: [{ name: "product", value: "Mug" }],
   outcome: "completed",
-  revisionId: "rev-one",
   runId: "agentrun-one",
-  schemaVersion: 1,
+  schemaVersion: 2,
   sessionId: "agent-one",
   startedAt: "2026-09-04T00:00:00.000Z",
   steps: [
@@ -68,7 +69,7 @@ const summary = {
   videoPath: "run.webm",
 };
 
-test("only a working Agent Assessment advances an Agent Flow", () => {
+test("only a working Agent Assessment advances a Flow Skill", () => {
   const outcomes = AgentAssessmentOutcome.literals;
   expect(outcomes.filter((outcome) => advancesAgentRun(outcome))).toEqual([
     "working",

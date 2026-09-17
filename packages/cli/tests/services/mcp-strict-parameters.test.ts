@@ -1,19 +1,10 @@
-import { AgentSessionId, OperationId } from "@contingency/protocol";
-import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
-import {
-  AgentFlowCatalog,
-  makeAgentFlowCatalogLayer,
-} from "../../src/services/agent-flow-catalog.ts";
 import { AgentRunStore } from "../../src/services/agent-run-store.ts";
 import { AgentSession } from "../../src/services/agent-session.ts";
-import {
-  AgentFlowToolHandlersLive,
-  AgentFlowTools,
-} from "../../src/services/mcp-agent-flow.ts";
+import { FlowSkillCatalog } from "../../src/services/flow-skill-catalog.ts";
 import {
   AgentRunToolHandlersLive,
   AgentRunTools,
@@ -22,10 +13,12 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import {
+  AgentCatalogToolHandlersLive,
+  AgentCatalogTools,
+} from "../../src/services/mcp-catalog.ts";
 import { withStrictParameters } from "../../src/services/mcp-strict-parameters.ts";
 import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
-
-const at = "2026-09-01T00:00:00.000Z";
 
 /**
  * No handler may run when parameters are refused, so every dependency dies if
@@ -33,89 +26,30 @@ const at = "2026-09-01T00:00:00.000Z";
  */
 const untouchedServices = Layer.mergeAll(
   Layer.mock(AgentSession, {}),
-  Layer.mock(AgentRunStore, {})
-);
-
-const draftCarryingEvidence = {
-  description: "A replayable public journey.",
-  domainScope: { hosts: ["shop.example.com"] },
-  schemaVersion: 1,
-  steps: [
-    {
-      confirmation: false,
-      description: "Open the shop.",
-      evidence: {
-        hash: "sha256-deadbeef",
-        path: "evidence/sha256-deadbeef.json",
-      },
-      firstActionId: "action-open",
-      lastActionId: "action-open",
-      name: "Step supplying its own evidence",
+  Layer.mock(AgentRunStore, {}),
+  Layer.mock(FlowSkillCatalog, {
+    root: () => {
+      throw new Error("A refused tool call must not read the Catalog Root.");
     },
-  ],
-  title: "Replayable shop journey",
-};
-
-it.effect(
-  "refuses a step proposal that carries agent-authored evidence, saving nothing",
-  () =>
-    Effect.gen(function* refuseAgentAuthoredEvidence() {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const root = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-strict-evidence-",
-      });
-      const layer = AgentFlowToolHandlersLive.pipe(
-        Layer.provideMerge(
-          Layer.mergeAll(
-            makeAgentFlowCatalogLayer({ now: () => new Date(at), root }),
-            untouchedServices
-          ).pipe(Layer.provide(NodeServices.layer))
-        )
-      );
-      yield* Effect.gen(function* exerciseRefusal() {
-        const handlers = yield* AgentFlowTools;
-        // SAFETY: the draft carries the forged `evidence` key this test sends;
-        // the rest of the payload is the shape the tool declares.
-        const refused = yield* Effect.flip(
-          handlers.handle("agent_flow_draft_save", {
-            basedOnRevisionId: null,
-            draft: draftCarryingEvidence,
-            operationId: OperationId.make("strict-evidence"),
-            sessionId: AgentSessionId.make("agent-teaching"),
-          } as never)
-        );
-        expect(refused.reason._tag).toBe("ToolParameterValidationError");
-        expect(refused.message).toContain("evidence");
-        expect(refused.message).toContain("steps");
-
-        // Nothing was compiled, so the catalog stayed empty.
-        const catalog = yield* AgentFlowCatalog;
-        const found = yield* catalog.search({});
-        expect(found.hits).toEqual([]);
-      }).pipe(Effect.provide(layer));
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  })
 );
 
-const catalogOnly = Layer.mock(AgentFlowCatalog, {});
-
-it.effect("refuses an excess property on an agent flow tool", () =>
-  Effect.gen(function* refuseExcessOnFlowTool() {
-    const built = yield* AgentFlowTools;
+it.effect("refuses an excess property on a catalog tool", () =>
+  Effect.gen(function* refuseExcessOnCatalogTool() {
+    const built = yield* AgentCatalogTools;
     // SAFETY: the excess key is exactly what this test sends; the parameters
     // are otherwise the ones the tool declares.
     const refused = yield* Effect.flip(
-      built.handle("agent_flow_get", {
-        agentFlowId: "flow-1",
-        revisionId: null,
+      built.handle("agent_catalog_select", {
+        operationId: "op-1",
+        root: "/tmp/catalog",
         unexpected: true,
       } as never)
     );
     expect(refused.message).toContain("unexpected");
   }).pipe(
     Effect.provide(
-      AgentFlowToolHandlersLive.pipe(
-        Layer.provide(Layer.mergeAll(catalogOnly, untouchedServices))
-      )
+      AgentCatalogToolHandlersLive.pipe(Layer.provide(untouchedServices))
     )
   )
 );
@@ -130,9 +64,7 @@ it.effect("refuses an excess property on an agent run tool", () =>
     expect(refused.message).toContain("unexpected");
   }).pipe(
     Effect.provide(
-      AgentRunToolHandlersLive.pipe(
-        Layer.provide(Layer.mergeAll(catalogOnly, untouchedServices))
-      )
+      AgentRunToolHandlersLive.pipe(Layer.provide(untouchedServices))
     )
   )
 );
@@ -166,7 +98,7 @@ it("leaves every published JSON Schema unchanged", () => {
   expect(Tool.getJsonSchema(wrapped.tools.sample)).toEqual(published);
 
   for (const toolkit of [
-    AgentFlowTools,
+    AgentCatalogTools,
     AgentRunTools,
     AgentSessionTools,
     TeachingRecordingTools,

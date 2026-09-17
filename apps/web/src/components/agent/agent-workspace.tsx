@@ -44,10 +44,6 @@ import {
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
-import {
-  DraftReview,
-  VerificationDetails,
-} from "@/components/agent/draft-review";
 import { RunDetails, RunSummaryPanel } from "@/components/agent/run-view";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
@@ -60,7 +56,10 @@ import type {
   TeachingRecordingGesture,
   TeachingSecondaryAction,
 } from "@/components/agent/teaching-recording-state";
-import { teachingAgentPrompt } from "@/components/agent/teaching-recording-state";
+import {
+  flowSkillRunPrompt,
+  teachingAgentPrompt,
+} from "@/components/agent/teaching-recording-state";
 import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
 import {
   keyboardModifiers,
@@ -440,9 +439,9 @@ const AgentBrowserToolbar = ({
 );
 
 /**
- * What Teaching has captured, and the disclosure ADR 0032 requires: the
- * Teaching Feed leaves this machine for the connected agent, and ordinary
- * visible page content can itself be sensitive.
+ * What this recording has captured so far, and the disclosure ADR 0039
+ * requires: the recording stays on this machine, and a learning agent reads a
+ * bounded projection of it only after Stop.
  */
 const TeachingDetails = ({
   teaching,
@@ -464,42 +463,11 @@ const TeachingDetails = ({
           <dd className="font-medium">{teaching.instructionCount}</dd>
         </div>
       </dl>
-      {teaching.draft === null ? (
-        <p className="text-muted-foreground text-xs">
-          No draft has been saved from this Demonstration yet.
-        </p>
-      ) : (
-        <Alert>
-          <CircleCheckIcon aria-hidden="true" />
-          <AlertTitle>Draft saved: {teaching.draft.title}</AlertTitle>
-          <AlertDescription>
-            <span className="font-mono text-xs wrap-anywhere">
-              {teaching.draft.agentFlowId} / {teaching.draft.revisionId}
-            </span>
-            <ol className="mt-2 list-decimal space-y-1 pl-4">
-              {teaching.draft.steps.map((step) => (
-                <li key={step.index}>
-                  <span className="font-medium">{step.name}</span> —{" "}
-                  {step.description}
-                  <span className="block font-mono text-xs wrap-anywhere">
-                    Evidence: {step.evidenceHash}
-                  </span>
-                  {step.confirmation ? (
-                    <span className="text-muted-foreground block text-xs">
-                      Confirmation required
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          </AlertDescription>
-        </Alert>
-      )}
       <p className="text-muted-foreground text-xs">
-        The Teaching Feed — your instructions, captured actions, Browser
-        Snapshots, masked screenshots, and URL transitions — is shared with the
-        connected agent so it can compile a draft. The full Trace, video,
-        cookies, and network traffic stay on this machine.
+        A learning agent reads this recording's actions, your instructions, and
+        masked keyframes after you stop. The video, the Trace, cookies, and
+        network traffic stay on this machine, and every raw artifact is deleted
+        once you verify the flow skill.
       </p>
     </div>
   </section>
@@ -606,21 +574,6 @@ const SessionDetails = ({
         {session.teaching === null ? null : (
           <TeachingDetails teaching={session.teaching} />
         )}
-
-        {/*
-          The draft review appears as soon as Teaching has compiled one, so the
-          user reviews the proposal before authorizing anything. Corrections
-          are saved through the MCP conversation.
-        */}
-        {session.teaching?.draft ? (
-          <DraftReview
-            agentFlowId={session.teaching.draft.agentFlowId}
-            refreshToken={session.updatedAt}
-            revisionId={session.teaching.draft.revisionId}
-          />
-        ) : null}
-
-        <VerificationDetails session={session} />
 
         {/*
           The live Run beside the browser, and the persisted Run Summary once
@@ -1729,6 +1682,30 @@ const useAgentView = (
                 ...previous,
                 recordingError: Result.isFailure(outcome)
                   ? "The agent prompt could not be copied to the clipboard."
+                  : undefined,
+              }));
+            })
+          )
+        )
+      );
+      return;
+    }
+    if (action === "copy-run-prompt") {
+      runTeachingMutation(
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () =>
+            globalThis.navigator.clipboard.writeText(
+              flowSkillRunPrompt(current.flowSkillName)
+            ),
+        }).pipe(
+          Effect.result,
+          Effect.flatMap((outcome) =>
+            Effect.sync(() => {
+              setState((previous) => ({
+                ...previous,
+                recordingError: Result.isFailure(outcome)
+                  ? "The run prompt could not be copied to the clipboard."
                   : undefined,
               }));
             })

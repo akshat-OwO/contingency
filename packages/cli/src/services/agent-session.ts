@@ -12,7 +12,7 @@ import {
   UserAgentProfileId,
   TeachingRecordingId,
   FlowSkillName,
-  EvidenceHash,
+  ContentHash,
   OperationId,
   viewportForIdentity,
 } from "@contingency/protocol";
@@ -30,12 +30,9 @@ import type {
   AgentRunState,
   AgentRunStep,
   AgentRunSummary,
-  AgentFlowDraftRef,
   AgentPendingDecision,
   AgentPendingDecisionResolution,
   AgentPendingDecisionResolve,
-  AgentFlowVerificationOutcome,
-  AgentSessionVerification,
   DraftEmulation,
   Geolocation,
   PermissionDecision,
@@ -66,9 +63,7 @@ import type {
   SessionEmulation,
   SessionId,
   StorageKind,
-  TeachingFeed,
   TeachingInstruction,
-  TeachingScreenshotContent,
   TeachingVariableInput,
   Variable,
   TeachingCaptureLimits,
@@ -106,8 +101,6 @@ import {
   snapshotAfterAction,
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
-import { domainScopeCovers } from "./agent-flow-compiler.ts";
-import type { Demonstration } from "./agent-flow-compiler.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
@@ -115,11 +108,10 @@ import type {
   BrowserStorageSetInput,
   CreateBrowserService,
 } from "./create-browser-contract.ts";
-import { analyzePlayByPlay } from "./play-by-play.ts";
-import type { PlayByPlayAnalyzer } from "./play-by-play.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
+import { domainScopeCovers } from "./teaching-demonstration.ts";
 import { makeTeachingRecorder } from "./teaching-recorder.ts";
 import type { TeachingRecorder } from "./teaching-recorder.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
@@ -137,8 +129,6 @@ export interface AgentSessionServiceOptions {
   readonly processId?: string;
   /** Injectable clock for deterministic protocol tests. */
   readonly now?: () => Date;
-  /** Injectable local-video pass for focused session tests. */
-  readonly playByPlayAnalyzer?: PlayByPlayAnalyzer;
   /** Exact process-owner directory for per-session temporary resources. */
   readonly resourceDirectory?: string;
   /** Durable local directory for Teaching Trace archives, resolved at start. */
@@ -149,13 +139,8 @@ export interface AgentSessionStartInput {
   readonly domainScope?: DomainScope | undefined;
   readonly activity?: AgentSessionActivity | undefined;
   /**
-   * The exact draft revision this session verifies, under the authorization
-   * the user already gave. Present only for a Verification Run.
-   */
-  readonly verification?: AgentSessionVerification | undefined;
-  /**
-   * The Interactive Run this session performs, already resolved from an
-   * Approved Agent Flow. The session owns its ordered Agent Steps, ceilings,
+   * The Interactive Run this session performs, already resolved from a
+   * verified Flow Skill. The session owns its ordered Agent Steps, ceilings,
    * and evidence from the moment the browser opens.
    */
   readonly run?: AgentRunState | undefined;
@@ -287,15 +272,7 @@ export interface AgentSessionService {
     streamId: BrowserStreamId
   ) => Effect.Effect<void, AgentSessionError>;
   readonly list: () => Effect.Effect<readonly AgentSessionSnapshot[]>;
-  /**
-   * Note the draft a Teaching session was compiled into, so Workspace can
-   * show it. The catalog write itself happens elsewhere; this only records it.
-   */
-  readonly recordDraft: (
-    sessionId: AgentSessionId,
-    draft: AgentFlowDraftRef
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /** Mirror catalog consent state into this session's read-only Workspace. */
+  /** Mirror relayed consent state into this session's read-only Workspace. */
   readonly recordPendingDecisionState: (
     sessionId: AgentSessionId,
     pendingDecisions: readonly AgentPendingDecision[],
@@ -303,8 +280,8 @@ export interface AgentSessionService {
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * Record what the user told the agent to do, as the agent relayed it. The
-   * instruction joins the Demonstration and the Evidence Slice of the Step it
-   * falls in.
+   * instruction joins the Teaching Recording's event stream in order, beside
+   * the actions it explains.
    */
   readonly recordInstruction: (
     sessionId: AgentSessionId,
@@ -356,7 +333,7 @@ export interface AgentSessionService {
   /**
    * Re-apply the whole Emulation the session runs under. Identity, viewport,
    * and environment move together (ADR 0013), and the session remembers what
-   * it now emulates so a compiled Agent Flow declares what was demonstrated.
+   * it now emulates so a learned Flow Skill runs under what was demonstrated.
    */
   readonly setEmulation: (
     sessionId: AgentSessionId,
@@ -444,14 +421,6 @@ export interface AgentSessionService {
   readonly runViewUrl: (
     runId: AgentRunId
   ) => Effect.Effect<string, AgentSessionError>;
-  readonly verification: (
-    sessionId: AgentSessionId
-  ) => Effect.Effect<AgentSessionVerification, AgentSessionError>;
-  /** Note how the Verification Run ended, so Workspace can offer approval. */
-  readonly recordVerificationOutcome: (
-    sessionId: AgentSessionId,
-    outcome: AgentFlowVerificationOutcome
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * Take control away from the agent. User initiation has priority: the
    * in-flight action is interrupted, its cleanup is awaited, and agent action
@@ -462,51 +431,6 @@ export interface AgentSessionService {
     reason: string,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /**
-   * The bounded Teaching Feed of a Teaching session
-   * ([ADR 0032](../../../../docs/adr/0032-external-agents-receive-a-bounded-teaching-feed.md)).
-   * Snapshots are included only on request; the agent already saw each one
-   * when it acted.
-   */
-  readonly teachingFeed: (
-    sessionId: AgentSessionId,
-    includeSnapshots?: boolean
-  ) => Effect.Effect<TeachingFeed, AgentSessionError>;
-  /**
-   * The bytes behind one screenshot the Teaching Feed referenced. Screenshots
-   * are fetched one at a time on purpose: the feed stays readable, and the
-   * agent pays for only the images it decides to look at.
-   */
-  readonly teachingScreenshot: (
-    sessionId: AgentSessionId,
-    screenshotId: string
-  ) => Effect.Effect<TeachingScreenshotContent, AgentSessionError>;
-  /**
-   * The full Demonstration and the Emulation it ran under, for compilation.
-   * This stays inside the owning process: MCP hands out the Teaching Feed and
-   * never this.
-   */
-  readonly teachingSource: (
-    sessionId: AgentSessionId
-  ) => Effect.Effect<TeachingSource, AgentSessionError>;
-}
-
-/** What compilation reads from a Teaching session. */
-export interface TeachingSource {
-  /** Retention classification for the unredacted local artifacts. */
-  readonly artifactRetention: {
-    readonly location: "local";
-    readonly sensitive: true;
-  };
-  readonly demonstration: Demonstration;
-  readonly emulation: DraftEmulation;
-  readonly session: AgentSessionSnapshot;
-  /** Durable local metadata a retention worker can inspect without the Feed. */
-  readonly retentionFile: string | undefined;
-  /** Local-only trace path; never included in a Teaching Feed. */
-  readonly traceFile: string | undefined;
-  /** Local-only unredacted Demonstration video; never included in a Feed. */
-  readonly videoFile: string | undefined;
 }
 
 export interface PrivateVariableInput {
@@ -598,10 +522,9 @@ const snapshotFromReadyManifest = (
     recordingId: manifest.recordingId,
     run: null,
     takeover: null,
-    teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+    teaching: { actionCount: 0, instructionCount: 0 },
     timeline: [],
     updatedAt: manifest.updatedAt,
-    verification: null,
     viewUrl: viewUrl(baseUrl, manifest.sessionId),
   };
 };
@@ -706,7 +629,6 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     name: input.name?.trim() || null,
     run: input.run?.runId ?? null,
     url: input.url ?? null,
-    verification: input.verification ?? null,
     viewport: {
       deviceScaleFactor: input.viewport.deviceScaleFactor,
       height: input.viewport.height,
@@ -729,9 +651,9 @@ const variableReference = (name: string): string => `{{${name}}}`;
 
 /**
  * Every private value this session knows: what the Demonstration captured
- * during Teaching, and what the user supplied to a Verification Run. A Run
- * keeps no Demonstration, so without the supplied literals its Snapshots would
- * hand the agent back the value the user typed privately.
+ * during Teaching, and what the user supplied to a Run. A Run keeps no
+ * Demonstration, so without the supplied literals its Snapshots would hand the
+ * agent back the value the user typed privately.
  */
 const sessionSensitiveValues = (record: SessionRecord): readonly string[] => [
   ...(record.capture?.sensitiveValues() ?? []),
@@ -1034,10 +956,8 @@ const noteRunEvidence = (
   id: string
 ): void => {
   if (
-    (record.snapshot.run === null ||
-      record.snapshot.run.activeStepIndex === null) &&
-    (record.snapshot.verification === null ||
-      record.snapshot.verification.activeStepIndex === null)
+    record.snapshot.run === null ||
+    record.snapshot.run.activeStepIndex === null
   ) {
     return;
   }
@@ -1143,8 +1063,8 @@ interface SessionRecord {
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
   /**
-   * Runtime Variable values the user supplied to this Verification Run. They
-   * live for the session and are never published, persisted, or returned.
+   * Runtime Variable values the user supplied to this Run. They live for the
+   * session and are never published, persisted, or returned.
    */
   readonly supplied: Map<string, string>;
   /** Start-scoped capture resources. Absent during setup and after Stop. */
@@ -1168,27 +1088,7 @@ interface AgentSessionPatch {
   readonly decisionHistory?: AgentSessionSnapshot["decisionHistory"];
   readonly pendingDecisions?: AgentSessionSnapshot["pendingDecisions"];
   readonly run?: AgentRunState | null;
-  readonly verification?: AgentSessionVerification | null;
 }
-
-/**
- * The URL a Verification Run should open, given where the authorizing Agent
- * View stands. Only an `http`/`https` document carries across, and only in the
- * sanitized form the rest of Contingency records; `about:blank` and anything
- * unparsable fall back to the blank opening page. No cookies or storage travel
- * with it: the Run still runs in its own fresh browser context.
- */
-export const verificationStartingUrl = (currentUrl: string): string | null => {
-  try {
-    const parsed = new URL(currentUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return sanitizeTeachingUrl(currentUrl);
-  } catch {
-    return null;
-  }
-};
 
 const domainAllowed = (record: SessionRecord, url: string): boolean => {
   if (record.boundaryControl === undefined) {
@@ -1212,19 +1112,15 @@ const actionBoundaryReasons = (
   action: AgentBrowserAction,
   intent: AgentActionIntent
 ): AgentExecutionBoundary["reason"][] => {
-  const step =
-    record.snapshot.run?.steps.find(
-      (candidate) => candidate.index === record.snapshot.run?.activeStepIndex
-    ) ??
-    record.snapshot.verification?.steps.find(
-      (candidate) =>
-        candidate.index === record.snapshot.verification?.activeStepIndex
-    );
+  const step = record.snapshot.run?.steps.find(
+    (candidate) => candidate.index === record.snapshot.run?.activeStepIndex
+  );
   const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
     action.type
   );
-  // An explicit approved verification objective scopes the marker to that Step.
-  // Without one, retain the conservative guard so omission cannot bypass it.
+  // A Flow Skill step the agent marked as needing confirmation scopes the
+  // marker to that Step. Without one, retain the conservative guard so
+  // omission cannot bypass it.
   const needsConfirmation =
     intent.irreversible === true || (mutating && step?.confirmation === true);
   // Domain Scope already decides where the session may travel, and a navigate
@@ -1250,9 +1146,6 @@ const actionBoundaryReasons = (
  * What the user is being asked to confirm. The agent's own objective when it
  * named one, and the active Agent Step when it did not: during an Interactive
  * Run the ordered Step really is what the action contributes to.
- *
- * Verification and Interactive Runs both have one active ordered Step, so an
- * unnamed action can use the same truthful fallback in either Run kind.
  */
 const boundaryObjective = (
   record: SessionRecord,
@@ -1261,9 +1154,6 @@ const boundaryObjective = (
   intent.objective ??
   record.snapshot.run?.steps.find(
     (step) => step.index === record.snapshot.run?.activeStepIndex
-  )?.description ??
-  record.snapshot.verification?.steps.find(
-    (step) => step.index === record.snapshot.verification?.activeStepIndex
   )?.description ??
   "An action the agent did not name an objective for";
 
@@ -1281,30 +1171,15 @@ const boundaryScopeSummary = (boundary: AgentExecutionBoundary): string => {
   const what =
     boundary.reason === "confirmation"
       ? "Confirm this irreversible action attempt once"
-      : "Allow this objective outside the approved Agent Steps once";
+      : "Allow this objective outside the Flow Skill's Agent Steps once";
   return `${what}: ${boundary.description} (${boundary.requested}). A retry needs another decision.`;
 };
-
-/**
- * The Agent Flow this session is running, when it has one. A bare session that
- * pauses at an Execution Boundary names no revision, so the decision carries
- * `null` rather than inventing an identity the catalog never issued.
- */
-const boundaryDecisionTarget = (
-  snapshot: AgentSessionSnapshot
-): Pick<AgentPendingDecision, "agentFlowId" | "revisionId"> => ({
-  agentFlowId:
-    snapshot.verification?.agentFlowId ?? snapshot.run?.agentFlowId ?? null,
-  revisionId:
-    snapshot.verification?.revisionId ?? snapshot.run?.revisionId ?? null,
-});
 
 const boundaryPendingDecision = (
   snapshot: AgentSessionSnapshot,
   boundary: AgentExecutionBoundary,
   at: string
 ): AgentPendingDecision => ({
-  ...boundaryDecisionTarget(snapshot),
   boundaryId: boundary.id,
   createdAt: at,
   kind: "boundary",
@@ -1323,7 +1198,7 @@ const variablePendingDecisions = (
   snapshot: AgentSessionSnapshot,
   at: string
 ): readonly AgentPendingDecision[] => {
-  const declaring = snapshot.verification ?? snapshot.run;
+  const declaring = snapshot.run;
   if (declaring === null) {
     return [];
   }
@@ -1331,14 +1206,12 @@ const variablePendingDecisions = (
     variable.runtime && !variable.supplied
       ? [
           {
-            agentFlowId: declaring.agentFlowId,
             boundaryId: null,
             createdAt: at,
             kind: "supply_variable" as const,
             pendingDecisionId: AgentPendingDecisionId.make(
               `pending-${randomUUID()}`
             ),
-            revisionId: declaring.revisionId,
             scopeSummary: `Supply runtime Variable ${variable.name}${variable.secret ? " (secret)" : ""} for this Run. The value stays on this machine and never reaches you or the Run artifacts.`,
             sessionId: snapshot.id,
             variable: { name: variable.name, secret: variable.secret },
@@ -1403,14 +1276,12 @@ const variableResolution = (
   userMessage: string | null | undefined
 ): AgentPendingDecisionResolution => {
   const base = {
-    agentFlowId: pending.agentFlowId,
     boundaryId: null,
     decidedAt,
     decision: input.decision,
     kind: "supply_variable",
     operationId: input.operationId,
     pendingDecisionId: pending.pendingDecisionId,
-    revisionId: pending.revisionId,
     // The name is audited; the literal the user supplied never is.
     variableName: pending.variable?.name ?? null,
   } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
@@ -1453,14 +1324,12 @@ const boundaryResolution = (
   decidedAt: string
 ): AgentPendingDecisionResolution => {
   const base = {
-    agentFlowId: pending.decision.agentFlowId,
     boundaryId: pending.boundary.id,
     decidedAt,
     decision: input.decision,
     kind: "boundary",
     operationId: input.operationId,
     pendingDecisionId: pending.decision.pendingDecisionId,
-    revisionId: pending.decision.revisionId,
     variableName: null,
   } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
   if (input.userMessage === undefined || input.userMessage === null) {
@@ -1528,19 +1397,6 @@ interface ReplayRecord {
   readonly target: string;
 }
 
-const CatalogTeachingRetention = Schema.Struct({
-  retention: Schema.Literals(["delete-on-approval", "retain-for-days"]),
-});
-
-const catalogTeachingRetention = (
-  contents: string
-): "delete-on-approval" | "retain-for-days" | null => {
-  const decoded = Result.try(() =>
-    Schema.decodeUnknownSync(CatalogTeachingRetention)(JSON.parse(contents))
-  );
-  return Result.isSuccess(decoded) ? decoded.success.retention : null;
-};
-
 const makeAgentSession = (
   browser: CreateBrowserService,
   options: AgentSessionServiceOptions,
@@ -1559,7 +1415,6 @@ const makeAgentSession = (
     const lock = Semaphore.makeUnsafe(1);
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
-    const playByPlayAnalyzer = options.playByPlayAnalyzer ?? analyzePlayByPlay;
 
     const writeTeachingRetentionManifest = (
       directory: string,
@@ -1575,30 +1430,6 @@ const makeAgentSession = (
           directory,
           `${sessionId}.artifacts.json`
         );
-        const existing = yield* Effect.result(
-          fileSystem.readFileString(retentionFile)
-        );
-        const catalogRetention = Result.isSuccess(existing)
-          ? catalogTeachingRetention(existing.success)
-          : null;
-        if (catalogRetention === "delete-on-approval") {
-          yield* Effect.forEach(
-            [traceFile, ...videoFiles],
-            (file) => fileSystem.remove(file, { force: true }),
-            { discard: true }
-          ).pipe(
-            Effect.mapError((cause) =>
-              error(
-                "agent_session_invalid",
-                `Could not remove an approved Teaching artifact: ${cause.message}`
-              )
-            )
-          );
-          return retentionFile;
-        }
-        if (catalogRetention === "retain-for-days") {
-          return retentionFile;
-        }
         yield* fileSystem
           .writeFileString(
             retentionFile,
@@ -1677,7 +1508,7 @@ const makeAgentSession = (
             );
           artifacts.push({
             capturedAt,
-            hash: EvidenceHash.make(
+            hash: ContentHash.make(
               `sha256-${createHash("sha256").update(bytes).digest("hex")}`
             ),
             id: path.parse(name).name,
@@ -2120,36 +1951,6 @@ const makeAgentSession = (
       });
     };
 
-    const finalizeTeachingPlayByPlay = (
-      record: SessionRecord
-    ): Effect.Effect<void, AgentSessionError> => {
-      const { capture } = record;
-      if (capture === undefined || capture.current().playByPlay !== null) {
-        return Effect.void;
-      }
-      return playByPlayAnalyzer({
-        demonstration: capture.current(),
-        videoFile: record.videoFile,
-      }).pipe(
-        Effect.flatMap((playByPlay) => {
-          const finalized = playByPlay.trim();
-          if (finalized.length === 0) {
-            return Effect.fail(
-              new Error("Teaching video analysis produced no PlayByPlay.")
-            );
-          }
-          capture.finalizePlayByPlay(finalized);
-          return Effect.void;
-        }),
-        Effect.mapError((cause) =>
-          error(
-            "agent_session_invalid",
-            `Could not finalize the Teaching PlayByPlay: ${cause.message}`
-          )
-        )
-      );
-    };
-
     const finishTeachingClose = (
       sessionId: AgentSessionId,
       record: SessionRecord,
@@ -2166,7 +1967,6 @@ const makeAgentSession = (
       operationId?: OperationId | string
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* finishTeachingRecording() {
-        yield* finalizeTeachingPlayByPlay(record);
         if (teachingRecordingStore !== undefined) {
           const artifacts = yield* collectTeachingArtifacts(
             teachingRecordingStore.directory(finalizing.recordingId)
@@ -2256,12 +2056,7 @@ const makeAgentSession = (
         reason,
         stoppedAt
       );
-      const playByPlayResult = yield* Effect.result(
-        finalizeTeachingPlayByPlay(record)
-      );
-      const failure = Result.isFailure(playByPlayResult)
-        ? playByPlayResult.failure.message
-        : recorderResult.failure;
+      const { failure } = recorderResult;
       const retentionFile = yield* writeTeachingRetentionManifest(
         record.artifactDirectory,
         sessionId,
@@ -2298,7 +2093,7 @@ const makeAgentSession = (
       const finished: AgentSessionSnapshot = {
         ...finalizing,
         captureState,
-        teaching: record.capture.progress(record.snapshot.teaching.draft),
+        teaching: record.capture.progress(),
         updatedAt:
           captureState._tag === "failed"
             ? captureState.failedAt
@@ -2408,7 +2203,7 @@ const makeAgentSession = (
       const discarded: AgentSessionSnapshot = {
         ...record.snapshot,
         captureState: manifest.lifecycle,
-        teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+        teaching: { actionCount: 0, instructionCount: 0 },
         timeline: [],
         updatedAt: manifest.lifecycle.requestedAt,
       };
@@ -2689,7 +2484,7 @@ const makeAgentSession = (
           startedAt: manifest.lifecycle.startedAt,
         },
         recordingId,
-        teaching: capture.progress(record.snapshot.teaching.draft),
+        teaching: capture.progress(),
         updatedAt: manifest.lifecycle.startedAt,
       };
       yield* saveRecord(sessionId, {
@@ -2974,16 +2769,16 @@ const makeAgentSession = (
         return { retentionFile, traceFile, videoFile };
       });
 
-    const notVerifying = (sessionId: AgentSessionId) =>
+    const notDeclaringVariables = (sessionId: AgentSessionId) =>
       error(
         "agent_session_invalid",
-        `Agent Session ${sessionId} is not running an Agent Flow revision, so it declares no Variables.`
+        `Agent Session ${sessionId} is not running a Flow Skill, so it declares no Variables.`
       );
 
     /**
-     * The Variable a Verification Run declares under this name. A Run may only
-     * be asked for the Variables its draft revision declares, so a name the
-     * draft never mentioned is refused rather than invented.
+     * The Variable this Run declares under this name. A Run may only be asked
+     * for the inputs its Flow Skill declares, so a name the Flow Skill never
+     * mentioned is refused rather than invented.
      */
     const requireDeclaredVariable = (
       record: SessionRecord,
@@ -2991,12 +2786,12 @@ const makeAgentSession = (
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
-      // A Verification Run and an Interactive Run declare their Variables the
-      // same way, because they run the same revision under the same rule: the
-      // literal is supplied again and never travels.
-      const declaring = record.snapshot.verification ?? record.snapshot.run;
+      const declaring = record.snapshot.run;
       if (declaring === null) {
-        return { _tag: "error", error: notVerifying(record.snapshot.id) };
+        return {
+          _tag: "error",
+          error: notDeclaringVariables(record.snapshot.id),
+        };
       }
       const declared = declaring.variables.find(
         (variable) => variable.name === name
@@ -3006,7 +2801,7 @@ const makeAgentSession = (
             _tag: "error",
             error: error(
               "agent_session_invalid",
-              `Agent Flow revision ${declaring.revisionId} does not declare Variable ${name}.`
+              `Flow Skill ${declaring.flowSkillName} does not declare Variable ${name}.`
             ),
           }
         : {
@@ -3057,8 +2852,8 @@ const makeAgentSession = (
       );
 
     /**
-     * What the session now emulates, kept beside the record so a compiled
-     * Agent Flow declares the Emulation the Demonstration actually ran under
+     * What the session now emulates, kept beside the record so the Teaching
+     * Recording declares the Emulation the user actually demonstrated under
      * rather than the one the session opened with.
      */
     const rememberEmulation = (
@@ -3141,8 +2936,7 @@ const makeAgentSession = (
               teaching:
                 record?.capture === undefined
                   ? snapshot.teaching
-                  : record.capture.progress(snapshot.teaching.draft),
-              verification: null,
+                  : record.capture.progress(),
             };
           }
           return {
@@ -3166,10 +2960,6 @@ const makeAgentSession = (
                   };
             })(),
             teaching: null,
-            verification:
-              safePatch.verification === undefined
-                ? snapshot.verification
-                : safePatch.verification,
           };
         });
         if (next === undefined) {
@@ -3607,7 +3397,6 @@ const makeAgentSession = (
                         recordingId: null,
                         run: input.run ?? null,
                         teaching: null,
-                        verification: input.verification ?? null,
                       }
                     : {
                         ...common,
@@ -3618,12 +3407,7 @@ const makeAgentSession = (
                         recordingCleanup: { _tag: "pending" as const },
                         recordingId: teachingIdentity.recordingId,
                         run: null,
-                        teaching: {
-                          actionCount: 0,
-                          draft: null,
-                          instructionCount: 0,
-                        },
-                        verification: null,
+                        teaching: { actionCount: 0, instructionCount: 0 },
                       };
                 // A Run asks for each runtime Variable it still needs as its
                 // own Pending Decision, so the user answers them by name in
@@ -4030,9 +3814,7 @@ const makeAgentSession = (
           action,
           intent,
           operationId: attemptId,
-          stepIndex:
-            record.snapshot.run?.activeStepIndex ??
-            record.snapshot.verification?.activeStepIndex,
+          stepIndex: record.snapshot.run?.activeStepIndex,
         });
         const reasons = actionBoundaryReasons(record, action, intent);
         for (const reason of reasons) {
@@ -4554,10 +4336,6 @@ const makeAgentSession = (
               record.snapshot.run === null
                 ? null
                 : markSupplied(record.snapshot.run),
-            verification:
-              record.snapshot.verification === null
-                ? null
-                : markSupplied(record.snapshot.verification),
           }
         );
         yield* rememberSession(
@@ -4874,7 +4652,7 @@ const makeAgentSession = (
                 teaching:
                   current.capture === undefined
                     ? current.snapshot.teaching
-                    : current.capture.progress(current.snapshot.teaching.draft),
+                    : current.capture.progress(),
                 timeline,
                 updatedAt: at,
               }
@@ -4923,7 +4701,7 @@ const makeAgentSession = (
           return yield* Effect.fail(
             makeBrowserRpcError(
               "agent_control_unavailable",
-              "Teaching control stays with the user: there is nothing to return. End the Demonstration to hand the agent a Teaching Feed to compile."
+              "Teaching control stays with the user: there is nothing to return. Stop recording to hand the agent a Teaching Recording to learn from."
             )
           );
         }
@@ -5195,109 +4973,6 @@ const makeAgentSession = (
               )
         )
       );
-
-    const assessVerificationStep = Effect.fn(
-      "AgentSession.assessVerificationStep"
-    )(function* assessDraftStep(
-      sessionId: AgentSessionId,
-      verification: AgentSessionVerification,
-      input: {
-        readonly evidence: readonly AgentAssessmentEvidence[];
-        readonly explanation: string;
-        readonly outcome: AgentAssessmentOutcome;
-      },
-      operationId: OperationId | string | undefined,
-      requestInput: string,
-      record: SessionRecord
-    ) {
-      if (verification.outcome !== null) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Verification Run ${verification.authorizationId} has already ended as ${verification.outcome} and accepts no further Agent Assessments.`
-          )
-        );
-      }
-      const activeIndex = verification.activeStepIndex;
-      const active =
-        activeIndex === null ? undefined : verification.steps[activeIndex];
-      if (activeIndex === null || active === undefined) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Verification Run ${verification.authorizationId} has no active Agent Step to assess.`
-          )
-        );
-      }
-      const unknown = input.evidence.filter((reference) =>
-        reference.kind === "snapshot"
-          ? !record.runEvidence.snapshots.has(reference.id)
-          : !record.runEvidence.attempts.has(reference.id)
-      );
-      if (unknown.length > 0) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_invalid",
-            `Agent Step ${activeIndex + 1} recorded no ${unknown
-              .map((reference) => `${reference.kind} ${reference.id}`)
-              .join(
-                ", "
-              )}. Cite a Browser Snapshot or an attempt from this Agent Step.`
-          )
-        );
-      }
-      const nextIndex = activeIndex + 1;
-      const hasNext =
-        advancesAgentRun(input.outcome) &&
-        nextIndex < verification.steps.length;
-      const submittedAt = now().toISOString();
-      const next = yield* mutate(sessionId, (snapshot) =>
-        snapshot.verification === null
-          ? snapshot
-          : {
-              ...snapshot,
-              updatedAt: submittedAt,
-              verification: {
-                ...snapshot.verification,
-                activeStepIndex: hasNext ? nextIndex : null,
-                assessments: [
-                  ...snapshot.verification.assessments,
-                  {
-                    attempts: record.runEvidence.attempts.size,
-                    evidence: input.evidence,
-                    explanation: input.explanation,
-                    outcome: input.outcome,
-                    stepIndex: activeIndex,
-                    submittedAt,
-                  },
-                ],
-              },
-            }
-      );
-      if (next === undefined) {
-        return yield* Effect.fail(notRunning(sessionId));
-      }
-      record.runEvidence.attempts.clear();
-      record.runEvidence.snapshots.clear();
-      const withEntry = yield* recordEntry(sessionId, {
-        actor: "agent",
-        at: submittedAt,
-        description: `Assessed "${active.name}" as ${input.outcome}`,
-        detail: input.explanation,
-        dispatched: false,
-        id: `assessment-${randomUUID()}`,
-        outcome: "completed",
-      });
-      yield* rememberSession(
-        operationId,
-        "assess",
-        sessionId,
-        requestInput,
-        withEntry
-      );
-      return withEntry;
-    });
-
     const assessStepUnlocked = Effect.fn("AgentSession.assessStep")(
       function* assessAgentStep(
         sessionId: AgentSessionId,
@@ -5332,18 +5007,7 @@ const makeAgentSession = (
         }
         const { run } = record.snapshot;
         if (run === null) {
-          const { verification } = record.snapshot;
-          if (verification === null) {
-            return yield* Effect.fail(notRunning(sessionId));
-          }
-          return yield* assessVerificationStep(
-            sessionId,
-            verification,
-            input,
-            operationId,
-            requestInput,
-            record
-          );
+          return yield* Effect.fail(notRunning(sessionId));
         }
         if (run.outcome !== null) {
           return yield* Effect.fail(
@@ -5366,7 +5030,7 @@ const makeAgentSession = (
         }
         // Evidence must name something this Agent Step actually produced.
         // Otherwise an explanation could cite an observation that was never
-        // made ([ADR 0025](../../../../docs/adr/0025-agent-flow-is-compiled-from-a-demonstration.md)).
+        // made ([ADR 0034](../../../../docs/adr/0034-agent-assessments-do-not-create-regressions.md)).
         const unknown = input.evidence.filter((reference) =>
           reference.kind === "snapshot"
             ? !record.runEvidence.snapshots.has(reference.id)
@@ -5605,16 +5269,16 @@ const makeAgentSession = (
             // Nothing may write to the Run's artifacts after this point.
             yield* Scope.close(record.scope, Exit.void);
             const summary: AgentRunSummary = {
-              agentFlowId: finished.agentFlowId,
               assessmentCounts: finished.assessmentCounts,
               attribution: finished.attribution,
               ceilings: finished.ceilings,
               coverage: finished.coverage,
               endedAt: finished.endedAt ?? at,
+              flowSkillName: finished.flowSkillName,
+              inputs: finished.inputs,
               outcome: finished.outcome ?? "ended-early",
-              revisionId: finished.revisionId,
               runId: finished.runId,
-              schemaVersion: 1,
+              schemaVersion: 2,
               sessionId,
               startedAt: finished.startedAt,
               steps: finished.steps,
@@ -5886,28 +5550,6 @@ const makeAgentSession = (
             )
           );
         }),
-      recordDraft: (sessionId, draft) =>
-        Effect.gen(function* recordSavedDraft() {
-          const { capture } = yield* requireTeaching(sessionId);
-          const next = yield* mutate(sessionId, (snapshot) =>
-            snapshot.activity === "teaching"
-              ? {
-                  ...snapshot,
-                  teaching: capture.progress(draft),
-                  updatedAt: now().toISOString(),
-                }
-              : snapshot
-          );
-          if (next === undefined) {
-            return yield* Effect.fail(
-              error(
-                "agent_session_not_found",
-                `Agent Session ${sessionId} was not found.`
-              )
-            );
-          }
-          return next;
-        }),
       recordInstruction: (sessionId, text, operationId) =>
         lock.withPermit(
           recordInstructionUnlocked(sessionId, text, operationId)
@@ -5926,7 +5568,7 @@ const makeAgentSession = (
               ...decisionHistory,
             ],
             // A paused Execution Boundary and an unsupplied runtime Variable
-            // are this session's own decisions, so a catalog mirror must not
+            // are this session's own decisions, so an external mirror must not
             // drop what the user still owes an answer to.
             pendingDecisions: [
               ...snapshot.pendingDecisions.filter(sessionOwnedDecision),
@@ -5934,23 +5576,6 @@ const makeAgentSession = (
             ],
             updatedAt: now().toISOString(),
           }));
-          return next ?? record.snapshot;
-        }),
-      recordVerificationOutcome: (sessionId, outcome) =>
-        Effect.gen(function* noteVerificationOutcome() {
-          const record = yield* read(sessionId);
-          if (record.snapshot.verification === null) {
-            return yield* Effect.fail(notVerifying(sessionId));
-          }
-          const next = yield* mutate(sessionId, (snapshot) =>
-            snapshot.verification === null
-              ? snapshot
-              : {
-                  ...snapshot,
-                  updatedAt: now().toISOString(),
-                  verification: { ...snapshot.verification, outcome },
-                }
-          );
           return next ?? record.snapshot;
         }),
       renameFlowSkill: (sessionId, name, operationId) =>
@@ -6206,7 +5831,7 @@ const makeAgentSession = (
             return yield* Effect.fail(
               error(
                 "agent_session_conflict",
-                "An Interactive Run reproduces the Agent Flow's declared Emulation. Configure the browser while Teaching instead."
+                "An Interactive Run reproduces the Emulation the Flow Skill was demonstrated under. Configure the browser while Teaching instead."
               )
             );
           }
@@ -6291,54 +5916,6 @@ const makeAgentSession = (
       takeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)
-        ),
-      teachingFeed: (sessionId, includeSnapshots = false) =>
-        requireTeaching(sessionId).pipe(
-          Effect.flatMap(({ capture, record }) => {
-            if (isLive(record.snapshot.phase)) {
-              return Effect.fail(
-                error(
-                  "agent_session_invalid",
-                  "End Teaching before reading the Teaching Feed so Contingency can finalize the local video and generate its PlayByPlay."
-                )
-              );
-            }
-            const feed = capture.feed(sessionId, includeSnapshots);
-            return feed === undefined
-              ? Effect.fail(
-                  error(
-                    "agent_session_invalid",
-                    "The Teaching Feed is unavailable because PlayByPlay analysis did not complete. Close the Teaching session again to retry finalization."
-                  )
-                )
-              : Effect.succeed(feed);
-          })
-        ),
-      teachingScreenshot: (sessionId, screenshotId) =>
-        requireTeaching(sessionId).pipe(
-          Effect.flatMap(({ capture }) => {
-            const content = capture.screenshotContent(screenshotId);
-            return content === undefined
-              ? Effect.fail(
-                  error(
-                    "agent_session_invalid",
-                    `This Teaching session has no screenshot ${screenshotId}. Read the Teaching Feed for the screenshot references it captured.`
-                  )
-                )
-              : Effect.succeed(content);
-          })
-        ),
-      teachingSource: (sessionId) =>
-        requireTeaching(sessionId).pipe(
-          Effect.map(({ capture, record }): TeachingSource => ({
-            artifactRetention: { location: "local", sensitive: true },
-            demonstration: capture.current(),
-            emulation: record.emulation,
-            retentionFile: record.retentionFile,
-            session: record.snapshot,
-            traceFile: record.traceFile,
-            videoFile: record.videoFile,
-          }))
         ),
       userNavigate: (sessionId, action) =>
         Effect.gen(function* navigateAsUser() {
@@ -6438,14 +6015,6 @@ const makeAgentSession = (
             { currentUrl: url }
           );
         }),
-      verification: (sessionId) =>
-        read(sessionId).pipe(
-          Effect.flatMap((record) =>
-            record.snapshot.verification === null
-              ? Effect.fail(notVerifying(sessionId))
-              : Effect.succeed(record.snapshot.verification)
-          )
-        ),
     };
 
     return service;

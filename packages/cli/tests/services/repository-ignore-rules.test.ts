@@ -5,8 +5,8 @@ import { expect, test } from "vitest";
 
 /**
  * The Catalog Root holds two kinds of file. A learned Flow Skill is shared
- * source and must reach a commit; Teaching Recordings, save scratch, and Agent
- * Flow state are sensitive or per-machine and must not. A blanket
+ * source and must reach a commit; Teaching Recordings, save scratch, and Run
+ * evidence are sensitive or per-machine and must not. A blanket
  * `.contingency/` ignore loses the first kind silently, so the rules are
  * checked against sample paths rather than trusted by reading.
  */
@@ -33,7 +33,7 @@ test("tracks Flow Skill files under the Catalog Root", () => {
   }
 });
 
-test("ignores Teaching Recordings, save scratch, and Agent Flow state", () => {
+test("ignores Teaching Recordings, save scratch, and Run evidence", () => {
   for (const ignored of [
     ".contingency/.recordings/recording-1/manifest.json",
     ".contingency/.recordings/recording-1/trace.zip",
@@ -41,8 +41,7 @@ test("ignores Teaching Recordings, save scratch, and Agent Flow state", () => {
     ".contingency/.flow-skill.lock",
     ".contingency/.flow-skill-abc.tmp",
     ".contingency/.flow-skill-abc.backup",
-    ".contingency/agent-flows/flow-1/manifest.json",
-    ".contingency/agent-flow-catalog.json",
+    ".contingency/agent-runs/agentrun-1/summary.json",
   ]) {
     expect(isIgnored(ignored), ignored).toBe(true);
   }

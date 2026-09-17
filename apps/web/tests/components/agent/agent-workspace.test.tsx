@@ -49,7 +49,6 @@ const rpc = vi.hoisted(() => ({
 }));
 
 /** The draft review is not what this test reads, so its revision never lands. */
-const pendingRevisionAtom = Atom.make(Effect.never);
 
 const rpcOverrides = {
   agentBrowserElementInspectMutation: Atom.fn(() =>
@@ -68,11 +67,6 @@ const rpcOverrides = {
       return {};
     })
   ),
-  agentFlowApproveMutation: Atom.fn(() => Effect.never),
-  agentFlowArchiveMutation: Atom.fn(() => Effect.never),
-  agentFlowDeleteMutation: Atom.fn(() => Effect.never),
-  agentFlowRevisionAtom: () => pendingRevisionAtom,
-  agentFlowVerificationAuthorizeMutation: Atom.fn(() => Effect.never),
   agentReturnControlMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.returnControlCalls.push(payload);
@@ -346,7 +340,7 @@ test("shows the active controller and the action timeline", async () => {
   expect(timeline).toHaveTextContent("Fill e2");
 });
 
-test("discloses the Teaching Feed and shows the saved draft", async () => {
+test("discloses Teaching capture counts and the drafted Flow Skill", async () => {
   renderWorkspace(
     resultFor([
       {
@@ -362,26 +356,7 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
         },
         flowSkillName: "browse-catalogue",
         recordingId: "recording-browse-catalogue",
-        teaching: {
-          actionCount: 4,
-          draft: {
-            agentFlowId: "flow-one",
-            revisionId: "rev-one",
-            savedAt: "2026-08-31T00:00:05.000Z",
-            steps: [
-              {
-                confirmation: false,
-                description: "Browse the catalogue.",
-                evidenceHash:
-                  "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                index: 0,
-                name: "Browse catalogue",
-              },
-            ],
-            title: "Browse the catalogue",
-          },
-          instructionCount: 2,
-        },
+        teaching: { actionCount: 4, instructionCount: 2 },
       } satisfies unknown,
     ]),
     session.id
@@ -398,11 +373,9 @@ test("discloses the Teaching Feed and shows the saved draft", async () => {
     "4"
   );
   expect(screen.getByText("Instructions").nextSibling).toHaveTextContent("2");
-  expect(screen.getByText("Draft saved: Browse the catalogue")).toBeVisible();
-  expect(screen.getByText("flow-one / rev-one")).toBeVisible();
-  expect(screen.getByText("Browse catalogue")).toBeVisible();
-  expect(screen.getByText(/Evidence: sha256-/u)).toBeVisible();
-  expect(screen.getByText(/is shared with the connected agent/u)).toBeVisible();
+  expect(
+    screen.getByText(/every raw artifact is deleted once you verify/u)
+  ).toBeVisible();
 });
 
 test("does not show Teaching details for an Interactive Run", async () => {
@@ -466,7 +439,7 @@ test("offers no control exchange during a user-led Demonstration", async () => {
         controller: "user",
         flowSkillName: "browse-catalogue",
         recordingId: "recording-browse-catalogue",
-        teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+        teaching: { actionCount: 0, instructionCount: 0 },
       } satisfies unknown,
     ]),
     session.id
@@ -490,7 +463,7 @@ test("starts and stops Teaching recording from the privacy dock", async () => {
     controller: "user",
     flowSkillName: "browse-catalogue",
     recordingId: "recording-browse-catalogue",
-    teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+    teaching: { actionCount: 0, instructionCount: 0 },
   } satisfies unknown;
   renderWorkspace(resultFor([setup]), session.id);
   expect(await screen.findByText("Not recording")).toBeVisible();
@@ -588,7 +561,7 @@ test("keeps Teaching private Variable entry out of Workspace", async () => {
         },
         flowSkillName: "private-variable-flow",
         recordingId: "recording-private-variable-flow",
-        teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+        teaching: { actionCount: 0, instructionCount: 0 },
       } satisfies unknown,
     ]),
     session.id
@@ -684,7 +657,7 @@ const teachingSetup = {
   controller: "user",
   flowSkillName: "browse-catalogue",
   recordingId: "recording-browse-catalogue",
-  teaching: { actionCount: 0, draft: null, instructionCount: 0 },
+  teaching: { actionCount: 0, instructionCount: 0 },
 } satisfies unknown;
 
 const teachingRecording = {

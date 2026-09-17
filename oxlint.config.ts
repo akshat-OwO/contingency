@@ -20,10 +20,9 @@ export default defineConfig({
   overrides: [
     {
       files: [
-        "packages/cli/src/services/agent-flow-catalog.ts",
         "packages/cli/src/services/recorder-events.ts",
         "packages/protocol/src/agent-browser.ts",
-        "packages/protocol/src/agent-flow.ts",
+        "packages/protocol/src/agent-decision.ts",
         "packages/protocol/src/agent-identifiers.ts",
         "packages/protocol/src/agent-run.ts",
         "packages/protocol/src/agent-session.ts",

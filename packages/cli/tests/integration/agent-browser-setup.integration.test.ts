@@ -189,7 +189,7 @@ it.live("refuses browser setup while the agent holds the browser", () =>
     expect(refused.code).toBe("agent_control_unavailable");
 
     // Taking over hands the browser to the user, but an Interactive Run still
-    // reproduces the Agent Flow's declared Emulation rather than a new one.
+    // reproduces the Teaching Recording's saved Emulation rather than a new one.
     yield* client("agent.session.takeover", {
       data: {
         operationId: OperationId.make("takeover-run"),

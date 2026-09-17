@@ -3,10 +3,7 @@ import {
   makeBrowserRpcError,
   isBrowserRpcError,
 } from "@contingency/protocol";
-import type {
-  AgentFlowRevision,
-  BrowserRpcErrorType,
-} from "@contingency/protocol";
+import type { BrowserRpcErrorType } from "@contingency/protocol";
 import { Effect, Layer, Option, Stream } from "effect";
 import {
   HttpRouter,
@@ -15,20 +12,12 @@ import {
 } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
-import { AgentFlowCatalog } from "../services/agent-flow-catalog.ts";
-import type {
-  AgentFlowCatalogError,
-  AgentFlowCatalogService,
-} from "../services/agent-flow-catalog.ts";
 import { AgentRunStore } from "../services/agent-run-store.ts";
 import type {
   AgentRunStoreError,
   AgentRunStoreService,
 } from "../services/agent-run-store.ts";
-import {
-  AgentSession,
-  verificationStartingUrl,
-} from "../services/agent-session.ts";
+import { AgentSession } from "../services/agent-session.ts";
 import type {
   AgentSessionError,
   AgentSessionService,
@@ -42,16 +31,6 @@ import {
   isAllowedHost,
   isAllowedWebSocketOrigin,
 } from "../services/web-url.ts";
-
-/**
- * Catalog failures Agent View shows the user. An IO failure is reported as an
- * invalid Catalog Root because that is what the user can actually act on.
- */
-const catalogRpcError = (cause: AgentFlowCatalogError): BrowserRpcErrorType =>
-  makeBrowserRpcError(
-    cause.code === "agent_catalog_io" ? "agent_catalog_invalid" : cause.code,
-    cause.message
-  );
 
 const agentError = (cause: AgentSessionError): BrowserRpcErrorType =>
   isBrowserRpcError(cause)
@@ -73,8 +52,8 @@ const teachingRecordingError = (
 
 /**
  * Persisted Run evidence, read by the Workspace in summary mode and by the
- * read-only viewer `open_run` returns. It is optional for the same reason the
- * catalog is: a process serving the Workspace alone has no Run store.
+ * read-only viewer `open_run` returns. It is optional because a process
+ * serving the Workspace alone has no Run store.
  */
 const runStoreUnavailable = <A>(
   operation: (
@@ -141,89 +120,6 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               )
         )
       );
-    /**
-     * Agent Flow Catalog operations exposed to the Workspace over loopback
-     * RPC. The catalog is optional in a process that serves the Workspace
-     * alone, so its absence is a refusal rather than a crash.
-     */
-    const catalogUnavailable = <A>(
-      operation: (
-        service: AgentFlowCatalogService
-      ) => Effect.Effect<A, AgentFlowCatalogError>
-    ): Effect.Effect<A, BrowserRpcErrorType> =>
-      Effect.serviceOption(AgentFlowCatalog).pipe(
-        Effect.flatMap((service) =>
-          Option.isSome(service)
-            ? operation(service.value).pipe(Effect.mapError(catalogRpcError))
-            : Effect.fail(
-                makeBrowserRpcError(
-                  "agent_catalog_invalid",
-                  "No Agent Flow Catalog is available in this server process."
-                )
-              )
-        )
-      );
-
-    /**
-     * Every draft-review answer carries the revision and the bounded evidence
-     * summaries beside it, so Agent View always shows what the Steps under
-     * review are actually backed by.
-     */
-    const revisionResult = (
-      operation: Effect.Effect<AgentFlowRevision, BrowserRpcErrorType>
-    ) =>
-      operation.pipe(
-        Effect.flatMap((revision) =>
-          catalogUnavailable((catalog) =>
-            catalog.evidence(
-              revision.manifest.agentFlowId,
-              revision.manifest.revisionId
-            )
-          ).pipe(
-            // The catalog derives one Slice per Step in Step order. A Step
-            // whose Slice is missing is a broken evidence package, not a Step
-            // to review quietly without it.
-            Effect.flatMap((slices) =>
-              Effect.all(
-                revision.manifest.steps.map((step, stepIndex) => {
-                  const slice = slices[stepIndex];
-                  return slice === undefined
-                    ? Effect.fail(
-                        makeBrowserRpcError(
-                          "agent_flow_invalid",
-                          `Agent Flow ${revision.manifest.agentFlowId} revision ${revision.manifest.revisionId} has no Evidence Slice for Agent Step ${stepIndex + 1}.`
-                        )
-                      )
-                    : Effect.succeed({
-                        actions: slice.actions.map((action) => ({
-                          actor: action.actor,
-                          description: action.description,
-                          id: action.id,
-                          outcome: action.outcome,
-                          urlAfter: action.urlAfter,
-                        })),
-                        endedAt: slice.endedAt,
-                        hash: step.evidence.hash,
-                        instructions: slice.instructions.map(
-                          ({ text }) => text
-                        ),
-                        screenshotCount: slice.screenshots.length,
-                        startedAt: slice.startedAt,
-                        stepIndex,
-                        urlTransitionCount: slice.urlTransitions.length,
-                      });
-                })
-              ).pipe(
-                Effect.map((evidence) => ({
-                  data: { evidence, revision },
-                  type: "agent.flow.revision.result" as const,
-                }))
-              )
-            )
-          )
-        )
-      );
-
     const agentStream = <A>(
       operation: (
         service: AgentSessionService
@@ -574,81 +470,6 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.run.summary.result" as const,
           };
         }),
-      "agent.flow.revision.get": ({ data }) =>
-        revisionResult(
-          catalogUnavailable((catalog) =>
-            catalog.get(data.agentFlowId, data.revisionId)
-          )
-        ),
-      /**
-       * The two gestures no MCP tool can reach. They are handlers on Agent
-       * View's loopback RPC and nowhere else
-       * (ADR 0027).
-       */
-      "agent.flow.verification.authorize": ({ data }) =>
-        revisionResult(
-          Effect.gen(function* authorizeVerificationRun() {
-            // Where Agent View stands when the user authorizes is where the
-            // Verification Run should open. A session that has gone away, or
-            // that never left a blank page, simply carries no starting URL.
-            const sessionId = data.sessionId ?? null;
-            const startingUrl =
-              sessionId === null
-                ? null
-                : yield* agentUnavailable((service) =>
-                    service
-                      .get(sessionId)
-                      .pipe(
-                        Effect.map((session) =>
-                          verificationStartingUrl(session.currentUrl)
-                        )
-                      )
-                  ).pipe(Effect.orElseSucceed(() => null));
-            return yield* catalogUnavailable((catalog) =>
-              catalog.authorizeVerification({
-                agentFlowId: data.agentFlowId,
-                operationId: data.operationId,
-                revisionId: data.revisionId,
-                startingUrl,
-              })
-            );
-          })
-        ),
-      "agent.flow.approve": ({ data }) =>
-        revisionResult(
-          catalogUnavailable((catalog) =>
-            catalog.approve({
-              agentFlowId: data.agentFlowId,
-              operationId: data.operationId,
-              revisionId: data.revisionId,
-            })
-          )
-        ),
-      "agent.flow.archive": ({ data }) =>
-        revisionResult(
-          catalogUnavailable((catalog) =>
-            catalog.setArchived({
-              agentFlowId: data.agentFlowId,
-              archived: data.archived,
-              expectedHeads: data.expectedHeads,
-              operationId: data.operationId,
-            })
-          )
-        ),
-      "agent.flow.delete": ({ data }) =>
-        catalogUnavailable((catalog) =>
-          catalog.deletePermanently({
-            agentFlowId: data.agentFlowId,
-            confirmation: data.confirmation,
-            expectedHeads: data.expectedHeads,
-            operationId: data.operationId,
-          })
-        ).pipe(
-          Effect.map((deleted) => ({
-            data: deleted,
-            type: "agent.flow.deleted" as const,
-          }))
-        ),
     };
   })
 );
