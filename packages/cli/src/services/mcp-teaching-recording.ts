@@ -109,7 +109,7 @@ const TeachingRecordingsListTool = Tool.make("agent_teaching_recordings_list", {
 const TeachingRecordingWaitTool = Tool.make("agent_teaching_recording_wait", {
   dependencies: [TeachingRecordingLearning],
   description:
-    "Wait for a named Teaching Recording to enter recording, ready, learning, or failed. The tool polls its durable manifest, so it works when another process owns the browser. The timeout is at most 60000 ms.",
+    "Wait for a named Teaching Recording to reach its next durable state: recording, ready, learning, skill-drafted, dry-running, dry-run-failed, dry-run-passed, verified, or failed. The tool polls its durable manifest, so it works when another process owns the browser. The timeout is at most 60000 ms.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     recordingId: TeachingRecordingId,
@@ -457,6 +457,21 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             )
         );
         yield* sessions.get(started.sessionId).pipe(Effect.ignore);
+        // An Agent Session lives in the process that started it, so a Stop from
+        // the Workspace can only persist the transition. This process watches
+        // the durable manifest and closes its own Chromium once the Dry Run
+        // leaves dry-running, whichever process ended it.
+        yield* Effect.forkDetach(
+          Effect.sleep("1 second").pipe(
+            Effect.andThen(store.read(params.recordingId)),
+            Effect.map((current) => current.lifecycle._tag !== "dry-running"),
+            Effect.catchCause(() => Effect.succeed(true)),
+            Effect.repeat({ until: (ended: boolean) => ended }),
+            Effect.andThen(
+              sessions.close(session.id, params.operationId).pipe(Effect.ignore)
+            )
+          )
+        );
         return {
           files,
           flowSkillName: started.flowSkillName,

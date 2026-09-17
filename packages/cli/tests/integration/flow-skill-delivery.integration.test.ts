@@ -169,7 +169,7 @@ it.live(
       });
       const fixtures = yield* fixtureServer;
 
-      const recordingId = yield* Effect.scoped(
+      const demonstration = yield* Effect.scoped(
         Effect.gen(function* demonstrateDeliveryJourney() {
           const started = yield* sessionTool("agent_session_start", {
             activity: "teaching",
@@ -217,9 +217,13 @@ it.live(
             started.id,
             OperationId.make("delivery-stop-recording")
           );
-          return started.recordingId;
+          return {
+            recordingId: started.recordingId,
+            teachingSessionId: started.id,
+          };
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
+      const { recordingId, teachingSessionId } = demonstration;
 
       yield* Effect.scoped(
         Effect.gen(function* learnInLaterProcess() {
@@ -299,7 +303,10 @@ it.live(
               url: fixtures.url("delivery.html"),
             }
           );
-          expect(failedRun.session.id).not.toBe(recordingId);
+          // A Dry Run proves the Flow Skill in a context the demonstration
+          // never touched, so it must not reuse the Teaching session.
+          expect(failedRun.session.id).not.toBe(teachingSessionId);
+          expect(failedRun.session.activity).toBe("run");
           expect(failedRun.files.map((file) => file.path)).toContain(
             "SKILL.md"
           );

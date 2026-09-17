@@ -300,23 +300,24 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "agent.teaching.dry-run.stop": ({ data }) =>
         teachingRecordingUnavailable((store) =>
           Effect.gen(function* stopDryRun() {
-            const current = yield* store.read(data.recordingId);
-            if (current.lifecycle._tag !== "dry-running") {
-              return yield* Effect.fail({
-                _tag: "TeachingRecordingStoreError" as const,
-                code: "teaching_recording_conflict" as const,
-                message: `Teaching Recording ${data.recordingId} has no active Dry Run.`,
-              });
-            }
-            const { dryRunSessionId } = current.lifecycle;
-            yield* agentUnavailable((service) =>
-              service.close(dryRunSessionId, data.operationId)
-            ).pipe(Effect.ignore);
+            // Persist the stop before touching the browser. The store mutation
+            // is the only lock the two processes share, so a passing report
+            // that lands first wins and Stop reports the conflict instead of
+            // killing a Dry Run the user already accepted.
             const manifest = yield* store.failDryRun({
               observableOutcome:
                 "The user stopped the Dry Run before it completed.",
               ...data,
             });
+            const { lifecycle } = manifest;
+            if (lifecycle._tag === "dry-run-failed") {
+              // Only the process that started the Dry Run owns its session.
+              // Closing here covers a Workspace that owns it; the starting
+              // process closes its own once the manifest leaves dry-running.
+              yield* agentUnavailable((service) =>
+                service.close(lifecycle.dryRunSessionId, data.operationId)
+              ).pipe(Effect.ignore);
+            }
             return {
               data: {
                 captureState: manifest.lifecycle,

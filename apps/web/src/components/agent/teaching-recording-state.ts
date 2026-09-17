@@ -81,9 +81,10 @@ const action = (
  * How the Workspace presents one Teaching capture state. The names and
  * sentences come from the settled #185 prototype state contract.
  *
- * States from `learning` onward are rendered honestly but without controls:
- * the learning, dry-run, and verification actions belong to their own work,
- * and a disabled repeat of the previous action is not a status.
+ * `learning` is rendered honestly but without controls: it belongs to the
+ * agent, and a disabled repeat of the previous action is not a status. Every
+ * state a person can act on carries the one action the prototype settled, so
+ * an action the state cannot take is absent rather than disabled.
  */
 export const teachingRecordingPresentation = (
   captureState: TeachingCaptureState,
