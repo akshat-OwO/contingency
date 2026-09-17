@@ -143,6 +143,8 @@ Flow Skills replace Agent Flow packages as the reusable instructions for future 
 
 Execution Boundary rules remain where a run can leave the saved domain scope or cause an irreversible effect. Those rules protect execution. They do not require a draft, an Evidence Slice, or a separate approval package.
 
+The saved domain scope lives in the Flow Skill's frontmatter. When a package is saved, Contingency stamps the hosts the recording actually visited and the Emulation it ran under over whatever the agent wrote, and a later Run refuses a start URL outside those hosts and reopens the demonstrated device. The ceiling stays demonstrated rather than asserted ([ADR 0027](./0027-agent-authority-has-a-user-approved-execution-boundary.md)), and the device travels with the journey ([ADR 0013](./0013-emulation-belongs-to-the-flow.md)), which the deleted revision manifest used to carry.
+
 ## Considered options
 
 - **Keep Agent Flows and generate a Flow Skill beside them.** Rejected because the two durable artifacts can disagree.

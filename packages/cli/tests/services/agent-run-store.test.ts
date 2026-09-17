@@ -1,10 +1,9 @@
 import path from "node:path";
 
 import {
-  AgentFlowId,
-  AgentFlowRevisionId,
   AgentRunId,
   AgentSessionId,
+  FlowSkillName,
 } from "@contingency/protocol";
 import type { AgentRunSummary } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -23,7 +22,6 @@ const runId = AgentRunId.make("agentrun-store-test");
 
 const summaryFor = (root: string): AgentRunSummary =>
   ({
-    agentFlowId: AgentFlowId.make("flow-catalogue"),
     assessmentCounts: {
       blocked: 0,
       inconclusive: 0,
@@ -40,10 +38,11 @@ const summaryFor = (root: string): AgentRunSummary =>
     ceilings: { extensions: 1, runMs: 900_000, stepMs: 120_000 },
     coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
     endedAt: "2026-09-04T00:02:00.000Z",
+    flowSkillName: FlowSkillName.make("browse-catalogue"),
+    inputs: [{ name: "product", value: "Mug" }],
     outcome: "ended-early",
-    revisionId: AgentFlowRevisionId.make("rev-one"),
     runId,
-    schemaVersion: 1,
+    schemaVersion: 2,
     sessionId: AgentSessionId.make("agent-one"),
     startedAt: "2026-09-04T00:00:00.000Z",
     steps: [
@@ -58,6 +57,7 @@ const summaryFor = (root: string): AgentRunSummary =>
         attempts: 1,
         confirmation: false,
         description: "Open the catalogue.",
+        doneWhen: "the page shows the expected outcome.",
         endedAt: "2026-09-04T00:00:30.000Z",
         execution: "assessed",
         index: 0,
@@ -75,6 +75,7 @@ const summaryFor = (root: string): AgentRunSummary =>
         attempts: 3,
         confirmation: false,
         description: "Add the product to the basket.",
+        doneWhen: "the page shows the expected outcome.",
         endedAt: "2026-09-04T00:01:30.000Z",
         execution: "assessed",
         index: 1,
@@ -86,6 +87,7 @@ const summaryFor = (root: string): AgentRunSummary =>
         attempts: 0,
         confirmation: true,
         description: "Complete the purchase.",
+        doneWhen: "the page shows the expected outcome.",
         endedAt: null,
         execution: "unexecuted",
         index: 2,
@@ -164,16 +166,26 @@ it.effect(
       });
 
       yield* fileSystem.writeFileString(
-        path.join(root, "agent-flow-catalog.json"),
+        path.join(root, "catalog.json"),
         JSON.stringify({
           agentRunCeilings: { runCeilingMs: 60_000, stepCeilingMs: 5000 },
         })
       );
       expect(yield* readCeilings).toEqual({ runMs: 60_000, stepMs: 5000 });
 
-      // An unreadable policy must not stop a Run from starting.
+      // A Catalog Root written before the file was renamed keeps its budget.
+      yield* fileSystem.remove(path.join(root, "catalog.json"));
       yield* fileSystem.writeFileString(
         path.join(root, "agent-flow-catalog.json"),
+        JSON.stringify({
+          agentRunCeilings: { runCeilingMs: 30_000, stepCeilingMs: 2000 },
+        })
+      );
+      expect(yield* readCeilings).toEqual({ runMs: 30_000, stepMs: 2000 });
+
+      // An unreadable policy must not stop a Run from starting.
+      yield* fileSystem.writeFileString(
+        path.join(root, "catalog.json"),
         "{ not json"
       );
       expect(yield* readCeilings).toEqual({

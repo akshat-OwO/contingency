@@ -29,8 +29,12 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
-import { validateFlowSkillPackage } from "./flow-skill-package.ts";
+import {
+  stampFlowSkillProvenance,
+  validateFlowSkillPackage,
+} from "./flow-skill-package.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import { webHost } from "./teaching-demonstration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts";
 
@@ -586,6 +590,38 @@ const makeTeachingRecordingLearning = Effect.fn(
       if (Result.isFailure(validated)) {
         return yield* Effect.fail(invalidPackage(validated.failure));
       }
+      // A verified Flow Skill outlives its recording, so the demonstrated host
+      // ceiling and device are stamped into the package now, while the event
+      // stream is still on disk to prove them.
+      const events = yield* readEvents(manifest);
+      const visited = new Set<string>();
+      for (const event of events) {
+        if (event._tag !== "started" && event._tag !== "url") {
+          continue;
+        }
+        const host = webHost(event.url);
+        if (host !== undefined) {
+          visited.add(host);
+        }
+      }
+      const demonstratedHosts = [...visited].toSorted();
+      const stamped = files.map((file) =>
+        file.path === SKILL_FILE
+          ? {
+              ...file,
+              content: stampFlowSkillProvenance(file.content, {
+                emulation: {
+                  colorScheme: manifest.emulation.colorScheme ?? undefined,
+                  locale: manifest.emulation.locale ?? undefined,
+                  timezone: manifest.emulation.timezoneId ?? undefined,
+                  userAgentProfile: manifest.emulation.userAgentProfile,
+                  viewport: manifest.emulation.viewport,
+                },
+                hosts: demonstratedHosts,
+              }),
+            }
+          : file
+      );
       const recordingDirectory = store.directory(input.recordingId);
       const catalogRoot = path.dirname(path.dirname(recordingDirectory));
       return yield* withSkillLock(
@@ -600,7 +636,7 @@ const makeTeachingRecordingLearning = Effect.fn(
             .pipe(Effect.mapError(ioError("Could not stage the Flow Skill")));
           const staged = yield* Effect.result(
             Effect.forEach(
-              files,
+              stamped,
               (file) => {
                 const destination = path.join(temporary, file.path);
                 return fileSystem

@@ -9,7 +9,7 @@ The Workspace drives Chromium through Playwright in the CLI process. Domain lang
 | Live browser session, tabs, viewport, user-agent       | Built  |
 | Screencast frames to a canvas + pointer/keyboard input | Built  |
 | Console / Network / Storage DevTools panels            | Built  |
-| Teaching, Agent Flow verification, Run Summary         | Built  |
+| Teaching, Flow Skill Dry Run, Run Summary              | Built  |
 
 ## Packages
 

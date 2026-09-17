@@ -27,59 +27,256 @@ const diagnostic = (
   path: readonly string[]
 ): FlowSkillDiagnostic => ({ code, message, path: [...path] });
 
-interface Frontmatter {
+export interface FlowSkillFrontmatter {
   /** Everything after the closing delimiter, where the procedure lives. */
   readonly body: string;
   readonly description: string | undefined;
+  /**
+   * The Emulation the journey was demonstrated under, as flat scalars. Written
+   * by Contingency at save time, not authored by the agent.
+   */
+  readonly emulation: FlowSkillEmulation | undefined;
+  /** The hosts the Teaching Recording actually visited. */
+  readonly hosts: readonly string[];
   readonly inputs: readonly string[];
   readonly name: string | undefined;
 }
 
+/**
+ * The Emulation subset a Flow Skill carries. `viewport` is one `WxH@scale`
+ * scalar so the grammar stays the flat one the authoring skills teach, and a
+ * demonstrated phone stays a phone when the Run reproduces it (ADR 0013).
+ */
+export interface FlowSkillEmulation {
+  readonly colorScheme: string | undefined;
+  readonly locale: string | undefined;
+  readonly timezone: string | undefined;
+  readonly userAgentProfile: string | undefined;
+  readonly viewport:
+    | {
+        readonly deviceScaleFactor: number;
+        readonly height: number;
+        readonly width: number;
+      }
+    | undefined;
+}
+
+const VIEWPORT_SCALAR =
+  /^(?<width>\d+)x(?<height>\d+)(?:@(?<scale>\d+(?:\.\d+)?))?$/u;
+
+const readViewportScalar = (
+  value: string
+): FlowSkillEmulation["viewport"] | undefined => {
+  const match = VIEWPORT_SCALAR.exec(value.trim());
+  if (match === null) {
+    return undefined;
+  }
+  const width = Number(match.groups?.width);
+  const height = Number(match.groups?.height);
+  const scale = Number(match.groups?.scale ?? "1");
+  if (width <= 0 || height <= 0 || !Number.isFinite(scale) || scale <= 0) {
+    return undefined;
+  }
+  return { deviceScaleFactor: scale, height, width };
+};
+
 const FRONTMATTER = /^---\r?\n(?<block>[\s\S]*?)\r?\n---\r?\n?/u;
 
+const FRONTMATTER_FIELD =
+  /^(?<indent>\s*)(?<key>[A-Za-z][\w-]*)\s*:\s*(?<value>.*)$/u;
+const FRONTMATTER_ITEM = /^\s*-\s+(?<item>\S.*?)\s*$/u;
+
+const unquoted = (value: string): string =>
+  value.trim().replaceAll(/^["']|["']$/gu, "");
+
+interface FrontmatterLine {
+  readonly indented: boolean;
+  readonly item: string | undefined;
+  readonly key: string | undefined;
+  readonly value: string;
+}
+
+const readFrontmatterLine = (raw: string): FrontmatterLine => {
+  const item = FRONTMATTER_ITEM.exec(raw);
+  if (item !== null) {
+    return {
+      indented: true,
+      item: unquoted(item.groups?.item ?? ""),
+      key: undefined,
+      value: "",
+    };
+  }
+  const field = FRONTMATTER_FIELD.exec(raw);
+  if (field === null) {
+    return { indented: false, item: undefined, key: undefined, value: "" };
+  }
+  return {
+    indented: (field.groups?.indent ?? "").length > 0,
+    item: undefined,
+    key: field.groups?.key ?? "",
+    value: unquoted(field.groups?.value ?? ""),
+  };
+};
+
+const readEmulationBlock = (
+  fields: Record<string, string>
+): FlowSkillEmulation | undefined =>
+  Object.keys(fields).length === 0
+    ? undefined
+    : {
+        colorScheme: fields.colorScheme,
+        locale: fields.locale,
+        timezone: fields.timezone,
+        userAgentProfile: fields.userAgentProfile,
+        viewport:
+          fields.viewport === undefined
+            ? undefined
+            : readViewportScalar(fields.viewport),
+      };
+
+const sequenceFor = (key: string): "hosts" | "inputs" | undefined => {
+  if (key === "hosts") {
+    return "hosts";
+  }
+  return key === "inputs" ? "inputs" : undefined;
+};
+
 /**
- * Reads the small YAML subset a Flow Skill is allowed to use: `name`,
- * `description`, and an `inputs` sequence. A full YAML parser would accept
- * shapes the rest of the product cannot read back, so the grammar stays the one
- * the authoring skills teach.
+ * Reads the small YAML subset a Flow Skill is allowed to use: the `name` and
+ * `description` scalars, the `inputs` and `hosts` sequences, and one flat
+ * `emulation` block. A full YAML parser would accept shapes the rest of the
+ * product cannot read back, so the grammar stays the one the authoring skills
+ * teach.
  */
-const readFrontmatter = (content: string): Frontmatter | undefined => {
+export const readFlowSkillFrontmatter = (
+  content: string
+): FlowSkillFrontmatter | undefined => {
   const match = FRONTMATTER.exec(content);
   if (match === null) {
     return undefined;
   }
   const [matched] = match;
-  const block = match.groups?.block ?? "";
-  const inputs: string[] = [];
-  let description: string | undefined;
-  let name: string | undefined;
-  let inInputs = false;
-  for (const raw of block.split(/\r?\n/u)) {
-    const item = /^\s*-\s+(?<item>\S.*?)\s*$/u.exec(raw);
-    if (inInputs && item !== null) {
-      inputs.push((item.groups?.item ?? "").replaceAll(/^["']|["']$/gu, ""));
+  const sequences: Record<"hosts" | "inputs", string[]> = {
+    hosts: [],
+    inputs: [],
+  };
+  const scalars: Record<string, string> = {};
+  const emulation: Record<string, string> = {};
+  let sequence: "hosts" | "inputs" | undefined;
+  let inEmulation = false;
+  for (const raw of (match.groups?.block ?? "").split(/\r?\n/u)) {
+    const line = readFrontmatterLine(raw);
+    if (line.item !== undefined) {
+      if (sequence !== undefined) {
+        sequences[sequence].push(line.item);
+      }
       continue;
     }
-    const field = /^(?<key>[A-Za-z][\w-]*)\s*:\s*(?<value>.*)$/u.exec(raw);
-    if (field === null) {
+    if (line.key === undefined) {
       continue;
     }
-    const key = field.groups?.key ?? "";
-    const value = (field.groups?.value ?? "")
-      .trim()
-      .replaceAll(/^["']|["']$/gu, "");
-    inInputs = key === "inputs";
-    if (key === "name") {
-      name = value;
+    // An indented key under `emulation:` belongs to it; any unindented key ends
+    // both the sequence and the block, so a later field cannot be captured.
+    if (inEmulation && line.indented) {
+      emulation[line.key] = line.value;
+      continue;
     }
-    if (key === "description") {
-      description = value;
+    inEmulation = line.key === "emulation";
+    sequence = sequenceFor(line.key);
+    if (sequence !== undefined) {
+      if (line.value.length > 0) {
+        sequences[sequence].push(line.value);
+      }
+      continue;
     }
-    if (inInputs && value.length > 0) {
-      inputs.push(value);
-    }
+    scalars[line.key] = line.value;
   }
-  return { body: content.slice(matched.length), description, inputs, name };
+  return {
+    body: content.slice(matched.length),
+    description: scalars.description,
+    emulation: readEmulationBlock(emulation),
+    hosts: sequences.hosts,
+    inputs: sequences.inputs,
+    name: scalars.name,
+  };
+};
+
+/**
+ * Replace the `hosts` and `emulation` keys of a SKILL.md's frontmatter with
+ * what the Teaching Recording actually observed.
+ *
+ * Contingency stamps these rather than trusting the agent to author them: a
+ * Run's host ceiling and device must be demonstrated rather than asserted
+ * ([ADR 0027](../../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)),
+ * and the recording is deleted once the user verifies, so the package is the
+ * only place left to keep them.
+ */
+const STAMPED_KEYS = new Set(["emulation", "hosts"]);
+
+/** The frontmatter lines that are not part of a key Contingency owns. */
+const withoutStampedKeys = (block: string): string[] => {
+  const kept: string[] = [];
+  let dropping = false;
+  for (const raw of block.split(/\r?\n/u)) {
+    const line = readFrontmatterLine(raw);
+    if (dropping && (line.item !== undefined || line.indented)) {
+      continue;
+    }
+    if (line.key !== undefined && !line.indented) {
+      dropping = STAMPED_KEYS.has(line.key);
+      if (dropping) {
+        continue;
+      }
+    }
+    kept.push(raw);
+  }
+  while (kept.at(-1)?.trim() === "") {
+    kept.pop();
+  }
+  return kept;
+};
+
+const emulationLines = (emulation: FlowSkillEmulation): string[] => {
+  const lines: string[] = [];
+  if (emulation.userAgentProfile !== undefined) {
+    lines.push(`  userAgentProfile: ${emulation.userAgentProfile}`);
+  }
+  if (emulation.viewport !== undefined) {
+    const { deviceScaleFactor, height, width } = emulation.viewport;
+    lines.push(`  viewport: ${width}x${height}@${deviceScaleFactor}`);
+  }
+  if (emulation.locale !== undefined) {
+    lines.push(`  locale: ${emulation.locale}`);
+  }
+  if (emulation.timezone !== undefined) {
+    lines.push(`  timezone: ${emulation.timezone}`);
+  }
+  if (emulation.colorScheme !== undefined) {
+    lines.push(`  colorScheme: ${emulation.colorScheme}`);
+  }
+  return lines;
+};
+
+export const stampFlowSkillProvenance = (
+  content: string,
+  provenance: {
+    readonly emulation: FlowSkillEmulation;
+    readonly hosts: readonly string[];
+  }
+): string => {
+  const match = FRONTMATTER.exec(content);
+  if (match === null) {
+    return content;
+  }
+  const [matched] = match;
+  const stamped = [
+    ...withoutStampedKeys(match.groups?.block ?? ""),
+    "hosts:",
+    ...provenance.hosts.map((host) => `  - ${host}`),
+    "emulation:",
+    ...emulationLines(provenance.emulation),
+  ].join("\n");
+  return `---\n${stamped}\n---\n${content.slice(matched.length)}`;
 };
 
 const PLACEHOLDER = /\{\{\s*(?<input>[A-Za-z][\w-]*)\s*\}\}/gu;
@@ -100,12 +297,12 @@ const RESIDUE = [
 const IMAGE_SUFFIXES = [".png", ".jpg", ".jpeg", ".webm", ".webp"] as const;
 
 /** One numbered step and the text that belongs to it, for completion checks. */
-interface Step {
+export interface FlowSkillStep {
   readonly block: string;
   readonly label: string;
 }
 
-const readSteps = (body: string): readonly Step[] => {
+export const readFlowSkillSteps = (body: string): readonly FlowSkillStep[] => {
   const lines = body.split(/\r?\n/u);
   const steps: { block: string[]; label: string }[] = [];
   for (const line of lines) {
@@ -252,7 +449,7 @@ const checkLinks = (
  */
 const checkDeclaredInputs = (
   files: readonly FlowSkillFile[],
-  frontmatter: Frontmatter,
+  frontmatter: FlowSkillFrontmatter,
   report: (entry: FlowSkillDiagnostic) => void
 ): void => {
   const declared = new Set(frontmatter.inputs);
@@ -352,7 +549,7 @@ export const validateFlowSkillPackage = (
       ),
     ]);
   }
-  const frontmatter = readFrontmatter(skill.content);
+  const frontmatter = readFlowSkillFrontmatter(skill.content);
   if (frontmatter === undefined) {
     report(
       diagnostic(
@@ -381,7 +578,7 @@ export const validateFlowSkillPackage = (
       );
     }
     checkDeclaredInputs(files, frontmatter, report);
-    const steps = readSteps(frontmatter.body);
+    const steps = readFlowSkillSteps(frontmatter.body);
     if (steps.length === 0) {
       report(
         diagnostic(
@@ -414,4 +611,56 @@ export const validateFlowSkillPackage = (
   return diagnostics.length === 0
     ? Result.succeed(files)
     : Result.fail(diagnostics);
+};
+
+/** One ordered step of a saved Flow Skill, as a Run executes it. */
+export interface FlowSkillProcedureStep {
+  /** The step's whole text, placeholders included. */
+  readonly description: string;
+  /** The observable outcome that ends the step. */
+  readonly doneWhen: string;
+  readonly index: number;
+  /** The step's first line, for a compact label. */
+  readonly name: string;
+}
+
+const STEP_NUMBER = /^\s{0,3}\d+[.)]\s+/u;
+const NAME_LIMIT = 80;
+
+const firstLine = (block: string): string => {
+  const [line] = block.split(/\r?\n/u);
+  const text = (line ?? "").replace(STEP_NUMBER, "").trim();
+  return text.length > NAME_LIMIT ? `${text.slice(0, NAME_LIMIT - 1)}…` : text;
+};
+
+const completionOf = (block: string): string => {
+  const marker = block.indexOf(COMPLETION_MARKER);
+  return marker === -1
+    ? ""
+    : (block
+        .slice(marker + COMPLETION_MARKER.length)
+        .split(/\r?\n\s*\r?\n/u)[0]
+        ?.trim() ?? "");
+};
+
+/**
+ * The ordered steps a Run follows, read from the saved `SKILL.md`. The Flow
+ * Skill is the single reusable format (ADR 0039), so a Run derives its Agent
+ * Steps from the same numbered procedure a person reads. Validation already
+ * refused a package whose steps lack a completion condition, so a saved
+ * package always yields a `doneWhen` for every step.
+ */
+export const flowSkillProcedureSteps = (
+  skillContent: string
+): readonly FlowSkillProcedureStep[] => {
+  const frontmatter = readFlowSkillFrontmatter(skillContent);
+  if (frontmatter === undefined) {
+    return [];
+  }
+  return readFlowSkillSteps(frontmatter.body).map((step, index) => ({
+    description: step.block.trim(),
+    doneWhen: completionOf(step.block),
+    index,
+    name: firstLine(step.block),
+  }));
 };

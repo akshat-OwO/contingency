@@ -45,6 +45,7 @@ const step = {
   attempts: 0,
   confirmation: false,
   description: "Open the catalogue.",
+  doneWhen: "the catalogue lists at least one product.",
   endedAt: null,
   execution: "pending",
   index: 0,
@@ -54,7 +55,6 @@ const step = {
 
 const run = {
   activeStepIndex: 1,
-  agentFlowId: "flow-shop",
   assessmentCounts: { blocked: 0, inconclusive: 0, notWorking: 1, working: 1 },
   attribution: {
     clientName: "run-agent",
@@ -66,8 +66,9 @@ const run = {
   ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
   coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
   endedAt: null,
+  flowSkillName: "browse-catalogue",
+  inputs: [{ name: "product", value: "Mug" }],
   outcome: null,
-  revisionId: "rev-one",
   runDeadline: "2026-09-04T00:15:00.000Z",
   runId: "agentrun-one",
   startedAt: "2026-09-04T00:00:00.000Z",
@@ -119,21 +120,20 @@ const session = {
   teaching: null,
   timeline: [],
   updatedAt: "2026-09-04T00:00:00.000Z",
-  verification: null,
   viewUrl: "http://127.0.0.1:7777/?session=agent-one",
 };
 
 const summary = {
-  agentFlowId: "flow-shop",
   assessmentCounts: { blocked: 0, inconclusive: 0, notWorking: 1, working: 1 },
   attribution: run.attribution,
   ceilings: run.ceilings,
   coverage: run.coverage,
   endedAt: "2026-09-04T00:02:00.000Z",
+  flowSkillName: "browse-catalogue",
+  inputs: run.inputs,
   outcome: "ended-early",
-  revisionId: "rev-one",
   runId: "agentrun-one",
-  schemaVersion: 1,
+  schemaVersion: 2,
   sessionId: "agent-one",
   startedAt: "2026-09-04T00:00:00.000Z",
   steps: run.steps,

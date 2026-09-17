@@ -6,10 +6,10 @@ import { expect, it } from "@effect/vitest";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 
-import { makeAgentFlowCatalogLayer } from "../../src/services/agent-flow-catalog.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
 import {
   AUTHORING_SKILL_FILES,
   authoringSkillUri,
@@ -55,7 +55,7 @@ const serving = Effect.fn("servingAuthoringSkills")(
         Layer.provide(
           Layer.mergeAll(
             makeAgentSessionLayer({ allowedActivity: "any", baseUrl }),
-            makeAgentFlowCatalogLayer({ root: catalogRoot }),
+            makeFlowSkillCatalogLayer({ root: catalogRoot }),
             makeAgentRunStoreLayer({ root: () => catalogRoot }),
             makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
           ).pipe(

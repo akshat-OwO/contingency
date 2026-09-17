@@ -277,7 +277,7 @@ test("a Flow Skill diagnostic names the file and field it belongs to", () => {
   });
 
   expect(diagnostic.path[0]).toBe("SKILL.md");
-  // The path is a file route, not a JSON pointer into an Agent Flow draft, so
+  // The path is a file route, not a JSON pointer into a Flow Skill, so
   // an index would tell the agent nothing about which line to fix.
   expect(() =>
     decodeDiagnostic({

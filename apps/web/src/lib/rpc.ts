@@ -1,7 +1,5 @@
 import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
 import type {
-  AgentFlowId,
-  AgentFlowRevisionId,
   AgentRunId,
   AgentSessionId,
   AgentSessionSnapshot,
@@ -152,38 +150,6 @@ export const agentRunSummaryAtom = Atom.family((runId: AgentRunId) =>
     type: "agent.run.summary.get",
   })
 );
-
-/**
- * The draft under review, with the Evidence Slice summaries behind its Steps.
- * One atom per revision, so a review reads its own draft and nothing else's.
- */
-const agentFlowRevisionFamily = Atom.family((agentFlowId: AgentFlowId) =>
-  Atom.family((revisionId: AgentFlowRevisionId) =>
-    ContingencyRpcClient.query("agent.flow.revision.get", {
-      data: { agentFlowId, revisionId },
-      type: "agent.flow.revision.get",
-    })
-  )
-);
-
-export const agentFlowRevisionAtom = (
-  agentFlowId: AgentFlowId,
-  revisionId: AgentFlowRevisionId
-) => agentFlowRevisionFamily(agentFlowId)(revisionId);
-/** The user's correction of the proposed Agent Steps and Domain Scope. */
-/**
- * The two gestures the external agent may ask for but never perform. They live
- * on the Workspace's loopback RPC and have no MCP tool.
- */
-export const agentFlowVerificationAuthorizeMutation =
-  ContingencyRpcClient.mutation("agent.flow.verification.authorize");
-export const agentFlowApproveMutation =
-  ContingencyRpcClient.mutation("agent.flow.approve");
-export const agentFlowArchiveMutation =
-  ContingencyRpcClient.mutation("agent.flow.archive");
-/** Permanent deletion has no MCP counterpart. Only the Workspace can call it. */
-export const agentFlowDeleteMutation =
-  ContingencyRpcClient.mutation("agent.flow.delete");
 
 const reconnectSchedule = Schedule.exponential("100 millis").pipe(
   Schedule.jittered,

@@ -2,8 +2,6 @@ import path from "node:path";
 
 import {
   AgentElementRef,
-  AgentFlowId,
-  AgentFlowRevisionId,
   makeBrowserRpcError,
   OperationId,
   SessionId,
@@ -34,12 +32,10 @@ import {
   describeCapturedAction,
   makeAgentSessionLayer,
   makeAgentSessionService,
-  verificationStartingUrl,
 } from "../../src/services/agent-session.ts";
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
-import { playByPlayFromAnalysis } from "../../src/services/play-by-play.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 import {
   makeTeachingRecordingStoreLayer,
@@ -203,13 +199,6 @@ const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
   makeAgentSessionService(fake.browser, {
     allowedActivity: "any",
     baseUrl,
-    playByPlayAnalyzer: ({ demonstration }) =>
-      Effect.succeed(
-        playByPlayFromAnalysis(demonstration, {
-          sampledFrames: 2,
-          visualChanges: 1,
-        })
-      ),
     processId: "test-owner",
   });
 
@@ -589,15 +578,13 @@ it.effect("records a Demonstration only for a Teaching session", () =>
   Effect.gen(function* teachingDemonstration() {
     const fake = makeFakeBrowser();
     const service = yield* serviceFor(fake);
-    const run = yield* service.start(startInput("start-run-no-feed"));
+    const run = yield* service.start(startInput("start-run-no-capture"));
     expect(run).toMatchObject({
       captureState: null,
       flowSkillName: null,
       recordingId: null,
       teaching: null,
     });
-    const refused = yield* Effect.flip(service.teachingFeed(run.id));
-    expect(refused.code).toBe("agent_session_invalid");
     const refusedInstruction = yield* Effect.flip(
       service.recordInstruction(run.id, "Open the shop")
     );
@@ -613,11 +600,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       captureState: { _tag: "setup" },
       flowSkillName: "add-first-item",
       recordingId: expect.stringMatching(/^recording-/u),
-      teaching: {
-        actionCount: 0,
-        draft: null,
-        instructionCount: 0,
-      },
+      teaching: { actionCount: 0, instructionCount: 0 },
     });
 
     const beforeStart = yield* Effect.flip(
@@ -645,30 +628,12 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     fake.visit("https://shop.example.com/cart");
     yield* service.get(teaching.id);
 
-    const unavailable = yield* Effect.flip(service.teachingFeed(teaching.id));
-    expect(unavailable.message).toContain("End Teaching");
-    yield* service.close(
+    const closed = yield* service.close(
       teaching.id,
-      OperationId.make("close-teaching-for-analysis")
+      OperationId.make("close-teaching-without-capture")
     );
-    const noRecording = yield* Effect.flip(service.teachingFeed(teaching.id));
-    expect(noRecording.message).toContain(
-      "PlayByPlay analysis did not complete"
-    );
-
-    const source = yield* service.teachingSource(teaching.id);
-    expect(source.emulation.viewport).toEqual(viewport);
-    expect(source.demonstration.instructions).toHaveLength(0);
-
-    const withDraft = yield* service.recordDraft(teaching.id, {
-      agentFlowId: AgentFlowId.make("flow-one"),
-      revisionId: AgentFlowRevisionId.make("rev-one"),
-      savedAt: "2026-09-01T00:00:00.000Z",
-      steps: [],
-      title: "Shop cart",
-    });
-    expect(withDraft.teaching?.draft?.title).toBe("Shop cart");
-    expect(withDraft.teaching?.instructionCount).toBe(0);
+    // Nothing was captured, because the user never pressed Start.
+    expect(closed.teaching).toEqual({ actionCount: 0, instructionCount: 0 });
   })
 );
 
@@ -734,13 +699,6 @@ const teachingSessionLayer = (
   makeAgentSessionLayer({
     allowedActivity: "any",
     baseUrl: "http://127.0.0.1:7777",
-    playByPlayAnalyzer: ({ demonstration }) =>
-      Effect.succeed(
-        playByPlayFromAnalysis(demonstration, {
-          sampledFrames: 2,
-          visualChanges: 1,
-        })
-      ),
     processId,
     traceDirectory: () => path.join(root, TEACHING_RECORDINGS_DIRECTORY),
   }).pipe(
@@ -824,24 +782,6 @@ it.effect(
       expect(manifest.artifacts).toEqual([]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
-
-it("carries only a real page into a Verification Run's starting URL", () => {
-  expect(verificationStartingUrl("https://shop.example/cart?item=1")).toBe(
-    "https://shop.example/cart?item=1"
-  );
-  // Credentials and secret query values never travel, the same as anywhere
-  // else Contingency records a URL.
-  expect(verificationStartingUrl("https://user:pw@shop.example/cart")).toBe(
-    "https://shop.example/cart"
-  );
-  expect(
-    verificationStartingUrl("https://shop.example/cart?token=abc123")
-  ).toBe("https://shop.example/cart?token=%5Bsensitive%5D");
-  // A blank or non-document page leaves the Run opening on `about:blank`.
-  expect(verificationStartingUrl("about:blank")).toBeNull();
-  expect(verificationStartingUrl("file:///tmp/page.html")).toBeNull();
-  expect(verificationStartingUrl("[invalid URL]")).toBeNull();
-});
 
 /**
  * A description is a sentence assembled from length-limited fragments, so a

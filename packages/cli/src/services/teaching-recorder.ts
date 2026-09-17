@@ -9,15 +9,15 @@ import type {
   TeachingEventTarget,
   TeachingStopReason,
 } from "@contingency/protocol";
-import { EvidenceHash } from "@contingency/protocol";
+import { ContentHash } from "@contingency/protocol";
 import { Deferred, Effect, Exit, Ref, Scope, Stream } from "effect";
 import type { FileSystem } from "effect";
 
-import type { Demonstration } from "./agent-flow-compiler.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import { browserFailure } from "./create-browser-session.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { DemonstrationCounts } from "./teaching-capture.ts";
+import type { Demonstration } from "./teaching-demonstration.ts";
 import { makeTeachingEncoder } from "./teaching-encoder.ts";
 
 const EVENT_FILE = "events.jsonl";
@@ -224,7 +224,7 @@ const eventsFor = (
       _tag: "keyframe",
       actionId: null,
       at: screenshot.capturedAt,
-      hash: EvidenceHash.make(screenshot.contentHash),
+      hash: ContentHash.make(screenshot.contentHash),
       path: `${screenshot.id}.png`,
     });
   }

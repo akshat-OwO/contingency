@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  AgentFlowRunStart,
+  UserAgentProfileId,
   AgentRunComplete,
   AgentRunId,
   AgentRunOpen,
@@ -9,18 +9,21 @@ import {
   AgentRunSummary,
   AgentRunViewer,
   AgentSessionSnapshot,
+  FlowSkillRunStart,
 } from "@contingency/protocol";
 import type { AgentRunState, AgentRunStep } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
-import { AgentFlowCatalog } from "./agent-flow-catalog.ts";
-import type { AgentFlowCatalogError } from "./agent-flow-catalog.ts";
 import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreError } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
+import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import type { FlowSkillCatalogError } from "./flow-skill-catalog.ts";
+import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { webHost } from "./teaching-demonstration.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
@@ -32,28 +35,68 @@ class AgentRunFailure extends Schema.Error<AgentRunFailure>("AgentRunFailure")({
 }) {}
 
 const failure = (
-  cause: AgentSessionError | AgentFlowCatalogError | AgentRunStoreError
+  cause: AgentSessionError | FlowSkillCatalogError | AgentRunStoreError
 ) =>
   new AgentRunFailure({
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
   });
 
-const AgentFlowRunStartTool = Tool.make("agent_flow_run_start", {
-  dependencies: [AgentSession, AgentFlowCatalog, AgentRunStore],
+/**
+ * A declared input whose name is shouty snake case is a runtime Variable: the
+ * user supplies it through a `supply_variable` decision and the literal never
+ * enters a tool call. Every other input is ordinary text the agent passes in.
+ */
+const SECRET_INPUT = /^[A-Z][A-Z0-9_]*$/u;
+
+/**
+ * A stamped identity that no longer exists in this build falls back to the
+ * default rather than refusing the Run: the journey still matters when a
+ * profile name is retired, and the viewport carries the shape that does.
+ */
+const readUserAgentProfileId = (
+  value: string | undefined
+): UserAgentProfileId =>
+  Schema.is(UserAgentProfileId)(value) ? value : "default";
+
+const readColorScheme = (
+  value: string | undefined
+): "dark" | "light" | undefined =>
+  value === "dark" || value === "light" ? value : undefined;
+
+/**
+ * The Emulation a Run reproduces, or `undefined` for a package saved before
+ * Contingency stamped one. Without a viewport there is no coherent device to
+ * restore, so the Run opens at Contingency's default instead of half of one.
+ */
+const demonstratedEmulation = (emulation: FlowSkillEmulation | undefined) =>
+  emulation === undefined || emulation.viewport === undefined
+    ? undefined
+    : {
+        colorScheme: readColorScheme(emulation.colorScheme),
+        locale: emulation.locale,
+        permissions: [],
+        timezoneId: emulation.timezone,
+        userAgentProfile: readUserAgentProfileId(emulation.userAgentProfile),
+        viewport: emulation.viewport,
+      };
+
+const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
+  dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start an Interactive Run of an Approved Agent Flow found in the selected catalog. It opens a fresh browser context under the Agent Flow's Emulation, returns the Workspace link, and activates the first ordered Agent Step. Only approved revisions run; a draft must be verified and approved first. You own your own plan and your own reversible retries inside the current Agent Step; Contingency owns the Step order, the ceilings, and the evidence.",
+    "Start an Interactive Run of a verified Flow Skill in the selected Catalog Root. It reads the saved SKILL.md, turns its numbered procedure into ordered Agent Steps, opens a fresh browser context at `url`, and activates the first Step. Supply every declared input again; an input declared in SHOUTY_SNAKE_CASE is a runtime Variable that Contingency asks the user for, so pass it here and it is refused. The Execution Boundary is the set of hosts the journey was demonstrated on, recorded in the skill's frontmatter: a `url` outside them is refused outright rather than paused, and any other top-level document the Run reaches pauses for the user. A skill saved before Contingency recorded those hosts falls back to the host of `url`. The browser reopens under the Emulation the skill was demonstrated under, so do not expect a default desktop window. You own your own plan and your own reversible retries inside the current Agent Step; Contingency owns the Step order, the ceilings, and the evidence.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
-    agentFlowId: AgentFlowRunStart.fields.agentFlowId,
-    clientName: AgentFlowRunStart.fields.clientName,
-    clientVersion: AgentFlowRunStart.fields.clientVersion,
-    operationId: AgentFlowRunStart.fields.operationId,
-    reportedModel: AgentFlowRunStart.fields.reportedModel,
-    reportedProvider: AgentFlowRunStart.fields.reportedProvider,
-    revisionId: AgentFlowRunStart.fields.revisionId,
-    runCeilingMs: AgentFlowRunStart.fields.runCeilingMs,
-    stepCeilingMs: AgentFlowRunStart.fields.stepCeilingMs,
+    clientName: FlowSkillRunStart.fields.clientName,
+    clientVersion: FlowSkillRunStart.fields.clientVersion,
+    flowSkillName: FlowSkillRunStart.fields.flowSkillName,
+    inputs: FlowSkillRunStart.fields.inputs,
+    operationId: FlowSkillRunStart.fields.operationId,
+    reportedModel: FlowSkillRunStart.fields.reportedModel,
+    reportedProvider: FlowSkillRunStart.fields.reportedProvider,
+    runCeilingMs: FlowSkillRunStart.fields.runCeilingMs,
+    stepCeilingMs: FlowSkillRunStart.fields.stepCeilingMs,
+    url: FlowSkillRunStart.fields.url,
   }),
   success: AgentSessionSnapshot,
 });
@@ -61,7 +104,7 @@ const AgentFlowRunStartTool = Tool.make("agent_flow_run_start", {
 const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
   dependencies: [AgentSession],
   description:
-    "Report your evidence-backed judgment of the active Agent Step: working, not-working, inconclusive, or blocked. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted, which is reported as incomplete coverage rather than as a failure of the website.",
+    'Report your evidence-backed judgment of the active Agent Step: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted, which is reported as incomplete coverage rather than as a failure of the website.',
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     evidence: AgentRunStepAssess.fields.evidence,
@@ -103,7 +146,7 @@ const AgentRunOpenTool = Tool.make("open_run", {
  */
 export const AgentRunTools = withStrictParameters(
   Toolkit.make(
-    AgentFlowRunStartTool,
+    FlowSkillRunStartTool,
     AgentRunStepAssessTool,
     AgentRunCompleteTool,
     AgentRunOpenTool
@@ -111,51 +154,67 @@ export const AgentRunTools = withStrictParameters(
 );
 
 export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
-  agent_flow_run_start: (params) =>
+  agent_flow_skill_run_start: (params) =>
     Effect.gen(function* startInteractiveRun() {
-      const catalog = yield* AgentFlowCatalog;
+      const catalog = yield* FlowSkillCatalog;
       const store = yield* AgentRunStore;
       const session = yield* AgentSession;
-      const head = yield* catalog
-        .get(params.agentFlowId)
+      const skill = yield* catalog
+        .read(params.flowSkillName)
         .pipe(Effect.mapError(failure));
-      // A Run defaults to the Approved Agent Flow, never to whatever draft
-      // happens to be in flight: reading the draft head here would let a
-      // proposal nobody approved run under the identity of one that was
-      // (ADR 0028: Approved Agent Flows are immutable revisions).
-      const revisionId =
-        params.revisionId ?? head.heads.approvedRevisionId ?? undefined;
-      if (revisionId === undefined) {
+      if (skill.steps.length === 0) {
         return yield* Effect.fail(
           new AgentRunFailure({
-            code: "agent_flow_conflict",
-            message: `Agent Flow ${params.agentFlowId} has no Approved Agent Flow to run. Reread pendingDecisions and ask the user to verify and approve the draft in the agent conversation. (agent_flow_conflict)`,
+            code: "flow_skill_invalid",
+            message: `Flow Skill ${params.flowSkillName} carries no numbered procedure, so there is nothing to run. (flow_skill_invalid)`,
           })
         );
       }
-      const found =
-        revisionId === head.manifest.revisionId
-          ? head
-          : yield* catalog
-              .get(params.agentFlowId, revisionId)
-              .pipe(Effect.mapError(failure));
-      // A Run executes company knowledge the user approved. A draft revision
-      // is a proposal, and running one would let the agent execute a procedure
-      // no one ever authorized
-      // (ADR 0028: Approved Agent Flows are immutable revisions).
-      if (found.manifest.status !== "approved") {
+      const host = webHost(params.url);
+      if (host === undefined) {
         return yield* Effect.fail(
           new AgentRunFailure({
-            code: "agent_flow_conflict",
-            message: `Revision ${found.manifest.revisionId} is a draft. Only an Approved Agent Flow can be run; reread pendingDecisions and ask the user to verify and approve it in the agent conversation. (agent_flow_conflict)`,
+            code: "flow_skill_invalid",
+            message: `A Run must open an http or https page, not "${params.url}". (flow_skill_invalid)`,
           })
         );
       }
-      if (found.heads.archived) {
+      // The demonstrated hosts are the ceiling when the package carries them.
+      // A Run that opens somewhere the journey was never taught is refused
+      // outright rather than silently widening the boundary (ADR 0027); a
+      // package saved before stamping falls back to the opened host.
+      if (skill.hosts.length > 0 && !skill.hosts.includes(host)) {
         return yield* Effect.fail(
           new AgentRunFailure({
-            code: "agent_flow_conflict",
-            message: `Agent Flow ${params.agentFlowId} is archived. Ask the user whether to restore it before running it. (agent_flow_conflict)`,
+            code: "flow_skill_invalid",
+            message: `Flow Skill ${params.flowSkillName} was demonstrated on ${skill.hosts.join(", ")}, so it cannot start on ${host}. (flow_skill_invalid)`,
+          })
+        );
+      }
+      const hosts = skill.hosts.length > 0 ? skill.hosts : [host];
+      const supplied = new Map(
+        params.inputs.map((input) => [input.name, input.value] as const)
+      );
+      const secretInputs = skill.inputs.filter((name) =>
+        SECRET_INPUT.test(name)
+      );
+      const offered = secretInputs.filter((name) => supplied.has(name));
+      if (offered.length > 0) {
+        return yield* Effect.fail(
+          new AgentRunFailure({
+            code: "flow_skill_invalid",
+            message: `${offered.join(", ")} is declared in SHOUTY_SNAKE_CASE, so it is a runtime Variable. Contingency asks the user for its value and enters it with agent_variable_enter; do not pass it here. (flow_skill_invalid)`,
+          })
+        );
+      }
+      const missing = skill.inputs.filter(
+        (name) => !(SECRET_INPUT.test(name) || supplied.has(name))
+      );
+      if (missing.length > 0) {
+        return yield* Effect.fail(
+          new AgentRunFailure({
+            code: "flow_skill_invalid",
+            message: `Flow Skill ${params.flowSkillName} declares ${missing.join(", ")}, which this Run did not supply. Ask the user for each declared input before starting. (flow_skill_invalid)`,
           })
         );
       }
@@ -165,22 +224,23 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         .prepare(runId)
         .pipe(Effect.mapError(failure));
       const startedAt = new Date().toISOString();
-      const steps: readonly AgentRunStep[] = found.manifest.steps.map(
-        (step) => ({
-          assessment: null,
-          attempts: 0,
-          confirmation: step.confirmation,
-          description: step.description,
-          endedAt: null,
-          execution: "pending" as const,
-          index: step.index,
-          name: step.name,
-          startedAt: null,
-        })
-      );
+      const steps: readonly AgentRunStep[] = skill.steps.map((step) => ({
+        assessment: null,
+        attempts: 0,
+        // A Flow Skill step declares its own observable outcome rather than a
+        // separate confirmation flag, so the conservative Execution Boundary
+        // guard for a mutating action stays in force for every Step.
+        confirmation: false,
+        description: step.description,
+        doneWhen: step.doneWhen,
+        endedAt: null,
+        execution: "pending" as const,
+        index: step.index,
+        name: step.name,
+        startedAt: null,
+      }));
       const run: AgentRunState = {
         activeStepIndex: null,
-        agentFlowId: found.manifest.agentFlowId,
         assessmentCounts: {
           blocked: 0,
           inconclusive: 0,
@@ -206,8 +266,9 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           unexecuted: steps.length,
         },
         endedAt: null,
+        flowSkillName: skill.name,
+        inputs: [...supplied].map(([name, value]) => ({ name, value })),
         outcome: null,
-        revisionId: found.manifest.revisionId,
         // A placeholder, already in the past. The session re-derives both
         // deadlines from the moment the browser is actually ready, so browser
         // acquisition never eats the agent's budget — and a Run that somehow
@@ -217,11 +278,13 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         startedAt,
         stepDeadline: null,
         steps,
-        title: found.manifest.title,
-        variables: found.manifest.variables.map((variable) => ({
-          name: variable.name,
-          runtime: variable.runtime,
-          secret: variable.secret,
+        title: skill.title,
+        // Each secret input becomes one `supply_variable` decision the user
+        // answers by name in the agent conversation (ADR 0037).
+        variables: secretInputs.map((name) => ({
+          name,
+          runtime: true,
+          secret: true,
           supplied: false,
         })),
       };
@@ -231,11 +294,18 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           artifactDirectory: directory,
           clientName: params.clientName,
           clientVersion: params.clientVersion,
-          domainScope: found.manifest.domainScope,
-          emulation: found.manifest.emulation,
+          domainScope: { hosts },
+          // A phone-taught journey runs as a phone: the Run reproduces the
+          // Emulation the Flow Skill was demonstrated under (ADR 0013).
+          emulation: demonstratedEmulation(skill.emulation),
           operationId: params.operationId,
           run,
-          viewport: found.manifest.emulation.viewport,
+          url: params.url,
+          viewport: skill.emulation?.viewport ?? {
+            deviceScaleFactor: 1,
+            height: 800,
+            width: 1280,
+          },
         })
         .pipe(Effect.mapError(failure));
     }),

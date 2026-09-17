@@ -5,7 +5,7 @@ description: Drive Contingency's local web UI and MCP server the way a user does
 
 # Verify Contingency
 
-Contingency's local UI has one Workspace route at `/`. Teaching, Verification Runs, Interactive Runs, and persisted Run Summaries share it. Both `contingency web` and `contingency mcp` own Agent Sessions. Each process owns a separate live registry and reads Teaching Recordings from the shared Catalog Root.
+Contingency's local UI has one Workspace route at `/`. Teaching, Dry Runs, Interactive Runs, and persisted Run Summaries share it. Both `contingency web` and `contingency mcp` own Agent Sessions. Each process owns a separate live registry and reads Teaching Recordings from the shared Catalog Root.
 
 This skill drives a disposable production build of that UI through Playwright. It does not drive the user's existing `localhost:5173` or `127.0.0.1:7777` session.
 
@@ -95,16 +95,16 @@ Stable handles in this repo:
 - A Teaching option in the `Agent Session` selector is the Flow Skill name alone. The capture state lives in the badge, and a raw session id is never a label.
 - Inspect during `recording` is the button `Inspect an element and comment`. It outlines the live element, opens `Describe the change`, and `Attach` records a Teaching instruction. `Start recording`, `Stop recording`, `Open browser session`, and the inspect toggle all have distinct accessible names.
 - Workspace with a live session: heading `Workspace`, canvas `Live browser viewport` (`aria-readonly` follows control), group `Browser navigation` with buttons `Go back` / `Go forward` / `Reload page`, textbox `Browser address`, combobox `Agent Session`, list `Action timeline`. An Interactive Run has one control button that reads `Take control` or `Return control`; a Teaching session has neither, and reads `You are demonstrating this journey`. The canvas and toolbar are the user's from the start. Teaching private Variables enter only through the Workspace loopback `agent.teaching.variable.input`; Workspace has no private-value button or dialog.
-- Workspace with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the Teaching Feed disclosure paragraph. Absent for an Interactive Run. Stop makes the process-independent Teaching Recording available to the Flow Skill learning tools while the browser remains open. The older Agent Flow compilation path still requires `agent_session_close` until its removal. Prove the new recording lifecycle and saved Flow Skill through MCP and the isolated Catalog Root.
-- Workspace draft review shows the proposed Steps, Domain Scope, Pending Decision kind, scope summary, and id as a read-only mirror. It has no draft edit fields, `Save corrections`, `Authorize Verification Run`, or `Approve Agent Flow` buttons. It directs corrections to the agent conversation.
+- Workspace with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the sensitive-artifact disclosure paragraph. Absent for an Interactive Run. Stop makes the process-independent Teaching Recording available to the Flow Skill learning tools while the browser remains open, without closing the Agent Session. Prove the recording lifecycle and the saved Flow Skill through MCP and the isolated Catalog Root.
 - Workspace shows each missing runtime Variable in the read-only `Runtime Variables` region with its secret status and Pending Decision id. Values are supplied or refused only through `agent_pending_decision_resolve` in the MCP conversation.
-- Workspace draft review after verification: list `Verification Step verdicts` with each assessed Step's outcome, explanation, and Snapshot or attempt references.
+- A finished Run's Summary lists each assessed Step's outcome, explanation, and Snapshot or attempt references beside the recorded video.
+- A saved `SKILL.md` carries Contingency-stamped `hosts` and `emulation` frontmatter beside the agent's `name`, `description`, and `inputs`. A Run refuses a start URL outside those hosts and reopens the demonstrated viewport.
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Workspace available at http://127.0.0.1:<port>/` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 
 `mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Workspace. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits `2`. The same broker answers `mcp resources` and `mcp resource --uri <uri>`, which is how a drive reads the authoring skills Contingency serves to a learning agent.
 
-`mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so drafts saved with `agent_flow_draft_save` land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.
+`mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so Flow Skills saved with `agent_flow_skill_save` and their Teaching Recordings land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.
 
 ## Evidence
 
@@ -117,7 +117,7 @@ A proof is incomplete unless it includes:
 - A second observation for mutations: reopen the view or read the written catalog under `$CONTINGENCY_VERIFY_DIR/state/catalog`.
 - The feature id and entry point used.
 
-Traces and Run videos are sensitive. Verification Runs and Teaching may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's real catalog.
+Traces and Run videos are sensitive. Teaching, Dry Runs, and Interactive Runs may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's real catalog.
 
 Mocks are not allowed for Agent Sessions, Playwright, or the web UI. The ecommerce HTTP server (`control-contingency ecommerce start`) is verification scaffolding. Cleanup removes that server.
 

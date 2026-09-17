@@ -20,7 +20,13 @@ export const AGENT_RUN_TRACE_FILE = "run.trace.zip";
 export const DEFAULT_AGENT_STEP_CEILING_MS = 120_000;
 export const DEFAULT_AGENT_RUN_CEILING_MS = 900_000;
 
-const CONFIG_FILE = "agent-flow-catalog.json";
+const CONFIG_FILE = "catalog.json";
+/**
+ * The name this file carried while the Catalog Root stored Agent Flows. It is
+ * still read when no `catalog.json` is present so an operator's existing
+ * ceiling budget is not silently replaced by Contingency's defaults.
+ */
+const LEGACY_CONFIG_FILE = "agent-flow-catalog.json";
 
 /**
  * The Catalog Root's ceiling policy. Every key is optional and an unreadable
@@ -181,13 +187,20 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
         runMs: DEFAULT_AGENT_RUN_CEILING_MS,
         stepMs: DEFAULT_AGENT_STEP_CEILING_MS,
       };
-      const file = path.join(options.root(), CONFIG_FILE);
-      const exists = yield* fileSystem
-        .exists(file)
+      const preferred = path.join(options.root(), CONFIG_FILE);
+      const usePreferred = yield* fileSystem
+        .exists(preferred)
         .pipe(Effect.mapError(ioError("Could not inspect Catalog policy")));
-      if (!exists) {
+      const legacy = path.join(options.root(), LEGACY_CONFIG_FILE);
+      const useLegacy = usePreferred
+        ? false
+        : yield* fileSystem
+            .exists(legacy)
+            .pipe(Effect.mapError(ioError("Could not inspect Catalog policy")));
+      if (!(usePreferred || useLegacy)) {
         return fallback;
       }
+      const file = usePreferred ? preferred : legacy;
       const configured = yield* Effect.result(
         fileSystem.readFileString(file).pipe(
           Effect.mapError(ioError("Could not read Catalog policy")),

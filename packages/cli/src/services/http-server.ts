@@ -10,7 +10,6 @@ import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
 import { makeAgentRunArtifactRoutes } from "../routes/agent-run-artifacts.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
-import type { AgentFlowCatalogService } from "./agent-flow-catalog.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
@@ -59,11 +58,6 @@ const webRoot = resolveWebRoot(import.meta.dirname);
 
 export interface HttpServerOptions {
   /**
-   * The durable Agent Flow Catalog behind the Workspace's draft review. It is
-   * the same value MCP reads, so the user reviews the draft the agent saved.
-   */
-  readonly agentFlowCatalog?: Layer.Layer<AgentFlowCatalogService>;
-  /**
    * Persisted Interactive Run evidence, behind the Workspace's summary mode
    * and the read-only viewer. Absent in a process that serves no Runs.
    */
@@ -86,7 +80,6 @@ export interface HttpServerOptions {
 }
 
 export const makeHttpServerLayer = ({
-  agentFlowCatalog,
   agentRunStore,
   allowedOrigins,
   agentSession,
@@ -103,14 +96,10 @@ export const makeHttpServerLayer = ({
     agentSession === undefined
       ? rpcRoutes
       : rpcRoutes.pipe(Layer.provide(agentSession));
-  const catalogRpcRoutes =
-    agentFlowCatalog === undefined
-      ? sessionRpcRoutes
-      : sessionRpcRoutes.pipe(Layer.provide(agentFlowCatalog));
   const agentRpcRoutes =
     agentRunStore === undefined
-      ? catalogRpcRoutes
-      : catalogRpcRoutes.pipe(Layer.provide(agentRunStore));
+      ? sessionRpcRoutes
+      : sessionRpcRoutes.pipe(Layer.provide(agentRunStore));
   // The artifact routes read their stores per request, so those are provided
   // to the served router rather than to the route layers.
   const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>

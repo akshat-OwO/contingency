@@ -2,9 +2,9 @@ import { Exit, Schema } from "effect";
 import type { Tool, Toolkit } from "effect/unstable/ai";
 import { expect, test } from "vitest";
 
-import { AgentFlowTools } from "../../src/services/mcp-agent-flow.ts";
 import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";
 import { AgentSessionTools } from "../../src/services/mcp-agent-session.ts";
+import { AgentCatalogTools } from "../../src/services/mcp-catalog.ts";
 import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
 
 interface JsonSchema {
@@ -59,7 +59,7 @@ const verifyToolkit = <Tools extends Record<string, Tool.Any>>(
   });
 };
 
-verifyToolkit("agent flow", AgentFlowTools);
+verifyToolkit("catalog", AgentCatalogTools);
 verifyToolkit("agent run", AgentRunTools);
 verifyToolkit("agent session", AgentSessionTools);
 verifyToolkit("Teaching Recording", TeachingRecordingTools);

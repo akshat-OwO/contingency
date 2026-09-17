@@ -18,21 +18,21 @@ import { McpProtocol, McpServer } from "effect/unstable/ai";
 import { Command } from "effect/unstable/cli";
 import { HttpServerError } from "effect/unstable/http";
 
-import {
-  defaultCatalogRoot,
-  makeAgentFlowCatalogLayer,
-} from "../services/agent-flow-catalog.ts";
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
   defaultAgentResourceDirectory,
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
+import {
+  defaultCatalogRoot,
+  makeFlowSkillCatalogLayer,
+} from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
-import { McpAgentFlowLayer } from "../services/mcp-agent-flow.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
+import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import {
@@ -43,7 +43,7 @@ import { resolveAllowedOrigins } from "../services/web-url.ts";
 
 const mcpTools = Layer.mergeAll(
   McpAgentSessionLayer,
-  McpAgentFlowLayer,
+  McpAgentCatalogLayer,
   McpAgentRunLayer,
   McpTeachingRecordingLayer,
   McpAuthoringSkillsLayer
@@ -119,8 +119,8 @@ export const mcpCommand = Command.make(
         // process but never part of shutdown cleanup.
         const catalog = Layer.succeedContext(
           yield* Layer.build(
-            makeAgentFlowCatalogLayer({
-              onSelect: (root) => {
+            makeFlowSkillCatalogLayer({
+              onSelect: (root: string) => {
                 selectedCatalogRoot = root;
               },
               root: selectedCatalogRoot,
@@ -164,7 +164,6 @@ export const mcpCommand = Command.make(
         const allowedOrigins = resolveAllowedOrigins(browserUrl);
         const httpOutcome = yield* Layer.build(
           makeHttpServerLayer({
-            agentFlowCatalog: catalog,
             agentRunStore: runStore,
             agentSession,
             allowedOrigins,

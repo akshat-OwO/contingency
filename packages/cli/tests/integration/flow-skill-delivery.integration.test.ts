@@ -1,16 +1,18 @@
 import path from "node:path";
 
-import { OperationId } from "@contingency/protocol";
+import { FlowSkillName, OperationId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Result } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
 import {
   agentProcessLayer,
   agentViewport,
   findNode,
+  runTool,
   sessionTool,
   teachingRecordingTool,
 } from "./agent-harness.ts";
@@ -275,6 +277,12 @@ it.live(
           expect(skill).not.toContain(DEMONSTRATED_AREA);
           expect(skill).toContain("{{city}}");
           expect(skill).toContain("{{delivery_area}}");
+          // Contingency stamps the demonstrated ceiling and device into the
+          // package, because the recording that proves them is deleted once
+          // the user verifies.
+          const stamped = readFlowSkillFrontmatter(skill);
+          expect(stamped?.hosts).toContain("127.0.0.1");
+          expect(stamped?.emulation?.viewport).toEqual(agentViewport);
 
           const recordingDirectory = path.join(
             root,
@@ -432,6 +440,49 @@ it.live(
             "Kalyani Nagar",
             "delivery-restart"
           );
+
+          // A Run may only open where the journey was demonstrated: the
+          // stamped ceiling is what the user actually showed, so a foreign
+          // start URL is refused rather than silently becoming the new scope.
+          const foreign = yield* Effect.result(
+            runTool("agent_flow_skill_run_start", {
+              clientName: "integration-restart",
+              clientVersion: "1.0.0",
+              flowSkillName: FlowSkillName.make("set-delivery-area"),
+              inputs: [
+                { name: "city", value: "Pune" },
+                { name: "delivery_area", value: "Baner" },
+              ],
+              operationId: OperationId.make("delivery-run-foreign"),
+              url: "http://localhost:1/delivery.html",
+            })
+          );
+          expect(Result.isFailure(foreign)).toBe(true);
+          if (Result.isFailure(foreign)) {
+            expect(JSON.stringify(foreign.failure)).toContain(
+              "flow_skill_invalid"
+            );
+            expect(JSON.stringify(foreign.failure)).toContain("localhost");
+          }
+
+          const run = yield* runTool("agent_flow_skill_run_start", {
+            clientName: "integration-restart",
+            clientVersion: "1.0.0",
+            flowSkillName: FlowSkillName.make("set-delivery-area"),
+            inputs: [
+              { name: "city", value: "Pune" },
+              { name: "delivery_area", value: "Baner" },
+            ],
+            operationId: OperationId.make("delivery-run-start"),
+            url: fixtures.url("delivery.html"),
+          });
+          expect(run.run?.steps.length).toBeGreaterThan(0);
+          // The Run reproduces the device the journey was demonstrated on, so
+          // read the Emulation the browser actually applied rather than any
+          // value the start call echoed back.
+          const session = yield* AgentSession;
+          const applied = yield* session.emulation(run.id);
+          expect(applied.emulation.viewport).toEqual(agentViewport);
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

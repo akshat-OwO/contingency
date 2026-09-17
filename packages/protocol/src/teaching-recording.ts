@@ -1,10 +1,32 @@
 import { Schema } from "effect";
 
-import { EvidenceHash } from "./agent-flow.ts";
-import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
-import { DraftEmulation } from "./emulation.ts";
+import {
+  AgentActionOutcome,
+  AgentBrowserAction,
+  AgentElementRef,
+  AgentSnapshotId,
+} from "./agent-browser.ts";
+import {
+  AgentSessionController,
+  AgentSessionId,
+  OperationId,
+} from "./agent-identifiers.ts";
+import { DraftEmulation, Variable } from "./emulation.ts";
+import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
+
+/** Variable names are shouty snake case, so `{{NAME}}` is unambiguous. */
+const variableName = Schema.String.check(
+  Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+  Schema.isMinLength(1)
+);
+
+/** The content address of one captured artifact's bytes. */
+export const ContentHash = Schema.String.check(
+  Schema.isPattern(/^sha256-[a-f0-9]{64}$/u)
+).pipe(Schema.brand("@contingency/ContentHash"));
+export type ContentHash = typeof ContentHash.Type;
 
 export const TeachingRecordingId = Schema.String.check(
   Schema.isPattern(/^recording-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
@@ -137,7 +159,7 @@ export type TeachingCaptureState = typeof TeachingCaptureState.Type;
 
 export const TeachingRecordingArtifact = Schema.Struct({
   capturedAt: nonEmptyString,
-  hash: EvidenceHash,
+  hash: ContentHash,
   id: nonEmptyString,
   kind: Schema.Literals(["events", "keyframe", "screenshot", "trace", "video"]),
   path: nonEmptyString,
@@ -304,7 +326,7 @@ const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
 const TeachingKeyframeEvent = Schema.TaggedStruct("keyframe", {
   ...teachingEventBase,
   actionId: Schema.NullOr(Schema.String),
-  hash: EvidenceHash,
+  hash: ContentHash,
   /** Relative to the recording directory. */
   path: nonEmptyString,
 });
@@ -386,7 +408,7 @@ export type TeachingRecordingClaim = typeof TeachingRecordingClaim.Type;
 export const TeachingTimelineKeyframe = Schema.TaggedStruct("keyframe", {
   actionId: Schema.NullOr(Schema.String),
   at: nonEmptyString,
-  hash: EvidenceHash,
+  hash: ContentHash,
   id: nonEmptyString,
   seq: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
@@ -411,7 +433,7 @@ export type TeachingTimeline = typeof TeachingTimeline.Type;
 
 export const TeachingKeyframeContent = Schema.Struct({
   format: Schema.Literal("png"),
-  hash: EvidenceHash,
+  hash: ContentHash,
   id: nonEmptyString,
   image: nonEmptyString,
   recordingId: TeachingRecordingId,
@@ -458,3 +480,134 @@ export const TeachingCaptureLimits = Schema.Struct({
   videoBytes: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 export type TeachingCaptureLimits = typeof TeachingCaptureLimits.Type;
+
+// ---------------------------------------------------------------------------
+// In-process capture record
+// ---------------------------------------------------------------------------
+
+/**
+ * The content address of one captured screenshot's bytes. Screenshots live
+ * only in the owning process and in the recording directory; they never enter
+ * a Flow Skill package (ADR 0039).
+ */
+export const ScreenshotHash = Schema.String.check(
+  Schema.isPattern(/^sha256-[a-f0-9]{64}$/u)
+).pipe(Schema.brand("@contingency/ScreenshotHash"));
+export type ScreenshotHash = typeof ScreenshotHash.Type;
+
+/** Redacted, bounded observation of one user input event during Takeover. */
+export const CapturedUserInput = Schema.Struct({
+  eventType: Schema.Literals([
+    "char",
+    "keyDown",
+    "keyUp",
+    "mouseMoved",
+    "mousePressed",
+    "mouseReleased",
+    "mouseWheel",
+  ]),
+  inputType: Schema.Literals(["keyboard", "mouse"]),
+  key: optionalNullable(Schema.Literal("[user input]")),
+  text: optionalNullable(Schema.Literal("[user input]")),
+});
+export type CapturedUserInput = typeof CapturedUserInput.Type;
+
+/**
+ * One browser action captured while recording, with who performed it and the
+ * Page it left behind. Snapshot ids point into the capture record's snapshot
+ * table so hundreds of actions do not repeat one document's accessibility
+ * tree.
+ */
+export const CapturedAction = Schema.Struct({
+  /** Agent actions, or a low-level input event captured during Takeover. */
+  action: Schema.Union([
+    AgentBrowserAction,
+    Schema.Struct({
+      input: CapturedUserInput,
+      type: Schema.Literal("input"),
+    }),
+  ]),
+  actor: AgentSessionController,
+  at: nonEmptyString,
+  description: nonEmptyString,
+  detail: optionalNullable(Schema.String),
+  id: nonEmptyString,
+  outcome: AgentActionOutcome,
+  snapshotAfter: Schema.NullOr(AgentSnapshotId),
+  snapshotBefore: Schema.NullOr(AgentSnapshotId),
+  urlAfter: Schema.String,
+  urlBefore: Schema.String,
+});
+export type CapturedAction = typeof CapturedAction.Type;
+
+/**
+ * A reference to one best-effort-masked screenshot. The bytes are stored once
+ * under their content address and fetched on demand, so the capture record
+ * stays bounded by how much the user demonstrated rather than by how large
+ * the Page's pixels are.
+ */
+export const TeachingScreenshot = Schema.Struct({
+  capturedAt: nonEmptyString,
+  contentHash: ScreenshotHash,
+  format: Schema.Literal("png"),
+  id: nonEmptyString,
+  url: Schema.String,
+});
+export type TeachingScreenshot = typeof TeachingScreenshot.Type;
+
+/** One screenshot's bytes, fetched by reference, one screenshot at a time. */
+export const TeachingScreenshotContent = Schema.Struct({
+  ...TeachingScreenshot.fields,
+  encoding: Schema.Literal("base64"),
+  image: nonEmptyString,
+});
+export type TeachingScreenshotContent = typeof TeachingScreenshotContent.Type;
+
+/** What the user told the agent to do, as the agent relayed it. */
+export const TeachingInstruction = Schema.Struct({
+  at: nonEmptyString,
+  id: nonEmptyString,
+  text: nonEmptyString,
+});
+export type TeachingInstruction = typeof TeachingInstruction.Type;
+
+/** One observed change of the Page's URL, attributed to an action when known. */
+export const UrlTransition = Schema.Struct({
+  actionId: Schema.NullOr(nonEmptyString),
+  at: nonEmptyString,
+  from: Schema.String,
+  to: Schema.String,
+});
+export type UrlTransition = typeof UrlTransition.Type;
+
+export const TeachingInstructionRecord = Schema.Struct({
+  operationId: OperationId,
+  sessionId: AgentSessionId,
+  text: nonEmptyString,
+});
+export type TeachingInstructionRecord = typeof TeachingInstructionRecord.Type;
+
+/**
+ * Enter one private value while recording. The value exists only for this
+ * browser action. Captured evidence stores `{{name}}` and the declaration.
+ */
+export const TeachingVariableInput = Schema.Struct({
+  operationId: OperationId,
+  /** Omit only in the Workspace, where the currently focused control is used. */
+  ref: optionalNullable(AgentElementRef),
+  sessionId: AgentSessionId,
+  value: nonEmptyString,
+  variable: Schema.Struct({
+    name: variableName,
+    runtime: Variable.fields.runtime,
+    secret: Variable.fields.secret,
+  }),
+});
+export type TeachingVariableInput = typeof TeachingVariableInput.Type;
+
+/** What a Teaching session has captured so far, for the Workspace. */
+export const TeachingProgress = Schema.Struct({
+  actionCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  instructionCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
+export type TeachingProgress = typeof TeachingProgress.Type;

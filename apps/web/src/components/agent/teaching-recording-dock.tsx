@@ -39,6 +39,7 @@ const badgeVariant = (
 
 const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
   "copy-prompt": "Copy agent prompt",
+  "copy-run-prompt": "Run flow",
   "delete-recording": "Delete recording",
   "learn-again": "Learn again",
   "read-failure": "Read failure",

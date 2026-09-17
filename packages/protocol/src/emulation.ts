@@ -7,7 +7,7 @@ import { Viewport } from "./viewport.ts";
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
 /**
- * A named value a Flow or Agent Flow declares but does not contain. `secret`
+ * A named value a Flow Skill declares but does not contain. `secret`
  * marks sensitive values; `runtime` marks values supplied when running.
  * The two are independent:
  * a 2FA code is both, a target environment URL is neither.
@@ -97,7 +97,7 @@ const coherentPermissionDecisions = Schema.makeFilter<
 
 /**
  * A whole set of permission decisions, coherent as a set. Browser sessions,
- * RPC inputs, Flows, and Agent Flows share this validation.
+ * RPC inputs and Flow Skills share this validation.
  */
 export const PermissionDecisions = Schema.Array(PermissionDecision).check(
   coherentPermissionDecisions

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import {
   AgentSessionId,
-  EvidenceHash,
+  ContentHash,
   FlowSkillName,
   OperationId,
   TeachingRecordingId,
@@ -73,7 +73,7 @@ it.effect(
           artifacts: [
             {
               capturedAt: now,
-              hash: EvidenceHash.make(
+              hash: ContentHash.make(
                 "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
               ),
               id: "events",
