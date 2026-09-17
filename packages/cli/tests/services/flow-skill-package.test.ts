@@ -2,7 +2,11 @@ import type { FlowSkillFile } from "@contingency/protocol";
 import { Result } from "effect";
 import { expect, test } from "vitest";
 
-import { validateFlowSkillPackage } from "../../src/services/flow-skill-package.ts";
+import {
+  readFlowSkillFrontmatter,
+  stampFlowSkillProvenance,
+  validateFlowSkillPackage,
+} from "../../src/services/flow-skill-package.ts";
 
 const FLOW_SKILL_NAME = "set-delivery-area";
 
@@ -286,4 +290,65 @@ test("refuses an accessibility reference that lists no target at all", () => {
     "# Accessibility targets\n\n## Why these targets are stable\n\nThe labels are visible.\n"
   );
   expect(codesFor(files)).toContain("flow_skill_missing_target");
+});
+
+test("stamps the demonstrated hosts and Emulation over whatever the agent wrote", () => {
+  const authored = [
+    "---",
+    "name: set-delivery-area",
+    "description: Set the delivery area.",
+    "inputs:",
+    "  - city",
+    "hosts:",
+    "  - claimed.example.com",
+    "emulation:",
+    "  viewport: 320x480@1",
+    "---",
+    "",
+    "1. Do the thing. Done when: it is done.",
+  ].join("\n");
+  const stamped = stampFlowSkillProvenance(authored, {
+    emulation: {
+      colorScheme: "dark",
+      locale: "de-DE",
+      timezone: "Europe/Berlin",
+      userAgentProfile: "chrome-iphone",
+      viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
+    },
+    hosts: ["127.0.0.1", "shop.example.com"],
+  });
+  const frontmatter = readFlowSkillFrontmatter(stamped);
+  // The agent's asserted host is replaced, not merged: only what the recording
+  // observed may widen a Run's ceiling.
+  expect(frontmatter?.hosts).toEqual(["127.0.0.1", "shop.example.com"]);
+  expect(frontmatter?.emulation?.viewport).toEqual({
+    deviceScaleFactor: 3,
+    height: 844,
+    width: 390,
+  });
+  expect(frontmatter?.emulation?.userAgentProfile).toBe("chrome-iphone");
+  expect(frontmatter?.emulation?.colorScheme).toBe("dark");
+  expect(frontmatter?.emulation?.locale).toBe("de-DE");
+  expect(frontmatter?.emulation?.timezone).toBe("Europe/Berlin");
+  // The keys Contingency does not own survive untouched.
+  expect(frontmatter?.name).toBe("set-delivery-area");
+  expect(frontmatter?.inputs).toEqual(["city"]);
+  expect(frontmatter?.body.trim()).toBe(
+    "1. Do the thing. Done when: it is done."
+  );
+});
+
+test("reads a package saved before Contingency stamped provenance", () => {
+  const frontmatter = readFlowSkillFrontmatter(
+    "---\nname: set-delivery-area\ndescription: Set it.\ninputs:\n  - city\n---\n\n1. Go. Done when: done.\n"
+  );
+  expect(frontmatter?.hosts).toEqual([]);
+  expect(frontmatter?.emulation).toBeUndefined();
+});
+
+test("ignores a viewport scalar it cannot read back", () => {
+  const frontmatter = readFlowSkillFrontmatter(
+    "---\nname: x\nemulation:\n  viewport: wide\n---\n\nbody\n"
+  );
+  expect(frontmatter?.emulation?.viewport).toBeUndefined();
 });

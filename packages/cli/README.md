@@ -37,7 +37,7 @@ This runs one local MCP server and serves the Workspace, the interface where you
 
 During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow Skill to `.contingency/<flow-name>/SKILL.md`, and proves the skill with a Dry Run in a fresh browser context. You verify the Flow Skill in the Workspace, and Contingency then deletes the recording's video, Trace, events, and keyframes.
 
-Once verified, the agent runs the Flow Skill within an Execution Boundary: it may only visit hosts in the session's Domain Scope, and an irreversible browser action waits for your confirmation every time. Scheduling stays outside Contingency — have CI or cron invoke MCP when you want a sanity check.
+Once verified, the agent runs the Flow Skill within an Execution Boundary: it may only visit the hosts you demonstrated on, and an irreversible browser action waits for your confirmation every time. The Run also reopens the browser under the Emulation you taught it, so a journey demonstrated on a phone runs as a phone. Scheduling stays outside Contingency — have CI or cron invoke MCP when you want a sanity check.
 
 ## Workspace without MCP
 

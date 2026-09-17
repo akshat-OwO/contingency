@@ -98,6 +98,7 @@ Stable handles in this repo:
 - Workspace with a live Teaching session: region and heading `Teaching` with terms `Captured actions` and `Instructions`, plus the sensitive-artifact disclosure paragraph. Absent for an Interactive Run. Stop makes the process-independent Teaching Recording available to the Flow Skill learning tools while the browser remains open, without closing the Agent Session. Prove the recording lifecycle and the saved Flow Skill through MCP and the isolated Catalog Root.
 - Workspace shows each missing runtime Variable in the read-only `Runtime Variables` region with its secret status and Pending Decision id. Values are supplied or refused only through `agent_pending_decision_resolve` in the MCP conversation.
 - A finished Run's Summary lists each assessed Step's outcome, explanation, and Snapshot or attempt references beside the recorded video.
+- A saved `SKILL.md` carries Contingency-stamped `hosts` and `emulation` frontmatter beside the agent's `name`, `description`, and `inputs`. A Run refuses a start URL outside those hosts and reopens the demonstrated viewport.
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Workspace available at http://127.0.0.1:<port>/` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 

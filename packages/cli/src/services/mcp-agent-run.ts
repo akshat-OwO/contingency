@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  UserAgentProfileId,
   AgentRunComplete,
   AgentRunId,
   AgentRunOpen,
@@ -20,6 +21,7 @@ import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillCatalogError } from "./flow-skill-catalog.ts";
+import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { webHost } from "./teaching-demonstration.ts";
 
@@ -46,6 +48,38 @@ const failure = (
  * enters a tool call. Every other input is ordinary text the agent passes in.
  */
 const SECRET_INPUT = /^[A-Z][A-Z0-9_]*$/u;
+
+/**
+ * A stamped identity that no longer exists in this build falls back to the
+ * default rather than refusing the Run: the journey still matters when a
+ * profile name is retired, and the viewport carries the shape that does.
+ */
+const readUserAgentProfileId = (
+  value: string | undefined
+): UserAgentProfileId =>
+  Schema.is(UserAgentProfileId)(value) ? value : "default";
+
+const readColorScheme = (
+  value: string | undefined
+): "dark" | "light" | undefined =>
+  value === "dark" || value === "light" ? value : undefined;
+
+/**
+ * The Emulation a Run reproduces, or `undefined` for a package saved before
+ * Contingency stamped one. Without a viewport there is no coherent device to
+ * restore, so the Run opens at Contingency's default instead of half of one.
+ */
+const demonstratedEmulation = (emulation: FlowSkillEmulation | undefined) =>
+  emulation === undefined || emulation.viewport === undefined
+    ? undefined
+    : {
+        colorScheme: readColorScheme(emulation.colorScheme),
+        locale: emulation.locale,
+        permissions: [],
+        timezoneId: emulation.timezone,
+        userAgentProfile: readUserAgentProfileId(emulation.userAgentProfile),
+        viewport: emulation.viewport,
+      };
 
 const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
@@ -145,10 +179,19 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           })
         );
       }
-      // The Flow Skill carries no stored Domain Scope: the Teaching Recording
-      // it was learned from is deleted once the user verifies it (ADR 0039).
-      // The starting host is therefore the ceiling, and anything beyond it
-      // pauses at the Execution Boundary for the user (ADR 0027).
+      // The demonstrated hosts are the ceiling when the package carries them.
+      // A Run that opens somewhere the journey was never taught is refused
+      // outright rather than silently widening the boundary (ADR 0027); a
+      // package saved before stamping falls back to the opened host.
+      if (skill.hosts.length > 0 && !skill.hosts.includes(host)) {
+        return yield* Effect.fail(
+          new AgentRunFailure({
+            code: "flow_skill_invalid",
+            message: `Flow Skill ${params.flowSkillName} was demonstrated on ${skill.hosts.join(", ")}, so it cannot start on ${host}. (flow_skill_invalid)`,
+          })
+        );
+      }
+      const hosts = skill.hosts.length > 0 ? skill.hosts : [host];
       const supplied = new Map(
         params.inputs.map((input) => [input.name, input.value] as const)
       );
@@ -251,11 +294,18 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           artifactDirectory: directory,
           clientName: params.clientName,
           clientVersion: params.clientVersion,
-          domainScope: { hosts: [host] },
+          domainScope: { hosts },
+          // A phone-taught journey runs as a phone: the Run reproduces the
+          // Emulation the Flow Skill was demonstrated under (ADR 0013).
+          emulation: demonstratedEmulation(skill.emulation),
           operationId: params.operationId,
           run,
           url: params.url,
-          viewport: { deviceScaleFactor: 1, height: 800, width: 1280 },
+          viewport: skill.emulation?.viewport ?? {
+            deviceScaleFactor: 1,
+            height: 800,
+            width: 1280,
+          },
         })
         .pipe(Effect.mapError(failure));
     }),

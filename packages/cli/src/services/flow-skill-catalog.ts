@@ -16,7 +16,10 @@ import {
   readFlowSkillFrontmatter,
   SKILL_FILE,
 } from "./flow-skill-package.ts";
-import type { FlowSkillProcedureStep } from "./flow-skill-package.ts";
+import type {
+  FlowSkillEmulation,
+  FlowSkillProcedureStep,
+} from "./flow-skill-package.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 /**
@@ -57,7 +60,11 @@ const ioError = (context: string) => (cause: PlatformError) =>
 /** One Flow Skill package as it sits on disk. */
 export interface FlowSkillPackage {
   readonly directory: string;
+  /** The Emulation the journey was demonstrated under, when the package has one. */
+  readonly emulation: FlowSkillEmulation | undefined;
   readonly files: readonly FlowSkillFile[];
+  /** The demonstrated host ceiling. Empty for a package saved before stamping. */
+  readonly hosts: readonly string[];
   readonly inputs: readonly string[];
   readonly name: FlowSkillName;
   readonly steps: readonly FlowSkillProcedureStep[];
@@ -148,7 +155,9 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
     const frontmatter = readFlowSkillFrontmatter(skillContent);
     return {
       directory,
+      emulation: frontmatter?.emulation,
       files: [{ content: skillContent, path: SKILL_FILE }, ...references],
+      hosts: frontmatter?.hosts ?? [],
       inputs: frontmatter?.inputs ?? [],
       name: FlowSkillName.make(name),
       steps: flowSkillProcedureSteps(skillContent),
