@@ -242,6 +242,37 @@ it.live(
           const serialized = JSON.stringify(timeline);
           expect(serialized).toContain("Confirm delivery area");
           expect(serialized).toContain(DEMONSTRATED_AREA);
+          // A reference is re-minted by every Snapshot and dies with the
+          // document, and the Flow Skill contract rejects a step that names
+          // one. Every demonstrated click must therefore reach the learning
+          // agent as the role and accessible name of what the user hit.
+          const clicks = timeline.entries.filter(
+            (entry) => entry._tag === "action" && entry.kind === "click"
+          );
+          expect(clicks.length).toBeGreaterThan(0);
+          for (const click of clicks) {
+            expect(click).toMatchObject({
+              description: expect.not.stringMatching(
+                /(?<![\w-])e\d+(?![\w-])/u
+              ),
+              target: expect.objectContaining({ role: expect.any(String) }),
+            });
+          }
+          expect(
+            clicks.map((click) =>
+              click._tag === "action" ? click.description : ""
+            )
+          ).toContain('Click button "Confirm delivery area"');
+          // A description and a target that disagree are worse than either
+          // gap alone: the learning agent reads a named control it cannot join
+          // back to any recorded tree. Both are read from the one Snapshot
+          // recorded beside the click, so they stand or fall together.
+          for (const entry of timeline.entries) {
+            if (entry._tag !== "action" || entry.target !== null) {
+              continue;
+            }
+            expect(entry.description).not.toMatch(/"/u);
+          }
 
           const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
             claimOperationId,

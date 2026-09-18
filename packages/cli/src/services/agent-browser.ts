@@ -471,6 +471,8 @@ export const makeAgentElementRegistry = (
   const bounds = new Map<
     string,
     {
+      /** The Snapshot that read this box, so hit-testing can prefer the newest. */
+      readonly generation: number;
       readonly height: number;
       readonly width: number;
       readonly x: number;
@@ -603,7 +605,7 @@ export const makeAgentElementRegistry = (
         minted += 1;
         const ref = AgentElementRef.make(`e${minted}`);
         elements.set(ref, element);
-        bounds.set(ref, { height, width, x, y });
+        bounds.set(ref, { generation, height, width, x, y });
         subjects.set(ref, { name: node.name, role: node.role });
         if (index - 1 === identity.focusedIndex) {
           focused = ref;
@@ -784,10 +786,18 @@ export const makeAgentElementRegistry = (
         y >= rectangle.y &&
         y <= rectangle.y + rectangle.height
     );
-    const [closest] = matches.toSorted(
-      ([, left], [, right]) =>
-        left.width * left.height - right.width * right.height
-    );
+    // References accumulate across Snapshots of one document, so a point can
+    // sit inside a box an earlier Snapshot read. Only the newest Snapshot's
+    // boxes still describe the Page, and only its nodes are listed in the tree
+    // a caller records beside the hit, so a reference from any other
+    // generation names a control that tree cannot resolve. A point the current
+    // Snapshot does not cover is a miss, not an older match.
+    const [closest] = matches
+      .filter(([, rectangle]) => rectangle.generation === generation)
+      .toSorted(
+        ([, left], [, right]) =>
+          left.width * left.height - right.width * right.height
+      );
     return closest === undefined
       ? Effect.fail(
           makeBrowserRpcError(
@@ -796,7 +806,12 @@ export const makeAgentElementRegistry = (
           )
         )
       : Effect.succeed({
-          rectangle: closest[1],
+          rectangle: {
+            height: closest[1].height,
+            width: closest[1].width,
+            x: closest[1].x,
+            y: closest[1].y,
+          },
           ref: AgentElementRef.make(closest[0]),
         });
   };

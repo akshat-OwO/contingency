@@ -7,6 +7,7 @@ import {
   AgentElementRef,
   AgentPendingDecisionId,
   AgentSessionId,
+  describeActionSubject,
   describeAgentAction,
   makeBrowserRpcError,
   UserAgentProfileId,
@@ -844,6 +845,16 @@ export const describeCapturedAction = (
         : { name: redact(subject.name), role: subject.role },
   });
 };
+
+/**
+ * How a click reads when the tree recorded beside it does not describe the
+ * control it hit. The bare reference is the one thing a later reader cannot
+ * use — it is re-minted on every Snapshot and dies with the document — and the
+ * Flow Skill contract rejects a step that names one, so an unresolved click
+ * says it is unresolved rather than handing on a reference or a name no
+ * recorded tree can be joined back to.
+ */
+export const UNRESOLVED_CLICK_DESCRIPTION = "Click an unidentified control";
 
 /** The control an action names, as the live Snapshot generation described it. */
 const actionSubject = (
@@ -3764,9 +3775,29 @@ const makeAgentSession = (
           input.page,
           input.urlBefore
         );
-        const description = `Click ${input.pointed.ref}`;
+        const action = { ref: input.pointed.ref, type: "click" as const };
+        // The same description the agent-driven path produces, so a recording
+        // reads in roles and accessible names whoever performed the click. The
+        // subject comes from the tree recorded beside the click rather than
+        // from the registry, which keeps a role and name for every reference it
+        // ever minted: reading it there would describe a named control for a
+        // reference the recorded tree cannot resolve, leaving a confident
+        // description over a null target.
+        const { pointed } = input;
+        const subject = pointed.snapshot.nodes.find(
+          (node) => node.ref === pointed.ref
+        );
+        const description =
+          subject === undefined
+            ? UNRESOLVED_CLICK_DESCRIPTION
+            : describeCapturedAction(
+                { name: subject.name, role: subject.role },
+                action,
+                {},
+                capture.sensitiveValues()
+              );
         capture.recordAction({
-          action: { ref: input.pointed.ref, type: "click" },
+          action,
           actor: "user",
           at: input.at,
           description,
@@ -4517,7 +4548,12 @@ const makeAgentSession = (
             ...action,
             text: variableReference(input.variable.name),
           };
-          const description = `Enter Variable ${input.variable.name} in ${ref}`;
+          const subject = actionSubject(record.registry, action);
+          const target =
+            subject === undefined
+              ? "an unidentified control"
+              : describeActionSubject(subject);
+          const description = `Enter Variable ${input.variable.name} in ${target}`;
           const id = `user-variable-${randomUUID()}`;
           const urlBefore = page.url();
           const snapshotBefore = capture.latestSnapshotId();

@@ -234,17 +234,21 @@ const isPlaceholder = (value: string): boolean =>
 const quoted = (value: string): string =>
   isPlaceholder(value) ? value : `"${truncate(value)}"`;
 
+/**
+ * How one control reads on its own: its role and accessible name. Exported for
+ * the paths that phrase an action by hand rather than through
+ * `describeAgentAction`, so every surface names a control the same way.
+ */
+export const describeActionSubject = (subject: AgentActionSubject): string => {
+  const name = subject.name.trim();
+  return name.length === 0 ? subject.role : `${subject.role} ${quoted(name)}`;
+};
+
 /** How the acted-on control reads: its role and accessible name, else its ref. */
 const describeSubject = (
   ref: string,
   subject: AgentActionSubject | undefined
-): string => {
-  if (subject === undefined) {
-    return ref;
-  }
-  const name = subject.name.trim();
-  return name.length === 0 ? subject.role : `${subject.role} ${quoted(name)}`;
-};
+): string => (subject === undefined ? ref : describeActionSubject(subject));
 
 /**
  * How an action reads in the timeline and in Agent View. The raw reference
