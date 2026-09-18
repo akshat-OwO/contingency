@@ -233,6 +233,23 @@ const SNAPSHOT_SCRIPT = `(() => {
     }
     return false;
   };
+  // The label that names a control: one bound by \`for\`, or one wrapping it.
+  // \`labels\` covers both for a form control, and \`closest\` covers the
+  // wrapped case for anything naming itself a control through \`role\`.
+  const labelFor = (element) => {
+    if (element.labels && element.labels.length > 0) {
+      return element.labels[0];
+    }
+    if (element.tagName === "LABEL" || !element.matches(CONTROL_SELECTOR)) {
+      return null;
+    }
+    return element.closest("label");
+  };
+  // The accessible name computation's precedence, in the order a screen
+  // reader applies it. \`placeholder\` is the last resort it is in the
+  // standard, not the first thing a text field answers with: a control with a
+  // visible label is asked for by that label, in a Flow Skill and in a
+  // recorded Teaching action alike.
   const accessibleName = (element) => {
     const labelled = element.getAttribute("aria-labelledby");
     const labelledText =
@@ -242,17 +259,14 @@ const SNAPSHOT_SCRIPT = `(() => {
             .split(/\\s+/)
             .map((id) => document.getElementById(id)?.textContent || "")
             .join(" ");
-    const label =
-      element.labels && element.labels.length > 0
-        ? element.labels[0].textContent || ""
-        : "";
+    const label = labelFor(element)?.textContent || "";
     const own =
-      element.getAttribute("aria-label") ||
       labelledText ||
-      element.getAttribute("alt") ||
-      element.getAttribute("placeholder") ||
-      element.getAttribute("title") ||
+      element.getAttribute("aria-label") ||
       label ||
+      element.getAttribute("alt") ||
+      element.getAttribute("title") ||
+      element.getAttribute("placeholder") ||
       element.textContent ||
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
@@ -275,6 +289,12 @@ const SNAPSHOT_SCRIPT = `(() => {
     if (isPointerRoot(element)) {
       clickable.add(element);
       controls.push(element);
+      continue;
+    }
+    // A label that names a control is already reported as that control's
+    // name. Emitting it again leaves two nodes carrying the same text, and
+    // the one that cannot be acted on listed first.
+    if (element.tagName === "LABEL" && element.control) {
       continue;
     }
     if (element.matches(CONTEXT_SELECTOR)) {
