@@ -175,6 +175,48 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live("names a field by its label rather than its placeholder", () =>
+  Effect.gen(function* accessibleNames() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("shop.html"),
+      "start-names"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const named = (name: string) => findNode(observed.nodes, "textbox", name);
+
+    // A bound label outranks the placeholder, so a Flow Skill that asks for
+    // the field the user sees finds it.
+    expect(named("Search the catalogue").name).toBe("Search the catalogue");
+    expect(named("SKU").name).toBe("SKU");
+    // An `aria-label` outranks it too.
+    expect(named("Quantity").name).toBe("Quantity");
+    // With nothing else to go on, the placeholder still names the field:
+    // nothing becomes nameless.
+    expect(named("Coupon code").name).toBe("Coupon code");
+
+    // The label is the control's name, not a second node competing with it.
+    expect(observed.nodes.filter((node) => node.role === "label")).toHaveLength(
+      0
+    );
+    expect(observed.nodes.filter((node) => node.name === "SKU")).toHaveLength(
+      1
+    );
+
+    // Every consumer of a name reads the corrected one.
+    const filled = yield* callTool("agent_browser_act", {
+      action: { ref: named("SKU").ref, text: "ANV-0001", type: "fill" },
+      operationId: OperationId.make("act-fill-sku"),
+      sessionId: session.id,
+    });
+    expect(filled.entry.description).toBe('Fill textbox "SKU" with "ANV-0001"');
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("reports rows a Page makes clickable only in script", () =>
   Effect.gen(function* scriptedRows() {
     const fixtures = yield* fixtureServer;
