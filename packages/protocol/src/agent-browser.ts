@@ -235,6 +235,16 @@ const quoted = (value: string): string =>
   isPlaceholder(value) ? value : `"${truncate(value)}"`;
 
 /**
+ * Whether a captured value stands in for one the record must not carry: a
+ * Variable reference such as `{{ACCOUNT_ID}}`, or a redaction placeholder such
+ * as `[sensitive input]`. A reader that sees one of these knows the control
+ * held something it is not being shown, which an empty string could never be
+ * told apart from an empty field.
+ */
+export const isWithheldValue = (value: string): boolean =>
+  isPlaceholder(value) || (value.startsWith("{{") && value.endsWith("}}"));
+
+/**
  * How one control reads on its own: its role and accessible name. Exported for
  * the paths that phrase an action by hand rather than through
  * `describeAgentAction`, so every surface names a control the same way.

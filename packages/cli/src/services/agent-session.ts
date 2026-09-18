@@ -3685,7 +3685,6 @@ const makeAgentSession = (
           );
         }
         return {
-          description: `${node.role}:${node.name}`,
           key: yield* record.registry.privateSelector(ref),
           ref,
           sensitive: yield* record.registry.isSensitive(ref),
@@ -3716,7 +3715,6 @@ const makeAgentSession = (
       page: Page,
       urlBefore: string,
       focused: {
-        readonly description: string;
         readonly key: string;
         readonly ref: AgentElementRef;
         readonly sensitive: boolean;
@@ -3735,13 +3733,29 @@ const makeAgentSession = (
               (candidate) => candidate.ref === focusedAfter.success
             )?.value
           : undefined;
-        return value === undefined
-          ? undefined
-          : {
-              action: { ref: focused.ref, text: value, type: "fill" as const },
-              description: `Fill ${focused.description}`,
-              observed,
-            };
+        if (value === undefined) {
+          return;
+        }
+        const action = { ref: focused.ref, text: value, type: "fill" as const };
+        // The same description the agent-driven path produces, so a recording
+        // reads in roles, accessible names and the value that landed whoever
+        // typed it. The subject comes from the tree recorded beside the edit,
+        // which is the one a later reader can join the entry back to.
+        const subject = observed.nodes.find(
+          (candidate) => candidate.ref === focused.ref
+        );
+        return {
+          action,
+          description: describeCapturedAction(
+            subject === undefined
+              ? undefined
+              : { name: subject.name, role: subject.role },
+            action,
+            {},
+            capture.sensitiveValues()
+          ),
+          observed,
+        };
       });
 
     const semanticUserClick = (
@@ -3902,7 +3916,6 @@ const makeAgentSession = (
       readonly at: string;
       readonly focused:
         | {
-            readonly description: string;
             readonly key: string;
             readonly ref: AgentElementRef;
             readonly sensitive: boolean;
