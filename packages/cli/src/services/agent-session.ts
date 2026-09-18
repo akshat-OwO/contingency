@@ -718,10 +718,34 @@ const teachingInput = (input: BrowserInput): CapturedUserInput => {
     : withoutKey;
 };
 
-const describeTeachingInput = (input: BrowserInput): string =>
-  input.type === "input_mouse"
+/**
+ * One scroll gesture is one entry. Wheel events arrive in the dozens per flick
+ * of a trackpad, and a learning agent reading the timeline needs "the user
+ * scrolled here", not each tick of it.
+ */
+const SCROLL_COALESCE_KEY = "user-scroll";
+
+const isScroll = (input: BrowserInput): boolean =>
+  input.type === "input_mouse" && input.eventType === "mouseWheel";
+
+/** An observation, or nothing: failing to observe never fails the input. */
+const observedOrNothing = <A, E>(
+  observe: Effect.Effect<A, E>
+): Effect.Effect<A | undefined> =>
+  Effect.result(observe).pipe(
+    Effect.map((result) =>
+      Result.isSuccess(result) ? result.success : undefined
+    )
+  );
+
+const describeTeachingInput = (input: BrowserInput): string => {
+  if (isScroll(input)) {
+    return "The user scrolled the Page";
+  }
+  return input.type === "input_mouse"
     ? `The user sent a ${input.eventType} browser input`
     : `The user sent a ${input.eventType} keyboard input`;
+};
 
 const isTextEdit = (input: BrowserInput): boolean =>
   input.type === "input_keyboard" &&
@@ -2047,6 +2071,23 @@ const makeAgentSession = (
         },
         updatedAt: stoppedAt,
       };
+      // A gesture the user was still making when they stopped has no action
+      // after it to observe the Page it left behind, so it is closed here.
+      // Best effort: a browser already gone must not fail the Stop.
+      const { capture } = record;
+      yield* browser.activePage(record.browserSessionId).pipe(
+        Effect.flatMap((page) =>
+          snapshotAfterAction(page, record.registry, page.url())
+        ),
+        Effect.tap((snapshot) =>
+          Effect.sync(() =>
+            capture.closeCoalescedAction(
+              redactCapturedSnapshot(record, snapshot)
+            )
+          )
+        ),
+        Effect.ignore
+      );
       // Publish `finalizing` first: `recordingCapture` gates on `recording`, so
       // this is what actually ends semantic capture on the same timestamp as the
       // video and the trace, instead of letting it run through encoder drain.
@@ -3634,31 +3675,56 @@ const makeAgentSession = (
         )
       );
 
+    /**
+     * The Page a scroll gesture started from. A wheel notch names no element,
+     * so nothing else on this path observes the tree — without this the gesture
+     * has no `before` to be credited against, and a Teaching session that
+     * scrolls before it does anything else has no observation at all.
+     */
+    const observeScrollOrigin = (record: SessionRecord, page: Page) =>
+      Effect.gen(function* observeScrollOriginTree() {
+        const snapshot = redactCapturedSnapshot(
+          record,
+          yield* record.registry.snapshot(page)
+        );
+        recordingCapture(record)?.recordSnapshot(snapshot);
+        return snapshot;
+      });
+
+    /**
+     * The state a user input acted on, observed only where the input can name
+     * it: the focused control for an edit, the pointed control for a click, the
+     * whole tree for the first notch of a scroll. A failed observation leaves
+     * the action without a `before` rather than failing the input.
+     */
     const observeUserInputTarget = (
       record: SessionRecord,
       page: Page,
       input: BrowserInput
     ) =>
       Effect.gen(function* observeSemanticInputTarget() {
-        const focusedResult =
-          recordingCapture(record) === undefined || !isTextEdit(input)
-            ? undefined
-            : yield* Effect.result(observeFocusedTextControl(record, page));
-        const pointedResult =
-          recordingCapture(record) === undefined ||
-          input.type !== "input_mouse" ||
-          input.eventType !== "mouseReleased"
-            ? undefined
-            : yield* Effect.result(
-                observePointedControl(record, page, input.x, input.y)
-              );
-        const focused =
-          focusedResult !== undefined && Result.isSuccess(focusedResult)
-            ? focusedResult.success
-            : undefined;
+        const capture = recordingCapture(record);
+        if (capture === undefined) {
+          return {
+            focused: undefined,
+            pointed: undefined,
+            snapshotBefore: null,
+          };
+        }
+        const focused = isTextEdit(input)
+          ? yield* observedOrNothing(observeFocusedTextControl(record, page))
+          : undefined;
         const pointed =
-          pointedResult !== undefined && Result.isSuccess(pointedResult)
-            ? pointedResult.success
+          input.type === "input_mouse" && input.eventType === "mouseReleased"
+            ? yield* observedOrNothing(
+                observePointedControl(record, page, input.x, input.y)
+              )
+            : undefined;
+        // Only the first notch: the rest of the gesture coalesces into it and
+        // keeps the state the user actually scrolled away from.
+        const scrolled =
+          isScroll(input) && capture.openCoalesceKey() !== SCROLL_COALESCE_KEY
+            ? yield* observedOrNothing(observeScrollOrigin(record, page))
             : undefined;
         return {
           focused,
@@ -3666,7 +3732,8 @@ const makeAgentSession = (
           snapshotBefore:
             focused?.snapshot.snapshotId ??
             pointed?.snapshot.snapshotId ??
-            recordingCapture(record)?.latestSnapshotId() ??
+            scrolled?.snapshotId ??
+            capture.latestSnapshotId() ??
             null,
         };
       });
@@ -5798,18 +5865,23 @@ const makeAgentSession = (
             return;
           }
           if (shouldCaptureRawInput(input)) {
-            recordingCapture(record)?.recordAction({
+            const raw = {
               action,
-              actor: "user",
+              actor: "user" as const,
               at,
               description,
               id,
-              outcome: "completed",
+              outcome: "completed" as const,
               snapshotAfter: null,
               snapshotBefore,
               urlAfter,
               urlBefore,
-            });
+            };
+            recordingCapture(record)?.recordAction(
+              isScroll(input)
+                ? { ...raw, coalesceKey: SCROLL_COALESCE_KEY }
+                : raw
+            );
           }
           return yield* recordEntry(
             sessionId,

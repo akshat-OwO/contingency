@@ -43,7 +43,11 @@ export interface CapturedActionInput {
   readonly snapshotBefore: AgentSnapshotId | null;
   readonly urlAfter: string;
   readonly urlBefore: string;
-  /** Consecutive semantic edits with this key replace one captured action. */
+  /**
+   * Consecutive actions carrying this key replace one captured action, so a
+   * gesture the user experienced as one move — typing a field, scrolling a
+   * Page — stays one entry in the semantic timeline.
+   */
   readonly coalesceKey?: string | undefined;
 }
 
@@ -71,7 +75,15 @@ export interface DemonstrationCapture {
   readonly counts: () => DemonstrationCounts;
   readonly current: () => Demonstration;
   readonly latestSnapshotId: () => AgentSnapshotId | null;
+  /** Which gesture, if any, the next action would still coalesce into. */
+  readonly openCoalesceKey: () => string | undefined;
   readonly progress: () => TeachingProgress;
+  /**
+   * Attach an after state to the open coalesced action, if one is still open
+   * and has none. A gesture's last event is only knowable once something else
+   * happens, so the session closes it when the recording stops.
+   */
+  readonly closeCoalescedAction: (snapshotAfter: AgentBrowserSnapshot) => void;
   /** Record one attempt and the URL change it caused, if any. */
   readonly recordAction: (input: CapturedActionInput) => CapturedAction;
   readonly recordInstruction: (text: string, at: string) => TeachingInstruction;
@@ -188,6 +200,27 @@ export const makeDemonstrationCapture = (
     currentUrl = to;
   };
 
+  /**
+   * Give the open coalesced action the after state it never got. Only an action
+   * still missing one is patched, so a gesture that already observed the Page —
+   * every coalesced edit does — is left exactly as it was recorded.
+   */
+  const closeOpenGesture = (snapshotAfter: AgentSnapshotId | null): void => {
+    const index = lastCoalesced?.index;
+    const open = index === undefined ? undefined : actions[index];
+    lastCoalesced = undefined;
+    if (
+      index === undefined ||
+      open === undefined ||
+      open.snapshotAfter !== null ||
+      snapshotAfter === null ||
+      !snapshots.has(snapshotAfter)
+    ) {
+      return;
+    }
+    actions[index] = { ...open, snapshotAfter };
+  };
+
   const recordAction = (input: CapturedActionInput): CapturedAction => {
     const at = eventTime(input.at);
     if (input.snapshotAfter !== null) {
@@ -200,6 +233,12 @@ export const makeDemonstrationCapture = (
         : undefined;
     const previous =
       previousIndex === undefined ? undefined : actions[previousIndex];
+    if (previousIndex === undefined) {
+      // A different action ended any open gesture. The state it observed before
+      // acting is the state the gesture left behind, so the gesture gets a real
+      // after tree without the Page being snapshotted twice.
+      closeOpenGesture(input.snapshotBefore);
+    }
     const capturedBase = {
       action: coalescedAction(input, previous),
       actor: input.actor,
@@ -220,16 +259,23 @@ export const makeDemonstrationCapture = (
     // attributed to it even when the URL was noticed only afterwards.
     transition(sanitizeTeachingUrl(input.urlBefore), at, null);
     transition(sanitizeTeachingUrl(input.urlAfter), at, captured.id);
-    if (previous === undefined) {
+    let index: number;
+    if (previous === undefined || previousIndex === undefined) {
       actions.push(captured);
-    } else if (previousIndex !== undefined) {
+      index = actions.length - 1;
+    } else {
       actions[previousIndex] = captured;
+      index = previousIndex;
     }
+    const before = actions.length;
     trim(actions, ACTION_LIMIT);
+    // Trimming shifts every surviving action down, so the open gesture keeps
+    // pointing at itself rather than at whatever now sits last.
+    const dropped = before - actions.length;
     lastCoalesced =
-      input.coalesceKey === undefined
+      input.coalesceKey === undefined || index < dropped
         ? undefined
-        : { index: actions.length - 1, key: input.coalesceKey };
+        : { index: index - dropped, key: input.coalesceKey };
     return captured;
   };
 
@@ -272,6 +318,10 @@ export const makeDemonstrationCapture = (
             existing.secret === variable.secret))
       );
     },
+    closeCoalescedAction: (snapshotAfter) => {
+      recordSnapshot(snapshotAfter);
+      closeOpenGesture(snapshotAfter.snapshotId);
+    },
     counts: () => ({
       actions: actions.length,
       instructions: instructions.length,
@@ -280,6 +330,7 @@ export const makeDemonstrationCapture = (
     }),
     current,
     latestSnapshotId: () => latestSnapshot,
+    openCoalesceKey: () => lastCoalesced?.key,
     progress: () => ({
       actionCount: actions.length,
       instructionCount: instructions.length,
