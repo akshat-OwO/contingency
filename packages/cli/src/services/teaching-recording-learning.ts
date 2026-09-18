@@ -5,12 +5,14 @@ import {
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TEACHING_TIMELINE_MAX_EVENTS,
   TeachingEvent,
+  isWithheldValue,
 } from "@contingency/protocol";
 import type {
   FlowSkillDiagnostic,
   FlowSkillFile,
   FlowSkillSaveResult,
   OperationId,
+  TeachingEventTarget,
   TeachingKeyframeContent,
   TeachingRecordingId,
   TeachingRecordingManifest,
@@ -225,6 +227,24 @@ const validateFiles = (
     : Effect.fail(invalidPackage([missingSkillFile]));
 };
 
+/**
+ * What a reader may see of the control an action named. A withheld value that
+ * still stands for itself -- a Variable reference, or a redaction placeholder
+ * -- is the whole point of the marker and stays, because it is what tells the
+ * reader the field held something rather than nothing. Anything else withheld
+ * was read off the Page and never belongs on a timeline page.
+ */
+const readableTarget = (
+  target: TeachingEventTarget | null
+): TeachingEventTarget | null => {
+  if (target === null || target.valueWithheld !== true) {
+    return target;
+  }
+  return target.value !== null && isWithheldValue(target.value)
+    ? target
+    : { ...target, value: null };
+};
+
 const eventProjection = (
   event: TeachingEvent,
   manifest: TeachingRecordingManifest
@@ -244,10 +264,7 @@ const eventProjection = (
           ...event.before,
           url: sanitizeTeachingUrl(event.before.url),
         },
-        target:
-          event.target?.valueWithheld === true
-            ? { ...event.target, value: null }
-            : event.target,
+        target: readableTarget(event.target),
       });
     }
     case "url": {

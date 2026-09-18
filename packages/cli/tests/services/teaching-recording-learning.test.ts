@@ -98,3 +98,119 @@ it.effect(
       expect(failure.message).toContain("65536-character");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+const withheldRecordingId = TeachingRecordingId.make("recording-withheld-fill");
+
+const observation = {
+  nodeCount: 1,
+  title: "Catalog",
+  url: "https://shop.test/catalog",
+};
+
+const actionEvent = (
+  seq: number,
+  target: {
+    readonly value: string | null;
+    readonly valueWithheld: boolean;
+  }
+) => ({
+  _tag: "action",
+  after: observation,
+  appeared: [],
+  at: "2026-09-18T00:00:01.000Z",
+  before: observation,
+  description: 'Fill textbox "SKU"',
+  detail: null,
+  disappeared: [],
+  id: `action-${seq}`,
+  kind: "fill",
+  outcome: "succeeded",
+  seq,
+  target: {
+    checked: null,
+    context: [],
+    disabled: null,
+    name: "SKU",
+    role: "textbox",
+    ...target,
+  },
+});
+
+it.effect(
+  "keeps a Variable placeholder on a timeline target and drops a page secret",
+  () =>
+    Effect.gen(function* projectWithheldFill() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-withheld-fill-",
+      });
+      const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
+      const layer = Layer.mergeAll(
+        storeLayer,
+        TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
+      ).pipe(Layer.provideMerge(NodeServices.layer));
+
+      const timeline = yield* Effect.gen(function* prepareWithheldFill() {
+        const store = yield* TeachingRecordingStore;
+        const learning = yield* TeachingRecordingLearning;
+        const now = new Date().toISOString();
+        yield* store.begin({
+          emulation: {
+            permissions: [],
+            userAgentProfile: UserAgentProfileId.make("default"),
+            viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+          },
+          flowSkillName: FlowSkillName.make("withheld-fill"),
+          operationId: OperationId.make("withheld-begin"),
+          recordingId: withheldRecordingId,
+          sessionId: AgentSessionId.make("agent-withheld-fill"),
+        });
+        yield* store.start({
+          operationId: OperationId.make("withheld-start"),
+          recordingId: withheldRecordingId,
+        });
+        yield* fileSystem.writeFileString(
+          path.join(store.directory(withheldRecordingId), "events.jsonl"),
+          `${[
+            actionEvent(0, { value: "{{ACCOUNT_ID}}", valueWithheld: true }),
+            actionEvent(1, { value: "4242-4242", valueWithheld: true }),
+          ]
+            .map((event) => JSON.stringify(event))
+            .join("\n")}\n`
+        );
+        yield* store.stop({
+          artifacts: [
+            {
+              capturedAt: now,
+              hash: ContentHash.make(
+                "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ),
+              id: "events",
+              kind: "events",
+              path: "events.jsonl",
+            },
+          ],
+          operationId: OperationId.make("withheld-stop"),
+          recordingId: withheldRecordingId,
+        });
+        const claimOperationId = OperationId.make("withheld-claim");
+        yield* store.startLearning({
+          operationId: claimOperationId,
+          recordingId: withheldRecordingId,
+        });
+        return yield* learning.timeline({
+          claimOperationId,
+          cursor: 0,
+          recordingId: withheldRecordingId,
+        });
+      }).pipe(Effect.provide(layer));
+
+      const [placeholder, secret] = timeline.entries;
+
+      expect(placeholder?._tag === "action" && placeholder.target?.value).toBe(
+        "{{ACCOUNT_ID}}"
+      );
+      expect(secret?._tag === "action" && secret.target?.value).toBeNull();
+      expect(JSON.stringify(timeline)).not.toContain("4242-4242");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

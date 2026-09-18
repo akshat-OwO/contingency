@@ -9,7 +9,7 @@ import type {
   TeachingEventTarget,
   TeachingStopReason,
 } from "@contingency/protocol";
-import { ContentHash } from "@contingency/protocol";
+import { ContentHash, isWithheldValue } from "@contingency/protocol";
 import { Deferred, Effect, Exit, Ref, Scope, Stream } from "effect";
 import type { FileSystem } from "effect";
 
@@ -129,6 +129,28 @@ const targetFor = (
 };
 
 /**
+ * What the field held once a fill landed. The tree recorded before the action
+ * still shows the control as the user found it, so a fill read off it carries
+ * an empty value whatever was typed. The action's own text is the value that
+ * landed, already rewritten to a Variable reference or a redaction placeholder
+ * on the private paths, which is what keeps a withheld value distinguishable
+ * from an empty field.
+ */
+const filledTarget = (
+  target: TeachingEventTarget | null,
+  action: Demonstration["actions"][number]["action"]
+): TeachingEventTarget | null => {
+  if (target === null || action.type !== "fill") {
+    return target;
+  }
+  return {
+    ...target,
+    value: action.text,
+    valueWithheld: isWithheldValue(action.text),
+  };
+};
+
+/**
  * What one side of the diff gained over the other. A missing or empty tree is
  * an absent observation, not an empty Page: an action whose after state was
  * never captured must not read as though every node on the Page vanished.
@@ -233,7 +255,7 @@ export const teachingEventsFor = (
       id: action.id,
       kind: action.action.type,
       outcome: action.outcome === "completed" ? "succeeded" : "failed",
-      target: targetFor(before ?? after, ref),
+      target: filledTarget(targetFor(before ?? after, ref), action.action),
     });
   }
   for (const keyframe of demonstration.keyframes) {
