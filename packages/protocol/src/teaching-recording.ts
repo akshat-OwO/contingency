@@ -486,14 +486,14 @@ export type TeachingCaptureLimits = typeof TeachingCaptureLimits.Type;
 // ---------------------------------------------------------------------------
 
 /**
- * The content address of one captured screenshot's bytes. Screenshots live
- * only in the owning process and in the recording directory; they never enter
- * a Flow Skill package (ADR 0039).
+ * The content address of one captured keyframe's bytes. Keyframes live only in
+ * the owning process and in the recording directory; they never enter a Flow
+ * Skill package (ADR 0039).
  */
-export const ScreenshotHash = Schema.String.check(
+export const KeyframeHash = Schema.String.check(
   Schema.isPattern(/^sha256-[a-f0-9]{64}$/u)
-).pipe(Schema.brand("@contingency/ScreenshotHash"));
-export type ScreenshotHash = typeof ScreenshotHash.Type;
+).pipe(Schema.brand("@contingency/KeyframeHash"));
+export type KeyframeHash = typeof KeyframeHash.Type;
 
 /** Redacted, bounded observation of one user input event during Takeover. */
 export const CapturedUserInput = Schema.Struct({
@@ -541,27 +541,29 @@ export const CapturedAction = Schema.Struct({
 export type CapturedAction = typeof CapturedAction.Type;
 
 /**
- * A reference to one best-effort-masked screenshot. The bytes are stored once
+ * A reference to one best-effort-masked keyframe. The bytes are stored once
  * under their content address and fetched on demand, so the capture record
  * stays bounded by how much the user demonstrated rather than by how large
  * the Page's pixels are.
  */
-export const TeachingScreenshot = Schema.Struct({
+export const TeachingKeyframe = Schema.Struct({
+  /** The captured action this keyframe photographed the result of, if any. */
+  actionId: Schema.NullOr(Schema.String),
   capturedAt: nonEmptyString,
-  contentHash: ScreenshotHash,
+  contentHash: KeyframeHash,
   format: Schema.Literal("png"),
   id: nonEmptyString,
   url: Schema.String,
 });
-export type TeachingScreenshot = typeof TeachingScreenshot.Type;
+export type TeachingKeyframe = typeof TeachingKeyframe.Type;
 
-/** One screenshot's bytes, fetched by reference, one screenshot at a time. */
-export const TeachingScreenshotContent = Schema.Struct({
-  ...TeachingScreenshot.fields,
+/** One keyframe's bytes, fetched by reference, one keyframe at a time. */
+export const TeachingKeyframeBytes = Schema.Struct({
+  ...TeachingKeyframe.fields,
   encoding: Schema.Literal("base64"),
   image: nonEmptyString,
 });
-export type TeachingScreenshotContent = typeof TeachingScreenshotContent.Type;
+export type TeachingKeyframeBytes = typeof TeachingKeyframeBytes.Type;
 
 /** What the user told the agent to do, as the agent relayed it. */
 export const TeachingInstruction = Schema.Struct({

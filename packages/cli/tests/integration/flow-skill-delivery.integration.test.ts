@@ -320,6 +320,8 @@ it.live(
             ".recordings",
             recordingId
           );
+          const demonstratedKeyframes =
+            yield* fileSystem.readDirectory(recordingDirectory);
           const failedRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
             {
@@ -445,6 +447,11 @@ it.live(
           );
           expect(verified.cleanup._tag).toBe("purged");
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(false);
+          // Keyframes are raw Teaching evidence: verification is what
+          // authorizes deleting them, and none survives it.
+          expect(
+            demonstratedKeyframes.filter((name) => name.endsWith(".png"))
+          ).not.toHaveLength(0);
           expect(
             yield* fileSystem.exists(path.join(skillDirectory, "SKILL.md"))
           ).toBe(true);

@@ -2,10 +2,10 @@ import type {
   AgentBrowserSnapshot,
   AgentSnapshotId,
   CapturedAction,
-  ScreenshotHash,
+  KeyframeHash,
   TeachingInstruction,
-  TeachingScreenshot,
-  TeachingScreenshotContent,
+  TeachingKeyframe,
+  TeachingKeyframeBytes,
   UrlTransition,
   Variable,
 } from "@contingency/protocol";
@@ -22,12 +22,9 @@ import type {
 export interface Demonstration {
   readonly actions: readonly CapturedAction[];
   readonly instructions: readonly TeachingInstruction[];
-  /** The bytes behind the screenshot references, addressed by content. */
-  readonly screenshotContents: ReadonlyMap<
-    ScreenshotHash,
-    TeachingScreenshotContent
-  >;
-  readonly screenshots: readonly TeachingScreenshot[];
+  /** The bytes behind the keyframe references, addressed by content. */
+  readonly keyframeBytes: ReadonlyMap<KeyframeHash, TeachingKeyframeBytes>;
+  readonly keyframes: readonly TeachingKeyframe[];
   readonly snapshots: ReadonlyMap<AgentSnapshotId, AgentBrowserSnapshot>;
   readonly urlTransitions: readonly UrlTransition[];
   readonly variables: readonly Variable[];
@@ -36,8 +33,8 @@ export interface Demonstration {
 export const emptyDemonstration = (): Demonstration => ({
   actions: [],
   instructions: [],
-  screenshotContents: new Map(),
-  screenshots: [],
+  keyframeBytes: new Map(),
+  keyframes: [],
   snapshots: new Map(),
   urlTransitions: [],
   variables: [],

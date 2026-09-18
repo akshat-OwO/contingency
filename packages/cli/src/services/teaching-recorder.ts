@@ -236,13 +236,13 @@ export const teachingEventsFor = (
       target: targetFor(before ?? after, ref),
     });
   }
-  for (const screenshot of demonstration.screenshots) {
+  for (const keyframe of demonstration.keyframes) {
     pending.push({
       _tag: "keyframe",
-      actionId: null,
-      at: screenshot.capturedAt,
-      hash: ContentHash.make(screenshot.contentHash),
-      path: `${screenshot.id}.png`,
+      actionId: keyframe.actionId,
+      at: keyframe.capturedAt,
+      hash: ContentHash.make(keyframe.contentHash),
+      path: `${keyframe.id}.png`,
     });
   }
   pending.sort((left, right) => left.at.localeCompare(right.at));
@@ -433,8 +433,11 @@ export const makeTeachingRecorder = (
             breach === undefined ? "capture-failed" : "limit-reached";
           const stopReason =
             captureFailure === undefined ? reason : failureReason;
+          // Events and files describe the same keyframes: an event naming a
+          // PNG the ceiling kept from disk would read as an unknown keyframe.
+          const keyframes = demonstration.keyframes.slice(0, limits.keyframes);
           const events = teachingEventsFor(
-            demonstration,
+            { ...demonstration, keyframes },
             options.emulation,
             options.startedAt,
             stoppedAt,
@@ -476,17 +479,14 @@ export const makeTeachingRecorder = (
           yield* fileSystem
             .writeFileString(eventFile, contents, { flag: "a" })
             .pipe(Effect.ignore);
-          for (const screenshot of demonstration.screenshots.slice(
-            0,
-            limits.keyframes
-          )) {
-            const content = demonstration.screenshotContents.get(
-              screenshot.contentHash
+          for (const keyframe of keyframes) {
+            const content = demonstration.keyframeBytes.get(
+              keyframe.contentHash
             );
             if (content !== undefined) {
               yield* fileSystem
                 .writeFile(
-                  path.join(options.directory, `${screenshot.id}.png`),
+                  path.join(options.directory, `${keyframe.id}.png`),
                   Buffer.from(content.image, "base64")
                 )
                 .pipe(Effect.ignore);

@@ -1,15 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { ScreenshotHash } from "@contingency/protocol";
+import { KeyframeHash } from "@contingency/protocol";
 import type {
   AgentBrowserSnapshot,
   AgentScreenshot,
   AgentSnapshotId,
   CapturedAction,
   TeachingInstruction,
+  TeachingKeyframe,
+  TeachingKeyframeBytes,
   TeachingProgress,
-  TeachingScreenshot,
-  TeachingScreenshotContent,
   Variable,
 } from "@contingency/protocol";
 
@@ -22,6 +22,16 @@ const ACTION_LIMIT = 2000;
 const INSTRUCTION_LIMIT = 200;
 /** How many Browser Snapshots one Demonstration keeps for evidence. */
 const SNAPSHOT_LIMIT = 400;
+/** How many keyframes one Demonstration keeps. */
+const KEYFRAME_LIMIT = 400;
+/**
+ * How long one action's keyframe stands before a later moment of the same
+ * gesture is worth photographing again. A coalesced gesture — typing a field,
+ * scrolling a Page — is one timeline entry holding one keyframe, so without
+ * this a twenty-character field would cost twenty screenshots to end up with
+ * the same single image.
+ */
+const KEYFRAME_MIN_INTERVAL_MS = 750;
 /** How many URL transitions one Demonstration keeps. */
 const TRANSITION_LIMIT = 4000;
 /** Bound declarations and local-only masking state like captured actions. */
@@ -77,6 +87,8 @@ export interface DemonstrationCapture {
   readonly latestSnapshotId: () => AgentSnapshotId | null;
   /** Which gesture, if any, the next action would still coalesce into. */
   readonly openCoalesceKey: () => string | undefined;
+  /** The captured action the open gesture is still extending, if any. */
+  readonly openActionId: () => string | undefined;
   readonly progress: () => TeachingProgress;
   /**
    * Attach an after state to the open coalesced action, if one is still open
@@ -89,14 +101,24 @@ export interface DemonstrationCapture {
   readonly recordInstruction: (text: string, at: string) => TeachingInstruction;
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
-  /** Record one best-effort-masked visual observation. */
-  readonly recordScreenshot: (
-    screenshot: AgentScreenshot
-  ) => TeachingScreenshot;
-  /** The bytes behind one recorded screenshot, fetched by its reference. */
-  readonly screenshotContent: (
-    screenshotId: string
-  ) => TeachingScreenshotContent | undefined;
+  /**
+   * Record one best-effort-masked visual observation, attributed to the action
+   * whose result it photographed when there is one.
+   */
+  readonly recordKeyframe: (
+    keyframe: AgentScreenshot,
+    actionId?: string | undefined
+  ) => TeachingKeyframe;
+  /**
+   * Whether photographing this action now would tell the reader anything the
+   * keyframe it already has does not. Asked before the screenshot, so a
+   * gesture the user is still performing does not pay for one per event.
+   */
+  readonly needsKeyframe: (actionId: string, at: string) => boolean;
+  /** The bytes behind one recorded keyframe, fetched by its reference. */
+  readonly keyframeBytes: (
+    keyframeId: string
+  ) => TeachingKeyframeBytes | undefined;
   /** Check whether a declaration is compatible without retaining its value. */
   readonly canRecordVariable: (
     variable: Variable,
@@ -111,9 +133,9 @@ export interface DemonstrationCapture {
   ) => void;
   /** Note where the Page is; a change with no action is a user transition. */
   readonly recordUrl: (url: string, at: string) => void;
-  /** Values that screenshot and snapshot capture must mask, longest first. */
+  /** Values that keyframe and snapshot capture must mask, longest first. */
   readonly sensitiveValues: () => readonly string[];
-  /** Known private fields that screenshot capture must mask. */
+  /** Known private fields that keyframe capture must mask. */
   readonly sensitiveSelectors: () => readonly string[];
 }
 
@@ -142,12 +164,12 @@ export const makeDemonstrationCapture = (
 ): DemonstrationCapture => {
   const actions: CapturedAction[] = [];
   const instructions: TeachingInstruction[] = [];
-  const screenshots: TeachingScreenshot[] = [];
+  const keyframes: TeachingKeyframe[] = [];
   /**
    * The bytes behind the references, addressed by content so a Demonstration
    * that photographed the same Page twice keeps one copy of it.
    */
-  const screenshotBytes = new Map<ScreenshotHash, string>();
+  const keyframeImages = new Map<KeyframeHash, string>();
   const snapshots = new Map<AgentSnapshotId, AgentBrowserSnapshot>();
   const urlTransitions: Demonstration["urlTransitions"][number][] = [];
   const variables = new Map<string, Variable>();
@@ -280,9 +302,9 @@ export const makeDemonstrationCapture = (
   };
 
   const contentOf = (
-    reference: TeachingScreenshot
-  ): TeachingScreenshotContent | undefined => {
-    const image = screenshotBytes.get(reference.contentHash);
+    reference: TeachingKeyframe
+  ): TeachingKeyframeBytes | undefined => {
+    const image = keyframeImages.get(reference.contentHash);
     return image === undefined
       ? undefined
       : { ...reference, encoding: "base64", image };
@@ -291,15 +313,15 @@ export const makeDemonstrationCapture = (
   const current = (): Demonstration => ({
     actions: [...actions],
     instructions: [...instructions],
-    screenshotContents: new Map(
-      screenshots.flatMap((reference) => {
+    keyframeBytes: new Map(
+      keyframes.flatMap((reference) => {
         const content = contentOf(reference);
         return content === undefined
           ? []
           : [[reference.contentHash, content] as const];
       })
     ),
-    screenshots: [...screenshots],
+    keyframes: [...keyframes],
     snapshots: new Map(snapshots),
     urlTransitions: [...urlTransitions],
     variables: [...variables.values()],
@@ -325,11 +347,29 @@ export const makeDemonstrationCapture = (
     counts: () => ({
       actions: actions.length,
       instructions: instructions.length,
-      keyframes: screenshots.length,
+      keyframes: keyframes.length,
       urlTransitions: urlTransitions.length,
     }),
     current,
+    keyframeBytes: (keyframeId) => {
+      const reference = keyframes.find(({ id }) => id === keyframeId);
+      return reference === undefined ? undefined : contentOf(reference);
+    },
     latestSnapshotId: () => latestSnapshot,
+    needsKeyframe: (actionId, at) => {
+      const existing = keyframes.findLast(
+        (candidate) => candidate.actionId === actionId
+      );
+      if (existing === undefined) {
+        return true;
+      }
+      const since = Date.parse(at) - Date.parse(existing.capturedAt);
+      return !Number.isFinite(since) || since >= KEYFRAME_MIN_INTERVAL_MS;
+    },
+    openActionId: () => {
+      const index = lastCoalesced?.index;
+      return index === undefined ? undefined : actions[index]?.id;
+    },
     openCoalesceKey: () => lastCoalesced?.key,
     progress: () => ({
       actionCount: actions.length,
@@ -346,26 +386,40 @@ export const makeDemonstrationCapture = (
       trim(instructions, INSTRUCTION_LIMIT);
       return instruction;
     },
-    recordScreenshot: (screenshot) => {
-      const contentHash = ScreenshotHash.make(
-        `sha256-${createHash("sha256").update(screenshot.image, "base64").digest("hex")}`
+    recordKeyframe: (keyframe, actionId) => {
+      const contentHash = KeyframeHash.make(
+        `sha256-${createHash("sha256").update(keyframe.image, "base64").digest("hex")}`
       );
-      const captured: TeachingScreenshot = {
-        capturedAt: eventTime(screenshot.capturedAt),
+      const replacing =
+        actionId === undefined
+          ? -1
+          : keyframes.findLastIndex(
+              (candidate) => candidate.actionId === actionId
+            );
+      const captured: TeachingKeyframe = {
+        actionId: actionId ?? null,
+        capturedAt: eventTime(keyframe.capturedAt),
         contentHash,
-        format: screenshot.format,
-        id: `screenshot-${randomUUID()}`,
-        url: screenshot.url,
+        format: keyframe.format,
+        id: keyframes[replacing]?.id ?? `keyframe-${randomUUID()}`,
+        url: keyframe.url,
       };
-      screenshots.push(captured);
-      screenshotBytes.set(contentHash, screenshot.image);
-      trim(screenshots, SNAPSHOT_LIMIT);
+      // One recorded action keeps one keyframe: a later moment of the same
+      // gesture replaces the earlier one, so the timeline shows the state the
+      // user left behind rather than the one they started from.
+      if (replacing === -1) {
+        keyframes.push(captured);
+      } else {
+        keyframes[replacing] = captured;
+      }
+      keyframeImages.set(contentHash, keyframe.image);
+      trim(keyframes, KEYFRAME_LIMIT);
       // Bytes outlive nothing: once the oldest references are trimmed away,
       // the images only they named go with them.
-      const live = new Set(screenshots.map((one) => one.contentHash));
-      for (const hash of screenshotBytes.keys()) {
+      const live = new Set(keyframes.map((one) => one.contentHash));
+      for (const hash of keyframeImages.keys()) {
         if (!live.has(hash)) {
-          screenshotBytes.delete(hash);
+          keyframeImages.delete(hash);
         }
       }
       return captured;
@@ -377,10 +431,6 @@ export const makeDemonstrationCapture = (
       variables.set(variable.name, variable);
       privateValues.add(value);
       privateSelectors.add(selector);
-    },
-    screenshotContent: (screenshotId) => {
-      const reference = screenshots.find(({ id }) => id === screenshotId);
-      return reference === undefined ? undefined : contentOf(reference);
     },
     sensitiveSelectors: () => [...privateSelectors],
     sensitiveValues: () =>
