@@ -103,6 +103,8 @@ import {
 } from "./agent-browser.ts";
 import type { AgentElementRegistry } from "./agent-browser.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
+import { AgentRunStore } from "./agent-run-store.ts";
+import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
   BrowserStorageDeleteInput,
@@ -402,13 +404,14 @@ export interface AgentSessionService {
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
-   * End the Run: finalize the Trace and video, close the live browser, and
-   * answer with the persistent Run Summary. Workspace stays alive in summary
-   * mode; the browser does not.
+   * End the Run early and answer with its persistent Run Summary. A Run that
+   * already ended finalized itself, so this answers with the Summary it wrote
+   * and records the agent's closing account on it. Workspace stays alive in
+   * summary mode; the browser does not.
    */
   readonly completeRun: (
     sessionId: AgentSessionId,
-    summary?: string,
+    agentAccount?: string,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentRunSummary, AgentSessionError>;
   /** A direct user action in Workspace raising one ceiling. */
@@ -1095,6 +1098,12 @@ interface SessionRecord {
   /** The Run directory this session's Trace and video were written into. */
   readonly artifactDirectory: string | undefined;
   readonly runEvidence: RunStepEvidence;
+  /**
+   * The Run Summary this session finalized, once it has one. A Run is
+   * finalized exactly once, however it ends, so this both answers a later
+   * `agent_run_complete` and stops a second Summary from being written.
+   */
+  readonly finalized: { summary: AgentRunSummary | undefined };
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
   /**
@@ -1438,7 +1447,8 @@ const makeAgentSession = (
   events: PubSub.PubSub<AgentSessionSnapshot>,
   fileSystem?: FileSystem.FileSystem,
   parentScope?: Scope.Scope,
-  teachingRecordingStore?: TeachingRecordingStoreService
+  teachingRecordingStore?: TeachingRecordingStoreService,
+  runStore?: AgentRunStoreService
 ): Effect.Effect<AgentSessionService> =>
   Effect.sync(() => {
     const sessions = Ref.makeUnsafe<ReadonlyMap<AgentSessionId, SessionRecord>>(
@@ -3560,6 +3570,7 @@ const makeAgentSession = (
                     lock: Semaphore.makeUnsafe(1),
                   },
                   emulation,
+                  finalized: { summary: undefined },
                   registry,
                   retentionFile,
                   runEvidence: { attempts: new Set(), snapshots: new Set() },
@@ -5047,6 +5058,159 @@ const makeAgentSession = (
     };
 
     /**
+     * Write the Run Summary under the Catalog Root. A Run's evidence is worth
+     * nothing the caller cannot reach, so persistence is part of ending a Run
+     * rather than of the tool that reports it ended.
+     */
+    const persistRunSummary = (
+      summary: AgentRunSummary
+    ): Effect.Effect<AgentRunSummary, AgentSessionError> =>
+      runStore === undefined
+        ? Effect.succeed(summary)
+        : runStore
+            .write(summary)
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_unavailable",
+                  `Run ${summary.runId} ended but its Run Summary could not be written: ${cause.message}`
+                )
+              )
+            );
+
+    /**
+     * Finalize a Run exactly once: close the browser, seal the Trace and the
+     * video, and persist the Run Summary. Every way a Run can end goes through
+     * here — the last Agent Step assessed, a terminal Agent Assessment, a
+     * ceiling, or an explicit `agent_run_complete` — so a Summary exists for
+     * every ended Run and a second call answers with the first one's Summary
+     * rather than writing another.
+     */
+    const finalizeRunUnlocked = Effect.fn("AgentSession.finalizeRun")(
+      function* finalizeInteractiveRun(
+        sessionId: AgentSessionId,
+        summaryText?: string
+      ) {
+        const record = yield* read(sessionId);
+        if (record.snapshot.run === null) {
+          return yield* Effect.fail(notRunning(sessionId));
+        }
+        const already = record.finalized.summary;
+        if (already !== undefined) {
+          // A closing account that arrives after the Run already ended is
+          // recorded on the Summary it belongs to; nothing else is rewritten.
+          if (summaryText === undefined || already.agentAccount !== undefined) {
+            return already;
+          }
+          const amended = { ...already, agentAccount: summaryText };
+          record.finalized.summary = amended;
+          return yield* persistRunSummary(amended);
+        }
+        return yield* Effect.uninterruptibleMask(() =>
+          Effect.gen(function* finalizeRun() {
+            const at = now().toISOString();
+            // A read-modify-write over the Run as it stands when the write
+            // lands: a `timed-out` outcome a ceiling recorded is kept, never
+            // clobbered by a snapshot this call built earlier.
+            const completed = yield* mutate(sessionId, (snapshot) => {
+              if (snapshot.run === null) {
+                return snapshot;
+              }
+              const steps = markRemainingUnexecuted(snapshot.run.steps);
+              return {
+                ...snapshot,
+                boundary: null,
+                controller: "agent",
+                phase: "completed",
+                run: withDerivedRunTotals({
+                  ...snapshot.run,
+                  activeStepIndex: null,
+                  endedAt: snapshot.run.endedAt ?? at,
+                  // A Run the agent stopped while Agent Steps remained is not
+                  // a completed Run: the coverage it did not reach is visible
+                  // here.
+                  outcome:
+                    snapshot.run.outcome ??
+                    (steps.every((step) => step.execution === "assessed")
+                      ? ("completed" as const)
+                      : ("ended-early" as const)),
+                  stepDeadline: null,
+                  steps,
+                }),
+                takeover: null,
+                updatedAt: at,
+              };
+            });
+            const finished = completed?.run;
+            if (
+              completed === undefined ||
+              finished === null ||
+              finished === undefined
+            ) {
+              return yield* Effect.fail(notRunning(sessionId));
+            }
+            // Closing the session scope stops tracing and finalizes the video.
+            // Nothing may write to the Run's artifacts after this point.
+            yield* Scope.close(record.scope, Exit.void);
+            const ended: AgentRunSummary = {
+              assessmentCounts: finished.assessmentCounts,
+              attribution: finished.attribution,
+              ceilings: finished.ceilings,
+              coverage: finished.coverage,
+              endedAt: finished.endedAt ?? at,
+              flowSkillName: finished.flowSkillName,
+              inputs: finished.inputs,
+              outcome: finished.outcome ?? "ended-early",
+              runId: finished.runId,
+              schemaVersion: 2,
+              sessionId,
+              startedAt: finished.startedAt,
+              steps: finished.steps,
+              timeline: [
+                ...new Map(
+                  [
+                    ...(record.boundaryControl?.evidence ?? []),
+                    ...completed.timeline,
+                  ].map((entry) => [entry.id, entry])
+                ).values(),
+              ].toSorted((left, right) => left.at.localeCompare(right.at)),
+              title: finished.title,
+              tracePath: yield* finalArtifactPath(record, record.traceFile),
+              videoPath: yield* finalArtifactPath(record, record.videoFile),
+            };
+            yield* mutate(sessionId, (snapshot) => ({
+              ...snapshot,
+              phase: "closed",
+              updatedAt: now().toISOString(),
+            }));
+            const summary =
+              summaryText === undefined
+                ? ended
+                : { ...ended, agentAccount: summaryText };
+            record.finalized.summary = summary;
+            return yield* persistRunSummary(summary);
+          })
+        );
+      }
+    );
+
+    /**
+     * End a Run that has just reached a terminal state on its own. The Run is
+     * already over either way, so a Summary that could not be written is
+     * reported and the transition stands: `agent_run_complete` still writes
+     * it, which is what the caller would retry anyway.
+     */
+    const finalizeEndedRun = (sessionId: AgentSessionId): Effect.Effect<void> =>
+      Effect.gen(function* persistEndedRun() {
+        const finalized = yield* Effect.result(finalizeRunUnlocked(sessionId));
+        if (finalized._tag === "Failure") {
+          yield* Effect.logWarning(
+            `The Run in Agent Session ${sessionId} ended but its Run Summary was not persisted: ${finalized.failure.message}`
+          );
+        }
+      });
+
+    /**
      * A hard ceiling. It interrupts whatever the browser was asked to do,
      * records `timed-out` as an execution outcome, and stops: the Runner does
      * not invent an Agent Assessment on the agent's behalf
@@ -5113,6 +5277,9 @@ const makeAgentSession = (
             updatedAt: at,
           };
         });
+        // A ceiling ends the Run as surely as an assessment does, so the
+        // evidence it did gather is sealed and persisted the same way.
+        yield* finalizeEndedRun(sessionId);
       }
     );
 
@@ -5126,37 +5293,50 @@ const makeAgentSession = (
      * any user extension it raced, and a breach can never interleave with a
      * Run mutation that already checked the outcome.
      */
-    const watchRunCeilings = (sessionId: AgentSessionId): Effect.Effect<void> =>
-      lock
-        .withPermit(
-          Effect.gen(function* watchCeilings() {
-            const record = Ref.getUnsafe(sessions).get(sessionId);
-            const run = record?.snapshot.run ?? null;
-            if (record === undefined || run === null || run.outcome !== null) {
-              return;
-            }
-            const at = now().getTime();
-            if (at >= Date.parse(run.runDeadline)) {
-              yield* timeOutRun(sessionId, "The Run ceiling");
-              return;
-            }
-            if (
-              run.stepDeadline !== null &&
-              at >= Date.parse(run.stepDeadline) &&
-              // A paused agent is not a slow agent: the user holds the
-              // browser, so the Agent Step's budget is not being spent on the
-              // agent's work.
-              !agentIsPaused(record.snapshot)
-            ) {
-              yield* timeOutRun(sessionId, "The Agent Step ceiling");
-            }
-          })
-        )
-        .pipe(
-          Effect.andThen(Effect.sleep(CEILING_POLL_INTERVAL)),
-          Effect.forever,
-          Effect.catchCause(() => Effect.void)
-        );
+    const watchRunCeilings = (
+      sessionId: AgentSessionId
+    ): Effect.Effect<void> => {
+      // Each tick answers whether the Run is still worth watching. A Run that
+      // has ended finalized itself, which closed this fiber's own scope, so
+      // the watcher stops rather than polling a Run nobody can change.
+      const tick = lock.withPermit(
+        Effect.gen(function* watchCeilings() {
+          const record = Ref.getUnsafe(sessions).get(sessionId);
+          const run = record?.snapshot.run ?? null;
+          if (record === undefined || run === null || run.outcome !== null) {
+            return false;
+          }
+          const at = now().getTime();
+          if (at >= Date.parse(run.runDeadline)) {
+            yield* timeOutRun(sessionId, "The Run ceiling");
+            return false;
+          }
+          if (
+            run.stepDeadline !== null &&
+            at >= Date.parse(run.stepDeadline) &&
+            // A paused agent is not a slow agent: the user holds the browser,
+            // so the Agent Step's budget is not being spent on the agent's
+            // work.
+            !agentIsPaused(record.snapshot)
+          ) {
+            yield* timeOutRun(sessionId, "The Agent Step ceiling");
+            return false;
+          }
+          return true;
+        })
+      );
+      const loop: Effect.Effect<void> = tick.pipe(
+        Effect.flatMap((keepWatching) =>
+          keepWatching
+            ? Effect.sleep(CEILING_POLL_INTERVAL).pipe(
+                Effect.andThen(Effect.suspend(() => loop))
+              )
+            : Effect.void
+        ),
+        Effect.catchCause(() => Effect.void)
+      );
+      return loop;
+    };
 
     /**
      * Start a session and, when it is performing a Run, watch its ceilings for
@@ -5312,14 +5492,22 @@ const makeAgentSession = (
           id: `assessment-${randomUUID()}`,
           outcome: "completed",
         });
+        // The Run is over the moment its last ordered Step is assessed, or the
+        // moment a terminal Agent Assessment stops the rest. Its evidence is
+        // sealed and its Summary written here rather than waiting for a call
+        // the agent has no reason to make.
+        if (!hasNext) {
+          yield* finalizeEndedRun(sessionId);
+        }
+        const ended = hasNext ? withEntry : (yield* read(sessionId)).snapshot;
         yield* rememberSession(
           operationId,
           "assess",
           sessionId,
           requestInput,
-          withEntry
+          ended
         );
-        return withEntry;
+        return ended;
       }
     );
 
@@ -5410,7 +5598,9 @@ const makeAgentSession = (
         summaryText?: string,
         operationId?: OperationId | string
       ) {
-        const requestInput = JSON.stringify({ summary: summaryText ?? null });
+        const requestInput = JSON.stringify({
+          agentAccount: summaryText ?? null,
+        });
         const replayedSummary = replayRunSummary(
           operationId,
           sessionId,
@@ -5422,97 +5612,14 @@ const makeAgentSession = (
         if (replayedSummary?._tag === "replay") {
           return replayedSummary.summary;
         }
-        const record = yield* read(sessionId);
-        if (record.snapshot.run === null) {
-          return yield* Effect.fail(notRunning(sessionId));
-        }
-        return yield* Effect.uninterruptibleMask(() =>
-          Effect.gen(function* finalizeRun() {
-            const at = now().toISOString();
-            // A read-modify-write over the Run as it stands when the write
-            // lands: a `timed-out` outcome a ceiling recorded is kept, never
-            // clobbered by a snapshot this call built earlier.
-            const completed = yield* mutate(sessionId, (snapshot) => {
-              if (snapshot.run === null) {
-                return snapshot;
-              }
-              const steps = markRemainingUnexecuted(snapshot.run.steps);
-              return {
-                ...snapshot,
-                boundary: null,
-                controller: "agent",
-                phase: "completed",
-                run: withDerivedRunTotals({
-                  ...snapshot.run,
-                  activeStepIndex: null,
-                  endedAt: snapshot.run.endedAt ?? at,
-                  // A Run the agent stopped while Agent Steps remained is not
-                  // a completed Run: the coverage it did not reach is visible
-                  // here.
-                  outcome:
-                    snapshot.run.outcome ??
-                    (steps.every((step) => step.execution === "assessed")
-                      ? ("completed" as const)
-                      : ("ended-early" as const)),
-                  stepDeadline: null,
-                  steps,
-                }),
-                takeover: null,
-                updatedAt: at,
-              };
-            });
-            const finished = completed?.run;
-            if (
-              completed === undefined ||
-              finished === null ||
-              finished === undefined
-            ) {
-              return yield* Effect.fail(notRunning(sessionId));
-            }
-            // Closing the session scope stops tracing and finalizes the video.
-            // Nothing may write to the Run's artifacts after this point.
-            yield* Scope.close(record.scope, Exit.void);
-            const summary: AgentRunSummary = {
-              assessmentCounts: finished.assessmentCounts,
-              attribution: finished.attribution,
-              ceilings: finished.ceilings,
-              coverage: finished.coverage,
-              endedAt: finished.endedAt ?? at,
-              flowSkillName: finished.flowSkillName,
-              inputs: finished.inputs,
-              outcome: finished.outcome ?? "ended-early",
-              runId: finished.runId,
-              schemaVersion: 2,
-              sessionId,
-              startedAt: finished.startedAt,
-              steps: finished.steps,
-              summary: summaryText ?? null,
-              timeline: [
-                ...new Map(
-                  [
-                    ...(record.boundaryControl?.evidence ?? []),
-                    ...completed.timeline,
-                  ].map((entry) => [entry.id, entry])
-                ).values(),
-              ].toSorted((left, right) => left.at.localeCompare(right.at)),
-              title: finished.title,
-              tracePath: yield* finalArtifactPath(record, record.traceFile),
-              videoPath: yield* finalArtifactPath(record, record.videoFile),
-            };
-            yield* mutate(sessionId, (snapshot) => ({
-              ...snapshot,
-              phase: "closed",
-              updatedAt: now().toISOString(),
-            }));
-            yield* rememberRunSummary(
-              operationId,
-              sessionId,
-              requestInput,
-              summary
-            );
-            return summary;
-          })
+        const summary = yield* finalizeRunUnlocked(sessionId, summaryText);
+        yield* rememberRunSummary(
+          operationId,
+          sessionId,
+          requestInput,
+          summary
         );
+        return summary;
       }
     );
 
@@ -5608,9 +5715,9 @@ const makeAgentSession = (
           )
         );
       },
-      completeRun: (sessionId, summaryText, operationId) =>
+      completeRun: (sessionId, agentAccount, operationId) =>
         lock.withPermit(
-          completeRunUnlocked(sessionId, summaryText, operationId)
+          completeRunUnlocked(sessionId, agentAccount, operationId)
         ),
       deleteStorage: (sessionId, tabId, input) =>
         requireUserHeldRecord(sessionId).pipe(
@@ -6266,6 +6373,12 @@ export const makeAgentSessionLayer = (
       const teachingRecordingStore = Option.getOrUndefined(
         yield* Effect.serviceOption(TeachingRecordingStore)
       );
+      // A Run persists its own Summary the moment it ends, so the registry
+      // needs the store that owns the Catalog Root. It stays optional: a
+      // Teaching-only process performs no Runs and has nothing to persist.
+      const runStore = Option.getOrUndefined(
+        yield* Effect.serviceOption(AgentRunStore)
+      );
       const parentScope = yield* Scope.Scope;
       const service = yield* PubSub.unbounded<AgentSessionSnapshot>().pipe(
         Effect.flatMap((events) =>
@@ -6275,7 +6388,8 @@ export const makeAgentSessionLayer = (
             events,
             fileSystem,
             parentScope,
-            teachingRecordingStore
+            teachingRecordingStore,
+            runStore
           )
         )
       );

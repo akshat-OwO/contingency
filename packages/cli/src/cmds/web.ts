@@ -68,7 +68,9 @@ export const webCommand = Command.make(
               resourceDirectory: ownerMarker,
               traceDirectory: () =>
                 path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
-            }).pipe(Layer.provide(teachingRecordingStore))
+            }).pipe(
+              Layer.provide(Layer.merge(runStore, teachingRecordingStore))
+            )
           )
         );
         yield* Effect.addFinalizer(() =>

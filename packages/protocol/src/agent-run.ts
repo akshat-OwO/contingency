@@ -205,6 +205,12 @@ export type AgentRunState = typeof AgentRunState.Type;
  * ([ADR 0030](../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
 export const AgentRunSummary = Schema.Struct({
+  /**
+   * The agent's closing account of the Run as a whole. It is absent unless the
+   * agent offered one: a Run that ends on its own writes its Summary before
+   * any account exists, and nothing invents one on the agent's behalf.
+   */
+  agentAccount: Schema.optional(nonEmptyString),
   assessmentCounts: AgentRunAssessmentCounts,
   attribution: AgentRunAttribution,
   ceilings: AgentRunCeilings,
@@ -222,8 +228,6 @@ export const AgentRunSummary = Schema.Struct({
   sessionId: AgentSessionId,
   startedAt: nonEmptyString,
   steps: Schema.Array(AgentRunStep).check(Schema.isMinLength(1)),
-  /** The agent's optional closing account of the Run as a whole. */
-  summary: Schema.NullOr(nonEmptyString),
   timeline: Schema.Array(AgentTimelineEntry),
   title: nonEmptyString,
   /** Relative to the Run's directory; `null` when capture produced none. */
@@ -282,9 +286,10 @@ export const AgentRunStepAssess = Schema.Struct({
 export type AgentRunStepAssess = typeof AgentRunStepAssess.Type;
 
 export const AgentRunComplete = Schema.Struct({
+  /** The agent's closing account of the Run, recorded on its Run Summary. */
+  agentAccount: optionalNullable(nonEmptyString),
   operationId: OperationId,
   sessionId: AgentSessionId,
-  summary: optionalNullable(nonEmptyString),
 });
 export type AgentRunComplete = typeof AgentRunComplete.Type;
 

@@ -22,6 +22,7 @@ const runId = AgentRunId.make("agentrun-store-test");
 
 const summaryFor = (root: string): AgentRunSummary =>
   ({
+    agentAccount: "The basket never accepted the product.",
     assessmentCounts: {
       blocked: 0,
       inconclusive: 0,
@@ -95,7 +96,6 @@ const summaryFor = (root: string): AgentRunSummary =>
         startedAt: null,
       },
     ],
-    summary: "The basket never accepted the product.",
     timeline: [],
     title: "Buy one product",
     tracePath: null,
