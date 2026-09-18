@@ -1455,7 +1455,13 @@ const makeAgentSession = (
       directory: string,
       sessionId: AgentSessionId,
       traceFile: string,
-      videoFiles: readonly string[]
+      videoFiles: readonly string[],
+      /**
+       * Keyframes are unredacted-by-best-effort images of the user's own
+       * screen, so they are retained under the same local-only policy as the
+       * Trace and the video rather than being left unnamed.
+       */
+      keyframeFiles: readonly string[] = []
     ): Effect.Effect<string | undefined, AgentSessionError> =>
       Effect.gen(function* writeSensitiveArtifactMetadata() {
         if (fileSystem === undefined) {
@@ -1471,6 +1477,9 @@ const makeAgentSession = (
             `${JSON.stringify(
               {
                 files: {
+                  keyframes: keyframeFiles
+                    .map((file) => path.basename(file))
+                    .toSorted(),
                   trace: path.basename(traceFile),
                   videos: videoFiles
                     .map((file) => path.basename(file))
@@ -1552,6 +1561,45 @@ const makeAgentSession = (
           });
         }
         return artifacts;
+      });
+
+    /**
+     * Photograph the Page one recorded action left behind. Keyframes are the
+     * only visual evidence a learning agent can read — the video and the Trace
+     * never reach it — so each recorded action carries one, stored among the
+     * recording's artifacts and referenced from the semantic timeline by id and
+     * hash alone
+     * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+     *
+     * Best effort: a Page that navigated out from under the screenshot leaves
+     * the action recorded without an image rather than failing the gesture the
+     * user already performed.
+     */
+    const captureTeachingKeyframe = (
+      record: SessionRecord,
+      page: Page,
+      actionId: string,
+      at: string,
+      force = false
+    ): Effect.Effect<void> =>
+      Effect.gen(function* photographTeachingAction() {
+        const capture = recordingCapture(record);
+        if (
+          capture === undefined ||
+          !(force || capture.needsKeyframe(actionId, at))
+        ) {
+          return;
+        }
+        const keyframe = yield* captureAgentScreenshot(
+          page,
+          now,
+          true,
+          sessionSensitiveValues(record),
+          capture.sensitiveSelectors()
+        ).pipe(Effect.option);
+        if (Option.isSome(keyframe)) {
+          capture.recordKeyframe(keyframe.value, actionId);
+        }
       });
 
     const readyTeachingSnapshot = (
@@ -2086,14 +2134,30 @@ const makeAgentSession = (
       // after it to observe the Page it left behind, so it is closed here.
       // Best effort: a browser already gone must not fail the Stop.
       const { capture } = record;
+      // Closing the gesture forgets it, so its identity is read first: the
+      // same reasoning covers its keyframe, which still holds a state the user
+      // was moving through rather than the one they left on the screen.
+      const openActionId = capture.openActionId();
       yield* browser.activePage(record.browserSessionId).pipe(
         Effect.flatMap((page) =>
-          snapshotAfterAction(page, record.registry, page.url())
-        ),
-        Effect.tap((snapshot) =>
-          Effect.sync(() =>
-            capture.closeCoalescedAction(
-              redactCapturedSnapshot(record, snapshot)
+          snapshotAfterAction(page, record.registry, page.url()).pipe(
+            Effect.tap((snapshot) =>
+              Effect.sync(() =>
+                capture.closeCoalescedAction(
+                  redactCapturedSnapshot(record, snapshot)
+                )
+              )
+            ),
+            Effect.flatMap(() =>
+              openActionId === undefined
+                ? Effect.void
+                : captureTeachingKeyframe(
+                    record,
+                    page,
+                    openActionId,
+                    stoppedAt,
+                    true
+                  )
             )
           )
         ),
@@ -2109,14 +2173,19 @@ const makeAgentSession = (
         stoppedAt
       );
       const { failure } = recorderResult;
+      // Hashing comes first so the retention manifest names the keyframes that
+      // actually reached the directory rather than the ones capture held.
+      const artifacts = yield* collectTeachingArtifacts(
+        record.artifactDirectory
+      );
       const retentionFile = yield* writeTeachingRetentionManifest(
         record.artifactDirectory,
         sessionId,
         recorderResult.traceFile,
-        [recorderResult.videoFile]
-      );
-      const artifacts = yield* collectTeachingArtifacts(
-        record.artifactDirectory
+        [recorderResult.videoFile],
+        artifacts.flatMap((artifact) =>
+          artifact.kind === "keyframe" ? [artifact.path] : []
+        )
       );
       const manifest = yield* teachingRecordingStore
         .stop({
@@ -3796,7 +3865,7 @@ const makeAgentSession = (
                 {},
                 capture.sensitiveValues()
               );
-        capture.recordAction({
+        const captured = capture.recordAction({
           action,
           actor: "user",
           at: input.at,
@@ -3808,6 +3877,12 @@ const makeAgentSession = (
           urlAfter: input.urlAfter,
           urlBefore: input.urlBefore,
         });
+        yield* captureTeachingKeyframe(
+          input.record,
+          input.page,
+          captured.id,
+          input.at
+        );
         yield* recordEntry(
           input.sessionId,
           {
@@ -3855,7 +3930,7 @@ const makeAgentSession = (
         if (semantic === undefined || capture === undefined) {
           return false;
         }
-        capture.recordAction({
+        const captured = capture.recordAction({
           action: semantic.action,
           actor: "user",
           at: input.at,
@@ -3868,6 +3943,12 @@ const makeAgentSession = (
           urlAfter: input.urlAfter,
           urlBefore: input.urlBefore,
         });
+        yield* captureTeachingKeyframe(
+          input.record,
+          input.page,
+          captured.id,
+          input.at
+        );
         yield* recordEntry(
           input.sessionId,
           {
@@ -4583,7 +4664,7 @@ const makeAgentSession = (
                 snapshotAfter(record, page, urlBefore)
               );
               if (Result.isFailure(observed)) {
-                capture.recordAction({
+                const failed = capture.recordAction({
                   action: capturedAction,
                   actor: "user",
                   at: now().toISOString(),
@@ -4597,6 +4678,12 @@ const makeAgentSession = (
                   urlAfter: page.url(),
                   urlBefore,
                 });
+                yield* captureTeachingKeyframe(
+                  record,
+                  page,
+                  failed.id,
+                  failed.at
+                );
                 return yield* Effect.fail(observed.failure);
               }
               return observed.success;
@@ -4611,7 +4698,7 @@ const makeAgentSession = (
             id,
             outcome: "completed",
           };
-          capture.recordAction({
+          const captured = capture.recordAction({
             action: capturedAction,
             actor: "user",
             at,
@@ -4623,6 +4710,7 @@ const makeAgentSession = (
             urlAfter: executed.url,
             urlBefore,
           });
+          yield* captureTeachingKeyframe(record, page, captured.id, at);
           yield* recordEntry(sessionId, entry, { currentUrl: executed.url });
           return { entry, snapshot: executed, url: executed.url };
         })
@@ -5828,7 +5916,7 @@ const makeAgentSession = (
           ).pipe(
             Effect.tap((screenshot) =>
               Effect.sync(() => {
-                recordingCapture(record)?.recordScreenshot(screenshot);
+                recordingCapture(record)?.recordKeyframe(screenshot);
               })
             )
           )
@@ -5859,7 +5947,7 @@ const makeAgentSession = (
           );
           const at = now().toISOString();
           if (Result.isFailure(outcome)) {
-            recordingCapture(record)?.recordAction({
+            const failed = recordingCapture(record)?.recordAction({
               action,
               actor: "user",
               at,
@@ -5872,6 +5960,9 @@ const makeAgentSession = (
               urlAfter: page.url(),
               urlBefore,
             });
+            if (failed !== undefined) {
+              yield* captureTeachingKeyframe(record, page, failed.id, at);
+            }
             yield* recordEntry(sessionId, {
               actor: "user",
               at,
@@ -5913,11 +6004,14 @@ const makeAgentSession = (
               urlAfter,
               urlBefore,
             };
-            recordingCapture(record)?.recordAction(
+            const captured = recordingCapture(record)?.recordAction(
               isScroll(input)
                 ? { ...raw, coalesceKey: SCROLL_COALESCE_KEY }
                 : raw
             );
+            if (captured !== undefined) {
+              yield* captureTeachingKeyframe(record, page, captured.id, at);
+            }
           }
           return yield* recordEntry(
             sessionId,
@@ -6064,7 +6158,7 @@ const makeAgentSession = (
               action,
               false
             );
-            recordingCapture(record)?.recordAction({
+            const failed = recordingCapture(record)?.recordAction({
               action: capturedAction,
               actor: "user",
               at,
@@ -6077,6 +6171,9 @@ const makeAgentSession = (
               urlAfter: page.url(),
               urlBefore,
             });
+            if (failed !== undefined) {
+              yield* captureTeachingKeyframe(record, page, failed.id, at);
+            }
             yield* recordEntry(sessionId, {
               actor: "user",
               at,
@@ -6097,7 +6194,7 @@ const makeAgentSession = (
             const after = yield* snapshotAfter(record, page, urlBefore).pipe(
               Effect.option
             );
-            capture.recordAction({
+            const captured = capture.recordAction({
               action: capturedAction,
               actor: "user",
               at,
@@ -6109,6 +6206,7 @@ const makeAgentSession = (
               urlAfter: url,
               urlBefore,
             });
+            yield* captureTeachingKeyframe(record, page, captured.id, at);
           }
           return yield* recordEntry(
             sessionId,
