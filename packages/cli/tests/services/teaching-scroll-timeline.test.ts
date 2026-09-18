@@ -157,6 +157,49 @@ it("leaves consecutive text edits coalescing on their own observation", () => {
   expect(actions[0]?.snapshotAfter).toBe("snapshot-fill-1");
 });
 
+it("opens a gesture the next scroll notch coalesces into", () => {
+  const capture = capturing();
+
+  expect(capture.openCoalesceKey()).toBeUndefined();
+  capture.recordAction(scrollInput("2026-09-18T00:00:00.000Z", 0));
+  expect(capture.openCoalesceKey()).toBe(SCROLL_KEY);
+  capture.recordAction(
+    clickInput(
+      "2026-09-18T00:00:01.000Z",
+      snapshotWith("snapshot-settled", ["Add to cart"])
+    )
+  );
+  expect(capture.openCoalesceKey()).toBeUndefined();
+});
+
+/**
+ * The session observes the Page on a gesture's first notch, so this is the
+ * fallback: an after tree alone still names nothing, because a diff against an
+ * absent before would be invented rather than observed.
+ */
+it("names nothing for a gesture that never observed where it started", () => {
+  const capture = makeDemonstrationCapture(PAGE_URL);
+  capture.recordAction({
+    ...scrollInput("2026-09-18T00:00:00.000Z", 0),
+    snapshotBefore: null,
+  });
+  capture.closeCoalescedAction(
+    snapshotWith("snapshot-stopped", ["Add to cart", "Load more"])
+  );
+  const events = teachingEventsFor(
+    capture.current(),
+    EMULATION,
+    "2026-09-18T00:00:00.000Z",
+    "2026-09-18T00:00:05.000Z",
+    "user"
+  );
+  const action = events.find((event) => event._tag === "action");
+
+  expect(action?.after.nodeCount).toBe(2);
+  expect(action?.appeared).toEqual([]);
+  expect(action?.disappeared).toEqual([]);
+});
+
 it("reports no change for an action whose after state was never captured", () => {
   const capture = capturing();
   capture.recordAction({

@@ -58,21 +58,10 @@ it.live("records one scroll gesture that reports what it revealed", () =>
           started.id,
           OperationId.make("scroll-start-recording")
         );
-        // What the user saw before scrolling. The catalogue does not exist
-        // yet, so it is the appearance the gesture must be credited with.
-        const beforeScrolling = yield* sessionTool("agent_browser_snapshot", {
-          sessionId: started.id,
-        });
-        expect(beforeScrolling.nodes.some(({ name }) => name === "Anvil")).toBe(
-          false
-        );
+        // Nothing but Start, scroll, Stop: a user-led Teaching session takes
+        // no Browser Snapshot of its own, so the gesture's evidence has to come
+        // from the capture path itself.
         yield* scrollAsUser(started.id);
-        // The lazy section only exists once the sentinel has been seen, so the
-        // demonstration is only worth reading if the scroll actually landed.
-        const revealed = yield* sessionTool("agent_browser_snapshot", {
-          sessionId: started.id,
-        });
-        expect(revealed.nodes.some(({ name }) => name === "Anvil")).toBe(true);
         yield* service.stopTeachingRecording(
           started.id,
           OperationId.make("scroll-stop-recording")
@@ -102,6 +91,8 @@ it.live("records one scroll gesture that reports what it revealed", () =>
         expect(timeline.nextCursor).toBeNull();
         const [scroll] = actions;
         expect(scroll?.description).toBe("The user scrolled the Page");
+        // The tree the gesture started from, observed on its first notch.
+        expect(scroll?.before.nodeCount).toBeGreaterThan(0);
         // Scrolling revealed the catalogue, and the gesture is credited with
         // it: the after state is the Page the user stopped on, not an empty
         // tree.

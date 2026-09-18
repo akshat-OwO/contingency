@@ -75,6 +75,8 @@ export interface DemonstrationCapture {
   readonly counts: () => DemonstrationCounts;
   readonly current: () => Demonstration;
   readonly latestSnapshotId: () => AgentSnapshotId | null;
+  /** Which gesture, if any, the next action would still coalesce into. */
+  readonly openCoalesceKey: () => string | undefined;
   readonly progress: () => TeachingProgress;
   /**
    * Attach an after state to the open coalesced action, if one is still open
@@ -328,6 +330,7 @@ export const makeDemonstrationCapture = (
     }),
     current,
     latestSnapshotId: () => latestSnapshot,
+    openCoalesceKey: () => lastCoalesced?.key,
     progress: () => ({
       actionCount: actions.length,
       instructionCount: instructions.length,
