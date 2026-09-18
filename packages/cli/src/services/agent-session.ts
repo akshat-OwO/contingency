@@ -1099,11 +1099,15 @@ interface SessionRecord {
   readonly artifactDirectory: string | undefined;
   readonly runEvidence: RunStepEvidence;
   /**
-   * The Run Summary this session finalized, once it has one. A Run is
-   * finalized exactly once, however it ends, so this both answers a later
-   * `agent_run_complete` and stops a second Summary from being written.
+   * The Run Summary this session finalized, and whether the Catalog Root has
+   * it. A Run is finalized exactly once, however it ends, but a Summary is
+   * only persisted when its write lands: a failed write leaves the Summary
+   * here for `agent_run_complete` to retry rather than claiming it is stored.
    */
-  readonly finalized: { summary: AgentRunSummary | undefined };
+  readonly finalized: {
+    persisted: boolean;
+    summary: AgentRunSummary | undefined;
+  };
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
   /**
@@ -3570,7 +3574,7 @@ const makeAgentSession = (
                     lock: Semaphore.makeUnsafe(1),
                   },
                   emulation,
-                  finalized: { summary: undefined },
+                  finalized: { persisted: false, summary: undefined },
                   registry,
                   retentionFile,
                   runEvidence: { attempts: new Set(), snapshots: new Set() },
@@ -5063,20 +5067,29 @@ const makeAgentSession = (
      * rather than of the tool that reports it ended.
      */
     const persistRunSummary = (
+      record: SessionRecord,
       summary: AgentRunSummary
     ): Effect.Effect<AgentRunSummary, AgentSessionError> =>
       runStore === undefined
-        ? Effect.succeed(summary)
-        : runStore
-            .write(summary)
-            .pipe(
-              Effect.mapError((cause) =>
-                error(
-                  "agent_session_unavailable",
-                  `Run ${summary.runId} ended but its Run Summary could not be written: ${cause.message}`
-                )
+        ? Effect.sync(() => {
+            // Nothing owns a Catalog Root in this process, so there is no
+            // write to retry and nothing to report as unwritten.
+            record.finalized.persisted = true;
+            return summary;
+          })
+        : runStore.write(summary).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                record.finalized.persisted = true;
+              })
+            ),
+            Effect.mapError((cause) =>
+              error(
+                "agent_session_unavailable",
+                `Run ${summary.runId} ended but its Run Summary could not be written: ${cause.message}`
               )
-            );
+            )
+          );
 
     /**
      * Finalize a Run exactly once: close the browser, seal the Trace and the
@@ -5099,12 +5112,17 @@ const makeAgentSession = (
         if (already !== undefined) {
           // A closing account that arrives after the Run already ended is
           // recorded on the Summary it belongs to; nothing else is rewritten.
-          if (summaryText === undefined || already.agentAccount !== undefined) {
-            return already;
-          }
-          const amended = { ...already, agentAccount: summaryText };
+          const amended =
+            summaryText === undefined || already.agentAccount !== undefined
+              ? already
+              : { ...already, agentAccount: summaryText };
           record.finalized.summary = amended;
-          return yield* persistRunSummary(amended);
+          // A Run whose write never landed is not a persisted Run. This is the
+          // path a caller retries, so it writes rather than answering with a
+          // Summary the Catalog Root has never seen.
+          return record.finalized.persisted && amended === already
+            ? already
+            : yield* persistRunSummary(record, amended);
         }
         return yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* finalizeRun() {
@@ -5188,7 +5206,7 @@ const makeAgentSession = (
                 ? ended
                 : { ...ended, agentAccount: summaryText };
             record.finalized.summary = summary;
-            return yield* persistRunSummary(summary);
+            return yield* persistRunSummary(record, summary);
           })
         );
       }

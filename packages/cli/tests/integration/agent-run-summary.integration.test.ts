@@ -213,3 +213,70 @@ it.live("reports a run id that never existed as a missing Run", () =>
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.live(
+  "writes the Run Summary on completion when the ending write failed",
+  () =>
+    Effect.gen(function* retryAFailedWrite() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-run-summary-retry-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* saveSkill(root);
+
+      yield* Effect.scoped(
+        Effect.gen(function* endAgainstABlockedCatalogRoot() {
+          const started = yield* runTool("agent_flow_skill_run_start", {
+            clientName: "integration-runner",
+            clientVersion: "1.0.0",
+            flowSkillName: FlowSkillName.make("read-delivery"),
+            inputs: [],
+            operationId: OperationId.make("retry-run-start"),
+            url: fixtures.url("delivery.html"),
+          });
+          const { run } = started;
+          if (run === null) {
+            return yield* Effect.die("The Run did not start.");
+          }
+          // A directory where the Summary file belongs: the Run ends against a
+          // Catalog Root that cannot take its write.
+          const summaryFile = path.join(
+            root,
+            AGENT_RUNS_DIRECTORY,
+            run.runId,
+            "summary.json"
+          );
+          yield* fileSystem.makeDirectory(summaryFile, { recursive: true });
+
+          yield* assessActiveStep(started.id, "working", "retry-assess-1");
+          const ended = yield* assessActiveStep(
+            started.id,
+            "working",
+            "retry-assess-2"
+          );
+          // The Run is over either way. Only its Summary is missing.
+          expect(ended.run?.outcome).toBe("completed");
+          const absent = yield* Effect.result(
+            runTool("open_run", { runId: run.runId })
+          );
+          expect(Result.isFailure(absent)).toBe(true);
+
+          // The recovery path is the whole point of tolerating the failed write:
+          // completing the ended Run must write the Summary, not answer with an
+          // in-memory one the Catalog Root has never seen.
+          yield* fileSystem.remove(summaryFile, { recursive: true });
+          // No closing account, so nothing about the Summary has changed:
+          // only the unwritten Summary itself can send this to the store.
+          const completed = yield* runTool("agent_run_complete", {
+            operationId: OperationId.make("retry-complete"),
+            sessionId: started.id,
+          });
+          expect(completed.outcome).toBe("completed");
+          const opened = yield* runTool("open_run", { runId: run.runId });
+          expect(opened.summary.outcome).toBe("completed");
+          expect(opened.summary.agentAccount).toBeUndefined();
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
