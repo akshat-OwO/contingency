@@ -263,6 +263,16 @@ it.live(
               click._tag === "action" ? click.description : ""
             )
           ).toContain('Click button "Confirm delivery area"');
+          // A description and a target that disagree are worse than either
+          // gap alone: the learning agent reads a named control it cannot join
+          // back to any recorded tree. Both are read from the one Snapshot
+          // recorded beside the click, so they stand or fall together.
+          for (const entry of timeline.entries) {
+            if (entry._tag !== "action" || entry.target !== null) {
+              continue;
+            }
+            expect(entry.description).not.toMatch(/"/u);
+          }
 
           const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
             claimOperationId,

@@ -787,16 +787,13 @@ export const makeAgentElementRegistry = (
         y <= rectangle.y + rectangle.height
     );
     // References accumulate across Snapshots of one document, so a point can
-    // sit inside a box an earlier Snapshot read. The newest generation is the
-    // only one whose boxes still describe the Page, and it is the only one the
-    // caller's Snapshot lists, so an older match would name a control no
-    // reader of the capture can resolve.
-    let newest = 0;
-    for (const [, rectangle] of matches) {
-      newest = Math.max(newest, rectangle.generation);
-    }
+    // sit inside a box an earlier Snapshot read. Only the newest Snapshot's
+    // boxes still describe the Page, and only its nodes are listed in the tree
+    // a caller records beside the hit, so a reference from any other
+    // generation names a control that tree cannot resolve. A point the current
+    // Snapshot does not cover is a miss, not an older match.
     const [closest] = matches
-      .filter(([, rectangle]) => rectangle.generation === newest)
+      .filter(([, rectangle]) => rectangle.generation === generation)
       .toSorted(
         ([, left], [, right]) =>
           left.width * left.height - right.width * right.height

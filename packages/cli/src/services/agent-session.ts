@@ -847,11 +847,12 @@ export const describeCapturedAction = (
 };
 
 /**
- * How a click reads when no Snapshot generation still describes the control it
- * hit. The bare reference is the one thing a later reader cannot use — it is
- * re-minted on every Snapshot and dies with the document — and the Flow Skill
- * contract rejects a step that names one, so an unresolved click says it is
- * unresolved rather than handing on a reference.
+ * How a click reads when the tree recorded beside it does not describe the
+ * control it hit. The bare reference is the one thing a later reader cannot
+ * use — it is re-minted on every Snapshot and dies with the document — and the
+ * Flow Skill contract rejects a step that names one, so an unresolved click
+ * says it is unresolved rather than handing on a reference or a name no
+ * recorded tree can be joined back to.
  */
 export const UNRESOLVED_CLICK_DESCRIPTION = "Click an unidentified control";
 
@@ -3776,13 +3777,21 @@ const makeAgentSession = (
         );
         const action = { ref: input.pointed.ref, type: "click" as const };
         // The same description the agent-driven path produces, so a recording
-        // reads in roles and accessible names whoever performed the click.
-        const subject = actionSubject(input.record.registry, action);
+        // reads in roles and accessible names whoever performed the click. The
+        // subject comes from the tree recorded beside the click rather than
+        // from the registry, which keeps a role and name for every reference it
+        // ever minted: reading it there would describe a named control for a
+        // reference the recorded tree cannot resolve, leaving a confident
+        // description over a null target.
+        const { pointed } = input;
+        const subject = pointed.snapshot.nodes.find(
+          (node) => node.ref === pointed.ref
+        );
         const description =
           subject === undefined
             ? UNRESOLVED_CLICK_DESCRIPTION
             : describeCapturedAction(
-                subject,
+                { name: subject.name, role: subject.role },
                 action,
                 {},
                 capture.sensitiveValues()
