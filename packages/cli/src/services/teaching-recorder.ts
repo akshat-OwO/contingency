@@ -128,14 +128,27 @@ const targetFor = (
   };
 };
 
+/**
+ * What one side of the diff gained over the other. A missing or empty tree is
+ * an absent observation, not an empty Page: an action whose after state was
+ * never captured must not read as though every node on the Page vanished.
+ */
 const summaries = (
   left: AgentBrowserSnapshot | undefined,
   right: AgentBrowserSnapshot | undefined
 ) => {
+  if (
+    left === undefined ||
+    right === undefined ||
+    left.nodes.length === 0 ||
+    right.nodes.length === 0
+  ) {
+    return [];
+  }
   const existing = new Set(
-    (left?.nodes ?? []).map((node) => `${node.role}\n${node.name}`)
+    left.nodes.map((node) => `${node.role}\n${node.name}`)
   );
-  return (right?.nodes ?? [])
+  return right.nodes
     .filter((node) => !existing.has(`${node.role}\n${node.name}`))
     .slice(0, CHANGE_SUMMARY_LIMIT)
     .map(({ name, role }) => ({ name, role }));
@@ -160,7 +173,11 @@ const measureEventBytes = (events: readonly TeachingEvent[]): number =>
     "utf-8"
   );
 
-const eventsFor = (
+/**
+ * The semantic timeline one Demonstration becomes, in capture order. Pure, so
+ * the evidence a learning agent will trust can be asserted on directly.
+ */
+export const teachingEventsFor = (
   demonstration: Demonstration,
   emulation: DraftEmulation,
   startedAt: string,
@@ -330,7 +347,7 @@ export const makeTeachingRecorder = (
       if (counts.keyframes > limits.keyframes) {
         return "Teaching stopped because the recording reached its keyframe limit.";
       }
-      // Mirrors `eventsFor`: one `started`, one per captured entry, one
+      // Mirrors `teachingEventsFor`: one `started`, one per captured entry, one
       // `stopped`.
       const events =
         2 +
@@ -352,7 +369,7 @@ export const makeTeachingRecorder = (
         return;
       }
       measuredBytes = measureEventBytes(
-        eventsFor(
+        teachingEventsFor(
           options.demonstration(),
           options.emulation,
           options.startedAt,
@@ -416,7 +433,7 @@ export const makeTeachingRecorder = (
             breach === undefined ? "capture-failed" : "limit-reached";
           const stopReason =
             captureFailure === undefined ? reason : failureReason;
-          const events = eventsFor(
+          const events = teachingEventsFor(
             demonstration,
             options.emulation,
             options.startedAt,

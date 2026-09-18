@@ -718,10 +718,24 @@ const teachingInput = (input: BrowserInput): CapturedUserInput => {
     : withoutKey;
 };
 
-const describeTeachingInput = (input: BrowserInput): string =>
-  input.type === "input_mouse"
+/**
+ * One scroll gesture is one entry. Wheel events arrive in the dozens per flick
+ * of a trackpad, and a learning agent reading the timeline needs "the user
+ * scrolled here", not each tick of it.
+ */
+const SCROLL_COALESCE_KEY = "user-scroll";
+
+const isScroll = (input: BrowserInput): boolean =>
+  input.type === "input_mouse" && input.eventType === "mouseWheel";
+
+const describeTeachingInput = (input: BrowserInput): string => {
+  if (isScroll(input)) {
+    return "The user scrolled the Page";
+  }
+  return input.type === "input_mouse"
     ? `The user sent a ${input.eventType} browser input`
     : `The user sent a ${input.eventType} keyboard input`;
+};
 
 const isTextEdit = (input: BrowserInput): boolean =>
   input.type === "input_keyboard" &&
@@ -2047,6 +2061,23 @@ const makeAgentSession = (
         },
         updatedAt: stoppedAt,
       };
+      // A gesture the user was still making when they stopped has no action
+      // after it to observe the Page it left behind, so it is closed here.
+      // Best effort: a browser already gone must not fail the Stop.
+      const { capture } = record;
+      yield* browser.activePage(record.browserSessionId).pipe(
+        Effect.flatMap((page) =>
+          snapshotAfterAction(page, record.registry, page.url())
+        ),
+        Effect.tap((snapshot) =>
+          Effect.sync(() =>
+            capture.closeCoalescedAction(
+              redactCapturedSnapshot(record, snapshot)
+            )
+          )
+        ),
+        Effect.ignore
+      );
       // Publish `finalizing` first: `recordingCapture` gates on `recording`, so
       // this is what actually ends semantic capture on the same timestamp as the
       // video and the trace, instead of letting it run through encoder drain.
@@ -5798,18 +5829,23 @@ const makeAgentSession = (
             return;
           }
           if (shouldCaptureRawInput(input)) {
-            recordingCapture(record)?.recordAction({
+            const raw = {
               action,
-              actor: "user",
+              actor: "user" as const,
               at,
               description,
               id,
-              outcome: "completed",
+              outcome: "completed" as const,
               snapshotAfter: null,
               snapshotBefore,
               urlAfter,
               urlBefore,
-            });
+            };
+            recordingCapture(record)?.recordAction(
+              isScroll(input)
+                ? { ...raw, coalesceKey: SCROLL_COALESCE_KEY }
+                : raw
+            );
           }
           return yield* recordEntry(
             sessionId,
