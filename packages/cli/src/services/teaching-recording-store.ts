@@ -974,13 +974,23 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
           }
           // A claim outlives one package, so a save may also replace the
-          // package a failed Dry Run just refuted. A Dry Run in flight is the
-          // one exception: its report needs the package it started with.
+          // package a failed Dry Run just refuted. A Dry Run the user has not
+          // answered for is the exception at both ends: a run in flight needs
+          // the package it started with, and a passing run is the user's
+          // choice to make, not a package the agent may quietly replace.
           if (lifecycle._tag === "dry-running") {
             return Effect.fail(
               storeError(
                 "teaching_recording_conflict",
                 `Teaching Recording ${input.recordingId} cannot save a Flow Skill while a Dry Run is running.`
+              )
+            );
+          }
+          if (lifecycle._tag === "dry-run-passed") {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot save a Flow Skill after a passing Dry Run. Relay the user's Reject flow choice with agent_flow_skill_reject, or their Verify flow choice with agent_flow_skill_verify.`
               )
             );
           }

@@ -1015,11 +1015,47 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         recordingId: claimedId,
         sessionId,
       });
+
+      // A Dry Run in flight reports on the package it started with.
+      const midRun = yield* Effect.result(
+        store.saveSkill({
+          claimOperationId: claim,
+          files: ["SKILL.md"],
+          operationId: OperationId.make("lifetime-save-mid-run"),
+          recordingId: claimedId,
+          skillPath: "lifetime-flow/SKILL.md",
+        })
+      );
+      expect(midRun).toMatchObject({
+        failure: { code: "teaching_recording_conflict" },
+      });
+
       yield* store.passDryRun({
         observableOutcome: "The confirmation page appeared.",
         operationId: OperationId.make("lifetime-pass"),
         recordingId: claimedId,
       });
+      // A passing Dry Run is the user's choice to make, so the claim alone
+      // does not let the agent replace the package it passed with.
+      const afterPass = yield* Effect.result(
+        store.saveSkill({
+          claimOperationId: claim,
+          files: ["SKILL.md"],
+          operationId: OperationId.make("lifetime-save-after-pass"),
+          recordingId: claimedId,
+          skillPath: "lifetime-flow/SKILL.md",
+        })
+      );
+      expect(afterPass).toMatchObject({
+        failure: { code: "teaching_recording_conflict" },
+      });
+      if (afterPass._tag === "Failure") {
+        expect(afterPass.failure.message).toContain("agent_flow_skill_reject");
+      }
+      expect((yield* store.read(claimedId)).lifecycle._tag).toBe(
+        "dry-run-passed"
+      );
+
       yield* store.reject({
         operationId: OperationId.make("lifetime-reject"),
         recordingId: claimedId,
