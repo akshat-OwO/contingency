@@ -348,6 +348,24 @@ it.live(
           // never touched, so it must not reuse the Teaching session.
           expect(failedRun.session.id).not.toBe(teachingSessionId);
           expect(failedRun.session.activity).toBe("run");
+          // A Dry Run session says what it rehearses, so reading it back is
+          // enough to tell it from an Interactive Run (#202).
+          expect(failedRun.session.flowSkillName).toBe("set-delivery-area");
+          expect(failedRun.session.recordingId).toBe(recordingId);
+          expect(failedRun.session.dryRun).toMatchObject({
+            flowSkillName: "set-delivery-area",
+            recordingId,
+          });
+          expect(failedRun.session.run).toBeNull();
+          const reread = yield* sessionTool("agent_session_get", {
+            sessionId: failedRun.session.id,
+          });
+          expect(reread.flowSkillName).toBe("set-delivery-area");
+          expect(reread.recordingId).toBe(recordingId);
+          expect(reread.dryRun).toMatchObject({
+            flowSkillName: "set-delivery-area",
+            recordingId,
+          });
           expect(failedRun.files.map((file) => file.path)).toContain(
             "SKILL.md"
           );
@@ -407,6 +425,17 @@ it.live(
             "Bandra",
             "delivery-dry-passed"
           );
+          // Driving the rehearsal writes timeline entries, which must not
+          // cost the session the identity it started with (#202).
+          const afterActing = yield* sessionTool("agent_session_get", {
+            sessionId: passedRun.session.id,
+          });
+          expect(afterActing.flowSkillName).toBe("set-delivery-area");
+          expect(afterActing.recordingId).toBe(recordingId);
+          expect(afterActing.dryRun).toMatchObject({
+            flowSkillName: "set-delivery-area",
+            recordingId,
+          });
           yield* teachingRecordingTool("agent_flow_skill_dry_run_report", {
             observableOutcome: "Delivering to Bandra, Mumbai.",
             operationId: OperationId.make("delivery-dry-passed-report"),

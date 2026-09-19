@@ -84,10 +84,25 @@ const AgentSessionSnapshotBase = {
   viewUrl: nonEmptyString,
 };
 
+/**
+ * What a Dry Run session rehearses. A Dry Run is driven against the saved
+ * Flow Skill package rather than ordered Agent Steps, so it carries the
+ * identity of the flow and the Teaching Recording instead of an
+ * {@link AgentRunState}. Its presence is what separates a rehearsal from an
+ * Interactive Run when a reader has only the session.
+ */
+export const AgentDryRunState = Schema.Struct({
+  flowSkillName: FlowSkillName,
+  recordingId: TeachingRecordingId,
+  startedAt: nonEmptyString,
+});
+export type AgentDryRunState = typeof AgentDryRunState.Type;
+
 export const TeachingSessionSnapshot = Schema.Struct({
   ...AgentSessionSnapshotBase,
   activity: Schema.Literal("teaching"),
   captureState: TeachingCaptureState,
+  dryRun: Schema.Null.pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   flowSkillName: FlowSkillName,
   recordingCleanup: optionalNullable(TeachingRecordingCleanupState),
   recordingId: TeachingRecordingId,
@@ -100,8 +115,11 @@ export const RunSessionSnapshot = Schema.Struct({
   ...AgentSessionSnapshotBase,
   activity: Schema.Literal("run"),
   captureState: Schema.Null,
-  flowSkillName: Schema.Null,
-  recordingId: Schema.Null,
+  dryRun: Schema.NullOr(AgentDryRunState).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
+  flowSkillName: Schema.NullOr(FlowSkillName),
+  recordingId: Schema.NullOr(TeachingRecordingId),
   run: Schema.NullOr(AgentRunState),
   teaching: Schema.Null,
 });

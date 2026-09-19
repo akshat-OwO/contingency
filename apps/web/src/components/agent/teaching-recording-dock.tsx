@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
 import type {
   TeachingRecordingGesture,
   TeachingSecondaryAction,
@@ -115,8 +116,8 @@ const DockSessionSelect = ({
   >
     {sessions.map((session) => (
       <option key={session.id} value={session.id}>
-        {session.activity === "teaching"
-          ? session.flowSkillName
+        {session.activity === "teaching" || session.dryRun
+          ? agentSessionLabel(session)
           : `${session.clientName} · Interactive Run`}
       </option>
     ))}

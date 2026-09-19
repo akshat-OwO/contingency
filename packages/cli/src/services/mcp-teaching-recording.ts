@@ -389,6 +389,10 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             activity: "run",
             clientName: "flow-skill-dry-run",
             clientVersion: "1",
+            dryRun: {
+              flowSkillName: manifest.flowSkillName,
+              recordingId: manifest.recordingId,
+            },
             emulation: manifest.emulation,
             operationId: params.operationId,
             url: params.url,
