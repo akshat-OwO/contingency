@@ -425,6 +425,17 @@ it.live(
             "Bandra",
             "delivery-dry-passed"
           );
+          // Driving the rehearsal writes timeline entries, which must not
+          // cost the session the identity it started with (#202).
+          const afterActing = yield* sessionTool("agent_session_get", {
+            sessionId: passedRun.session.id,
+          });
+          expect(afterActing.flowSkillName).toBe("set-delivery-area");
+          expect(afterActing.recordingId).toBe(recordingId);
+          expect(afterActing.dryRun).toMatchObject({
+            flowSkillName: "set-delivery-area",
+            recordingId,
+          });
           yield* teachingRecordingTool("agent_flow_skill_dry_run_report", {
             observableOutcome: "Delivering to Bandra, Mumbai.",
             operationId: OperationId.make("delivery-dry-passed-report"),

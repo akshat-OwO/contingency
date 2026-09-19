@@ -3108,7 +3108,7 @@ const makeAgentSession = (
             ...snapshot,
             ...common,
             activity: "run" as const,
-            recordingId: null,
+            recordingId: snapshot.recordingId,
             run: (() => {
               const patched = safePatch.run ?? snapshot.run;
               return patched === null ||
