@@ -102,19 +102,6 @@ export const mcpCommand = Command.make(
             })
           )
         );
-        const agentSession = Layer.succeedContext(
-          yield* Layer.build(
-            makeAgentSessionLayer({
-              allowedActivity: "any",
-              get baseUrl() {
-                return boundOrigin.url;
-              },
-              resourceDirectory: ownerMarker,
-              traceDirectory: () =>
-                path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
-            }).pipe(Layer.provide(teachingRecordingStore))
-          )
-        );
         // The catalog is durable and process-independent: it is selected per
         // process but never part of shutdown cleanup.
         const catalog = Layer.succeedContext(
@@ -132,6 +119,21 @@ export const mcpCommand = Command.make(
         const runStore = Layer.succeedContext(
           yield* Layer.build(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
+          )
+        );
+        const agentSession = Layer.succeedContext(
+          yield* Layer.build(
+            makeAgentSessionLayer({
+              allowedActivity: "any",
+              get baseUrl() {
+                return boundOrigin.url;
+              },
+              resourceDirectory: ownerMarker,
+              traceDirectory: () =>
+                path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
+            }).pipe(
+              Layer.provide(Layer.merge(runStore, teachingRecordingStore))
+            )
           )
         );
         const shared = Layer.mergeAll(

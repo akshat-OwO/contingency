@@ -266,6 +266,9 @@ export const agentProcessLayer = (
   const recordingStore = makeTeachingRecordingStoreLayer({
     root: () => selectedCatalogRoot,
   });
+  // A Run persists its own Summary as it ends, so the registry reads the same
+  // store the Run tools do.
+  const runStore = makeAgentRunStoreLayer({ root: () => selectedCatalogRoot });
   return Layer.mergeAll(
     RpcHandlersLive,
     AgentSessionToolHandlersLive,
@@ -282,7 +285,7 @@ export const agentProcessLayer = (
                 ...sessionOptions,
                 resourceDirectory: options.resourceDirectory,
               }
-        ).pipe(Layer.provide(recordingStore)),
+        ).pipe(Layer.provide(Layer.merge(runStore, recordingStore))),
         makeFlowSkillCatalogLayer(
           options.followCatalogSelection === true
             ? {
@@ -293,7 +296,7 @@ export const agentProcessLayer = (
               }
             : catalogOptions
         ),
-        makeAgentRunStoreLayer({ root: () => selectedCatalogRoot }),
+        runStore,
         recordingStore
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),

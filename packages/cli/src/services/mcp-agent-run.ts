@@ -104,7 +104,7 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
 const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
   dependencies: [AgentSession],
   description:
-    'Report your evidence-backed judgment of the active Agent Step: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted, which is reported as incomplete coverage rather than as a failure of the website.',
+    'Report your evidence-backed judgment of the active Agent Step: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted, which is reported as incomplete coverage rather than as a failure of the website. Assessing the last Agent Step, or ending the Steps early, ends the Run then and there: Contingency closes the browser and writes the persistent Run Summary, which `open_run` reads.',
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     evidence: AgentRunStepAssess.fields.evidence,
@@ -117,14 +117,14 @@ const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
 });
 
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
-  dependencies: [AgentSession, AgentRunStore],
+  dependencies: [AgentSession],
   description:
-    "End the Interactive Run. Contingency finalizes the Trace and video, closes the live browser, writes the persistent Run Summary, and switches Workspace to summary mode. The Summary reports assessment counts separately from complete or incomplete coverage. Nothing leaves the machine.",
+    "End the Interactive Run early, before its ordered Agent Steps are exhausted, and optionally record your closing account of it. A Run that ends on its own — its last Agent Step assessed, a terminal Agent Assessment, or a ceiling — has already finalized the Trace and video, closed the live browser, and written the persistent Run Summary, and this answers with that same Summary rather than writing a second one. The Summary reports assessment counts separately from complete or incomplete coverage. Nothing leaves the machine.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
+    agentAccount: AgentRunComplete.fields.agentAccount,
     operationId: AgentRunComplete.fields.operationId,
     sessionId: AgentRunComplete.fields.sessionId,
-    summary: AgentRunComplete.fields.summary,
   }),
   success: AgentRunSummary,
 });
@@ -312,11 +312,11 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
   agent_run_complete: (params) =>
     Effect.gen(function* completeInteractiveRun() {
       const session = yield* AgentSession;
-      const store = yield* AgentRunStore;
-      const summary = yield* session
-        .completeRun(params.sessionId, params.summary, params.operationId)
+      // The Run persisted its own Summary when it ended. Completing an already
+      // ended Run answers with that same Summary rather than writing a second.
+      return yield* session
+        .completeRun(params.sessionId, params.agentAccount, params.operationId)
         .pipe(Effect.mapError(failure));
-      return yield* store.write(summary).pipe(Effect.mapError(failure));
     }),
   agent_run_step_assess: (params) =>
     Effect.gen(function* assessAgentStep() {

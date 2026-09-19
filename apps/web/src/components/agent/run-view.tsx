@@ -274,9 +274,9 @@ export const RunSummaryView = ({
           {summary.outcome}
         </Badge>
         <p className="font-mono text-xs wrap-anywhere">{summary.runId}</p>
-        {summary.summary === null ? null : (
+        {summary.agentAccount === undefined ? null : (
           <p className="text-muted-foreground text-xs wrap-anywhere">
-            {summary.summary}
+            {summary.agentAccount}
           </p>
         )}
         <p className="text-muted-foreground text-xs">
