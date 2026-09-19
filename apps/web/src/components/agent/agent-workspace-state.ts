@@ -192,3 +192,27 @@ export const agentStatusLabel = (
   }
   return streamConnected ? "Live" : "Connecting";
 };
+
+/**
+ * Which snapshot of the selected session the Workspace should hold: the one it
+ * already has, or the one the sessions query just reported.
+ *
+ * The Workspace holds a session locally so a live stream event is not undone
+ * by a poll that raced it. That hold used to be unconditional, which let the
+ * dock keep offering an action the recording had already moved past: another
+ * process can verify and purge a recording, and the dock's action set is
+ * derived from the capture state it holds (#211).
+ *
+ * `updatedAt` is the server's own ordering for a session, and the Teaching
+ * stream refreshes it from the recording manifest, so comparing it adopts a
+ * newer lifecycle without ever rolling a newer stream event back.
+ */
+export const adoptSessionSnapshot = (
+  held: AgentSessionSnapshot | undefined,
+  polled: AgentSessionSnapshot
+): AgentSessionSnapshot => {
+  if (held === undefined || held.id !== polled.id) {
+    return polled;
+  }
+  return polled.updatedAt > held.updatedAt ? polled : held;
+};

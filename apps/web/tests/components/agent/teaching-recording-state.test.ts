@@ -1,7 +1,9 @@
+import { makeBrowserRpcError } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
 import {
   flowSkillDryRunPrompt,
+  gestureFailureMessage,
   teachingAgentPrompt,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
@@ -131,4 +133,34 @@ test("hands the dry run to an agent with the inputs it must change", () => {
   expect(prompt).toContain("agent_flow_skill_dry_run_report");
   // The whole reason this is a hand-off rather than a button.
   expect(prompt).toContain("differs from the recorded journey");
+});
+
+test("names the lifecycle when a gesture lost the race to another process", () => {
+  const message = gestureFailureMessage(
+    "verify-flow",
+    makeBrowserRpcError(
+      "agent_session_conflict",
+      "Teaching Recording recording-7 cannot be verified from verified."
+    )
+  );
+
+  expect(message).toBe(
+    "Verify flow no longer applies to this recording. Teaching Recording recording-7 cannot be verified from verified."
+  );
+});
+
+test("names the gesture when the failure says nothing readable", () => {
+  // The shape behind the rendered `[object Object]` in #211.
+  expect(gestureFailureMessage("verify-flow", { message: { code: 17 } })).toBe(
+    "The Workspace could not connect, so Verify flow did not reach the server."
+  );
+  expect(gestureFailureMessage("stop")).toBe(
+    "The Workspace could not connect, so Stop did not reach the server."
+  );
+});
+
+test("repeats a transport failure as the server told it", () => {
+  expect(
+    gestureFailureMessage("start", new Error("The Workspace lost the socket."))
+  ).toBe("The Workspace lost the socket.");
 });

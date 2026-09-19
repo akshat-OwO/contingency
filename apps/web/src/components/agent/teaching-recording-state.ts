@@ -3,6 +3,8 @@ import type {
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
 
+import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
+
 /**
  * The user gestures that move a Teaching Recording. Start and Stop are the
  * whole privacy boundary (ADR 0039): nothing is captured before Start, and
@@ -356,3 +358,36 @@ export const flowSkillDryRunPrompt = (
     "Drive the returned fresh Agent Session with the browser tools, check the observable outcome, then call agent_flow_skill_dry_run_report.",
     "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
   ].join("\n");
+
+/** What each gesture is called when a sentence has to name the one that failed. */
+const GESTURE_NAME: Record<TeachingRecordingGesture, string> = {
+  "retry-cleanup": "Retry cleanup",
+  start: "Start recording",
+  stop: "Stop",
+  "stop-dry-run": "Stop dry run",
+  "verify-flow": "Verify flow",
+};
+
+/**
+ * What the dock says when a gesture does not go through.
+ *
+ * A refusal the server explained is repeated verbatim: the Teaching store
+ * already names the lifecycle it refused from, and that is the sentence the
+ * user can act on. A lifecycle refusal is prefixed so the user reads why the
+ * button they pressed no longer applies before reading the detail. Anything
+ * else names the gesture and the connection, because a dock alert that says
+ * nothing is worse than no alert at all (#211).
+ */
+export const gestureFailureMessage = <Failure>(
+  gesture: TeachingRecordingGesture,
+  failure: Failure
+): string => {
+  const name = GESTURE_NAME[gesture];
+  const detail = failureMessage(
+    failure,
+    `The Workspace could not connect, so ${name} did not reach the server.`
+  );
+  return isLifecycleRefusal(failure)
+    ? `${name} no longer applies to this recording. ${detail}`
+    : detail;
+};
