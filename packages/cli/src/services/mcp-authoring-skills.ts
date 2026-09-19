@@ -106,7 +106,8 @@ const learnFlowSkillPrompt = [
   '5. Put conditional target detail in references/accessibility.md, as `- role=<role> name="<name>" context="<context>"` entries, plus a "Why these targets are stable" heading. Link every reference file from SKILL.md.',
   "6. Save with agent_flow_skill_save. A refusal returns one diagnostic per broken property; fix those exact paths and save again.",
   "7. Ask for every required input again. When the task permits it, change at least one demonstrated input. Start a fresh-context Dry Run with agent_flow_skill_dry_run_start, follow the returned Flow Skill files with the existing browser tools, and call agent_flow_skill_dry_run_report only after checking the stated observable outcome.",
-  "8. A passing report keeps the Teaching Recording. Show the result to the user. Call agent_flow_skill_verify only after the user explicitly chooses Verify flow, or call agent_flow_skill_reject when the user rejects it.",
+  "8. A failed report keeps the Teaching Recording and this claim. Fix the package and call agent_flow_skill_save with the same claim operation id, then start another Dry Run.",
+  "9. A passing report keeps the Teaching Recording. Show the result to the user. Call agent_flow_skill_verify only after the user explicitly chooses Verify flow, or call agent_flow_skill_reject when the user rejects it.",
 ].join("\n");
 
 const authoringSkillResources = AUTHORING_SKILL_FILES.map((entry) =>

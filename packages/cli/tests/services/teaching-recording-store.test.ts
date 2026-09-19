@@ -910,3 +910,174 @@ it.effect("renames before capture and discards a recording back to setup", () =>
     expect(yield* fileSystem.exists(artifactFile)).toBe(false);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
+  Effect.gen(function* keepClaimThroughFailure() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-teaching-claim-lifetime-",
+    });
+    const claimedId = TeachingRecordingId.make("recording-claim-lifetime");
+    const claim = OperationId.make("lifetime-claim");
+    const skillFile = path.join(root, "lifetime-flow", "SKILL.md");
+    yield* Effect.gen(function* exerciseClaimLifetime() {
+      const store = yield* TeachingRecordingStore;
+      yield* store.begin({
+        emulation,
+        flowSkillName: FlowSkillName.make("lifetime-flow"),
+        operationId: OperationId.make("lifetime-begin"),
+        recordingId: claimedId,
+        sessionId,
+      });
+      yield* store.start({
+        operationId: OperationId.make("lifetime-start"),
+        recordingId: claimedId,
+      });
+      yield* store.stop({
+        artifacts: [],
+        operationId: OperationId.make("lifetime-stop"),
+        recordingId: claimedId,
+      });
+
+      // A save needs a claim, and names the tool that grants one.
+      const unclaimed = yield* Effect.result(
+        store.saveSkill({
+          claimOperationId: claim,
+          files: ["SKILL.md"],
+          operationId: OperationId.make("lifetime-save-unclaimed"),
+          recordingId: claimedId,
+          skillPath: "lifetime-flow/SKILL.md",
+        })
+      );
+      expect(unclaimed).toMatchObject({
+        failure: { code: "teaching_recording_unclaimed" },
+      });
+      if (unclaimed._tag === "Failure") {
+        expect(unclaimed.failure.message).toContain(
+          "agent_teaching_recording_claim"
+        );
+      }
+
+      yield* store.startLearning({
+        operationId: claim,
+        recordingId: claimedId,
+      });
+      yield* fileSystem.makeDirectory(path.dirname(skillFile), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(skillFile, "# Lifetime flow\n");
+      yield* store.saveSkill({
+        claimOperationId: claim,
+        files: ["SKILL.md"],
+        operationId: OperationId.make("lifetime-save-one"),
+        recordingId: claimedId,
+        skillPath: "lifetime-flow/SKILL.md",
+      });
+      yield* store.startDryRun({
+        inputs: [],
+        operationId: OperationId.make("lifetime-dry-one"),
+        recordingId: claimedId,
+        sessionId,
+      });
+      yield* store.failDryRun({
+        observableOutcome: "The order never reached the confirmation page.",
+        operationId: OperationId.make("lifetime-fail"),
+        recordingId: claimedId,
+      });
+
+      // The failure keeps the claim, so the same agent saves its fix.
+      const fixed = yield* store.saveSkill({
+        claimOperationId: claim,
+        files: ["SKILL.md"],
+        operationId: OperationId.make("lifetime-save-two"),
+        recordingId: claimedId,
+        skillPath: "lifetime-flow/SKILL.md",
+      });
+      expect(fixed.lifecycle._tag).toBe("skill-drafted");
+
+      // Another live operation's claim id is a conflict, not a missing claim.
+      const other = yield* Effect.result(
+        store.saveSkill({
+          claimOperationId: OperationId.make("lifetime-other-claim"),
+          files: ["SKILL.md"],
+          operationId: OperationId.make("lifetime-save-other"),
+          recordingId: claimedId,
+          skillPath: "lifetime-flow/SKILL.md",
+        })
+      );
+      expect(other).toMatchObject({
+        failure: { code: "teaching_recording_conflict" },
+      });
+
+      yield* store.startDryRun({
+        inputs: [],
+        operationId: OperationId.make("lifetime-dry-two"),
+        recordingId: claimedId,
+        sessionId,
+      });
+
+      // A Dry Run in flight reports on the package it started with.
+      const midRun = yield* Effect.result(
+        store.saveSkill({
+          claimOperationId: claim,
+          files: ["SKILL.md"],
+          operationId: OperationId.make("lifetime-save-mid-run"),
+          recordingId: claimedId,
+          skillPath: "lifetime-flow/SKILL.md",
+        })
+      );
+      expect(midRun).toMatchObject({
+        failure: { code: "teaching_recording_conflict" },
+      });
+
+      yield* store.passDryRun({
+        observableOutcome: "The confirmation page appeared.",
+        operationId: OperationId.make("lifetime-pass"),
+        recordingId: claimedId,
+      });
+      // A passing Dry Run is the user's choice to make, so the claim alone
+      // does not let the agent replace the package it passed with.
+      const afterPass = yield* Effect.result(
+        store.saveSkill({
+          claimOperationId: claim,
+          files: ["SKILL.md"],
+          operationId: OperationId.make("lifetime-save-after-pass"),
+          recordingId: claimedId,
+          skillPath: "lifetime-flow/SKILL.md",
+        })
+      );
+      expect(afterPass).toMatchObject({
+        failure: { code: "teaching_recording_conflict" },
+      });
+      if (afterPass._tag === "Failure") {
+        expect(afterPass.failure.message).toContain("agent_flow_skill_reject");
+      }
+      expect((yield* store.read(claimedId)).lifecycle._tag).toBe(
+        "dry-run-passed"
+      );
+
+      yield* store.reject({
+        operationId: OperationId.make("lifetime-reject"),
+        recordingId: claimedId,
+      });
+
+      // A rejection keeps the claim too.
+      const revised = yield* store.saveSkill({
+        claimOperationId: claim,
+        files: ["SKILL.md"],
+        operationId: OperationId.make("lifetime-save-three"),
+        recordingId: claimedId,
+        skillPath: "lifetime-flow/SKILL.md",
+      });
+      expect(revised.lifecycle._tag).toBe("skill-drafted");
+
+      // The claim ends where the agent gives up, from a drafted state.
+      const released = yield* store.releaseLearning({
+        claimOperationId: claim,
+        operationId: OperationId.make("lifetime-release"),
+        recordingId: claimedId,
+      });
+      expect(released.lifecycle._tag).toBe("ready");
+    }).pipe(Effect.provide(layerFor(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

@@ -319,6 +319,7 @@ export const teachingAgentPrompt = (
     "",
     "Do not use skill-creator. Claim the recording, page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.",
     "After saving, ask for the inputs again and call agent_flow_skill_dry_run_start with at least one changed input when the task permits it. Drive the returned fresh Agent Session, check the observable outcome, and call agent_flow_skill_dry_run_report.",
+    "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
     "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
   ].join("\n");
 
@@ -356,6 +357,7 @@ export const flowSkillDryRunPrompt = (
     "Read the drafted SKILL.md, then ask me for every declared input and pick at least one value that differs from the recorded journey.",
     `Call agent_flow_skill_dry_run_start with recordingId "${recordingId}" and those inputs.`,
     "Drive the returned fresh Agent Session with the browser tools, check the observable outcome, then call agent_flow_skill_dry_run_report.",
+    "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
     "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
   ].join("\n");
 

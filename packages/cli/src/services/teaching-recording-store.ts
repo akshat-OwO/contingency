@@ -6,6 +6,7 @@ import type {
   DraftEmulation,
   FlowSkillDryRunResult,
   FlowSkillName,
+  TeachingLearningClaim,
   TeachingRecordingArtifact,
   TeachingRecordingId,
   TeachingRecordingManifest,
@@ -40,7 +41,8 @@ interface TeachingRecordingStoreDomainError {
     | "teaching_recording_conflict"
     | "teaching_recording_invalid"
     | "teaching_recording_io"
-    | "teaching_recording_not_found";
+    | "teaching_recording_not_found"
+    | "teaching_recording_unclaimed";
   readonly message: string;
 }
 export type TeachingRecordingStoreError = TeachingRecordingStoreDomainError;
@@ -233,13 +235,92 @@ const processIsStale = (pid: number): boolean => {
   }
 };
 
-const ownsClaim = (
-  manifest: PendingTeachingRecordingManifest,
+/**
+ * The learning claim a state carries, if it carries one. Only `learning`
+ * always has a claim; the drafted and Dry Run states carry the same claim
+ * forward so one agent can fix and save its package again, and have none when
+ * the recording was drafted before claims outlived a save.
+ */
+const claimOf = (
+  manifest: TeachingRecordingManifest
+): TeachingLearningClaim | undefined => {
+  const { lifecycle } = manifest;
+  switch (lifecycle._tag) {
+    case "learning": {
+      return lifecycle.claim;
+    }
+    case "skill-drafted":
+    case "dry-running":
+    case "dry-run-failed":
+    case "dry-run-passed": {
+      return lifecycle.claim;
+    }
+    default: {
+      return undefined;
+    }
+  }
+};
+
+type ClaimedLifecycle = Extract<
+  TeachingRecordingManifest["lifecycle"],
+  {
+    readonly _tag:
+      | "dry-run-failed"
+      | "dry-run-passed"
+      | "dry-running"
+      | "learning"
+      | "skill-drafted";
+  }
+>;
+
+const isClaimedLifecycle = (
+  lifecycle: TeachingRecordingManifest["lifecycle"]
+): lifecycle is ClaimedLifecycle =>
+  lifecycle._tag === "learning" ||
+  lifecycle._tag === "skill-drafted" ||
+  lifecycle._tag === "dry-running" ||
+  lifecycle._tag === "dry-run-failed" ||
+  lifecycle._tag === "dry-run-passed";
+
+/**
+ * Why a claimed operation may or may not proceed. `unclaimed` and `held` are
+ * kept apart because they need opposite repairs: claim the recording again, or
+ * wait for the live owner to finish.
+ */
+type ClaimState = "held" | "owned" | "unclaimed";
+
+const claimStateOf = (
+  manifest: TeachingRecordingManifest,
   claimOperationId: OperationId
-): boolean =>
-  manifest.lifecycle._tag === "learning" &&
-  manifest.lifecycle.claim.ownerPid === process.pid &&
-  manifest.lifecycle.claim.operationId === claimOperationId;
+): ClaimState => {
+  const claim = claimOf(manifest);
+  if (claim === undefined || processIsStale(claim.ownerPid)) {
+    return "unclaimed";
+  }
+  return claim.ownerPid === process.pid &&
+    claim.operationId === claimOperationId
+    ? "owned"
+    : "held";
+};
+
+/**
+ * The refusal for an operation that needs a claim it does not own. A missing
+ * claim names the tool that grants one, so the agent never reads a live
+ * owner's name into an empty claim.
+ */
+const claimRefusal = (
+  state: Exclude<ClaimState, "owned">,
+  recordingId: TeachingRecordingId
+): TeachingRecordingStoreError =>
+  state === "unclaimed"
+    ? storeError(
+        "teaching_recording_unclaimed",
+        `Teaching Recording ${recordingId} carries no learning claim. Claim it with agent_teaching_recording_claim and retry with the new claim operation id.`
+      )
+    : storeError(
+        "teaching_recording_conflict",
+        `A live learning claim from another operation holds Teaching Recording ${recordingId}.`
+      );
 
 const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
   function* makeStore(options: TeachingRecordingStoreOptions) {
@@ -746,6 +827,17 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             lifecycle._tag === "skill-drafted" ||
             lifecycle._tag === "dry-run-failed"
           ) {
+            if (
+              lifecycle.claim !== undefined &&
+              !processIsStale(lifecycle.claim.ownerPid)
+            ) {
+              return Effect.fail(
+                storeError(
+                  "teaching_recording_conflict",
+                  `A live learning claim from another operation holds Teaching Recording ${input.recordingId}.`
+                )
+              );
+            }
             return Effect.succeed({
               ...manifest,
               lifecycle: {
@@ -797,16 +889,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     ) =>
       Effect.gen(function* readOwnedLearningClaim() {
         const manifest = yield* read(recordingId);
-        if (
-          !isPendingManifest(manifest) ||
-          !ownsClaim(manifest, claimOperationId)
-        ) {
-          return yield* Effect.fail(
-            storeError(
-              "teaching_recording_conflict",
-              `This process does not own the learning claim for Teaching Recording ${recordingId}.`
-            )
-          );
+        if (!isPendingManifest(manifest)) {
+          return yield* Effect.fail(claimRefusal("unclaimed", recordingId));
+        }
+        const state = claimStateOf(manifest, claimOperationId);
+        if (state !== "owned") {
+          return yield* Effect.fail(claimRefusal(state, recordingId));
         }
         return manifest;
       });
@@ -817,16 +905,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         "release-learning",
         input.operationId,
         (manifest) => {
-          if (!ownsClaim(manifest, input.claimOperationId)) {
-            return Effect.fail(
-              storeError(
-                "teaching_recording_conflict",
-                `This process does not own the learning claim for Teaching Recording ${input.recordingId}.`
-              )
-            );
+          const state = claimStateOf(manifest, input.claimOperationId);
+          if (state !== "owned") {
+            return Effect.fail(claimRefusal(state, input.recordingId));
           }
           const { lifecycle } = manifest;
-          if (lifecycle._tag !== "learning") {
+          if (!isClaimedLifecycle(lifecycle)) {
             return Effect.die(
               "The checked learning claim changed unexpectedly."
             );
@@ -849,16 +933,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         "fail-learning",
         input.operationId,
         (manifest, at) => {
-          if (!ownsClaim(manifest, input.claimOperationId)) {
-            return Effect.fail(
-              storeError(
-                "teaching_recording_conflict",
-                `This process does not own the learning claim for Teaching Recording ${input.recordingId}.`
-              )
-            );
+          const state = claimStateOf(manifest, input.claimOperationId);
+          if (state !== "owned") {
+            return Effect.fail(claimRefusal(state, input.recordingId));
           }
           const { lifecycle } = manifest;
-          if (lifecycle._tag !== "learning") {
+          if (!isClaimedLifecycle(lifecycle)) {
             return Effect.die(
               "The checked learning claim changed unexpectedly."
             );
@@ -883,24 +963,42 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         "save-skill",
         input.operationId,
         (manifest, at) => {
-          if (!ownsClaim(manifest, input.claimOperationId)) {
+          const state = claimStateOf(manifest, input.claimOperationId);
+          if (state !== "owned") {
+            return Effect.fail(claimRefusal(state, input.recordingId));
+          }
+          const { lifecycle } = manifest;
+          if (!isClaimedLifecycle(lifecycle)) {
+            return Effect.die(
+              "The checked learning claim changed unexpectedly."
+            );
+          }
+          // A claim outlives one package, so a save may also replace the
+          // package a failed Dry Run just refuted. A Dry Run the user has not
+          // answered for is the exception at both ends: a run in flight needs
+          // the package it started with, and a passing run is the user's
+          // choice to make, not a package the agent may quietly replace.
+          if (lifecycle._tag === "dry-running") {
             return Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `This process does not own the learning claim for Teaching Recording ${input.recordingId}.`
+                `Teaching Recording ${input.recordingId} cannot save a Flow Skill while a Dry Run is running.`
               )
             );
           }
-          const { lifecycle } = manifest;
-          if (lifecycle._tag !== "learning") {
-            return Effect.die(
-              "The checked learning claim changed unexpectedly."
+          if (lifecycle._tag === "dry-run-passed") {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot save a Flow Skill after a passing Dry Run. Relay the user's Reject flow choice with agent_flow_skill_reject, or their Verify flow choice with agent_flow_skill_verify.`
+              )
             );
           }
           return Effect.succeed({
             ...manifest,
             lifecycle: {
               _tag: "skill-drafted" as const,
+              claim: lifecycle.claim,
               draftedAt: at,
               readyAt: lifecycle.readyAt,
               skillPath: input.skillPath,
@@ -934,6 +1032,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             ...manifest,
             lifecycle: {
               _tag: "dry-running" as const,
+              claim: lifecycle.claim,
               draftedAt: lifecycle.draftedAt,
               dryRunInputs: input.inputs,
               dryRunSessionId: input.sessionId,
@@ -1030,6 +1129,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   outcome === "passed"
                     ? ("dry-run-passed" as const)
                     : ("dry-run-failed" as const),
+                claim: lifecycle.claim,
                 draftedAt: lifecycle.draftedAt,
                 dryRunEndedAt: at,
                 dryRunResult: result,
@@ -1090,6 +1190,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               ...manifest,
               lifecycle: {
                 _tag: "skill-drafted" as const,
+                claim: lifecycle.claim,
                 draftedAt: lifecycle.draftedAt,
                 readyAt: lifecycle.readyAt,
                 skillPath: lifecycle.skillPath,
@@ -1284,9 +1385,19 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   (artifact) => artifact.path
                 ),
               },
+              // A verified Flow Skill needs no learning claim: the recording
+              // is finished and its artifacts are on their way out.
               lifecycle: {
-                ...manifest.lifecycle,
                 _tag: "verified" as const,
+                draftedAt: manifest.lifecycle.draftedAt,
+                dryRunEndedAt: manifest.lifecycle.dryRunEndedAt,
+                dryRunResult: manifest.lifecycle.dryRunResult,
+                dryRunSessionId: manifest.lifecycle.dryRunSessionId,
+                dryRunStartedAt: manifest.lifecycle.dryRunStartedAt,
+                readyAt: manifest.lifecycle.readyAt,
+                skillPath: manifest.lifecycle.skillPath,
+                startedAt: manifest.lifecycle.startedAt,
+                stoppedAt: manifest.lifecycle.stoppedAt,
                 verifiedAt: at,
               },
             })
