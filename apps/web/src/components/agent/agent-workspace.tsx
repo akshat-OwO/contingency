@@ -8,11 +8,7 @@ import type {
   BrowserStreamEvent,
   TeachingProgress,
 } from "@contingency/protocol";
-import {
-  FlowSkillName,
-  isBrowserRpcError,
-  OperationId,
-} from "@contingency/protocol";
+import { FlowSkillName, OperationId } from "@contingency/protocol";
 import {
   useAtom,
   useAtomRefresh,
@@ -36,6 +32,7 @@ import type { FormEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import {
+  adoptSessionSnapshot,
   agentControlPresentation,
   agentSessionLabel,
   agentStatusLabel,
@@ -59,6 +56,7 @@ import type {
 import {
   flowSkillDryRunPrompt,
   flowSkillRunPrompt,
+  gestureFailureMessage,
   teachingAgentPrompt,
 } from "@/components/agent/teaching-recording-state";
 import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
@@ -76,14 +74,18 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
+import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { ExecutionBoundary } from "./execution-boundary";
 
+/**
+ * What the Workspace shows for a failure it has no better sentence for. It is
+ * total: a failure whose `message` is not a string falls back to the
+ * connection sentence rather than reaching a template as an object (#211).
+ */
 const errorMessage = <Failure,>(error: Failure): string =>
-  error instanceof Error || isBrowserRpcError(error)
-    ? error.message
-    : "The Workspace could not connect.";
+  failureMessage(error, "The Workspace could not connect.");
 
 const isFrame = (
   event: BrowserStreamEvent
@@ -968,8 +970,7 @@ const useAgentView = (
       const changed = current.selectedSessionId !== selected.id;
       const phase =
         changed || current.phase === "loading" ? "switching" : current.phase;
-      const session =
-        current.session?.id === selected.id ? current.session : selected;
+      const session = adoptSessionSnapshot(current.session, selected);
       if (
         current.phase === phase &&
         current.selectedSessionId === selected.id &&
@@ -1313,9 +1314,14 @@ const useAgentView = (
       recordingError: undefined,
       recordingPending: true,
     }));
+    /*
+      The failure is carried through untouched. Stringifying a refused RPC
+      here is what rendered `[object Object]` in the dock: the refusal is a
+      `BrowserRpcError`, not an `Error`, and its message is the only sentence
+      that names the lifecycle the gesture lost to (#211).
+    */
     const mutation = Effect.tryPromise({
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
+      catch: (cause: unknown) => cause,
       try: async () => {
         if (gesture === "start" || gesture === "stop") {
           const payload = { operationId, sessionId: current.id };
@@ -1387,7 +1393,7 @@ const useAgentView = (
             setState((previous) => ({
               ...previous,
               recordingError: Result.isFailure(outcome)
-                ? errorMessage(outcome.failure)
+                ? gestureFailureMessage(gesture, outcome.failure)
                 : undefined,
               recordingPending: false,
             }));

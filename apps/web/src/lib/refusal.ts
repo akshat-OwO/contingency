@@ -1,6 +1,8 @@
 import { Cause } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 
+import { failureMessage } from "@/lib/failure-message";
+
 /**
  * The message behind a failed RPC, for the one line the Workspace shows the
  * user. A refusal is always something the user can act on, so it is rendered
@@ -12,6 +14,8 @@ export const refusal = (
   if (result === undefined || !AsyncResult.isFailure(result)) {
     return undefined;
   }
-  const error = Cause.squash(result.cause);
-  return error instanceof Error ? error.message : String(error);
+  return failureMessage(
+    Cause.squash(result.cause),
+    "The server refused that request."
+  );
 };

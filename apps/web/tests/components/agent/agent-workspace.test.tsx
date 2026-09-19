@@ -46,6 +46,7 @@ const rpc = vi.hoisted(() => ({
   startedSession: {} satisfies unknown,
   stopRecordingCalls: [] satisfies unknown[],
   takeoverCalls: [] satisfies unknown[],
+  verifyFailure: undefined satisfies unknown,
 }));
 
 /** The draft review is not what this test reads, so its revision never lands. */
@@ -91,6 +92,9 @@ const rpcOverrides = {
       rpc.renameCalls.push(payload);
       return {};
     })
+  ),
+  agentTeachingFlowVerifyMutation: Atom.fn(() =>
+    Effect.fail(rpc.verifyFailure)
   ),
   agentTeachingInstructionRecordMutation: Atom.fn(
     <Payload,>(payload: Payload) =>
@@ -192,6 +196,7 @@ afterEach(() => {
   rpc.startRecordingCalls = [];
   rpc.stopRecordingCalls = [];
   rpc.takeoverCalls = [];
+  rpc.verifyFailure = undefined;
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -901,4 +906,62 @@ test("surfaces a refused clipboard write instead of looking like it worked", asy
       "The dry run prompt could not be copied to the clipboard."
     )
   ).toBeVisible();
+});
+
+const dryRunPassedSession = {
+  ...session,
+  activity: "teaching",
+  captureState: {
+    _tag: "dry-run-passed",
+    draftedAt: "2026-08-31T00:00:05.000Z",
+    dryRunResult: {
+      observableOutcome: "The anvil is in the cart.",
+      passed: true,
+      reportedAt: "2026-08-31T00:00:08.000Z",
+    },
+    dryRunStartedAt: "2026-08-31T00:00:06.000Z",
+    readyAt: "2026-08-31T00:00:04.000Z",
+    skillPath: "add-anvil/SKILL.md",
+    startedAt: "2026-08-31T00:00:01.000Z",
+    stoppedAt: "2026-08-31T00:00:03.000Z",
+  },
+  flowSkillName: "add-anvil",
+  recordingId: "recording-add-anvil",
+  teaching: { actionCount: 4, instructionCount: 0 },
+} satisfies unknown;
+
+test("says which lifecycle refused a gesture instead of rendering an object", async () => {
+  const user = userEvent.setup();
+  // The refusal shape behind #211: an RPC error, not an `Error`.
+  rpc.verifyFailure = {
+    _tag: "BrowserRpcError",
+    code: "agent_session_conflict",
+    message:
+      "Teaching Recording recording-add-anvil cannot be verified from verified.",
+  };
+  renderWorkspace(resultFor([dryRunPassedSession]), session.id);
+
+  await user.click(await screen.findByRole("button", { name: "Verify flow" }));
+
+  expect(
+    await screen.findByText(
+      "Verify flow no longer applies to this recording. Teaching Recording recording-add-anvil cannot be verified from verified."
+    )
+  ).toBeVisible();
+  expect(screen.queryByText("[object Object]")).toBeNull();
+});
+
+test("names the gesture when a refusal carries no readable message", async () => {
+  const user = userEvent.setup();
+  rpc.verifyFailure = { message: { code: 17 } };
+  renderWorkspace(resultFor([dryRunPassedSession]), session.id);
+
+  await user.click(await screen.findByRole("button", { name: "Verify flow" }));
+
+  expect(
+    await screen.findByText(
+      "The Workspace could not connect, so Verify flow did not reach the server."
+    )
+  ).toBeVisible();
+  expect(screen.queryByText("[object Object]")).toBeNull();
 });
