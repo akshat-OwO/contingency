@@ -57,6 +57,7 @@ import type {
   TeachingSecondaryAction,
 } from "@/components/agent/teaching-recording-state";
 import {
+  flowSkillDryRunPrompt,
   flowSkillRunPrompt,
   teachingAgentPrompt,
 } from "@/components/agent/teaching-recording-state";
@@ -1333,13 +1334,13 @@ const useAgentView = (
               }));
           return;
         }
-        if (gesture === "dry-run") {
-          await globalThis.navigator.clipboard.writeText(
-            `Dry-run Contingency Teaching Recording ${current.recordingId}. Call agent_flow_skill_dry_run_start with new inputs, drive the returned fresh Agent Session, then call agent_flow_skill_dry_run_report.`
-          );
-          return;
-        }
         const data = { operationId, recordingId: current.recordingId };
+        /*
+          Every remaining gesture names a mutation. The union is matched
+          exhaustively rather than through a default branch, so a gesture
+          added later fails to compile instead of quietly landing on cleanup
+          or returning with no effect at all (#210).
+        */
         let response;
         switch (gesture) {
           case "stop-dry-run": {
@@ -1354,10 +1355,16 @@ const useAgentView = (
             });
             break;
           }
-          default: {
+          case "retry-cleanup": {
             response = await retryTeachingCleanup({
               payload: { data, type: "agent.teaching.cleanup.retry" },
             });
+            break;
+          }
+          default: {
+            throw new Error(
+              `Unhandled dock gesture ${gesture satisfies never}`
+            );
           }
         }
         setState((previous) => ({
@@ -1657,161 +1664,164 @@ const useAgentView = (
   };
 
   /**
-   * The dock's secondary actions. Each one is backed by real behavior: a
-   * clipboard write, a rename, or a deletion. A control with nothing behind it
-   * is absent instead (#191).
+   * A clipboard hand-off. It runs through the same pending-and-error path a
+   * mutation does, so a copy that the browser refuses says so in the dock
+   * instead of looking like it worked (#210).
+   */
+  const copyToClipboard = (text: string, failure: string) => {
+    runTeachingMutation(
+      Effect.tryPromise({
+        catch: () => new Error(failure),
+        try: () => globalThis.navigator.clipboard.writeText(text),
+      })
+    );
+  };
+
+  /**
+   * The dock's secondary actions. Each one either mutates the recording or
+   * performs the clipboard hand-off its label names, and the union is matched
+   * exhaustively so no action can be rendered with nothing behind it (#210).
    */
   const runSecondary = (action: TeachingSecondaryAction, detail?: string) => {
     const current = state.session;
     if (current === undefined || current.activity !== "teaching") {
       return;
     }
-    if (action === "copy-prompt") {
-      Effect.runFork(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            globalThis.navigator.clipboard.writeText(
-              teachingAgentPrompt(current.flowSkillName, current.recordingId)
-            ),
-        }).pipe(
-          Effect.result,
-          Effect.flatMap((outcome) =>
-            Effect.sync(() => {
-              setState((previous) => ({
-                ...previous,
-                recordingError: Result.isFailure(outcome)
-                  ? "The agent prompt could not be copied to the clipboard."
-                  : undefined,
-              }));
-            })
-          )
-        )
-      );
-      return;
-    }
-    if (action === "copy-run-prompt") {
-      runTeachingMutation(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            globalThis.navigator.clipboard.writeText(
-              flowSkillRunPrompt(current.flowSkillName)
-            ),
-        }).pipe(
-          Effect.result,
-          Effect.flatMap((outcome) =>
-            Effect.sync(() => {
-              setState((previous) => ({
-                ...previous,
-                recordingError: Result.isFailure(outcome)
-                  ? "The run prompt could not be copied to the clipboard."
-                  : undefined,
-              }));
-            })
-          )
-        )
-      );
-      return;
-    }
-    if (action === "learn-again") {
-      Effect.runFork(
-        Effect.promise(() =>
-          globalThis.navigator.clipboard.writeText(
-            teachingAgentPrompt(current.flowSkillName, current.recordingId)
-          )
-        )
-      );
-      return;
-    }
-    if (action === "read-flow-skill" || action === "read-failure") {
-      let stateDetail: string = current.flowSkillName;
-      if ("skillPath" in current.captureState) {
-        stateDetail = current.captureState.skillPath;
-      }
-      if (current.captureState._tag === "dry-run-failed") {
-        stateDetail = current.captureState.dryRunResult.observableOutcome;
-      }
-      Effect.runFork(
-        Effect.promise(() =>
-          globalThis.navigator.clipboard.writeText(stateDetail)
-        )
-      );
-      return;
-    }
-    if (action === "reject-flow") {
-      runTeachingMutation(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: async () => {
-            const response = await rejectFlowSkill({
-              payload: {
-                data: {
-                  operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                  recordingId: current.recordingId,
-                },
-                type: "agent.teaching.flow.reject",
-              },
-            });
-            setState((previous) => ({
-              ...previous,
-              session:
-                previous.session?.activity === "teaching"
-                  ? {
-                      ...previous.session,
-                      captureState: response.data.captureState,
-                      recordingCleanup: response.data.cleanup,
-                    }
-                  : previous.session,
-            }));
-          },
-        })
-      );
-      return;
-    }
-    if (action === "rename-flow") {
-      const name = (detail ?? "").trim();
-      if (!isFlowSkillName(name)) {
-        setState((previous) => ({
-          ...previous,
-          recordingError:
-            "A flow skill name uses letters, numbers, spaces, dots, dashes, and underscores.",
-        }));
+    switch (action) {
+      case "copy-prompt": {
+        copyToClipboard(
+          teachingAgentPrompt(current.flowSkillName, current.recordingId),
+          "The agent prompt could not be copied to the clipboard."
+        );
         return;
       }
-      runTeachingMutation(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            renameFlowSkill({
-              payload: {
-                data: {
-                  name,
-                  operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                  sessionId: current.id,
+      case "copy-learn-again-prompt": {
+        copyToClipboard(
+          teachingAgentPrompt(current.flowSkillName, current.recordingId),
+          "The learn again prompt could not be copied to the clipboard."
+        );
+        return;
+      }
+      case "copy-dry-run-prompt": {
+        copyToClipboard(
+          flowSkillDryRunPrompt(current.flowSkillName, current.recordingId),
+          "The dry run prompt could not be copied to the clipboard."
+        );
+        return;
+      }
+      case "copy-run-prompt": {
+        copyToClipboard(
+          flowSkillRunPrompt(current.flowSkillName),
+          "The run prompt could not be copied to the clipboard."
+        );
+        return;
+      }
+      case "copy-flow-skill-path": {
+        copyToClipboard(
+          "skillPath" in current.captureState
+            ? current.captureState.skillPath
+            : current.flowSkillName,
+          "The flow skill path could not be copied to the clipboard."
+        );
+        return;
+      }
+      case "copy-failure": {
+        copyToClipboard(
+          current.captureState._tag === "dry-run-failed"
+            ? current.captureState.dryRunResult.observableOutcome
+            : current.flowSkillName,
+          "The failure could not be copied to the clipboard."
+        );
+        return;
+      }
+      case "reject-flow": {
+        runTeachingMutation(
+          Effect.tryPromise({
+            catch: (cause) => cause,
+            try: async () => {
+              const response = await rejectFlowSkill({
+                payload: {
+                  data: {
+                    operationId: OperationId.make(
+                      globalThis.crypto.randomUUID()
+                    ),
+                    recordingId: current.recordingId,
+                  },
+                  type: "agent.teaching.flow.reject",
                 },
-                type: "agent.teaching.flow.rename",
-              },
-            }),
-        })
-      );
-      return;
-    }
-    runTeachingMutation(
-      Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          discardTeachingRecording({
-            payload: {
-              data: {
-                operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                sessionId: current.id,
-              },
-              type: "agent.teaching.recording.discard",
+              });
+              setState((previous) => ({
+                ...previous,
+                session:
+                  previous.session?.activity === "teaching"
+                    ? {
+                        ...previous.session,
+                        captureState: response.data.captureState,
+                        recordingCleanup: response.data.cleanup,
+                      }
+                    : previous.session,
+              }));
             },
-          }),
-      })
-    );
+          })
+        );
+        return;
+      }
+      case "rename-flow": {
+        const name = (detail ?? "").trim();
+        if (!isFlowSkillName(name)) {
+          setState((previous) => ({
+            ...previous,
+            recordingError:
+              "A flow skill name uses letters, numbers, spaces, dots, dashes, and underscores.",
+          }));
+          return;
+        }
+        runTeachingMutation(
+          Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              renameFlowSkill({
+                payload: {
+                  data: {
+                    name,
+                    operationId: OperationId.make(
+                      globalThis.crypto.randomUUID()
+                    ),
+                    sessionId: current.id,
+                  },
+                  type: "agent.teaching.flow.rename",
+                },
+              }),
+          })
+        );
+        return;
+      }
+      case "delete-recording": {
+        runTeachingMutation(
+          Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              discardTeachingRecording({
+                payload: {
+                  data: {
+                    operationId: OperationId.make(
+                      globalThis.crypto.randomUUID()
+                    ),
+                    sessionId: current.id,
+                  },
+                  type: "agent.teaching.recording.discard",
+                },
+              }),
+          })
+        );
+        return;
+      }
+      default: {
+        throw new Error(
+          `Unhandled dock secondary action ${action satisfies never}`
+        );
+      }
+    }
   };
 
   const currentUrl = state.session?.currentUrl;

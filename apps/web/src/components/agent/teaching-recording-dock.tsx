@@ -37,13 +37,19 @@ const badgeVariant = (
   return tone === "recording" ? "default" : "secondary";
 };
 
+/**
+ * Every label names what the button does. A `Copy` label is a hand-off to the
+ * MCP conversation and says so, because a button named for an action that
+ * only fills the clipboard reads as a broken build (#210).
+ */
 const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
+  "copy-dry-run-prompt": "Copy dry run prompt",
+  "copy-failure": "Copy failure",
+  "copy-flow-skill-path": "Copy flow skill path",
+  "copy-learn-again-prompt": "Copy learn again prompt",
   "copy-prompt": "Copy agent prompt",
-  "copy-run-prompt": "Run flow",
+  "copy-run-prompt": "Copy run prompt",
   "delete-recording": "Delete recording",
-  "learn-again": "Learn again",
-  "read-failure": "Read failure",
-  "read-flow-skill": "Read flow skill",
   "reject-flow": "Reject flow",
   "rename-flow": "Rename flow",
 };
@@ -264,6 +270,7 @@ export const TeachingRecordingDock = ({
         ) : null}
         {presentation.secondaries.map((secondary) => (
           <Button
+            disabled={pending}
             key={secondary}
             onClick={() =>
               secondary === "rename-flow"

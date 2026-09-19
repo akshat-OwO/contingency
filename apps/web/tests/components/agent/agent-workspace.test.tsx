@@ -180,6 +180,7 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
   rpc.discardCalls = [];
   rpc.inputCalls = [];
@@ -829,4 +830,75 @@ test("leaves inspect and its pins with the recording they belong to", async () =
   await screen.findByText("Recording saved");
   expect(screen.queryByText("1 comment")).toBeNull();
   expect(screen.queryByLabelText("Describe the change")).toBeNull();
+});
+
+const teachingDrafted = {
+  ...teachingSetup,
+  captureState: {
+    _tag: "skill-drafted",
+    draftedAt: "2026-08-31T00:00:06.000Z",
+    readyAt: "2026-08-31T00:00:04.000Z",
+    skillPath: "browse-catalogue/SKILL.md",
+    startedAt: "2026-08-31T00:00:01.000Z",
+    stoppedAt: "2026-08-31T00:00:03.000Z",
+  },
+} satisfies unknown;
+
+test("names the dry run hand-off for the clipboard write it performs", async () => {
+  const user = userEvent.setup();
+  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
+  const writeText = vi
+    .spyOn(globalThis.navigator.clipboard, "writeText")
+    .mockImplementation(() => Promise.resolve());
+  renderWorkspace(resultFor([teachingDrafted]), session.id);
+
+  // A button reading "Dry run" started nothing, which read as a broken
+  // build. The dock now says what it does (#210).
+  expect(
+    await screen.findByRole("button", { name: "Copy dry run prompt" })
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Copy dry run prompt" }));
+  await waitFor(() => {
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+  expect(writeText.mock.calls[0]?.[0]).toContain(
+    "agent_flow_skill_dry_run_start"
+  );
+});
+
+test("copies the flow skill path rather than claiming to read it", async () => {
+  const user = userEvent.setup();
+  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
+  const writeText = vi
+    .spyOn(globalThis.navigator.clipboard, "writeText")
+    .mockImplementation(() => Promise.resolve());
+  renderWorkspace(resultFor([teachingDrafted]), session.id);
+
+  expect(screen.queryByRole("button", { name: "Read flow skill" })).toBeNull();
+  await user.click(
+    await screen.findByRole("button", { name: "Copy flow skill path" })
+  );
+  await waitFor(() => {
+    expect(writeText).toHaveBeenCalledWith("browse-catalogue/SKILL.md");
+  });
+});
+
+test("surfaces a refused clipboard write instead of looking like it worked", async () => {
+  const user = userEvent.setup();
+  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
+  vi.spyOn(globalThis.navigator.clipboard, "writeText").mockImplementation(() =>
+    Promise.reject(new Error("Denied"))
+  );
+  renderWorkspace(resultFor([teachingDrafted]), session.id);
+
+  await user.click(
+    await screen.findByRole("button", { name: "Copy dry run prompt" })
+  );
+  expect(
+    await screen.findByText(
+      "The dry run prompt could not be copied to the clipboard."
+    )
+  ).toBeVisible();
 });
