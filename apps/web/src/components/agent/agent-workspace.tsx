@@ -1688,11 +1688,17 @@ const useAgentView = (
       return;
     }
     switch (action) {
-      case "copy-prompt":
-      case "copy-learn-again-prompt": {
+      case "copy-prompt": {
         copyToClipboard(
           teachingAgentPrompt(current.flowSkillName, current.recordingId),
           "The agent prompt could not be copied to the clipboard."
+        );
+        return;
+      }
+      case "copy-learn-again-prompt": {
+        copyToClipboard(
+          teachingAgentPrompt(current.flowSkillName, current.recordingId),
+          "The learn again prompt could not be copied to the clipboard."
         );
         return;
       }

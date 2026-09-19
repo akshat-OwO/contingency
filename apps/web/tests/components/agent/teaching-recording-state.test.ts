@@ -42,6 +42,25 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
   expect(drafted.action).toBeNull();
   expect(drafted.secondaries).toContain("copy-dry-run-prompt");
 
+  // `dry-run-failed` offered the same prompt-copying primary, so it loses it
+  // on the same terms.
+  const failed = teachingRecordingPresentation({
+    _tag: "dry-run-failed",
+    ...progressive,
+    dryRunEndedAt: "2026-09-16T10:05:00.000Z",
+    dryRunResult: {
+      completedAt: "2026-09-16T10:05:00.000Z",
+      inputs: [{ changed: true, name: "city", value: "Pune" }],
+      observableOutcome: "The place order button was never found.",
+      outcome: "failed" as const,
+    },
+    dryRunSessionId: "agent-dry-run",
+    dryRunStartedAt: progressive.startedAt,
+  });
+  expect(failed.action).toBeNull();
+  expect(failed.secondaries).toContain("copy-dry-run-prompt");
+  expect(failed.secondaries).toContain("copy-failure");
+
   const result = {
     completedAt: "2026-09-16T10:05:00.000Z",
     inputs: [{ changed: true, name: "city", value: "Pune" }],
