@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
+  flowSkillDryRunPrompt,
   teachingAgentPrompt,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
@@ -32,10 +33,14 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
     startedAt: "2026-09-16T10:00:00.000Z",
     stoppedAt: "2026-09-16T10:00:00.000Z",
   };
-  expect(
-    teachingRecordingPresentation({ _tag: "skill-drafted", ...progressive })
-      .action?.label
-  ).toBe("Dry run");
+  // A Dry Run needs inputs the dock cannot collect, so `skill-drafted` offers
+  // the hand-off by name instead of a primary button that starts nothing.
+  const drafted = teachingRecordingPresentation({
+    _tag: "skill-drafted",
+    ...progressive,
+  });
+  expect(drafted.action).toBeNull();
+  expect(drafted.secondaries).toContain("copy-dry-run-prompt");
 
   const result = {
     completedAt: "2026-09-16T10:05:00.000Z",
@@ -52,6 +57,7 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
     dryRunStartedAt: progressive.startedAt,
   });
   expect(passed.action?.label).toBe("Verify flow");
+  expect(passed.action?.gesture).toBe("verify-flow");
   expect(passed.secondaries).toContain("reject-flow");
 
   const cleanupFailure = teachingRecordingPresentation(
@@ -95,4 +101,15 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
       completedAt: result.completedAt,
     }).badge
   ).toBe("Recording deleted");
+});
+
+test("hands the dry run to an agent with the inputs it must change", () => {
+  const prompt = flowSkillDryRunPrompt("add-anvil", "recording-7");
+
+  expect(prompt).toContain('"add-anvil"');
+  expect(prompt).toContain("recording-7");
+  expect(prompt).toContain("agent_flow_skill_dry_run_start");
+  expect(prompt).toContain("agent_flow_skill_dry_run_report");
+  // The whole reason this is a hand-off rather than a button.
+  expect(prompt).toContain("differs from the recorded journey");
 });

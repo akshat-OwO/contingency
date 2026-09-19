@@ -7,9 +7,13 @@ import type {
  * The user gestures that move a Teaching Recording. Start and Stop are the
  * whole privacy boundary (ADR 0039): nothing is captured before Start, and
  * every capture source ends at Stop.
+ *
+ * Every value here performs the action its label names. A Dry Run needs
+ * changed inputs the dock has no way to collect, so starting one is a named
+ * clipboard hand-off among the secondary actions rather than a gesture that
+ * claims to run something (#210).
  */
 export type TeachingRecordingGesture =
-  | "dry-run"
   | "retry-cleanup"
   | "start"
   | "stop"
@@ -30,14 +34,19 @@ export interface TeachingRecordingAction {
  * The secondary actions a Teaching state offers. They are not capture
  * gestures: none of them starts or stops capture, so they stay apart from
  * `TeachingRecordingGesture` and the privacy boundary it names.
+ *
+ * A `copy-` action hands work to the MCP conversation and says so in its
+ * label. Every other value mutates the recording here. Nothing in this union
+ * is inert (#210).
  */
 export type TeachingSecondaryAction =
+  | "copy-dry-run-prompt"
+  | "copy-failure"
+  | "copy-flow-skill-path"
+  | "copy-learn-again-prompt"
   | "copy-prompt"
   | "copy-run-prompt"
   | "delete-recording"
-  | "learn-again"
-  | "read-failure"
-  | "read-flow-skill"
   | "reject-flow"
   | "rename-flow";
 
@@ -154,11 +163,15 @@ export const teachingRecordingPresentation = (
     }
     case "skill-drafted": {
       return {
-        action: action("dry-run", "Dry run"),
+        action: null,
         badge: "Flow skill drafted",
         nextStep:
-          "Dry-run it with different inputs to see whether it reuses the journey.",
-        secondaries: ["read-flow-skill", "learn-again"],
+          "Copy the dry-run prompt and hand it to your agent, which dry-runs the flow with different inputs.",
+        secondaries: [
+          "copy-dry-run-prompt",
+          "copy-flow-skill-path",
+          "copy-learn-again-prompt",
+        ],
         showsElapsed: false,
         showsInspect: true,
         tone: "default",
@@ -177,10 +190,14 @@ export const teachingRecordingPresentation = (
     }
     case "dry-run-failed": {
       return {
-        action: action("dry-run", "Dry run"),
+        action: null,
         badge: "Dry run failed",
         nextStep: captureState.dryRunResult.observableOutcome,
-        secondaries: ["read-failure", "learn-again"],
+        secondaries: [
+          "copy-dry-run-prompt",
+          "copy-failure",
+          "copy-learn-again-prompt",
+        ],
         showsElapsed: false,
         showsInspect: true,
         tone: "failed",
@@ -192,7 +209,7 @@ export const teachingRecordingPresentation = (
         badge: "Dry run passed",
         nextStep:
           "Verify the flow to keep it and delete the recording. Reject to keep the recording.",
-        secondaries: ["reject-flow", "read-flow-skill"],
+        secondaries: ["reject-flow", "copy-flow-skill-path"],
         showsElapsed: false,
         showsInspect: true,
         tone: "default",
@@ -226,7 +243,7 @@ export const teachingRecordingPresentation = (
         badge: "Recording deleted",
         nextStep:
           "The flow skill and its references are all that is left. Run it any time.",
-        secondaries: ["copy-run-prompt", "read-flow-skill"],
+        secondaries: ["copy-run-prompt", "copy-flow-skill-path"],
         showsElapsed: false,
         showsInspect: false,
         tone: "default",
@@ -319,4 +336,23 @@ export const flowSkillRunPrompt = (flowSkillName: string): string =>
     "Ask me for every declared input, then call agent_flow_skill_run_start with those inputs and the page the first step opens.",
     'Drive the returned Agent Session with the browser tools and call agent_run_step_assess for each ordered step, judged against its own "Done when:" line.',
     "Call agent_run_complete when the steps are done or one of them could not be completed.",
+  ].join("\n");
+
+/**
+ * The prompt the user hands to an agent to dry-run a drafted Flow Skill. A
+ * Dry Run needs inputs that differ from the recorded ones, and only the
+ * conversation can ask for them, so the Workspace hands over the exact calls
+ * instead of starting a Dry Run with the inputs it already has (#210).
+ */
+export const flowSkillDryRunPrompt = (
+  flowSkillName: string,
+  recordingId: string
+): string =>
+  [
+    `Dry-run the Contingency Flow Skill "${flowSkillName}", drafted from Teaching Recording ${recordingId}.`,
+    "",
+    "Read the drafted SKILL.md, then ask me for every declared input and pick at least one value that differs from the recorded journey.",
+    `Call agent_flow_skill_dry_run_start with recordingId "${recordingId}" and those inputs.`,
+    "Drive the returned fresh Agent Session with the browser tools, check the observable outcome, then call agent_flow_skill_dry_run_report.",
+    "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
   ].join("\n");
