@@ -359,6 +359,26 @@ it.live(
           });
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
 
+          // A failed Dry Run keeps the learning claim, so the agent that
+          // learned the flow fixes its package and saves again with the same
+          // claim operation id.
+          const resaved = yield* teachingRecordingTool(
+            "agent_flow_skill_save",
+            {
+              claimOperationId,
+              files: [
+                { content: DELIVERY_SKILL, path: "SKILL.md" },
+                {
+                  content: DELIVERY_ACCESSIBILITY,
+                  path: "references/accessibility.md",
+                },
+              ],
+              operationId: OperationId.make("delivery-save-after-failure"),
+              recordingId,
+            }
+          );
+          expect(resaved.flowSkillName).toBe("set-delivery-area");
+
           const passedRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
             {

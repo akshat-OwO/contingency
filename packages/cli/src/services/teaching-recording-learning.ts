@@ -53,6 +53,7 @@ interface TeachingRecordingLearningDomainError {
     | "teaching_recording_io"
     | "teaching_recording_not_found"
     | "teaching_recording_timeout"
+    | "teaching_recording_unclaimed"
     | "teaching_timeline_too_large";
   readonly diagnostics: readonly FlowSkillDiagnostic[];
   readonly message: string;

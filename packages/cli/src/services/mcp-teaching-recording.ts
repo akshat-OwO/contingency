@@ -130,7 +130,7 @@ const TeachingRecordingWaitTool = Tool.make("agent_teaching_recording_wait", {
 const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
   dependencies: [TeachingRecordingStore],
   description:
-    "Claim one ready Teaching Recording for Flow Skill learning. The durable claim is exclusive across processes. An abandoned claim returns to ready after its owner exits. Replay the same operation id to reread the claim.",
+    "Claim one ready Teaching Recording for Flow Skill learning. The durable claim is exclusive across processes and lasts through saving, Dry Runs, and a rejection, until agent_flow_skill_verify, agent_teaching_recording_release, or agent_teaching_recording_fail ends it. An abandoned claim returns to ready after its owner exits. Replay the same operation id to reread the claim.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     operationId: OperationId,
@@ -170,7 +170,7 @@ const TeachingKeyframeGetTool = Tool.make("agent_teaching_keyframe_get", {
 const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
   dependencies: [TeachingRecordingLearning],
   description:
-    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. SKILL.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs, and a "Done when:" line on each numbered step. Optional files under references/ must be reachable from a link. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
+    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to skill-drafted. SKILL.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs, and a "Done when:" line on each numbered step. Optional files under references/ must be reachable from a link. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
@@ -211,7 +211,7 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
 const FlowSkillDryRunReportTool = Tool.make("agent_flow_skill_dry_run_report", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    "Report whether the active Dry Run reached the Flow Skill's stated observable outcome. This persists only the redacted inputs, completion time, and outcome. A pass keeps every Teaching artifact until the user explicitly verifies the flow.",
+    "Report whether the active Dry Run reached the Flow Skill's stated observable outcome. This persists only the redacted inputs, completion time, and outcome. A pass keeps every Teaching artifact until the user explicitly verifies the flow. A failure keeps every Teaching artifact and this process's learning claim: fix the package with agent_flow_skill_save under the same claim operation id, then start another Dry Run.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     observableOutcome: Schema.String.check(Schema.isMinLength(1)),
@@ -225,7 +225,7 @@ const FlowSkillDryRunReportTool = Tool.make("agent_flow_skill_dry_run_report", {
 const FlowSkillRejectTool = Tool.make("agent_flow_skill_reject", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    "Relay the user's explicit rejection after a passing Dry Run. The Flow Skill returns to drafted and every Teaching artifact stays available for another edit and Dry Run.",
+    "Relay the user's explicit rejection after a passing Dry Run. The Flow Skill returns to drafted and every Teaching artifact and the learning claim stay available, so agent_flow_skill_save under the same claim operation id can edit the package for another Dry Run.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     operationId: OperationId,
@@ -263,7 +263,7 @@ const TeachingRecordingReleaseTool = Tool.make(
   {
     dependencies: [TeachingRecordingStore],
     description:
-      "Release this process's learning claim and return the Teaching Recording to ready for another attempt. Supply the original claim operation id and a fresh mutation operation id.",
+      "Release this process's learning claim and return the Teaching Recording to ready for another attempt. This works from any claimed state, including a drafted or dry-run-failed Flow Skill. Supply the original claim operation id and a fresh mutation operation id.",
     failure: TeachingRecordingFailure,
     parameters: Schema.Struct({
       claimOperationId: OperationId,

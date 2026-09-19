@@ -44,7 +44,10 @@ const teachingRecordingError = (
   if (cause.code === "teaching_recording_not_found") {
     code = "agent_session_not_found";
   }
-  if (cause.code === "teaching_recording_conflict") {
+  if (
+    cause.code === "teaching_recording_conflict" ||
+    cause.code === "teaching_recording_unclaimed"
+  ) {
     code = "agent_session_conflict";
   }
   return makeBrowserRpcError(code, cause.message);

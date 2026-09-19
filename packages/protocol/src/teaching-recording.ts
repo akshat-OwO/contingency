@@ -53,17 +53,27 @@ const Ready = Schema.TaggedStruct("ready", {
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
+/**
+ * The exclusive hold one learning process has on a Teaching Recording. It
+ * outlives a single save: the claim rides the drafted, dry-running, failed,
+ * and passed states so the agent that learned the flow can fix its package and
+ * save again without claiming the recording a second time.
+ */
+export const TeachingLearningClaim = Schema.Struct({
+  claimedAt: nonEmptyString,
+  operationId: OperationId,
+  ownerPid: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+export type TeachingLearningClaim = typeof TeachingLearningClaim.Type;
+
 const Learning = Schema.TaggedStruct("learning", {
-  claim: Schema.Struct({
-    claimedAt: nonEmptyString,
-    operationId: OperationId,
-    ownerPid: Schema.Int.check(Schema.isGreaterThan(0)),
-  }),
+  claim: TeachingLearningClaim,
   readyAt: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
 const SkillDrafted = Schema.TaggedStruct("skill-drafted", {
+  claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   readyAt: nonEmptyString,
   skillPath: nonEmptyString,
@@ -71,6 +81,7 @@ const SkillDrafted = Schema.TaggedStruct("skill-drafted", {
   stoppedAt: nonEmptyString,
 });
 const DryRunning = Schema.TaggedStruct("dry-running", {
+  claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   dryRunInputs: Schema.Array(
     Schema.Struct({
@@ -101,6 +112,7 @@ export const FlowSkillDryRunResult = Schema.Struct({
 export type FlowSkillDryRunResult = typeof FlowSkillDryRunResult.Type;
 
 const DryRunFailed = Schema.TaggedStruct("dry-run-failed", {
+  claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
   dryRunResult: FlowSkillDryRunResult,
@@ -112,6 +124,7 @@ const DryRunFailed = Schema.TaggedStruct("dry-run-failed", {
   stoppedAt: nonEmptyString,
 });
 const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
+  claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
   dryRunResult: FlowSkillDryRunResult,

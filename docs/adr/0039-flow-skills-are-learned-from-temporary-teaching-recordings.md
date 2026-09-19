@@ -46,6 +46,7 @@ The persistent Teaching Recording uses its own lifecycle:
 ready
 learning
 skill-drafted
+dry-run-failed
 dry-run-passed
 purge-pending
 purged
@@ -94,6 +95,8 @@ MCP exposes bounded operations that let an agent:
 - Save a Flow Skill and its references atomically.
 - Start a Dry Run of one saved Flow Skill.
 - Report the Dry Run result.
+
+One learning claim covers the whole attempt. The claim an agent takes on a `ready` recording rides `skill-drafted`, `dry-running`, `dry-run-failed`, and `dry-run-passed`, so a failed Dry Run or a rejection lets the same agent save a fixed package under the original claim operation id. Verifying the Flow Skill ends the claim, as does releasing it or recording a learning failure. An operation that needs a claim the recording does not carry is refused as `teaching_recording_unclaimed`, which names the claim tool; `teaching_recording_conflict` stays for a claim a live owner still holds.
 
 MCP does not return the raw Trace or the whole video in one response. The agent reads the timeline first and requests visual evidence when the timeline is not enough.
 
