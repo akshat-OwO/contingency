@@ -280,3 +280,72 @@ it.live(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.live(
+  "writes the closing account on a retry when its first write failed",
+  () =>
+    Effect.gen(function* retryAFailedAmend() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-run-summary-amend-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* saveSkill(root);
+
+      yield* Effect.scoped(
+        Effect.gen(function* amendAgainstABlockedCatalogRoot() {
+          const started = yield* runTool("agent_flow_skill_run_start", {
+            clientName: "integration-runner",
+            clientVersion: "1.0.0",
+            flowSkillName: FlowSkillName.make("read-delivery"),
+            inputs: [],
+            operationId: OperationId.make("amend-run-start"),
+            url: fixtures.url("delivery.html"),
+          });
+          const { run } = started;
+          if (run === null) {
+            return yield* Effect.die("The Run did not start.");
+          }
+
+          yield* assessActiveStep(started.id, "working", "amend-assess-1");
+          yield* assessActiveStep(started.id, "working", "amend-assess-2");
+          // The Run ended on its own and its first write landed.
+          const stored = yield* runTool("open_run", { runId: run.runId });
+          expect(stored.summary.agentAccount).toBeUndefined();
+
+          // A directory where the Summary file belongs: the amend cannot be
+          // written, so the closing account never reaches the Catalog Root.
+          const summaryFile = path.join(
+            root,
+            AGENT_RUNS_DIRECTORY,
+            run.runId,
+            "summary.json"
+          );
+          yield* fileSystem.remove(summaryFile);
+          yield* fileSystem.makeDirectory(summaryFile, { recursive: true });
+          const blocked = yield* Effect.result(
+            runTool("agent_run_complete", {
+              agentAccount: "The delivery date was read.",
+              operationId: OperationId.make("amend-complete-blocked"),
+              sessionId: started.id,
+            })
+          );
+          expect(Result.isFailure(blocked)).toBe(true);
+
+          // The failed amend left the account unrecorded, so a retry must
+          // write it rather than treat the Summary as already amended.
+          yield* fileSystem.remove(summaryFile, { recursive: true });
+          const completed = yield* runTool("agent_run_complete", {
+            agentAccount: "The delivery date was read.",
+            operationId: OperationId.make("amend-complete-retry"),
+            sessionId: started.id,
+          });
+          expect(completed.agentAccount).toBe("The delivery date was read.");
+          const opened = yield* runTool("open_run", { runId: run.runId });
+          expect(opened.summary.agentAccount).toBe(
+            "The delivery date was read."
+          );
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

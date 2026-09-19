@@ -5116,13 +5116,18 @@ const makeAgentSession = (
             summaryText === undefined || already.agentAccount !== undefined
               ? already
               : { ...already, agentAccount: summaryText };
-          record.finalized.summary = amended;
           // A Run whose write never landed is not a persisted Run. This is the
           // path a caller retries, so it writes rather than answering with a
           // Summary the Catalog Root has never seen.
-          return record.finalized.persisted && amended === already
-            ? already
-            : yield* persistRunSummary(record, amended);
+          if (record.finalized.persisted && amended === already) {
+            return already;
+          }
+          // The amended Summary joins the session only once its write lands.
+          // A failed amend leaves memory on the last persisted Summary, so the
+          // next retry still sees a closing account the Catalog Root lacks.
+          const written = yield* persistRunSummary(record, amended);
+          record.finalized.summary = written;
+          return written;
         }
         return yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* finalizeRun() {
