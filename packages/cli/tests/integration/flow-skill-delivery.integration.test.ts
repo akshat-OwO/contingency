@@ -348,6 +348,24 @@ it.live(
           // never touched, so it must not reuse the Teaching session.
           expect(failedRun.session.id).not.toBe(teachingSessionId);
           expect(failedRun.session.activity).toBe("run");
+          // A Dry Run session says what it rehearses, so reading it back is
+          // enough to tell it from an Interactive Run (#202).
+          expect(failedRun.session.flowSkillName).toBe("set-delivery-area");
+          expect(failedRun.session.recordingId).toBe(recordingId);
+          expect(failedRun.session.dryRun).toMatchObject({
+            flowSkillName: "set-delivery-area",
+            recordingId,
+          });
+          expect(failedRun.session.run).toBeNull();
+          const reread = yield* sessionTool("agent_session_get", {
+            sessionId: failedRun.session.id,
+          });
+          expect(reread.flowSkillName).toBe("set-delivery-area");
+          expect(reread.recordingId).toBe(recordingId);
+          expect(reread.dryRun).toMatchObject({
+            flowSkillName: "set-delivery-area",
+            recordingId,
+          });
           expect(failedRun.files.map((file) => file.path)).toContain(
             "SKILL.md"
           );

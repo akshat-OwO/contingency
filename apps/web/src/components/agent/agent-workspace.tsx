@@ -34,6 +34,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   adoptSessionSnapshot,
   agentControlPresentation,
+  agentSessionActivityLabel,
   agentSessionLabel,
   agentStatusLabel,
   agentViewStateAtom,
@@ -500,9 +501,7 @@ const SessionDetails = ({
                 Session status
               </h2>
               <p className="text-muted-foreground mt-1 text-xs">
-                {session.activity === "teaching"
-                  ? "Teaching"
-                  : "Interactive Run"}
+                {agentSessionActivityLabel(session)}
               </p>
             </div>
             <span className="bg-muted inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium">

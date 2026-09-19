@@ -51,6 +51,7 @@ import type {
   AgentSessionSnapshot,
   AgentSessionStart,
   AgentSessionVariableState,
+  RunSessionSnapshot,
   BrowserStreamEvent,
   BrowserRpcErrorType,
   BrowserNetworkRequest,
@@ -147,6 +148,17 @@ export interface AgentSessionStartInput {
    * and evidence from the moment the browser opens.
    */
   readonly run?: AgentRunState | undefined;
+  /**
+   * The Dry Run this session rehearses. A Dry Run follows the saved Flow Skill
+   * package rather than ordered Agent Steps, so it names the flow and the
+   * Teaching Recording it came from instead of carrying a Run state.
+   */
+  readonly dryRun?:
+    | {
+        readonly flowSkillName: FlowSkillName;
+        readonly recordingId: TeachingRecordingId;
+      }
+    | undefined;
   /**
    * Where this session's Trace and video are written. A Run names its own Run
    * directory so its evidence is one self-contained package; Teaching falls
@@ -491,6 +503,23 @@ const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
   return url.href;
 };
 
+/**
+ * What a Dry Run contributes to its session snapshot. A rehearsal names the
+ * Flow Skill and the Teaching Recording it runs, so a reader can tell it from
+ * an Interactive Run without the tool result that started it (#202).
+ */
+const dryRunIdentity = (
+  dryRun: AgentSessionStartInput["dryRun"],
+  at: string
+): Pick<RunSessionSnapshot, "dryRun" | "flowSkillName" | "recordingId"> =>
+  dryRun === undefined
+    ? { dryRun: null, flowSkillName: null, recordingId: null }
+    : {
+        dryRun: { ...dryRun, startedAt: at },
+        flowSkillName: dryRun.flowSkillName,
+        recordingId: dryRun.recordingId,
+      };
+
 const snapshotFromReadyManifest = (
   manifest: TeachingRecordingManifest,
   owner: AgentProcessId,
@@ -516,6 +545,7 @@ const snapshotFromReadyManifest = (
     createdAt: manifest.createdAt,
     currentUrl: "about:blank",
     decisionHistory: [],
+    dryRun: null,
     flowSkillName: manifest.flowSkillName,
     id: manifest.sessionId,
     interruptedAction: null,
@@ -3528,8 +3558,7 @@ const makeAgentSession = (
                         activity: "run" as const,
                         captureState: null,
                         controller: "agent" as const,
-                        flowSkillName: null,
-                        recordingId: null,
+                        ...dryRunIdentity(input.dryRun, at),
                         run: input.run ?? null,
                         teaching: null,
                       }
@@ -3538,6 +3567,7 @@ const makeAgentSession = (
                         activity: "teaching" as const,
                         captureState: { _tag: "setup", requestedAt: at },
                         controller: "user" as const,
+                        dryRun: null,
                         flowSkillName: teachingIdentity.flowSkillName,
                         recordingCleanup: { _tag: "pending" as const },
                         recordingId: teachingIdentity.recordingId,

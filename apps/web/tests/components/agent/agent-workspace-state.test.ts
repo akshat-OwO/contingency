@@ -2,7 +2,11 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { AgentSessionId } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
-import { adoptSessionSnapshot } from "@/components/agent/agent-workspace-state";
+import {
+  adoptSessionSnapshot,
+  agentSessionActivityLabel,
+  agentSessionLabel,
+} from "@/components/agent/agent-workspace-state";
 
 type TeachingSnapshot = Extract<
   AgentSessionSnapshot,
@@ -91,4 +95,47 @@ test("takes the polled snapshot when the selection changed", () => {
   const polled = teaching("2026-09-18T00:00:10.000Z", verified);
 
   expect(adoptSessionSnapshot(held, polled)).toBe(polled);
+});
+
+type RunSnapshot = Extract<AgentSessionSnapshot, { readonly activity: "run" }>;
+
+/** One run session, either a Dry Run rehearsal or an Interactive Run. */
+const run = (dryRun: RunSnapshot["dryRun"]): RunSnapshot =>
+  ({
+    activity: "run",
+    captureState: null,
+    clientName: "Test agent",
+    clientVersion: "1.0",
+    controller: "agent",
+    createdAt: "2026-09-18T00:00:00.000Z",
+    currentUrl: "https://example.com/",
+    dryRun,
+    flowSkillName: dryRun === null ? null : dryRun.flowSkillName,
+    id: AgentSessionId.make("agent-run"),
+    interruptedAction: null,
+    ownerProcessId: "mcp-test",
+    phase: "running",
+    recordingId: dryRun === null ? null : dryRun.recordingId,
+    run: null,
+    takeover: null,
+    teaching: null,
+    timeline: [],
+    updatedAt: "2026-09-18T00:00:00.000Z",
+    viewUrl: "http://127.0.0.1:7777/?session=agent-run",
+  }) satisfies RunSnapshot;
+
+test("labels a Dry Run with the Flow Skill it rehearses", () => {
+  const rehearsal = run({
+    flowSkillName: "add-anvil",
+    recordingId: "recording-39cd",
+    startedAt: "2026-09-18T00:00:06.000Z",
+  });
+
+  expect(agentSessionLabel(rehearsal)).toBe("add-anvil · Dry Run");
+  expect(agentSessionActivityLabel(rehearsal)).toBe("Dry Run");
+});
+
+test("keeps an Interactive Run reading as one", () => {
+  expect(agentSessionActivityLabel(run(null))).toBe("Interactive Run");
+  expect(agentSessionLabel(run(null))).toContain("agent-run");
 });

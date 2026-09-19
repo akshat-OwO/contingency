@@ -93,14 +93,34 @@ export const appendConsoleEntry = (
   [...entries, entry].slice(-MAX_WORKSPACE_CONSOLE_ENTRIES);
 
 /**
+ * What a session is doing, in the words the Workspace uses for it. A Dry Run
+ * rehearses a saved Flow Skill and an Interactive Run replays a verified one,
+ * so they read as different work rather than both as "run" (#202).
+ */
+export const agentSessionActivityLabel = (
+  session: AgentSessionSnapshot
+): string => {
+  if (session.activity === "teaching") {
+    return "Teaching";
+  }
+  return session.dryRun ? "Dry Run" : "Interactive Run";
+};
+
+/**
  * How a session reads in a picker. A Teaching label is the Flow Skill name
  * alone: the capture state has its own badge in the dock, and a raw session id
- * is never a label a person can act on (#191).
+ * is never a label a person can act on (#191). A Dry Run names the flow it
+ * rehearses for the same reason (#202).
  */
-export const agentSessionLabel = (session: AgentSessionSnapshot): string =>
-  session.activity === "teaching"
-    ? session.flowSkillName
-    : `${session.clientName} · ${session.activity} · ${session.id}`;
+export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
+  if (session.activity === "teaching") {
+    return session.flowSkillName;
+  }
+  if (session.dryRun) {
+    return `${session.dryRun.flowSkillName} · Dry Run`;
+  }
+  return `${session.clientName} · ${session.activity} · ${session.id}`;
+};
 
 /**
  * How Agent View describes control. Control is exclusive, and an agent that
