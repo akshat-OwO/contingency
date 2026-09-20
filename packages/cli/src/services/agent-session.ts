@@ -156,6 +156,15 @@ export interface AgentSessionStartInput {
   readonly dryRun?:
     | {
         readonly flowSkillName: FlowSkillName;
+        /**
+         * The inputs the rehearsal runs with, already masked: a secret input
+         * carries a `null` value so no literal reaches the session snapshot.
+         */
+        readonly inputs: readonly {
+          readonly changed: boolean;
+          readonly name: string;
+          readonly value: string | null;
+        }[];
         readonly recordingId: TeachingRecordingId;
       }
     | undefined;

@@ -19,6 +19,8 @@ export interface AgentViewState {
   /** What the address bar shows while the user holds the browser. */
   readonly address: string;
   readonly browserStreamError: string | undefined;
+  /** What went wrong the last time the dock tried to raise a Run ceiling. */
+  readonly ceilingError: string | undefined;
   /** What the page has logged while this Workspace watched it. */
   readonly consoleEntries: readonly BrowserConsoleEntry[];
   /** What went wrong the last time this View tried to change control. */
@@ -53,6 +55,7 @@ export interface AgentViewState {
 export const agentViewStateAtom = Atom.make<AgentViewState>({
   address: "",
   browserStreamError: undefined,
+  ceilingError: undefined,
   consoleEntries: [],
   controlError: undefined,
   controlPending: false,
@@ -110,7 +113,9 @@ export const agentSessionActivityLabel = (
  * How a session reads in a picker. A Teaching label is the Flow Skill name
  * alone: the capture state has its own badge in the dock, and a raw session id
  * is never a label a person can act on (#191). A Dry Run names the flow it
- * rehearses for the same reason (#202).
+ * rehearses for the same reason (#202), and an Interactive Run names the flow
+ * it replays, falling back to the MCP client that opened it when a Run session
+ * has no Run yet (#209).
  */
 export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
   if (session.activity === "teaching") {
@@ -119,7 +124,8 @@ export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
   if (session.dryRun) {
     return `${session.dryRun.flowSkillName} · Dry Run`;
   }
-  return `${session.clientName} · ${session.activity} · ${session.id}`;
+  const name = session.run?.flowSkillName ?? session.flowSkillName;
+  return `${name ?? session.clientName} · Interactive Run`;
 };
 
 /**

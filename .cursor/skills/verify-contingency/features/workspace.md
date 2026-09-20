@@ -1,22 +1,22 @@
 # Workspace
 
-Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp` process, and hands the browser to the user on request during a Run. Teaching is user-led throughout. The user drives the browser and the agent only observes. Teaching setup remains outside the recording until the user presses Start, and Stop ends capture without closing the browser. With no activity, either command reports that no sessions are active. With a live Interactive Run, Workspace shows the browser, the action timeline, and one control button. During Takeover, the user drives that browser with the toolbar and the canvas. A live Teaching session has no control exchange. The canvas and toolbar are already the user's.
+Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp` process, and hands the browser to the user on request during a Run. Teaching is user-led throughout. The user drives the browser and the agent only observes. Teaching setup remains outside the recording until the user presses Start, and Stop ends capture without closing the browser. With no activity, either command reports that no sessions are active. With a live Interactive Run, Workspace shows the browser and one control button, both under the same floating dock a Teaching session gets. During Takeover, the user drives that browser with the toolbar and the canvas. A live Teaching session has no control exchange. The canvas and toolbar are already the user's.
 
 ## Sub-features
 
-- `workspace-nav` opens the sole Workspace route at `/`; Create, Audit, and Agent mode links are absent. The header band appears on a Run Summary and an unknown route, and steps aside for the recorded Flow Skill chrome.
-- `workspace-chrome` shows one floating `Workspace dock` over a full-bleed browser, with the wordmark, the session select, the state badge, the next-step sentence, and at most one primary action, at desktop width and at 390px.
+- `workspace-nav` opens the sole Workspace route at `/`; Create, Audit, and Agent mode links are absent. The header band appears on a Run Summary and an unknown route, and steps aside for every Workspace that owns the viewport.
+- `workspace-chrome` shows one floating `Workspace dock` over a full-bleed browser, with the wordmark, the session select, the state badge, the next-step sentence, and at most one primary action, at desktop width and at 390px. Teaching, a Dry Run, and an Interactive Run all render it, and none of them shows a session status sidebar.
 - `workspace-run-summary` opens a finished Interactive Run at `/?run=<id>` with persisted assessments and video.
 - `agent-empty-web` shows `No browser session` on a `web` launch with no Teaching or Run, and opens a Teaching session from the canvas without MCP.
 - `agent-empty-mcp` shows `No browser session` on an MCP launch with no Teaching or Run.
 - `agent-bad-session` shows unavailability when `?session=` names a session this process does not own.
-- `agent-live-session` shows a live session's browser, status, and timeline.
+- `agent-live-session` shows a live session's browser and the dock that carries its state.
 - `agent-same-document-snapshot` returns destination nodes with the destination URL after an agent action routes without loading a new document.
 - `agent-watching-readonly` disables the browser toolbar and marks the canvas read-only while the agent holds control.
 - `agent-takeover-controls` enables history, address, and canvas input once the user takes control.
-- `agent-takeover-timeline` records what the user did as `You`, and follows the browser's URL.
+- `agent-takeover-timeline` records what the user did as `"actor":"user"` in the session's timeline, and follows the browser's URL. The timeline is read over MCP; Workspace no longer renders it.
 - `agent-return-control` hands the browser back, and the toolbar goes quiet again.
-- `agent-teaching-details` shows a live Teaching session's captured action and instruction counts and the sensitive-artifact disclosure before the recording is verified.
+- `agent-run-dock` shows a live Interactive Run's Flow Skill, active Agent Step, `Done when:` line, coverage, ceiling extensions, and single control button in the dock, and a live Dry Run's rehearsed Flow Skill and changed inputs.
 - `agent-teaching-inspect` outlines the live element under the pointer during `recording`, attaches a comment as a Teaching instruction, and counts it in the dock.
 - `agent-teaching-dock-actions` renames the Flow Skill in `setup`, and copies the agent prompt or deletes the recording in `ready`.
 - `agent-teaching-recording-boundary` keeps setup out of Teaching artifacts, starts every capture source from the Workspace, and stops them without closing the browser setup.
@@ -43,8 +43,8 @@ Preconditions:
 - For `agent-empty-mcp`, run `control-contingency mcp start` on the same verify directory after `launch` and `doctor`. That binds MCP on an ephemeral port with the isolated `stateDir`. Do not attach to an MCP process you did not start.
 - For every live-session sub-feature, `mcp start` and `ecommerce start` must both be running. Create the session with `control-contingency mcp call`, which speaks MCP to that same process — a session exists only inside the process that owns it, so nothing else can conjure one.
 
-- **Nav entry.** The header band belongs to the Views that still have one. Open a Run Summary or an unknown route with `control-contingency browser goto --path /nowhere`, then `control-contingency browser click --role link --name Workspace`. The `Workspace` link is current on `/`. Workspace and the Contingency wordmark are home links: both clear the selected session or Run Summary and return to the session workspace.
-- **Empty on web.** After the query settles, run `control-contingency browser wait --role heading --name "No browser session" --timeout-ms 15000`. There is no header band here: the dock carries the wordmark, and the ARIA snapshot has no `link` named `Workspace`.
+- **Nav entry.** The header band belongs to the Views that still have one: a Run Summary and an unknown route. Open a Run Summary or an unknown route with `control-contingency browser goto --path /nowhere`, then `control-contingency browser click --role link --name Workspace`. The `Workspace` link is current on `/`. Workspace and the Contingency wordmark are home links: both clear the selected session or Run Summary and return to the session workspace.
+- **Empty on web.** After the query settles, run `control-contingency browser wait --role heading --name "No browser session" --timeout-ms 15000`. There is no header band here or on any live session: the dock carries the wordmark, and the ARIA snapshot has no `link` named `Workspace`.
 - **Direct route.** Open `/` without using nav. Run `control-contingency browser goto --path /`, then wait for the same empty heading.
 - **Open a session from the canvas.** `contingency web` owns Teaching, so the empty canvas starts one without MCP. Run `control-contingency browser click --role button --name "Open browser session"`, then `control-contingency browser wait --role button --name "Start recording" --timeout-ms 20000`. The dock badge becomes `Not recording`. Exactly one control is named `Open browser session`: search the empty-state ARIA artifact and require one match.
 - **Unknown session query.** Open a fake session id. Run `control-contingency browser goto --path "/?session=not-a-session"`, then wait for the session error. The page does not treat the query value as a credential.
@@ -56,17 +56,24 @@ Preconditions:
 ### Live session and Takeover
 
 - **Start a session.** Give the agent a browser on the local shop. Run `control-contingency mcp call --tool agent_session_start --params "{\"clientName\":\"verify\",\"clientVersion\":\"1.0\",\"operationId\":\"verify-agent-1\",\"url\":\"$ECOMMERCE_URL\",\"viewport\":{\"deviceScaleFactor\":1,\"height\":720,\"width\":1024}}"`. Stdout is the session snapshot; export its `id` as `sessionId` and its `viewUrl`.
-- **Open the live view.** Run `control-contingency browser goto --url "$viewUrl"`, then `control-contingency browser wait --role button --name "Take control" --timeout-ms 20000`. The heading is `Workspace` and the status reads `Live` once frames arrive.
+- **Open the live view.** Run `control-contingency browser goto --url "$viewUrl"`, then `control-contingency browser wait --role button --name "Take control" --timeout-ms 20000`. There is one `Workspace dock` region, no `Workspace` heading, and no session status sidebar. The dock badge reads `Live` once frames arrive, and `Take control` is the dock's only control button.
 - **Route within the document.** Call `agent_browser_snapshot` and note the ref for the `Choose delivery area` button. Call `agent_browser_act` with that ref and a fresh operation id. Save stdout as `workspace/same-document-act.json`: `snapshot.url` ends in `/shop.html/delivery`, its nodes include heading `Delivery area` and button `Use current location`, and no node is named `Choose delivery area`.
-- **Proof (same-document reread).** Call `agent_browser_snapshot` again and save stdout as `workspace/same-document-reread.json`; it reports the same URL and destination controls. In Workspace, save `workspace/same-document.aria.txt` and `workspace/same-document.png`; the live canvas is at the destination and the timeline records the completed agent click.
+- **Proof (same-document reread).** Call `agent_browser_snapshot` again and save stdout as `workspace/same-document-reread.json`; it reports the same URL and destination controls. In Workspace, save `workspace/same-document.aria.txt` and `workspace/same-document.png`; the live canvas is at the destination. Read the completed agent click from `agent_session_get`'s timeline, not from the View.
 - **Watching is read-only.** Before taking control, snapshot the toolbar. Run `control-contingency browser snapshot --aria --path workspace/takeover-watching.aria.txt`. `Go back`, `Go forward`, `Reload page`, and `Browser address` are all `[disabled]`, the address placeholder reads `Take control to drive the browser`, and the canvas `Live browser viewport` is `aria-readonly="true"`.
 - **Take control.** Run `control-contingency browser click --role button --name "Take control"`, then `control-contingency browser wait --role button --name "Return control" --timeout-ms 15000`. The same toolbar handles are now enabled and the canvas is `aria-readonly="false"`.
 - **Navigate by address.** Run `control-contingency browser fill --role textbox --name "Browser address" --value "${ECOMMERCE_URL%/*}/catalog.html"`, then `control-contingency browser press --key Enter --role textbox --name "Browser address"`. A bare host is completed to `https://`.
 - **Navigate by history.** Run `control-contingency browser click --role button --name "Go back"`, then `control-contingency browser click --role button --name "Reload page"`. Each is dispatched one at a time; a second click while one is pending is refused by the disabled state rather than racing it.
 - **Scroll the page.** Wheel events belong to the nested browser, not to Contingency chrome. Drive them with `computerUse` at the verification URL over the `Live browser viewport` canvas. The page under the canvas scrolls; the View behind it does not.
-- **Proof (what the user did).** Read the session back with `control-contingency mcp call --tool agent_session_get --params "{\"sessionId\":\"$sessionId\"}"`. `currentUrl` is where the browser now is, and the timeline carries `The user took control`, `Navigate to <url>`, `Go back`, and `Reload the page`, each with `"actor":"user"` and `"outcome":"completed"`. Workspace shows the same entries under `Action timeline` attributed to `You`.
+- **Proof (what the user did).** Read the session back with `control-contingency mcp call --tool agent_session_get --params "{\"sessionId\":\"$sessionId\"}"`. `currentUrl` is where the browser now is, and the timeline carries `The user took control`, `Navigate to <url>`, `Go back`, and `Reload the page`, each with `"actor":"user"` and `"outcome":"completed"`. Workspace itself shows only the dock: assert the timeline over MCP.
 - **Proof (the view itself).** Run `control-contingency browser snapshot --aria --path workspace/takeover-driving.aria.txt` and `control-contingency browser screenshot --path workspace/takeover-driving.png`.
-- **Return control.** Run `control-contingency browser click --role button --name "Return control"`, then `control-contingency browser wait --role button --name "Take control" --timeout-ms 15000`. The toolbar is disabled again and the timeline gains `The user returned control to the agent`.
+- **Return control.** Run `control-contingency browser click --role button --name "Return control"`, then `control-contingency browser wait --role button --name "Take control" --timeout-ms 15000`. The toolbar is disabled again, and `agent_session_get`'s timeline gains `The user returned control to the agent`.
+
+### The Run dock
+
+- **Read the Run in the dock.** With an Interactive Run open at its `viewUrl`, run `control-contingency browser snapshot --aria --path workspace/run-dock.aria.txt`. The `Workspace dock` names the Flow Skill, reads `Agent Step <n> of <total>: <name>.` with that Step's `Done when:` line, and reports `<executed> of <total> Agent Steps executed`. The `Agent Session` option reads `<flow> · Interactive Run` and carries no session id.
+- **Raise a ceiling.** Run `control-contingency browser click --role button --name "Extend Agent Step ceiling"`, then read the session back: `run.ceilings.extensions` has grown. There is no MCP tool for this; the dock button is the only way either ceiling grows. Both buttons are absent once the Run has ended.
+- **Read a Dry Run in the dock.** Open a live Dry Run's `viewUrl`. The dock reads `Rehearsing the flow skill <name>.` and names the inputs that differ from the recording, and the `Agent Session` option reads `<flow> · Dry Run`. Save `workspace/dry-run-dock.aria.txt`.
+- **Proof (390px).** Run `control-contingency browser resize --width 390 --height 844` over a live Run and save `workspace/run-dock-390.png`. The control button is still on screen and the next-step sentence is hidden rather than ellipsized. Return to desktop afterwards.
 
 ### Teaching and Flow Skill learning
 
@@ -163,7 +170,8 @@ Preconditions:
 ## Gotchas
 
 - `Loading Agent Sessions…` is transient. Wait for the empty heading or the requested session result. Do not snapshot the spinner.
-- The recorded Flow Skill chrome has no header band. Do not wait for `link Workspace` on `/` with no session or on a live Teaching session; wait for the `Workspace dock` region instead.
+- No live Workspace has a header band. Do not wait for `link Workspace` or a `Workspace` heading on `/` with no session or on any live session; wait for the `Workspace dock` region instead.
+- The action timeline is no longer rendered anywhere in Workspace. Assert it through `agent_session_get`.
 - Inspect hit-tests the live Page through a Browser Snapshot. A stale outline means the Page moved, not that the click missed; re-hover rather than clicking the canvas as if it were the DOM.
 - Empty means the current `web` or `mcp` process owns zero sessions.
 - A bad `?session=` value names a session that the current process does not own. The error names the server process, not MCP. The page does not fall back to a session from another process.

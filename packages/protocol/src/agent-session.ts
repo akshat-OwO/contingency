@@ -93,6 +93,18 @@ const AgentSessionSnapshotBase = {
  */
 export const AgentDryRunState = Schema.Struct({
   flowSkillName: FlowSkillName,
+  /**
+   * The inputs the rehearsal was started with, and which of them differ from
+   * the recorded journey. A secret input arrives with a `null` value: the
+   * Workspace names it without ever holding the literal.
+   */
+  inputs: Schema.Array(
+    Schema.Struct({
+      changed: Schema.Boolean,
+      name: nonEmptyString,
+      value: Schema.NullOr(Schema.String),
+    })
+  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   recordingId: TeachingRecordingId,
   startedAt: nonEmptyString,
 });

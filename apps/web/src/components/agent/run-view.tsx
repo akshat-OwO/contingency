@@ -2,28 +2,17 @@ import type {
   AgentRunAssessmentCounts,
   AgentRunCoverage,
   AgentRunId,
-  AgentRunState,
   AgentRunStep,
   AgentRunSummary,
-  AgentSessionSnapshot,
 } from "@contingency/protocol";
-import { agentRunVideoPath, OperationId } from "@contingency/protocol";
-import { useAtom, useAtomValue } from "@effect/atom-react";
-import { CircleAlertIcon, TimerIcon } from "lucide-react";
+import { agentRunVideoPath } from "@contingency/protocol";
+import { useAtomValue } from "@effect/atom-react";
+import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
-
-const operationId = () => OperationId.make(crypto.randomUUID());
-
-/** How much one direct user gesture adds to a ceiling. */
-const CEILING_EXTENSION_MS = 120_000;
-
-const seconds = (milliseconds: number): string =>
-  `${Math.max(Math.round(milliseconds / 1000), 0)}s`;
 
 const executionLabel: Record<AgentRunStep["execution"], string> = {
   active: "In progress",
@@ -133,125 +122,6 @@ const RunTotals = ({
 );
 
 /**
- * The ceilings, and the only place either can be raised. There is deliberately
- * no MCP tool for this: a stuck agent cannot buy itself more time
- * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
- */
-const RunCeilings = ({
-  run,
-  sessionId,
-}: {
-  readonly run: AgentRunState;
-  readonly sessionId: AgentSessionSnapshot["id"];
-}) => {
-  const { agentRunCeilingExtendMutation } = useRpcDependencies();
-  const [extendResult, extend] = useAtom(agentRunCeilingExtendMutation);
-  const failure = refusal(extendResult);
-  const ended = run.outcome !== null;
-  const request = (scope: "run" | "step") => () =>
-    extend({
-      payload: {
-        data: {
-          additionalMs: CEILING_EXTENSION_MS,
-          operationId: operationId(),
-          scope,
-          sessionId,
-        },
-        type: "agent.run.ceiling.extend",
-      },
-    });
-  return (
-    <section aria-labelledby="agent-run-ceilings" className="space-y-2">
-      <h2 className="text-sm font-semibold" id="agent-run-ceilings">
-        Ceilings
-      </h2>
-      <div className="space-y-3 rounded-lg border p-3 text-sm">
-        <p className="text-muted-foreground text-xs">
-          The Run stops when either ceiling is reached. A breach is recorded as
-          a timed-out execution outcome, not as an agent judgment.
-        </p>
-        <dl className="space-y-1 text-sm">
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-muted-foreground">Run ceiling</dt>
-            <dd className="font-medium">{seconds(run.ceilings.runMs)}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-muted-foreground">Agent Step ceiling</dt>
-            <dd className="font-medium">{seconds(run.ceilings.stepMs)}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="text-muted-foreground">User extensions</dt>
-            <dd className="font-medium">{run.ceilings.extensions}</dd>
-          </div>
-        </dl>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={ended}
-            onClick={request("step")}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <TimerIcon aria-hidden="true" />
-            Extend Agent Step ceiling
-          </Button>
-          <Button
-            disabled={ended}
-            onClick={request("run")}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <TimerIcon aria-hidden="true" />
-            Extend Run ceiling
-          </Button>
-        </div>
-        {failure === undefined ? null : (
-          <p className="text-destructive text-xs">{failure}</p>
-        )}
-      </div>
-    </section>
-  );
-};
-
-/** Who performed the Run, and which parts of that are the client's own claim. */
-const RunAttribution = ({ run }: { readonly run: AgentRunState }) => (
-  <section aria-labelledby="agent-run-attribution" className="space-y-2">
-    <h2 className="text-sm font-semibold" id="agent-run-attribution">
-      Agent
-    </h2>
-    <dl className="divide-y rounded-lg border text-sm">
-      <div className="flex items-start justify-between gap-3 p-3">
-        <dt className="text-muted-foreground shrink-0">MCP client</dt>
-        <dd className="min-w-0 text-right font-medium break-words">
-          {run.attribution.clientName} {run.attribution.clientVersion}
-        </dd>
-      </div>
-      {run.attribution.reportedProvider === null &&
-      run.attribution.reportedModel === null ? null : (
-        <div className="flex items-start justify-between gap-3 p-3">
-          <dt className="text-muted-foreground shrink-0">
-            Reported model (unverified)
-          </dt>
-          <dd className="min-w-0 text-right font-medium break-words">
-            {[run.attribution.reportedProvider, run.attribution.reportedModel]
-              .filter((value) => value !== null)
-              .join(" · ")}
-          </dd>
-        </div>
-      )}
-    </dl>
-    {run.attribution.reportedProvider === null &&
-    run.attribution.reportedModel === null ? null : (
-      <p className="text-muted-foreground text-xs">
-        The provider and model are whatever the client said they were.
-        Contingency cannot check that claim and does not present it as one.
-      </p>
-    )}
-  </section>
-);
-
-/**
  * The finished Run, with its local video embedded. Nothing here leaves the
  * machine: the video is served from the Run's own directory over loopback
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
@@ -316,90 +186,6 @@ export const RunSummaryView = ({
     </section>
   </div>
 );
-
-/** The live Interactive Run, as Agent View shows it beside the browser. */
-export const RunDetails = ({
-  session,
-}: {
-  readonly session: AgentSessionSnapshot;
-}) => {
-  const { run } = session;
-  if (run === null) {
-    return null;
-  }
-  return (
-    <>
-      <section aria-labelledby="agent-run" className="space-y-2">
-        <h2 className="text-sm font-semibold" id="agent-run">
-          Interactive Run
-        </h2>
-        <div className="space-y-2 rounded-lg border p-3 text-sm">
-          <p className="font-medium">{run.title}</p>
-          <p className="text-muted-foreground text-xs wrap-anywhere">
-            Flow skill {run.flowSkillName}
-          </p>
-          {run.outcome === null ? null : (
-            <Badge
-              variant={run.outcome === "completed" ? "default" : "secondary"}
-            >
-              Run {run.outcome}
-            </Badge>
-          )}
-          {run.outcome === "timed-out" ? (
-            <Alert variant="destructive">
-              <CircleAlertIcon aria-hidden="true" />
-              <AlertTitle>A ceiling was reached</AlertTitle>
-              <AlertDescription>
-                The active action was interrupted and recorded as timed out. No
-                Agent Assessment was produced for that Agent Step.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-        </div>
-      </section>
-      <RunTotals
-        assessmentCounts={run.assessmentCounts}
-        coverage={run.coverage}
-      />
-      <section aria-labelledby="agent-run-steps" className="space-y-2">
-        <h2 className="text-sm font-semibold" id="agent-run-steps">
-          Agent Steps
-        </h2>
-        <RunSteps activeStepIndex={run.activeStepIndex} steps={run.steps} />
-      </section>
-      <RunCeilings run={run} sessionId={session.id} />
-      <RunAttribution run={run} />
-    </>
-  );
-};
-
-/**
- * Agent View in summary mode. It appears only once the Run has ended and its
- * Run Summary has been written, so a Run that stopped on a ceiling shows the
- * live Run's own account until the agent finalizes it
- * ([ADR 0030](../../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
- */
-const EndedRunSummary = ({ runId }: { readonly runId: AgentRunId }) => {
-  const { agentRunSummaryAtom } = useRpcDependencies();
-  const result = useAtomValue(agentRunSummaryAtom(runId));
-  // The Run Summary is written when the agent finalizes the Run. Until then —
-  // and for a Run that ended on a ceiling and was never finalized — the live
-  // Run's own account is the only thing there is to show.
-  return result._tag === "Success" ? (
-    <RunSummaryView summary={result.value.data.summary} />
-  ) : null;
-};
-
-export const RunSummaryPanel = ({
-  session,
-}: {
-  readonly session: AgentSessionSnapshot;
-}) => {
-  const { run } = session;
-  return run === null || run.outcome === null ? null : (
-    <EndedRunSummary runId={run.runId} />
-  );
-};
 
 /**
  * The read-only viewer `open_run` returns. It reads only persisted evidence
