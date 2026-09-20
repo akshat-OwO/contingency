@@ -190,7 +190,6 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         description: read.success.title,
         inputs: read.success.inputs,
         name,
-        path: read.success.directory,
         stepCount: read.success.steps.length,
       });
     }
@@ -198,15 +197,15 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   });
 
   const list = Effect.fnUntraced(function* listFlowSkills() {
-    return { catalogRoot: selected, flowSkills: yield* entries(selected) };
+    return { flowSkills: yield* entries(selected) };
   });
 
   const service: FlowSkillCatalogService = {
     info: () =>
-      list().pipe(
-        Effect.map(({ catalogRoot, flowSkills }) => ({
+      entries(selected).pipe(
+        Effect.map((flowSkills) => ({
           flowSkillCount: flowSkills.length,
-          root: catalogRoot,
+          root: selected,
         }))
       ),
     list,
