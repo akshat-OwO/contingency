@@ -132,32 +132,66 @@ it.live(
             listed.recordings.map((recording) => recording.recordingId)
           ).toContain(recordingId);
           const waited = yield* teachingRecordingTool(
-            "agent_teaching_recording_wait",
+            "agent_teaching_recordings_list",
             { recordingId, timeoutMs: 1000 }
           );
-          expect(waited.lifecycle).toBe("ready");
+          expect(waited.recordings).toHaveLength(1);
+          expect(waited.recordings[0]?.lifecycle).toBe("ready");
 
           const releasedClaimOperationId = OperationId.make("learning-claim");
           const claimed = yield* teachingRecordingTool(
             "agent_teaching_recording_claim",
-            { operationId: releasedClaimOperationId, recordingId }
+            {
+              action: "take",
+              operationId: releasedClaimOperationId,
+              recordingId,
+            }
           );
-          expect(claimed.flowSkillName).toBe("learn-anvil");
-          yield* teachingRecordingTool("agent_teaching_recording_release", {
-            claimOperationId: releasedClaimOperationId,
-            operationId: OperationId.make("learning-release"),
-            recordingId,
-          });
+          expect(claimed.claim?.flowSkillName).toBe("learn-anvil");
+          const released = yield* teachingRecordingTool(
+            "agent_teaching_recording_claim",
+            {
+              action: "release",
+              claimOperationId: releasedClaimOperationId,
+              operationId: OperationId.make("learning-release"),
+              recordingId,
+            }
+          );
+          expect(released.claim).toBeNull();
+          expect(released.recording.lifecycle).toBe("ready");
           const staleClaimReplay = yield* Effect.flip(
             teachingRecordingTool("agent_teaching_recording_claim", {
+              action: "take",
               operationId: releasedClaimOperationId,
               recordingId,
             })
           );
           expect(staleClaimReplay.code).toBe("teaching_recording_conflict");
 
+          // Ending a claim is the same tool with a different action, so its
+          // two required arguments are refused here rather than by the store.
+          const claimlessRelease = yield* Effect.flip(
+            teachingRecordingTool("agent_teaching_recording_claim", {
+              action: "release",
+              operationId: OperationId.make("learning-release-no-claim"),
+              recordingId,
+            })
+          );
+          expect(claimlessRelease.code).toBe("teaching_recording_invalid");
+          const reasonlessFailure = yield* Effect.flip(
+            teachingRecordingTool("agent_teaching_recording_claim", {
+              action: "fail",
+              claimOperationId: releasedClaimOperationId,
+              error: "   ",
+              operationId: OperationId.make("learning-fail-no-reason"),
+              recordingId,
+            })
+          );
+          expect(reasonlessFailure.code).toBe("teaching_recording_invalid");
+
           const claimOperationId = OperationId.make("learning-active-claim");
           yield* teachingRecordingTool("agent_teaching_recording_claim", {
+            action: "take",
             operationId: claimOperationId,
             recordingId,
           });

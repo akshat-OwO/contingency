@@ -9,7 +9,7 @@ import {
   OperationId,
   TEACHING_RECORDING_WAIT_MAX_MS,
   TeachingKeyframeContent,
-  TeachingRecordingClaim,
+  TeachingRecordingClaimResult,
   TeachingRecordingId,
   TeachingRecordingList,
   TeachingRecordingSummary,
@@ -94,25 +94,13 @@ const summaryOf = (
   };
 };
 
-// A no-argument tool uses a record because an empty Struct advertises an array.
-const NoParameters = Schema.Record(Schema.String, Schema.Unknown);
-
 const TeachingRecordingsListTool = Tool.make("agent_teaching_recordings_list", {
   dependencies: [TeachingRecordingLearning],
   description:
-    "List process-independent Teaching Recordings that an agent can claim for Flow Skill learning. Recordings created by contingency web appear after Stop, even when this MCP process did not create their browser session.",
-  failure: TeachingRecordingFailure,
-  parameters: NoParameters,
-  success: TeachingRecordingList,
-});
-
-const TeachingRecordingWaitTool = Tool.make("agent_teaching_recording_wait", {
-  dependencies: [TeachingRecordingLearning],
-  description:
-    "Wait for a named Teaching Recording to reach its next durable state: recording, ready, learning, skill-drafted, dry-running, dry-run-failed, dry-run-passed, verified, or failed. The tool polls its durable manifest, so it works when another process owns the browser. The timeout is at most 60000 ms.",
+    "List process-independent Teaching Recordings that an agent can claim for Flow Skill learning. Recordings created by contingency web appear after Stop, even when this MCP process did not create their browser session. Name a recordingId to answer with that one recording instead, waiting up to timeoutMs (default 30000, at most 60000) for it to reach its next durable state: recording, ready, learning, skill-drafted, dry-running, dry-run-failed, dry-run-passed, verified, or failed. The wait polls the durable manifest, so it works when another process owns the browser, and a recording that never arrives is refused with teaching_recording_timeout.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
-    recordingId: TeachingRecordingId,
+    recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
     timeoutMs: Schema.optional(
       Schema.NullOr(
         Schema.Int.check(
@@ -124,19 +112,22 @@ const TeachingRecordingWaitTool = Tool.make("agent_teaching_recording_wait", {
       )
     ),
   }),
-  success: TeachingRecordingSummary,
+  success: TeachingRecordingList,
 });
 
 const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
   dependencies: [TeachingRecordingStore],
   description:
-    "Claim one ready Teaching Recording for Flow Skill learning. The durable claim is exclusive across processes and lasts through saving, Dry Runs, and a rejection, until agent_flow_skill_verify, agent_teaching_recording_release, or agent_teaching_recording_fail ends it. An abandoned claim returns to ready after its owner exits. Replay the same operation id to reread the claim.",
+    'Move this process\'s learning claim on one Teaching Recording. `action:"take"` claims a ready recording and answers with the claim; the durable claim is exclusive across processes and lasts through saving, Dry Runs, and a rejection. `action:"release"` ends the claim and returns the recording to ready for another attempt, from any claimed state including a drafted or dry-run-failed Flow Skill. `action:"fail"` ends the claim and records `error`, why this process could not learn the Flow Skill; the failed recording stays discoverable and accepts a later claim. Release and fail need the original claimOperationId beside a fresh operationId; take needs only its own operationId, and replaying it rereads the same claim. An abandoned claim returns to ready after its owner exits.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
+    action: Schema.Literals(["take", "release", "fail"]),
+    claimOperationId: Schema.optional(Schema.NullOr(OperationId)),
+    error: Schema.optional(Schema.NullOr(Schema.String)),
     operationId: OperationId,
     recordingId: TeachingRecordingId,
   }),
-  success: TeachingRecordingClaim,
+  success: TeachingRecordingClaimResult,
 });
 
 const TeachingTimelineGetTool = Tool.make("agent_teaching_timeline_get", {
@@ -222,66 +213,13 @@ const FlowSkillDryRunReportTool = Tool.make("agent_flow_skill_dry_run_report", {
   success: TeachingRecordingSummary,
 });
 
-const FlowSkillRejectTool = Tool.make("agent_flow_skill_reject", {
+const FlowSkillDecideTool = Tool.make("agent_flow_skill_decide", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    "Relay the user's explicit rejection after a passing Dry Run. The Flow Skill returns to drafted and every Teaching artifact and the learning claim stay available, so agent_flow_skill_save under the same claim operation id can edit the package for another Dry Run.",
+    'Relay the user\'s explicit choice about a Flow Skill whose Dry Run passed. `decision:"verify"` keeps the flow: verification marks cleanup purge-pending before deleting the raw Teaching artifacts, and it ends the learning claim. `decision:"reject"` returns the Flow Skill to drafted with every Teaching artifact and the learning claim intact, so agent_flow_skill_save under the same claim operation id can edit the package for another Dry Run. Never send either without the user\'s explicit choice. `decision:"retry-cleanup"` is not a user choice: it resumes deletion for an already verified Flow Skill whose cleanup is still purge-pending, and the verified Flow Skill is never rolled back when deletion fails.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
-    operationId: OperationId,
-    recordingId: TeachingRecordingId,
-  }),
-  success: TeachingRecordingSummary,
-});
-
-const FlowSkillVerifyTool = Tool.make("agent_flow_skill_verify", {
-  dependencies: [AgentSession, TeachingRecordingStore],
-  description:
-    "Relay the user's explicit Verify flow choice after a passing Dry Run. Verification marks cleanup purge-pending before deleting raw Teaching artifacts. Never call this tool without the user's explicit choice.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    operationId: OperationId,
-    recordingId: TeachingRecordingId,
-  }),
-  success: TeachingRecordingSummary,
-});
-
-const FlowSkillCleanupRetryTool = Tool.make("agent_flow_skill_cleanup_retry", {
-  dependencies: [AgentSession, TeachingRecordingStore],
-  description:
-    "Retry deletion for a verified Flow Skill whose cleanup remains purge-pending. The verified Flow Skill is never rolled back when deletion fails.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    operationId: OperationId,
-    recordingId: TeachingRecordingId,
-  }),
-  success: TeachingRecordingSummary,
-});
-
-const TeachingRecordingReleaseTool = Tool.make(
-  "agent_teaching_recording_release",
-  {
-    dependencies: [TeachingRecordingStore],
-    description:
-      "Release this process's learning claim and return the Teaching Recording to ready for another attempt. This works from any claimed state, including a drafted or dry-run-failed Flow Skill. Supply the original claim operation id and a fresh mutation operation id.",
-    failure: TeachingRecordingFailure,
-    parameters: Schema.Struct({
-      claimOperationId: OperationId,
-      operationId: OperationId,
-      recordingId: TeachingRecordingId,
-    }),
-    success: TeachingRecordingSummary,
-  }
-);
-
-const TeachingRecordingFailTool = Tool.make("agent_teaching_recording_fail", {
-  dependencies: [TeachingRecordingStore],
-  description:
-    "Record why this process could not learn the Flow Skill and end its claim. The failed recording remains discoverable and another attempt can claim it.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    claimOperationId: OperationId,
-    error: Schema.String.check(Schema.isMinLength(1)),
+    decision: Schema.Literals(["verify", "reject", "retry-cleanup"]),
     operationId: OperationId,
     recordingId: TeachingRecordingId,
   }),
@@ -291,29 +229,43 @@ const TeachingRecordingFailTool = Tool.make("agent_teaching_recording_fail", {
 export const TeachingRecordingTools = withStrictParameters(
   Toolkit.make(
     TeachingRecordingsListTool,
-    TeachingRecordingWaitTool,
     TeachingRecordingClaimTool,
     TeachingTimelineGetTool,
     TeachingKeyframeGetTool,
     FlowSkillSaveTool,
     FlowSkillDryRunStartTool,
     FlowSkillDryRunReportTool,
-    FlowSkillRejectTool,
-    FlowSkillVerifyTool,
-    FlowSkillCleanupRetryTool,
-    TeachingRecordingReleaseTool,
-    TeachingRecordingFailTool
+    FlowSkillDecideTool
   )
 );
 
 export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
   {
-    agent_flow_skill_cleanup_retry: (params) =>
-      Effect.gen(function* retryFlowSkillCleanup() {
+    agent_flow_skill_decide: (params) =>
+      Effect.gen(function* decideFlowSkill() {
         const store = yield* TeachingRecordingStore;
         const sessions = yield* AgentSession;
+        const mutation = {
+          operationId: params.operationId,
+          recordingId: params.recordingId,
+        };
+        if (params.decision === "reject") {
+          const rejected = yield* store
+            .reject(mutation)
+            .pipe(Effect.mapError(failure));
+          yield* sessions.get(rejected.sessionId).pipe(Effect.ignore);
+          return summaryOf(rejected);
+        }
+        /*
+          Verifying purges in two durable halves: the verified transition lands
+          first, then deletion runs. A retry re-enters only the second half,
+          which is why a failed deletion never rolls the Flow Skill back.
+        */
+        if (params.decision === "verify") {
+          yield* store.verify(mutation).pipe(Effect.mapError(failure));
+        }
         const cleaned = yield* store
-          .cleanup(params)
+          .cleanup(mutation)
           .pipe(Effect.mapError(failure));
         yield* sessions.get(cleaned.sessionId).pipe(Effect.ignore);
         return summaryOf(cleaned);
@@ -492,31 +444,10 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           skillPath: started.lifecycle.skillPath,
         };
       }),
-    agent_flow_skill_reject: (params) =>
-      Effect.gen(function* rejectFlowSkill() {
-        const store = yield* TeachingRecordingStore;
-        const sessions = yield* AgentSession;
-        const rejected = yield* store
-          .reject(params)
-          .pipe(Effect.mapError(failure));
-        yield* sessions.get(rejected.sessionId).pipe(Effect.ignore);
-        return summaryOf(rejected);
-      }),
     agent_flow_skill_save: (params) =>
       Effect.gen(function* saveFlowSkill() {
         const learning = yield* TeachingRecordingLearning;
         return yield* learning.save(params).pipe(Effect.mapError(failure));
-      }),
-    agent_flow_skill_verify: (params) =>
-      Effect.gen(function* verifyFlowSkill() {
-        const store = yield* TeachingRecordingStore;
-        const sessions = yield* AgentSession;
-        yield* store.verify(params).pipe(Effect.mapError(failure));
-        const cleaned = yield* store
-          .cleanup(params)
-          .pipe(Effect.mapError(failure));
-        yield* sessions.get(cleaned.sessionId).pipe(Effect.ignore);
-        return summaryOf(cleaned);
       }),
     agent_teaching_keyframe_get: (params) =>
       Effect.gen(function* readTeachingKeyframe() {
@@ -530,55 +461,92 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           .pipe(Effect.mapError(failure));
       }),
     agent_teaching_recording_claim: (params) =>
-      Effect.gen(function* claimTeachingRecording() {
+      Effect.gen(function* moveTeachingClaim() {
         const store = yield* TeachingRecordingStore;
-        const manifest = yield* store
-          .startLearning(params)
-          .pipe(Effect.mapError(failure));
-        if (
-          manifest.lifecycle._tag !== "learning" ||
-          manifest.lifecycle.claim.operationId !== params.operationId ||
-          manifest.lifecycle.claim.ownerPid !== process.pid
-        ) {
+        if (params.action === "take") {
+          const manifest = yield* store
+            .startLearning({
+              operationId: params.operationId,
+              recordingId: params.recordingId,
+            })
+            .pipe(Effect.mapError(failure));
+          if (
+            manifest.lifecycle._tag !== "learning" ||
+            manifest.lifecycle.claim.operationId !== params.operationId ||
+            manifest.lifecycle.claim.ownerPid !== process.pid
+          ) {
+            return yield* Effect.fail(
+              new TeachingRecordingFailure({
+                code: "teaching_recording_conflict",
+                diagnostics: [],
+                message: `Teaching Recording ${params.recordingId} no longer has this learning claim. (teaching_recording_conflict)`,
+              })
+            );
+          }
+          return {
+            claim: {
+              claimedAt: manifest.lifecycle.claim.claimedAt,
+              flowSkillName: manifest.flowSkillName,
+              operationId: manifest.lifecycle.claim.operationId,
+              recordingId: manifest.recordingId,
+            },
+            recording: summaryOf(manifest),
+          };
+        }
+        const claimOperationId = params.claimOperationId ?? undefined;
+        if (claimOperationId === undefined) {
           return yield* Effect.fail(
             new TeachingRecordingFailure({
-              code: "teaching_recording_conflict",
+              code: "teaching_recording_invalid",
               diagnostics: [],
-              message: `Teaching Recording ${params.recordingId} no longer has this learning claim. (teaching_recording_conflict)`,
+              message: `Ending a learning claim on Teaching Recording ${params.recordingId} needs the claimOperationId it was taken with. (teaching_recording_invalid)`,
             })
           );
         }
-        return {
-          claimedAt: manifest.lifecycle.claim.claimedAt,
-          flowSkillName: manifest.flowSkillName,
-          operationId: manifest.lifecycle.claim.operationId,
-          recordingId: manifest.recordingId,
-        };
-      }),
-    agent_teaching_recording_fail: (params) =>
-      Effect.gen(function* failTeachingRecording() {
-        const store = yield* TeachingRecordingStore;
-        return summaryOf(
-          yield* store.failLearning(params).pipe(Effect.mapError(failure))
-        );
-      }),
-    agent_teaching_recording_release: (params) =>
-      Effect.gen(function* releaseTeachingRecording() {
-        const store = yield* TeachingRecordingStore;
-        return summaryOf(
-          yield* store.releaseLearning(params).pipe(Effect.mapError(failure))
-        );
-      }),
-    agent_teaching_recording_wait: (params) =>
-      Effect.gen(function* waitForTeachingRecording() {
-        const learning = yield* TeachingRecordingLearning;
-        return yield* learning
-          .wait(params.recordingId, params.timeoutMs ?? 30_000)
+        if (params.action === "release") {
+          const released = yield* store
+            .releaseLearning({
+              claimOperationId,
+              operationId: params.operationId,
+              recordingId: params.recordingId,
+            })
+            .pipe(Effect.mapError(failure));
+          return { claim: null, recording: summaryOf(released) };
+        }
+        const error = params.error?.trim() ?? "";
+        if (error.length === 0) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_invalid",
+              diagnostics: [],
+              message: `Failing Teaching Recording ${params.recordingId} needs a non-empty error saying why this process could not learn it. (teaching_recording_invalid)`,
+            })
+          );
+        }
+        const failed = yield* store
+          .failLearning({
+            claimOperationId,
+            error,
+            operationId: params.operationId,
+            recordingId: params.recordingId,
+          })
           .pipe(Effect.mapError(failure));
+        return { claim: null, recording: summaryOf(failed) };
       }),
-    agent_teaching_recordings_list: () =>
+    agent_teaching_recordings_list: (params) =>
       Effect.gen(function* listTeachingRecordings() {
         const learning = yield* TeachingRecordingLearning;
+        /*
+          A named recording is the waiting form. `wait` answers as soon as the
+          recording holds a durable learning state, so a zero timeout reads one
+          recording and a longer one blocks until that state arrives.
+        */
+        if (params.recordingId !== undefined && params.recordingId !== null) {
+          const summary = yield* learning
+            .wait(params.recordingId, params.timeoutMs ?? 30_000)
+            .pipe(Effect.mapError(failure));
+          return { recordings: [summary] };
+        }
         const recordings = yield* learning
           .list()
           .pipe(Effect.mapError(failure));

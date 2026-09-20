@@ -315,7 +315,7 @@ const claimRefusal = (
   state === "unclaimed"
     ? storeError(
         "teaching_recording_unclaimed",
-        `Teaching Recording ${recordingId} carries no learning claim. Claim it with agent_teaching_recording_claim and retry with the new claim operation id.`
+        `Teaching Recording ${recordingId} carries no learning claim. Claim it with agent_teaching_recording_claim action "take" and retry with the new claim operation id.`
       )
     : storeError(
         "teaching_recording_conflict",
@@ -990,7 +990,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             return Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot save a Flow Skill after a passing Dry Run. Relay the user's Reject flow choice with agent_flow_skill_reject, or their Verify flow choice with agent_flow_skill_verify.`
+                `Teaching Recording ${input.recordingId} cannot save a Flow Skill after a passing Dry Run. Relay the user's choice with agent_flow_skill_decide: decision "reject" or decision "verify".`
               )
             );
           }

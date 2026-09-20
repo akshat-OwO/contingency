@@ -74,6 +74,7 @@ it.live("records one scroll gesture that reports what it revealed", () =>
       Effect.gen(function* readTheTimeline() {
         const claimOperationId = OperationId.make("scroll-claim");
         yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
           operationId: claimOperationId,
           recordingId,
         });
