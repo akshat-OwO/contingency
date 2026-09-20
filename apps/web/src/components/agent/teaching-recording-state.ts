@@ -335,7 +335,7 @@ export const flowSkillRunPrompt = (flowSkillName: string): string =>
     "",
     `Call agent_flow_skills_list to find "${
       flowSkillName
-    }" in the selected Catalog Root and read the SKILL.md at the path it reports.`,
+    }" in the selected Catalog Root and read the description and declared inputs it reports.`,
     "Ask me for every declared input, then call agent_flow_skill_run_start with those inputs and the page the first step opens.",
     'Drive the returned Agent Session with the browser tools and call agent_run_step_assess for each ordered step, judged against its own "Done when:" line.',
     "Call agent_run_complete when the steps are done or one of them could not be completed.",

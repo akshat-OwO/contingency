@@ -188,16 +188,19 @@ export const FlowSkillListEntry = Schema.Struct({
       name: nonEmptyString,
     })
   ),
+  /** The Flow Skill directory's name inside the Catalog Root. */
   name: nonEmptyString,
-  /** The Flow Skill directory, absolute. */
-  path: nonEmptyString,
   /** How many numbered steps the procedure carries. */
   stepCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 export type FlowSkillListEntry = typeof FlowSkillListEntry.Type;
 
+/**
+ * The listing names Flow Skills and never their location: the Catalog Root and
+ * every absolute path stay inside the MCP process, and `agent_catalog_get` is
+ * the one tool whose job is reporting the root.
+ */
 export const FlowSkillList = Schema.Struct({
-  catalogRoot: nonEmptyString,
   flowSkills: Schema.Array(FlowSkillListEntry),
 });
 export type FlowSkillList = typeof FlowSkillList.Type;
