@@ -600,7 +600,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       captureState: { _tag: "setup" },
       flowSkillName: "add-first-item",
       recordingId: expect.stringMatching(/^recording-/u),
-      teaching: { actionCount: 0, instructionCount: 0 },
+      teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
     });
 
     const beforeStart = yield* Effect.flip(
@@ -633,7 +633,11 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       OperationId.make("close-teaching-without-capture")
     );
     // Nothing was captured, because the user never pressed Start.
-    expect(closed.teaching).toEqual({ actionCount: 0, instructionCount: 0 });
+    expect(closed.teaching).toEqual({
+      actionCount: 0,
+      instructionCount: 0,
+      instructions: [],
+    });
   })
 );
 

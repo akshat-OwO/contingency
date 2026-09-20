@@ -98,7 +98,11 @@ export interface DemonstrationCapture {
   readonly closeCoalescedAction: (snapshotAfter: AgentBrowserSnapshot) => void;
   /** Record one attempt and the URL change it caused, if any. */
   readonly recordAction: (input: CapturedActionInput) => CapturedAction;
-  readonly recordInstruction: (text: string, at: string) => TeachingInstruction;
+  readonly recordInstruction: (
+    text: string,
+    at: string,
+    target?: string | undefined
+  ) => TeachingInstruction;
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
   /**
@@ -374,12 +378,14 @@ export const makeDemonstrationCapture = (
     progress: () => ({
       actionCount: actions.length,
       instructionCount: instructions.length,
+      instructions: [...instructions],
     }),
     recordAction,
-    recordInstruction: (text, at) => {
+    recordInstruction: (text, at, target) => {
       const instruction: TeachingInstruction = {
         at: eventTime(at),
         id: `instruction-${randomUUID()}`,
+        target: target ?? null,
         text,
       };
       instructions.push(instruction);

@@ -1472,7 +1472,13 @@ const useAgentView = (
                 data: {
                   operationId,
                   sessionId,
-                  text: `${frozen.description}: ${text}`,
+                  /*
+                    The element travels beside the text rather than inside it,
+                    so the dock's comment list can name what each instruction
+                    landed on without parsing a prefix back out (#213).
+                  */
+                  target: frozen.description,
+                  text,
                 },
                 type: "agent.teaching.instruction.record",
               },
@@ -1949,8 +1955,8 @@ export const AgentWorkspace = ({
             <TeachingRecordingDock
               captureState={session.captureState}
               cleanup={session.recordingCleanup}
-              commentCount={state.inspect.comments.length}
               flowSkillName={session.flowSkillName}
+              instructions={session.teaching.instructions}
               inspecting={state.inspect.open}
               onGesture={view.changeRecording}
               onSecondary={view.runSecondary}

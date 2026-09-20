@@ -34,7 +34,7 @@ const teaching = (
     recordingId: "recording-39cd",
     run: null,
     takeover: null,
-    teaching: { actionCount: 4, instructionCount: 0 },
+    teaching: { actionCount: 4, instructionCount: 0, instructions: [] },
     timeline: [],
     updatedAt,
     verification: null,
