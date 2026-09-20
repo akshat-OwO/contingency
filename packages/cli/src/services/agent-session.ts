@@ -310,7 +310,9 @@ export interface AgentSessionService {
   readonly recordInstruction: (
     sessionId: AgentSessionId,
     text: string,
-    operationId?: OperationId | string
+    operationId?: OperationId | string,
+    /** The element the instruction was attached to, when it named one. */
+    target?: string | undefined
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Ask the user to take control, and answer immediately with the link. */
   readonly requestTakeover: (
@@ -565,7 +567,7 @@ const snapshotFromReadyManifest = (
     recordingId: manifest.recordingId,
     run: null,
     takeover: null,
-    teaching: { actionCount: 0, instructionCount: 0 },
+    teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
     timeline: [],
     updatedAt: manifest.updatedAt,
     viewUrl: viewUrl(baseUrl, manifest.sessionId),
@@ -2377,7 +2379,7 @@ const makeAgentSession = (
       const discarded: AgentSessionSnapshot = {
         ...record.snapshot,
         captureState: manifest.lifecycle,
-        teaching: { actionCount: 0, instructionCount: 0 },
+        teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
         timeline: [],
         updatedAt: manifest.lifecycle.requestedAt,
       };
@@ -3581,7 +3583,11 @@ const makeAgentSession = (
                         recordingCleanup: { _tag: "pending" as const },
                         recordingId: teachingIdentity.recordingId,
                         run: null,
-                        teaching: { actionCount: 0, instructionCount: 0 },
+                        teaching: {
+                          actionCount: 0,
+                          instructionCount: 0,
+                          instructions: [],
+                        },
                       };
                 // A Run asks for each runtime Variable it still needs as its
                 // own Pending Decision, so the user answers them by name in
@@ -5010,9 +5016,10 @@ const makeAgentSession = (
     )(function* recordInstruction(
       sessionId: AgentSessionId,
       text: string,
-      operationId?: OperationId | string
+      operationId?: OperationId | string,
+      target?: string | undefined
     ) {
-      const requestInput = JSON.stringify({ text });
+      const requestInput = JSON.stringify({ target: target ?? null, text });
       const replayed = replaySession(
         operationId,
         "instruction",
@@ -5048,13 +5055,21 @@ const makeAgentSession = (
       const at = now().toISOString();
       const instruction: TeachingInstruction = capture.recordInstruction(
         text,
-        at
+        at,
+        target
       );
       const next = yield* recordEntry(sessionId, {
         actor: "user",
         at,
         description: "The user gave an instruction",
-        detail: instruction.text,
+        /*
+          The timeline entry still reads as one sentence, so an instruction
+          attached to an element names it where a reader sees it (#213).
+        */
+        detail:
+          instruction.target === null
+            ? instruction.text
+            : `${instruction.target}: ${instruction.text}`,
         dispatched: false,
         id: instruction.id,
         outcome: "completed",

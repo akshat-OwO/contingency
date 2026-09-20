@@ -469,6 +469,11 @@ export const AgentTeachingInstructionRecordRequest = request(
   {
     operationId: AgentSessionClose.fields.operationId,
     sessionId: AgentSessionClose.fields.sessionId,
+    /**
+     * The element the comment was attached to, by role and accessible name.
+     * Absent when the instruction names no element, as a relayed one does.
+     */
+    target: optionalNullable(Schema.String.check(Schema.isMinLength(1))),
     text: Schema.String.check(Schema.isMinLength(1)),
   }
 );

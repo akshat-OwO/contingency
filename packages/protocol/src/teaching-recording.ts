@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   AgentActionOutcome,
@@ -332,6 +332,10 @@ const TeachingUrlEvent = Schema.TaggedStruct("url", {
 /** Free text the user relayed while demonstrating. */
 const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
   ...teachingEventBase,
+  /** The element the instruction was attached to, when it named one. */
+  target: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   text: nonEmptyString,
 });
 
@@ -582,6 +586,14 @@ export type TeachingKeyframeBytes = typeof TeachingKeyframeBytes.Type;
 export const TeachingInstruction = Schema.Struct({
   at: nonEmptyString,
   id: nonEmptyString,
+  /**
+   * The element the instruction was attached to, by role and accessible name,
+   * when it was attached to one. An instruction relayed over MCP names no
+   * element and carries `null`.
+   */
+  target: Schema.NullOr(nonEmptyString).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
   text: nonEmptyString,
 });
 export type TeachingInstruction = typeof TeachingInstruction.Type;
@@ -624,5 +636,13 @@ export type TeachingVariableInput = typeof TeachingVariableInput.Type;
 export const TeachingProgress = Schema.Struct({
   actionCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   instructionCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /**
+   * The instructions themselves, oldest first, so the Workspace can read back
+   * what was said without paging the timeline (#213). Both an inspect comment
+   * and an instruction relayed over MCP appear here.
+   */
+  instructions: Schema.Array(TeachingInstruction).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
 });
 export type TeachingProgress = typeof TeachingProgress.Type;

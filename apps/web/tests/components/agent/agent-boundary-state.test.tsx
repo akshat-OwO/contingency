@@ -69,7 +69,7 @@ const sessionAt = <Overrides extends object>(
   recordingId: "recording-shop-sign-in",
   run: null,
   takeover: null,
-  teaching: { actionCount: 2, instructionCount: 0 },
+  teaching: { actionCount: 2, instructionCount: 0, instructions: [] },
   timeline: [],
   updatedAt,
   viewUrl: "http://127.0.0.1:7777/?session=agent-one",

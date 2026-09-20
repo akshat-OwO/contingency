@@ -266,7 +266,12 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       */
       "agent.teaching.instruction.record": ({ data }) =>
         agentUnavailable((service) =>
-          service.recordInstruction(data.sessionId, data.text, data.operationId)
+          service.recordInstruction(
+            data.sessionId,
+            data.text,
+            data.operationId,
+            data.target
+          )
         ).pipe(
           Effect.map((session) => ({
             data: { session },

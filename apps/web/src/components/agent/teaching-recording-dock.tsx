@@ -2,6 +2,7 @@ import type {
   AgentSessionId,
   AgentSessionSnapshot,
   TeachingCaptureState,
+  TeachingInstruction,
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
 import {
@@ -31,6 +32,11 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const TICK_MS = 1000;
 
@@ -111,6 +117,60 @@ export const WorkspaceEmptyDock = () => (
 );
 
 /**
+ * The comments this recording has collected, behind their own count. The count
+ * is a control rather than a label: a user who attached several instructions
+ * has no other way to read back what they said or which element each one
+ * landed on (#213). The list is read-only — an instruction is a recorded
+ * event, so retracting one has to be recorded rather than rewritten.
+ *
+ * With nothing attached there is no control at all, so the dock never offers a
+ * button that opens an empty overlay.
+ */
+const RecordingComments = ({
+  instructions,
+}: {
+  readonly instructions: readonly TeachingInstruction[];
+}) => {
+  if (instructions.length === 0) {
+    return null;
+  }
+  const count = instructions.length;
+  /* Newest first: the instruction just attached is the one being checked. */
+  const newestFirst = instructions.toReversed();
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={(props) => (
+          <Button
+            {...props}
+            aria-label={`${count} ${count === 1 ? "comment" : "comments"}`}
+            size="sm"
+            variant="ghost"
+          >
+            <span className="tabular-nums">{count}</span>
+            {count === 1 ? "comment" : "comments"}
+          </Button>
+        )}
+      />
+      <PopoverContent align="end">
+        <ul className="flex max-h-64 flex-col gap-2.5 overflow-y-auto">
+          {newestFirst.map((instruction) => (
+            <li className="flex flex-col gap-0.5" key={instruction.id}>
+              <span>{instruction.text}</span>
+              {instruction.target === null ? null : (
+                <span className="text-muted-foreground text-xs">
+                  {instruction.target}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/**
  * The Teaching dock: the Flow Skill name, one state badge, one next-step
  * sentence, the inspect toggle, the secondary actions, and at most one primary
  * action, driven entirely by the pushed capture state (ADR 0039).
@@ -118,8 +178,8 @@ export const WorkspaceEmptyDock = () => (
 export const TeachingRecordingDock = ({
   captureState,
   cleanup,
-  commentCount,
   flowSkillName,
+  instructions,
   inspecting,
   onGesture,
   onSecondary,
@@ -131,9 +191,12 @@ export const TeachingRecordingDock = ({
 }: {
   readonly captureState: TeachingCaptureState;
   readonly cleanup: TeachingRecordingCleanupState | undefined;
-  /** How many inspect comments this recording has collected. */
-  readonly commentCount: number;
   readonly flowSkillName: string;
+  /**
+   * Every Teaching instruction this recording has collected, oldest first,
+   * whether attached through inspect or relayed over MCP.
+   */
+  readonly instructions: readonly TeachingInstruction[];
   readonly inspecting: boolean;
   readonly onGesture: (gesture: TeachingRecordingGesture) => void;
   readonly onSecondary: (
@@ -202,11 +265,7 @@ export const TeachingRecordingDock = ({
           <MousePointerClickIcon />
         </Button>
       ) : null}
-      {commentCount > 0 ? (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {commentCount} {commentCount === 1 ? "comment" : "comments"}
-        </span>
-      ) : null}
+      <RecordingComments instructions={instructions} />
       {presentation.secondaries.map((secondary) => (
         <Button
           disabled={pending}

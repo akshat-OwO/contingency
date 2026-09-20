@@ -507,7 +507,7 @@ test("names the drafted Flow Skill in the Teaching dock", async () => {
         },
         flowSkillName: "browse-catalogue",
         recordingId: "recording-browse-catalogue",
-        teaching: { actionCount: 4, instructionCount: 2 },
+        teaching: { actionCount: 4, instructionCount: 2, instructions: [] },
       } satisfies unknown,
     ]),
     session.id
@@ -577,7 +577,7 @@ test("offers no control exchange during a user-led Demonstration", async () => {
         controller: "user",
         flowSkillName: "browse-catalogue",
         recordingId: "recording-browse-catalogue",
-        teaching: { actionCount: 0, instructionCount: 0 },
+        teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
       } satisfies unknown,
     ]),
     session.id
@@ -599,7 +599,7 @@ test("starts and stops Teaching recording from the privacy dock", async () => {
     controller: "user",
     flowSkillName: "browse-catalogue",
     recordingId: "recording-browse-catalogue",
-    teaching: { actionCount: 0, instructionCount: 0 },
+    teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
   } satisfies unknown;
   renderWorkspace(resultFor([setup]), session.id);
   expect(await screen.findByText("Not recording")).toBeVisible();
@@ -697,7 +697,7 @@ test("keeps Teaching private Variable entry out of Workspace", async () => {
         },
         flowSkillName: "private-variable-flow",
         recordingId: "recording-private-variable-flow",
-        teaching: { actionCount: 0, instructionCount: 0 },
+        teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
       } satisfies unknown,
     ]),
     session.id
@@ -791,7 +791,7 @@ const teachingSetup = {
   controller: "user",
   flowSkillName: "browse-catalogue",
   recordingId: "recording-browse-catalogue",
-  teaching: { actionCount: 0, instructionCount: 0 },
+  teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
 } satisfies unknown;
 
 const teachingRecording = {
@@ -871,14 +871,69 @@ test("attaches an inspect comment as a Teaching instruction", async () => {
     payload: {
       data: {
         sessionId: session.id,
-        text: "button: Place order: Use the express checkout here.",
+        target: "button: Place order",
+        text: "Use the express checkout here.",
       },
       type: "agent.teaching.instruction.record",
     },
   });
-  // The comment count is the only instruction surface the dock adds.
-  expect(await screen.findByText("1 comment")).toBeVisible();
+  // The dock adds no second instruction field beside inspect's own.
   expect(screen.queryByLabelText("Add instruction")).toBeNull();
+});
+
+test("reads the attached comments back from the dock's count", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingRecording,
+        teaching: {
+          actionCount: 3,
+          instructionCount: 2,
+          instructions: [
+            {
+              at: "2026-08-31T00:00:02.000Z",
+              id: "instruction-1",
+              target: "button: Place order",
+              text: "Use the express checkout here.",
+            },
+            {
+              /* Relayed over MCP: no element, so no target to name. */
+              at: "2026-08-31T00:00:03.000Z",
+              id: "instruction-2",
+              target: null,
+              text: "Stop once the receipt shows.",
+            },
+          ],
+        },
+      } satisfies unknown,
+    ]),
+    session.id
+  );
+  const count = await screen.findByRole("button", { name: "2 comments" });
+  await user.click(count);
+  const list = await screen.findByRole("list");
+  const items = within(list).getAllByRole("listitem");
+  // Newest first: the instruction just attached is the one being checked.
+  expect(items[0]).toHaveTextContent("Stop once the receipt shows.");
+  expect(items[1]).toHaveTextContent("Use the express checkout here.");
+  expect(items[1]).toHaveTextContent("button: Place order");
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+});
+
+test("leaves the dock's comment count out when nothing is attached", async () => {
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(
+    within(dock).queryByRole("button", { name: /^\d+ comments?$/u })
+  ).toBeNull();
+  expect(
+    within(dock).getByRole("button", { name: "Inspect an element and comment" })
+  ).toBeVisible();
 });
 
 test("offers Rename flow in setup and deletion once a recording is saved", async () => {
@@ -949,7 +1004,9 @@ test("leaves inspect and its pins with the recording they belong to", async () =
     "Use the express checkout here."
   );
   await user.click(screen.getByRole("button", { name: "Attach" }));
-  expect(await screen.findByText("1 comment")).toBeVisible();
+  await waitFor(() => {
+    expect(rpc.instructionCalls).toHaveLength(1);
+  });
 
   cleanup();
   renderWorkspace(
@@ -967,7 +1024,6 @@ test("leaves inspect and its pins with the recording they belong to", async () =
     session.id
   );
   await screen.findByText("Recording saved");
-  expect(screen.queryByText("1 comment")).toBeNull();
   expect(screen.queryByLabelText("Describe the change")).toBeNull();
 });
 
@@ -1061,7 +1117,7 @@ const dryRunPassedSession = {
   },
   flowSkillName: "add-anvil",
   recordingId: "recording-add-anvil",
-  teaching: { actionCount: 4, instructionCount: 0 },
+  teaching: { actionCount: 4, instructionCount: 0, instructions: [] },
 } satisfies unknown;
 
 test("says which lifecycle refused a gesture instead of rendering an object", async () => {
