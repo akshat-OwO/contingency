@@ -206,13 +206,49 @@ const SNAPSHOT_SCRIPT = `(() => {
     }
     return style;
   };
-  const isVisible = (element) => {
-    const style = styleOf(element);
-    if (style.visibility === "hidden" || style.display === "none") {
+  // What the accessibility tree keeps: an element the styling hides, or one
+  // \`aria-hidden\` removes, is not there for a reader and is not here either.
+  // The subtree goes with it, so a descendant of a hidden element is hidden
+  // however it styles itself.
+  const isRendered = (element) => {
+    if (SKIPPED_TAGS.has(element.tagName)) {
       return false;
+    }
+    if (element.getAttribute("aria-hidden") === "true") {
+      return false;
+    }
+    const style = styleOf(element);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
+  const isVisible = (element) => {
+    for (
+      let node = element;
+      node !== null && node !== document.documentElement;
+      node = node.parentElement
+    ) {
+      if (!isRendered(node)) {
+        return false;
+      }
     }
     const rect = element.getBoundingClientRect();
     return rect.width > 0 || rect.height > 0;
+  };
+  // The text a reader would hear for a container: its own text plus that of
+  // every descendant still in the accessibility tree. Reading \`textContent\`
+  // instead folds a hidden empty-state message into the name of the region
+  // that deliberately hides it.
+  const renderedText = (element) => {
+    let text = "";
+    for (const child of element.childNodes) {
+      if (child.nodeType === 3) {
+        text += child.nodeValue;
+        continue;
+      }
+      if (child.nodeType === 1 && isRendered(child)) {
+        text += \` \${renderedText(child)}\`;
+      }
+    }
+    return text;
   };
   // A pointer cursor inherits, so every descendant of a clickable row reports
   // one too. Only the outermost element of such a run is the control.
@@ -259,7 +295,8 @@ const SNAPSHOT_SCRIPT = `(() => {
             .split(/\\s+/)
             .map((id) => document.getElementById(id)?.textContent || "")
             .join(" ");
-    const label = labelFor(element)?.textContent || "";
+    const labelElement = labelFor(element);
+    const label = labelElement ? renderedText(labelElement) : "";
     const own =
       labelledText ||
       element.getAttribute("aria-label") ||
@@ -267,7 +304,7 @@ const SNAPSHOT_SCRIPT = `(() => {
       element.getAttribute("alt") ||
       element.getAttribute("title") ||
       element.getAttribute("placeholder") ||
-      element.textContent ||
+      renderedText(element) ||
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
   };

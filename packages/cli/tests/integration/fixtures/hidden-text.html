@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hidden text</title>
+  </head>
+  <body>
+    <main>
+      <h1>Cart</h1>
+      <ul id="cart-items">
+        <li>SKU anvil-001</li>
+      </ul>
+      <p id="cart-empty" hidden>Your cart is empty.</p>
+      <p id="removed">
+        Removed from the flow<span style="display: none">Ghost total $0</span>
+      </p>
+      <p id="invisible">
+        Kept in place<span style="visibility: hidden">Invisible note</span>
+      </p>
+      <p id="decorative">Total $999<span aria-hidden="true">star icon</span></p>
+      <a href="/shop.html">Continue shopping</a>
+    </main>
+    <script>
+      if (new URL(location.href).searchParams.get("empty") === "1") {
+        document.getElementById("cart-items").hidden = true;
+        document.getElementById("cart-empty").hidden = false;
+      }
+    </script>
+  </body>
+</html>
