@@ -94,6 +94,26 @@ it.live(
           yield* sessionTool("agent_browser_screenshot", {
             sessionId: started.id,
           });
+          /*
+            An inspect comment carries the element it was attached to beside
+            its text, so the Workspace dock and the recording can both name
+            what the instruction landed on (#213).
+          */
+          const commented = yield* session.recordInstruction(
+            started.id,
+            "Use the express checkout here.",
+            OperationId.make("learning-record-instruction"),
+            "button: Place order"
+          );
+          expect(commented.teaching?.instructions).toEqual([
+            expect.objectContaining({
+              target: "button: Place order",
+              text: "Use the express checkout here.",
+            }),
+          ]);
+          expect(commented.timeline.at(-1)?.detail).toBe(
+            "button: Place order: Use the express checkout here."
+          );
           yield* session.stopTeachingRecording(
             started.id,
             OperationId.make("learning-stop-recording")
@@ -154,6 +174,13 @@ it.live(
           expect(serialized).not.toContain("trace.zip");
           expect(serialized).not.toContain("recording.webm");
           expect(serialized).not.toContain('"path"');
+          const instruction = timeline.entries.find(
+            (entry) => entry._tag === "instruction"
+          );
+          expect(instruction).toMatchObject({
+            target: "button: Place order",
+            text: "Use the express checkout here.",
+          });
           const keyframe = timeline.entries.find(
             (entry) => entry._tag === "keyframe"
           );

@@ -5938,9 +5938,9 @@ const makeAgentSession = (
             )
           );
         }),
-      recordInstruction: (sessionId, text, operationId) =>
+      recordInstruction: (sessionId, text, operationId, target) =>
         lock.withPermit(
-          recordInstructionUnlocked(sessionId, text, operationId)
+          recordInstructionUnlocked(sessionId, text, operationId, target)
         ),
       recordPendingDecisionState: (
         sessionId,
