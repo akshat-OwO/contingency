@@ -273,6 +273,7 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
   rpc.ceilingCalls = [];
@@ -1027,6 +1028,16 @@ test("leaves inspect and its pins with the recording they belong to", async () =
   expect(screen.queryByLabelText("Describe the change")).toBeNull();
 });
 
+const teachingReady = {
+  ...teachingSetup,
+  captureState: {
+    _tag: "ready",
+    readyAt: "2026-08-31T00:00:04.000Z",
+    startedAt: "2026-08-31T00:00:01.000Z",
+    stoppedAt: "2026-08-31T00:00:03.000Z",
+  },
+} satisfies unknown;
+
 const teachingDrafted = {
   ...teachingSetup,
   captureState: {
@@ -1080,6 +1091,52 @@ test("copies the flow skill path rather than claiming to read it", async () => {
   });
 });
 
+test("confirms a copy on the button that performed it, then lets it rest", async () => {
+  const user = userEvent.setup();
+  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
+  vi.spyOn(globalThis.navigator.clipboard, "writeText").mockImplementation(() =>
+    Promise.resolve()
+  );
+  renderWorkspace(resultFor([teachingDrafted]), session.id);
+
+  await user.click(
+    await screen.findByRole("button", { name: "Copy dry run prompt" })
+  );
+  // The confirmation names what was copied rather than being a colour or a
+  // tick alone, and it reaches assistive technology (#214).
+  const copied = await screen.findByRole("button", {
+    name: "Copied dry run prompt",
+  });
+  expect(copied).toBeVisible();
+  expect(
+    screen.getByRole("status", { name: "Copy confirmation" })
+  ).toHaveTextContent("Copied dry run prompt");
+
+  // The confirmation clears itself: the resting label comes back without the
+  // user doing anything. This waits out the real hold rather than a fake
+  // clock, which the Workspace's own render loop does not survive.
+  await waitFor(
+    () => {
+      expect(
+        screen.getByRole("button", { name: "Copy dry run prompt" })
+      ).toBeVisible();
+    },
+    { timeout: 4000 }
+  );
+  expect(
+    screen.getByRole("status", { name: "Copy confirmation" })
+  ).toHaveTextContent("");
+}, 10_000);
+
+test("sizes the clipboard hand-off like the dock's other secondary actions", async () => {
+  renderWorkspace(resultFor([teachingReady]), session.id);
+  const copy = await screen.findByRole("button", {
+    name: "Copy agent prompt",
+  });
+  const neighbour = screen.getByRole("button", { name: "Delete recording" });
+  expect(copy.className).toBe(neighbour.className);
+});
+
 test("surfaces a refused clipboard write instead of looking like it worked", async () => {
   const user = userEvent.setup();
   // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
@@ -1095,6 +1152,10 @@ test("surfaces a refused clipboard write instead of looking like it worked", asy
     await screen.findByText(
       "The dry run prompt could not be copied to the clipboard."
     )
+  ).toBeVisible();
+  // A refused write confirms nothing: the button keeps its resting label.
+  expect(
+    screen.getByRole("button", { name: "Copy dry run prompt" })
   ).toBeVisible();
 });
 

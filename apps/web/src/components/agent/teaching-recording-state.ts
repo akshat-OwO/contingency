@@ -52,6 +52,17 @@ export type TeachingSecondaryAction =
   | "reject-flow"
   | "rename-flow";
 
+/**
+ * The subset of secondary actions that only fill the clipboard. A clipboard
+ * write has no consequence the user can see, so the button that performed it
+ * is the only place a confirmation can come from, and these are the actions
+ * that need one (#214).
+ */
+export type TeachingClipboardAction = Extract<
+  TeachingSecondaryAction,
+  `copy-${string}`
+>;
+
 export interface TeachingRecordingPresentation {
   /** The one action this state offers, or `null` when it offers none. */
   readonly action: TeachingRecordingAction | null;
