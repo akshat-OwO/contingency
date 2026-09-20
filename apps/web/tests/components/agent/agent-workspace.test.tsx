@@ -854,6 +854,12 @@ test("attaches an inspect comment as a Teaching instruction", async () => {
   expect(overlay).not.toBeNull();
   // SAFETY: the assertion above proves the overlay element exists.
   await user.click(overlay as Element);
+  // The frozen element is filled, not only outlined, so the user can see which
+  // element the comment attaches to (#212).
+  // SAFETY: the click froze an element, so the overlay drew its highlight.
+  const highlight = (overlay as Element).firstElementChild as Element;
+  expect(highlight.className).toContain("bg-blue-500/20");
+  expect(highlight.className).toContain("border-blue-500");
   const field = await screen.findByLabelText("Describe the change");
   await user.type(field, "Use the express checkout here.");
   await user.click(screen.getByRole("button", { name: "Attach" }));

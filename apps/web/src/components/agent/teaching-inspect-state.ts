@@ -10,6 +10,23 @@ export interface InspectComment {
   readonly y: number;
 }
 
+/**
+ * How the streamed frame maps the Page viewport onto the canvas bitmap. Both
+ * come from the screencast frame's own metadata, so the overlay draws over the
+ * frame the Page actually sent rather than over an assumed 1:1 viewport.
+ */
+export interface FrameProjection {
+  /** How far below the top of the Page viewport the frame's top pixel sits. */
+  readonly offsetTop: number;
+  /** The Page's visual zoom: 1 unless a device emulates a pinch. */
+  readonly pageScaleFactor: number;
+}
+
+export const flatFrameProjection: FrameProjection = {
+  offsetTop: 0,
+  pageScaleFactor: 1,
+};
+
 export interface InspectState {
   /** The element the pointer is over, in Page viewport coordinates. */
   readonly hovered: AgentInspectedElement | undefined;
