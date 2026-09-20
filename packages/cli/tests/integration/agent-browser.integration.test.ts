@@ -217,6 +217,57 @@ it.live("names a field by its label rather than its placeholder", () =>
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live("keeps hidden text out of an ancestor's accessible name", () =>
+  Effect.gen(function* hiddenText() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("hidden-text.html"),
+      "start-hidden-text"
+    );
+    const full = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+
+    // A cart with an item in it does not say it is empty. The paragraph
+    // carrying that sentence is hidden, so a Step judging the region by its
+    // text reads the state the Page is showing.
+    const region = findNode(full.nodes, "main", "Cart");
+    expect(region.name).toContain("SKU anvil-001");
+    expect(region.name).not.toContain("Your cart is empty.");
+
+    // The rest of the accessibility tree's exclusions hold the same way.
+    expect(findNode(full.nodes, "paragraph", "Removed").name).toBe(
+      "Removed from the flow"
+    );
+    expect(findNode(full.nodes, "paragraph", "Kept in place").name).toBe(
+      "Kept in place"
+    );
+    expect(findNode(full.nodes, "paragraph", "Total").name).toBe("Total $999");
+
+    // An excluded subtree is not a node of its own either.
+    expect(full.nodes.some((node) => node.name.includes("star icon"))).toBe(
+      false
+    );
+
+    const empty = yield* startSession(
+      agent,
+      `${fixtures.url("hidden-text.html")}?empty=1`,
+      "start-hidden-text-empty"
+    );
+    const emptied = yield* callTool("agent_browser_snapshot", {
+      sessionId: empty.id,
+    });
+
+    // Visible text still flattens upward: with the cart empty it is the
+    // message that reaches the region, and the item that does not.
+    const emptyRegion = findNode(emptied.nodes, "main", "Cart");
+    expect(emptyRegion.name).toContain("Your cart is empty.");
+    expect(emptyRegion.name).not.toContain("SKU anvil-001");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("reports rows a Page makes clickable only in script", () =>
   Effect.gen(function* scriptedRows() {
     const fixtures = yield* fixtureServer;
