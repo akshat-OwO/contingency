@@ -422,6 +422,19 @@ export const TeachingRecordingClaim = Schema.Struct({
 });
 export type TeachingRecordingClaim = typeof TeachingRecordingClaim.Type;
 
+/**
+ * What one claim transition answers with. Taking a claim carries the claim
+ * itself; releasing or failing one carries `null` beside the recording's new
+ * durable state, so a single tool reports all three without a union the caller
+ * has to narrow.
+ */
+export const TeachingRecordingClaimResult = Schema.Struct({
+  claim: Schema.NullOr(TeachingRecordingClaim),
+  recording: TeachingRecordingSummary,
+});
+export type TeachingRecordingClaimResult =
+  typeof TeachingRecordingClaimResult.Type;
+
 export const TeachingTimelineKeyframe = Schema.TaggedStruct("keyframe", {
   actionId: Schema.NullOr(Schema.String),
   at: nonEmptyString,

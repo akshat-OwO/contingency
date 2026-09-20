@@ -328,10 +328,10 @@ export const teachingAgentPrompt = (
     "- contingency://skill/technical-writing",
     "- contingency://skill/unslop",
     "",
-    "Do not use skill-creator. Claim the recording, page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.",
+    'Do not use skill-creator. Claim the recording with agent_teaching_recording_claim action "take", page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.',
     "After saving, ask for the inputs again and call agent_flow_skill_dry_run_start with at least one changed input when the task permits it. Drive the returned fresh Agent Session, check the observable outcome, and call agent_flow_skill_dry_run_report.",
     "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
-    "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
+    "A pass keeps the recording. Ask me to Verify flow or Reject flow, then call agent_flow_skill_decide with the matching decision.",
   ].join("\n");
 
 /**
@@ -369,7 +369,7 @@ export const flowSkillDryRunPrompt = (
     `Call agent_flow_skill_dry_run_start with recordingId "${recordingId}" and those inputs.`,
     "Drive the returned fresh Agent Session with the browser tools, check the observable outcome, then call agent_flow_skill_dry_run_report.",
     "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
-    "A pass keeps the recording. Ask me to Verify flow or Reject flow before calling the matching tool.",
+    "A pass keeps the recording. Ask me to Verify flow or Reject flow, then call agent_flow_skill_decide with the matching decision.",
   ].join("\n");
 
 /** What each gesture is called when a sentence has to name the one that failed. */

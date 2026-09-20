@@ -1050,7 +1050,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         failure: { code: "teaching_recording_conflict" },
       });
       if (afterPass._tag === "Failure") {
-        expect(afterPass.failure.message).toContain("agent_flow_skill_reject");
+        expect(afterPass.failure.message).toContain("agent_flow_skill_decide");
       }
       expect((yield* store.read(claimedId)).lifecycle._tag).toBe(
         "dry-run-passed"

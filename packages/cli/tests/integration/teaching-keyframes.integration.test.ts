@@ -133,6 +133,7 @@ it.live(
         Effect.gen(function* readKeyframesInLaterProcess() {
           const claimOperationId = OperationId.make("keyframe-claim");
           yield* teachingRecordingTool("agent_teaching_recording_claim", {
+            action: "take",
             operationId: claimOperationId,
             recordingId,
           });

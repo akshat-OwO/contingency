@@ -232,9 +232,9 @@ it.live(
           const claimOperationId = OperationId.make("delivery-claim");
           const claimed = yield* teachingRecordingTool(
             "agent_teaching_recording_claim",
-            { operationId: claimOperationId, recordingId }
+            { action: "take", operationId: claimOperationId, recordingId }
           );
-          expect(claimed.flowSkillName).toBe("set-delivery-area");
+          expect(claimed.claim?.flowSkillName).toBe("set-delivery-area");
           const timeline = yield* teachingRecordingTool(
             "agent_teaching_timeline_get",
             { claimOperationId, recordingId }
@@ -444,8 +444,9 @@ it.live(
           });
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
           const rejected = yield* teachingRecordingTool(
-            "agent_flow_skill_reject",
+            "agent_flow_skill_decide",
             {
+              decision: "reject",
               operationId: OperationId.make("delivery-reject"),
               recordingId,
             }
@@ -488,8 +489,9 @@ it.live(
             recordingId,
           });
           const verified = yield* teachingRecordingTool(
-            "agent_flow_skill_verify",
+            "agent_flow_skill_decide",
             {
+              decision: "verify",
               operationId: OperationId.make("delivery-verify"),
               recordingId,
             }
