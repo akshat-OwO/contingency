@@ -5,8 +5,14 @@ import type {
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
-import type { InspectState } from "@/components/agent/teaching-inspect-state";
-import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
+import type {
+  FrameProjection,
+  InspectState,
+} from "@/components/agent/teaching-inspect-state";
+import {
+  emptyInspectState,
+  flatFrameProjection,
+} from "@/components/agent/teaching-inspect-state";
 
 export type AgentViewPhase =
   | "loading"
@@ -27,6 +33,8 @@ export interface AgentViewState {
   readonly controlError: string | undefined;
   /** A control change is in flight, so the control button is not offered twice. */
   readonly controlPending: boolean;
+  /** How the frame on the canvas maps onto the Page viewport it came from. */
+  readonly frameProjection: FrameProjection;
   readonly frameReady: boolean;
   /** Inspect mode over the live frame, and the comments it has attached. */
   readonly inspect: InspectState;
@@ -59,6 +67,7 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   consoleEntries: [],
   controlError: undefined,
   controlPending: false,
+  frameProjection: flatFrameProjection,
   frameReady: false,
   inspect: emptyInspectState,
   navigationError: undefined,

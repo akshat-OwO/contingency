@@ -37,7 +37,10 @@ import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { RunDock } from "@/components/agent/run-dock";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
-import type { InspectComment } from "@/components/agent/teaching-inspect-state";
+import type {
+  FrameProjection,
+  InspectComment,
+} from "@/components/agent/teaching-inspect-state";
 import {
   TeachingRecordingDock,
   TeachingRecordingNotices,
@@ -97,6 +100,28 @@ const navigationUrl = (address: string): string => {
   const trimmed = address.trim();
   return /^[a-z][\w+.-]*:/iu.test(trimmed) ? trimmed : `https://${trimmed}`;
 };
+
+/**
+ * How a frame maps onto the Page viewport it was captured from. Inspect draws
+ * Page rectangles over the frame, so it reads the mapping from the frame's own
+ * metadata rather than assuming the frame is the viewport at 1:1. A value the
+ * Page cannot have — a zero or negative zoom — is read as no zoom, so a broken
+ * frame leaves the highlight where the Page put it (#212).
+ */
+const frameProjection = (
+  metadata: Extract<BrowserStreamEvent, { readonly type: "frame" }>["metadata"]
+): FrameProjection => ({
+  offsetTop: Number.isFinite(metadata.offsetTop) ? metadata.offsetTop : 0,
+  pageScaleFactor:
+    Number.isFinite(metadata.pageScaleFactor) && metadata.pageScaleFactor > 0
+      ? metadata.pageScaleFactor
+      : 1,
+});
+
+/** Frames arrive many times a second; an unchanged mapping is not a render. */
+const sameProjection = (left: FrameProjection, right: FrameProjection) =>
+  left.offsetTop === right.offsetTop &&
+  left.pageScaleFactor === right.pageScaleFactor;
 
 const isFlowSkillName = Schema.is(FlowSkillName);
 
@@ -815,7 +840,14 @@ const useAgentView = (
           Effect.ensuring(ackFrame(sessionId, latest))
         );
         if (!cancelled()) {
-          setState((current) => ({ ...current, frameReady: true }));
+          const projection = frameProjection(latest.metadata);
+          setState((current) => ({
+            ...current,
+            frameProjection: sameProjection(current.frameProjection, projection)
+              ? current.frameProjection
+              : projection,
+            frameReady: true,
+          }));
         }
       }
     }).pipe(
@@ -1955,6 +1987,7 @@ export const AgentWorkspace = ({
                   onExit={view.exitInspect}
                   onFreeze={view.freezeInspect}
                   onHover={view.hoverInspect}
+                  projection={state.frameProjection}
                   state={state.inspect}
                 />
               )
