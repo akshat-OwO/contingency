@@ -3,6 +3,7 @@ import { Result } from "effect";
 import { expect, test } from "vitest";
 
 import {
+  flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
@@ -404,4 +405,41 @@ test("still refuses a placeholder no accepted shape declares", () => {
   const undeclared = GOLDEN_SKILL.replace("  - delivery_area\n", "");
   const codes = codesFor(withSkill(undeclared));
   expect(codes).toEqual(["flow_skill_undeclared_input"]);
+});
+
+test("ends the last step at the section that follows the procedure", () => {
+  const withSection = `${GOLDEN_SKILL}
+## Reading the result
+
+The status only appears once the shop accepts the area.
+`;
+  const steps = flowSkillProcedureSteps(withSection);
+  expect(steps).toHaveLength(5);
+  expect(steps.at(-1)?.description).toBe(
+    '5. Choose the button named "Confirm delivery area". Done when: the status reads "Delivering to {{delivery_area}}, {{city}}".'
+  );
+  // The prose after the steps is not part of the Run's last instruction.
+  expect(steps.at(-1)?.description).not.toContain("Reading the result");
+});
+
+test("keeps a fenced comment inside the step that carries it", () => {
+  const withFence = GOLDEN_SKILL.replace(
+    '5. Choose the button named "Confirm delivery area". Done when: the status reads "Delivering to {{delivery_area}}, {{city}}".\n',
+    [
+      '5. Choose the button named "Confirm delivery area".',
+      "",
+      "   ```sh",
+      "# not a heading",
+      "   ```",
+      "",
+      '   Done when: the status reads "Delivering to {{delivery_area}}, {{city}}".',
+      "",
+    ].join("\n")
+  );
+  const steps = flowSkillProcedureSteps(withFence);
+  expect(steps).toHaveLength(5);
+  expect(steps.at(-1)?.description).toContain("# not a heading");
+  expect(steps.at(-1)?.doneWhen).toBe(
+    'the status reads "Delivering to {{delivery_area}}, {{city}}".'
+  );
 });
