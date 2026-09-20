@@ -21,7 +21,10 @@ import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillCatalogError } from "./flow-skill-catalog.ts";
-import type { FlowSkillEmulation } from "./flow-skill-package.ts";
+import type {
+  FlowSkillEmulation,
+  FlowSkillInput,
+} from "./flow-skill-package.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { webHost } from "./teaching-demonstration.ts";
 
@@ -153,6 +156,36 @@ export const AgentRunTools = withStrictParameters(
   )
 );
 
+/**
+ * Sorts a Flow Skill's declared inputs against what this Run supplied. A
+ * SHOUTY_SNAKE_CASE name is a runtime Variable Contingency asks the user for,
+ * so supplying one here is refused; an ordinary name left out is missing.
+ */
+const sortDeclaredInputs = (
+  declared: readonly FlowSkillInput[],
+  supplied: ReadonlyMap<string, string>
+) => {
+  const missing: string[] = [];
+  const offered: string[] = [];
+  const secretInputs: string[] = [];
+  for (const { name } of declared) {
+    if (SECRET_INPUT.test(name)) {
+      secretInputs.push(name);
+      if (supplied.has(name)) {
+        offered.push(name);
+      }
+      continue;
+    }
+    if (!supplied.has(name)) {
+      missing.push(name);
+    }
+  }
+  return { missing, offered, secretInputs } satisfies Record<
+    string,
+    readonly string[]
+  >;
+};
+
 export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
   agent_flow_skill_run_start: (params) =>
     Effect.gen(function* startInteractiveRun() {
@@ -195,10 +228,10 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       const supplied = new Map(
         params.inputs.map((input) => [input.name, input.value] as const)
       );
-      const secretInputs = skill.inputs.filter((name) =>
-        SECRET_INPUT.test(name)
+      const { missing, offered, secretInputs } = sortDeclaredInputs(
+        skill.inputs,
+        supplied
       );
-      const offered = secretInputs.filter((name) => supplied.has(name));
       if (offered.length > 0) {
         return yield* Effect.fail(
           new AgentRunFailure({
@@ -207,9 +240,6 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           })
         );
       }
-      const missing = skill.inputs.filter(
-        (name) => !(SECRET_INPUT.test(name) || supplied.has(name))
-      );
       if (missing.length > 0) {
         return yield* Effect.fail(
           new AgentRunFailure({

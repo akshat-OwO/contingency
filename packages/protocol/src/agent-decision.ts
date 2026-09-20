@@ -178,8 +178,16 @@ export type AgentCatalogSelect = typeof AgentCatalogSelect.Type;
 export const FlowSkillListEntry = Schema.Struct({
   /** Declared in SKILL.md frontmatter; the task and when to run it. */
   description: Schema.String,
-  /** The declared `{{placeholder}}` inputs, in frontmatter order. */
-  inputs: Schema.Array(nonEmptyString),
+  /**
+   * The declared `{{placeholder}}` inputs, in frontmatter order. A description
+   * is present only when SKILL.md declared the input in its mapping form.
+   */
+  inputs: Schema.Array(
+    Schema.Struct({
+      description: Schema.optional(nonEmptyString),
+      name: nonEmptyString,
+    })
+  ),
   name: nonEmptyString,
   /** The Flow Skill directory, absolute. */
   path: nonEmptyString,

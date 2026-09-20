@@ -332,7 +332,9 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
   expect(frontmatter?.emulation?.timezone).toBe("Europe/Berlin");
   // The keys Contingency does not own survive untouched.
   expect(frontmatter?.name).toBe("set-delivery-area");
-  expect(frontmatter?.inputs).toEqual(["city"]);
+  expect(frontmatter?.inputs).toEqual([
+    { description: undefined, name: "city" },
+  ]);
   expect(frontmatter?.body.trim()).toBe(
     "1. Do the thing. Done when: it is done."
   );
@@ -351,4 +353,55 @@ test("ignores a viewport scalar it cannot read back", () => {
     "---\nname: x\nemulation:\n  viewport: wide\n---\n\nbody\n"
   );
   expect(frontmatter?.emulation?.viewport).toBeUndefined();
+});
+
+test("reads an input declared as a mapping with a description", () => {
+  const frontmatter = readFlowSkillFrontmatter(
+    [
+      "---",
+      "name: add-anvil",
+      "description: Add an anvil to the cart.",
+      "inputs:",
+      "  - name: sku",
+      "    description: The product SKU added to the cart.",
+      "  - quantity",
+      "---",
+      "",
+      "1. Go. Done when: done.",
+    ].join("\n")
+  );
+  expect(frontmatter?.inputs).toEqual([
+    { description: "The product SKU added to the cart.", name: "sku" },
+    { description: undefined, name: "quantity" },
+  ]);
+  // An input's own description never becomes the Flow Skill's.
+  expect(frontmatter?.description).toBe("Add an anvil to the cart.");
+});
+
+test("accepts a package whose inputs use the mapping shape", () => {
+  const mapped = GOLDEN_SKILL.replace(
+    "inputs:\n  - city\n  - delivery_area",
+    [
+      "inputs:",
+      "  - name: city",
+      "    description: The city the shop delivers to.",
+      "  - name: delivery_area",
+    ].join("\n")
+  );
+  expect(codesFor(withSkill(mapped))).toEqual([]);
+});
+
+test("names the shape when an inputs entry is neither form", () => {
+  const broken = GOLDEN_SKILL.replace("  - city\n", "  - label: city\n");
+  const codes = codesFor(withSkill(broken));
+  expect(codes).toContain("flow_skill_invalid_input");
+  // The undeclared-input check still fires for the placeholder that now has
+  // no declaration, but the shape problem is reported beside it.
+  expect(codes).toContain("flow_skill_undeclared_input");
+});
+
+test("still refuses a placeholder no accepted shape declares", () => {
+  const undeclared = GOLDEN_SKILL.replace("  - delivery_area\n", "");
+  const codes = codesFor(withSkill(undeclared));
+  expect(codes).toEqual(["flow_skill_undeclared_input"]);
 });

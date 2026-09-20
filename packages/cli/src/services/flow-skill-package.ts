@@ -38,8 +38,24 @@ export interface FlowSkillFrontmatter {
   readonly emulation: FlowSkillEmulation | undefined;
   /** The hosts the Teaching Recording actually visited. */
   readonly hosts: readonly string[];
-  readonly inputs: readonly string[];
+  readonly inputs: readonly FlowSkillInput[];
+  /**
+   * Every `inputs` entry the grammar could not read as a declaration, verbatim.
+   * The validator reports the shape rather than letting the undeclared-input
+   * check claim a declared input is missing (#203).
+   */
+  readonly malformedInputs: readonly string[];
   readonly name: string | undefined;
+}
+
+/**
+ * One declared `{{placeholder}}` input. A bare-name entry carries no
+ * description; the mapping form is where an author documents what the value is,
+ * which is the only place a later caller looks before supplying it.
+ */
+export interface FlowSkillInput {
+  readonly description: string | undefined;
+  readonly name: string;
 }
 
 /**
@@ -134,6 +150,16 @@ const readEmulationBlock = (
             : readViewportScalar(fields.viewport),
       };
 
+/** A declared input while the parser is still filling it in. */
+interface MutableFlowSkillInput {
+  description: string | undefined;
+  name: string;
+}
+
+/** A declared input name, and the mapping keys an entry may carry. */
+const INPUT_NAME = /^[A-Za-z][\w-]*$/u;
+const INPUT_MAPPING = /^(?<key>[A-Za-z][\w-]*)\s*:\s*(?<value>.*)$/u;
+
 const sequenceFor = (key: string): "hosts" | "inputs" | undefined => {
   if (key === "hosts") {
     return "hosts";
@@ -142,8 +168,36 @@ const sequenceFor = (key: string): "hosts" | "inputs" | undefined => {
 };
 
 /**
+ * Reads one `inputs` entry. A bare name declares an input with no description;
+ * a `name: <input>` mapping declares one that an indented `description` may
+ * document. Anything else is reported as a shape problem rather than dropped,
+ * so the author is told what the parser accepts.
+ */
+const readInputItem = (
+  item: string,
+  inputs: MutableFlowSkillInput[],
+  malformed: string[]
+): MutableFlowSkillInput | undefined => {
+  if (INPUT_NAME.test(item)) {
+    inputs.push({ description: undefined, name: item });
+    return undefined;
+  }
+  const mapping = INPUT_MAPPING.exec(item);
+  const key = mapping?.groups?.key;
+  const value = unquoted(mapping?.groups?.value ?? "");
+  if (key !== "name" || !INPUT_NAME.test(value)) {
+    malformed.push(item);
+    return undefined;
+  }
+  const entry: MutableFlowSkillInput = { description: undefined, name: value };
+  inputs.push(entry);
+  return entry;
+};
+
+/**
  * Reads the small YAML subset a Flow Skill is allowed to use: the `name` and
- * `description` scalars, the `inputs` and `hosts` sequences, and one flat
+ * `description` scalars, the `hosts` sequence, the `inputs` sequence in either
+ * its bare-name or its `name`/`description` mapping form, and one flat
  * `emulation` block. A full YAML parser would accept shapes the rest of the
  * product cannot read back, so the grammar stays the one the authoring skills
  * teach.
@@ -156,36 +210,52 @@ export const readFlowSkillFrontmatter = (
     return undefined;
   }
   const [matched] = match;
-  const sequences: Record<"hosts" | "inputs", string[]> = {
-    hosts: [],
-    inputs: [],
-  };
+  const hosts: string[] = [];
+  const inputs: MutableFlowSkillInput[] = [];
+  const malformedInputs: string[] = [];
   const scalars: Record<string, string> = {};
   const emulation: Record<string, string> = {};
   let sequence: "hosts" | "inputs" | undefined;
   let inEmulation = false;
+  /** The mapping-form input an indented key still belongs to, when any. */
+  let openInput: MutableFlowSkillInput | undefined;
   for (const raw of (match.groups?.block ?? "").split(/\r?\n/u)) {
     const line = readFrontmatterLine(raw);
     if (line.item !== undefined) {
-      if (sequence !== undefined) {
-        sequences[sequence].push(line.item);
+      openInput = undefined;
+      if (sequence === "hosts") {
+        hosts.push(line.item);
+        continue;
+      }
+      if (sequence === "inputs") {
+        openInput = readInputItem(line.item, inputs, malformedInputs);
       }
       continue;
     }
     if (line.key === undefined) {
       continue;
     }
-    // An indented key under `emulation:` belongs to it; any unindented key ends
-    // both the sequence and the block, so a later field cannot be captured.
-    if (inEmulation && line.indented) {
-      emulation[line.key] = line.value;
+    if (line.indented) {
+      // An indented key belongs to whatever block opened it. It is never a
+      // top-level scalar: reading `description` under an input as the skill's
+      // own description is how a declared input went missing (#203).
+      if (inEmulation) {
+        emulation[line.key] = line.value;
+      } else if (openInput !== undefined && line.key === "description") {
+        openInput.description = line.value.length > 0 ? line.value : undefined;
+      }
       continue;
     }
+    openInput = undefined;
     inEmulation = line.key === "emulation";
     sequence = sequenceFor(line.key);
     if (sequence !== undefined) {
       if (line.value.length > 0) {
-        sequences[sequence].push(line.value);
+        if (sequence === "hosts") {
+          hosts.push(line.value);
+        } else {
+          readInputItem(line.value, inputs, malformedInputs);
+        }
       }
       continue;
     }
@@ -195,8 +265,9 @@ export const readFlowSkillFrontmatter = (
     body: content.slice(matched.length),
     description: scalars.description,
     emulation: readEmulationBlock(emulation),
-    hosts: sequences.hosts,
-    inputs: sequences.inputs,
+    hosts,
+    inputs,
+    malformedInputs,
     name: scalars.name,
   };
 };
@@ -452,7 +523,7 @@ const checkDeclaredInputs = (
   frontmatter: FlowSkillFrontmatter,
   report: (entry: FlowSkillDiagnostic) => void
 ): void => {
-  const declared = new Set(frontmatter.inputs);
+  const declared = new Set(frontmatter.inputs.map((input) => input.name));
   for (const file of files) {
     const scanned =
       file.path === SKILL_FILE
@@ -574,6 +645,15 @@ export const validateFlowSkillPackage = (
           "flow_skill_missing_description",
           "SKILL.md must declare a description that states the task and when to run it.",
           [SKILL_FILE, "frontmatter", "description"]
+        )
+      );
+    }
+    for (const entry of frontmatter.malformedInputs) {
+      report(
+        diagnostic(
+          "flow_skill_invalid_input",
+          `SKILL.md declares the input entry \`- ${entry}\` in a shape Contingency cannot read. Each entry under inputs is either a bare name (\`- sku\`) or a mapping opening with \`- name: sku\` and an optional indented \`description:\` line.`,
+          [SKILL_FILE, "frontmatter", "inputs", entry]
         )
       );
     }

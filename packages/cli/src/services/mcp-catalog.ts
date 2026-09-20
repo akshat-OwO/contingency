@@ -71,7 +71,7 @@ const AgentCatalogSelectTool = Tool.make("agent_catalog_select", {
 const FlowSkillsListTool = Tool.make("agent_flow_skills_list", {
   dependencies: [FlowSkillCatalog],
   description:
-    "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from SKILL.md, the declared inputs, and how many numbered steps the procedure carries. Read one with your own file tools, or run it with agent_flow_skill_run_start.",
+    "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from SKILL.md, each declared input with its description when SKILL.md gives one, and how many numbered steps the procedure carries. Read one with your own file tools, or run it with agent_flow_skill_run_start.",
   failure: AgentCatalogFailure,
   parameters: NoParameters,
   success: FlowSkillList,
