@@ -102,7 +102,7 @@ const learnFlowSkillPrompt = [
   ),
   "2. Claim the recording with agent_teaching_recording_claim.",
   "3. Page the semantic timeline with agent_teaching_timeline_get until nextCursor is null. Fetch a keyframe with agent_teaching_keyframe_get only when the timeline is not enough.",
-  '4. Write SKILL.md: YAML frontmatter with name equal to the Flow Skill name, a description that states the task and its trigger, and an inputs list naming every value a later run may change. Use {{placeholder}} for each declared input and end every numbered step with a "Done when:" line.',
+  '4. Write SKILL.md: YAML frontmatter with name equal to the Flow Skill name, a description that states the task and its trigger, and an inputs list naming every value a later run may change. Declare each input either as a bare name (`- sku`) or as a mapping that opens with `- name: sku` and carries an indented `description:` line saying what the value is. Use {{placeholder}} for each declared input and end every numbered step with a "Done when:" line.',
   '5. Put conditional target detail in references/accessibility.md, as `- role=<role> name="<name>" context="<context>"` entries, plus a "Why these targets are stable" heading. Link every reference file from SKILL.md.',
   "6. Save with agent_flow_skill_save. A refusal returns one diagnostic per broken property; fix those exact paths and save again.",
   "7. Ask for every required input again. When the task permits it, change at least one demonstrated input. Start a fresh-context Dry Run with agent_flow_skill_dry_run_start, follow the returned Flow Skill files with the existing browser tools, and call agent_flow_skill_dry_run_report only after checking the stated observable outcome.",

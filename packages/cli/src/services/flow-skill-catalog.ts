@@ -18,6 +18,7 @@ import {
 } from "./flow-skill-package.ts";
 import type {
   FlowSkillEmulation,
+  FlowSkillInput,
   FlowSkillProcedureStep,
 } from "./flow-skill-package.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
@@ -65,7 +66,7 @@ export interface FlowSkillPackage {
   readonly files: readonly FlowSkillFile[];
   /** The demonstrated host ceiling. Empty for a package saved before stamping. */
   readonly hosts: readonly string[];
-  readonly inputs: readonly string[];
+  readonly inputs: readonly FlowSkillInput[];
   readonly name: FlowSkillName;
   readonly steps: readonly FlowSkillProcedureStep[];
   readonly title: string;
