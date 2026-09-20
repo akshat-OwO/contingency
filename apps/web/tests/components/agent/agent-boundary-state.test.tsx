@@ -12,9 +12,10 @@ import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 /**
- * Workspace's sidebar refreshes constantly while a session is live, and each
- * region is gated on a field of the session snapshot. This test drives the
- * whole workspace through enough updates for retained state to be collected.
+ * Workspace refreshes constantly while a session is live, and the paused
+ * Execution Boundary is gated on a field of the session snapshot. This test
+ * drives the whole workspace through enough updates for retained state to be
+ * collected.
  */
 const rpc = vi.hoisted(() => ({
   emit: undefined,
@@ -98,7 +99,7 @@ afterEach(() => {
 
 test("keeps an Execution Boundary on screen through a burst of updates", async () => {
   renderWorkspace();
-  await screen.findByRole("heading", { name: "Session status" });
+  await screen.findByRole("region", { name: "Workspace dock" });
 
   const boundary = {
     action: { type: "click" },

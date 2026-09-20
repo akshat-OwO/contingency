@@ -384,6 +384,17 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             })
           );
         }
+        /*
+          A secret input is named and never valued: the Dry Run session
+          snapshot reaches the Workspace, so the literal stops here (ADR 0039).
+        */
+        const dryRunInputs = params.inputs.map(
+          ({ changed, name, secret, value }) => ({
+            changed,
+            name,
+            value: secret ? null : value,
+          })
+        );
         const session = yield* sessions
           .start({
             activity: "run",
@@ -391,6 +402,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             clientVersion: "1",
             dryRun: {
               flowSkillName: manifest.flowSkillName,
+              inputs: dryRunInputs,
               recordingId: manifest.recordingId,
             },
             emulation: manifest.emulation,
@@ -401,11 +413,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           .pipe(Effect.mapError(sessionFailure));
         const started = yield* store
           .startDryRun({
-            inputs: params.inputs.map(({ changed, name, secret, value }) => ({
-              changed,
-              name,
-              value: secret ? null : value,
-            })),
+            inputs: dryRunInputs,
             operationId: params.operationId,
             recordingId: params.recordingId,
             sessionId: session.id,

@@ -135,7 +135,8 @@ test("labels a Dry Run with the Flow Skill it rehearses", () => {
   expect(agentSessionActivityLabel(rehearsal)).toBe("Dry Run");
 });
 
-test("keeps an Interactive Run reading as one", () => {
+test("labels an Interactive Run without its raw session id", () => {
   expect(agentSessionActivityLabel(run(null))).toBe("Interactive Run");
-  expect(agentSessionLabel(run(null))).toContain("agent-run");
+  expect(agentSessionLabel(run(null))).toBe("Test agent · Interactive Run");
+  expect(agentSessionLabel(run(null))).not.toContain("agent-run");
 });

@@ -5,32 +5,20 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { Cause, Effect } from "effect";
+import { Cause } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
-import {
-  RunDetails,
-  RunSummaryPanel,
-  RunViewer,
-} from "@/components/agent/run-view";
+import { RunSummaryView, RunViewer } from "@/components/agent/run-view";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
-  ceilingCalls: [] satisfies unknown[],
   summaryResult: { _tag: "Initial", waiting: true } satisfies unknown,
 }));
 
 const rpcOverrides = {
-  agentRunCeilingExtendMutation: Atom.fn(<Payload,>(payload: Payload) =>
-    Effect.sync(() => {
-      rpc.ceilingCalls.push(payload);
-      return {};
-    })
-  ),
   agentRunSummaryAtom: () => Atom.make(() => rpc.summaryResult),
 };
 
@@ -104,25 +92,6 @@ const run = {
   variables: [],
 };
 
-const session = {
-  activity: "run",
-  clientName: "run-agent",
-  clientVersion: "2.0.0",
-  controller: "agent",
-  createdAt: "2026-09-04T00:00:00.000Z",
-  currentUrl: "https://shop.example.com/",
-  id: "agent-one",
-  interruptedAction: null,
-  ownerProcessId: "mcp-test",
-  phase: "running",
-  run,
-  takeover: null,
-  teaching: null,
-  timeline: [],
-  updatedAt: "2026-09-04T00:00:00.000Z",
-  viewUrl: "http://127.0.0.1:7777/?session=agent-one",
-};
-
 const summary = {
   assessmentCounts: { blocked: 0, inconclusive: 0, notWorking: 1, working: 1 },
   attribution: run.attribution,
@@ -154,24 +123,21 @@ const successfulSummary = {
 
 // The component takes the protocol shapes; the fixtures above are the same
 // values without their branded identifiers.
-const asSession = session;
+const asSummary = summary;
 
 afterEach(() => {
   cleanup();
-  rpc.ceilingCalls = [];
   rpc.summaryResult = { _tag: "Initial", waiting: true };
 });
 
-test("shows the ordered Agent Steps and which one is active", () => {
+test("shows the ordered Agent Steps and what each one produced", () => {
   render(
     <TestRegistry>
-      <RunDetails session={asSession} />
+      <RunSummaryView summary={asSummary} />
     </TestRegistry>
   );
-  const steps = screen.getByRole("list", { name: "Agent Steps" });
-  expect(steps).toBeVisible();
+  expect(screen.getByRole("list", { name: "Agent Steps" })).toBeVisible();
   expect(screen.getByText("1. Open the catalogue")).toBeVisible();
-  expect(screen.getByText("Active Agent Step")).toBeVisible();
   expect(
     screen.getByText("The catalogue listed the expected products.")
   ).toBeVisible();
@@ -181,7 +147,7 @@ test("shows the ordered Agent Steps and which one is active", () => {
 test("reports assessment counts separately from coverage", () => {
   render(
     <TestRegistry>
-      <RunDetails session={asSession} />
+      <RunSummaryView summary={asSummary} />
     </TestRegistry>
   );
   expect(
@@ -192,76 +158,10 @@ test("reports assessment counts separately from coverage", () => {
   ).toBeVisible();
 });
 
-test("marks client-reported model metadata as unverified", () => {
-  render(
-    <TestRegistry>
-      <RunDetails session={asSession} />
-    </TestRegistry>
-  );
-  expect(screen.getByText("Reported model (unverified)")).toBeVisible();
-  expect(screen.getByText("run-agent 2.0.0")).toBeVisible();
-});
-
-test("extends a ceiling only through a direct user action", async () => {
-  const user = userEvent.setup();
-  render(
-    <TestRegistry>
-      <RunDetails session={asSession} />
-    </TestRegistry>
-  );
-  await user.click(
-    screen.getByRole("button", { name: "Extend Agent Step ceiling" })
-  );
-  expect(rpc.ceilingCalls).toHaveLength(1);
-  expect(rpc.ceilingCalls[0]).toMatchObject({
-    payload: {
-      data: { additionalMs: 120_000, scope: "step", sessionId: "agent-one" },
-      type: "agent.run.ceiling.extend",
-    },
-  });
-});
-
-test("cannot extend a ceiling once the Run has ended", () => {
-  render(
-    <TestRegistry>
-      <RunDetails
-        session={
-          {
-            ...session,
-            run: { ...run, outcome: "timed-out" },
-          } satisfies unknown
-        }
-      />
-    </TestRegistry>
-  );
-  expect(
-    screen.getByRole("button", { name: "Extend Run ceiling" })
-  ).toBeDisabled();
-  expect(screen.getByText("A ceiling was reached")).toBeVisible();
-});
-
-test("shows no Run Summary while the Run is still live", () => {
-  rpc.summaryResult = successfulSummary;
-  render(
-    <TestRegistry>
-      <RunSummaryPanel session={asSession} />
-    </TestRegistry>
-  );
-  expect(screen.queryByText("Run Summary")).toBeNull();
-});
-
 test("embeds the local Run video in the summary of a finished Run", () => {
-  rpc.summaryResult = successfulSummary;
   render(
     <TestRegistry>
-      <RunSummaryPanel
-        session={
-          {
-            ...session,
-            run: { ...run, outcome: "ended-early" },
-          } satisfies unknown
-        }
-      />
+      <RunSummaryView summary={asSummary} />
     </TestRegistry>
   );
   expect(screen.getByText("Run Summary")).toBeVisible();

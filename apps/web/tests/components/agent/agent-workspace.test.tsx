@@ -23,6 +23,7 @@ import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
+  ceilingCalls: [] satisfies unknown[],
   discardCalls: [] satisfies unknown[],
   inputCalls: [] satisfies unknown[],
   inspectedElement: {
@@ -71,6 +72,12 @@ const rpcOverrides = {
   agentReturnControlMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.returnControlCalls.push(payload);
+      return {};
+    })
+  ),
+  agentRunCeilingExtendMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.ceilingCalls.push(payload);
       return {};
     })
   ),
@@ -154,6 +161,88 @@ const session = {
   viewUrl: "http://127.0.0.1:7777/?session=agent-one",
 };
 
+/** One live Interactive Run, on its second Agent Step. */
+const runningSession = {
+  ...session,
+  dryRun: null,
+  run: {
+    activeStepIndex: 1,
+    assessmentCounts: {
+      blocked: 0,
+      inconclusive: 0,
+      notWorking: 0,
+      working: 1,
+    },
+    attribution: {
+      clientName: "Test agent",
+      clientVersion: "1.0",
+      reportedMetadataVerified: false,
+      reportedModel: null,
+      reportedProvider: null,
+    },
+    ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
+    coverage: { complete: false, executed: 1, total: 2, unexecuted: 1 },
+    endedAt: null,
+    flowSkillName: "browse-catalogue",
+    inputs: [],
+    outcome: null,
+    runDeadline: "2026-08-31T00:15:00.000Z",
+    runId: "agentrun-one",
+    startedAt: "2026-08-31T00:00:00.000Z",
+    stepDeadline: "2026-08-31T00:02:00.000Z",
+    steps: [
+      {
+        assessment: {
+          attempts: 1,
+          evidence: [{ id: "snapshot-1", kind: "snapshot" }],
+          explanation: "The catalogue listed the expected products.",
+          outcome: "working",
+          submittedAt: "2026-08-31T00:00:30.000Z",
+        },
+        attempts: 1,
+        confirmation: false,
+        description: "Open the catalogue.",
+        doneWhen: "the catalogue lists at least one product.",
+        endedAt: "2026-08-31T00:00:30.000Z",
+        execution: "assessed",
+        index: 0,
+        name: "Open the catalogue",
+        startedAt: "2026-08-31T00:00:01.000Z",
+      },
+      {
+        assessment: null,
+        attempts: 0,
+        confirmation: false,
+        description: "Add the product to the basket.",
+        doneWhen: "the basket holds one product.",
+        endedAt: null,
+        execution: "active",
+        index: 1,
+        name: "Add to basket",
+        startedAt: "2026-08-31T00:00:31.000Z",
+      },
+    ],
+    title: "Buy one product",
+    variables: [],
+  },
+} satisfies unknown;
+
+/** One live Dry Run, rehearsing a drafted Flow Skill with a changed input. */
+const dryRunSession = {
+  ...session,
+  clientName: "flow-skill-dry-run",
+  dryRun: {
+    flowSkillName: "add-anvil",
+    inputs: [
+      { changed: true, name: "product", value: "Anvil" },
+      { changed: false, name: "quantity", value: "1" },
+    ],
+    recordingId: "recording-add-anvil",
+    startedAt: "2026-08-31T00:00:06.000Z",
+  },
+  run: null,
+} satisfies unknown;
+
 type Session = typeof session;
 
 rpc.startedSession = { ...session, id: "agent-started" };
@@ -186,6 +275,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
+  rpc.ceilingCalls = [];
   rpc.discardCalls = [];
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
@@ -244,14 +334,96 @@ test("explains when Agent Sessions cannot be loaded", async () => {
 
 test("opens an owned session and shows the live browser view", async () => {
   renderWorkspace(resultFor([session]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(
-    await screen.findByRole("heading", { name: "Workspace" })
+    within(dock).getByRole("combobox", { name: "Agent Session" })
+  ).toHaveValue(session.id);
+  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+  expect(
+    within(dock).getByRole("button", { name: "Take control" })
   ).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "Agent Session" })).toHaveValue(
+});
+
+test("gives a Run the same dock-only shell as Teaching", async () => {
+  renderWorkspace(resultFor([runningSession]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("Contingency");
+  // The Flow Skill, the active Agent Step, its "Done when:" line, and coverage.
+  expect(dock).toHaveTextContent("browse-catalogue");
+  expect(dock).toHaveTextContent("Agent Step 2 of 2: Add to basket.");
+  expect(dock).toHaveTextContent("Done when: the basket holds one product.");
+  expect(dock).toHaveTextContent("1 of 2 Agent Steps executed");
+  // One shell: no header band above it, and no session status sidebar beside it.
+  expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Session status" })).toBeNull();
+  expect(screen.queryByRole("list", { name: "Action timeline" })).toBeNull();
+  // Exactly one control, and it is in the dock.
+  expect(
+    within(dock).getByRole("button", { name: "Take control" })
+  ).toBeVisible();
+  expect(
+    screen.getAllByRole("button", { name: /^(?:Take|Return) control$/u })
+  ).toHaveLength(1);
+});
+
+test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", async () => {
+  renderWorkspace(resultFor([dryRunSession]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("Rehearsing the flow skill add-anvil.");
+  expect(dock).toHaveTextContent("Changed inputs: product");
+  expect(
+    within(dock).getByRole("option", { name: "add-anvil · Dry Run" })
+  ).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Session status" })).toBeNull();
+});
+
+test("labels an Interactive Run without exposing a raw session id", async () => {
+  renderWorkspace(resultFor([runningSession]), session.id);
+  const option = await screen.findByRole("option", {
+    name: "browse-catalogue · Interactive Run",
+  });
+  expect(option).toBeVisible();
+  expect(option).not.toHaveTextContent(session.id);
+});
+
+test("extends a ceiling only through a direct user action", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([runningSession]), session.id);
+  await user.click(
+    await screen.findByRole("button", { name: "Extend Agent Step ceiling" })
+  );
+  await waitFor(() => {
+    expect(rpc.ceilingCalls).toHaveLength(1);
+  });
+  expect(rpc.ceilingCalls[0]).toMatchObject({
+    payload: {
+      data: { additionalMs: 120_000, scope: "step", sessionId: session.id },
+      type: "agent.run.ceiling.extend",
+    },
+  });
+});
+
+test("offers no ceiling extension once the Run has ended", async () => {
+  renderWorkspace(
+    resultFor([
+      {
+        ...runningSession,
+        run: {
+          ...runningSession.run,
+          activeStepIndex: null,
+          outcome: "timed-out",
+        },
+      } satisfies unknown,
+    ]),
     session.id
   );
-  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
-  expect(screen.getByText("Control")).toBeVisible();
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent(
+    "A ceiling was reached, so the run timed out."
+  );
+  expect(
+    screen.queryByRole("button", { name: "Extend Run ceiling" })
+  ).toBeNull();
 });
 
 test("does not use a foreign URL session id", async () => {
@@ -313,40 +485,13 @@ test("keeps a selected Agent Session in the route query", async () => {
   });
 });
 
-test("shows the active controller and the action timeline", async () => {
-  renderWorkspace(
-    resultFor([
-      {
-        ...session,
-        timeline: [
-          {
-            actor: "agent",
-            at: "2026-08-31T00:00:01.000Z",
-            description: "Click e4",
-            dispatched: true,
-            id: "action-one",
-            outcome: "completed",
-          },
-          {
-            actor: "agent",
-            at: "2026-08-31T00:00:02.000Z",
-            description: "Fill e2",
-            dispatched: true,
-            id: "action-two",
-            outcome: "failed",
-          },
-        ],
-      } satisfies unknown,
-    ]),
-    session.id
-  );
-  expect(await screen.findByText("The agent has control")).toBeVisible();
-  const timeline = screen.getByRole("list", { name: "Action timeline" });
-  expect(timeline).toHaveTextContent("Click e4");
-  expect(timeline).toHaveTextContent("Fill e2");
+test("names who holds the browser in the dock", async () => {
+  renderWorkspace(resultFor([session]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("The agent has control.");
 });
 
-test("discloses Teaching capture counts and the drafted Flow Skill", async () => {
+test("names the drafted Flow Skill in the Teaching dock", async () => {
   renderWorkspace(
     resultFor([
       {
@@ -367,27 +512,13 @@ test("discloses Teaching capture counts and the drafted Flow Skill", async () =>
     ]),
     session.id
   );
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("Flow skill drafted");
   expect(
-    await screen.findByRole("heading", { name: "Teaching" })
-  ).toBeVisible();
-  expect(
-    screen.getByRole("option", {
+    within(dock).getByRole("option", {
       name: "browse-catalogue",
     })
   ).toBeVisible();
-  expect(screen.getByText("Captured actions").nextSibling).toHaveTextContent(
-    "4"
-  );
-  expect(screen.getByText("Instructions").nextSibling).toHaveTextContent("2");
-  expect(
-    screen.getByText(/every raw artifact is deleted once you verify/u)
-  ).toBeVisible();
-});
-
-test("does not show Teaching details for an Interactive Run", async () => {
-  renderWorkspace(resultFor([session]), session.id);
-  await screen.findByRole("heading", { name: "Workspace" });
-  expect(screen.queryByRole("heading", { name: "Teaching" })).toBeNull();
 });
 
 test("takes control from Workspace and returns it explicitly", async () => {
@@ -424,7 +555,8 @@ test("takes control from Workspace and returns it explicitly", async () => {
     ]),
     session.id
   );
-  expect(await screen.findByText("You have control")).toBeVisible();
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("You have control.");
   expect(screen.getByText(/may already have performed it/u)).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => {
@@ -450,9 +582,7 @@ test("offers no control exchange during a user-led Demonstration", async () => {
     ]),
     session.id
   );
-  expect(
-    await screen.findByText("You are demonstrating this journey")
-  ).toBeVisible();
+  await screen.findByRole("region", { name: "Workspace dock" });
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
 });
@@ -572,9 +702,7 @@ test("keeps Teaching private Variable entry out of Workspace", async () => {
     ]),
     session.id
   );
-  expect(
-    await screen.findByRole("heading", { name: "Teaching" })
-  ).toBeVisible();
+  await screen.findByRole("region", { name: "Workspace dock" });
   expect(
     screen.queryByRole("button", { name: "Enter private value" })
   ).toBeNull();

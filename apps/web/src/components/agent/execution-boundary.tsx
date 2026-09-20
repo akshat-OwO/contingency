@@ -21,7 +21,7 @@ export const ExecutionBoundary = ({
   return (
     <section
       aria-label="Execution Boundary"
-      className="space-y-3 rounded-lg border p-3 text-sm"
+      className="bg-background space-y-3 rounded-lg border p-3 text-sm shadow-lg"
     >
       <h2 className="font-semibold">Waiting for confirmation</h2>
       <p>Reason: {boundary.reason}</p>
