@@ -373,19 +373,35 @@ export interface FlowSkillStep {
   readonly label: string;
 }
 
+/** A Markdown heading in the left margin, which ends the procedure above it. */
+const SECTION_HEADING = /^#{1,6}\s+\S/u;
+
+/** A fence line, so a `#` comment inside a code block never reads as a heading. */
+const CODE_FENCE = /^\s*(?:`{3,}|~{3,})/u;
+
 export const readFlowSkillSteps = (body: string): readonly FlowSkillStep[] => {
   const lines = body.split(/\r?\n/u);
   const steps: { block: string[]; label: string }[] = [];
+  let open = false;
+  let fenced = false;
   for (const line of lines) {
-    const start = /^\s{0,3}(?<label>\d+)[.)]\s+\S/u.exec(line);
+    if (CODE_FENCE.test(line)) {
+      fenced = !fenced;
+    }
+    const start = fenced ? null : /^\s{0,3}(?<label>\d+)[.)]\s+\S/u.exec(line);
     if (start === null) {
+      if (!fenced && SECTION_HEADING.test(line)) {
+        open = false;
+        continue;
+      }
       const current = steps.at(-1);
-      if (current !== undefined) {
+      if (open && current !== undefined) {
         current.block.push(line);
       }
       continue;
     }
     steps.push({ block: [line], label: start.groups?.label ?? "" });
+    open = true;
   }
   return steps.map((step) => ({
     block: step.block.join("\n"),
