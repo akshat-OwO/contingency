@@ -73,6 +73,21 @@ export const AgentScreenshot = Schema.Struct({
 });
 export type AgentScreenshot = typeof AgentScreenshot.Type;
 
+/**
+ * Where one deliberate capture landed on this machine. The bytes stay in a
+ * local file the agent opens with its own file tools, because a full-density
+ * mobile screenshot is around a megabyte of base64 and no agent can read a
+ * tool result that size ([ADR 0040](../../../docs/adr/0040-a-screenshot-arrives-as-a-local-file.md)).
+ */
+export const AgentScreenshotFile = Schema.Struct({
+  bytes: Schema.Number.check(Schema.isGreaterThan(0)),
+  capturedAt: nonEmptyString,
+  format: Schema.Literal("png"),
+  path: nonEmptyString,
+  url: Schema.String,
+});
+export type AgentScreenshotFile = typeof AgentScreenshotFile.Type;
+
 const withRef = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
   Schema.Struct({ ref: AgentElementRef, ...fields });
 

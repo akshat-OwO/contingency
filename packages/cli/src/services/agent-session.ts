@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -46,6 +47,7 @@ import type {
   AgentBrowserAction,
   AgentBrowserSnapshot,
   AgentScreenshot,
+  AgentScreenshotFile,
   AgentInspectedElement,
   AgentSessionActivity,
   AgentSnapshotId,
@@ -327,9 +329,13 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Capture the Page and answer with the local file the PNG landed in. The
+   * bytes never travel inline (ADR 0040).
+   */
   readonly screenshot: (
     sessionId: AgentSessionId
-  ) => Effect.Effect<AgentScreenshot, AgentSessionError>;
+  ) => Effect.Effect<AgentScreenshotFile, AgentSessionError>;
   /**
    * Drive the browser as the user during Takeover. Control is exclusive, so
    * this is refused unless the user actually holds it.
@@ -1162,6 +1168,12 @@ interface SessionRecord {
   readonly teachingRecorder: TeachingRecorder | undefined;
   /** The local sensitive-artifact retention manifest. */
   readonly retentionFile: string | undefined;
+  /**
+   * Where this session writes the screenshots an agent asked for. It is made
+   * on the first capture and removed with the session scope, so a session that
+   * never took one leaves nothing behind.
+   */
+  readonly screenshots: { directory: string | undefined };
 }
 
 /** Evidence capture exists only between the user's Start and Stop gestures. */
@@ -2090,6 +2102,89 @@ const makeAgentSession = (
         );
       });
     };
+
+    const requireScreenshotFileSystem = (): Effect.Effect<
+      FileSystem.FileSystem,
+      AgentSessionError
+    > =>
+      fileSystem === undefined
+        ? Effect.fail(
+            error(
+              "agent_session_invalid",
+              "Writing a screenshot requires a FileSystem service."
+            )
+          )
+        : Effect.succeed(fileSystem);
+
+    /**
+     * The directory this session's screenshots are written into, made on
+     * first use and removed with the session scope.
+     */
+    const screenshotDirectory = (
+      record: SessionRecord,
+      files: FileSystem.FileSystem
+    ): Effect.Effect<string, AgentSessionError> => {
+      const existing = record.screenshots.directory;
+      if (existing !== undefined) {
+        return Effect.succeed(existing);
+      }
+      return Scope.provide(record.scope)(
+        Effect.acquireRelease(
+          files.makeTempDirectory({
+            directory: options.resourceDirectory ?? tmpdir(),
+            prefix: "screenshots-",
+          }),
+          (created) =>
+            files.remove(created, { recursive: true }).pipe(Effect.ignore)
+        )
+      ).pipe(
+        Effect.mapError((cause) =>
+          error(
+            "agent_session_invalid",
+            `Could not create a screenshot directory: ${cause.message}`
+          )
+        ),
+        Effect.tap((directory) =>
+          Effect.sync(() => {
+            record.screenshots.directory = directory;
+          })
+        )
+      );
+    };
+
+    /**
+     * Land one capture in a local PNG and answer with its path. A full-density
+     * mobile screenshot is around a megabyte of base64, which no agent can read
+     * as a tool result, so the bytes stay on disk and the agent opens the file
+     * with its own tools (ADR 0040).
+     */
+    const writeScreenshotFile = (
+      record: SessionRecord,
+      screenshot: AgentScreenshot
+    ): Effect.Effect<AgentScreenshotFile, AgentSessionError> =>
+      Effect.gen(function* writeScreenshot() {
+        const files = yield* requireScreenshotFileSystem();
+        const directory = yield* screenshotDirectory(record, files);
+        const bytes = Buffer.from(screenshot.image, "base64");
+        const file = path.join(directory, `screenshot-${randomUUID()}.png`);
+        yield* files
+          .writeFile(file, bytes)
+          .pipe(
+            Effect.mapError((cause) =>
+              error(
+                "agent_session_invalid",
+                `Could not write the screenshot: ${cause.message}`
+              )
+            )
+          );
+        return {
+          bytes: bytes.byteLength,
+          capturedAt: screenshot.capturedAt,
+          format: screenshot.format,
+          path: file,
+          url: screenshot.url,
+        };
+      });
 
     const finishTeachingClose = (
       sessionId: AgentSessionId,
@@ -3627,6 +3722,7 @@ const makeAgentSession = (
                   retentionFile,
                   runEvidence: { attempts: new Set(), snapshots: new Set() },
                   scope: sessionScope,
+                  screenshots: { directory: undefined },
                   snapshot: base,
                   supplied: new Map<string, string>(),
                   teachingRecorder: undefined,
@@ -6118,6 +6214,9 @@ const makeAgentSession = (
               Effect.sync(() => {
                 recordingCapture(record)?.recordKeyframe(screenshot);
               })
+            ),
+            Effect.flatMap((screenshot) =>
+              writeScreenshotFile(record, screenshot)
             )
           )
         ),
