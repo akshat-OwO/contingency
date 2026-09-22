@@ -630,7 +630,28 @@ const makeTeachingRecordingLearning = Effect.fn(
               content: stampFlowSkillProvenance(file.content, {
                 emulation: {
                   colorScheme: manifest.emulation.colorScheme ?? undefined,
+                  // A fixed position and the permissions the site was answered
+                  // with are part of what the journey needs, so they are
+                  // stamped beside the device rather than left implicit (#241).
+                  geolocation:
+                    manifest.emulation.geolocation === undefined ||
+                    manifest.emulation.geolocation === null
+                      ? undefined
+                      : {
+                          accuracy:
+                            manifest.emulation.geolocation.accuracy ??
+                            undefined,
+                          latitude: manifest.emulation.geolocation.latitude,
+                          longitude: manifest.emulation.geolocation.longitude,
+                        },
                   locale: manifest.emulation.locale ?? undefined,
+                  permissions: manifest.emulation.permissions.map(
+                    (decision) => ({
+                      origin: decision.origin ?? undefined,
+                      permission: decision.permission,
+                      state: decision.state,
+                    })
+                  ),
                   timezone: manifest.emulation.timezoneId ?? undefined,
                   userAgentProfile: manifest.emulation.userAgentProfile,
                   viewport: manifest.emulation.viewport,
