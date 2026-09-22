@@ -675,12 +675,6 @@ it.effect(
     })
 );
 
-/**
- * Teaching *proposes* a Domain Scope; it does not have one yet, so no
- * navigation boundary is installed and nothing is enforced during the draft
- * phase. This is intentional, not an oversight
- * ([ADR 0035](../../docs/adr/0035-domain-scope-governs-top-level-documents.md)).
- */
 it.effect("names the characters a Teaching name may not contain", () =>
   Effect.gen(function* refusedTeachingName() {
     const fake = makeFakeBrowser();
@@ -702,6 +696,12 @@ it.effect("names the characters a Teaching name may not contain", () =>
   })
 );
 
+/**
+ * Teaching *proposes* a Domain Scope; it does not have one yet, so no
+ * navigation boundary is installed and nothing is enforced during the draft
+ * phase. This is intentional, not an oversight
+ * ([ADR 0035](../../docs/adr/0035-domain-scope-governs-top-level-documents.md)).
+ */
 it.effect("installs no Execution Boundary during Teaching", () =>
   Effect.gen(function* teachingIsUnenforced() {
     const fake = makeFakeBrowser();
