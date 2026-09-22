@@ -65,7 +65,15 @@ export interface FlowSkillInput {
  */
 export interface FlowSkillEmulation {
   readonly colorScheme: string | undefined;
+  /**
+   * The fixed position the demonstration answered location requests with, as
+   * one `lat,lon[@accuracy]` scalar. A flow that only works from one place says
+   * so here rather than reading as portable (#241).
+   */
+  readonly geolocation: FlowSkillGeolocation | undefined;
   readonly locale: string | undefined;
+  /** The website permission decisions the demonstration was granted or denied. */
+  readonly permissions: readonly FlowSkillPermission[];
   readonly timezone: string | undefined;
   readonly userAgentProfile: string | undefined;
   readonly viewport:
@@ -77,8 +85,73 @@ export interface FlowSkillEmulation {
     | undefined;
 }
 
+export interface FlowSkillGeolocation {
+  readonly accuracy: number | undefined;
+  readonly latitude: number;
+  readonly longitude: number;
+}
+
+/**
+ * One permission decision as the frontmatter carries it:
+ * `<permission> <state>` for a context-wide decision, with the origin appended
+ * when the decision is narrowed to one site.
+ */
+export interface FlowSkillPermission {
+  readonly origin: string | undefined;
+  readonly permission: string;
+  readonly state: "denied" | "granted";
+}
+
 const VIEWPORT_SCALAR =
   /^(?<width>\d+)x(?<height>\d+)(?:@(?<scale>\d+(?:\.\d+)?))?$/u;
+
+const GEOLOCATION_SCALAR =
+  /^(?<latitude>-?\d+(?:\.\d+)?)\s*,\s*(?<longitude>-?\d+(?:\.\d+)?)(?:\s*@\s*(?<accuracy>\d+(?:\.\d+)?))?$/u;
+
+/**
+ * Reads the fixed position scalar. Out-of-range coordinates are dropped rather
+ * than stamped onward: a Run would be refused by the browser anyway, and a
+ * silently wrong location is worse than an absent one.
+ */
+const readGeolocationScalar = (
+  value: string
+): FlowSkillGeolocation | undefined => {
+  const match = GEOLOCATION_SCALAR.exec(value.trim());
+  if (match === null) {
+    return undefined;
+  }
+  const latitude = Number(match.groups?.latitude);
+  const longitude = Number(match.groups?.longitude);
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+    return undefined;
+  }
+  const raw = match.groups?.accuracy;
+  return {
+    accuracy: raw === undefined ? undefined : Number(raw),
+    latitude,
+    longitude,
+  };
+};
+
+const PERMISSION_ITEM =
+  /^(?<permission>[A-Za-z][\w-]*)(?:\s+(?<state>granted|denied))?(?:\s+(?<origin>\S+))?$/u;
+
+/**
+ * Reads one `permissions` entry. A decision written without a state reads as
+ * `granted`, matching how flows written before decisions were explicit decode
+ * in the protocol.
+ */
+const readPermissionItem = (item: string): FlowSkillPermission | undefined => {
+  const match = PERMISSION_ITEM.exec(item.trim());
+  if (match === null) {
+    return undefined;
+  }
+  return {
+    origin: match.groups?.origin,
+    permission: match.groups?.permission ?? "",
+    state: match.groups?.state === "denied" ? "denied" : "granted",
+  };
+};
 
 const readViewportScalar = (
   value: string
@@ -135,13 +208,19 @@ const readFrontmatterLine = (raw: string): FrontmatterLine => {
 };
 
 const readEmulationBlock = (
-  fields: Record<string, string>
+  fields: Record<string, string>,
+  permissions: readonly FlowSkillPermission[]
 ): FlowSkillEmulation | undefined =>
-  Object.keys(fields).length === 0
+  Object.keys(fields).length === 0 && permissions.length === 0
     ? undefined
     : {
         colorScheme: fields.colorScheme,
+        geolocation:
+          fields.geolocation === undefined
+            ? undefined
+            : readGeolocationScalar(fields.geolocation),
         locale: fields.locale,
+        permissions,
         timezone: fields.timezone,
         userAgentProfile: fields.userAgentProfile,
         viewport:
@@ -194,11 +273,40 @@ const readInputItem = (
   return entry;
 };
 
+/** Records one permission entry, ignoring a shape the grammar cannot read. */
+const pushPermission = (
+  value: string,
+  permissions: FlowSkillPermission[]
+): void => {
+  const decision = value.length > 0 ? readPermissionItem(value) : undefined;
+  if (decision !== undefined) {
+    permissions.push(decision);
+  }
+};
+
+/**
+ * Records one indented key of the `emulation` block. Returns whether the key
+ * opened the `permissions` sequence, so later items land in it.
+ */
+const readEmulationKey = (
+  key: string,
+  value: string,
+  emulation: Record<string, string>,
+  permissions: FlowSkillPermission[]
+): boolean => {
+  if (key !== "permissions") {
+    emulation[key] = value;
+    return false;
+  }
+  pushPermission(value, permissions);
+  return true;
+};
+
 /**
  * Reads the small YAML subset a Flow Skill is allowed to use: the `name` and
  * `description` scalars, the `hosts` sequence, the `inputs` sequence in either
- * its bare-name or its `name`/`description` mapping form, and one flat
- * `emulation` block. A full YAML parser would accept shapes the rest of the
+ * its bare-name or its `name`/`description` mapping form, and the
+ * `emulation` block of flat scalars with its one `permissions` sequence. A full YAML parser would accept shapes the rest of the
  * product cannot read back, so the grammar stays the one the authoring skills
  * teach.
  */
@@ -215,14 +323,21 @@ export const readFlowSkillFrontmatter = (
   const malformedInputs: string[] = [];
   const scalars: Record<string, string> = {};
   const emulation: Record<string, string> = {};
+  const permissions: FlowSkillPermission[] = [];
   let sequence: "hosts" | "inputs" | undefined;
   let inEmulation = false;
+  /** Whether an indented item belongs to `emulation.permissions`. */
+  let inPermissions = false;
   /** The mapping-form input an indented key still belongs to, when any. */
   let openInput: MutableFlowSkillInput | undefined;
   for (const raw of (match.groups?.block ?? "").split(/\r?\n/u)) {
     const line = readFrontmatterLine(raw);
     if (line.item !== undefined) {
       openInput = undefined;
+      if (inPermissions) {
+        pushPermission(line.item, permissions);
+        continue;
+      }
       if (sequence === "hosts") {
         hosts.push(line.item);
         continue;
@@ -240,13 +355,19 @@ export const readFlowSkillFrontmatter = (
       // top-level scalar: reading `description` under an input as the skill's
       // own description is how a declared input went missing (#203).
       if (inEmulation) {
-        emulation[line.key] = line.value;
+        inPermissions = readEmulationKey(
+          line.key,
+          line.value,
+          emulation,
+          permissions
+        );
       } else if (openInput !== undefined && line.key === "description") {
         openInput.description = line.value.length > 0 ? line.value : undefined;
       }
       continue;
     }
     openInput = undefined;
+    inPermissions = false;
     inEmulation = line.key === "emulation";
     sequence = sequenceFor(line.key);
     if (sequence !== undefined) {
@@ -264,7 +385,7 @@ export const readFlowSkillFrontmatter = (
   return {
     body: content.slice(matched.length),
     description: scalars.description,
-    emulation: readEmulationBlock(emulation),
+    emulation: readEmulationBlock(emulation, permissions),
     hosts,
     inputs,
     malformedInputs,
@@ -324,6 +445,20 @@ const emulationLines = (emulation: FlowSkillEmulation): string[] => {
   }
   if (emulation.colorScheme !== undefined) {
     lines.push(`  colorScheme: ${emulation.colorScheme}`);
+  }
+  if (emulation.geolocation !== undefined) {
+    const { accuracy, latitude, longitude } = emulation.geolocation;
+    const position = `${latitude},${longitude}`;
+    lines.push(
+      `  geolocation: ${accuracy === undefined ? position : `${position}@${accuracy}`}`
+    );
+  }
+  if (emulation.permissions.length > 0) {
+    lines.push("  permissions:");
+    for (const decision of emulation.permissions) {
+      const scope = decision.origin === undefined ? "" : ` ${decision.origin}`;
+      lines.push(`    - ${decision.permission} ${decision.state}${scope}`);
+    }
   }
   return lines;
 };

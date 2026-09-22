@@ -311,7 +311,16 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
   const stamped = stampFlowSkillProvenance(authored, {
     emulation: {
       colorScheme: "dark",
+      geolocation: { accuracy: 50, latitude: 28.4718, longitude: 77.0456 },
       locale: "de-DE",
+      permissions: [
+        {
+          origin: "https://shop.example.com",
+          permission: "geolocation",
+          state: "granted",
+        },
+        { origin: undefined, permission: "notifications", state: "denied" },
+      ],
       timezone: "Europe/Berlin",
       userAgentProfile: "chrome-iphone",
       viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
@@ -331,6 +340,21 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
   expect(frontmatter?.emulation?.colorScheme).toBe("dark");
   expect(frontmatter?.emulation?.locale).toBe("de-DE");
   expect(frontmatter?.emulation?.timezone).toBe("Europe/Berlin");
+  // A flow that only works from one place says so, rather than reading as
+  // portable (#241).
+  expect(frontmatter?.emulation?.geolocation).toEqual({
+    accuracy: 50,
+    latitude: 28.4718,
+    longitude: 77.0456,
+  });
+  expect(frontmatter?.emulation?.permissions).toEqual([
+    {
+      origin: "https://shop.example.com",
+      permission: "geolocation",
+      state: "granted",
+    },
+    { origin: undefined, permission: "notifications", state: "denied" },
+  ]);
   // The keys Contingency does not own survive untouched.
   expect(frontmatter?.name).toBe("set-delivery-area");
   expect(frontmatter?.inputs).toEqual([
@@ -347,6 +371,24 @@ test("reads a package saved before Contingency stamped provenance", () => {
   );
   expect(frontmatter?.hosts).toEqual([]);
   expect(frontmatter?.emulation).toBeUndefined();
+});
+
+test("reads a permission entry written without a state as granted", () => {
+  const frontmatter = readFlowSkillFrontmatter(
+    "---\nname: x\nemulation:\n  permissions:\n    - geolocation\n  locale: en-IN\n---\n\nbody\n"
+  );
+  expect(frontmatter?.emulation?.permissions).toEqual([
+    { origin: undefined, permission: "geolocation", state: "granted" },
+  ]);
+  // The sequence ends where the next indented key begins.
+  expect(frontmatter?.emulation?.locale).toBe("en-IN");
+});
+
+test("ignores a geolocation scalar it cannot read back", () => {
+  const frontmatter = readFlowSkillFrontmatter(
+    "---\nname: x\nemulation:\n  geolocation: 128.0,77.0\n---\n\nbody\n"
+  );
+  expect(frontmatter?.emulation?.geolocation).toBeUndefined();
 });
 
 test("ignores a viewport scalar it cannot read back", () => {

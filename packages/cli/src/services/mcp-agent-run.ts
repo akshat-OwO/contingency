@@ -77,8 +77,9 @@ const demonstratedEmulation = (emulation: FlowSkillEmulation | undefined) =>
     ? undefined
     : {
         colorScheme: readColorScheme(emulation.colorScheme),
+        geolocation: emulation.geolocation,
         locale: emulation.locale,
-        permissions: [],
+        permissions: emulation.permissions,
         timezoneId: emulation.timezone,
         userAgentProfile: readUserAgentProfileId(emulation.userAgentProfile),
         viewport: emulation.viewport,
