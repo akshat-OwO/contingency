@@ -181,16 +181,28 @@ export const renderFrame = (
       );
       const context = canvas.getContext("2d", { alpha: false });
       if (context !== null) {
-        canvas.width = event.metadata.deviceWidth;
-        canvas.height = event.metadata.deviceHeight;
-        const sourceWidth = Math.min(bitmap.width, canvas.width);
-        const sourceHeight = Math.min(bitmap.height, canvas.height);
+        // Writing `width` or `height` resets the canvas — it drops the backing
+        // store, re-rasterizes, and re-lays out the element, which the user
+        // sees as the frame scaling for one paint. Frames only arrive when the
+        // Page repaints, so an unconditional write made every state update in
+        // the Page flash (#237). The size a Page reports does not change
+        // between repaints, so writing it only when it changes is the same
+        // canvas without the flash.
+        if (canvas.width !== event.metadata.deviceWidth) {
+          canvas.width = event.metadata.deviceWidth;
+        }
+        if (canvas.height !== event.metadata.deviceHeight) {
+          canvas.height = event.metadata.deviceHeight;
+        }
+        // The capture is the whole viewport, scaled to the stream's ceiling, so
+        // the frame is drawn whole. Cropping it to the canvas would show the
+        // top-left corner magnified whenever the two disagree.
         context.drawImage(
           bitmap,
           0,
           0,
-          sourceWidth,
-          sourceHeight,
+          bitmap.width,
+          bitmap.height,
           0,
           0,
           canvas.width,
