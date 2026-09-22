@@ -9,7 +9,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `workspace-run-summary` opens a finished Interactive Run at `/?run=<id>` with persisted assessments and video.
 - `agent-empty-web` shows `No browser session` on a `web` launch with no Teaching or Run, and opens a Teaching session from the canvas without MCP.
 - `agent-empty-mcp` shows `No browser session` on an MCP launch with no Teaching or Run.
-- `agent-bad-session` shows unavailability when `?session=` names a session this process does not own.
+- `agent-bad-session` refuses a `?session=` id this process does not own, says so in a notice, and leaves the Workspace and its dock standing.
 - `agent-live-session` shows a live session's browser and the dock that carries its state.
 - `agent-same-document-snapshot` returns destination nodes with the destination URL after an agent action routes without loading a new document.
 - `agent-watching-readonly` disables the browser toolbar and marks the canvas read-only while the agent holds control.
@@ -47,7 +47,7 @@ Preconditions:
 - **Empty on web.** After the query settles, run `control-contingency browser wait --role heading --name "No browser session" --timeout-ms 15000`. There is no header band here or on any live session: the dock carries the wordmark, and the ARIA snapshot has no `link` named `Workspace`.
 - **Direct route.** Open `/` without using nav. Run `control-contingency browser goto --path /`, then wait for the same empty heading.
 - **Open a session from the canvas.** `contingency web` owns Teaching, so the empty canvas starts one without MCP. Run `control-contingency browser click --role button --name "Open browser session"`, then `control-contingency browser wait --role button --name "Start recording" --timeout-ms 20000`. The dock badge becomes `Not recording`. Exactly one control is named `Open browser session`: search the empty-state ARIA artifact and require one match.
-- **Unknown session query.** Open a fake session id. Run `control-contingency browser goto --path "/?session=not-a-session"`, then wait for the session error. The page does not treat the query value as a credential.
+- **Unknown session query.** Open a fake session id. Run `control-contingency browser goto --path "/?session=not-a-session"`, then wait for the alert `That session id did not resolve`. The page does not treat the query value as a credential, and it is not a dead end: with zero sessions the empty Workspace stays, heading `No browser session` and button `Open browser session`; with one or more sessions this process owns, the dock and its `Agent Session` combobox stay, selecting a live session rather than the id that was asked for (#243).
 - **Empty on MCP.** Start MCP on the verify instance. Run `control-contingency mcp start`, then `control-contingency browser goto --url "$mcpUrl"` using the printed `mcpUrl`. Wait with `control-contingency browser wait --role heading --name "No browser session" --timeout-ms 15000`.
 - **Proof (web empty).** Capture the empty web state. Run `control-contingency browser goto --path /`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-web.aria.txt` and `control-contingency browser screenshot --path workspace/empty-web.png`. Both show the `Workspace dock` with `Contingency`, the badge `No session`, and `No browser session` on the canvas.
 - **Proof (390px).** Run `control-contingency browser resize --width 390 --height 844`, then `control-contingency browser screenshot --path workspace/empty-web-390.png` and `control-contingency browser snapshot --aria --path workspace/empty-web-390.aria.txt`. `Open browser session` is still on screen and the next-step sentence is hidden rather than ellipsized. Return to desktop with `control-contingency browser resize --width 1440 --height 900`.
@@ -177,7 +177,7 @@ Preconditions:
 - The action timeline is no longer rendered anywhere in Workspace. Assert it through `agent_session_get`.
 - Inspect hit-tests the live Page through a Browser Snapshot. A stale outline means the Page moved, not that the click missed; re-hover rather than clicking the canvas as if it were the DOM.
 - Empty means the current `web` or `mcp` process owns zero sessions.
-- A bad `?session=` value names a session that the current process does not own. The error names the server process, not MCP. The page does not fall back to a session from another process.
+- A bad `?session=` value names a session that the current process does not own. The notice names the server process, not MCP. The page falls back to a session this process owns — never to one from another process — and keeps the dock, so do not wait for an unavailability page after a bad id (#243).
 - Closing Workspace does not pause a real session.
 - Every featured product in the shop fixture has an `Add <product> to cart` button. Clicking a product heading or its SKU paragraph is inert, and an inert click recorded as a successful action is a demonstration a learning agent cannot read (#215). Target the button.
 - Do not start `mcp` on 7777 if the user already has Contingency there. `mcp start` picks its own port.

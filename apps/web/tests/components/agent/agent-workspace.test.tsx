@@ -444,12 +444,29 @@ test("offers no ceiling extension once the Run has ended", async () => {
   ).toBeNull();
 });
 
-test("does not use a foreign URL session id", async () => {
+test("does not use a foreign URL session id, and still offers the dock", async () => {
   renderWorkspace(resultFor([session]), "agent-foreign");
   expect(
     await screen.findByText(/not owned by this server process/u)
   ).toBeVisible();
-  expect(screen.queryByLabelText("Live browser viewport")).toBeNull();
+  // The id is refused, not obeyed: a live session this process owns is what
+  // the Workspace falls back to, with its switcher in reach (#243).
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(
+    within(dock).getByRole("combobox", { name: "Agent Session" })
+  ).toHaveValue(session.id);
+  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+});
+
+test("keeps the empty dock when a foreign id is the only thing asked for", async () => {
+  renderWorkspace(resultFor([]), "agent-foreign");
+  expect(
+    await screen.findByText(/not owned by this server process/u)
+  ).toBeVisible();
+  expect(screen.getByText("No browser session")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Open browser session" })
+  ).toBeVisible();
 });
 
 test("shows the Agent Session stream failure reason", async () => {

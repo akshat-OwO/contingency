@@ -63,6 +63,12 @@ export interface AgentViewState {
   /** A session is being opened from the empty canvas. */
   readonly startPending: boolean;
   readonly streamConnected: boolean;
+  /**
+   * The `?session=` id that did not resolve against this process, held so the
+   * Workspace can say so beside a dock the user can recover from rather than
+   * replacing the page with a dead end (#243).
+   */
+  readonly unresolvedSessionId: string | undefined;
   readonly viewportHeight: number;
   readonly viewportWidth: number;
 }
@@ -89,6 +95,7 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   startError: undefined,
   startPending: false,
   streamConnected: false,
+  unresolvedSessionId: undefined,
   viewportHeight: 0,
   viewportWidth: 0,
 });
