@@ -38,6 +38,41 @@ export const FlowSkillName = Schema.String.check(
 ).pipe(Schema.brand("@contingency/FlowSkillName"));
 export type FlowSkillName = typeof FlowSkillName.Type;
 
+/** The whole rule, stated the way a caller can act on it. */
+export const flowSkillNameRule =
+  "A Flow Skill name is 1 to 128 characters of letters, numbers, spaces, dots, dashes, and underscores, and starts with a letter or a number.";
+
+const flowSkillNameCharacter = /[A-Za-z0-9 ._-]/u;
+
+/**
+ * Why a candidate is not a Flow Skill name, or `null` when it is one. The
+ * caller of a refused rename or Teaching start reads this instead of guessing:
+ * it names the characters that were rejected and then states the rule.
+ */
+export const describeFlowSkillName = (candidate: string): string | null => {
+  if (candidate.length === 0) {
+    return `A Flow Skill name cannot be empty. ${flowSkillNameRule}`;
+  }
+  const rejected = [
+    ...new Set(
+      [...candidate].filter(
+        (character) => !flowSkillNameCharacter.test(character)
+      )
+    ),
+  ];
+  if (rejected.length > 0) {
+    const listed = rejected.map((character) => `"${character}"`).join(", ");
+    return `A Flow Skill name cannot contain ${listed}. ${flowSkillNameRule}`;
+  }
+  if (candidate.length > 128) {
+    return `A Flow Skill name cannot be longer than 128 characters. ${flowSkillNameRule}`;
+  }
+  if (!/^[A-Za-z0-9]/u.test(candidate)) {
+    return `A Flow Skill name cannot start with "${candidate[0]}". ${flowSkillNameRule}`;
+  }
+  return null;
+};
+
 const Setup = Schema.TaggedStruct("setup", {
   requestedAt: nonEmptyString,
 });

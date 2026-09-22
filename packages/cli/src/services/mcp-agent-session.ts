@@ -96,7 +96,7 @@ const AgentSessionsGetTool = Tool.make("agent_sessions_get", {
 const AgentSessionStartTool = Tool.make("agent_session_start", {
   dependencies: [AgentSession],
   description:
-    "Start a process-owned Agent Session and return its loopback Workspace URL. Pass `emulation` to run under a whole browser identity — a user agent profile such as chrome-iphone or safari-iphone, its viewport, and the environment around it — rather than a default desktop identity at `viewport`.",
+    "Start a process-owned Agent Session and return its loopback Workspace URL. Pass `emulation` to run under a whole browser identity — a user agent profile such as chrome-iphone or safari-iphone, its viewport, and the environment around it — rather than a default desktop identity at `viewport`. For Teaching, `name` becomes the Flow Skill name: 1 to 128 characters of letters, numbers, spaces, dots, dashes, and underscores, starting with a letter or a number.",
   failure: AgentSessionFailure,
   parameters: AgentSessionStartParameters,
   success: AgentSessionSnapshot,

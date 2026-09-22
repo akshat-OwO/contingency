@@ -2,6 +2,7 @@ import path from "node:path";
 
 import {
   AgentElementRef,
+  flowSkillNameRule,
   makeBrowserRpcError,
   OperationId,
   SessionId,
@@ -680,6 +681,27 @@ it.effect(
  * phase. This is intentional, not an oversight
  * ([ADR 0035](../../docs/adr/0035-domain-scope-governs-top-level-documents.md)).
  */
+it.effect("names the characters a Teaching name may not contain", () =>
+  Effect.gen(function* refusedTeachingName() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const refused = yield* Effect.flip(
+      service.start({
+        ...startInput("start-teaching-bad-name"),
+        activity: "teaching",
+        name: "1mg mobile teaching (geo)",
+        url: "https://shop.example.com/",
+      })
+    );
+
+    // The caller learns which characters were rejected and what a name may be,
+    // rather than having to guess at the shape (#242).
+    expect(refused.code).toBe("agent_session_invalid");
+    expect(refused.message).toContain('"(", ")"');
+    expect(refused.message).toContain(flowSkillNameRule);
+  })
+);
+
 it.effect("installs no Execution Boundary during Teaching", () =>
   Effect.gen(function* teachingIsUnenforced() {
     const fake = makeFakeBrowser();

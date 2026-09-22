@@ -12,7 +12,9 @@ import {
   makeBrowserRpcError,
   UserAgentProfileId,
   TeachingRecordingId,
+  describeFlowSkillName,
   FlowSkillName,
+  flowSkillNameRule,
   ContentHash,
   OperationId,
   viewportForIdentity,
@@ -3333,14 +3335,15 @@ const makeAgentSession = (
         if (activity !== "teaching") {
           return { _tag: "none" as const };
         }
+        const requestedName = startInput.name?.trim() || `flow-${randomUUID()}`;
         const identity = {
           flowSkillName: yield* Schema.decodeUnknownEffect(FlowSkillName)(
-            startInput.name?.trim() || `flow-${randomUUID()}`
+            requestedName
           ).pipe(
             Effect.mapError(() =>
               error(
                 "agent_session_invalid",
-                "The Teaching name must be a local Flow Skill name."
+                describeFlowSkillName(requestedName) ?? flowSkillNameRule
               )
             )
           ),
