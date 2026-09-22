@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { ContingencyRpcs, OperationId } from "@contingency/protocol";
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -19,6 +21,9 @@ import {
   NEVER_ANSWERED,
   USER_INPUT_BEACON,
 } from "./harness.ts";
+
+/** The eight bytes every PNG starts with. */
+const PNG_MAGIC = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -377,11 +382,18 @@ it.live("expires element references when the Page navigates", () =>
     );
     expect(mutated.code).toBe("agent_element_stale");
 
+    /*
+      A screenshot answers with the local file it landed in rather than a
+      megabyte of inline base64 the agent cannot read (#240).
+    */
     const screenshot = yield* callTool("agent_browser_screenshot", {
       sessionId: session.id,
     });
     expect(screenshot.format).toBe("png");
-    expect(screenshot.image.length).toBeGreaterThan(0);
+    expect(screenshot).not.toHaveProperty("image");
+    const written = yield* Effect.promise(() => readFile(screenshot.path));
+    expect(written.byteLength).toBe(screenshot.bytes);
+    expect(written.subarray(0, 8)).toEqual(PNG_MAGIC);
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 

@@ -3,7 +3,7 @@ import {
   AgentBrowserAct,
   AgentBrowserObserve,
   AgentBrowserSnapshot,
-  AgentScreenshot,
+  AgentScreenshotFile,
   AgentSessionClose,
   AgentSessionGet,
   AgentSessionSnapshot,
@@ -132,10 +132,10 @@ const AgentBrowserSnapshotTool = Tool.make("agent_browser_snapshot", {
 const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
   dependencies: [AgentSession],
   description:
-    "Capture a PNG screenshot of the Agent Session's Page when the accessibility representation is not enough.",
+    "Capture a PNG screenshot of the Agent Session's Page when the accessibility representation is not enough. The answer is the local file the capture landed in, not the image bytes: open that path with your own file tools. The file lives as long as the Agent Session does.",
   failure: AgentSessionFailure,
   parameters: AgentBrowserObserveParameters,
-  success: AgentScreenshot,
+  success: AgentScreenshotFile,
 });
 
 const AgentBrowserActTool = Tool.make("agent_browser_act", {

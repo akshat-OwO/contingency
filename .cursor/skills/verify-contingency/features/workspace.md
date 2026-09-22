@@ -184,6 +184,7 @@ Preconditions:
 - Only the user returns control. There is no MCP tool for it by design; an agent may only ask with `agent_session_takeover_request`. A drive that needs the agent driving again must click `Return control`.
 - Consecutive ordinary text edits during Takeover are coalesced into one semantic `fill`. Other low-level user input remains a redacted mouse or keyboard event.
 - `agent_browser_screenshot` and `agent_browser_snapshot` keep working while the user holds control. Observation is not gated on control; action is.
+- `agent_browser_screenshot` answers with `path`, `bytes`, `format`, `capturedAt`, and `url` — never the image bytes (#240). Read the PNG at `path` yourself; it is deleted when the Agent Session closes.
 - A failed tool call exits non-zero and prints the reason (`Element reference e12 is stale…`, `Could not find "X": Timeout…`). Assert on that text rather than on the exit code alone.
 - Element references expire when the Page navigates. Take a fresh `agent_browser_snapshot` after any navigation before acting on a `ref`.
 - Only `"activity":"teaching"` sessions capture. `agent_teaching_instruction_record` against a Run session exits `2` with `agent_session_invalid`.
