@@ -288,7 +288,7 @@ const AgentBrowserCanvas = ({
         wide enough that no part of the browser, and nothing inspect opens over
         it, ends up underneath the dock.
       */
-      className={`bg-muted/20 relative grid min-h-0 flex-1 place-items-center overflow-hidden p-2${
+      className={`bg-muted/20 relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2${
         dockedBelow ? " pb-24" : ""
       }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
     >
@@ -306,11 +306,16 @@ const AgentBrowserCanvas = ({
         </div>
       )}
       {/*
-        The inspect overlay shares the canvas box so a Page rectangle scales
-        onto the frame that drew it, instead of onto the padded column around
-        it.
+        The inspect overlay stretches over this box and measures the canvas
+        inside it, so a Page rectangle scales onto the frame that drew it.
+
+        The box fills the column rather than shrinking to the canvas: a
+        percentage `max-height` against a shrink-to-fit parent resolves to
+        `none`, so a canvas wrapped in its own size was only ever fitted by
+        width and overflowed the column below (#237). A definite box gives the
+        canvas both ceilings, and it keeps its own aspect ratio between them.
       */}
-      <div className="relative max-h-full max-w-full">
+      <div className="relative flex h-full max-h-full min-h-0 w-full max-w-full min-w-0 items-center justify-center">
         {/*
           Watching is read-only; Takeover is not. Control is exclusive, so the
           canvas only forwards input while the user actually holds the browser.
@@ -850,13 +855,17 @@ const useAgentView = (
         );
         if (!cancelled()) {
           const projection = frameProjection(latest.metadata);
-          setState((current) => ({
-            ...current,
-            frameProjection: sameProjection(current.frameProjection, projection)
-              ? current.frameProjection
-              : projection,
-            frameReady: true,
-          }));
+          setState((current) => {
+            const same =
+              current.frameReady &&
+              sameProjection(current.frameProjection, projection);
+            // A drawn frame is not Workspace state. Returning a new object
+            // anyway re-rendered the whole column once per frame, so a Page
+            // that repainted kept the column re-rendering with it (#237).
+            return same
+              ? current
+              : { ...current, frameProjection: projection, frameReady: true };
+          });
         }
       }
     }).pipe(
