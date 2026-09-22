@@ -16,7 +16,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-takeover-controls` enables history, address, and canvas input once the user takes control.
 - `agent-takeover-timeline` records what the user did as `"actor":"user"` in the session's timeline, and follows the browser's URL. The timeline is read over MCP; Workspace no longer renders it.
 - `agent-return-control` hands the browser back, and the toolbar goes quiet again.
-- `agent-run-dock` shows a live Interactive Run's Flow Skill, active Agent Step, `Done when:` line, coverage, ceiling extensions, and single control button in the dock, and a live Dry Run's rehearsed Flow Skill and changed inputs.
+- `agent-run-dock` shows a live Interactive Run's Flow Skill, active Agent Step number, ceiling extensions, and single control button in the dock, the Step's name and `Done when:` line behind the coverage button, and a live Dry Run's rehearsed Flow Skill and changed inputs.
 - `agent-teaching-inspect` outlines the live element under the pointer during `recording`, attaches a comment as a Teaching instruction, and counts it in the dock.
 - `agent-teaching-dock-actions` renames the Flow Skill in `setup`, and copies the agent prompt or deletes the recording in `ready`.
 - `agent-teaching-recording-boundary` keeps setup out of Teaching artifacts, starts every capture source from the Workspace, and stops them without closing the browser setup.
@@ -70,7 +70,8 @@ Preconditions:
 
 ### The Run dock
 
-- **Read the Run in the dock.** With an Interactive Run open at its `viewUrl`, run `control-contingency browser snapshot --aria --path workspace/run-dock.aria.txt`. The `Workspace dock` names the Flow Skill, reads `Agent Step <n> of <total>: <name>.` with that Step's `Done when:` line, and reports `<executed> of <total> Agent Steps executed`. The `Agent Session` option reads `<flow> · Interactive Run` and carries no session id.
+- **Read the Run in the dock.** With an Interactive Run open at its `viewUrl`, run `control-contingency browser snapshot --aria --path workspace/run-dock.aria.txt`. The `Workspace dock` names the Flow Skill and reads `Agent Step <n> of <total>.` The row itself carries no Step name and no `Done when:` line: they would break the dock's single row, so they sit behind the coverage button, whose accessible name is `<executed> of <total> Agent Steps executed. Agent Step <n> of <total>.` (#238). The `Agent Session` option reads `<flow> · Interactive Run` and carries no session id.
+- **Open the Agent Step detail.** Click that coverage button, then snapshot again. The popover is titled `Agent Step <n> of <total>` and holds the Step's name and its `Done when:` line in full. Close it and confirm the dock is back to one row.
 - **Raise a ceiling.** Run `control-contingency browser click --role button --name "Extend Agent Step ceiling"`, then read the session back: `run.ceilings.extensions` has grown. There is no MCP tool for this; the dock button is the only way either ceiling grows. Both buttons are absent once the Run has ended.
 - **Read a Dry Run in the dock.** Open a live Dry Run's `viewUrl`. The dock reads `Rehearsing the flow skill <name>.` and names the inputs that differ from the recording, and the `Agent Session` option reads `<flow> · Dry Run`. Save `workspace/dry-run-dock.aria.txt`.
 - **Proof (390px).** Run `control-contingency browser resize --width 390 --height 844` over a live Run and save `workspace/run-dock-390.png`. The control button is still on screen and the next-step sentence is hidden rather than ellipsized. Return to desktop afterwards.
