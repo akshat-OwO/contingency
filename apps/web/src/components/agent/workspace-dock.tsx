@@ -93,6 +93,13 @@ export const DockNotices = ({
  * state changes. Below `lg` it takes its own line, and below `sm` it is
  * hidden: the badge and the buttons already carry the state and the next step,
  * so it is never ellipsized.
+ *
+ * The floor on its width is what keeps it prose. `flex-1` alone resolves
+ * against whatever the controls left on the line, which in a wrapping dock is
+ * routinely a few pixels — the sentence then sets one word per line and the
+ * dock grows to several hundred pixels tall. With a minimum, a line that
+ * cannot seat the sentence wraps it onto its own full-width line instead
+ * (#238).
  */
 export const DockStatus = ({
   children,
@@ -101,7 +108,7 @@ export const DockStatus = ({
 }) => (
   <output
     aria-live="polite"
-    className="text-muted-foreground order-last hidden w-full text-xs sm:block lg:order-none lg:w-auto lg:min-w-0 lg:flex-1"
+    className="text-muted-foreground order-last hidden w-full text-xs text-pretty sm:block lg:order-none lg:w-auto lg:min-w-64 lg:flex-1"
   >
     {children}
   </output>

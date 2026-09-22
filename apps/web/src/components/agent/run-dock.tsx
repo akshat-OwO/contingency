@@ -7,6 +7,7 @@ import { CircleAlertIcon, TimerIcon } from "lucide-react";
 import { agentControlPresentation } from "@/components/agent/agent-workspace-state";
 import type {
   RunDockSecondary,
+  RunDockStep,
   RunSessionSnapshot,
 } from "@/components/agent/run-dock-state";
 import { runDockPresentation } from "@/components/agent/run-dock-state";
@@ -18,10 +19,65 @@ import {
 } from "@/components/agent/workspace-dock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const SECONDARY_LABEL: Record<RunDockSecondary, string> = {
   "extend-run-ceiling": "Extend Run ceiling",
   "extend-step-ceiling": "Extend Agent Step ceiling",
+};
+
+/**
+ * How far the Run got, and behind it the Agent Step it is on. The counter is a
+ * control rather than a label whenever there is a step to read: the step's
+ * name and its whole `Done when:` clause are the only strings in the dock long
+ * enough to break its single row, so they live in a popover and the row keeps
+ * the number (#238).
+ *
+ * With no active Agent Step there is nothing to open, so the counter stays the
+ * plain label it was.
+ */
+const RunCoverage = ({
+  coverage,
+  step,
+}: {
+  readonly coverage: string;
+  readonly step: RunDockStep | undefined;
+}) => {
+  if (step === undefined) {
+    return (
+      <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+        {coverage}
+      </span>
+    );
+  }
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={(props) => (
+          <Button
+            {...props}
+            aria-label={`${coverage}. ${step.label}.`}
+            size="sm"
+            variant="ghost"
+          >
+            <span className="tabular-nums">{coverage}</span>
+          </Button>
+        )}
+      />
+      <PopoverContent align="end">
+        <PopoverTitle>{step.label}</PopoverTitle>
+        <p>{step.name}</p>
+        <p className="text-muted-foreground max-h-64 overflow-y-auto text-xs">
+          Done when: {step.doneWhen}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
 };
 
 /**
@@ -78,9 +134,10 @@ export const RunDock = ({
         {presentation.badge}. {presentation.nextStep}
       </DockStatus>
       {presentation.coverage === undefined ? null : (
-        <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-          {presentation.coverage}
-        </span>
+        <RunCoverage
+          coverage={presentation.coverage}
+          step={presentation.step}
+        />
       )}
       {presentation.secondaries.map((secondary) => (
         <Button

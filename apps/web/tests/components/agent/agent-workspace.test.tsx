@@ -349,10 +349,11 @@ test("gives a Run the same dock-only shell as Teaching", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Contingency");
-  // The Flow Skill, the active Agent Step, its "Done when:" line, and coverage.
+  // The Flow Skill, which Agent Step it is on, and coverage. The step's name
+  // and its "Done when:" line are behind the counter, not in the row (#238).
   expect(dock).toHaveTextContent("browse-catalogue");
-  expect(dock).toHaveTextContent("Agent Step 2 of 2: Add to basket.");
-  expect(dock).toHaveTextContent("Done when: the basket holds one product.");
+  expect(dock).toHaveTextContent("Agent Step 2 of 2.");
+  expect(dock).not.toHaveTextContent("Done when:");
   expect(dock).toHaveTextContent("1 of 2 Agent Steps executed");
   // One shell: no header band above it, and no session status sidebar beside it.
   expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
@@ -365,6 +366,22 @@ test("gives a Run the same dock-only shell as Teaching", async () => {
   expect(
     screen.getAllByRole("button", { name: /^(?:Take|Return) control$/u })
   ).toHaveLength(1);
+});
+
+test("holds the Agent Step's detail behind the step counter", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([runningSession]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  await user.click(
+    within(dock).getByRole("button", {
+      name: "1 of 2 Agent Steps executed. Agent Step 2 of 2.",
+    })
+  );
+  expect(await screen.findByText("Agent Step 2 of 2")).toBeVisible();
+  expect(screen.getByText("Add to basket")).toBeVisible();
+  expect(
+    screen.getByText("Done when: the basket holds one product.")
+  ).toBeVisible();
 });
 
 test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", async () => {
