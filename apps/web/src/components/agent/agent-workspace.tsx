@@ -7,7 +7,12 @@ import type {
   BrowserInput,
   BrowserStreamEvent,
 } from "@contingency/protocol";
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import {
+  describeFlowSkillName,
+  FlowSkillName,
+  flowSkillNameRule,
+  OperationId,
+} from "@contingency/protocol";
 import {
   useAtom,
   useAtomRefresh,
@@ -1737,8 +1742,7 @@ const useAgentView = (
         if (!isFlowSkillName(name)) {
           setState((previous) => ({
             ...previous,
-            recordingError:
-              "A flow skill name uses letters, numbers, spaces, dots, dashes, and underscores.",
+            recordingError: describeFlowSkillName(name) ?? flowSkillNameRule,
           }));
           return;
         }
