@@ -169,19 +169,26 @@ const LoadingState = () => (
 
 /**
  * What the Workspace says about a `?session=` id it could not resolve. It sits
- * beside a working dock rather than in place of one: the recovery — picking a
- * live session from the switcher — is already on screen (#243).
+ * beside a working Workspace rather than in place of one, and it names the
+ * recovery that is actually on screen: the dock's session switcher when this
+ * process owns sessions, and opening one when it owns none (#243).
  */
 const UnresolvedSessionNotice = ({
+  recovery,
   sessionId,
 }: {
+  readonly recovery: "open" | "switch";
   readonly sessionId: string;
 }) => (
   <Alert variant="destructive">
     <CircleAlertIcon aria-hidden="true" />
     <AlertTitle>That session id did not resolve</AlertTitle>
     <AlertDescription>
-      {`Agent Session ${sessionId} is not owned by this server process or is no longer running. Pick a session from the dock to carry on.`}
+      {`Agent Session ${sessionId} is not owned by this server process or is no longer running. ${
+        recovery === "switch"
+          ? "Pick a session from the dock to carry on."
+          : "Open a browser session to carry on."
+      }`}
     </AlertDescription>
   </Alert>
 );
@@ -236,7 +243,10 @@ const EmptyState = ({
           </form>
           {unresolvedSessionId === undefined ? null : (
             <div className="text-left">
-              <UnresolvedSessionNotice sessionId={unresolvedSessionId} />
+              <UnresolvedSessionNotice
+                recovery="open"
+                sessionId={unresolvedSessionId}
+              />
             </div>
           )}
           {error === undefined ? null : (
@@ -582,7 +592,10 @@ const AgentLiveView = ({
           <>
             {notices}
             {state.unresolvedSessionId === undefined ? null : (
-              <UnresolvedSessionNotice sessionId={state.unresolvedSessionId} />
+              <UnresolvedSessionNotice
+                recovery="switch"
+                sessionId={state.unresolvedSessionId}
+              />
             )}
             {state.browserStreamError === undefined ? null : (
               <Alert variant="destructive">
