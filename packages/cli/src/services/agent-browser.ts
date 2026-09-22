@@ -77,12 +77,12 @@ const staleReference = (ref: string): BrowserRpcErrorType =>
   );
 
 /**
- * What the Page is asked for. It collects the interactive controls, landmarks,
- * headings, and text a journey is described in — not the DOM — and hands back
- * the elements themselves so Contingency can mint references for them without
- * writing anything into the page under test.
+ * The constants and helpers both page-reading scripts share: visibility, the
+ * text a reader would hear, and the accessible-name precedence. A wait and a
+ * Snapshot that computed names differently would disagree about what the Page
+ * says, which is exactly the trap a done-when phrase falls into.
  */
-const SNAPSHOT_SCRIPT = `(() => {
+const PAGE_READING_PRELUDE = `
   const ROLE_BY_TAG = {
     A: "link",
     ARTICLE: "article",
@@ -308,6 +308,15 @@ const SNAPSHOT_SCRIPT = `(() => {
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
   };
+`;
+
+/**
+ * What the Page is asked for. It collects the interactive controls, landmarks,
+ * headings, and text a journey is described in — not the DOM — and hands back
+ * the elements themselves so Contingency can mint references for them without
+ * writing anything into the page under test.
+ */
+const SNAPSHOT_SCRIPT = `(() => {${PAGE_READING_PRELUDE}
   // Controls come before prose when the budget runs out: a journey is driven
   // by what it can act on, and a Page that overflows the limit is one whose
   // text matters least.
@@ -405,6 +414,27 @@ const SNAPSHOT_SCRIPT = `(() => {
     title: document.title,
     url: location.href,
   };
+})()`;
+
+/**
+ * Whether any element the Snapshot would report carries the phrase. A
+ * done-when line is written from the semantic timeline, so it names elements
+ * the way the Snapshot does — by accessible name, which for plain prose is
+ * still its rendered text. Matching rendered text alone times out on a header
+ * whose name comes from `aria-label`, on an element that is right there.
+ */
+const nameMatchScript = (phrase: string) => `(() => {${PAGE_READING_PRELUDE}
+  const wanted = ${JSON.stringify(phrase)}.toLowerCase();
+  for (const element of document.querySelectorAll("*")) {
+    if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
+      continue;
+    }
+    const name = redactSensitive(accessibleName(element)).toLowerCase();
+    if (name.includes(wanted)) {
+      return true;
+    }
+  }
+  return false;
 })()`;
 
 /** The page is untrusted, so everything it answers with is decoded on arrival. */
@@ -1204,15 +1234,17 @@ export const performAgentAction = (
           );
     }
     case "wait_for_text": {
-      return attempt(`Could not find "${action.text}"`, () =>
-        page
-          .getByText(action.text)
-          .first()
-          .waitFor({
-            state: "visible",
-            timeout: action.timeoutMs ?? ACTION_TIMEOUT_MS,
-          })
-      );
+      // Matched against the accessible name the Browser Snapshot reports, not
+      // against rendered text, so a phrase copied out of the timeline waits
+      // for the element the timeline named.
+      return attempt(`Could not find "${action.text}"`, async () => {
+        const matched = await page.waitForFunction(
+          nameMatchScript(action.text),
+          undefined,
+          { timeout: action.timeoutMs ?? ACTION_TIMEOUT_MS }
+        );
+        await matched.dispose();
+      });
     }
     default: {
       // A new action member fails to compile here rather than being silently

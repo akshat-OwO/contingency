@@ -685,6 +685,29 @@ it.live("reads the destination after a same-document navigation", () =>
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live("waits for a phrase the Snapshot names but never renders", () =>
+  Effect.gen(function* waitsByAccessibleName() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("shop.html"),
+      "start-wait-by-name"
+    );
+
+    // "Quantity" is the field's `aria-label`: the timeline names it that way,
+    // and the Page never renders the word. A wait that matched rendered text
+    // alone would time out on an element that is right there.
+    const waited = yield* callTool("agent_browser_act", {
+      action: { text: "Quantity", timeoutMs: 5000, type: "wait_for_text" },
+      operationId: OperationId.make("wait-by-name"),
+      sessionId: session.id,
+    });
+
+    findNode(waited.snapshot.nodes, "textbox", "Quantity");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("tells an MCP caller why an action failed", () =>
   Effect.gen(function* readableToolFailure() {
     const fixtures = yield* fixtureServer;

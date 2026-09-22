@@ -107,6 +107,14 @@ export const AgentScrollAction = Schema.Struct({
   ref: optionalNullable(AgentElementRef),
   type: Schema.Literal("scroll"),
 });
+/**
+ * Wait until the Page says something. The phrase is matched against the
+ * accessible name a Browser Snapshot reports, which for plain prose is its
+ * rendered text and for a labelled control is the name the timeline calls it
+ * by. A done-when line copied out of the timeline therefore waits for the
+ * element the timeline named, rather than timing out on a header whose
+ * visible text and accessible name differ.
+ */
 export const AgentWaitForTextAction = Schema.Struct({
   text: nonEmptyString,
   timeoutMs: optionalNullable(
