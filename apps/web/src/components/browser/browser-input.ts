@@ -27,6 +27,47 @@ export const keyboardKeyInfo: ReadonlyMap<string, KeyboardKeyInfo> = new Map([
   ["Tab", { keyCode: 9, text: "\t" }],
 ]);
 
+const printableVirtualKeyCodes: ReadonlyMap<string, number> = new Map([
+  ["Backquote", 192],
+  ["Backslash", 220],
+  ["BracketLeft", 219],
+  ["BracketRight", 221],
+  ["Comma", 188],
+  ["Equal", 187],
+  ["IntlBackslash", 226],
+  ["Minus", 189],
+  ["NumpadAdd", 107],
+  ["NumpadDecimal", 110],
+  ["NumpadDivide", 111],
+  ["NumpadMultiply", 106],
+  ["NumpadSubtract", 109],
+  ["Period", 190],
+  ["Quote", 222],
+  ["Semicolon", 186],
+  ["Slash", 191],
+  ["Space", 32],
+]);
+
+const virtualKeyCode = (code: string, key: string): number => {
+  const specialKey = keyboardKeyInfo.get(key);
+  if (specialKey !== undefined) {
+    return specialKey.keyCode;
+  }
+
+  const printableKey = printableVirtualKeyCodes.get(code);
+  if (printableKey !== undefined) {
+    return printableKey;
+  }
+
+  if (/^Key[A-Z]$/u.test(code) || /^Digit[0-9]$/u.test(code)) {
+    return code.codePointAt(code.length - 1) ?? 0;
+  }
+  if (/^Numpad[0-9]$/u.test(code)) {
+    return (code.codePointAt(code.length - 1) ?? 48) + 48;
+  }
+  return 0;
+};
+
 export const pointerButton = (button: number): typeof MouseButton.Type => {
   switch (button) {
     case 1: {
@@ -132,9 +173,7 @@ export const makeBrowserInputHandlers = (
         eventType === "keyDown"
           ? (info?.text ?? (event.key.length === 1 ? event.key : undefined))
           : undefined;
-      const windowsVirtualKeyCode =
-        info?.keyCode ??
-        (event.key.length === 1 ? (event.key.codePointAt(0) ?? 0) : 0);
+      const windowsVirtualKeyCode = virtualKeyCode(event.code, event.key);
       const input = {
         code: event.code,
         eventType,
