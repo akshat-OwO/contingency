@@ -38,6 +38,9 @@ const NAME_LIMIT = 160;
  */
 const REFERENCE_LIMIT = 1000;
 
+const isIndex = (index: unknown): index is number =>
+  typeof index === "number" && Number.isInteger(index) && index >= 0;
+
 /** Inputs whose values are never copied into a Browser Snapshot. */
 const SENSITIVE_INPUT_SELECTOR = [
   '[type="password" i]',
@@ -98,6 +101,7 @@ const PAGE_READING_PRELUDE = `
     H5: "heading",
     H6: "heading",
     HEADER: "banner",
+    ARTICLE: "article",
     IMG: "image",
     LABEL: "label",
     LI: "listitem",
@@ -142,7 +146,7 @@ const PAGE_READING_PRELUDE = `
     "[role='searchbox'],[role='tab'],[role='treeitem']";
   const CONTEXT_SELECTOR =
     "[role]," +
-    "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,li,td,th,p,label,img";
+    "h1,h2,h3,h4,h5,h6,main,nav,header,footer,form,article,li,td,th,p,label,img";
   const SKIPPED_TAGS = new Set([
     "BASE",
     "HEAD",
@@ -310,13 +314,137 @@ const PAGE_READING_PRELUDE = `
   };
 `;
 
+/** Read native click listeners without patching the page's event APIs. */
+const clickListenerPaths = async (page: Page): Promise<number[][]> => {
+  const session = await page.context().newCDPSession(page);
+  try {
+    const documentObject = await session.send("Runtime.evaluate", {
+      expression: "document",
+    });
+    const documentId = documentObject.result.objectId;
+    if (documentId === undefined) {
+      return [];
+    }
+    const { listeners } = await session.send("DOMDebugger.getEventListeners", {
+      depth: -1,
+      objectId: documentId,
+    });
+    const nodeIds = new Set<number>();
+    for (const listener of listeners) {
+      if (listener.type === "click" && listener.backendNodeId !== undefined) {
+        nodeIds.add(listener.backendNodeId);
+        if (nodeIds.size >= SNAPSHOT_LIMIT) {
+          break;
+        }
+      }
+    }
+    const paths = await Promise.all(
+      [...nodeIds].map(async (backendNodeId) => {
+        try {
+          const { object } = await session.send("DOM.resolveNode", {
+            backendNodeId,
+          });
+          if (object.objectId === undefined) {
+            return;
+          }
+          const { result } = await session.send("Runtime.callFunctionOn", {
+            functionDeclaration: `function() {
+              const path = [];
+              for (let node = this; node !== document.documentElement; node = node.parentElement) {
+                if (!node?.parentElement) return null;
+                path.unshift(Array.prototype.indexOf.call(node.parentElement.children, node));
+              }
+              return path;
+            }`,
+            objectId: object.objectId,
+            returnByValue: true,
+          });
+          const value: unknown = result.value;
+          if (!Array.isArray(value) || !value.every(isIndex)) {
+            return;
+          }
+          return value;
+        } catch {
+          // A listener may leave the document between discovery and resolve.
+        }
+      })
+    );
+    return paths.filter((path): path is number[] => path !== undefined);
+  } finally {
+    await session.detach();
+  }
+};
+
 /**
  * What the Page is asked for. It collects the interactive controls, landmarks,
  * headings, and text a journey is described in — not the DOM — and hands back
  * the elements themselves so Contingency can mint references for them without
  * writing anything into the page under test.
  */
-const SNAPSHOT_SCRIPT = `(() => {${PAGE_READING_PRELUDE}
+const SNAPSHOT_SCRIPT = (
+  listenerPaths: readonly (readonly number[])[]
+) => `(() => {${PAGE_READING_PRELUDE}
+  const nativeClickTargets = new Set(
+    ${JSON.stringify(listenerPaths)}.map((path) => {
+      let element = document.documentElement;
+      for (const index of path) {
+        element = element?.children[index];
+      }
+      return element;
+    }).filter(Boolean)
+  );
+  // React delegates native clicks to its root. Its handler is still attached
+  // to the individual row through the DOM node's current props.
+  const hasReactClick = (element) => Object.keys(element).some((key) =>
+    key.startsWith("__reactProps$") &&
+    typeof element[key]?.onClick === "function"
+  );
+  const reactClickTargets = new Set(
+    Array.from(document.querySelectorAll("*")).filter(hasReactClick)
+  );
+  const delegatedClickTargets = new Set();
+  for (const element of reactClickTargets) {
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (nativeClickTargets.has(ancestor)) {
+        delegatedClickTargets.add(ancestor);
+      }
+    }
+  }
+  const isScriptedClick = (element) =>
+    (nativeClickTargets.has(element) &&
+      !delegatedClickTargets.has(element) &&
+      !element.matches("html,body,main,nav") &&
+      !element.querySelector("main,nav")) ||
+    reactClickTargets.has(element);
+  const isClickableRoot = (element) => {
+    if (!isPointerRoot(element) && !isScriptedClick(element)) {
+      return false;
+    }
+    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (isPointerRoot(ancestor) || isScriptedClick(ancestor)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const itemContext = (element) => {
+    for (let ancestor = element.parentElement; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
+      if (ancestor.matches("article,li,[role='listitem']")) {
+        return ancestor;
+      }
+      if (ancestor.matches("main,nav,form")) {
+        return null;
+      }
+      const siblings = ancestor.parentElement?.children;
+      if (siblings && ancestor.classList.length > 0 && Array.from(siblings).some((sibling) =>
+        sibling !== ancestor && sibling.tagName === ancestor.tagName &&
+        Array.from(ancestor.classList).some((name) => sibling.classList.contains(name))
+      )) {
+        return ancestor;
+      }
+    }
+    return null;
+  };
   // Controls come before prose when the budget runs out: a journey is driven
   // by what it can act on, and a Page that overflows the limit is one whose
   // text matters least.
@@ -332,9 +460,13 @@ const SNAPSHOT_SCRIPT = `(() => {${PAGE_READING_PRELUDE}
       controls.push(element);
       continue;
     }
-    if (isPointerRoot(element)) {
+    if (isClickableRoot(element)) {
       clickable.add(element);
       controls.push(element);
+      continue;
+    }
+    if (element.matches("img,[role='img'],[role='presentation'],[role='none']") &&
+        accessibleName(element) === "") {
       continue;
     }
     // A label that names a control is already reported as that control's
@@ -389,6 +521,12 @@ const SNAPSHOT_SCRIPT = `(() => {${PAGE_READING_PRELUDE}
     if (clickable.has(element)) {
       node.clickable = true;
     }
+    if (element.matches(CONTROL_SELECTOR)) {
+      const item = itemContext(element);
+      if (item !== null) {
+        node.context = redactSensitive(accessibleName(item));
+      }
+    }
     if (element.disabled === true) {
       node.disabled = true;
     }
@@ -442,6 +580,7 @@ const CollectedNodes = Schema.Array(
   Schema.Struct({
     checked: Schema.optional(Schema.Boolean),
     clickable: Schema.optional(Schema.Boolean),
+    context: Schema.optional(Schema.String),
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
     height: Schema.Finite,
@@ -615,10 +754,14 @@ export const makeAgentElementRegistry = (
       }
       generation += 1;
       const snapshotId = AgentSnapshotId.make(`snapshot-${generation}`);
+      const listenerPaths = yield* Effect.tryPromise(() =>
+        clickListenerPaths(page)
+      ).pipe(Effect.orElseSucceed((): number[][] => []));
       const collected = yield* Effect.acquireUseRelease(
         Effect.tryPromise({
           catch: (cause) => browserFailure("Could not read the Page", cause),
-          try: () => page.evaluateHandle<unknown>(SNAPSHOT_SCRIPT),
+          try: () =>
+            page.evaluateHandle<unknown>(SNAPSHOT_SCRIPT(listenerPaths)),
         }),
         (handle) =>
           Effect.gen(function* readCollectedPage() {

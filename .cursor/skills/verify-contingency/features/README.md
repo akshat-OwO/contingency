@@ -42,4 +42,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Workspace](./workspace.md) is the UI recipe for navigation, rapid canvas input, the Teaching Start/Stop capture boundary, Dry Runs, Interactive Runs, and persisted Run Summaries.
+- [Workspace](./workspace.md) is the UI recipe for navigation, rapid canvas input, Browser Snapshot context, the Teaching Start/Stop capture boundary, Dry Runs, Interactive Runs, and persisted Run Summaries.

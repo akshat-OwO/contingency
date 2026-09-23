@@ -315,6 +315,84 @@ it.live("reports rows a Page makes clickable only in script", () =>
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live(
+  "keeps scripted rows and repeated product context without decorative nodes",
+  () =>
+    Effect.gen(function* snapshotContext() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("snapshot-context.html"),
+        "start-snapshot-context"
+      );
+      const observed = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      const gurugram = findNode(
+        observed.nodes,
+        "generic",
+        "Sector 14 Gurugram"
+      );
+      const noida = findNode(observed.nodes, "generic", "Sector 144 Noida");
+      expect(gurugram.clickable).toBe(true);
+      expect(noida.clickable).toBe(true);
+      expect(
+        observed.nodes.filter(
+          (node) => node.clickable === true && node.name.includes("Sector 14")
+        )
+      ).toHaveLength(2);
+      expect(
+        findNode(observed.nodes, "generic", "Connaught Place").clickable
+      ).toBe(true);
+      expect(
+        findNode(observed.nodes, "generic", "Koregaon Park Pune").clickable
+      ).toBe(true);
+      expect(
+        observed.nodes.some(
+          (node) =>
+            node.clickable === true &&
+            node.name.includes("Koregaon Park") &&
+            node.name.includes("Sector 14")
+        )
+      ).toBe(false);
+
+      const addButtons = observed.nodes.filter(
+        (node) => node.role === "button" && node.name === "Add to cart"
+      );
+      expect(addButtons.map((node) => node.context)).toEqual([
+        "Backpack $29.99 Add to cart",
+        "Bike Light $9.99 Add to cart",
+      ]);
+      expect(
+        findNode(observed.nodes, "article", "Useful article").name
+      ).toContain("Read more");
+      expect(
+        observed.nodes.filter(
+          (node) => node.role === "image" && node.name === ""
+        )
+      ).toHaveLength(0);
+      expect(
+        observed.nodes.filter(
+          (node) => node.role === "presentation" && node.name === ""
+        )
+      ).toHaveLength(0);
+      findNode(observed.nodes, "image", "Shop logo");
+
+      yield* callTool("agent_browser_act", {
+        action: { ref: noida.ref, type: "click" },
+        operationId: OperationId.make("act-snapshot-context-noida"),
+        sessionId: session.id,
+      });
+      const after = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      expect(findNode(after.nodes, "paragraph", "Chosen: noida").name).toBe(
+        "Chosen: noida"
+      );
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("expires element references when the Page navigates", () =>
   Effect.gen(function* staleReferences() {
     const fixtures = yield* fixtureServer;
