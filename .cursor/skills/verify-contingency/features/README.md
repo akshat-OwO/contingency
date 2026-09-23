@@ -17,7 +17,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 - Prefer ARIA roles and accessible names over CSS selectors or canvas coordinates.
 - Treat every command as literal. Keep quoted names and flags unchanged.
 - Run Contingency chrome actions through `control-contingency browser`.
-- Run nested Workspace site actions through `computerUse` at the verification URL.
+- Run nested Workspace site actions through `computerUse` at the verification URL. The `browser input-check` command drives its dedicated fixture through the canvas.
 - Restore nothing in the user's real `.contingency` catalog. Isolated state is deleted on cleanup. Proof artifacts are not.
 
 ## Proof and skip reporting
@@ -42,4 +42,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Workspace](./workspace.md) is the UI recipe for navigation, Browser Snapshot context, the Teaching Start/Stop capture boundary, Dry Runs, Interactive Runs, and persisted Run Summaries.
+- [Workspace](./workspace.md) is the UI recipe for navigation, rapid canvas input, Browser Snapshot context, the Teaching Start/Stop capture boundary, Dry Runs, Interactive Runs, and persisted Run Summaries.
