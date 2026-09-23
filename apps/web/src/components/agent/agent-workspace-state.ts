@@ -64,9 +64,7 @@ export interface AgentViewState {
   readonly startPending: boolean;
   readonly streamConnected: boolean;
   /**
-   * The `?session=` id that did not resolve against this process, held so the
-   * Workspace can say so beside a dock the user can recover from rather than
-   * replacing the page with a dead end (#243).
+   * The `?session=` id that did not resolve when this process owns no session.
    */
   readonly unresolvedSessionId: string | undefined;
   readonly viewportHeight: number;

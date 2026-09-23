@@ -72,6 +72,7 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 
 ```sh
 "$CONTROL" browser goto --path /
+"$CONTROL" browser url
 "$CONTROL" browser wait --role region --name "Workspace dock"
 "$CONTROL" browser resize --width 390 --height 844
 "$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
