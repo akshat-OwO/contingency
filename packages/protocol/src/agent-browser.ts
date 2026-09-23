@@ -35,10 +35,13 @@ export type AgentSnapshotId = typeof AgentSnapshotId.Type;
  * in its markup — the unlabelled `div` rows a single-page application builds
  * its menus and result lists from. Their handlers are attached in script, so
  * neither a role nor an `onclick` attribute reveals them.
+ * `context` names the nearest repeated item containing a control, so two
+ * buttons with the same name can be associated with different products.
  */
 export const AgentSnapshotNode = Schema.Struct({
   checked: optionalNullable(Schema.Boolean),
   clickable: optionalNullable(Schema.Boolean),
+  context: optionalNullable(Schema.String),
   depth: Schema.Int.check(Schema.isBetween({ maximum: 64, minimum: 0 })),
   disabled: optionalNullable(Schema.Boolean),
   name: Schema.String,

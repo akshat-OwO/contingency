@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Snapshot context</title>
+    <style>
+      img {
+        width: 16px;
+        height: 16px;
+      }
+      .pointer-row {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Delivery areas</h1>
+      <p id="chosen">Nothing chosen</p>
+      <div id="results">
+        <div class="location" data-area="gurugram">
+          <span>Sector 14</span><span>Gurugram</span><img alt="" src="data:," />
+        </div>
+        <div class="location" data-area="noida">
+          <span>Sector 144</span><span>Noida</span><img alt="" src="data:," />
+        </div>
+        <div class="pointer-row" data-area="delhi">Connaught Place</div>
+      </div>
+      <div id="react-root">
+        <div class="react-row" data-area="pune">
+          <span>Koregaon Park</span><span>Pune</span>
+        </div>
+      </div>
+      <div class="products">
+        <div class="product-card">
+          <div class="title">Backpack</div>
+          <p>$29.99</p>
+          <button>Add to cart</button>
+        </div>
+        <div class="product-card">
+          <div class="title">Bike Light</div>
+          <p>$9.99</p>
+          <button>Add to cart</button>
+        </div>
+      </div>
+      <article>
+        <h2>Useful article</h2>
+        <button>Read more</button>
+      </article>
+      <img alt="Shop logo" src="data:," />
+      <span
+        role="presentation"
+        style="display: inline-block; width: 12px; height: 12px"
+      ></span>
+    </main>
+    <script>
+      for (const row of document.querySelectorAll(".location, .pointer-row")) {
+        row.addEventListener("click", () => {
+          document.getElementById("chosen").textContent =
+            `Chosen: ${row.dataset.area}`;
+        });
+      }
+      const reactRow = document.querySelector(".react-row");
+      reactRow.__reactProps$fixture = { onClick: () => {} };
+      document
+        .getElementById("react-root")
+        .addEventListener("click", (event) => {
+          if (event.target.closest(".react-row")) {
+            document.getElementById("chosen").textContent = "Chosen: pune";
+          }
+        });
+    </script>
+  </body>
+</html>
