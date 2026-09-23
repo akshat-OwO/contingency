@@ -174,26 +174,18 @@ const LoadingState = () => (
 
 /**
  * What the Workspace says about a `?session=` id it could not resolve. It sits
- * beside a working Workspace rather than in place of one, and it names the
- * recovery that is actually on screen: the dock's session switcher when this
- * process owns sessions, and opening one when it owns none (#243).
+ * beside the empty Workspace when this process owns no replacement (#243).
  */
 const UnresolvedSessionNotice = ({
-  recovery,
   sessionId,
 }: {
-  readonly recovery: "open" | "switch";
   readonly sessionId: string;
 }) => (
   <Alert variant="destructive">
     <CircleAlertIcon aria-hidden="true" />
     <AlertTitle>That session id did not resolve</AlertTitle>
     <AlertDescription>
-      {`Agent Session ${sessionId} is not owned by this server process or is no longer running. ${
-        recovery === "switch"
-          ? "Pick a session from the dock to carry on."
-          : "Open a browser session to carry on."
-      }`}
+      {`Agent Session ${sessionId} is not owned by this server process or is no longer running. Open a browser session to carry on.`}
     </AlertDescription>
   </Alert>
 );
@@ -248,10 +240,7 @@ const EmptyState = ({
           </form>
           {unresolvedSessionId === undefined ? null : (
             <div className="text-left">
-              <UnresolvedSessionNotice
-                recovery="open"
-                sessionId={unresolvedSessionId}
-              />
+              <UnresolvedSessionNotice sessionId={unresolvedSessionId} />
             </div>
           )}
           {error === undefined ? null : (
@@ -545,7 +534,6 @@ const AgentLiveView = ({
   const readOnly = session.controller !== "user";
   const showsNotices =
     notices !== null ||
-    state.unresolvedSessionId !== undefined ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
     (session.boundary !== null && session.boundary !== undefined);
@@ -596,12 +584,6 @@ const AgentLiveView = ({
         <DockNotices>
           <>
             {notices}
-            {state.unresolvedSessionId === undefined ? null : (
-              <UnresolvedSessionNotice
-                recovery="switch"
-                sessionId={state.unresolvedSessionId}
-              />
-            )}
             {state.browserStreamError === undefined ? null : (
               <Alert variant="destructive">
                 <CircleAlertIcon aria-hidden="true" />
@@ -633,7 +615,8 @@ const AgentLiveView = ({
 
 const useAgentView = (
   requestedSessionId: string | undefined,
-  onSelectSession: ((sessionId: AgentSessionId) => void) | undefined
+  onSelectSession: ((sessionId: AgentSessionId) => void) | undefined,
+  onRecoverSession: ((sessionId: AgentSessionId) => void) | undefined
 ) => {
   const {
     agentBrowserFrameAckMutation,
@@ -775,14 +758,13 @@ const useAgentView = (
     }
     const requested = sessions.find(({ id }) => id === requestedSessionId);
     /*
-      A `?session=` id that does not resolve is an ordinary event: the ids are
-      long and are handed between processes and agents. It names which session
-      to open, so failing to resolve it demotes the request to a notice and
-      leaves the rest of the Workspace — dock and session switcher included —
-      standing, rather than replacing the page with a dead end (#243).
+      A missing `?session=` id needs a notice only when this process has no
+      live session to show. Otherwise the route adopts the selected session.
     */
     const unresolvedSessionId =
-      requestedSessionId !== undefined && requested === undefined
+      requestedSessionId !== undefined &&
+      requested === undefined &&
+      sessions.length === 0
         ? requestedSessionId
         : undefined;
 
@@ -840,6 +822,30 @@ const useAgentView = (
     sessions,
     sessionsResult._tag,
     setState,
+  ]);
+
+  useEffect(() => {
+    if (
+      queryLoading ||
+      queryError !== undefined ||
+      requestedSessionId === undefined ||
+      sessions.some(({ id }) => id === requestedSessionId) ||
+      !sessions.some(({ id }) => id === selectedSessionId)
+    ) {
+      return;
+    }
+    if (selectedSessionId !== undefined) {
+      // The route owns this URL update; it must follow the resolved session.
+      // oxlint-disable-next-line react-doctor/no-pass-data-to-parent
+      onRecoverSession?.(selectedSessionId);
+    }
+  }, [
+    onRecoverSession,
+    queryError,
+    queryLoading,
+    requestedSessionId,
+    selectedSessionId,
+    sessions,
   ]);
 
   const ackFrame = (
@@ -2010,13 +2016,19 @@ const useAgentView = (
 };
 
 export const AgentWorkspace = ({
+  onRecoverSession,
   onSelectSession,
   requestedSessionId,
 }: {
+  readonly onRecoverSession?: ((sessionId: AgentSessionId) => void) | undefined;
   readonly onSelectSession?: ((sessionId: AgentSessionId) => void) | undefined;
   readonly requestedSessionId?: string | undefined;
 }) => {
-  const view = useAgentView(requestedSessionId, onSelectSession);
+  const view = useAgentView(
+    requestedSessionId,
+    onSelectSession,
+    onRecoverSession
+  );
   const { sessionsResult, state } = view;
   if (sessionsResult._tag === "Initial") {
     return <LoadingState />;

@@ -39,6 +39,7 @@ Commands:
   doctor
   cleanup
   browser goto --path <path> | --url <absolute-url>
+  browser url
   browser resize --width <px> [--height <px>]
   browser mouse --x <px> --y <px> [--click]
   browser click --role <role> --name <name> [--partial]
@@ -259,6 +260,9 @@ const loadEcommercePages = () => {
 
 const runPageAction = async (page, appUrl, action, flags) => {
   switch (action) {
+    case "url": {
+      return page.url();
+    }
     case "goto": {
       const target =
         typeof flags.url === "string"

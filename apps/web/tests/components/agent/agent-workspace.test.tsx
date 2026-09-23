@@ -446,16 +446,12 @@ test("offers no ceiling extension once the Run has ended", async () => {
 
 test("does not use a foreign URL session id, and still offers the dock", async () => {
   renderWorkspace(resultFor([session]), "agent-foreign");
-  expect(
-    await screen.findByText(/not owned by this server process/u)
-  ).toBeVisible();
-  // The id is refused, not obeyed: a live session this process owns is what
-  // the Workspace falls back to, with its switcher in reach (#243).
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
   ).toHaveValue(session.id);
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+  expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
 });
 
 test("keeps the empty dock when a foreign id is the only thing asked for", async () => {
@@ -517,6 +513,29 @@ test("keeps a selected Agent Session in the route query", async () => {
       session: secondSession.id,
     });
     expect(select).toHaveValue(secondSession.id);
+  });
+});
+
+test("replaces a missing session id with the session shown in Workspace", async () => {
+  rpc.sessionsResult = resultFor([session]);
+  const history = createMemoryHistory({
+    initialEntries: ["/?session=agent-foreign"],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+
+  const select = await screen.findByRole("combobox", {
+    name: "Agent Session",
+  });
+  await waitFor(() => {
+    expect(select).toHaveValue(session.id);
+    expect(testRouter.state.location.search).toEqual({ session: session.id });
+    expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
   });
 });
 

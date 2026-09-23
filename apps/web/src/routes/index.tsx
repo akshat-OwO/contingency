@@ -27,8 +27,12 @@ const WorkspaceRouteComponent = () => {
   const selectSession = (sessionId: AgentSessionId) => {
     navigate({ search: { run: undefined, session: sessionId } });
   };
+  const recoverSession = (sessionId: AgentSessionId) => {
+    navigate({ replace: true, search: { run: undefined, session: sessionId } });
+  };
   return (
     <AgentWorkspace
+      onRecoverSession={recoverSession}
       onSelectSession={selectSession}
       requestedSessionId={session}
     />
