@@ -18,7 +18,12 @@ import type {
 } from "@contingency/protocol";
 import { Effect, Exit, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import { chromium } from "playwright-core";
-import type { Browser, BrowserContextOptions } from "playwright-core";
+import type {
+  Browser,
+  BrowserContextOptions,
+  CDPSession,
+  Page,
+} from "playwright-core";
 
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
@@ -160,6 +165,38 @@ const patchedPermissions = (
   return next === null ? [] : [...next];
 };
 
+const releaseInputSession = (session: CreateSession) =>
+  Effect.gen(function* releaseBrowserInput() {
+    const active = yield* Ref.get(session.inputSession);
+    if (active === null) {
+      return;
+    }
+    yield* Ref.set(session.inputSession, null);
+    yield* tryBrowser("Could not detach browser input", () =>
+      active.cdp.detach()
+    ).pipe(Effect.ignore);
+  });
+
+const inputSessionFor = (session: CreateSession, page: Page) =>
+  Effect.gen(function* connectBrowserInput() {
+    const current = yield* Ref.get(session.inputSession);
+    if (current?.page === page) {
+      return current.cdp;
+    }
+    yield* releaseInputSession(session);
+    const cdp: CDPSession = yield* tryBrowser(
+      "Could not connect browser input",
+      () => session.context.newCDPSession(page)
+    );
+    cdp.on("close", () => {
+      if (Ref.getUnsafe(session.inputSession)?.cdp === cdp) {
+        Effect.runSync(Ref.set(session.inputSession, null));
+      }
+    });
+    yield* Ref.set(session.inputSession, { cdp, page });
+    return cdp;
+  });
+
 const makeService = (
   getBrowser: Effect.Effect<Browser, BrowserRpcErrorType>
 ): CreateBrowserService => {
@@ -265,6 +302,11 @@ const makeService = (
         emulationSessions: new WeakMap(),
         events,
         id: decoded,
+        inputLock: yield* Semaphore.make(1),
+        inputSession: yield* Ref.make<{
+          readonly cdp: CDPSession;
+          readonly page: Page;
+        } | null>(null),
         screencastLock: yield* Semaphore.make(1),
         state,
       };
@@ -383,14 +425,19 @@ const makeService = (
   const closeSession = Effect.fn("CreateBrowser.close")(
     function* closeBrowserSession(sessionId: SessionId) {
       const session = yield* requireSession(sessionId);
-      yield* Ref.update(sessions, (current) => {
-        const next = new Map(current);
-        next.delete(sessionId);
-        return next;
-      });
-      yield* stopScreencast(session);
-      yield* tryBrowser("Could not close browser session", () =>
-        session.context.close()
+      yield* session.inputLock.withPermit(
+        Effect.gen(function* closeAfterInput() {
+          yield* Ref.update(sessions, (current) => {
+            const next = new Map(current);
+            next.delete(sessionId);
+            return next;
+          });
+          yield* releaseInputSession(session);
+          yield* stopScreencast(session);
+          yield* tryBrowser("Could not close browser session", () =>
+            session.context.close()
+          );
+        })
       );
       yield* PubSub.shutdown(session.events);
     }
@@ -492,7 +539,16 @@ const makeService = (
       Effect.gen(function* closeBrowserTab() {
         const session = yield* requireSession(sessionId);
         const page = yield* requirePage(session, tabId);
-        yield* tryBrowser("Could not close browser tab", () => page.close());
+        yield* session.inputLock.withPermit(
+          Effect.gen(function* closeTabAfterInput() {
+            if ((yield* Ref.get(session.inputSession))?.page === page) {
+              yield* releaseInputSession(session);
+            }
+            yield* tryBrowser("Could not close browser tab", () =>
+              page.close()
+            );
+          })
+        );
       }),
     create: (name, viewport, directory, blockServiceWorkers) =>
       create(name, viewport, directory, undefined, blockServiceWorkers),
@@ -558,13 +614,18 @@ const makeService = (
     newTab: (sessionId) =>
       Effect.gen(function* openNewTab() {
         const session = yield* requireSession(sessionId);
-        const page = yield* tryBrowser("Could not create browser tab", () =>
-          session.context.newPage()
+        yield* session.inputLock.withPermit(
+          Effect.gen(function* openTabAfterInput() {
+            const page = yield* tryBrowser("Could not create browser tab", () =>
+              session.context.newPage()
+            );
+            yield* releaseInputSession(session);
+            yield* Ref.update(session.state, (state) => ({
+              ...state,
+              activePage: page,
+            }));
+          })
         );
-        yield* Ref.update(session.state, (state) => ({
-          ...state,
-          activePage: page,
-        }));
         yield* restartScreencast(session);
         publishTabs(session);
       }),
@@ -572,24 +633,20 @@ const makeService = (
     sendInput: (sessionId, input) =>
       Effect.gen(function* dispatchBrowserInput() {
         const session = yield* requireSession(sessionId);
-        const { activePage } = yield* Ref.get(session.state);
-        const cdp = yield* tryBrowser("Could not connect browser input", () =>
-          session.context.newCDPSession(activePage)
-        );
-        yield* tryBrowser("Could not dispatch browser input", async () => {
-          try {
-            const dispatched =
+        yield* session.inputLock.withPermit(
+          Effect.gen(function* dispatchOrderedInput() {
+            const { activePage } = yield* Ref.get(session.state);
+            const cdp = yield* inputSessionFor(session, activePage);
+            yield* tryBrowser("Could not dispatch browser input", () =>
               input.type === "input_mouse"
                 ? cdp.send(
                     "Input.dispatchMouseEvent",
                     mouseEventParameters(input)
                   )
-                : cdp.send("Input.dispatchKeyEvent", keyEventParameters(input));
-            await dispatched;
-          } finally {
-            await cdp.detach();
-          }
-        });
+                : cdp.send("Input.dispatchKeyEvent", keyEventParameters(input))
+            );
+          })
+        );
       }),
     setEmulation,
     setStorage: storage.set,
@@ -607,17 +664,26 @@ const makeService = (
       Effect.gen(function* switchBrowserTab() {
         const session = yield* requireSession(sessionId);
         const page = yield* requirePage(session, tabId);
-        const { activePage } = yield* Ref.get(session.state);
-        if (page === activePage) {
+        const changed = yield* session.inputLock.withPermit(
+          Effect.gen(function* switchAfterInput() {
+            const { activePage } = yield* Ref.get(session.state);
+            if (page === activePage) {
+              return false;
+            }
+            yield* releaseInputSession(session);
+            yield* tryBrowser("Could not switch browser tab", () =>
+              page.bringToFront()
+            );
+            yield* Ref.update(session.state, (state) => ({
+              ...state,
+              activePage: page,
+            }));
+            return true;
+          })
+        );
+        if (!changed) {
           return;
         }
-        yield* Ref.update(session.state, (state) => ({
-          ...state,
-          activePage: page,
-        }));
-        yield* tryBrowser("Could not switch browser tab", () =>
-          page.bringToFront()
-        );
         yield* restartScreencast(session);
         publishTabs(session);
       }),

@@ -104,6 +104,11 @@ export interface CreateSession {
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
   readonly id: SessionId;
+  readonly inputLock: Semaphore.Semaphore;
+  readonly inputSession: Ref.Ref<{
+    readonly cdp: CDPSession;
+    readonly page: Page;
+  } | null>;
   readonly screencastLock: Semaphore.Semaphore;
   readonly state: Ref.Ref<CreateSessionState>;
 }

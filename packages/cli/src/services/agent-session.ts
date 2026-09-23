@@ -6223,107 +6223,111 @@ const makeAgentSession = (
       sendInput: (sessionId, input) =>
         Effect.gen(function* sendUserInput() {
           const record = yield* requireLiveRecord(sessionId);
-          if (record.snapshot.controller !== "user") {
-            return yield* Effect.fail(
-              makeBrowserRpcError(
-                "agent_control_unavailable",
-                "The agent holds the browser. Take control before driving it yourself."
-              )
-            );
-          }
-          const page = yield* browser.activePage(record.browserSessionId);
-          const urlBefore = page.url();
-          const { focused, pointed, snapshotBefore } =
-            yield* observeUserInputTarget(record, page, input);
-          const id = `user-input-${randomUUID()}`;
-          const action = {
-            input: teachingInput(input),
-            type: "input" as const,
-          };
-          const description = describeTeachingInput(input);
-          const outcome = yield* record.control.lock.withPermit(
-            Effect.result(browser.sendInput(record.browserSessionId, input))
+          return yield* record.control.lock.withPermit(
+            Effect.gen(function* sendOrderedUserInput() {
+              if (record.snapshot.controller !== "user") {
+                return yield* Effect.fail(
+                  makeBrowserRpcError(
+                    "agent_control_unavailable",
+                    "The agent holds the browser. Take control before driving it yourself."
+                  )
+                );
+              }
+              const page = yield* browser.activePage(record.browserSessionId);
+              const urlBefore = page.url();
+              const { focused, pointed, snapshotBefore } =
+                yield* observeUserInputTarget(record, page, input);
+              const id = `user-input-${randomUUID()}`;
+              const action = {
+                input: teachingInput(input),
+                type: "input" as const,
+              };
+              const description = describeTeachingInput(input);
+              const outcome = yield* Effect.result(
+                browser.sendInput(record.browserSessionId, input)
+              );
+              const at = now().toISOString();
+              if (Result.isFailure(outcome)) {
+                const failed = recordingCapture(record)?.recordAction({
+                  action,
+                  actor: "user",
+                  at,
+                  description,
+                  detail: outcome.failure.message,
+                  id,
+                  outcome: "failed",
+                  snapshotAfter: null,
+                  snapshotBefore,
+                  urlAfter: page.url(),
+                  urlBefore,
+                });
+                if (failed !== undefined) {
+                  yield* captureTeachingKeyframe(record, page, failed.id, at);
+                }
+                yield* recordEntry(sessionId, {
+                  actor: "user",
+                  at,
+                  description,
+                  detail: outcome.failure.message,
+                  dispatched: true,
+                  id,
+                  outcome: "failed",
+                });
+                return yield* Effect.fail(outcome.failure);
+              }
+              const urlAfter = page.url();
+              const common = {
+                at,
+                id,
+                page,
+                record,
+                sessionId,
+                snapshotBefore,
+                urlAfter,
+                urlBefore,
+              };
+              if (yield* completeSemanticUserClick({ ...common, pointed })) {
+                return;
+              }
+              if (yield* completeSemanticUserEdit({ ...common, focused })) {
+                return;
+              }
+              if (shouldCaptureRawInput(input)) {
+                const raw = {
+                  action,
+                  actor: "user" as const,
+                  at,
+                  description,
+                  id,
+                  outcome: "completed" as const,
+                  snapshotAfter: null,
+                  snapshotBefore,
+                  urlAfter,
+                  urlBefore,
+                };
+                const captured = recordingCapture(record)?.recordAction(
+                  isScroll(input)
+                    ? { ...raw, coalesceKey: SCROLL_COALESCE_KEY }
+                    : raw
+                );
+                if (captured !== undefined) {
+                  yield* captureTeachingKeyframe(record, page, captured.id, at);
+                }
+              }
+              return yield* recordEntry(
+                sessionId,
+                {
+                  actor: "user",
+                  at,
+                  description,
+                  dispatched: true,
+                  id,
+                  outcome: "completed",
+                },
+                { currentUrl: urlAfter }
+              ).pipe(Effect.asVoid);
+            })
           );
-          const at = now().toISOString();
-          if (Result.isFailure(outcome)) {
-            const failed = recordingCapture(record)?.recordAction({
-              action,
-              actor: "user",
-              at,
-              description,
-              detail: outcome.failure.message,
-              id,
-              outcome: "failed",
-              snapshotAfter: null,
-              snapshotBefore,
-              urlAfter: page.url(),
-              urlBefore,
-            });
-            if (failed !== undefined) {
-              yield* captureTeachingKeyframe(record, page, failed.id, at);
-            }
-            yield* recordEntry(sessionId, {
-              actor: "user",
-              at,
-              description,
-              detail: outcome.failure.message,
-              dispatched: true,
-              id,
-              outcome: "failed",
-            });
-            return yield* Effect.fail(outcome.failure);
-          }
-          const urlAfter = page.url();
-          const common = {
-            at,
-            id,
-            page,
-            record,
-            sessionId,
-            snapshotBefore,
-            urlAfter,
-            urlBefore,
-          };
-          if (yield* completeSemanticUserClick({ ...common, pointed })) {
-            return;
-          }
-          if (yield* completeSemanticUserEdit({ ...common, focused })) {
-            return;
-          }
-          if (shouldCaptureRawInput(input)) {
-            const raw = {
-              action,
-              actor: "user" as const,
-              at,
-              description,
-              id,
-              outcome: "completed" as const,
-              snapshotAfter: null,
-              snapshotBefore,
-              urlAfter,
-              urlBefore,
-            };
-            const captured = recordingCapture(record)?.recordAction(
-              isScroll(input)
-                ? { ...raw, coalesceKey: SCROLL_COALESCE_KEY }
-                : raw
-            );
-            if (captured !== undefined) {
-              yield* captureTeachingKeyframe(record, page, captured.id, at);
-            }
-          }
-          return yield* recordEntry(
-            sessionId,
-            {
-              actor: "user",
-              at,
-              description,
-              dispatched: true,
-              id,
-              outcome: "completed",
-            },
-            { currentUrl: urlAfter }
-          ).pipe(Effect.asVoid);
         }),
       setEmulation: (sessionId, patch) =>
         Effect.gen(function* configureSessionEmulation() {

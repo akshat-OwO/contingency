@@ -30,9 +30,9 @@ Contingency chrome and the nested browser session are different surfaces.
 | Surface | What it is | How to drive |
 | --- | --- | --- |
 | Contingency chrome | Primary nav, session combobox, address bar, session sidebar | `control-contingency browser` with ARIA roles/names |
-| Nested ecommerce site | Live Chromium inside the workspace canvas | `computerUse` subagent at the verification URL |
+| Nested ecommerce site | Live Chromium inside the workspace canvas | `computerUse` subagent at the verification URL; `control-contingency browser input-check` for its fixed fixture |
 
-`control-contingency browser` must not click the canvas as if it were the nested page DOM. Nested browse/click/scroll/hover/type belongs to `computerUse` (or a future nested-browser harness command).
+`control-contingency browser input-check` clicks fixed coordinates on its dedicated fixture and asserts the nested Page through MCP. Other nested browse/click/scroll/hover/type actions belong to `computerUse`.
 
 ## When to update feature files
 

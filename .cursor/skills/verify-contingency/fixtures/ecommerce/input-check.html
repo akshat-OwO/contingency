@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Workspace input check</title>
+    <style>
+      body {
+        margin: 0;
+        font: 16px sans-serif;
+      }
+      button,
+      input {
+        box-sizing: border-box;
+        position: absolute;
+        left: 100px;
+        width: 220px;
+        height: 48px;
+        font: inherit;
+      }
+      button {
+        top: 300px;
+      }
+      input {
+        top: 380px;
+      }
+      output {
+        position: absolute;
+        left: 100px;
+        top: 450px;
+      }
+    </style>
+  </head>
+  <body>
+    <button type="button" id="count">Click target</button>
+    <input aria-label="Typing target" autocomplete="off" />
+    <output aria-live="polite">Clicks: 0</output>
+    <script>
+      let clicks = 0;
+      document.getElementById("count").addEventListener("click", () => {
+        clicks += 1;
+        document.querySelector("output").textContent = `Clicks: ${clicks}`;
+      });
+    </script>
+  </body>
+</html>
