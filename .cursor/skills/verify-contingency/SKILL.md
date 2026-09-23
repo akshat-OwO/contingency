@@ -74,6 +74,7 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 "$CONTROL" browser goto --path /
 "$CONTROL" browser wait --role region --name "Workspace dock"
 "$CONTROL" browser resize --width 390 --height 844
+"$CONTROL" browser input-check --session-id <teaching-session-id>
 "$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
 "$CONTROL" browser screenshot --path workspace/entry.png
 ```
@@ -83,9 +84,9 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 | Surface | Drive with |
 | --- | --- |
 | Contingency chrome (nav, dock, session picker, address bar) | `control-contingency browser` |
-| Nested ecommerce site inside the workspace canvas | `computerUse` subagent at the verification URL |
+| Nested ecommerce site inside the workspace canvas | `computerUse` subagent at the verification URL; `browser input-check` for the fixed rapid-input fixture |
 
-Do not click the canvas through `control-contingency browser` as if it were the nested page DOM.
+Use `browser input-check` only on the dedicated `input-check.html` fixture. Other nested site actions still use `computerUse`.
 
 Stable handles in this repo:
 

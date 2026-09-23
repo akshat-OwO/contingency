@@ -41,6 +41,7 @@ Commands:
   browser goto --path <path> | --url <absolute-url>
   browser resize --width <px> [--height <px>]
   browser mouse --x <px> --y <px> [--click]
+  browser input-check --session-id <id>
   browser click --role <role> --name <name> [--partial]
   browser fill --role <role> --name <name> --value <value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
@@ -296,6 +297,32 @@ const runPageAction = async (page, appUrl, action, flags) => {
         await page.mouse.up();
       }
       return `${x},${y}`;
+    }
+    case "input-check": {
+      const canvas = page.locator('canvas[aria-label="Live browser viewport"]');
+      await canvas.waitFor({ state: "visible" });
+      const box = await canvas.boundingBox();
+      if (box === null) {
+        throw new Error("The live browser canvas has no bounds.");
+      }
+      const dimensions = await canvas.evaluate((element) => ({
+        height: element.height,
+        width: element.width,
+      }));
+      if (dimensions.width === 0 || dimensions.height === 0) {
+        throw new Error("The live browser canvas has no frame yet.");
+      }
+      const clickAt = async (x, y) => {
+        await page.mouse.click(
+          box.x + (x * box.width) / dimensions.width,
+          box.y + (y * box.height) / dimensions.height
+        );
+      };
+      await clickAt(180, 324);
+      await clickAt(180, 324);
+      await clickAt(180, 404);
+      await page.keyboard.type("rapid typing 123");
+      return "sent two clicks and rapid typing through the Workspace canvas";
     }
     case "click": {
       await locator(page, flags).click();
@@ -747,7 +774,44 @@ const cmdCleanup = async () => {
 
 const cmdBrowser = async (action, flags) => {
   const instance = readInstance();
+  if (
+    action === "input-check" &&
+    (typeof flags["session-id"] !== "string" ||
+      typeof instance.brokerUrl !== "string")
+  ) {
+    fail("browser input-check needs --session-id and a running verification MCP server.");
+  }
   const output = await callDriver(instance, { action, flags });
+  if (action === "input-check") {
+    const deadline = Date.now() + 5_000;
+    let observed = {};
+    while (Date.now() < deadline) {
+      const response = await fetch(`${instance.brokerUrl}call`, {
+        body: JSON.stringify({
+          params: { sessionId: flags["session-id"] },
+          tool: "agent_browser_snapshot",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const result = await response.json();
+      if (!response.ok || result.isError === true) {
+        fail(`Input check could not read the browser snapshot: ${JSON.stringify(result)}`);
+      }
+      const text = result.content?.find((entry) => entry.type === "text")?.text;
+      const snapshot = text === undefined ? result.structuredContent : JSON.parse(text);
+      const nodes = snapshot?.nodes;
+      const count = nodes?.find((node) => node.role === "output");
+      const typed = nodes?.find((node) => node.role === "textbox" && node.name === "Typing target");
+      observed = { count: count?.name, value: typed?.value };
+      if (count?.name === "Clicks: 2" && typed?.value === "rapid typing 123") {
+        process.stdout.write(`${output}\n`);
+        return;
+      }
+      await delay(50);
+    }
+    fail(`Workspace input lost a click or key: ${JSON.stringify(observed)}`);
+  }
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
   }

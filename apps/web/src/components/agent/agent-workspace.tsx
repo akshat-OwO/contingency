@@ -19,7 +19,7 @@ import {
   useAtomSet,
   useAtomValue,
 } from "@effect/atom-react";
-import { Effect, Fiber, Result, Schedule, Schema } from "effect";
+import { Effect, Fiber, Result, Schedule, Schema, Semaphore } from "effect";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -721,6 +721,8 @@ const useAgentView = (
     { readonly type: "frame" }
   > | null>(null);
   const activeSessionRef = useRef<AgentSessionId | null>(null);
+  const [inputLock] = useState(() => Semaphore.makeUnsafe(1));
+  const pendingMoveRef = useRef<{ input: BrowserInput } | null>(null);
   const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   const recordingFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   const copiedFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
@@ -1872,17 +1874,46 @@ const useAgentView = (
     if (sessionId === null) {
       return;
     }
+    let inputForDispatch: () => BrowserInput;
+    if (
+      browserInput.type === "input_mouse" &&
+      browserInput.eventType === "mouseMoved"
+    ) {
+      const pending = pendingMoveRef.current;
+      if (pending !== null) {
+        pending.input = browserInput;
+        return;
+      }
+      const move = { input: browserInput };
+      pendingMoveRef.current = move;
+      inputForDispatch = () => {
+        if (pendingMoveRef.current === move) {
+          pendingMoveRef.current = null;
+        }
+        return move.input;
+      };
+    } else {
+      pendingMoveRef.current = null;
+      inputForDispatch = () => browserInput;
+    }
     Effect.runFork(
-      Effect.tryPromise({
-        catch: (cause) => cause,
-        try: () =>
-          sendBrowserInput({
-            payload: {
-              data: { input: browserInput, sessionId },
-              type: "agent.browser.input.send",
-            },
-          }),
-      }).pipe(Effect.ignore)
+      inputLock.withPermit(
+        Effect.sync(inputForDispatch).pipe(
+          Effect.flatMap((input) =>
+            Effect.tryPromise({
+              catch: (cause) => cause,
+              try: () =>
+                sendBrowserInput({
+                  payload: {
+                    data: { input, sessionId },
+                    type: "agent.browser.input.send",
+                  },
+                }),
+            })
+          ),
+          Effect.ignore
+        )
+      )
     );
   };
 
