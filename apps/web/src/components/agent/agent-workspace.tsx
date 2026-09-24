@@ -39,6 +39,7 @@ import {
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
+import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
@@ -534,6 +535,8 @@ const AgentLiveView = ({
   const readOnly = session.controller !== "user";
   const showsNotices =
     notices !== null ||
+    (session.activity === "run" &&
+      (session.dryRun?.variables.length ?? 0) > 0) ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
     (session.boundary !== null && session.boundary !== undefined);
@@ -604,6 +607,12 @@ const AgentLiveView = ({
               </Alert>
             )}
             <ExecutionBoundary session={session} />
+            {session.activity === "run" && session.dryRun !== null ? (
+              <DryRunVariables
+                sessionId={session.id}
+                variables={session.dryRun.variables}
+              />
+            ) : null}
           </>
         </DockNotices>
       ) : null}

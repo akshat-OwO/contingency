@@ -365,8 +365,8 @@ export const flowSkillDryRunPrompt = (
   [
     `Dry-run the Contingency Flow Skill "${flowSkillName}", drafted from Teaching Recording ${recordingId}.`,
     "",
-    "Read the drafted SKILL.md, then ask me for every declared input and pick at least one value that differs from the recorded journey.",
-    `Call agent_flow_skill_dry_run_start with recordingId "${recordingId}" and those inputs.`,
+    "Read the drafted SKILL.md, ask me for ordinary inputs, and pick at least one value that differs from the recorded journey. For a secret, pass only its name with secret:true; I will supply its value in the Workspace.",
+    `Call agent_flow_skill_dry_run_start with recordingId "${recordingId}" and those inputs. Use agent_variable_enter with the secret input's uppercase Variable name after I supply it.`,
     "Drive the returned fresh Agent Session with the browser tools, check the observable outcome, then call agent_flow_skill_dry_run_report.",
     "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
     "A pass keeps the recording. Ask me to Verify flow or Reject flow, then call agent_flow_skill_decide with the matching decision.",

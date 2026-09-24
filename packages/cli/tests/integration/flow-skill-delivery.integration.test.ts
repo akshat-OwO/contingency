@@ -69,7 +69,8 @@ const driveDeliveryAsAgent = (
   sessionId: AgentSessionId,
   city: string,
   area: string,
-  operationPrefix: string
+  operationPrefix: string,
+  secretArea = false
 ) =>
   Effect.gen(function* driveDeliveryFlowSkill() {
     const first = yield* sessionTool("agent_browser_snapshot", { sessionId });
@@ -100,11 +101,18 @@ const driveDeliveryAsAgent = (
       "textbox",
       "Search for your delivery area"
     );
-    const areaFilled = yield* sessionTool("agent_browser_act", {
-      action: { ref: areaField.ref, text: area, type: "fill" },
-      operationId: OperationId.make(`${operationPrefix}-area`),
-      sessionId,
-    });
+    const areaFilled = secretArea
+      ? yield* sessionTool("agent_variable_enter", {
+          name: "DELIVERY_AREA",
+          operationId: OperationId.make(`${operationPrefix}-area`),
+          ref: areaField.ref,
+          sessionId,
+        })
+      : yield* sessionTool("agent_browser_act", {
+          action: { ref: areaField.ref, text: area, type: "fill" },
+          operationId: OperationId.make(`${operationPrefix}-area`),
+          sessionId,
+        });
     const confirm = findNode(
       areaFilled.snapshot.nodes,
       "button",
@@ -117,7 +125,9 @@ const driveDeliveryAsAgent = (
     });
     expect(
       confirmed.snapshot.nodes.some((node) =>
-        node.name.includes(`Delivering to ${area}, ${city}`)
+        node.name.includes(
+          `Delivering to ${secretArea ? "[sensitive input]" : area}, ${city}`
+        )
       )
     ).toBe(true);
   });
@@ -410,8 +420,7 @@ it.live(
                 {
                   changed: true,
                   name: "delivery_area",
-                  secret: false,
-                  value: "Bandra",
+                  secret: true,
                 },
               ],
               operationId: OperationId.make("delivery-dry-passed-start"),
@@ -419,12 +428,54 @@ it.live(
               url: fixtures.url("delivery.html"),
             }
           );
+          expect(passedRun.session.dryRun?.inputs).toContainEqual({
+            changed: true,
+            name: "delivery_area",
+            value: null,
+          });
+          expect(passedRun.session.dryRun?.variables).toContainEqual({
+            name: "DELIVERY_AREA",
+            runtime: true,
+            secret: true,
+            supplied: false,
+          });
+          const session = yield* AgentSession;
+          const undeclared = yield* Effect.flip(
+            session.enterSuppliedVariable(
+              passedRun.session.id,
+              "OTHER",
+              "e1",
+              OperationId.make("delivery-undeclared-variable")
+            )
+          );
+          expect(undeclared.code).toBe("agent_session_invalid");
+          const missing = yield* Effect.flip(
+            session.enterSuppliedVariable(
+              passedRun.session.id,
+              "DELIVERY_AREA",
+              "e1",
+              OperationId.make("delivery-missing-variable")
+            )
+          );
+          expect(missing.message).toContain("has not been supplied");
+          const supplied = yield* session.supplyDryRunVariable(
+            passedRun.session.id,
+            "DELIVERY_AREA",
+            "Bandra"
+          );
+          expect(supplied.dryRun?.variables[0]?.supplied).toBe(true);
+          expect(JSON.stringify(supplied)).not.toContain("Bandra");
           yield* driveDeliveryAsAgent(
             passedRun.session.id,
             "Mumbai",
             "Bandra",
-            "delivery-dry-passed"
+            "delivery-dry-passed",
+            true
           );
+          const redacted = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: passedRun.session.id,
+          });
+          expect(JSON.stringify(redacted)).not.toContain("Bandra");
           // Driving the rehearsal writes timeline entries, which must not
           // cost the session the identity it started with (#202).
           const afterActing = yield* sessionTool("agent_session_get", {
