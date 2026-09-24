@@ -137,6 +137,12 @@ export interface DemonstrationCapture {
   ) => void;
   /** Note where the Page is; a change with no action is a user transition. */
   readonly recordUrl: (url: string, at: string) => void;
+  /**
+   * The moment capture ends, on the same clock as every event it holds. Stop
+   * photographs the gesture still open after the user pressed it, so a clock
+   * read before that capture would put Stop ahead of it.
+   */
+  readonly stopTime: (at: string) => string;
   /** Values that keyframe and snapshot capture must mask, longest first. */
   readonly sensitiveValues: () => readonly string[];
   /** Known private fields that keyframe capture must mask. */
@@ -162,6 +168,16 @@ const coalescedAction = (
     ? { ...next, ref: previous.action.ref }
     : next;
 };
+
+/**
+ * When a captured action began. A gesture is timed from its first event: its
+ * keyframe is taken after that event, so a gesture stamped with its latest one
+ * would read as happening after the photograph of it.
+ */
+const gestureStart = (
+  previous: CapturedAction | undefined,
+  at: string
+): string => previous?.at ?? at;
 
 export const makeDemonstrationCapture = (
   initialUrl: string
@@ -268,7 +284,7 @@ export const makeDemonstrationCapture = (
     const capturedBase = {
       action: coalescedAction(input, previous),
       actor: input.actor,
-      at,
+      at: gestureStart(previous, at),
       description: input.description,
       id: previous?.id ?? input.id,
       outcome: input.outcome,
@@ -441,5 +457,6 @@ export const makeDemonstrationCapture = (
     sensitiveSelectors: () => [...privateSelectors],
     sensitiveValues: () =>
       [...privateValues].toSorted((left, right) => right.length - left.length),
+    stopTime: eventTime,
   };
 };
