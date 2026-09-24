@@ -325,7 +325,22 @@ const runPageAction = async (page, appUrl, action, flags) => {
       await clickAt(180, 324);
       await clickAt(180, 324);
       await clickAt(180, 404);
-      await page.keyboard.type("rapid typing 123");
+      // Typed the way a person types: Shift is its own key press around the
+      // capitals and symbols, and a typo is corrected with Backspace. Each of
+      // these is a separate keyboard input, and none of them may split the
+      // one fill the field ends up with (#258).
+      const shifted = async (text) => {
+        await page.keyboard.down("Shift");
+        await page.keyboard.type(text);
+        await page.keyboard.up("Shift");
+      };
+      await shifted("R");
+      await page.keyboard.type("apid");
+      await shifted("_");
+      await page.keyboard.type("typing");
+      await shifted("@");
+      await page.keyboard.type("1234");
+      await page.keyboard.press("Backspace");
       return "sent two clicks and rapid typing through the Workspace canvas";
     }
     case "click": {
@@ -776,6 +791,24 @@ const cmdCleanup = async () => {
   );
 };
 
+/** What `browser input-check` types into its fixture field. */
+const INPUT_CHECK_TEXT = "Rapid_typing@123";
+
+/** Call one MCP tool on the running broker and answer its decoded result. */
+const brokerCall = async (instance, tool, params) => {
+  const response = await fetch(`${instance.brokerUrl}call`, {
+    body: JSON.stringify({ params, tool }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const result = await response.json();
+  if (!response.ok || result.isError === true) {
+    fail(`${tool} failed: ${JSON.stringify(result)}`);
+  }
+  const text = result.content?.find((entry) => entry.type === "text")?.text;
+  return text === undefined ? result.structuredContent : JSON.parse(text);
+};
+
 const cmdBrowser = async (action, flags) => {
   const instance = readInstance();
   if (
@@ -787,34 +820,75 @@ const cmdBrowser = async (action, flags) => {
   }
   const output = await callDriver(instance, { action, flags });
   if (action === "input-check") {
+    const sessionId = flags["session-id"];
     const deadline = Date.now() + 5_000;
     let observed = {};
+    let landed = false;
     while (Date.now() < deadline) {
-      const response = await fetch(`${instance.brokerUrl}call`, {
-        body: JSON.stringify({
-          params: { sessionId: flags["session-id"] },
-          tool: "agent_browser_snapshot",
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      const result = await response.json();
-      if (!response.ok || result.isError === true) {
-        fail(`Input check could not read the browser snapshot: ${JSON.stringify(result)}`);
-      }
-      const text = result.content?.find((entry) => entry.type === "text")?.text;
-      const snapshot = text === undefined ? result.structuredContent : JSON.parse(text);
-      const nodes = snapshot?.nodes;
+      const nodes = (
+        await brokerCall(instance, "agent_browser_snapshot", { sessionId })
+      )?.nodes;
       const count = nodes?.find((node) => node.role === "output");
       const typed = nodes?.find((node) => node.role === "textbox" && node.name === "Typing target");
       observed = { count: count?.name, value: typed?.value };
-      if (count?.name === "Clicks: 2" && typed?.value === "rapid typing 123") {
-        process.stdout.write(`${output}\n`);
-        return;
+      if (count?.name === "Clicks: 2" && typed?.value === INPUT_CHECK_TEXT) {
+        landed = true;
+        break;
       }
       await delay(50);
     }
-    fail(`Workspace input lost a click or key: ${JSON.stringify(observed)}`);
+    if (!landed) {
+      fail(`Workspace input lost a click or key: ${JSON.stringify(observed)}`);
+    }
+    // The Page holding the right text proves the keys arrived. What the
+    // learning agent reads is the Teaching Timeline, so stop and read it back:
+    // a field typed once is one fill, named by its role and accessible name.
+    await callDriver(instance, {
+      action: "click",
+      flags: { name: "Stop recording", role: "button" },
+    });
+    const stopDeadline = Date.now() + 30_000;
+    let session;
+    while (Date.now() < stopDeadline) {
+      session = await brokerCall(instance, "agent_session_get", { sessionId });
+      if (session?.captureState?._tag === "ready") {
+        break;
+      }
+      await delay(250);
+    }
+    if (session?.captureState?._tag !== "ready") {
+      fail(`Input check recording never became ready: ${JSON.stringify(session?.captureState)}`);
+    }
+    const { recordingId } = session;
+    const claimOperationId = `verify-input-check-${recordingId}`;
+    await brokerCall(instance, "agent_teaching_recording_claim", {
+      action: "take",
+      operationId: claimOperationId,
+      recordingId,
+    });
+    const actions = [];
+    let cursor;
+    do {
+      const page = await brokerCall(instance, "agent_teaching_timeline_get", {
+        claimOperationId,
+        recordingId,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      actions.push(...(page?.entries ?? []).filter((entry) => entry._tag === "action"));
+      cursor = page?.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    const fills = actions.filter((action) => action.kind === "fill");
+    const expected = `Fill textbox "Typing target" with "${INPUT_CHECK_TEXT}"`;
+    const byReference = actions.filter((action) => /\be\d+\b/u.test(action.description));
+    if (fills.length !== 1 || fills[0].description !== expected || byReference.length > 0) {
+      fail(
+        `Teaching Timeline did not record one named fill. Expected ${JSON.stringify(expected)}; got ${JSON.stringify(
+          actions.map((action) => action.description)
+        )}`
+      );
+    }
+    process.stdout.write(`${output}\nteaching timeline: ${expected}\n`);
+    return;
   }
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);

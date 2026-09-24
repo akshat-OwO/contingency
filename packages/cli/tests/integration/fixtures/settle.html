@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Settle</title>
+  </head>
+  <body>
+    <main>
+      <h1>Settle</h1>
+      <!--
+        Each control reacts differently to a click, so a read after it can be
+        judged on what it waited for and on what it says changed: content
+        that arrives behind a spinner, a request that never finishes, a
+        disclosure that changes only the document, a navigation that starts
+        long after the click, and a control that does nothing at all.
+      -->
+      <button id="load" type="button">Load results</button>
+      <button id="stall" type="button">Keep loading</button>
+      <button id="toggle" type="button">Toggle details</button>
+      <button id="later" type="button">Navigate later</button>
+      <button type="button">Do nothing</button>
+      <section id="results"></section>
+      <p id="details" hidden>Details shown</p>
+    </main>
+    <script>
+      const results = document.getElementById("results");
+      document.getElementById("load").addEventListener("click", () => {
+        results.innerHTML = "<p>Loading…</p>";
+        // A tick later, as a framework would, so the click itself returns
+        // before the request starts.
+        setTimeout(() => {
+          fetch("/load-ready-beacon")
+            .then(() => {
+              results.innerHTML = "<h2>Results ready</h2>";
+            })
+            .catch(() => {});
+        }, 50);
+      });
+      document.getElementById("stall").addEventListener("click", () => {
+        fetch("/never-answered.bin").catch(() => {});
+      });
+      document.getElementById("toggle").addEventListener("click", () => {
+        const details = document.getElementById("details");
+        details.hidden = !details.hidden;
+      });
+      document.getElementById("later").addEventListener("click", () => {
+        setTimeout(() => {
+          location.href = "/settle.html?arrived";
+        }, 3000);
+      });
+    </script>
+  </body>
+</html>

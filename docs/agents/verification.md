@@ -30,6 +30,8 @@ Name the sub-feature or section when the issue is narrow (e.g. "Teaching and Flo
 
 For filesystem or catalog metadata checks, say where to read after the drive (e.g. `$CONTINGENCY_VERIFY_DIR/state/catalog/...`).
 
+For Teaching capture issues, the observable outcome is the Teaching Timeline, not the Page. Name the exact actions and descriptions `agent_teaching_timeline_get` must return, and require input driven like a person's: Shift, corrections, and a Page that changes while the user types. The drive in #258 checked only the field's final value, and that check missed one `Fill e42` per keystroke.
+
 ## Out of scope for the implementing issue
 
 Updating verify-contingency feature files or fixtures belongs in the same change **only when user-visible behavior changed**. Otherwise mark it out of scope and leave maintenance to `maintain-verification-skill`.

@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 
-import { ContingencyRpcs, OperationId } from "@contingency/protocol";
+import {
+  ContingencyRpcs,
+  describeActionSubject,
+  OperationId,
+  UserAgentProfileId,
+} from "@contingency/protocol";
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
@@ -14,6 +19,8 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
+import { teachingEventsFor } from "../../src/services/teaching-recorder.ts";
 import { makeCall } from "./agent-harness.ts";
 import {
   CART_VIEWED_BEACON,
@@ -29,6 +36,12 @@ const viewport = {
   deviceScaleFactor: 1,
   height: 480,
   width: 640,
+} as const;
+
+const viewportEmulation = {
+  permissions: [],
+  userAgentProfile: UserAgentProfileId.make("chrome-mac"),
+  viewport,
 } as const;
 
 /**
@@ -361,8 +374,8 @@ it.live(
         (node) => node.role === "button" && node.name === "Add to cart"
       );
       expect(addButtons.map((node) => node.context)).toEqual([
-        "Backpack $29.99 Add to cart",
-        "Bike Light $9.99 Add to cart",
+        "Backpack",
+        "Bike Light",
       ]);
       expect(
         findNode(observed.nodes, "article", "Useful article").name
@@ -391,6 +404,101 @@ it.live(
         "Chosen: noida"
       );
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+/**
+ * The Snapshot is a tree flattened in document order: each node's ancestors
+ * come before it, so a reader that walks back by depth finds its containers
+ * and nothing else. A node deeper than its predecessor by more than one level
+ * has lost the ancestors the walk depends on (#260).
+ */
+const expectDocumentOrder = (nodes: readonly AgentSnapshotNode[]) => {
+  expect(nodes[0]?.depth).toBe(0);
+  for (const [index, node] of nodes.entries()) {
+    const previous = nodes[index - 1];
+    if (previous !== undefined) {
+      expect(node.depth).toBeLessThanOrEqual(previous.depth + 1);
+    }
+  }
+};
+
+it.live("records targets by name and by the item that contains them", () =>
+  Effect.gen(function* recordedTargets() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("recorded-targets.html"),
+      "start-recorded-targets"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expectDocumentOrder(observed.nodes);
+    const buttonNames = observed.nodes
+      .filter((node) => node.role === "button")
+      .map((node) => node.name);
+    expect(buttonNames).toEqual([
+      "Login",
+      "Submit",
+      "Forgot password",
+      "Add to cart",
+      "Add to cart",
+    ]);
+
+    const login = findNode(observed.nodes, "button", "Login");
+    const [, bolt] = observed.nodes.filter(
+      (node) => node.role === "button" && node.name === "Add to cart"
+    );
+    const products = findNode(observed.nodes, "generic", "Products");
+    if (bolt === undefined) {
+      return yield* Effect.die("The second Add to cart button is missing.");
+    }
+    const capture = makeDemonstrationCapture(observed.url);
+    capture.recordSnapshot(observed);
+    for (const [index, node] of [login, bolt, products].entries()) {
+      capture.recordAction({
+        action: { ref: node.ref, type: "click" },
+        actor: "user",
+        at: `2026-09-24T00:00:0${index + 1}.000Z`,
+        description: `Click ${describeActionSubject(node)}`,
+        id: `recorded-target-${index}`,
+        outcome: "completed",
+        snapshotAfter: null,
+        snapshotBefore: observed.snapshotId,
+        urlAfter: observed.url,
+        urlBefore: observed.url,
+      });
+    }
+    const targets = teachingEventsFor(
+      capture.current(),
+      viewportEmulation,
+      "2026-09-24T00:00:00.000Z",
+      "2026-09-24T00:00:05.000Z",
+      "user"
+    ).flatMap((event) =>
+      event._tag === "action"
+        ? [{ description: event.description, target: event.target }]
+        : []
+    );
+    expect(targets).toEqual([
+      {
+        description: 'Click button "Login"',
+        target: expect.objectContaining({ name: "Login", role: "button" }),
+      },
+      {
+        description: 'Click button "Add to cart"',
+        target: expect.objectContaining({
+          context: ["Sauce Labs Bolt T-Shirt"],
+          name: "Add to cart",
+        }),
+      },
+      {
+        description: 'Click generic "Products"',
+        target: expect.objectContaining({ context: [], name: "Products" }),
+      },
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
 it.live("expires element references when the Page navigates", () =>
@@ -825,5 +933,136 @@ it.live("tells an MCP caller why an action failed", () =>
     expect(failed).toBeInstanceOf(Error);
     expect(failed.message).toContain("no such text here");
     expect(failed.message).toContain(failed.code);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+const openSettleFixture = (operationId: string) =>
+  Effect.gen(function* openSettle() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("settle.html"),
+      operationId
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const click = (name: string, id: string) =>
+      callTool("agent_browser_act", {
+        action: {
+          ref: findNode(observed.nodes, "button", name).ref,
+          type: "click",
+        },
+        operationId: OperationId.make(id),
+        sessionId: session.id,
+      });
+    return { click, fixtures, observed, session };
+  });
+
+it.live("reads the Page once content behind a spinner has arrived", () =>
+  Effect.gen(function* readsSettledContent() {
+    const { click } = yield* openSettleFixture("start-settle-spinner");
+
+    const loaded = yield* click("Load results", "settle-load");
+
+    expect(loaded.entry.outcome).toBe("completed");
+    expect(loaded.snapshot.settle).toEqual({ pending: [], settled: true });
+    findNode(loaded.snapshot.nodes, "heading", "Results ready");
+    expect(loaded.entry.effect).toEqual({ kind: "observed", signals: ["dom"] });
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("stops waiting at the bound and says the Page was still loading", () =>
+  Effect.gen(function* boundedSettle() {
+    const { click } = yield* openSettleFixture("start-settle-stall");
+
+    const startedAt = Date.now();
+    const stalled = yield* click("Keep loading", "settle-stall");
+
+    expect(Date.now() - startedAt).toBeLessThan(5000);
+    expect(stalled.entry.outcome).toBe("completed");
+    expect(stalled.snapshot.settle?.settled).toBe(false);
+    expect(stalled.snapshot.settle?.pending).toContain("network");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("reports a click that changed nothing as having no effect", () =>
+  Effect.gen(function* noEffect() {
+    const { click } = yield* openSettleFixture("start-settle-inert");
+
+    const inert = yield* click("Do nothing", "settle-inert");
+
+    expect(inert.entry.outcome).toBe("completed");
+    expect(inert.entry.effect).toEqual({ kind: "none" });
+    expect(inert.snapshot.settle?.settled).toBe(true);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("names the document as what a disclosure changed", () =>
+  Effect.gen(function* domEffect() {
+    const { click } = yield* openSettleFixture("start-settle-toggle");
+
+    const toggled = yield* click("Toggle details", "settle-toggle");
+
+    expect(toggled.entry.effect).toEqual({
+      kind: "observed",
+      signals: ["dom"],
+    });
+    findNode(toggled.snapshot.nodes, "paragraph", "Details shown");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("names the URL and the value an action changed", () =>
+  Effect.gen(function* urlAndValueEffect() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("shop.html"),
+      "start-settle-shop"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const search = findNode(observed.nodes, "textbox", "Search the catalogue");
+
+    const filled = yield* callTool("agent_browser_act", {
+      action: { ref: search.ref, text: "anvil", type: "fill" },
+      operationId: OperationId.make("settle-fill"),
+      sessionId: session.id,
+    });
+    expect(filled.entry.effect?.kind).toBe("observed");
+    if (filled.entry.effect?.kind === "observed") {
+      expect(filled.entry.effect.signals).toContain("value");
+    }
+
+    const submitted = yield* callTool("agent_browser_act", {
+      action: { key: "Enter", ref: search.ref, type: "press" },
+      operationId: OperationId.make("settle-submit"),
+      sessionId: session.id,
+    });
+    expect(submitted.entry.effect?.kind).toBe("observed");
+    if (submitted.entry.effect?.kind === "observed") {
+      expect(submitted.entry.effect.signals).toContain("url");
+    }
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("shows a navigation that starts after the bound on the next read", () =>
+  Effect.gen(function* lateNavigation() {
+    const { click, fixtures, session } =
+      yield* openSettleFixture("start-settle-later");
+
+    const clicked = yield* click("Navigate later", "settle-later");
+    expect(clicked.entry.effect).toEqual({ kind: "none" });
+    expect(clicked.url).toBe(fixtures.url("settle.html"));
+
+    yield* Effect.sleep("3 seconds");
+    const reread = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(reread.url).toBe(`${fixtures.url("settle.html")}?arrived`);
+    expect(reread.settle?.settled).toBe(true);
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );

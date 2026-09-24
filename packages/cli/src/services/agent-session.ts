@@ -22,7 +22,6 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
-  AgentSnapshotNode,
   AgentActionIntent,
   AgentActionSubject,
   AgentExecutionBoundary,
@@ -47,6 +46,7 @@ import type {
   BrowserInput,
   AgentBrowserAction,
   AgentBrowserSnapshot,
+  AgentSnapshotNode,
   AgentScreenshot,
   AgentScreenshotFile,
   AgentInspectedElement,
@@ -99,15 +99,22 @@ import {
 import type { Page } from "playwright-core";
 
 import {
+  actionTarget,
+  beginActionObservation,
   captureAgentScreenshot,
   makeAgentElementRegistry,
+  observeAfterAction,
   performAgentAction,
   performPrivateVariableInput,
   redactAgentSnapshot,
   redactKnownValues,
+  settledSnapshot,
   snapshotAfterAction,
 } from "./agent-browser.ts";
-import type { AgentElementRegistry } from "./agent-browser.ts";
+import type {
+  ActionObservation,
+  AgentElementRegistry,
+} from "./agent-browser.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
@@ -801,16 +808,37 @@ const describeTeachingInput = (input: BrowserInput): string => {
     : `The user sent a ${input.eventType} keyboard input`;
 };
 
+/**
+ * A key that may edit the focused field. Tab carries text but moves focus
+ * instead, so it ends a fill rather than extending it.
+ */
 const isTextEdit = (input: BrowserInput): boolean =>
   input.type === "input_keyboard" &&
+  input.key !== "Tab" &&
   (input.eventType === "char" ||
     (input.eventType === "keyDown" &&
       (input.text !== undefined ||
         input.key === "Backspace" ||
         input.key === "Delete")));
 
+/**
+ * Keys that do nothing on their own. The combination they make is carried on
+ * the next key's modifiers, so recording them would only split the fill a
+ * capital letter or a symbol belongs to (#258).
+ */
+const MODIFIER_KEYS: ReadonlySet<string> = new Set([
+  "Alt",
+  "AltGraph",
+  "CapsLock",
+  "Control",
+  "Meta",
+  "Shift",
+]);
+
 const shouldCaptureRawInput = (input: BrowserInput): boolean =>
-  (input.type === "input_keyboard" && input.eventType !== "keyUp") ||
+  (input.type === "input_keyboard" &&
+    input.eventType !== "keyUp" &&
+    !MODIFIER_KEYS.has(input.key ?? "")) ||
   (input.type === "input_mouse" && input.eventType === "mouseWheel");
 
 /** Keep public Teaching records free of credentials and sensitive URL values. */
@@ -1194,6 +1222,26 @@ interface SessionRecord {
    * never took one leaves nothing behind.
    */
   readonly screenshots: { directory: string | undefined };
+  /**
+   * The field the open fill is typing into, by the reference its last edit
+   * left focused. Consecutive edits extend that fill only while they land on
+   * the same element, however the Page reorders around it.
+   */
+  readonly textEdit: {
+    open: { readonly key: string; readonly ref: AgentElementRef } | undefined;
+  };
+}
+
+/** The control a keystroke was sent to, as the tree before it read it. */
+interface FocusedTextControl {
+  readonly node: AgentSnapshotNode;
+  readonly ref: AgentElementRef;
+  readonly sensitive: boolean;
+  /**
+   * The private control's value as a digest. Its node withholds the value, so
+   * this is what shows whether a keystroke changed it.
+   */
+  readonly valueDigest: string | undefined;
 }
 
 /** Evidence capture exists only between the user's Start and Stop gestures. */
@@ -1722,6 +1770,22 @@ const makeAgentSession = (
             )
           )
         : Effect.succeed(record);
+    };
+
+    /**
+     * Run once the input the user already sent has been recorded. User input
+     * holds the session's control lock from dispatch until its action is
+     * captured, so a Stop that lands mid-keystroke would otherwise end the
+     * recording before the key it followed reached it.
+     */
+    const afterUserInput = <A, E, R>(
+      sessionId: AgentSessionId,
+      effect: Effect.Effect<A, E, R>
+    ): Effect.Effect<A, E, R> => {
+      const record = Ref.getUnsafe(sessions).get(sessionId);
+      return record === undefined
+        ? effect
+        : record.control.lock.withPermit(effect);
     };
 
     /** A session that carries a Demonstration: a Teaching session, live or not. */
@@ -2760,10 +2824,13 @@ const makeAgentSession = (
       yield* recorder.limitReached.pipe(
         Effect.flatMap(() =>
           lock.withPermit(
-            stopTeachingRecordingUnlocked(
+            afterUserInput(
               sessionId,
-              `limit-recording-${recordingId}`,
-              "limit-reached"
+              stopTeachingRecordingUnlocked(
+                sessionId,
+                `limit-recording-${recordingId}`,
+                "limit-reached"
+              )
             )
           )
         ),
@@ -3352,6 +3419,29 @@ const makeAgentSession = (
         )
       );
 
+    /**
+     * The settled read after an agent action, with what the action was seen
+     * to change. A wait asks the Page nothing, so it reports no effect.
+     */
+    const observedAfter = (
+      record: SessionRecord,
+      page: Page,
+      action: AgentBrowserAction,
+      observation: ActionObservation
+    ) =>
+      observeAfterAction(page, record.registry, observation).pipe(
+        Effect.map(({ effect, snapshot }) => ({
+          effect:
+            action.type === "wait_for_text" ? undefined : (effect ?? undefined),
+          snapshot: redactCapturedSnapshot(record, snapshot),
+        })),
+        Effect.tap(({ snapshot }) =>
+          Effect.sync(() =>
+            noteRunEvidence(record, "snapshot", snapshot.snapshotId)
+          )
+        )
+      );
+
     const boundaryResult = (
       record: SessionRecord,
       page: Page,
@@ -3746,6 +3836,7 @@ const makeAgentSession = (
                   snapshot: base,
                   supplied: new Map<string, string>(),
                   teachingRecorder: undefined,
+                  textEdit: { open: undefined },
                   traceFile,
                   videoFile,
                 };
@@ -3863,11 +3954,15 @@ const makeAgentSession = (
             )
           );
         }
+        const sensitive = yield* record.registry.isSensitive(ref);
         return {
-          key: yield* record.registry.privateSelector(ref),
+          node,
           ref,
-          sensitive: yield* record.registry.isSensitive(ref),
+          sensitive,
           snapshot,
+          valueDigest: sensitive
+            ? yield* record.registry.valueDigest(ref)
+            : undefined,
         };
       });
 
@@ -3889,15 +3984,30 @@ const makeAgentSession = (
         };
       });
 
+    /**
+     * Whether an edit changed the focused control. A private control is
+     * compared by digest, since its placeholder reads the same after every
+     * keystroke; a digest that cannot be read counts as no change.
+     */
+    const valueChanged = (
+      record: SessionRecord,
+      focused: FocusedTextControl,
+      refAfter: AgentElementRef,
+      value: string
+    ): Effect.Effect<boolean> =>
+      focused.sensitive
+        ? observedOrNothing(record.registry.valueDigest(refAfter)).pipe(
+            Effect.map(
+              (digest) => digest !== undefined && digest !== focused.valueDigest
+            )
+          )
+        : Effect.succeed(value !== focused.node.value);
+
     const semanticUserEdit = (
       record: SessionRecord,
       page: Page,
       urlBefore: string,
-      focused: {
-        readonly key: string;
-        readonly ref: AgentElementRef;
-        readonly sensitive: boolean;
-      }
+      focused: FocusedTextControl
     ) =>
       Effect.gen(function* captureSemanticUserEdit() {
         const capture = recordingCapture(record);
@@ -3907,35 +4017,44 @@ const makeAgentSession = (
         const observed = yield* snapshotAfter(record, page, urlBefore);
         capture.recordSnapshot(observed);
         const focusedAfter = yield* Effect.result(record.registry.focusedRef());
+        if (Result.isFailure(focusedAfter)) {
+          return;
+        }
         const value = editedValue(
-          Result.isSuccess(focusedAfter)
-            ? observed.nodes.find(
-                (candidate) => candidate.ref === focusedAfter.success
-              )
-            : undefined,
+          observed.nodes.find(
+            (candidate) => candidate.ref === focusedAfter.success
+          ),
           focused.sensitive
         );
-        if (value === undefined) {
+        // A fill is the field's value changing while it keeps focus. A key that
+        // moved focus elsewhere, or left the value as it was — Enter in a
+        // single-line field, a Backspace in an empty one — is not an edit, so
+        // it ends the fill and is recorded as the key press it was.
+        if (
+          value === undefined ||
+          !(yield* record.registry.sameElement(
+            focused.ref,
+            focusedAfter.success
+          )) ||
+          !(yield* valueChanged(record, focused, focusedAfter.success, value))
+        ) {
           return;
         }
         const action = { ref: focused.ref, text: value, type: "fill" as const };
         // The same description the agent-driven path produces, so a recording
         // reads in roles, accessible names and the value that landed whoever
-        // typed it. The subject comes from the tree recorded beside the edit,
-        // which is the one a later reader can join the entry back to.
-        const subject = observed.nodes.find(
-          (candidate) => candidate.ref === focused.ref
-        );
+        // typed it. References are re-minted on every Snapshot, so the subject
+        // comes from the tree the reference was read in — the one recorded
+        // before the edit, which a later reader joins the entry back to.
         return {
           action,
           description: describeCapturedAction(
-            subject === undefined
-              ? undefined
-              : { name: subject.name, role: subject.role },
+            { name: focused.node.name, role: focused.node.role },
             action,
             {},
             capture.sensitiveValues()
           ),
+          focusedAfter: focusedAfter.success,
           observed,
         };
       });
@@ -4096,13 +4215,7 @@ const makeAgentSession = (
 
     const completeSemanticUserEdit = (input: {
       readonly at: string;
-      readonly focused:
-        | {
-            readonly key: string;
-            readonly ref: AgentElementRef;
-            readonly sensitive: boolean;
-          }
-        | undefined;
+      readonly focused: FocusedTextControl | undefined;
       readonly id: string;
       readonly page: Page;
       readonly record: SessionRecord;
@@ -4125,11 +4238,25 @@ const makeAgentSession = (
         if (semantic === undefined || capture === undefined) {
           return false;
         }
+        // Consecutive edits are one fill while they type into one element.
+        // Its position among its siblings is no identity: pages insert ads and
+        // hints around a field as it is typed into (#258).
+        const { textEdit } = input.record;
+        const { open } = textEdit;
+        const continues =
+          open !== undefined &&
+          capture.openCoalesceKey() === open.key &&
+          (yield* input.record.registry.sameElement(
+            open.ref,
+            input.focused.ref
+          ));
+        const coalesceKey = continues ? open.key : `text-edit-${input.id}`;
+        textEdit.open = { key: coalesceKey, ref: semantic.focusedAfter };
         const captured = capture.recordAction({
           action: semantic.action,
           actor: "user",
           at: input.at,
-          coalesceKey: input.focused.key,
+          coalesceKey,
           description: semantic.description,
           id: input.id,
           outcome: "completed",
@@ -4275,6 +4402,10 @@ const makeAgentSession = (
         // and wait for its cleanup rather than racing it.
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
+            const observation = yield* beginActionObservation(
+              page,
+              yield* actionTarget(record.registry, action)
+            );
             yield* privateRegistration === undefined
               ? performAgentAction(page, record.registry, action)
               : performPrivateVariableInput(
@@ -4290,16 +4421,22 @@ const makeAgentSession = (
                 privateRegistration.selector
               );
             }
-            const snapshot = yield* snapshotAfter(record, page, urlBefore);
+            const { effect, snapshot } = yield* observedAfter(
+              record,
+              page,
+              action,
+              observation
+            );
+            const entry: AgentTimelineEntry = {
+              actor: "agent",
+              at: now().toISOString(),
+              description,
+              dispatched: true,
+              id,
+              outcome: "completed",
+            };
             return {
-              entry: {
-                actor: "agent" as const,
-                at: now().toISOString(),
-                description,
-                dispatched: true,
-                id,
-                outcome: "completed" as const,
-              },
+              entry: effect === undefined ? entry : { ...entry, effect },
               snapshot,
               url: snapshot.url,
             };
@@ -6414,7 +6551,7 @@ const makeAgentSession = (
         ),
       snapshot: (sessionId) =>
         observe(sessionId, (record, page) =>
-          record.registry.snapshot(page).pipe(
+          settledSnapshot(page, record.registry).pipe(
             Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
             Effect.tap((snapshot) =>
               Effect.sync(() => {
@@ -6430,7 +6567,12 @@ const makeAgentSession = (
       startTeachingRecording: (sessionId, operationId) =>
         lock.withPermit(startTeachingRecordingUnlocked(sessionId, operationId)),
       stopTeachingRecording: (sessionId, operationId) =>
-        lock.withPermit(stopTeachingRecordingUnlocked(sessionId, operationId)),
+        lock.withPermit(
+          afterUserInput(
+            sessionId,
+            stopTeachingRecordingUnlocked(sessionId, operationId)
+          )
+        ),
       storage: (sessionId, tabId, kind) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>
