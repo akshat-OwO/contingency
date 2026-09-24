@@ -123,7 +123,7 @@ const AgentSessionCloseTool = Tool.make("agent_session_close", {
 const AgentBrowserSnapshotTool = Tool.make("agent_browser_snapshot", {
   dependencies: [AgentSession],
   description:
-    "Read a compact Browser Snapshot with short-lived element references. References expire when the Page navigates or the element leaves the document.",
+    "Read a compact Browser Snapshot with short-lived element references. References expire when the Page navigates or the element leaves the document. The read waits up to two seconds for requests to finish and the document to stop changing; settle.settled is false when the Page was still busy at that bound, and settle.pending says with what.",
   failure: AgentSessionFailure,
   parameters: AgentBrowserObserveParameters,
   success: AgentBrowserSnapshot,
@@ -141,7 +141,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    "Perform one browser action during a Run. Teaching refuses this tool: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent's own words. Set intent.objectiveKind to \"new\" only when deliberately starting work outside the Flow Skill's Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation.",
+    "Perform one browser action during a Run. Teaching refuses this tool: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent's own words. Set intent.objectiveKind to \"new\" only when deliberately starting work outside the Flow Skill's Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result's Snapshot is read once the Page settles, up to two seconds, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice.",
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,

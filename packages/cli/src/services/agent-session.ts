@@ -99,15 +99,22 @@ import {
 import type { Page } from "playwright-core";
 
 import {
+  actionTarget,
+  beginActionObservation,
   captureAgentScreenshot,
   makeAgentElementRegistry,
+  observeAfterAction,
   performAgentAction,
   performPrivateVariableInput,
   redactAgentSnapshot,
   redactKnownValues,
+  settledSnapshot,
   snapshotAfterAction,
 } from "./agent-browser.ts";
-import type { AgentElementRegistry } from "./agent-browser.ts";
+import type {
+  ActionObservation,
+  AgentElementRegistry,
+} from "./agent-browser.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
@@ -3388,6 +3395,29 @@ const makeAgentSession = (
         )
       );
 
+    /**
+     * The settled read after an agent action, with what the action was seen
+     * to change. A wait asks the Page nothing, so it reports no effect.
+     */
+    const observedAfter = (
+      record: SessionRecord,
+      page: Page,
+      action: AgentBrowserAction,
+      observation: ActionObservation
+    ) =>
+      observeAfterAction(page, record.registry, observation).pipe(
+        Effect.map(({ effect, snapshot }) => ({
+          effect:
+            action.type === "wait_for_text" ? undefined : (effect ?? undefined),
+          snapshot: redactCapturedSnapshot(record, snapshot),
+        })),
+        Effect.tap(({ snapshot }) =>
+          Effect.sync(() =>
+            noteRunEvidence(record, "snapshot", snapshot.snapshotId)
+          )
+        )
+      );
+
     const boundaryResult = (
       record: SessionRecord,
       page: Page,
@@ -4322,6 +4352,10 @@ const makeAgentSession = (
         // and wait for its cleanup rather than racing it.
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
+            const observation = yield* beginActionObservation(
+              page,
+              yield* actionTarget(record.registry, action)
+            );
             yield* privateRegistration === undefined
               ? performAgentAction(page, record.registry, action)
               : performPrivateVariableInput(
@@ -4337,16 +4371,22 @@ const makeAgentSession = (
                 privateRegistration.selector
               );
             }
-            const snapshot = yield* snapshotAfter(record, page, urlBefore);
+            const { effect, snapshot } = yield* observedAfter(
+              record,
+              page,
+              action,
+              observation
+            );
+            const entry: AgentTimelineEntry = {
+              actor: "agent",
+              at: now().toISOString(),
+              description,
+              dispatched: true,
+              id,
+              outcome: "completed",
+            };
             return {
-              entry: {
-                actor: "agent" as const,
-                at: now().toISOString(),
-                description,
-                dispatched: true,
-                id,
-                outcome: "completed" as const,
-              },
+              entry: effect === undefined ? entry : { ...entry, effect },
               snapshot,
               url: snapshot.url,
             };
@@ -6461,7 +6501,7 @@ const makeAgentSession = (
         ),
       snapshot: (sessionId) =>
         observe(sessionId, (record, page) =>
-          record.registry.snapshot(page).pipe(
+          settledSnapshot(page, record.registry).pipe(
             Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
             Effect.tap((snapshot) =>
               Effect.sync(() => {

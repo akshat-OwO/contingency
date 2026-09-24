@@ -52,6 +52,22 @@ export const AgentSnapshotNode = Schema.Struct({
 });
 export type AgentSnapshotNode = typeof AgentSnapshotNode.Type;
 
+/** What a Page was still doing when a Browser Snapshot stopped waiting. */
+export const AgentPageActivity = Schema.Literals(["network", "dom"]);
+export type AgentPageActivity = typeof AgentPageActivity.Type;
+
+/**
+ * Whether the Page went quiet before it was read. A read waits a bounded time
+ * for requests to finish and the document to stop changing; a Page that is
+ * still busy at the bound is read anyway and says what it was still doing, so
+ * the agent reads it again instead of acting on a half-loaded state.
+ */
+export const AgentPageSettle = Schema.Struct({
+  pending: Schema.Array(AgentPageActivity),
+  settled: Schema.Boolean,
+});
+export type AgentPageSettle = typeof AgentPageSettle.Type;
+
 /**
  * A compact accessibility representation of the current Page. It is
  * deliberately not a DOM dump: the external agent receives roles, names, and
@@ -60,6 +76,7 @@ export type AgentSnapshotNode = typeof AgentSnapshotNode.Type;
 export const AgentBrowserSnapshot = Schema.Struct({
   capturedAt: nonEmptyString,
   nodes: Schema.Array(AgentSnapshotNode),
+  settle: optionalNullable(AgentPageSettle),
   snapshotId: AgentSnapshotId,
   title: Schema.String,
   url: Schema.String,
@@ -184,10 +201,36 @@ export const AgentActionOutcome = Schema.Literals([
 ]);
 export type AgentActionOutcome = typeof AgentActionOutcome.Type;
 
+/** One way an action can be seen to have changed the Page. */
+export const AgentActionSignal = Schema.Literals([
+  "url",
+  "page",
+  "dom",
+  "focus",
+  "value",
+  "scroll",
+]);
+export type AgentActionSignal = typeof AgentActionSignal.Type;
+
+/**
+ * What an action was seen to change, separate from its outcome. `completed`
+ * says the browser performed the action; `observed` says the Page reacted, by
+ * the signals listed, and `none` says it did not within the settle window.
+ */
+export const AgentActionEffect = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("observed"),
+    signals: Schema.NonEmptyArray(AgentActionSignal),
+  }),
+]);
+export type AgentActionEffect = typeof AgentActionEffect.Type;
+
 /**
  * One attempt in the action timeline. `dispatched` records that the browser
  * had already been asked to perform the action, so a Takeover that interrupts
- * it cannot claim the effect did not happen.
+ * it cannot claim the effect did not happen. `effect` is absent when nothing
+ * could be observed, such as for a wait or an action that never ran.
  */
 export const AgentTimelineEntry = Schema.Struct({
   actor: AgentSessionController,
@@ -195,6 +238,7 @@ export const AgentTimelineEntry = Schema.Struct({
   description: nonEmptyString,
   detail: optionalNullable(Schema.String),
   dispatched: Schema.Boolean,
+  effect: optionalNullable(AgentActionEffect),
   id: nonEmptyString,
   outcome: AgentActionOutcome,
 });
