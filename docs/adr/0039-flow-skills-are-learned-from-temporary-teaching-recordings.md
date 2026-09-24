@@ -2,6 +2,8 @@
 
 > Supersedes ADRs [0025](./0025-agent-flow-is-compiled-from-a-demonstration.md), [0028](./0028-approved-agent-flows-are-immutable-revisions.md), [0032](./0032-external-agents-receive-a-bounded-teaching-feed.md), and [0033](./0033-agent-flow-catalog-stores-versioned-evidence-packages.md). Supersedes the authoring and approval model in [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) and [ADR 0037](./0037-pending-decisions-relay-user-consent-over-mcp.md).
 
+> [ADR 0042](./0042-agent-controlled-teaching-setup.md) changes who may control the browser during setup. The Start and Stop capture boundary remains unchanged.
+
 Contingency learns a reusable **Flow Skill** from a user-led **Teaching Recording**. The Flow Skill is the only durable authoring artifact. The Teaching Recording is temporary evidence that Contingency deletes after a successful Dry Run and explicit user verification.
 
 The current authoring path asks an external agent to compile a typed Agent Flow draft, map action spans into Evidence Slices, obtain authorization for a Verification Run, assess each Agent Step, complete verification, and obtain approval. This path protects a governed package, but it makes teaching a journey harder than demonstrating the journey itself. A user who has already shown the work should not need to supervise a second authoring protocol.
