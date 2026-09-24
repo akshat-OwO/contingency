@@ -129,6 +129,11 @@ const PAGE_READING_PRELUDE = `
     search: "searchbox",
     submit: "button",
   };
+  const INPUT_BUTTON_CAPTIONS = {
+    button: "",
+    reset: "Reset",
+    submit: "Submit",
+  };
   const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
   const SENSITIVE_AUTOCOMPLETE = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, "iu");
   const SENSITIVE_FIELD_METADATA = new RegExp(${JSON.stringify(SENSITIVE_FIELD_METADATA.source)}, "iu");
@@ -301,10 +306,17 @@ const PAGE_READING_PRELUDE = `
             .join(" ");
     const labelElement = labelFor(element);
     const label = labelElement ? renderedText(labelElement) : "";
+    // A button drawn by an input has no content: its caption is its value,
+    // and a submit or reset input without one shows the browser's default.
+    const buttonType =
+      element.tagName === "INPUT" ? INPUT_BUTTON_CAPTIONS[element.type] : undefined;
+    const caption =
+      buttonType === undefined ? "" : element.value || buttonType;
     const own =
       labelledText ||
       element.getAttribute("aria-label") ||
       label ||
+      caption ||
       element.getAttribute("alt") ||
       element.getAttribute("title") ||
       element.getAttribute("placeholder") ||
@@ -427,6 +439,32 @@ const SNAPSHOT_SCRIPT = (
     }
     return true;
   };
+  // What tells one repeated item from its siblings: its heading, else the
+  // link that opens it, else the first text it shows. The whole item's text
+  // runs through descriptions and prices before it gets there.
+  const itemLabel = (item, control) => {
+    const candidates = item.querySelectorAll("*");
+    const pick = (matches) => {
+      for (const candidate of candidates) {
+        if (candidate === control || candidate.contains(control) ||
+            control.contains(candidate) || !matches(candidate) ||
+            !isVisible(candidate)) {
+          continue;
+        }
+        const name = accessibleName(candidate);
+        if (name !== "") {
+          return name;
+        }
+      }
+      return "";
+    };
+    return (
+      pick((candidate) => candidate.matches("h1,h2,h3,h4,h5,h6,[role='heading']")) ||
+      pick((candidate) => candidate.matches("a[href]")) ||
+      pick(ownsText) ||
+      accessibleName(item)
+    );
+  };
   const itemContext = (element) => {
     for (let ancestor = element.parentElement; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
       if (ancestor.matches("article,li,[role='listitem']")) {
@@ -452,7 +490,8 @@ const SNAPSHOT_SCRIPT = (
   const contextual = [];
   const clickable = new Set();
   const textual = [];
-  for (const element of document.querySelectorAll("*")) {
+  const everyElement = document.querySelectorAll("*");
+  for (const element of everyElement) {
     if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
       continue;
     }
@@ -489,9 +528,16 @@ const SNAPSHOT_SCRIPT = (
   const textBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
   candidates.push(...textual.slice(0, textBudget));
   const included = new Set(candidates);
+  // The budget picks controls first, but the Snapshot is a tree read in
+  // document order: \`depth\` counts included ancestors, and a reader walks
+  // back from a node to find them. Out of order, a control's ancestors come
+  // after it and whatever precedes it reads as its container.
+  const ordered = Array.from(everyElement).filter((element) =>
+    included.has(element)
+  );
   const elements = [];
   const nodes = [];
-  for (const element of candidates) {
+  for (const element of ordered) {
     const isInput = element.tagName === "INPUT";
     const tagRole = isInput
       ? INPUT_ROLES[element.type] || "textbox"
@@ -524,7 +570,7 @@ const SNAPSHOT_SCRIPT = (
     if (element.matches(CONTROL_SELECTOR)) {
       const item = itemContext(element);
       if (item !== null) {
-        node.context = redactSensitive(accessibleName(item));
+        node.context = redactSensitive(itemLabel(item, element));
       }
     }
     if (element.disabled === true) {

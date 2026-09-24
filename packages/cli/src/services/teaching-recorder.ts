@@ -117,6 +117,13 @@ const targetFor = (
       depth = ancestorDepth;
     }
   }
+  // The repeated item the control sits in, which is what tells six identical
+  // "Add to cart" buttons apart. It is the innermost container, so it goes
+  // last; an ancestor already reporting the same name is not repeated.
+  const item = node.context?.trim() ?? "";
+  if (item.length > 0 && context.at(-1) !== item) {
+    context.push(item);
+  }
   return {
     checked: node.checked ?? null,
     context,
