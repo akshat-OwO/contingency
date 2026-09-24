@@ -4,16 +4,21 @@ import {
   makeBrowserRpcError,
 } from "@contingency/protocol";
 import type {
+  AgentActionEffect,
+  AgentActionSignal,
   AgentActionSubject,
   AgentBrowserAction,
   AgentBrowserSnapshot,
+  AgentPageActivity,
+  AgentPageSettle,
   AgentScreenshot,
   AgentSnapshotNode,
   BrowserRpcErrorType,
 } from "@contingency/protocol";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
 
+import { networkQuietFor } from "./page-activity.ts";
 import {
   SENSITIVE_AUTOCOMPLETE,
   SENSITIVE_EXACT_FIELD_NAMES,
@@ -1208,23 +1213,24 @@ interface AnimationFramePageGlobals {
   readonly requestAnimationFrame: (callback: () => void) => number;
 }
 
+/** The in-page observer the probe scripts install; see PROBE_INSTALL_SCRIPT. */
+interface PageActivityProbe {
+  target?: unknown;
+}
+
 declare global {
   var requestAnimationFrame: AnimationFramePageGlobals["requestAnimationFrame"];
+  var __contingencyPageActivity: PageActivityProbe | undefined;
 }
 
 /**
- * Read the Page after an action. A document navigation destroys the execution
- * context the Snapshot script runs in, while a same-document navigation keeps
- * that context and commits its destination UI on a following render. Settle
- * the kind that occurred and, if the read still lost a document-navigation
- * race, settle and read once more.
+ * Wait out the navigation an action started, if it started one. A document
+ * navigation destroys the execution context a read runs in, while a
+ * same-document navigation keeps that context and commits its destination UI
+ * on a following render.
  */
-export const snapshotAfterAction = (
-  page: Page,
-  registry: AgentElementRegistry,
-  urlBefore: string
-): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
-  const settle = Effect.tryPromise({
+const settleNavigation = (page: Page, urlBefore: string): Effect.Effect<void> =>
+  Effect.tryPromise({
     catch: (cause) => cause,
     try: async () => {
       if (page.url() === urlBefore) {
@@ -1253,9 +1259,335 @@ export const snapshotAfterAction = (
       );
     },
   }).pipe(Effect.ignore);
-  const read = settle.pipe(Effect.andThen(() => registry.snapshot(page)));
+
+/**
+ * Read the Page after an action, once the navigation it started (if any) has
+ * committed. If the read still lost a document-navigation race, settle and
+ * read once more.
+ */
+export const snapshotAfterAction = (
+  page: Page,
+  registry: AgentElementRegistry,
+  urlBefore: string
+): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> => {
+  const read = settleNavigation(page, urlBefore).pipe(
+    Effect.andThen(() => registry.snapshot(page))
+  );
   return read.pipe(Effect.catchCause(() => read));
 };
+
+/** The longest a read waits for the Page to go quiet. */
+const QUIET_BOUND_MS = 2000;
+/** How long the network must stay idle to count as quiet. */
+const NETWORK_QUIET_MS = 500;
+/** How long the document must stay unchanged to count as quiet. */
+const DOM_QUIET_MS = 300;
+const QUIET_POLL_MS = 50;
+
+/**
+ * Installs the in-page observer that counts what changes. It replaces any
+ * earlier one, so a read abandoned mid-way leaves nothing behind it.
+ */
+const PROBE_INSTALL_SCRIPT = `(() => {
+  const key = "__contingencyPageActivity";
+  globalThis[key]?.disconnect();
+  const state = {
+    changes: 0,
+    focus: document.activeElement,
+    lastChangeAt: performance.now(),
+    scrolls: 0,
+    values: 0,
+  };
+  const touch = () => {
+    state.lastChangeAt = performance.now();
+  };
+  const observer = new MutationObserver((records) => {
+    state.changes += records.length;
+    touch();
+  });
+  observer.observe(document, {
+    attributes: true,
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  const onValue = () => {
+    state.values += 1;
+    touch();
+  };
+  const onScroll = () => {
+    state.scrolls += 1;
+    touch();
+  };
+  document.addEventListener("input", onValue, true);
+  document.addEventListener("change", onValue, true);
+  document.addEventListener("scroll", onScroll, true);
+  state.disconnect = () => {
+    observer.disconnect();
+    document.removeEventListener("input", onValue, true);
+    document.removeEventListener("change", onValue, true);
+    document.removeEventListener("scroll", onScroll, true);
+    delete globalThis[key];
+  };
+  Object.defineProperty(globalThis, key, { configurable: true, value: state });
+  return true;
+})()`;
+
+/** Reads the observer, or null when the document it watched is gone. */
+const PROBE_READ_SCRIPT = `(() => {
+  const state = globalThis.__contingencyPageActivity;
+  if (state === undefined) {
+    return null;
+  }
+  // Focus that lands on the element the action named is the action's own
+  // mechanics, such as a click focusing its button, not the Page reacting.
+  const active = document.activeElement;
+  return {
+    changes: state.changes,
+    focusChanged: active !== state.focus && active !== state.target,
+    quietForMs: performance.now() - state.lastChangeAt,
+    scrolls: state.scrolls,
+    values: state.values,
+  };
+})()`;
+
+const PROBE_DISPOSE_SCRIPT = `(() => {
+  globalThis.__contingencyPageActivity?.disconnect();
+  return true;
+})()`;
+
+const ProbeReading = Schema.NullOr(
+  Schema.Struct({
+    changes: Schema.Number,
+    focusChanged: Schema.Boolean,
+    quietForMs: Schema.Number,
+    scrolls: Schema.Number,
+    values: Schema.Number,
+  })
+);
+type ProbeValue = typeof ProbeReading.Type;
+
+const installProbe = (page: Page): Effect.Effect<boolean> =>
+  Effect.tryPromise(() => page.evaluate<unknown>(PROBE_INSTALL_SCRIPT)).pipe(
+    Effect.map((installed) => installed === true),
+    Effect.orElseSucceed(() => false)
+  );
+
+/** `undefined` when the Page could not be read at all, mid-navigation. */
+const readProbe = (page: Page): Effect.Effect<ProbeValue | undefined> =>
+  Effect.tryPromise(() => page.evaluate<unknown>(PROBE_READ_SCRIPT)).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(ProbeReading)),
+    Effect.orElseSucceed((): ProbeValue | undefined => undefined)
+  );
+
+const disposeProbe = (page: Page): Effect.Effect<void> =>
+  Effect.tryPromise(() => page.evaluate<unknown>(PROBE_DISPOSE_SCRIPT)).pipe(
+    Effect.ignore
+  );
+
+/**
+ * What the Page looked like before an action, so the read after it can say
+ * whether the action changed anything.
+ */
+export interface ActionObservation {
+  readonly observed: boolean;
+  readonly pagesBefore: ReadonlySet<Page>;
+  readonly startedAt: number;
+  readonly urlBefore: string;
+}
+
+/**
+ * Start watching the Page for the effect of the action about to run, on the
+ * element it names when it names one.
+ */
+export const beginActionObservation = (
+  page: Page,
+  target: Option.Option<ElementHandle>
+): Effect.Effect<ActionObservation> =>
+  Effect.gen(function* watchForActionEffect() {
+    const urlBefore = page.url();
+    const pagesBefore = new Set(page.context().pages());
+    const observed = yield* installProbe(page);
+    if (observed && Option.isSome(target)) {
+      yield* Effect.tryPromise(() =>
+        target.value.evaluate((element) => {
+          const state = globalThis.__contingencyPageActivity;
+          if (state !== undefined) {
+            state.target = element;
+          }
+        })
+      ).pipe(Effect.ignore);
+    }
+    return { observed, pagesBefore, startedAt: Date.now(), urlBefore };
+  });
+
+/** The element an action names, if it names one the registry still holds. */
+export const actionTarget = (
+  registry: AgentElementRegistry,
+  action: AgentBrowserAction
+): Effect.Effect<Option.Option<ElementHandle>> => {
+  const ref = "ref" in action ? action.ref : undefined;
+  return ref === undefined || ref === null
+    ? Effect.succeedNone
+    : Effect.option(registry.resolve(ref));
+};
+
+interface QuietReading {
+  /** The document the observer watched was replaced while waiting. */
+  readonly replaced: boolean;
+  readonly reading: ProbeValue | undefined;
+  readonly settle: AgentPageSettle;
+}
+
+/**
+ * Wait, within a bound, for the network to go idle and the document to stop
+ * changing. A Page that never goes quiet is reported as such rather than
+ * waited on: polling and animation are ordinary, and the bound keeps them
+ * from stalling every read.
+ */
+const awaitQuiet = (
+  page: Page,
+  since: number,
+  observerInstalled: boolean
+): Effect.Effect<QuietReading> =>
+  Effect.gen(function* waitForQuietPage() {
+    const deadline = Date.now() + QUIET_BOUND_MS;
+    let installed = observerInstalled;
+    let replaced = false;
+    let reading: ProbeValue | undefined;
+    let domSince = since;
+    for (;;) {
+      const current = installed ? yield* readProbe(page) : undefined;
+      if (current === null || current === undefined) {
+        // Either a new document, or one being replaced as it was read: the
+        // one the action was observed in is gone, and the quiet wait starts
+        // over for whatever replaces it.
+        replaced ||= installed;
+        installed = yield* installProbe(page);
+        domSince = Date.now();
+      } else if (!replaced) {
+        reading = current;
+      }
+      const domQuiet =
+        current === null || current === undefined
+          ? 0
+          : Math.min(current.quietForMs, Date.now() - domSince);
+      const networkQuiet = networkQuietFor(page, since);
+      const pending: AgentPageActivity[] = [];
+      if (networkQuiet < NETWORK_QUIET_MS) {
+        pending.push("network");
+      }
+      if (domQuiet < DOM_QUIET_MS) {
+        pending.push("dom");
+      }
+      if (pending.length === 0 || Date.now() >= deadline) {
+        yield* disposeProbe(page);
+        return {
+          reading,
+          replaced,
+          settle: { pending, settled: pending.length === 0 },
+        };
+      }
+      yield* Effect.sleep(QUIET_POLL_MS);
+    }
+  });
+
+const effectOf = (
+  page: Page,
+  observation: ActionObservation,
+  quiet: QuietReading
+): AgentActionEffect | null => {
+  const signals: AgentActionSignal[] = [];
+  if (page.url() !== observation.urlBefore) {
+    signals.push("url");
+  }
+  if (
+    page
+      .context()
+      .pages()
+      .some((candidate) => !observation.pagesBefore.has(candidate))
+  ) {
+    signals.push("page");
+  }
+  const { reading } = quiet;
+  if (
+    quiet.replaced ||
+    (reading !== null && reading !== undefined && reading.changes > 0)
+  ) {
+    signals.push("dom");
+  }
+  if (reading !== null && reading !== undefined) {
+    if (reading.focusChanged) {
+      signals.push("focus");
+    }
+    if (reading.values > 0) {
+      signals.push("value");
+    }
+    if (reading.scrolls > 0) {
+      signals.push("scroll");
+    }
+  }
+  const [first, ...rest] = signals;
+  if (first !== undefined) {
+    return { kind: "observed", signals: [first, ...rest] };
+  }
+  // Without the in-page observer only a navigation or a new Page could have
+  // shown an effect, so their absence proves nothing.
+  return observation.observed && !quiet.replaced && reading !== undefined
+    ? { kind: "none" }
+    : null;
+};
+
+/**
+ * Read the Page after an action once it has settled, and say what the action
+ * was seen to change. The Snapshot carries whether the Page went quiet within
+ * the bound, so a read taken while it was still busy is never mistaken for
+ * the Page's final state.
+ */
+export const observeAfterAction = (
+  page: Page,
+  registry: AgentElementRegistry,
+  observation: ActionObservation
+): Effect.Effect<
+  {
+    readonly effect: AgentActionEffect | null;
+    readonly snapshot: AgentBrowserSnapshot;
+  },
+  BrowserRpcErrorType
+> =>
+  Effect.gen(function* readSettledPageAfterAction() {
+    yield* settleNavigation(page, observation.urlBefore);
+    const quiet = yield* awaitQuiet(
+      page,
+      observation.startedAt,
+      observation.observed
+    );
+    const effect = effectOf(page, observation, quiet);
+    const read = registry.snapshot(page);
+    const snapshot = yield* read.pipe(
+      Effect.catchCause(() =>
+        settleNavigation(page, observation.urlBefore).pipe(
+          Effect.andThen(() => read)
+        )
+      )
+    );
+    return { effect, snapshot: { ...snapshot, settle: quiet.settle } };
+  });
+
+/**
+ * Read the Page once it has settled, bounded, for an observation that follows
+ * no action of its own.
+ */
+export const settledSnapshot = (
+  page: Page,
+  registry: AgentElementRegistry
+): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> =>
+  Effect.gen(function* readSettledPage() {
+    const installed = yield* installProbe(page);
+    const quiet = yield* awaitQuiet(page, 0, installed);
+    const snapshot = yield* registry.snapshot(page);
+    return { ...snapshot, settle: quiet.settle };
+  });
 
 const attempt = <A>(
   description: string,

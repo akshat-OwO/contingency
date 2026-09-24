@@ -14,6 +14,7 @@ import {
   updateSessionState,
 } from "./create-browser-session.ts";
 import type { CreateSession } from "./create-browser-session.ts";
+import { trackPageNetwork } from "./page-activity.ts";
 
 export const initializePage = (session: CreateSession, page: Page): void => {
   const tabId = BrowserTabId.make(randomUUID());
@@ -24,6 +25,7 @@ export const initializePage = (session: CreateSession, page: Page): void => {
     titles: new Map(state.titles).set(page, ""),
   }));
 
+  trackPageNetwork(page);
   page.on("console", (message: ConsoleMessage) => {
     PubSub.publishUnsafe(session.events, {
       level: message.type(),
