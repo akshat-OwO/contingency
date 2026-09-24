@@ -2355,17 +2355,6 @@ const makeAgentSession = (
           )
         );
       }
-      const stoppedAt = now().toISOString();
-      const { startedAt } = record.snapshot.captureState;
-      const finalizing: AgentSessionSnapshot = {
-        ...record.snapshot,
-        captureState: {
-          _tag: "finalizing",
-          startedAt,
-          stoppedAt,
-        },
-        updatedAt: stoppedAt,
-      };
       // A gesture the user was still making when they stopped has no action
       // after it to observe the Page it left behind, so it is closed here.
       // Best effort: a browser already gone must not fail the Stop.
@@ -2391,7 +2380,7 @@ const makeAgentSession = (
                     record,
                     page,
                     openActionId,
-                    stoppedAt,
+                    now().toISOString(),
                     true
                   )
             )
@@ -2399,6 +2388,19 @@ const makeAgentSession = (
         ),
         Effect.ignore
       );
+      // Read only once the open gesture is photographed, and on the capture's
+      // own clock, so no event the recording holds reads later than its Stop.
+      const stoppedAt = capture.stopTime(now().toISOString());
+      const { startedAt } = record.snapshot.captureState;
+      const finalizing: AgentSessionSnapshot = {
+        ...record.snapshot,
+        captureState: {
+          _tag: "finalizing",
+          startedAt,
+          stoppedAt,
+        },
+        updatedAt: stoppedAt,
+      };
       // Publish `finalizing` first: `recordingCapture` gates on `recording`, so
       // this is what actually ends semantic capture on the same timestamp as the
       // video and the trace, instead of letting it run through encoder drain.
