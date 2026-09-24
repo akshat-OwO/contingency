@@ -22,6 +22,7 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  AgentSnapshotNode,
   AgentActionIntent,
   AgentActionSubject,
   AgentExecutionBoundary,
@@ -818,6 +819,9 @@ const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
     ? ({ ...action, url: sanitizeTeachingUrl(action.url) } satisfies A)
     : action;
 
+/** What a private control's value reads as anywhere it is recorded. */
+const SENSITIVE_INPUT = "[sensitive input]";
+
 const sanitizeSensitiveAction = (
   action: AgentBrowserAction,
   sensitive: boolean
@@ -827,18 +831,34 @@ const sanitizeSensitiveAction = (
   }
   switch (action.type) {
     case "fill": {
-      return { ...action, text: "[sensitive input]" };
+      return { ...action, text: SENSITIVE_INPUT };
     }
     case "select": {
-      return { ...action, values: ["[sensitive input]"] };
+      return { ...action, values: [SENSITIVE_INPUT] };
     }
     case "press": {
-      return { ...action, key: "[sensitive input]" };
+      return { ...action, key: SENSITIVE_INPUT };
     }
     default: {
       return action;
     }
   }
+};
+
+/**
+ * The value a user edit left in the focused control. A private control's
+ * Snapshot node never carries its value, only whether it holds one, so its
+ * edit reads as the redaction placeholder: the step stays a readable fill and
+ * the secret never enters the record.
+ */
+const editedValue = (
+  node: AgentSnapshotNode | undefined,
+  sensitive: boolean
+): string | undefined => {
+  if (node === undefined || !sensitive) {
+    return node?.value ?? undefined;
+  }
+  return node.valueWithheld === true ? SENSITIVE_INPUT : "";
 };
 
 /** Strip private literals from every free-text field an action carries. */
@@ -3881,17 +3901,20 @@ const makeAgentSession = (
     ) =>
       Effect.gen(function* captureSemanticUserEdit() {
         const capture = recordingCapture(record);
-        if (focused.sensitive || capture === undefined) {
+        if (capture === undefined) {
           return;
         }
         const observed = yield* snapshotAfter(record, page, urlBefore);
         capture.recordSnapshot(observed);
         const focusedAfter = yield* Effect.result(record.registry.focusedRef());
-        const value = Result.isSuccess(focusedAfter)
-          ? observed.nodes.find(
-              (candidate) => candidate.ref === focusedAfter.success
-            )?.value
-          : undefined;
+        const value = editedValue(
+          Result.isSuccess(focusedAfter)
+            ? observed.nodes.find(
+                (candidate) => candidate.ref === focusedAfter.success
+              )
+            : undefined,
+          focused.sensitive
+        );
         if (value === undefined) {
           return;
         }
