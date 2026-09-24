@@ -687,6 +687,13 @@ export interface AgentElementRegistry {
   readonly snapshot: (
     page: Page
   ) => Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType>;
+  /**
+   * Whether two references, minted by the same or different Snapshots, name
+   * one live element. References are re-minted on every Snapshot, so this is
+   * the only way to tell that a control is still the one read earlier. A
+   * stale reference names nothing, so it matches nothing.
+   */
+  readonly sameElement: (left: string, right: string) => Effect.Effect<boolean>;
 }
 
 export const makeAgentElementRegistry = (
@@ -1052,6 +1059,21 @@ export const makeAgentElementRegistry = (
   ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
     pointElement(x, y).pipe(Effect.map(({ ref }) => ref));
 
+  const sameElement = (left: string, right: string): Effect.Effect<boolean> =>
+    left === right
+      ? Effect.succeed(elements.has(left))
+      : Effect.all([resolve(left), resolve(right)]).pipe(
+          Effect.flatMap(([leftElement, rightElement]) =>
+            Effect.tryPromise(() =>
+              leftElement.evaluate(
+                (candidate, other) => candidate === other,
+                rightElement
+              )
+            )
+          ),
+          Effect.orElseSucceed(() => false)
+        );
+
   return {
     clear,
     describe: (ref) => subjects.get(ref),
@@ -1061,6 +1083,7 @@ export const makeAgentElementRegistry = (
     pointRef,
     privateSelector,
     resolve,
+    sameElement,
     snapshot,
   };
 };

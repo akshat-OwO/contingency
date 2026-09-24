@@ -40,6 +40,13 @@
         clicks += 1;
         document.querySelector("output").textContent = `Clicks: ${clicks}`;
       });
+      // Pages churn their DOM while the user types: ads, validation hints,
+      // analytics beacons. Every keystroke here adds an empty node ahead of the
+      // field, so the field's position among its siblings keeps moving while
+      // it stays the same control. A recorder must still see one fill (#258).
+      document.querySelector("input").addEventListener("input", () => {
+        document.body.prepend(document.createElement("span"));
+      });
     </script>
   </body>
 </html>

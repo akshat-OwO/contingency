@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Typing</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      input {
+        position: absolute;
+        left: 20px;
+        top: 100px;
+        width: 200px;
+        height: 32px;
+      }
+    </style>
+  </head>
+  <body>
+    <label>Email <input type="email" /></label>
+    <script>
+      // A page that churns its DOM while the field is typed into, as ads and
+      // validation hints do: the field's position among its siblings moves on
+      // every keystroke while it stays the same control.
+      document.querySelector("input").addEventListener("input", () => {
+        document.body.prepend(document.createElement("span"));
+      });
+    </script>
+  </body>
+</html>
