@@ -13,7 +13,7 @@ import type {
   FlowSkillSaveResult,
   OperationId,
   TeachingEventTarget,
-  TeachingKeyframeContent,
+  TeachingKeyframeFile,
   TeachingRecordingId,
   TeachingRecordingManifest,
   TeachingRecordingSummary,
@@ -322,7 +322,7 @@ export interface TeachingRecordingLearningService {
     recordingId: TeachingRecordingId,
     claimOperationId: OperationId,
     keyframeId: string
-  ) => Effect.Effect<TeachingKeyframeContent, TeachingRecordingLearningError>;
+  ) => Effect.Effect<TeachingKeyframeFile, TeachingRecordingLearningError>;
   readonly list: () => Effect.Effect<
     readonly TeachingRecordingSummary[],
     TeachingRecordingLearningError
@@ -506,20 +506,30 @@ const makeTeachingRecordingLearning = Effect.fn(
           )
         );
       }
-      const bytes = yield* fileSystem
-        .readFile(path.join(store.directory(recordingId), artifact.path))
+      const file = path.resolve(store.directory(recordingId), artifact.path);
+      const info = yield* fileSystem
+        .stat(file)
         .pipe(
           Effect.mapError(
-            ioError(`Could not read keyframe ${keyframeId} from ${recordingId}`)
+            ioError(`Could not stat keyframe ${keyframeId} from ${recordingId}`)
           )
         );
+      if (info.type !== "File" || info.size <= 0n) {
+        return yield* Effect.fail(
+          learningError(
+            "teaching_recording_invalid",
+            `Teaching Recording ${recordingId} has no readable keyframe ${keyframeId}.`
+          )
+        );
+      }
       return {
+        bytes: Number(info.size),
         format: "png",
         hash: artifact.hash,
         id: artifact.id,
-        image: Buffer.from(bytes).toString("base64"),
+        path: file,
         recordingId,
-      } satisfies TeachingKeyframeContent;
+      } satisfies TeachingKeyframeFile;
     });
 
   const withSkillLock = <A>(

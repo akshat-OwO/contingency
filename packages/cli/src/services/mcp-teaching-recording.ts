@@ -8,7 +8,7 @@ import {
   FlowSkillSaveResult,
   OperationId,
   TEACHING_RECORDING_WAIT_MAX_MS,
-  TeachingKeyframeContent,
+  TeachingKeyframeFile,
   TeachingRecordingClaimResult,
   TeachingRecordingId,
   TeachingRecordingList,
@@ -148,14 +148,14 @@ const TeachingTimelineGetTool = Tool.make("agent_teaching_timeline_get", {
 const TeachingKeyframeGetTool = Tool.make("agent_teaching_keyframe_get", {
   dependencies: [TeachingRecordingLearning],
   description:
-    "Fetch one PNG keyframe from a claimed Teaching Recording by the id returned in its semantic timeline. The timeline does not embed images or expose local artifact paths.",
+    "Get the local PNG file for one keyframe of a claimed Teaching Recording by the id returned in its semantic timeline. Open the returned path with your file tools. The path remains valid while the Teaching Recording is retained; verification or discard removes it. The timeline does not embed images or expose local artifact paths.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
     keyframeId: Schema.String.check(Schema.isMinLength(1)),
     recordingId: TeachingRecordingId,
   }),
-  success: TeachingKeyframeContent,
+  success: TeachingKeyframeFile,
 });
 
 const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {

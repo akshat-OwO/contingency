@@ -496,14 +496,15 @@ export const TeachingTimeline = Schema.Struct({
 });
 export type TeachingTimeline = typeof TeachingTimeline.Type;
 
-export const TeachingKeyframeContent = Schema.Struct({
+export const TeachingKeyframeFile = Schema.Struct({
+  bytes: Schema.Number.check(Schema.isGreaterThan(0)),
   format: Schema.Literal("png"),
   hash: ContentHash,
   id: nonEmptyString,
-  image: nonEmptyString,
+  path: nonEmptyString,
   recordingId: TeachingRecordingId,
 });
-export type TeachingKeyframeContent = typeof TeachingKeyframeContent.Type;
+export type TeachingKeyframeFile = typeof TeachingKeyframeFile.Type;
 
 export const FlowSkillFile = Schema.Struct({
   content: nonEmptyString,

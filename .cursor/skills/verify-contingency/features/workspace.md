@@ -195,6 +195,7 @@ Preconditions:
 - A drive that passes because the Page ended in the right state has not proved what was recorded. When a change touches Teaching capture, assert the Teaching Timeline the learning agent reads: count the actions and read their descriptions. Type with real Shift presses, corrections, and a Page that changes while it is typed into. Uniform lowercase typing into a static Page hid #258.
 - `agent_browser_screenshot` and `agent_browser_snapshot` keep working while the user holds control. Observation is not gated on control; action is.
 - `agent_browser_screenshot` answers with `path`, `bytes`, `format`, `capturedAt`, and `url` — never the image bytes (#240). Read the PNG at `path` yourself; it is deleted when the Agent Session closes.
+- `agent_teaching_keyframe_get` answers with `path`, `bytes`, `format`, `hash`, `id`, and `recordingId` for a claimed recording. Read the PNG at `path` and compare its SHA-256 with `hash`. The file survives the creating Agent Session and is deleted when the user verifies the Flow Skill and cleanup purges the Teaching Recording (#262).
 - A failed tool call exits non-zero and prints the reason (`Element reference e12 is stale…`, `Could not find "X": Timeout…`). Assert on that text rather than on the exit code alone.
 - Element references expire when the Page navigates. Take a fresh `agent_browser_snapshot` after any navigation before acting on a `ref`.
 - Only `"activity":"teaching"` sessions capture. `agent_teaching_instruction_record` against a Run session exits `2` with `agent_session_invalid`.

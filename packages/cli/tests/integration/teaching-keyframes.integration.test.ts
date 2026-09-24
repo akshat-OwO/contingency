@@ -174,9 +174,15 @@ it.live(
             { claimOperationId, keyframeId: keyframe.id, recordingId }
           );
           expect(fetched.hash).toBe(keyframe.hash);
+          expect(fetched.path).toBe(
+            path.join(recordingDirectory, `${keyframe.id}.png`)
+          );
+          const bytes = yield* fileSystem.readFile(fetched.path);
+          expect(fetched.bytes).toBe(bytes.byteLength);
           expect(
-            `sha256-${createHash("sha256").update(fetched.image, "base64").digest("hex")}`
+            `sha256-${createHash("sha256").update(bytes).digest("hex")}`
           ).toBe(keyframe.hash);
+          expect(JSON.stringify(fetched)).not.toContain('"image"');
 
           const missing = yield* Effect.flip(
             teachingRecordingTool("agent_teaching_keyframe_get", {
@@ -191,7 +197,7 @@ it.live(
             "agent_teaching_recordings_list",
             {}
           );
-          expect(JSON.stringify(listed)).not.toContain(fetched.image);
+          expect(JSON.stringify(listed)).not.toContain(fetched.path);
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
