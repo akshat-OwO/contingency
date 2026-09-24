@@ -4,7 +4,7 @@ import {
   FlowSkillSaveResult,
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TeachingCaptureState,
-  TeachingKeyframeContent,
+  TeachingKeyframeFile,
   TeachingRecordingClaim,
   TeachingRecordingList,
   TeachingRecordingManifest,
@@ -19,7 +19,7 @@ const decodeManifest = Schema.decodeUnknownSync(TeachingRecordingManifest);
 const decodeClaim = Schema.decodeUnknownSync(TeachingRecordingClaim);
 const decodeList = Schema.decodeUnknownSync(TeachingRecordingList);
 const decodeTimeline = Schema.decodeUnknownSync(TeachingTimeline);
-const decodeKeyframe = Schema.decodeUnknownSync(TeachingKeyframeContent);
+const decodeKeyframe = Schema.decodeUnknownSync(TeachingKeyframeFile);
 const decodeSkillSave = Schema.decodeUnknownSync(FlowSkillSaveResult);
 const decodeDiagnostic = Schema.decodeUnknownSync(FlowSkillDiagnostic);
 const at = "2026-09-13T10:00:00.000Z";
@@ -135,10 +135,11 @@ test("learning-agent contracts use recording ids and bounded references", () => 
   expect(timeline.entries[0]).not.toHaveProperty("path");
   expect(
     decodeKeyframe({
+      bytes: 123,
       format: "png",
       hash: "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       id: "screenshot-checkout",
-      image: "cG5n",
+      path: "/tmp/recording-checkout/keyframe.png",
       recordingId: "recording-checkout",
     }).format
   ).toBe("png");

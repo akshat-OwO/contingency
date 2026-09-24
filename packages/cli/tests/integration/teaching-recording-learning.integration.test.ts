@@ -229,7 +229,9 @@ it.live(
               recordingId,
             }
           );
-          expect(image.image.length).toBeGreaterThan(0);
+          expect((yield* fileSystem.readFile(image.path)).byteLength).toBe(
+            image.bytes
+          );
 
           const skillDirectory = path.join(root, "learn-anvil");
           yield* fileSystem.makeDirectory(skillDirectory, { recursive: true });
