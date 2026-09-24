@@ -847,6 +847,9 @@ const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
     ? ({ ...action, url: sanitizeTeachingUrl(action.url) } satisfies A)
     : action;
 
+/** What a private control's value reads as anywhere it is recorded. */
+const SENSITIVE_INPUT = "[sensitive input]";
+
 const sanitizeSensitiveAction = (
   action: AgentBrowserAction,
   sensitive: boolean
@@ -856,18 +859,34 @@ const sanitizeSensitiveAction = (
   }
   switch (action.type) {
     case "fill": {
-      return { ...action, text: "[sensitive input]" };
+      return { ...action, text: SENSITIVE_INPUT };
     }
     case "select": {
-      return { ...action, values: ["[sensitive input]"] };
+      return { ...action, values: [SENSITIVE_INPUT] };
     }
     case "press": {
-      return { ...action, key: "[sensitive input]" };
+      return { ...action, key: SENSITIVE_INPUT };
     }
     default: {
       return action;
     }
   }
+};
+
+/**
+ * The value a user edit left in the focused control. A private control's
+ * Snapshot node never carries its value, only whether it holds one, so its
+ * edit reads as the redaction placeholder: the step stays a readable fill and
+ * the secret never enters the record.
+ */
+const editedValue = (
+  node: AgentSnapshotNode | undefined,
+  sensitive: boolean
+): string | undefined => {
+  if (node === undefined || !sensitive) {
+    return node?.value ?? undefined;
+  }
+  return node.valueWithheld === true ? SENSITIVE_INPUT : "";
 };
 
 /** Strip private literals from every free-text field an action carries. */
@@ -1218,6 +1237,11 @@ interface FocusedTextControl {
   readonly node: AgentSnapshotNode;
   readonly ref: AgentElementRef;
   readonly sensitive: boolean;
+  /**
+   * The private control's value as a digest. Its node withholds the value, so
+   * this is what shows whether a keystroke changed it.
+   */
+  readonly valueDigest: string | undefined;
 }
 
 /** Evidence capture exists only between the user's Start and Stop gestures. */
@@ -3930,11 +3954,15 @@ const makeAgentSession = (
             )
           );
         }
+        const sensitive = yield* record.registry.isSensitive(ref);
         return {
           node,
           ref,
-          sensitive: yield* record.registry.isSensitive(ref),
+          sensitive,
           snapshot,
+          valueDigest: sensitive
+            ? yield* record.registry.valueDigest(ref)
+            : undefined,
         };
       });
 
@@ -3956,6 +3984,25 @@ const makeAgentSession = (
         };
       });
 
+    /**
+     * Whether an edit changed the focused control. A private control is
+     * compared by digest, since its placeholder reads the same after every
+     * keystroke; a digest that cannot be read counts as no change.
+     */
+    const valueChanged = (
+      record: SessionRecord,
+      focused: FocusedTextControl,
+      refAfter: AgentElementRef,
+      value: string
+    ): Effect.Effect<boolean> =>
+      focused.sensitive
+        ? observedOrNothing(record.registry.valueDigest(refAfter)).pipe(
+            Effect.map(
+              (digest) => digest !== undefined && digest !== focused.valueDigest
+            )
+          )
+        : Effect.succeed(value !== focused.node.value);
+
     const semanticUserEdit = (
       record: SessionRecord,
       page: Page,
@@ -3964,7 +4011,7 @@ const makeAgentSession = (
     ) =>
       Effect.gen(function* captureSemanticUserEdit() {
         const capture = recordingCapture(record);
-        if (focused.sensitive || capture === undefined) {
+        if (capture === undefined) {
           return;
         }
         const observed = yield* snapshotAfter(record, page, urlBefore);
@@ -3973,20 +4020,23 @@ const makeAgentSession = (
         if (Result.isFailure(focusedAfter)) {
           return;
         }
-        const value = observed.nodes.find(
-          (candidate) => candidate.ref === focusedAfter.success
-        )?.value;
+        const value = editedValue(
+          observed.nodes.find(
+            (candidate) => candidate.ref === focusedAfter.success
+          ),
+          focused.sensitive
+        );
         // A fill is the field's value changing while it keeps focus. A key that
         // moved focus elsewhere, or left the value as it was — Enter in a
         // single-line field, a Backspace in an empty one — is not an edit, so
         // it ends the fill and is recorded as the key press it was.
         if (
           value === undefined ||
-          value === focused.node.value ||
           !(yield* record.registry.sameElement(
             focused.ref,
             focusedAfter.success
-          ))
+          )) ||
+          !(yield* valueChanged(record, focused, focusedAfter.success, value))
         ) {
           return;
         }

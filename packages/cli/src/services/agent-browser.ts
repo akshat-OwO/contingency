@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   AgentElementRef,
   AgentSnapshotId,
@@ -745,6 +747,14 @@ export interface AgentElementRegistry {
    * stale reference names nothing, so it matches nothing.
    */
   readonly sameElement: (left: string, right: string) => Effect.Effect<boolean>;
+  /**
+   * A digest of the control's current value. A private control's Snapshot
+   * node never carries its value, so this is how a caller tells that an edit
+   * changed it without the value leaving this call.
+   */
+  readonly valueDigest: (
+    ref: string
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
 }
 
 export const makeAgentElementRegistry = (
@@ -1125,6 +1135,31 @@ export const makeAgentElementRegistry = (
           Effect.orElseSucceed(() => false)
         );
 
+  const valueDigest = (
+    ref: string
+  ): Effect.Effect<string, BrowserRpcErrorType> =>
+    resolve(ref).pipe(
+      Effect.flatMap((element) =>
+        // `inputValue` covers inputs, textareas and selects; an editable
+        // region such as a `role="textbox"` holds its value as text.
+        Effect.result(Effect.tryPromise(() => element.inputValue())).pipe(
+          Effect.flatMap((input) =>
+            Result.isSuccess(input)
+              ? Effect.succeed(input.success)
+              : Effect.tryPromise({
+                  catch: (cause) =>
+                    browserFailure(
+                      "Could not read the referenced control",
+                      cause
+                    ),
+                  try: async () => (await element.textContent()) ?? "",
+                })
+          )
+        )
+      ),
+      Effect.map((value) => createHash("sha256").update(value).digest("hex"))
+    );
+
   return {
     clear,
     describe: (ref) => subjects.get(ref),
@@ -1136,6 +1171,7 @@ export const makeAgentElementRegistry = (
     resolve,
     sameElement,
     snapshot,
+    valueDigest,
   };
 };
 
