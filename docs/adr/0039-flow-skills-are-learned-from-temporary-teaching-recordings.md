@@ -120,6 +120,8 @@ The Flow Skill does not contain short-lived element references, raw action logs,
 
 ## Dry Run and verification
 
+> The Dry Run result and its report operation are superseded by [ADR 0041](./0041-dry-run-results-are-derived-from-agent-assessments.md).
+
 A Dry Run executes the Flow Skill in a fresh browser context. It uses the saved Emulation and asks for required inputs again. When practical, the agent changes at least one demonstrated input so the Dry Run tests reuse rather than repetition.
 
 The Dry Run passes only when the Flow Skill reaches its stated observable outcome. A passing agent result does not delete the Teaching Recording.
