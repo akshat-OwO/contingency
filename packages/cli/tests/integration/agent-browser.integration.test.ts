@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 
-import { ContingencyRpcs, OperationId } from "@contingency/protocol";
+import {
+  ContingencyRpcs,
+  describeActionSubject,
+  OperationId,
+  UserAgentProfileId,
+} from "@contingency/protocol";
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
@@ -14,6 +19,8 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
+import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
+import { teachingEventsFor } from "../../src/services/teaching-recorder.ts";
 import { makeCall } from "./agent-harness.ts";
 import {
   CART_VIEWED_BEACON,
@@ -29,6 +36,12 @@ const viewport = {
   deviceScaleFactor: 1,
   height: 480,
   width: 640,
+} as const;
+
+const viewportEmulation = {
+  permissions: [],
+  userAgentProfile: UserAgentProfileId.make("chrome-mac"),
+  viewport,
 } as const;
 
 /**
@@ -361,8 +374,8 @@ it.live(
         (node) => node.role === "button" && node.name === "Add to cart"
       );
       expect(addButtons.map((node) => node.context)).toEqual([
-        "Backpack $29.99 Add to cart",
-        "Bike Light $9.99 Add to cart",
+        "Backpack",
+        "Bike Light",
       ]);
       expect(
         findNode(observed.nodes, "article", "Useful article").name
@@ -391,6 +404,101 @@ it.live(
         "Chosen: noida"
       );
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+/**
+ * The Snapshot is a tree flattened in document order: each node's ancestors
+ * come before it, so a reader that walks back by depth finds its containers
+ * and nothing else. A node deeper than its predecessor by more than one level
+ * has lost the ancestors the walk depends on (#260).
+ */
+const expectDocumentOrder = (nodes: readonly AgentSnapshotNode[]) => {
+  expect(nodes[0]?.depth).toBe(0);
+  for (const [index, node] of nodes.entries()) {
+    const previous = nodes[index - 1];
+    if (previous !== undefined) {
+      expect(node.depth).toBeLessThanOrEqual(previous.depth + 1);
+    }
+  }
+};
+
+it.live("records targets by name and by the item that contains them", () =>
+  Effect.gen(function* recordedTargets() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("recorded-targets.html"),
+      "start-recorded-targets"
+    );
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expectDocumentOrder(observed.nodes);
+    const buttonNames = observed.nodes
+      .filter((node) => node.role === "button")
+      .map((node) => node.name);
+    expect(buttonNames).toEqual([
+      "Login",
+      "Submit",
+      "Forgot password",
+      "Add to cart",
+      "Add to cart",
+    ]);
+
+    const login = findNode(observed.nodes, "button", "Login");
+    const [, bolt] = observed.nodes.filter(
+      (node) => node.role === "button" && node.name === "Add to cart"
+    );
+    const products = findNode(observed.nodes, "generic", "Products");
+    if (bolt === undefined) {
+      return yield* Effect.die("The second Add to cart button is missing.");
+    }
+    const capture = makeDemonstrationCapture(observed.url);
+    capture.recordSnapshot(observed);
+    for (const [index, node] of [login, bolt, products].entries()) {
+      capture.recordAction({
+        action: { ref: node.ref, type: "click" },
+        actor: "user",
+        at: `2026-09-24T00:00:0${index + 1}.000Z`,
+        description: `Click ${describeActionSubject(node)}`,
+        id: `recorded-target-${index}`,
+        outcome: "completed",
+        snapshotAfter: null,
+        snapshotBefore: observed.snapshotId,
+        urlAfter: observed.url,
+        urlBefore: observed.url,
+      });
+    }
+    const targets = teachingEventsFor(
+      capture.current(),
+      viewportEmulation,
+      "2026-09-24T00:00:00.000Z",
+      "2026-09-24T00:00:05.000Z",
+      "user"
+    ).flatMap((event) =>
+      event._tag === "action"
+        ? [{ description: event.description, target: event.target }]
+        : []
+    );
+    expect(targets).toEqual([
+      {
+        description: 'Click button "Login"',
+        target: expect.objectContaining({ name: "Login", role: "button" }),
+      },
+      {
+        description: 'Click button "Add to cart"',
+        target: expect.objectContaining({
+          context: ["Sauce Labs Bolt T-Shirt"],
+          name: "Add to cart",
+        }),
+      },
+      {
+        description: 'Click generic "Products"',
+        target: expect.objectContaining({ context: [], name: "Products" }),
+      },
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
 it.live("expires element references when the Page navigates", () =>
