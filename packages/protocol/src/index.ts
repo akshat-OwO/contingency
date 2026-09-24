@@ -291,6 +291,8 @@ export const BrandId = Schema.Literals([
   "agent.browser.input.sent",
   "agent.teaching.variable.input",
   "agent.teaching.variable.input.result",
+  "agent.dry-run.variable.supply",
+  "agent.dry-run.variable.supplied",
   "agent.browser.navigate",
   "agent.browser.navigated",
   "agent.run.summary.get",
@@ -602,6 +604,20 @@ export const AgentTeachingVariableInputResult = response(
   { action: AgentActionResult }
 );
 
+/** The user supplies a Dry Run secret in the Workspace, never through MCP. */
+export const AgentDryRunVariableSupply = request(
+  "agent.dry-run.variable.supply",
+  {
+    name: Schema.String.check(Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u)),
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    value: Schema.String.check(Schema.isMinLength(1)),
+  }
+);
+export const AgentDryRunVariableSupplied = response(
+  "agent.dry-run.variable.supplied",
+  { session: AgentSessionSnapshot }
+);
+
 /**
  * Address-bar and history navigation while the user holds the browser. It
  * carries the same actions the agent may take, so a Takeover is a real
@@ -907,6 +923,11 @@ const AgentTeachingVariableInputRpc = Rpc.make(
     success: AgentTeachingVariableInputResult,
   }
 );
+const AgentDryRunVariableSupplyRpc = Rpc.make("agent.dry-run.variable.supply", {
+  error: BrowserRpcError,
+  payload: AgentDryRunVariableSupply,
+  success: AgentDryRunVariableSupplied,
+});
 const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   error: BrowserRpcError,
   payload: AgentBrowserNavigate,
@@ -996,6 +1017,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionControlReturnRpc,
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
+  AgentDryRunVariableSupplyRpc,
   AgentBrowserNavigateRpc,
   AgentBrowserEmulationGetRpc,
   AgentBrowserEmulationSetRpc,

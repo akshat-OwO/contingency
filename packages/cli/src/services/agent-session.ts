@@ -178,6 +178,7 @@ export interface AgentSessionStartInput {
           readonly value: string | null;
         }[];
         readonly recordingId: TeachingRecordingId;
+        readonly variables?: readonly AgentSessionVariableState[];
       }
     | undefined;
   /**
@@ -297,6 +298,11 @@ export interface AgentSessionService {
     input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string },
     operationId?: OperationId | string
   ) => Effect.Effect<AgentActionResult, AgentSessionError>;
+  readonly supplyDryRunVariable: (
+    sessionId: AgentSessionId,
+    name: string,
+    value: string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Stream browser events through the Agent Session boundary. */
   readonly browserStream: (
     sessionId: AgentSessionId
@@ -542,7 +548,7 @@ const dryRunIdentity = (
   dryRun === undefined
     ? { dryRun: null, flowSkillName: null, recordingId: null }
     : {
-        dryRun: { ...dryRun, startedAt: at },
+        dryRun: { ...dryRun, startedAt: at, variables: dryRun.variables ?? [] },
         flowSkillName: dryRun.flowSkillName,
         recordingId: dryRun.recordingId,
       };
@@ -3142,7 +3148,7 @@ const makeAgentSession = (
     const notDeclaringVariables = (sessionId: AgentSessionId) =>
       error(
         "agent_session_invalid",
-        `Agent Session ${sessionId} is not running a Flow Skill, so it declares no Variables.`
+        `Agent Session ${sessionId} declares no Variables.`
       );
 
     /**
@@ -3156,7 +3162,7 @@ const makeAgentSession = (
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
-      const declaring = record.snapshot.run;
+      const declaring = record.snapshot.run ?? record.snapshot.dryRun;
       if (declaring === null) {
         return {
           _tag: "error",
@@ -6111,7 +6117,7 @@ const makeAgentSession = (
             return yield* Effect.fail(
               error(
                 "agent_session_invalid",
-                `Variable ${name} has not been supplied for this Run. Reread pendingDecisions and ask the user for it in this conversation.`
+                `Variable ${name} has not been supplied. Ask the user to enter it in the Dry Run Workspace or resolve its Run decision.`
               )
             );
           }
@@ -6592,6 +6598,55 @@ const makeAgentSession = (
             browser.getStorage(record.browserSessionId, tabId, kind)
           )
         ),
+      supplyDryRunVariable: (sessionId, name, value) =>
+        Effect.gen(function* supplyPrivateDryRunInput() {
+          const record = yield* requireLiveRecord(sessionId);
+          const { dryRun } = record.snapshot;
+          if (dryRun === null) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_invalid",
+                "Only a Dry Run accepts a Workspace Variable."
+              )
+            );
+          }
+          const variable = dryRun.variables.find(
+            (candidate) => candidate.name === name && candidate.secret
+          );
+          if (variable === undefined || value.length === 0) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_invalid",
+                `Secret Variable ${name} is not declared or the value is empty.`
+              )
+            );
+          }
+          record.supplied.set(name, value);
+          const updated = yield* mutate(sessionId, (snapshot) => {
+            if (snapshot.activity !== "run" || snapshot.dryRun === null) {
+              return snapshot;
+            }
+            return {
+              ...snapshot,
+              dryRun: {
+                ...snapshot.dryRun,
+                variables: snapshot.dryRun.variables.map((item) =>
+                  item.name === name ? { ...item, supplied: true } : item
+                ),
+              },
+              updatedAt: now().toISOString(),
+            };
+          });
+          if (updated === undefined) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_not_found",
+                `Agent Session ${sessionId} was not found.`
+              )
+            );
+          }
+          return updated;
+        }),
       tabs: (sessionId) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) => browser.getTabs(record.browserSessionId))

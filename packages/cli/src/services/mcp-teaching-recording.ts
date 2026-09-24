@@ -20,6 +20,7 @@ import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
 import { AgentSession } from "./agent-session.ts";
+import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import {
   TeachingRecordingLearning,
@@ -172,17 +173,24 @@ const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
   success: FlowSkillSaveResult,
 });
 
-const DryRunInput = Schema.Struct({
-  changed: Schema.Boolean,
-  name: Schema.String.check(Schema.isMinLength(1)),
-  secret: Schema.Boolean,
-  value: Schema.String,
-});
+const DryRunInput = Schema.Union([
+  Schema.Struct({
+    changed: Schema.Boolean,
+    name: Schema.String.check(Schema.isMinLength(1)),
+    secret: Schema.Literal(false),
+    value: Schema.String,
+  }),
+  Schema.Struct({
+    changed: Schema.Boolean,
+    name: Schema.String.check(Schema.isMinLength(1)),
+    secret: Schema.Literal(true),
+  }),
+]);
 
 const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
   dependencies: [AgentSession, FileSystem.FileSystem, TeachingRecordingStore],
   description:
-    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Ask for every required input again, mark inputs changed from the demonstration when the task permits it, and mark secrets so their values are not persisted. Drive the returned Agent Session with the browser tools, then report the observable outcome.",
+    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it, drive the session, then report the observable outcome.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
@@ -336,17 +344,71 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             })
           );
         }
+        if (!("skillPath" in manifest.lifecycle)) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_conflict",
+              diagnostics: [],
+              message:
+                "The Teaching Recording has no saved Flow Skill package. (teaching_recording_conflict)",
+            })
+          );
+        }
+        const skillPath = path.join(
+          path.dirname(path.dirname(store.directory(manifest.recordingId))),
+          manifest.lifecycle.skillPath
+        );
+        const skillContent = yield* fileSystem.readFileString(skillPath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new TeachingRecordingFailure({
+                code: "teaching_recording_io",
+                diagnostics: [],
+                message: `Could not read the Flow Skill package: ${cause.message} (teaching_recording_io)`,
+              })
+          )
+        );
+        const declared = readFlowSkillFrontmatter(skillContent)?.inputs ?? [];
+        const names = new Set(params.inputs.map((input) => input.name));
+        if (
+          names.size !== params.inputs.length ||
+          names.size !== declared.length ||
+          declared.some((input) => !names.has(input.name))
+        ) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_invalid",
+              diagnostics: [],
+              message:
+                "Dry Run inputs must name every declared Flow Skill input exactly once. (teaching_recording_invalid)",
+            })
+          );
+        }
+        const secretNames = params.inputs.flatMap((input) =>
+          input.secret ? [input.name.toUpperCase()] : []
+        );
+        if (
+          secretNames.some((name) => !/^[A-Z][A-Z0-9_]*$/u.test(name)) ||
+          new Set(secretNames).size !== secretNames.length
+        ) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_invalid",
+              diagnostics: [],
+              message:
+                "Secret input names must map uniquely to uppercase Variable names. (teaching_recording_invalid)",
+            })
+          );
+        }
         /*
           A secret input is named and never valued: the Dry Run session
           snapshot reaches the Workspace, so the literal stops here (ADR 0039).
         */
-        const dryRunInputs = params.inputs.map(
-          ({ changed, name, secret, value }) => ({
-            changed,
-            name,
-            value: secret ? null : value,
-          })
-        );
+        const dryRunInputs = params.inputs.map((input) => ({
+          changed: input.changed,
+          name: input.name,
+          value: input.secret ? null : input.value,
+        }));
         const session = yield* sessions
           .start({
             activity: "run",
@@ -356,6 +418,12 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
               flowSkillName: manifest.flowSkillName,
               inputs: dryRunInputs,
               recordingId: manifest.recordingId,
+              variables: secretNames.map((name) => ({
+                name,
+                runtime: true,
+                secret: true,
+                supplied: false,
+              })),
             },
             emulation: manifest.emulation,
             operationId: params.operationId,

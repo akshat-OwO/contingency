@@ -48,6 +48,9 @@ export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
 export const agentBrowserInputMutation = ContingencyRpcClient.mutation(
   "agent.browser.input.send"
 );
+export const agentDryRunVariableSupplyMutation = ContingencyRpcClient.mutation(
+  "agent.dry-run.variable.supply"
+);
 /** History and address-bar navigation while the user holds the browser. */
 export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
   "agent.browser.navigate"

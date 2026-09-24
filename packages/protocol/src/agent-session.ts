@@ -4,6 +4,7 @@ import { AgentExecutionBoundary, AgentTimelineEntry } from "./agent-browser.ts";
 import {
   AgentPendingDecision,
   AgentPendingDecisionResolution,
+  AgentSessionVariableState,
 } from "./agent-decision.ts";
 import {
   AgentProcessId,
@@ -107,6 +108,9 @@ export const AgentDryRunState = Schema.Struct({
   ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
   recordingId: TeachingRecordingId,
   startedAt: nonEmptyString,
+  variables: Schema.Array(AgentSessionVariableState).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
 });
 export type AgentDryRunState = typeof AgentDryRunState.Type;
 

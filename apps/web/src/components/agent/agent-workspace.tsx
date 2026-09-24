@@ -39,6 +39,7 @@ import {
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
+import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
@@ -89,6 +90,9 @@ import { ExecutionBoundary } from "./execution-boundary";
  * back before the user reaches for it again (#214).
  */
 const COPIED_HOLD = "2 seconds";
+
+const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
+  session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
 
 /**
  * What the Workspace shows for a failure it has no better sentence for. It is
@@ -532,8 +536,10 @@ const AgentLiveView = ({
   readonly state: AgentViewState;
 }) => {
   const readOnly = session.controller !== "user";
+  const secretVariables = dryRunSecretVariables(session);
   const showsNotices =
     notices !== null ||
+    secretVariables.length > 0 ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
     (session.boundary !== null && session.boundary !== undefined);
@@ -604,6 +610,12 @@ const AgentLiveView = ({
               </Alert>
             )}
             <ExecutionBoundary session={session} />
+            {secretVariables.length > 0 ? (
+              <DryRunVariables
+                sessionId={session.id}
+                variables={secretVariables}
+              />
+            ) : null}
           </>
         </DockNotices>
       ) : null}
