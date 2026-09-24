@@ -13,6 +13,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-live-session` shows a live session's browser and the dock that carries its state.
 - `agent-same-document-snapshot` returns destination nodes with the destination URL after an agent action routes without loading a new document.
 - `agent-snapshot-context` reports scripted location rows as named clickable controls, attaches product context to repeated buttons, and omits decorative images.
+- `agent-act-settle-effect` reports whether an agent action's Snapshot was read after the Page settled, and whether the action was seen to change anything.
 - `agent-watching-readonly` disables the browser toolbar and marks the canvas read-only while the agent holds control.
 - `agent-takeover-controls` enables history, address, and canvas input once the user takes control.
 - `agent-takeover-timeline` records what the user did as `"actor":"user"` in the session's timeline, and follows the browser's URL. The timeline is read over MCP; Workspace no longer renders it.
