@@ -54,6 +54,15 @@ Extend `control-contingency` when a user action has no faithful CLI equivalent, 
 
 Do not change product code to make verification easier unless the product behavior itself is wrong.
 
+## Assert what the product records, not only what the Page shows
+
+A drive proves a capture feature only when it reads back what the learning agent reads. #258 shipped because `input-check` typed lowercase text into a static field and checked the field's value, while the Teaching Timeline recorded one `Fill e42` per keystroke.
+
+- For any Teaching capture change, finish the drive by stopping the recording and reading `agent_teaching_timeline_get`. Assert the number of actions, their kinds, and their exact descriptions. A description or Flow Skill step must never name an element reference such as `e42`.
+- Drive input the way a person does. Hold Shift for capitals and symbols, correct a typo with Backspace, and move focus with Tab or a click. Playwright's `keyboard.type("Hello")` sends no Shift key, so it cannot show a bug that Shift causes.
+- Make fixtures hostile in the ways real sites are. Add or reorder nodes while the user types, and let focus move. A fixture that never changes after load cannot catch identity bugs.
+- Before trusting a new or hardened check, run it against the build without the fix and confirm that it fails.
+
 ## Ecommerce fixture rules
 
 The verification ecommerce site lives only under `fixtures/ecommerce/`. It is scaffolding, not product code.
