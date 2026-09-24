@@ -79,6 +79,34 @@ interface MouseEventParameters {
   readonly y: number;
 }
 
+interface TouchEventParameters {
+  readonly touchPoints: {
+    readonly id: number;
+    readonly x: number;
+    readonly y: number;
+  }[];
+  readonly type: "touchStart" | "touchMove" | "touchEnd";
+}
+
+const touchEventType = (
+  input: Extract<BrowserInput, { readonly type: "input_mouse" }>,
+  hasTouch: boolean,
+  touchActive: boolean
+): TouchEventParameters["type"] | undefined => {
+  if (!hasTouch || input.button === "right") {
+    return;
+  }
+  if (input.eventType === "mousePressed") {
+    return "touchStart";
+  }
+  if (input.eventType === "mouseReleased" && touchActive) {
+    return "touchEnd";
+  }
+  if (input.eventType === "mouseMoved" && touchActive) {
+    return "touchMove";
+  }
+};
+
 interface KeyEventParameters {
   readonly code?: string;
   readonly key?: string;
@@ -193,7 +221,7 @@ const inputSessionFor = (session: CreateSession, page: Page) =>
         Effect.runSync(Ref.set(session.inputSession, null));
       }
     });
-    yield* Ref.set(session.inputSession, { cdp, page });
+    yield* Ref.set(session.inputSession, { cdp, page, touchActive: false });
     return cdp;
   });
 
@@ -306,6 +334,7 @@ const makeService = (
         inputSession: yield* Ref.make<{
           readonly cdp: CDPSession;
           readonly page: Page;
+          readonly touchActive: boolean;
         } | null>(null),
         screencastLock: yield* Semaphore.make(1),
         state,
@@ -635,15 +664,41 @@ const makeService = (
         const session = yield* requireSession(sessionId);
         yield* session.inputLock.withPermit(
           Effect.gen(function* dispatchOrderedInput() {
-            const { activePage } = yield* Ref.get(session.state);
+            const { activePage, identity } = yield* Ref.get(session.state);
             const cdp = yield* inputSessionFor(session, activePage);
+            if (input.type === "input_keyboard") {
+              yield* tryBrowser("Could not dispatch browser input", () =>
+                cdp.send("Input.dispatchKeyEvent", keyEventParameters(input))
+              );
+              return;
+            }
+            const touchActive =
+              (yield* Ref.get(session.inputSession))?.touchActive === true;
+            const touchType = touchEventType(
+              input,
+              identity?.hasTouch === true,
+              touchActive
+            );
+            if (touchType !== undefined) {
+              const parameters: TouchEventParameters = {
+                touchPoints:
+                  touchType === "touchEnd"
+                    ? []
+                    : [{ id: 0, x: input.x, y: input.y }],
+                type: touchType,
+              };
+              yield* tryBrowser("Could not dispatch browser input", () =>
+                cdp.send("Input.dispatchTouchEvent", parameters)
+              );
+              yield* Ref.set(session.inputSession, {
+                cdp,
+                page: activePage,
+                touchActive: touchType !== "touchEnd",
+              });
+              return;
+            }
             yield* tryBrowser("Could not dispatch browser input", () =>
-              input.type === "input_mouse"
-                ? cdp.send(
-                    "Input.dispatchMouseEvent",
-                    mouseEventParameters(input)
-                  )
-                : cdp.send("Input.dispatchKeyEvent", keyEventParameters(input))
+              cdp.send("Input.dispatchMouseEvent", mouseEventParameters(input))
             );
           })
         );

@@ -1,4 +1,4 @@
-import { SessionId } from "@contingency/protocol";
+import { SessionId, UserAgentProfileId } from "@contingency/protocol";
 import { expect, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
 
@@ -91,6 +91,59 @@ it.live("reuses one ordered input channel for a click and typing", () =>
       )
     ).toBe("2");
     expect(attach).toHaveBeenCalledTimes(attachmentsBeforeReturnClick + 1);
+    yield* browser.close(sessionId);
+  }).pipe(Effect.provide(CreateBrowserLive))
+);
+
+it.live("delivers touch events for a touch emulation profile", () =>
+  Effect.gen(function* touchWorkspaceInput() {
+    const browser = yield* CreateBrowser;
+    const sessionId = SessionId.make("create-touch-input");
+    yield* browser.create(sessionId, viewport);
+    yield* browser.setUserAgent(
+      sessionId,
+      "about:blank",
+      viewport,
+      UserAgentProfileId.make("chrome-android-mobile")
+    );
+    const page = yield* browser.activePage(sessionId);
+    yield* Effect.promise(() =>
+      page.setContent(
+        '<button id="target">Tap</button><script>for (const type of ["touchstart", "touchmove", "touchend", "click"]) document.querySelector("#target").addEventListener(type, () => document.documentElement.dataset.events = [document.documentElement.dataset.events, type].filter(Boolean).join(","));</script>'
+      )
+    );
+    const send = (
+      eventType: "mousePressed" | "mouseMoved" | "mouseReleased",
+      x: number
+    ) =>
+      browser.sendInput(sessionId, {
+        button: "left",
+        clickCount: 1,
+        eventType,
+        type: "input_mouse",
+        x,
+        y: 18,
+      });
+    yield* send("mousePressed", 40);
+    yield* send("mouseReleased", 40);
+    expect(
+      yield* Effect.promise(() =>
+        page.locator("html").evaluate((element) => element.dataset.events)
+      )
+    ).toBe("touchstart,touchend,click");
+    yield* Effect.promise(() =>
+      page.locator("html").evaluate((element) => {
+        delete element.dataset.events;
+      })
+    );
+    yield* send("mousePressed", 40);
+    yield* send("mouseMoved", 80);
+    yield* send("mouseReleased", 80);
+    expect(
+      yield* Effect.promise(() =>
+        page.locator("html").evaluate((element) => element.dataset.events)
+      )
+    ).toContain("touchstart,touchmove,touchend");
     yield* browser.close(sessionId);
   }).pipe(Effect.provide(CreateBrowserLive))
 );

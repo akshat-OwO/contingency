@@ -108,6 +108,7 @@ export interface CreateSession {
   readonly inputSession: Ref.Ref<{
     readonly cdp: CDPSession;
     readonly page: Page;
+    readonly touchActive: boolean;
   } | null>;
   readonly screencastLock: Semaphore.Semaphore;
   readonly state: Ref.Ref<CreateSessionState>;
