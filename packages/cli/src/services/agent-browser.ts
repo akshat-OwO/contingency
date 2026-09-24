@@ -15,7 +15,7 @@ import type {
   AgentSnapshotNode,
   BrowserRpcErrorType,
 } from "@contingency/protocol";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import type { ElementHandle, JSHandle, Page } from "playwright-core";
 
 import { networkQuietFor } from "./page-activity.ts";
@@ -1562,16 +1562,27 @@ export const observeAfterAction = (
       observation.startedAt,
       observation.observed
     );
-    const effect = effectOf(page, observation, quiet);
-    const read = registry.snapshot(page);
-    const snapshot = yield* read.pipe(
-      Effect.catchCause(() =>
-        settleNavigation(page, observation.urlBefore).pipe(
-          Effect.andThen(() => read)
-        )
-      )
-    );
-    return { effect, snapshot: { ...snapshot, settle: quiet.settle } };
+    const first = yield* Effect.result(registry.snapshot(page));
+    if (Result.isSuccess(first)) {
+      return {
+        effect: effectOf(page, observation, quiet),
+        snapshot: { ...first.success, settle: quiet.settle },
+      };
+    }
+    // The read lost a document-navigation race, so the Page it will read is
+    // not the one that went quiet. Wait for the new document to settle and
+    // judge the action against it rather than against the one it replaced.
+    yield* settleNavigation(page, observation.urlBefore);
+    const requiet = yield* awaitQuiet(page, observation.startedAt, false);
+    const snapshot = yield* registry.snapshot(page);
+    return {
+      effect: effectOf(page, observation, {
+        reading: quiet.reading,
+        replaced: true,
+        settle: requiet.settle,
+      }),
+      snapshot: { ...snapshot, settle: requiet.settle },
+    };
   });
 
 /**
