@@ -789,6 +789,14 @@ const SCROLL_COALESCE_KEY = "user-scroll";
 const isScroll = (input: BrowserInput): boolean =>
   input.type === "input_mouse" && input.eventType === "mouseWheel";
 
+/**
+ * A pointer move is not a step. The Workspace sends one per frame while the
+ * pointer travels, so recording them would bury the steps an agent follows
+ * and push them out of the timeline's limit (#267).
+ */
+const isPointerMove = (input: BrowserInput): boolean =>
+  input.type === "input_mouse" && input.eventType === "mouseMoved";
+
 /** An observation, or nothing: failing to observe never fails the input. */
 const observedOrNothing = <A, E>(
   observe: Effect.Effect<A, E>
@@ -6436,6 +6444,9 @@ const makeAgentSession = (
                   outcome: "failed",
                 });
                 return yield* Effect.fail(outcome.failure);
+              }
+              if (isPointerMove(input)) {
+                return;
               }
               const urlAfter = page.url();
               const common = {
