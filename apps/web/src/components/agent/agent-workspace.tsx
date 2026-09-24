@@ -91,6 +91,9 @@ import { ExecutionBoundary } from "./execution-boundary";
  */
 const COPIED_HOLD = "2 seconds";
 
+const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
+  session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
+
 /**
  * What the Workspace shows for a failure it has no better sentence for. It is
  * total: a failure whose `message` is not a string falls back to the
@@ -533,10 +536,10 @@ const AgentLiveView = ({
   readonly state: AgentViewState;
 }) => {
   const readOnly = session.controller !== "user";
+  const secretVariables = dryRunSecretVariables(session);
   const showsNotices =
     notices !== null ||
-    (session.activity === "run" &&
-      (session.dryRun?.variables.length ?? 0) > 0) ||
+    secretVariables.length > 0 ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
     (session.boundary !== null && session.boundary !== undefined);
@@ -607,10 +610,10 @@ const AgentLiveView = ({
               </Alert>
             )}
             <ExecutionBoundary session={session} />
-            {session.activity === "run" && session.dryRun !== null ? (
+            {secretVariables.length > 0 ? (
               <DryRunVariables
                 sessionId={session.id}
-                variables={session.dryRun.variables}
+                variables={secretVariables}
               />
             ) : null}
           </>
