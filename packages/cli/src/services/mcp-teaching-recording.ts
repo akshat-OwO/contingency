@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 import {
   AgentSessionSnapshot,
+  AgentRunId,
   FlowSkillName,
   FlowSkillDiagnostic,
   FlowSkillFile,
@@ -15,13 +17,22 @@ import {
   TeachingRecordingSummary,
   TeachingTimeline,
 } from "@contingency/protocol";
-import type { TeachingRecordingManifest } from "@contingency/protocol";
+import type {
+  AgentRunState,
+  AgentRunStep,
+  TeachingRecordingManifest,
+} from "@contingency/protocol";
 import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
+import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
-import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+import {
+  flowSkillProcedureSteps,
+  readFlowSkillFrontmatter,
+} from "./flow-skill-package.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { webHost } from "./teaching-demonstration.ts";
 import {
   TeachingRecordingLearning,
   TeachingRecordingLearningLive,
@@ -188,9 +199,14 @@ const DryRunInput = Schema.Union([
 ]);
 
 const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
-  dependencies: [AgentSession, FileSystem.FileSystem, TeachingRecordingStore],
+  dependencies: [
+    AgentSession,
+    AgentRunStore,
+    FileSystem.FileSystem,
+    TeachingRecordingStore,
+  ],
   description:
-    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it, drive the session, then report the observable outcome.",
+    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Its numbered procedure becomes ordered Agent Steps. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Assess each Step against its Done when line with agent_run_step_assess. The Dry Run ends and its result is derived when the last Step is assessed or a terminal assessment, ceiling, or agent_run_complete ends it.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
@@ -205,20 +221,6 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
     session: AgentSessionSnapshot,
     skillPath: Schema.String.check(Schema.isMinLength(1)),
   }),
-});
-
-const FlowSkillDryRunReportTool = Tool.make("agent_flow_skill_dry_run_report", {
-  dependencies: [AgentSession, TeachingRecordingStore],
-  description:
-    "Report whether the active Dry Run reached the Flow Skill's stated observable outcome. This persists only the redacted inputs, completion time, and outcome. A pass keeps every Teaching artifact until the user explicitly verifies the flow. A failure keeps every Teaching artifact and this process's learning claim: fix the package with agent_flow_skill_save under the same claim operation id, then start another Dry Run.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    observableOutcome: Schema.String.check(Schema.isMinLength(1)),
-    operationId: OperationId,
-    outcome: Schema.Literals(["failed", "passed"]),
-    recordingId: TeachingRecordingId,
-  }),
-  success: TeachingRecordingSummary,
 });
 
 const FlowSkillDecideTool = Tool.make("agent_flow_skill_decide", {
@@ -242,7 +244,6 @@ export const TeachingRecordingTools = withStrictParameters(
     TeachingKeyframeGetTool,
     FlowSkillSaveTool,
     FlowSkillDryRunStartTool,
-    FlowSkillDryRunReportTool,
     FlowSkillDecideTool
   )
 );
@@ -278,47 +279,9 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         yield* sessions.get(cleaned.sessionId).pipe(Effect.ignore);
         return summaryOf(cleaned);
       }),
-    agent_flow_skill_dry_run_report: (params) =>
-      Effect.gen(function* reportFlowSkillDryRun() {
-        const store = yield* TeachingRecordingStore;
-        const sessions = yield* AgentSession;
-        const current = yield* store
-          .read(params.recordingId)
-          .pipe(Effect.mapError(failure));
-        const receiptOperation =
-          params.outcome === "passed" ? "pass-dry-run" : "fail-dry-run";
-        const replay = current.receipts.some(
-          (receipt) =>
-            receipt.operation === receiptOperation &&
-            receipt.operationId === params.operationId
-        );
-        if (current.lifecycle._tag !== "dry-running" && !replay) {
-          return yield* Effect.fail(
-            new TeachingRecordingFailure({
-              code: "teaching_recording_conflict",
-              diagnostics: [],
-              message: `Teaching Recording ${params.recordingId} has no active Dry Run. (teaching_recording_conflict)`,
-            })
-          );
-        }
-        const dryRunSessionId =
-          "dryRunSessionId" in current.lifecycle
-            ? current.lifecycle.dryRunSessionId
-            : undefined;
-        const reported = yield* (
-          params.outcome === "passed"
-            ? store.passDryRun(params)
-            : store.failDryRun(params)
-        ).pipe(Effect.mapError(failure));
-        if (dryRunSessionId !== undefined) {
-          yield* sessions
-            .close(dryRunSessionId, params.operationId)
-            .pipe(Effect.ignore);
-        }
-        yield* sessions.get(reported.sessionId).pipe(Effect.ignore);
-        return summaryOf(reported);
-      }),
     agent_flow_skill_dry_run_start: (params) =>
+      // Start, persistence, and replay share one receipt and one session identity.
+      // oxlint-disable-next-line eslint/complexity
       Effect.gen(function* startFlowSkillDryRun() {
         const store = yield* TeachingRecordingStore;
         const sessions = yield* AgentSession;
@@ -368,7 +331,30 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
               })
           )
         );
-        const declared = readFlowSkillFrontmatter(skillContent)?.inputs ?? [];
+        const frontmatter = readFlowSkillFrontmatter(skillContent);
+        const declared = frontmatter?.inputs ?? [];
+        const procedure = flowSkillProcedureSteps(skillContent);
+        if (procedure.length === 0) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_invalid",
+              diagnostics: [],
+              message:
+                "The Flow Skill has no numbered steps to assess. (teaching_recording_invalid)",
+            })
+          );
+        }
+        const host = webHost(params.url);
+        const hosts = frontmatter?.hosts ?? [];
+        if (host === undefined || !hosts.includes(host)) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_invalid",
+              diagnostics: [],
+              message: `The Dry Run must start on one of the Teaching Recording's visited hosts: ${hosts.join(", ")}. (teaching_recording_invalid)`,
+            })
+          );
+        }
         const names = new Set(params.inputs.map((input) => input.name));
         if (
           names.size !== params.inputs.length ||
@@ -409,11 +395,93 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           name: input.name,
           value: input.secret ? null : input.value,
         }));
+        const defaults = yield* (yield* AgentRunStore)
+          .ceilings()
+          .pipe(Effect.mapError(sessionFailure));
+        const startedAt = new Date().toISOString();
+        const steps: readonly AgentRunStep[] = procedure.map((step) => ({
+          assessment: null,
+          attempts: 0,
+          confirmation: false,
+          description: step.description,
+          doneWhen: step.doneWhen,
+          endedAt: null,
+          execution: "pending",
+          index: step.index,
+          name: step.name,
+          startedAt: null,
+        }));
+        const run: AgentRunState = {
+          activeStepIndex: null,
+          assessmentCounts: {
+            blocked: 0,
+            inconclusive: 0,
+            notWorking: 0,
+            working: 0,
+          },
+          attribution: {
+            clientName: "flow-skill-dry-run",
+            clientVersion: "1",
+            reportedMetadataVerified: false,
+            reportedModel: null,
+            reportedProvider: null,
+          },
+          ceilings: {
+            extensions: 0,
+            runMs: defaults.runMs,
+            stepMs: defaults.stepMs,
+          },
+          coverage: {
+            complete: false,
+            executed: 0,
+            total: steps.length,
+            unexecuted: steps.length,
+          },
+          endedAt: null,
+          flowSkillName: manifest.flowSkillName,
+          inputs: dryRunInputs.map(({ name, value }) => ({
+            name,
+            value: value ?? "<redacted>",
+          })),
+          outcome: null,
+          runDeadline: startedAt,
+          runId: AgentRunId.make(
+            `agentrun-${createHash("sha256")
+              .update(`${params.recordingId}:${params.operationId}`)
+              .digest("hex")
+              .slice(0, 32)}`
+          ),
+          startedAt,
+          stepDeadline: null,
+          steps,
+          title: manifest.flowSkillName,
+          variables: [],
+        };
+        const evidenceDirectory = path.join(
+          store.directory(manifest.recordingId),
+          "dry-run"
+        );
+        if (!replay) {
+          yield* fileSystem
+            .remove(evidenceDirectory, { force: true, recursive: true })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new TeachingRecordingFailure({
+                    code: "teaching_recording_io",
+                    diagnostics: [],
+                    message: `Could not replace the previous Dry Run evidence: ${cause.message} (teaching_recording_io)`,
+                  })
+              )
+            );
+        }
         const session = yield* sessions
           .start({
             activity: "run",
+            artifactDirectory: evidenceDirectory,
             clientName: "flow-skill-dry-run",
             clientVersion: "1",
+            domainScope: { hosts },
             dryRun: {
               flowSkillName: manifest.flowSkillName,
               inputs: dryRunInputs,
@@ -427,6 +495,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             },
             emulation: manifest.emulation,
             operationId: params.operationId,
+            run,
             url: params.url,
             viewport: manifest.emulation.viewport,
           })
@@ -444,7 +513,10 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             ),
             Effect.mapError(failure)
           );
-        if (started.lifecycle._tag !== "dry-running") {
+        if (
+          !("skillPath" in started.lifecycle) ||
+          (started.lifecycle._tag !== "dry-running" && !replay)
+        ) {
           return yield* Effect.die(
             "A started Dry Run did not enter dry-running."
           );
@@ -493,17 +565,19 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         // the Workspace can only persist the transition. This process watches
         // the durable manifest and closes its own Chromium once the Dry Run
         // leaves dry-running, whichever process ended it.
-        yield* Effect.forkDetach(
-          Effect.sleep("1 second").pipe(
-            Effect.andThen(store.read(params.recordingId)),
-            Effect.map((current) => current.lifecycle._tag !== "dry-running"),
-            Effect.catchCause(() => Effect.succeed(true)),
-            Effect.repeat({ until: (ended: boolean) => ended }),
-            Effect.andThen(
-              sessions.close(session.id, params.operationId).pipe(Effect.ignore)
+        if (!replay) {
+          yield* Effect.forkDetach(
+            Effect.sleep("1 second").pipe(
+              Effect.andThen(store.read(params.recordingId)),
+              Effect.map((current) => current.lifecycle._tag !== "dry-running"),
+              Effect.catchCause(() => Effect.succeed(true)),
+              Effect.repeat({ until: (ended: boolean) => ended }),
+              Effect.andThen(
+                sessions.completeRun(session.id).pipe(Effect.ignore)
+              )
             )
-          )
-        );
+          );
+        }
         return {
           files,
           flowSkillName: started.flowSkillName,

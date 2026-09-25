@@ -128,8 +128,10 @@ const RunTotals = ({
  */
 export const RunSummaryView = ({
   summary,
+  videoSrc,
 }: {
   readonly summary: AgentRunSummary;
+  readonly videoSrc?: string;
 }) => (
   <div className="space-y-5">
     <section aria-labelledby="agent-run-summary" className="space-y-2">
@@ -174,7 +176,7 @@ export const RunSummaryView = ({
           className="w-full rounded-lg border"
           controls
           preload="metadata"
-          src={agentRunVideoPath(summary.runId)}
+          src={videoSrc ?? agentRunVideoPath(summary.runId)}
         >
           <track kind="captions" />
         </video>

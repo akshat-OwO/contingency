@@ -1,4 +1,6 @@
-import { AgentRunId } from "@contingency/protocol";
+import path from "node:path";
+
+import { AgentRunId, TeachingRecordingId } from "@contingency/protocol";
 import { Effect, FileSystem, Schema } from "effect";
 import {
   HttpRouter,
@@ -7,9 +9,11 @@ import {
 } from "effect/unstable/http";
 
 import { AgentRunStore } from "../services/agent-run-store.ts";
+import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";
 import { isAllowedHost } from "../services/web-url.ts";
 
 const isAgentRunId = Schema.is(AgentRunId);
+const isTeachingRecordingId = Schema.is(TeachingRecordingId);
 
 export interface ByteRange {
   readonly end: number;
@@ -86,6 +90,76 @@ export const makeAgentRunArtifactRoutes = ({
         return HttpServerResponse.empty({ status: 404 });
       }
       const file = resolved.success;
+      const info = yield* Effect.result(fileSystem.stat(file));
+      if (info._tag === "Failure") {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      const size = Number(info.success.size);
+      const range = parseByteRange(request.headers.range, size);
+      const headers =
+        range === undefined
+          ? { "accept-ranges": "bytes" }
+          : {
+              "accept-ranges": "bytes",
+              "content-range": `bytes ${range.start}-${range.end}/${size}`,
+            };
+      return yield* HttpServerResponse.file(file, {
+        bytesToRead:
+          range === undefined ? undefined : range.end - range.start + 1,
+        contentType: "video/webm",
+        headers,
+        offset: range?.start,
+        status: range === undefined ? 200 : 206,
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.succeed(HttpServerResponse.empty({ status: 404 }))
+        )
+      );
+    })
+  );
+
+/** Serve the latest Dry Run video only while its Teaching Recording exists. */
+export const makeDryRunArtifactRoutes = ({
+  allowedOrigins,
+}: {
+  readonly allowedOrigins: ReadonlySet<string>;
+}) =>
+  HttpRouter.add(
+    "GET",
+    "/teaching-recordings/:recordingId/dry-run/video",
+    Effect.gen(function* serveDryRunVideo() {
+      const parameters = yield* HttpRouter.params;
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const store = yield* TeachingRecordingStore;
+      if (!isAllowedHost(request.headers.host, allowedOrigins)) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      const recordingId = parameters.recordingId ?? "";
+      if (!isTeachingRecordingId(recordingId)) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      const manifest = yield* Effect.result(store.read(recordingId));
+      if (
+        manifest._tag === "Failure" ||
+        (manifest.success.lifecycle._tag !== "dry-run-passed" &&
+          manifest.success.lifecycle._tag !== "dry-run-failed")
+      ) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      const videoPath = manifest.success.lifecycle.dryRunSummary?.videoPath;
+      if (
+        videoPath === null ||
+        videoPath === undefined ||
+        path.basename(videoPath) !== videoPath
+      ) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      const file = path.join(
+        store.directory(recordingId),
+        "dry-run",
+        videoPath
+      );
       const info = yield* Effect.result(fileSystem.stat(file));
       if (info._tag === "Failure") {
         return HttpServerResponse.empty({ status: 404 });

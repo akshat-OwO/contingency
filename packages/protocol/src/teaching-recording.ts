@@ -11,8 +11,12 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
+import { AgentRunSummary } from "./agent-run.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
+import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+
+export { FlowSkillName } from "./flow-skill-identifiers.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -32,11 +36,6 @@ export const TeachingRecordingId = Schema.String.check(
   Schema.isPattern(/^recording-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
 ).pipe(Schema.brand("@contingency/TeachingRecordingId"));
 export type TeachingRecordingId = typeof TeachingRecordingId.Type;
-
-export const FlowSkillName = Schema.String.check(
-  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/u)
-).pipe(Schema.brand("@contingency/FlowSkillName"));
-export type FlowSkillName = typeof FlowSkillName.Type;
 
 /** The whole rule, stated the way a caller can act on it. */
 export const flowSkillNameRule =
@@ -153,6 +152,7 @@ const DryRunFailed = Schema.TaggedStruct("dry-run-failed", {
   dryRunResult: FlowSkillDryRunResult,
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
+  dryRunSummary: Schema.optional(Schema.suspend(() => AgentRunSummary)),
   readyAt: nonEmptyString,
   skillPath: nonEmptyString,
   startedAt: nonEmptyString,
@@ -165,6 +165,7 @@ const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
   dryRunResult: FlowSkillDryRunResult,
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
+  dryRunSummary: Schema.optional(Schema.suspend(() => AgentRunSummary)),
   readyAt: nonEmptyString,
   skillPath: nonEmptyString,
   startedAt: nonEmptyString,
@@ -236,6 +237,7 @@ export const TeachingRecordingOperation = Schema.Literals([
   "start-dry-run",
   "fail-dry-run",
   "pass-dry-run",
+  "complete-dry-run",
   "reject",
   "cleanup",
   "verification",

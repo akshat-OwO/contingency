@@ -173,6 +173,7 @@ export const mcpCommand = Command.make(
             mcp: makeMcpHttpLayer(allowedOrigins).pipe(Layer.provide(shared)),
             port,
             serveWebUi: true,
+            teachingRecordingStore,
           }).pipe(Layer.provide(agentSession))
         ).pipe(Effect.result);
         if (Result.isSuccess(httpOutcome)) {

@@ -20,6 +20,12 @@ import {
 import { withStrictParameters } from "../../src/services/mcp-strict-parameters.ts";
 import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
 
+it("omits the superseded Dry Run report tool", () => {
+  expect(Object.keys(TeachingRecordingTools.tools)).not.toContain(
+    "agent_flow_skill_dry_run_report"
+  );
+});
+
 /**
  * No handler may run when parameters are refused, so every dependency dies if
  * it is touched.

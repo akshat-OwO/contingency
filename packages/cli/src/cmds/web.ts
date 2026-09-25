@@ -86,6 +86,7 @@ export const webCommand = Command.make(
             host: config.host,
             port: config.port,
             serveWebUi: isProduction,
+            teachingRecordingStore,
           }).pipe(Layer.provide(agentSession))
         );
         if (noBrowser) {

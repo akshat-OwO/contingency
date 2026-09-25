@@ -108,7 +108,7 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
 const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
   dependencies: [AgentSession],
   description:
-    'Report your evidence-backed judgment of the active Agent Step: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted, which is reported as incomplete coverage rather than as a failure of the website. Assessing the last Agent Step, or ending the Steps early, ends the Run then and there: Contingency closes the browser and writes the persistent Run Summary, which `open_run` reads.',
+    'Report your evidence-backed judgment of the active Agent Step in an Interactive Run or Dry Run: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted. Assessing the last Agent Step or ending early closes the browser and writes a Run Summary. A Dry Run passes only when every Step is working, coverage is complete, and no Takeover occurred. Its Summary stays with the Teaching Recording and cannot be opened with open_run.',
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     evidence: AgentRunStepAssess.fields.evidence,
@@ -123,7 +123,7 @@ const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession],
   description:
-    "End the Interactive Run early, before its ordered Agent Steps are exhausted, and optionally record your closing account of it. A Run that ends on its own — its last Agent Step assessed, a terminal Agent Assessment, or a ceiling — has already finalized the Trace and video, closed the live browser, and written the persistent Run Summary, and this answers with that same Summary rather than writing a second one. The Summary reports assessment counts separately from complete or incomplete coverage. Nothing leaves the machine.",
+    "End an Interactive Run or Dry Run early, before its ordered Agent Steps are exhausted, and optionally record your closing account. An early Dry Run ending fails. A session that ended on its own has already finalized the Trace and video, closed the browser, and written its Run Summary; this answers with that same Summary. Nothing leaves the machine.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,

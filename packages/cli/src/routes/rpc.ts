@@ -214,7 +214,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               // Closing here covers a Workspace that owns it; the starting
               // process closes its own once the manifest leaves dry-running.
               yield* agentUnavailable((service) =>
-                service.close(lifecycle.dryRunSessionId, data.operationId)
+                service.completeRun(lifecycle.dryRunSessionId)
               ).pipe(Effect.ignore);
             }
             return {

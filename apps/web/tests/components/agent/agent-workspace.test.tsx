@@ -1234,6 +1234,73 @@ const dryRunPassedSession = {
   teaching: { actionCount: 4, instructionCount: 0, instructions: [] },
 } satisfies unknown;
 
+test("shows a Dry Run's assessments and video beside verification", async () => {
+  const dryRunSummary = {
+    assessmentCounts: {
+      blocked: 0,
+      inconclusive: 0,
+      notWorking: 0,
+      working: 1,
+    },
+    attribution: {
+      clientName: "verify",
+      clientVersion: "1",
+      reportedMetadataVerified: false,
+      reportedModel: null,
+      reportedProvider: null,
+    },
+    ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
+    coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
+    endedAt: "2026-08-31T00:00:08.000Z",
+    flowSkillName: "add-anvil",
+    inputs: [],
+    outcome: "completed",
+    runId: "agentrun-dry-test",
+    schemaVersion: 2,
+    sessionId: "agent-dry-test",
+    startedAt: "2026-08-31T00:00:06.000Z",
+    steps: [
+      {
+        assessment: {
+          attempts: 1,
+          evidence: [{ id: "snapshot-1", kind: "snapshot" }],
+          explanation: "The anvil is in the cart.",
+          outcome: "working",
+          submittedAt: "2026-08-31T00:00:08.000Z",
+        },
+        attempts: 1,
+        confirmation: false,
+        description: "Add the anvil.",
+        doneWhen: "the anvil is in the cart.",
+        endedAt: "2026-08-31T00:00:08.000Z",
+        execution: "assessed",
+        index: 0,
+        name: "Add anvil",
+        startedAt: "2026-08-31T00:00:06.000Z",
+      },
+    ],
+    timeline: [],
+    title: "Add anvil",
+    tracePath: "agent-dry-test.trace.zip",
+    videoPath: "agent-dry-test.webm",
+  };
+  const withSummary = {
+    ...dryRunPassedSession,
+    captureState: { ...dryRunPassedSession.captureState, dryRunSummary },
+  };
+  renderWorkspace(resultFor([withSummary]), session.id);
+
+  expect(
+    await screen.findByRole("complementary", { name: "Dry Run Summary" })
+  ).toBeVisible();
+  expect(screen.getByText("The anvil is in the cart.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Verify flow" })).toBeVisible();
+  expect(screen.getByLabelText("Recorded Run video")).toHaveAttribute(
+    "src",
+    "/teaching-recordings/recording-add-anvil/dry-run/video"
+  );
+});
+
 test("says which lifecycle refused a gesture instead of rendering an object", async () => {
   const user = userEvent.setup();
   // The refusal shape behind #211: an RPC error, not an `Error`.
