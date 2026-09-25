@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type {
   AgentSessionId,
+  AgentRunSummary,
   DraftEmulation,
   FlowSkillDryRunResult,
   FlowSkillName,
@@ -79,6 +80,7 @@ export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation 
 
 export interface TeachingRecordingDryRunReport extends TeachingRecordingMutation {
   readonly observableOutcome: string;
+  readonly summary?: AgentRunSummary;
 }
 
 export interface TeachingRecordingStop extends TeachingRecordingMutation {
@@ -111,6 +113,9 @@ export interface TeachingRecordingStoreService {
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly cleanup: (
     input: TeachingRecordingMutation
+  ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly attachDryRunSummary: (
+    input: TeachingRecordingMutation & { readonly summary: AgentRunSummary }
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   /**
    * Throw away a recording the user does not want to keep. The captured
@@ -1135,6 +1140,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 dryRunResult: result,
                 dryRunSessionId: lifecycle.dryRunSessionId,
                 dryRunStartedAt: lifecycle.dryRunStartedAt,
+                dryRunSummary: input.summary,
                 readyAt: lifecycle.readyAt,
                 skillPath: lifecycle.skillPath,
                 startedAt: lifecycle.startedAt,
@@ -1149,6 +1155,34 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
 
     const failDryRun = (input: TeachingRecordingDryRunReport) =>
       reportDryRun(input, "failed");
+
+    const attachDryRunSummary = (
+      input: TeachingRecordingMutation & { readonly summary: AgentRunSummary }
+    ) =>
+      mutate(
+        input.recordingId,
+        "complete-dry-run",
+        input.operationId,
+        (manifest) => {
+          const { lifecycle } = manifest;
+          if (
+            (lifecycle._tag !== "dry-run-failed" &&
+              lifecycle._tag !== "dry-run-passed") ||
+            lifecycle.dryRunSessionId !== input.summary.sessionId
+          ) {
+            return Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                "The Dry Run Summary does not match the latest Dry Run."
+              )
+            );
+          }
+          return Effect.succeed({
+            ...manifest,
+            lifecycle: { ...lifecycle, dryRunSummary: input.summary },
+          });
+        }
+      );
 
     const markVerificationReference = (
       manifest: PendingTeachingRecordingManifest,
@@ -1510,6 +1544,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     );
 
     return TeachingRecordingStore.of({
+      attachDryRunSummary,
       begin,
       cleanup,
       directory: recordingDirectory,

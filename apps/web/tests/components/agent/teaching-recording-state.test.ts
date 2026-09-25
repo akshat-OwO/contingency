@@ -130,7 +130,8 @@ test("hands the dry run to an agent with the inputs it must change", () => {
   expect(prompt).toContain('"add-anvil"');
   expect(prompt).toContain("recording-7");
   expect(prompt).toContain("agent_flow_skill_dry_run_start");
-  expect(prompt).toContain("agent_flow_skill_dry_run_report");
+  expect(prompt).toContain("agent_run_step_assess");
+  expect(prompt).not.toContain("agent_flow_skill_dry_run_report");
   // The whole reason this is a hand-off rather than a button.
   expect(prompt).toContain("differs from the recorded journey");
 });

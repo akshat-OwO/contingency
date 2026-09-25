@@ -41,6 +41,7 @@ import {
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
+import { RunSummaryView } from "@/components/agent/run-view";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
 import type {
@@ -2110,7 +2111,7 @@ export const AgentWorkspace = ({
   const recording = teaching && session.captureState._tag === "recording";
 
   return (
-    <div className="flex h-svh min-h-0 flex-col">
+    <div className="relative flex h-svh min-h-0 flex-col">
       <AgentLiveView
         canvasRef={view.canvasRef}
         dock={
@@ -2181,6 +2182,20 @@ export const AgentWorkspace = ({
         session={session}
         state={state}
       />
+      {session.activity === "teaching" &&
+      (session.captureState._tag === "dry-run-passed" ||
+        session.captureState._tag === "dry-run-failed") &&
+      session.captureState.dryRunSummary !== undefined ? (
+        <aside
+          aria-label="Dry Run Summary"
+          className="bg-background absolute top-20 right-4 z-10 max-h-[calc(100svh-6rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border p-4 shadow-lg"
+        >
+          <RunSummaryView
+            summary={session.captureState.dryRunSummary}
+            videoSrc={`/teaching-recordings/${session.recordingId}/dry-run/video`}
+          />
+        </aside>
+      ) : null}
     </div>
   );
 };

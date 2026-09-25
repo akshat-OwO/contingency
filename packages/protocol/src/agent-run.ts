@@ -3,8 +3,8 @@ import { Schema } from "effect";
 import { AgentTimelineEntry } from "./agent-browser.ts";
 import { AgentSessionVariableState } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
+import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
-import { FlowSkillName } from "./teaching-recording.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 

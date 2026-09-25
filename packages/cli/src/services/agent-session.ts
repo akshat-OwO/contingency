@@ -8,6 +8,7 @@ import {
   AgentElementRef,
   AgentPendingDecisionId,
   AgentSessionId,
+  AgentRunSummary,
   describeActionSubject,
   describeAgentAction,
   makeBrowserRpcError,
@@ -33,7 +34,6 @@ import type {
   AgentRunId,
   AgentRunState,
   AgentRunStep,
-  AgentRunSummary,
   AgentPendingDecision,
   AgentPendingDecisionResolution,
   AgentPendingDecisionResolve,
@@ -1193,6 +1193,7 @@ interface BoundaryControl {
 }
 
 interface SessionRecord {
+  readonly dryRunControl: { hadTakeover: boolean };
   readonly boundaryControl: BoundaryControl | undefined;
   /** Private Create Browser handle. Never included in protocol snapshots. */
   readonly browserSessionId: SessionId;
@@ -3162,7 +3163,7 @@ const makeAgentSession = (
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
-      const declaring = record.snapshot.run ?? record.snapshot.dryRun;
+      const declaring = record.snapshot.dryRun ?? record.snapshot.run;
       if (declaring === null) {
         return {
           _tag: "error",
@@ -3842,6 +3843,7 @@ const makeAgentSession = (
                     inFlight: undefined,
                     lock: Semaphore.makeUnsafe(1),
                   },
+                  dryRunControl: { hadTakeover: false },
                   emulation,
                   finalized: { persisted: false, summary: undefined },
                   registry,
@@ -5122,6 +5124,9 @@ const makeAgentSession = (
             )
           );
         }
+        if (by === "user" && record.snapshot.dryRun !== null) {
+          record.dryRunControl.hadTakeover = true;
+        }
         record.boundaryControl?.grants.clear();
         const inFlight = by === "user" ? record.control.inFlight : undefined;
         let interruptedAction: AgentTimelineEntry | null = null;
@@ -5398,27 +5403,127 @@ const makeAgentSession = (
     const persistRunSummary = (
       record: SessionRecord,
       summary: AgentRunSummary
-    ): Effect.Effect<AgentRunSummary, AgentSessionError> =>
-      runStore === undefined
-        ? Effect.sync(() => {
-            // Nothing owns a Catalog Root in this process, so there is no
-            // write to retry and nothing to report as unwritten.
-            record.finalized.persisted = true;
-            return summary;
-          })
-        : runStore.write(summary).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                record.finalized.persisted = true;
-              })
-            ),
-            Effect.mapError((cause) =>
+    ): Effect.Effect<AgentRunSummary, AgentSessionError> => {
+      if (record.snapshot.dryRun !== null) {
+        return Effect.gen(function* persistDryRunSummary() {
+          const { dryRun } = record.snapshot;
+          const directory = record.artifactDirectory;
+          if (
+            dryRun === null ||
+            directory === undefined ||
+            fileSystem === undefined ||
+            teachingRecordingStore === undefined
+          ) {
+            return yield* Effect.fail(
               error(
                 "agent_session_unavailable",
-                `Run ${summary.runId} ended but its Run Summary could not be written: ${cause.message}`
+                "The Dry Run has no Teaching evidence store."
               )
+            );
+          }
+          yield* fileSystem
+            .writeFileString(
+              path.join(directory, "summary.json"),
+              `${JSON.stringify(Schema.encodeSync(AgentRunSummary)(summary), null, 2)}\n`,
+              { mode: 0o600 }
             )
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_unavailable",
+                  `Could not save the Dry Run Summary: ${cause.message}`
+                )
+              )
+            );
+          const passed =
+            summary.coverage.complete &&
+            summary.steps.every(
+              (step) => step.assessment?.outcome === "working"
+            ) &&
+            !record.dryRunControl.hadTakeover;
+          const lastAssessed = summary.steps.findLast(
+            (step) => step.assessment !== null
           );
+          const observableOutcome =
+            lastAssessed === undefined
+              ? "No Agent Step was assessed."
+              : `Done when: ${lastAssessed.doneWhen} ${lastAssessed.assessment?.explanation ?? ""}`.trim();
+          const mutation = {
+            observableOutcome,
+            operationId: OperationId.make(
+              `dry-run-finish-${summary.sessionId}`
+            ),
+            recordingId: dryRun.recordingId,
+            summary,
+          };
+          const manifest = yield* teachingRecordingStore
+            .read(dryRun.recordingId)
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_unavailable",
+                  `Could not read the Dry Run: ${cause.message}`
+                )
+              )
+            );
+          if (manifest.lifecycle._tag === "dry-running") {
+            yield* (
+              passed
+                ? teachingRecordingStore.passDryRun(mutation)
+                : teachingRecordingStore.failDryRun(mutation)
+            ).pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_unavailable",
+                  `Could not finish the Dry Run: ${cause.message}`
+                )
+              )
+            );
+          } else if (
+            manifest.lifecycle._tag === "dry-run-failed" &&
+            manifest.lifecycle.dryRunSummary === undefined
+          ) {
+            yield* teachingRecordingStore
+              .attachDryRunSummary({
+                operationId: OperationId.make(
+                  `dry-run-summary-${summary.sessionId}`
+                ),
+                recordingId: dryRun.recordingId,
+                summary,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  error(
+                    "agent_session_unavailable",
+                    `Could not attach the Dry Run Summary: ${cause.message}`
+                  )
+                )
+              );
+          }
+          record.finalized.persisted = true;
+          return summary;
+        });
+      }
+      if (runStore === undefined) {
+        return Effect.sync(() => {
+          record.finalized.persisted = true;
+          return summary;
+        });
+      }
+      return runStore.write(summary).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            record.finalized.persisted = true;
+          })
+        ),
+        Effect.mapError((cause) =>
+          error(
+            "agent_session_unavailable",
+            `Run ${summary.runId} ended but its Run Summary could not be written: ${cause.message}`
+          )
+        )
+      );
+    };
 
     /**
      * Finalize a Run exactly once: close the browser, seal the Trace and the

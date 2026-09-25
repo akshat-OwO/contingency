@@ -8,11 +8,15 @@ import { Layer } from "effect";
 import type { Cause, FileSystem } from "effect";
 import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
 
-import { makeAgentRunArtifactRoutes } from "../routes/agent-run-artifacts.ts";
+import {
+  makeAgentRunArtifactRoutes,
+  makeDryRunArtifactRoutes,
+} from "../routes/agent-run-artifacts.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
 
 export { isAllowedWebSocketOrigin } from "./web-url.ts";
 
@@ -62,6 +66,7 @@ export interface HttpServerOptions {
    * and the read-only viewer. Absent in a process that serves no Runs.
    */
   readonly agentRunStore?: Layer.Layer<AgentRunStoreService>;
+  readonly teachingRecordingStore: Layer.Layer<TeachingRecordingStoreService>;
   readonly allowedOrigins: ReadonlySet<string>;
   /** A shared process-owned registry for MCP and the Workspace, when supplied. */
   readonly agentSession?: Layer.Layer<
@@ -87,6 +92,7 @@ export const makeHttpServerLayer = ({
   mcp = Layer.empty,
   port,
   serveWebUi,
+  teachingRecordingStore,
 }: HttpServerOptions) => {
   const webRoutes = serveWebUi
     ? HttpStaticServer.layer({ root: webRoot, spa: true })
@@ -113,7 +119,11 @@ export const makeHttpServerLayer = ({
     : serveRoutes(
         Layer.mergeAll(
           agentRpcRoutes,
-          makeAgentRunArtifactRoutes({ allowedOrigins })
+          makeAgentRunArtifactRoutes({ allowedOrigins }),
+          makeDryRunArtifactRoutes({ allowedOrigins })
         )
-      ).pipe(Layer.provide(agentRunStore));
+      ).pipe(
+        Layer.provide(agentRunStore),
+        Layer.provide(teachingRecordingStore)
+      );
 };
