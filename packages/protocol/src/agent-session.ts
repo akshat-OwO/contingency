@@ -40,6 +40,10 @@ export const AgentSessionPhase = Schema.Literals([
 ]);
 export type AgentSessionPhase = typeof AgentSessionPhase.Type;
 
+/** Whether a session in this phase still has a browser that can be driven. */
+export const isLiveAgentSessionPhase = (phase: AgentSessionPhase): boolean =>
+  phase === "starting" || phase === "running" || phase === "takeover";
+
 export const AgentTakeoverRequest = Schema.Struct({
   reason: nonEmptyString,
   requestedAt: nonEmptyString,

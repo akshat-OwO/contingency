@@ -1,5 +1,6 @@
 import type {
   AgentSessionController,
+  AgentSessionPhase,
   AgentSessionId,
   AgentSessionSnapshot,
   TeachingCaptureState,
@@ -205,6 +206,7 @@ export const TeachingRecordingDock = ({
   onSelectSession,
   onToggleInspect,
   pending,
+  phase,
   selectedSessionId,
   sessions,
 }: {
@@ -229,13 +231,16 @@ export const TeachingRecordingDock = ({
   readonly onSelectSession: (sessionId: string) => void;
   readonly onToggleInspect: () => void;
   readonly pending: boolean;
+  /** Whether the session is still live. An ended one offers no setup actions. */
+  readonly phase: AgentSessionPhase;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
   const presentation = teachingRecordingPresentation(
     captureState,
     cleanup,
-    controller
+    controller,
+    phase
   );
   const { action } = presentation;
   const [rename, setRename] = useState("");

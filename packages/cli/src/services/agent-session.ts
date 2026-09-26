@@ -13,9 +13,12 @@ import {
   describeAgentAction,
   makeBrowserRpcError,
   UserAgentProfileId,
+  TeachingCaptureState,
+  TeachingRecordingCleanupState,
   TeachingRecordingId,
   describeFlowSkillName,
   FlowSkillName,
+  isLiveAgentSessionPhase,
   flowSkillNameRule,
   ContentHash,
   OperationId,
@@ -792,8 +795,26 @@ const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
     `${description} Teaching is user-led: the user drives the browser and you observe. You may act only while preparing an agent-opened Teaching session's setup, before agent_teaching_setup_handoff. Record an Instruction with agent_teaching_instruction_record and ask the user to demonstrate the step; browser actions are yours to make during an Interactive Run.`
   );
 
-const isLive = (phase: AgentSessionSnapshot["phase"]): boolean =>
-  phase === "starting" || phase === "running" || phase === "takeover";
+const isLive = isLiveAgentSessionPhase;
+
+const sameCaptureState = Schema.toEquivalence(TeachingCaptureState);
+const sameRecordingCleanup = Schema.toEquivalence(
+  TeachingRecordingCleanupState
+);
+
+/**
+ * Whether the Teaching Recording manifest says something the session snapshot
+ * does not. Timestamps cannot answer that: the manifest and the snapshot are
+ * stamped by separate writes, so they differ even when they agree (#268).
+ */
+const manifestDiverges = (
+  snapshot: Extract<AgentSessionSnapshot, { readonly activity: "teaching" }>,
+  manifest: TeachingRecordingManifest
+): boolean =>
+  !sameCaptureState(snapshot.captureState, manifest.lifecycle) ||
+  snapshot.recordingCleanup === undefined ||
+  snapshot.recordingCleanup === null ||
+  !sameRecordingCleanup(snapshot.recordingCleanup, manifest.cleanup);
 
 /** Keep the control event useful to the compiler without persisting typed text. */
 const teachingInput = (input: BrowserInput): CapturedUserInput => {
@@ -1954,14 +1975,20 @@ const makeAgentSession = (
                 Effect.flatMap((readResult) => {
                   if (Result.isSuccess(readResult)) {
                     const manifest = readResult.success;
+                    // `updatedAt` only moves forward: a manifest written
+                    // before the snapshot's last change keeps its lifecycle
+                    // but not its older timestamp.
                     return mutate(sessionId, (current) =>
                       current.activity === "teaching" &&
-                      current.updatedAt !== manifest.updatedAt
+                      manifestDiverges(current, manifest)
                         ? {
                             ...current,
                             captureState: manifest.lifecycle,
                             recordingCleanup: manifest.cleanup,
-                            updatedAt: manifest.updatedAt,
+                            updatedAt:
+                              manifest.updatedAt > current.updatedAt
+                                ? manifest.updatedAt
+                                : now().toISOString(),
                           }
                         : current
                     ).pipe(Effect.map((next) => next ?? snapshot));
@@ -2989,7 +3016,6 @@ const makeAgentSession = (
                 startedAt,
                 stoppedAt,
               },
-              controller: "agent" as const,
               phase: "closed" as const,
               takeover: null,
               updatedAt: stoppedAt,
@@ -3019,7 +3045,6 @@ const makeAgentSession = (
                 ? {
                     ...record.snapshot,
                     boundary: null,
-                    controller: "agent" as const,
                     phase: "closed" as const,
                     takeover: null,
                     updatedAt: at,
@@ -3027,7 +3052,6 @@ const makeAgentSession = (
                 : {
                     ...record.snapshot,
                     boundary: null,
-                    controller: "agent" as const,
                     phase: "closed" as const,
                     run:
                       record.snapshot.run === null ||
@@ -3071,7 +3095,6 @@ const makeAgentSession = (
         const at = now().toISOString();
         const interrupted: AgentSessionSnapshot = {
           ...record.snapshot,
-          controller: "agent",
           error:
             "The owning process stopped before this Agent Session completed.",
           phase: "interrupted",
@@ -3587,6 +3610,12 @@ const makeAgentSession = (
           readonly identity: {
             readonly flowSkillName: FlowSkillName;
             readonly recordingId: TeachingRecordingId;
+            /**
+             * When the capture was requested. With recording storage it is
+             * the manifest's instant, so reading the manifest back never
+             * moves it (#268).
+             */
+            readonly requestedAt: string;
           };
         }
       | { readonly _tag: "none" },
@@ -3616,7 +3645,10 @@ const makeAgentSession = (
           ),
         };
         if (teachingRecordingStore === undefined) {
-          return { _tag: "fresh" as const, identity };
+          return {
+            _tag: "fresh" as const,
+            identity: { ...identity, requestedAt: now().toISOString() },
+          };
         }
         const begun = yield* teachingRecordingStore
           .begin({
@@ -3638,9 +3670,17 @@ const makeAgentSession = (
           startInput.operationId,
           startRequestInput
         );
-        return durable === null
-          ? { _tag: "fresh" as const, identity }
-          : { _tag: "durable" as const, snapshot: durable };
+        if (durable !== null) {
+          return { _tag: "durable" as const, snapshot: durable };
+        }
+        const requestedAt =
+          begun.lifecycle._tag === "setup"
+            ? begun.lifecycle.requestedAt
+            : begun.updatedAt;
+        return {
+          _tag: "fresh" as const,
+          identity: { ...identity, requestedAt },
+        };
       });
 
     /**
@@ -3840,7 +3880,10 @@ const makeAgentSession = (
                     : {
                         ...common,
                         activity: "teaching" as const,
-                        captureState: { _tag: "setup", requestedAt: at },
+                        captureState: {
+                          _tag: "setup",
+                          requestedAt: teachingIdentity.requestedAt,
+                        },
                         controller: input.openedBy ?? "user",
                         dryRun: null,
                         flowSkillName: teachingIdentity.flowSkillName,

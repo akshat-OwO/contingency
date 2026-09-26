@@ -641,6 +641,17 @@ test("offers no control exchange during a user-led Demonstration", async () => {
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
 });
 
+test("names who held the browser when a Run ended, without a control", async () => {
+  renderWorkspace(
+    resultFor([{ ...session, controller: "user", phase: "closed" }]),
+    session.id
+  );
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("You had control.");
+  expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
+});
+
 test("starts and stops Teaching recording from the privacy dock", async () => {
   const user = userEvent.setup();
   const setup = {
