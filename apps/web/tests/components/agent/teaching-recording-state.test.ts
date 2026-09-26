@@ -165,3 +165,21 @@ test("repeats a transport failure as the server told it", () => {
     gestureFailureMessage("start", new Error("The Workspace lost the socket."))
   ).toBe("The Workspace lost the socket.");
 });
+
+test("offers Start only once the agent hands Teaching setup to the user", () => {
+  const setup = {
+    _tag: "setup",
+    requestedAt: "2026-09-16T10:00:00.000Z",
+  } as const;
+
+  // An agent-opened session is being prepared: Start is absent, not
+  // disabled, until the handoff (ADR 0042).
+  const preparing = teachingRecordingPresentation(setup, undefined, "agent");
+  expect(preparing.action).toBeNull();
+  expect(preparing.badge).toBe("Agent preparing");
+  expect(preparing.nextStep).toContain("hands you control");
+
+  const handedOff = teachingRecordingPresentation(setup, undefined, "user");
+  expect(handedOff.action?.gesture).toBe("start");
+  expect(handedOff.badge).toBe("Not recording");
+});

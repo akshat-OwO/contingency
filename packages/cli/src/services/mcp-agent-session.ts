@@ -10,6 +10,7 @@ import {
   AgentSessionStart,
   AgentSessions,
   AgentSessionTakeover,
+  AgentTeachingSetupHandoff,
   AgentVariableEnter,
 } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
@@ -78,6 +79,11 @@ const AgentTakeoverParameters = Schema.Struct({
   sessionId: AgentSessionTakeover.fields.sessionId,
 });
 
+const AgentTeachingSetupHandoffParameters = Schema.Struct({
+  operationId: AgentTeachingSetupHandoff.fields.operationId,
+  sessionId: AgentTeachingSetupHandoff.fields.sessionId,
+});
+
 // `agent_sessions_get` takes no arguments. An empty `Schema.Struct({})` encodes
 // to `anyOf: [object, array]`, which MCP clients reject because `tools/list`
 // requires `inputSchema.type` to be `"object"` — one bad entry fails the whole
@@ -96,7 +102,7 @@ const AgentSessionsGetTool = Tool.make("agent_sessions_get", {
 const AgentSessionStartTool = Tool.make("agent_session_start", {
   dependencies: [AgentSession],
   description:
-    "Start a process-owned Agent Session and return its loopback Workspace URL. Pass `emulation` to run under a whole browser identity — a user agent profile such as chrome-iphone or safari-iphone, its viewport, and the environment around it — rather than a default desktop identity at `viewport`. For Teaching, `name` becomes the Flow Skill name: 1 to 128 characters of letters, numbers, spaces, dots, dashes, and underscores, starting with a letter or a number.",
+    "Start a process-owned Agent Session and return its loopback Workspace URL. A Teaching session you start opens in setup with you holding the browser: prepare prerequisites such as signing in or choosing a delivery location with agent_browser_act, then call agent_teaching_setup_handoff so the user can start recording. Nothing you do in setup is recorded. Pass `emulation` to run under a whole browser identity — a user agent profile such as chrome-iphone or safari-iphone, its viewport, and the environment around it — rather than a default desktop identity at `viewport`. For Teaching, `name` becomes the Flow Skill name: 1 to 128 characters of letters, numbers, spaces, dots, dashes, and underscores, starting with a letter or a number.",
   failure: AgentSessionFailure,
   parameters: AgentSessionStartParameters,
   success: AgentSessionSnapshot,
@@ -141,7 +147,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    "Perform one browser action during a Run. Teaching refuses this tool: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent's own words. Set intent.objectiveKind to \"new\" only when deliberately starting work outside the Flow Skill's Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result's Snapshot is read once the Page settles, up to two seconds, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice.",
+    "Perform one browser action during a Run, or while preparing the setup of a Teaching session you started. Teaching refuses this tool once you hand control to the user: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent's own words. Set intent.objectiveKind to \"new\" only when deliberately starting work outside the Flow Skill's Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result's Snapshot is read once the Page settles, up to two seconds, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice.",
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,
@@ -150,11 +156,23 @@ const AgentBrowserActTool = Tool.make("agent_browser_act", {
 const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
   dependencies: [AgentSession],
   description:
-    "Ask the user to take control of an Interactive Run. This pauses agent actions and answers immediately with the Workspace link; only the user can return control. Teaching has no Takeover: the user already holds the browser.",
+    "Ask the user to take control of an Interactive Run. This pauses agent actions and answers immediately with the Workspace link; only the user can return control. Teaching has no Takeover: hand a prepared Teaching setup to the user with agent_teaching_setup_handoff.",
   failure: AgentSessionFailure,
   parameters: AgentTakeoverParameters,
   success: AgentSessionSnapshot,
 });
+
+const AgentTeachingSetupHandoffTool = Tool.make(
+  "agent_teaching_setup_handoff",
+  {
+    dependencies: [AgentSession],
+    description:
+      "Hand an agent-prepared Teaching browser to the user once setup is done. The user then starts recording and demonstrates the journey; you cannot act in this Teaching session again. Retrying answers with the same user-held session.",
+    failure: AgentSessionFailure,
+    parameters: AgentTeachingSetupHandoffParameters,
+    success: AgentSessionSnapshot,
+  }
+);
 
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
@@ -185,6 +203,7 @@ export const AgentSessionTools = withStrictParameters(
     AgentBrowserScreenshotTool,
     AgentBrowserActTool,
     AgentTakeoverRequestTool,
+    AgentTeachingSetupHandoffTool,
     AgentVariableEnterTool
   )
 );
@@ -229,7 +248,9 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_session_start: (params) =>
     Effect.gen(function* startAgentSession() {
       const service = yield* AgentSession;
-      return yield* service.start(params).pipe(Effect.mapError(failure));
+      return yield* service
+        .start({ ...params, openedBy: "agent" })
+        .pipe(Effect.mapError(failure));
     }),
   agent_session_takeover_request: (params) =>
     Effect.gen(function* requestAgentTakeover() {
@@ -242,6 +263,13 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
     Effect.gen(function* listAgentSessions() {
       const service = yield* AgentSession;
       return { sessions: yield* service.list() };
+    }),
+  agent_teaching_setup_handoff: (params) =>
+    Effect.gen(function* handOffTeachingSetup() {
+      const service = yield* AgentSession;
+      return yield* service
+        .handOffTeachingSetup(params.sessionId, params.operationId)
+        .pipe(Effect.mapError(failure));
     }),
   agent_variable_enter: (params) =>
     Effect.gen(function* enterSuppliedVariable() {

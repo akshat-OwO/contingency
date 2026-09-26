@@ -8,7 +8,7 @@ import { AgentSession } from "../../src/services/agent-session.ts";
 import {
   agentProcessLayer,
   agentViewport,
-  sessionTool,
+  startUserTeaching,
   teachingRecordingTool,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
@@ -47,7 +47,7 @@ it.live("records typing into one field as one fill named by the field", () =>
     const fixtures = yield* fixtureServer;
 
     yield* Effect.gen(function* demonstrateTyping() {
-      const started = yield* sessionTool("agent_session_start", {
+      const started = yield* startUserTeaching({
         activity: "teaching",
         clientName: "integration-recorder",
         clientVersion: "1.0.0",

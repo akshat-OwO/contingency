@@ -1,4 +1,5 @@
 import type {
+  AgentSessionController,
   AgentSessionId,
   AgentSessionSnapshot,
   TeachingCaptureState,
@@ -194,6 +195,7 @@ const RecordingComments = ({
 export const TeachingRecordingDock = ({
   captureState,
   cleanup,
+  controller,
   copied,
   flowSkillName,
   instructions,
@@ -208,6 +210,8 @@ export const TeachingRecordingDock = ({
 }: {
   readonly captureState: TeachingCaptureState;
   readonly cleanup: TeachingRecordingCleanupState | undefined;
+  /** Who holds the browser. Start waits for the agent's setup handoff. */
+  readonly controller: AgentSessionController;
   /** The clipboard hand-off that just succeeded, while its copy is fresh. */
   readonly copied: TeachingClipboardAction | undefined;
   readonly flowSkillName: string;
@@ -228,7 +232,11 @@ export const TeachingRecordingDock = ({
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
-  const presentation = teachingRecordingPresentation(captureState, cleanup);
+  const presentation = teachingRecordingPresentation(
+    captureState,
+    cleanup,
+    controller
+  );
   const { action } = presentation;
   const [rename, setRename] = useState("");
   const [renaming, setRenaming] = useState(false);

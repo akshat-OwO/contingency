@@ -568,6 +568,7 @@ const AgentLiveView = ({
         onClearConsole={onClearConsole}
         onClose={onToggleSetup}
         sessionId={session.id}
+        teaching={session.activity === "teaching"}
         userHoldsBrowser={!readOnly}
       />
       <AgentBrowserCanvas
@@ -2119,6 +2120,7 @@ export const AgentWorkspace = ({
             <TeachingRecordingDock
               captureState={session.captureState}
               cleanup={session.recordingCleanup}
+              controller={session.controller}
               copied={state.recordingCopied}
               flowSkillName={session.flowSkillName}
               instructions={session.teaching.instructions}

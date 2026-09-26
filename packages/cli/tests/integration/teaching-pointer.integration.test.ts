@@ -8,6 +8,7 @@ import {
   agentProcessLayer,
   agentViewport,
   sessionTool,
+  startUserTeaching,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
@@ -23,7 +24,7 @@ it.live("leaves pointer moves out of the session timeline", () =>
     const fixtures = yield* fixtureServer;
 
     yield* Effect.gen(function* moveThenClick() {
-      const started = yield* sessionTool("agent_session_start", {
+      const started = yield* startUserTeaching({
         activity: "teaching",
         clientName: "integration-recorder",
         clientVersion: "1.0.0",

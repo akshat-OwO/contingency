@@ -109,6 +109,7 @@ const renderSetup = (userHoldsBrowser = true) =>
         onClearConsole={() => {}}
         onClose={() => {}}
         sessionId={sessionId}
+        teaching={false}
         userHoldsBrowser={userHoldsBrowser}
       />
     </Harness>
