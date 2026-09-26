@@ -7,7 +7,12 @@ import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
-import { draftEmulation, fixtureServer, NEVER_ANSWERED } from "./harness.ts";
+import {
+  CLOUDFLARE_BLOCK,
+  draftEmulation,
+  fixtureServer,
+  NEVER_ANSWERED,
+} from "./harness.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -231,6 +236,76 @@ it.live("rolls back interrupted implicit opens only", () =>
     );
     yield* Fiber.interrupt(existingOpen);
     expect(yield* browser.list()).toEqual([existingSessionId]);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
+it.live(
+  "presents the browser default identity without headless or automation markers",
+  () =>
+    Effect.gen(function* headedDefaultIdentity() {
+      const browser = yield* CreateBrowser;
+      const fixtures = yield* fixtureServer;
+      const sessionId = yield* browser.create(
+        "create-headed-default",
+        viewport
+      );
+      // Served over HTTP rather than as a `data:` URL: client hints exist only
+      // in a secure context, which loopback is and an opaque origin is not.
+      yield* browser.open(
+        sessionId,
+        fixtures.url("browser-identity.html"),
+        draftEmulation("default", viewport)
+      );
+      yield* waitUntil(() =>
+        fixtures.requests.some((request) =>
+          request.startsWith("/identity-beacon?")
+        )
+      );
+      const beacon =
+        fixtures.requests.find((request) =>
+          request.startsWith("/identity-beacon?")
+        ) ?? "";
+      const page = new URLSearchParams(beacon.split("?")[1]);
+      expect(page.get("userAgent")).toMatch(/ Chrome\//u);
+      expect(page.get("userAgent")).not.toContain("HeadlessChrome");
+      expect(page.get("webdriver")).toBe("false");
+      expect(page.get("brands")).toContain("Chromium/");
+      expect(page.get("brands")).not.toMatch(/headless/iu);
+
+      const document = fixtures.requestHeaders.find(({ url }) =>
+        url.startsWith("/browser-identity.html")
+      );
+      expect(document?.headers["user-agent"]).not.toContain("HeadlessChrome");
+      expect(document?.headers["sec-ch-ua"]).toContain("Chromium");
+      expect(document?.headers["sec-ch-ua"]).not.toMatch(/headless/iu);
+    }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
+it.live("reports a Cloudflare bot protection block on the stream", () =>
+  Effect.gen(function* cloudflareBlock() {
+    const browser = yield* CreateBrowser;
+    const fixtures = yield* fixtureServer;
+    const sessionId = yield* browser.create("create-bot-block", viewport);
+    yield* browser.open(
+      sessionId,
+      `${fixtures.origin}${CLOUDFLARE_BLOCK}`,
+      draftEmulation("default", viewport)
+    );
+    const block = yield* browser.stream(sessionId).pipe(
+      Stream.filter((event) => event.type === "bot_protection_block"),
+      Stream.runHead,
+      Effect.flatMap((result) =>
+        result._tag === "Some"
+          ? Effect.succeed(result.value)
+          : Effect.die("The stream ended before reporting the block.")
+      ),
+      Effect.timeout("10 seconds")
+    );
+    expect(block).toMatchObject({
+      provider: "cloudflare",
+      status: 403,
+      url: `${fixtures.origin}${CLOUDFLARE_BLOCK}`,
+    });
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
 

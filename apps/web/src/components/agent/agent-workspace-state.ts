@@ -1,6 +1,7 @@
 import type {
   AgentSessionId,
   AgentSessionSnapshot,
+  BrowserBotProtectionBlock,
   BrowserConsoleEntry,
 } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
@@ -25,6 +26,8 @@ export type AgentViewPhase =
 export interface AgentViewState {
   /** What the address bar shows while the user holds the browser. */
   readonly address: string;
+  /** The latest request the site's bot protection refused, until dismissed. */
+  readonly botProtectionBlock: BrowserBotProtectionBlock | undefined;
   readonly browserStreamError: string | undefined;
   /** What went wrong the last time the dock tried to raise a Run ceiling. */
   readonly ceilingError: string | undefined;
@@ -73,6 +76,7 @@ export interface AgentViewState {
 
 export const agentViewStateAtom = Atom.make<AgentViewState>({
   address: "",
+  botProtectionBlock: undefined,
   browserStreamError: undefined,
   ceilingError: undefined,
   consoleEntries: [],

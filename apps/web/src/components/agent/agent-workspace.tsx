@@ -39,6 +39,7 @@ import {
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
+import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
 import { RunSummaryView } from "@/components/agent/run-view";
@@ -512,6 +513,7 @@ const AgentLiveView = ({
   onAddressSubmit,
   onClearConsole,
   notices,
+  onDismissBotProtectionBlock,
   onNavigate,
   onToggleSetup,
   recording,
@@ -530,6 +532,7 @@ const AgentLiveView = ({
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onClearConsole: () => void;
+  readonly onDismissBotProtectionBlock: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly onToggleSetup: () => void;
   readonly recording: boolean;
@@ -541,6 +544,7 @@ const AgentLiveView = ({
   const showsNotices =
     notices !== null ||
     secretVariables.length > 0 ||
+    state.botProtectionBlock !== undefined ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
     (session.boundary !== null && session.boundary !== undefined);
@@ -598,6 +602,12 @@ const AgentLiveView = ({
                 <AlertTitle>Browser stream unavailable</AlertTitle>
                 <AlertDescription>{state.browserStreamError}</AlertDescription>
               </Alert>
+            )}
+            {state.botProtectionBlock === undefined ? null : (
+              <BotProtectionNotice
+                block={state.botProtectionBlock}
+                onDismiss={onDismissBotProtectionBlock}
+              />
             )}
             {session.interruptedAction === null ? null : (
               <Alert variant="destructive">
@@ -946,6 +956,7 @@ const useAgentView = (
     pendingFrameRef.current = null;
     setState((current) => ({
       ...current,
+      botProtectionBlock: undefined,
       browserStreamError: undefined,
       consoleEntries: [],
       frameReady: false,
@@ -1012,6 +1023,13 @@ const useAgentView = (
                   session: current.session
                     ? { ...current.session, currentUrl: event.url }
                     : current.session,
+                }));
+                return;
+              }
+              if (event.type === "bot_protection_block") {
+                setState((current) => ({
+                  ...current,
+                  botProtectionBlock: event,
                 }));
                 return;
               }
@@ -1979,6 +1997,7 @@ const useAgentView = (
       ...current,
       address:
         nextSession.currentUrl === "about:blank" ? "" : nextSession.currentUrl,
+      botProtectionBlock: undefined,
       browserStreamError: undefined,
       ceilingError: undefined,
       controlError: undefined,
@@ -2029,6 +2048,10 @@ const useAgentView = (
     setState((current) => ({ ...current, consoleEntries: [] }));
   };
 
+  const dismissBotProtectionBlock = () => {
+    setState((current) => ({ ...current, botProtectionBlock: undefined }));
+  };
+
   const toggleSetup = () => {
     setState((current) => ({ ...current, setupOpen: !current.setupOpen }));
   };
@@ -2040,6 +2063,7 @@ const useAgentView = (
     changeControl,
     changeRecording,
     clearConsole,
+    dismissBotProtectionBlock,
     exitInspect,
     extendCeiling,
     freezeInspect,
@@ -2178,6 +2202,7 @@ export const AgentWorkspace = ({
         onAddressChange={view.setAddress}
         onAddressSubmit={view.submitAddress}
         onClearConsole={view.clearConsole}
+        onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
         onNavigate={view.navigate}
         onToggleSetup={view.toggleSetup}
         recording={recording}

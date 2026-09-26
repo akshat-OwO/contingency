@@ -99,8 +99,6 @@ export interface CreateSessionState {
 
 export interface CreateSession {
   readonly context: BrowserContext;
-  /** The browser's own locale, which clearing a locale override restores. */
-  readonly defaultUserAgent: string;
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
   readonly id: SessionId;
@@ -303,10 +301,7 @@ export const applyIdentity = (
   Effect.gen(function* setPageIdentity() {
     const cdp = yield* requireEmulationSession(session, page);
     yield* tryBrowser("Could not set the user agent", () =>
-      cdp.send(
-        "Emulation.setUserAgentOverride",
-        userAgentOverride(identity, session.defaultUserAgent)
-      )
+      cdp.send("Emulation.setUserAgentOverride", userAgentOverride(identity))
     );
     yield* tryBrowser("Could not set touch emulation", () =>
       cdp.send("Emulation.setTouchEmulationEnabled", touchEmulation(identity))

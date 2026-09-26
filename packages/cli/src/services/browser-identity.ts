@@ -40,18 +40,20 @@ interface CdpDeviceMetricsOverride {
 }
 
 /**
- * `Emulation.setUserAgentOverride` parameters. An absent identity restores the
- * browser's own string, so switching a session back to the default actually
- * clears the override it carried rather than leaving the last one installed.
- * An identity with no declared client hints sends none, which leaves Chromium
- * reporting its own — the honest answer for a string-only override.
+ * `Emulation.setUserAgentOverride` parameters. An absent identity sends the
+ * empty string, which clears the override rather than installing another:
+ * switching a session back to the default drops the one it carried, and the
+ * context's own user agent shows through with Chromium's real client hints.
+ * Restating that string here instead would erase those hints — an override
+ * without metadata reports no brands and sends no `Sec-CH-UA` at all, which no
+ * person's Chrome does (#266). A legacy string-only identity has no hints to
+ * declare, so it sends none.
  */
 export const userAgentOverride = (
-  identity: BrowserIdentity | undefined,
-  defaultUserAgent: string
+  identity?: BrowserIdentity
 ): CdpUserAgentOverride => {
   if (identity === undefined) {
-    return { userAgent: defaultUserAgent };
+    return { userAgent: "" };
   }
   const metadata = identity.userAgentMetadata;
   if (metadata === undefined) {
@@ -78,6 +80,15 @@ export const userAgentOverride = (
     },
   };
 };
+
+/**
+ * The browser's own user agent as a person's Chrome sends it. Headless
+ * Chromium names its product `HeadlessChrome`, and bot protection such as
+ * Cloudflare's rejects that token outright (#266). The rest of the string is
+ * already the one headed Chrome sends, so only the product token changes.
+ */
+export const headedUserAgent = (userAgent: string): string =>
+  userAgent.replace("HeadlessChrome/", "Chrome/");
 
 /**
  * `Emulation.setDeviceMetricsOverride` parameters. The `mobile` flag is what

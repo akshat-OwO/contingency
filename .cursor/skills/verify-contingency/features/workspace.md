@@ -30,6 +30,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-runtime-variables` creates one Pending Decision for each missing runtime Variable, accepts supply or refusal through MCP, and keeps Workspace read-only.
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Timeline or the saved Flow Skill.
 - `workspace-browser-setup` configures the MCP-owned browser during teaching setup: identity, viewport, Emulation environment, and the storage and network panels for the tab the session is showing.
+- `workspace-bot-protection` names the site and the HTTP status when a site's bot protection (Cloudflare today) refuses a request from the session's browser, and dismisses on request.
 
 ## How to get to it (user POV)
 
@@ -182,6 +183,15 @@ Preconditions:
 - **Inspect storage.** Choose the `Storage` tab, then the `Cookies`, `localStorage`, and `sessionStorage` inner tabs. Entries belong to the tab the session is showing. Add and delete an entry and confirm `Clear this store?` before clearing.
 - **Refuse during agent control.** On an Interactive Run, open the same panel while the agent holds the browser. The controls are disabled and the panel explains that the agent holds the browser. Taking control enables storage inspection but Emulation still refuses: a Run reproduces the Emulation the Flow Skill was demonstrated under.
 - **Proof.** Save `workspace/browser-setup.aria.txt` and `workspace/browser-setup.png` with the applied identity and viewport visible, plus `workspace/browser-setup-storage.png` over the Storage tab.
+
+### Bot protection notice
+
+Preconditions: a live Teaching session, and a local page that answers one request the way Cloudflare's block page does: `403`, `server: cloudflare`, `content-type: text/html`, and `expires: Thu, 01 Jan 1970 00:00:01 GMT`.
+
+- **Trigger the block.** Fill `Browser address` with the page's URL and press Enter. An `alert` appears over the browser reading `<host> blocked this browser` and naming Cloudflare and the status.
+- **Dismiss it.** Run `control-contingency browser click --role button --name "Dismiss bot protection notice"`. The alert is gone from the next ARIA snapshot.
+- **Real site.** On `https://www.1mg.com/`, `Login | Signup` then `Send OTP` must show `create_token` in the Network tab with a status other than a Cloudflare `403`, and no bot protection alert. Submitting sends a real OTP; use a number the maintainer supplies and keep it out of every artifact.
+- **Proof.** Save `workspace/bot-protection.aria.txt` and `workspace/bot-protection.png` with the alert visible, then `workspace/bot-protection-dismissed.aria.txt`.
 
 ## Gotchas
 
