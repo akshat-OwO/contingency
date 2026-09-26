@@ -183,3 +183,15 @@ test("offers Start only once the agent hands Teaching setup to the user", () => 
   expect(handedOff.action?.gesture).toBe("start");
   expect(handedOff.badge).toBe("Not recording");
 });
+
+test("offers nothing once a session ends before recording started", () => {
+  const ended = teachingRecordingPresentation(
+    { _tag: "setup", requestedAt: "2026-09-16T10:00:00.000Z" },
+    undefined,
+    "user",
+    "closed"
+  );
+  expect(ended.action).toBeNull();
+  expect(ended.secondaries).toEqual([]);
+  expect(ended.badge).toBe("Not recorded");
+});

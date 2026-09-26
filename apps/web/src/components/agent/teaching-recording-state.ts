@@ -1,5 +1,7 @@
+import { isLiveAgentSessionPhase } from "@contingency/protocol";
 import type {
   AgentSessionController,
+  AgentSessionPhase,
   TeachingCaptureState,
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
@@ -102,6 +104,53 @@ const action = (
 ): TeachingRecordingAction => ({ accessibleName: label, gesture, label });
 
 /**
+ * The setup state. An agent-opened session starts with the agent preparing
+ * the browser, and a session that ended in setup captured nothing.
+ */
+const setupPresentation = (
+  controller: AgentSessionController,
+  phase: AgentSessionPhase
+): TeachingRecordingPresentation => {
+  // Neither Start nor rename can reach a session that has ended (#268).
+  if (!isLiveAgentSessionPhase(phase)) {
+    return {
+      action: null,
+      badge: "Not recorded",
+      nextStep: "This session ended before recording started.",
+      secondaries: [],
+      showsElapsed: false,
+      showsInspect: false,
+      tone: "default",
+    };
+  }
+  // An agent-opened session starts with the agent preparing the browser.
+  // Start belongs to the user, so it appears only after the handoff
+  // (ADR 0042).
+  if (controller === "agent") {
+    return {
+      action: null,
+      badge: "Agent preparing",
+      nextStep:
+        "The agent is preparing the browser. Start recording appears when it hands you control; nothing is captured before then.",
+      secondaries: ["rename-flow"],
+      showsElapsed: false,
+      showsInspect: false,
+      tone: "default",
+    };
+  }
+  return {
+    action: START,
+    badge: "Not recording",
+    nextStep:
+      "Sign in, pick emulation, and edit storage. Nothing is captured until you start recording.",
+    secondaries: ["rename-flow"],
+    showsElapsed: false,
+    showsInspect: false,
+    tone: "default",
+  };
+};
+
+/**
  * How the Workspace presents one Teaching capture state. The names and
  * sentences come from the settled #185 prototype state contract.
  *
@@ -113,35 +162,12 @@ const action = (
 export const teachingRecordingPresentation = (
   captureState: TeachingCaptureState,
   cleanup?: TeachingRecordingCleanupState,
-  controller: AgentSessionController = "user"
+  controller: AgentSessionController = "user",
+  phase: AgentSessionPhase = "running"
 ): TeachingRecordingPresentation => {
   switch (captureState._tag) {
     case "setup": {
-      // An agent-opened session starts with the agent preparing the browser.
-      // Start belongs to the user, so it appears only after the handoff
-      // (ADR 0042).
-      if (controller === "agent") {
-        return {
-          action: null,
-          badge: "Agent preparing",
-          nextStep:
-            "The agent is preparing the browser. Start recording appears when it hands you control; nothing is captured before then.",
-          secondaries: ["rename-flow"],
-          showsElapsed: false,
-          showsInspect: false,
-          tone: "default",
-        };
-      }
-      return {
-        action: START,
-        badge: "Not recording",
-        nextStep:
-          "Sign in, pick emulation, and edit storage. Nothing is captured until you start recording.",
-        secondaries: ["rename-flow"],
-        showsElapsed: false,
-        showsInspect: false,
-        tone: "default",
-      };
+      return setupPresentation(controller, phase);
     }
     case "recording": {
       return {

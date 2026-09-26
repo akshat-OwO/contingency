@@ -2154,6 +2154,7 @@ export const AgentWorkspace = ({
               onSelectSession={view.selectSession}
               onToggleInspect={view.toggleInspect}
               pending={state.recordingPending}
+              phase={session.phase}
               selectedSessionId={state.selectedSessionId}
               sessions={view.sessions}
             />

@@ -937,6 +937,137 @@ it.effect(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
+it.effect("keeps who held control when a session ends", () =>
+  Effect.gen(function* controllerSurvivesClose() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+
+    const agentRun = yield* service.start(startInput("start-agent-run"));
+    const agentClosed = yield* service.close(
+      agentRun.id,
+      OperationId.make("close-agent-run")
+    );
+    expect(agentClosed.controller).toBe("agent");
+
+    const takenRun = yield* service.start(startInput("start-taken-run"));
+    yield* service.takeover(
+      takenRun.id,
+      "Checking the cart myself.",
+      OperationId.make("take-before-close")
+    );
+    const takenClosed = yield* service.close(
+      takenRun.id,
+      OperationId.make("close-taken-run")
+    );
+    expect(takenClosed).toMatchObject({ controller: "user", phase: "closed" });
+    expect((yield* service.get(takenRun.id)).controller).toBe("user");
+
+    const teaching = yield* service.start({
+      ...startInput("start-user-teaching-close"),
+      activity: "teaching",
+      name: "set-delivery-area",
+    });
+    const teachingClosed = yield* service.close(
+      teaching.id,
+      OperationId.make("close-user-teaching")
+    );
+    expect(teachingClosed.controller).toBe("user");
+
+    const interruptedRun = yield* service.start(
+      startInput("interrupt-taken-run")
+    );
+    yield* service.takeover(
+      interruptedRun.id,
+      "Checking the cart myself.",
+      OperationId.make("take-before-interrupt")
+    );
+    yield* service.closeAll();
+    const interrupted = yield* service.get(interruptedRun.id);
+    expect(interrupted).toMatchObject({
+      controller: "user",
+      phase: "interrupted",
+    });
+  })
+);
+
+it.effect(
+  "never moves a Teaching session's timestamps backwards between reads",
+  () =>
+    Effect.gen(function* monotonicTeachingTimestamps() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-clock-",
+      });
+      // Every clock read is a second later, so the manifest and the session
+      // snapshot are always stamped at different instants.
+      let tick = Date.parse("2026-09-22T16:57:35.000Z");
+      const now = () => {
+        tick += 1000;
+        return new Date(tick);
+      };
+      const fake = makeFakeBrowser();
+      const layer = makeAgentSessionLayer({
+        allowedActivity: "any",
+        baseUrl: "http://127.0.0.1:7777",
+        now,
+        processId: "owner-clock",
+        traceDirectory: () => path.join(root, TEACHING_RECORDINGS_DIRECTORY),
+      }).pipe(
+        Layer.provide(
+          makeTeachingRecordingStoreLayer({ now, root: () => root })
+        ),
+        Layer.provide(Layer.succeed(CreateBrowser, fake.browser)),
+        Layer.provideMerge(NodeServices.layer)
+      );
+      const reads = yield* Effect.scoped(
+        Effect.gen(function* readTeachingSession() {
+          const service = yield* AgentSession;
+          const started = yield* service.start({
+            ...startInput("teach-clock"),
+            activity: "teaching",
+            name: "add-anvil",
+          });
+          const got = yield* service.get(started.id);
+          const closed = yield* service.close(
+            started.id,
+            OperationId.make("close-clock")
+          );
+          return [started, got, closed] as const;
+        }).pipe(Effect.provide(layer))
+      );
+
+      const [started] = reads;
+      if (started.activity !== "teaching") {
+        throw new Error("Expected a Teaching session.");
+      }
+      const manifest = yield* Schema.decodeUnknownEffect(
+        TeachingRecordingManifest
+      )(
+        JSON.parse(
+          yield* fileSystem.readFileString(
+            path.join(
+              root,
+              TEACHING_RECORDINGS_DIRECTORY,
+              started.recordingId,
+              "manifest.json"
+            )
+          )
+        )
+      );
+      expect(manifest.lifecycle._tag).toBe("setup");
+      for (const [earlier, later] of [
+        [reads[0], reads[1]],
+        [reads[1], reads[2]],
+      ] as const) {
+        expect(later.updatedAt >= earlier.updatedAt).toBe(true);
+      }
+      for (const read of reads) {
+        expect(read.captureState).toEqual(manifest.lifecycle);
+        expect(read.controller).toBe("user");
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
 /**
  * A description is a sentence assembled from length-limited fragments, so a
  * private literal longer than that limit is already cut in half by the time a

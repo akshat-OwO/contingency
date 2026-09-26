@@ -4,6 +4,7 @@ import type {
   BrowserBotProtectionBlock,
   BrowserConsoleEntry,
 } from "@contingency/protocol";
+import { isLiveAgentSessionPhase } from "@contingency/protocol";
 import { Atom } from "effect/unstable/reactivity";
 
 import type {
@@ -200,6 +201,18 @@ export const agentControlPresentation = (
       action: null,
       holder: "You are demonstrating this journey",
       reason: "The agent watches and never drives the browser while teaching.",
+    };
+  }
+  // An ended session keeps who held the browser last, but control no longer
+  // changes hands (#268).
+  if (!isLiveAgentSessionPhase(session.phase)) {
+    return {
+      action: null,
+      holder:
+        session.controller === "user"
+          ? "You had control"
+          : "The agent had control",
+      reason: undefined,
     };
   }
   if (session.controller === "user") {
