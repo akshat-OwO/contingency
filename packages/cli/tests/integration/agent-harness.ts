@@ -120,6 +120,23 @@ export const catalogTool = makeCall(AgentCatalogTools);
 export const runTool = makeCall(AgentRunTools);
 export const teachingRecordingTool = makeCall(TeachingRecordingTools);
 
+/**
+ * Open Teaching the way an agent does, then hand the browser straight to the
+ * user who demonstrates the journey. An agent-opened Teaching session starts
+ * with the agent preparing setup, so Start waits for this handoff
+ * ([ADR 0042](../../../../docs/adr/0042-agent-controlled-teaching-setup.md)).
+ */
+export const startUserTeaching = (
+  params: Parameters<typeof sessionTool<"agent_session_start">>[1]
+) =>
+  Effect.gen(function* openAndHandOffTeaching() {
+    const started = yield* sessionTool("agent_session_start", params);
+    return yield* sessionTool("agent_teaching_setup_handoff", {
+      operationId: OperationId.make(`${params.operationId}-handoff`),
+      sessionId: started.id,
+    });
+  });
+
 /** One node of a Browser Snapshot, or a failure naming what was actually there. */
 export const findNode = (
   nodes: readonly AgentSnapshotNode[],

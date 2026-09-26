@@ -643,6 +643,134 @@ it.effect("records a Demonstration only for a Teaching session", () =>
 );
 
 it.effect(
+  "lets an agent prepare Teaching setup, then hands control to the user",
+  () =>
+    Effect.gen(function* agentPreparesTeachingSetup() {
+      const fake = makeFakeBrowser();
+      const service = yield* serviceFor(fake);
+      const teaching = yield* service.start({
+        ...startInput("start-agent-teaching"),
+        activity: "teaching",
+        name: "set-delivery-area",
+        openedBy: "agent",
+        url: "https://shop.example.com/",
+      });
+      expect(teaching).toMatchObject({
+        captureState: { _tag: "setup" },
+        controller: "agent",
+      });
+      const reload = { action: "reload" as const, type: "history" as const };
+
+      // During setup the agent's action reaches the browser.
+      const prepared = yield* Effect.flip(
+        service.act(teaching.id, reload, OperationId.make("prepare-setup"))
+      );
+      expect(prepared.code).toBe("agent_browser_failed");
+      expect(fake.activePageCalls()).toBe(1);
+
+      // The agent holds the browser, so the user can neither drive it nor
+      // start recording, even through a direct call.
+      const refusedInput = yield* Effect.flip(
+        service.sendInput(teaching.id, {
+          eventType: "mouseMoved",
+          type: "input_mouse",
+          x: 1,
+          y: 1,
+        })
+      );
+      expect(refusedInput.code).toBe("agent_control_unavailable");
+      const refusedStart = yield* Effect.flip(
+        service.startTeachingRecording(
+          teaching.id,
+          OperationId.make("start-before-handoff")
+        )
+      );
+      expect(refusedStart.code).toBe("agent_control_unavailable");
+
+      const handedOff = yield* service.handOffTeachingSetup(
+        teaching.id,
+        OperationId.make("handoff")
+      );
+      expect(handedOff).toMatchObject({
+        captureState: { _tag: "setup" },
+        controller: "user",
+      });
+
+      // A retry, under the same id or a fresh one, keeps the user in control.
+      const replayed = yield* service.handOffTeachingSetup(
+        teaching.id,
+        OperationId.make("handoff")
+      );
+      expect(replayed).toEqual(handedOff);
+      const retried = yield* service.handOffTeachingSetup(
+        teaching.id,
+        OperationId.make("handoff-again")
+      );
+      expect(retried.controller).toBe("user");
+
+      // After the handoff the agent cannot act or take control back.
+      const refusedAction = yield* Effect.flip(
+        service.act(teaching.id, reload, OperationId.make("after-handoff"))
+      );
+      expect(refusedAction.code).toBe("agent_control_unavailable");
+      expect(fake.activePageCalls()).toBe(1);
+      const refusedReturn = yield* Effect.flip(
+        service.returnControl(teaching.id, OperationId.make("take-it-back"))
+      );
+      expect(refusedReturn.code).toBe("agent_control_unavailable");
+      const refusedRequest = yield* Effect.flip(
+        service.requestTakeover(
+          teaching.id,
+          "Let me drive again.",
+          OperationId.make("request-after-handoff")
+        )
+      );
+      expect(refusedRequest.code).toBe("agent_control_unavailable");
+
+      // Start now passes the control gate; this process has no recording
+      // storage, so it stops at the next check instead.
+      const started = yield* Effect.flip(
+        service.startTeachingRecording(
+          teaching.id,
+          OperationId.make("start-after-handoff")
+        )
+      );
+      expect(started.code).toBe("agent_session_unavailable");
+      expect((yield* service.get(teaching.id)).controller).toBe("user");
+    })
+);
+
+it.effect("keeps a Workspace-opened Teaching session with the user", () =>
+  Effect.gen(function* workspaceOpensTeaching() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const teaching = yield* service.start({
+      ...startInput("start-user-teaching"),
+      activity: "teaching",
+      name: "set-delivery-area",
+      url: "https://shop.example.com/",
+    });
+    expect(teaching.controller).toBe("user");
+    const refused = yield* Effect.flip(
+      service.act(
+        teaching.id,
+        { action: "reload", type: "history" },
+        OperationId.make("act-in-user-setup")
+      )
+    );
+    expect(refused.code).toBe("agent_control_unavailable");
+    expect(fake.activePageCalls()).toBe(0);
+    // The user already holds the browser, so a handoff changes nothing.
+    const handedOff = yield* service.handOffTeachingSetup(
+      teaching.id,
+      OperationId.make("handoff-user-setup")
+    );
+    expect(handedOff.controller).toBe("user");
+    expect(handedOff.timeline).toEqual(teaching.timeline);
+  })
+);
+
+it.effect(
   "keeps a Takeover that lands while a snapshot read is in flight",
   () =>
     Effect.gen(function* takeoverSurvivesStaleWrite() {

@@ -1,4 +1,5 @@
 import type {
+  AgentSessionController,
   TeachingCaptureState,
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
@@ -111,10 +112,26 @@ const action = (
  */
 export const teachingRecordingPresentation = (
   captureState: TeachingCaptureState,
-  cleanup?: TeachingRecordingCleanupState
+  cleanup?: TeachingRecordingCleanupState,
+  controller: AgentSessionController = "user"
 ): TeachingRecordingPresentation => {
   switch (captureState._tag) {
     case "setup": {
+      // An agent-opened session starts with the agent preparing the browser.
+      // Start belongs to the user, so it appears only after the handoff
+      // (ADR 0042).
+      if (controller === "agent") {
+        return {
+          action: null,
+          badge: "Agent preparing",
+          nextStep:
+            "The agent is preparing the browser. Start recording appears when it hands you control; nothing is captured before then.",
+          secondaries: ["rename-flow"],
+          showsElapsed: false,
+          showsInspect: false,
+          tone: "default",
+        };
+      }
       return {
         action: START,
         badge: "Not recording",

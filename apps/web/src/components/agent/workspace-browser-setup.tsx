@@ -101,6 +101,7 @@ export const WorkspaceBrowserSetup = ({
   onClearConsole,
   onClose,
   sessionId,
+  teaching,
   userHoldsBrowser,
 }: {
   /**
@@ -113,6 +114,11 @@ export const WorkspaceBrowserSetup = ({
   readonly onClearConsole: () => void;
   readonly onClose: () => void;
   readonly sessionId: AgentSessionId;
+  /**
+   * Teaching has no Take control: an agent preparing its setup hands the
+   * browser over itself (ADR 0042).
+   */
+  readonly teaching: boolean;
   readonly userHoldsBrowser: boolean;
 }) => {
   const {
@@ -330,8 +336,9 @@ export const WorkspaceBrowserSetup = ({
       )}
       {userHoldsBrowser ? null : (
         <p className="text-muted-foreground border-b px-3 py-1.5 text-xs">
-          The agent holds the browser. Take control to change its Emulation or
-          storage.
+          {teaching
+            ? "The agent is preparing the browser. You can change its Emulation or storage once it hands you control."
+            : "The agent holds the browser. Take control to change its Emulation or storage."}
         </p>
       )}
       {chromeOnly || state.activeTab !== undefined ? null : (

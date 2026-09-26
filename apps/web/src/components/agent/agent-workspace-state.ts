@@ -184,6 +184,14 @@ export const agentControlPresentation = (
   const { takeover } = session;
   const reason = takeoverReason(takeover);
   if (session.activity === "teaching") {
+    if (session.controller === "agent") {
+      return {
+        action: null,
+        holder: "The agent is preparing the browser",
+        reason:
+          "It hands you control before recording. It cannot drive the browser after that.",
+      };
+    }
     return {
       action: null,
       holder: "You are demonstrating this journey",

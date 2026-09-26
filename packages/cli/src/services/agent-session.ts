@@ -51,6 +51,7 @@ import type {
   AgentScreenshotFile,
   AgentInspectedElement,
   AgentSessionActivity,
+  AgentSessionController,
   AgentSnapshotId,
   AgentTimelineEntry,
   AgentSessionSnapshot,
@@ -154,6 +155,14 @@ export interface AgentSessionServiceOptions {
 export interface AgentSessionStartInput {
   readonly domainScope?: DomainScope | undefined;
   readonly activity?: AgentSessionActivity | undefined;
+  /**
+   * Who opened the session. An agent-opened Teaching session starts in setup
+   * with the agent holding the browser so it can prepare prerequisites; a
+   * Workspace-opened one starts with the user
+   * ([ADR 0042](../../../../docs/adr/0042-agent-controlled-teaching-setup.md)).
+   * Only the MCP adapter sets this: it never crosses the Workspace RPC.
+   */
+  readonly openedBy?: AgentSessionController | undefined;
   /**
    * The Interactive Run this session performs, already resolved from a
    * verified Flow Skill. The session owns its ordered Agent Steps, ceilings,
@@ -336,6 +345,15 @@ export interface AgentSessionService {
   readonly requestTakeover: (
     sessionId: AgentSessionId,
     reason: string,
+    operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Release an agent-prepared Teaching browser to the user. Only the agent
+   * does this, once, before recording; retrying it answers with the same
+   * user-held session and never hands control back.
+   */
+  readonly handOffTeachingSetup: (
+    sessionId: AgentSessionId,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Hand control back to the agent. Only the user may do this. */
@@ -749,19 +767,29 @@ const takenOver = (description: string): BrowserRpcErrorType =>
   );
 
 /**
- * Teaching is user-led: the user demonstrates the journey and the agent only
- * observes ([ADR 0038](../../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
- * There is no control to hand over, so browser actions and Takeover are both
- * refused for the whole Demonstration.
+ * Whether the agent is preparing an agent-opened Teaching browser. That is the
+ * only part of Teaching the agent may drive: setup, before it hands control to
+ * the user ([ADR 0042](../../../../docs/adr/0042-agent-controlled-teaching-setup.md)).
+ */
+const agentPreparesTeaching = (snapshot: AgentSessionSnapshot): boolean =>
+  snapshot.activity === "teaching" &&
+  snapshot.controller === "agent" &&
+  snapshot.captureState._tag === "setup";
+
+/**
+ * Teaching is otherwise user-led: the user demonstrates the journey and the
+ * agent only observes ([ADR 0038](../../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
+ * Once the user holds the browser, agent browser actions are refused for the
+ * rest of the session.
  */
 const userLedTeaching = (snapshot: AgentSessionSnapshot): boolean =>
-  snapshot.activity === "teaching";
+  snapshot.activity === "teaching" && !agentPreparesTeaching(snapshot);
 
 /** Why an agent browser action cannot run during a Demonstration. */
 const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
   makeBrowserRpcError(
     "agent_control_unavailable",
-    `${description} Teaching is user-led: the user drives the browser and you observe. Record an Instruction with agent_teaching_instruction_record and ask the user to demonstrate the step; browser actions are yours to make during an Interactive Run.`
+    `${description} Teaching is user-led: the user drives the browser and you observe. You may act only while preparing an agent-opened Teaching session's setup, before agent_teaching_setup_handoff. Record an Instruction with agent_teaching_instruction_record and ask the user to demonstrate the step; browser actions are yours to make during an Interactive Run.`
   );
 
 const isLive = (phase: AgentSessionSnapshot["phase"]): boolean =>
@@ -1554,6 +1582,7 @@ type AgentOperationKind =
   | "close"
   | "complete"
   | "control"
+  | "handoff"
   | "instruction"
   | "private-input"
   | "recording-discard"
@@ -2717,6 +2746,16 @@ const makeAgentSession = (
           )
         );
       }
+      // Recording is user-led: the user takes responsibility for the
+      // demonstrated journey at the handoff, so Start waits for it.
+      if (record.snapshot.controller !== "user") {
+        return yield* Effect.fail(
+          makeBrowserRpcError(
+            "agent_control_unavailable",
+            "The agent is preparing the browser. Start recording becomes available once it hands you control."
+          )
+        );
+      }
       if (teachingRecordingStore === undefined || fileSystem === undefined) {
         return yield* Effect.fail(
           error(
@@ -3802,7 +3841,7 @@ const makeAgentSession = (
                         ...common,
                         activity: "teaching" as const,
                         captureState: { _tag: "setup", requestedAt: at },
-                        controller: "user" as const,
+                        controller: input.openedBy ?? "user",
                         dryRun: null,
                         flowSkillName: teachingIdentity.flowSkillName,
                         recordingCleanup: { _tag: "pending" as const },
@@ -4384,6 +4423,12 @@ const makeAgentSession = (
         }
       ) {
         const current = yield* requireLiveRecord(sessionId);
+        // A handoff can land while this action waits for the control lock.
+        if (userLedTeaching(current.snapshot)) {
+          return yield* Effect.fail(
+            teachingIsUserLed("This action was not dispatched.")
+          );
+        }
         if (agentIsPaused(current.snapshot)) {
           return yield* Effect.fail(
             takenOver("This action was not dispatched.")
@@ -5116,7 +5161,7 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
-        if (userLedTeaching(record.snapshot)) {
+        if (record.snapshot.activity === "teaching") {
           return yield* Effect.fail(
             makeBrowserRpcError(
               "agent_control_unavailable",
@@ -5241,7 +5286,7 @@ const makeAgentSession = (
           return replayed.snapshot;
         }
         const record = yield* requireLiveRecord(sessionId);
-        if (userLedTeaching(record.snapshot)) {
+        if (record.snapshot.activity === "teaching") {
           return yield* Effect.fail(
             makeBrowserRpcError(
               "agent_control_unavailable",
@@ -5290,6 +5335,86 @@ const makeAgentSession = (
         return next;
       }
     );
+
+    /**
+     * The agent releases an agent-prepared Teaching browser to the user. It
+     * runs behind the control lock, so an agent action already dispatched
+     * finishes first and a queued one re-reads the controller and is refused.
+     * A session the user already holds answers as it is: a retry can neither
+     * hand control back to the agent nor dispatch anything.
+     */
+    const handOffTeachingSetupUnlocked = Effect.fn(
+      "AgentSession.handOffTeachingSetup"
+    )(function* handOffTeachingSetup(
+      sessionId: AgentSessionId,
+      operationId?: OperationId | string
+    ) {
+      const requestInput = "";
+      const replayed = replaySession(
+        operationId,
+        "handoff",
+        sessionId,
+        requestInput
+      );
+      if (replayed?._tag === "conflict") {
+        return yield* Effect.fail(replayed.error);
+      }
+      if (replayed?._tag === "replay") {
+        return replayed.snapshot;
+      }
+      const record = yield* requireLiveRecord(sessionId);
+      if (record.snapshot.activity !== "teaching") {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Agent Session ${sessionId} is not a Teaching session. Use agent_session_takeover_request to ask for help during a Run.`
+          )
+        );
+      }
+      if (record.snapshot.controller === "user") {
+        yield* rememberSession(
+          operationId,
+          "handoff",
+          sessionId,
+          requestInput,
+          record.snapshot
+        );
+        return record.snapshot;
+      }
+      if (!agentPreparesTeaching(record.snapshot)) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_conflict",
+            `Teaching setup cannot be handed off from ${record.snapshot.captureState._tag}.`
+          )
+        );
+      }
+      const at = now().toISOString();
+      const entry: AgentTimelineEntry = {
+        actor: "agent",
+        at,
+        description: "The agent handed control to the user",
+        detail: "Setup is prepared. The user can start recording.",
+        dispatched: false,
+        id: `handoff-${randomUUID()}`,
+        outcome: "completed",
+      };
+      const next: AgentSessionSnapshot = {
+        ...record.snapshot,
+        controller: "user",
+        timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
+        updatedAt: at,
+      };
+      yield* save(sessionId, record, next);
+      yield* rememberSession(
+        operationId,
+        "handoff",
+        sessionId,
+        requestInput,
+        next
+      );
+      return next;
+    });
 
     const recordInstructionUnlocked = Effect.fn(
       "AgentSession.recordInstruction"
@@ -6203,7 +6328,9 @@ const makeAgentSession = (
       enterSuppliedVariable: (sessionId, name, ref, operationId) =>
         Effect.gen(function* enterSuppliedVerificationVariable() {
           const record = yield* requireLiveRecord(sessionId);
-          if (userLedTeaching(record.snapshot)) {
+          // Supplied Variables belong to Runs: even an agent preparing
+          // Teaching setup has none to enter.
+          if (record.snapshot.activity === "teaching") {
             return yield* Effect.fail(
               teachingIsUserLed("This private input was not dispatched.")
             );
@@ -6273,6 +6400,13 @@ const makeAgentSession = (
                     : Effect.succeed(snapshot)
                 )
               )
+          )
+        ),
+      handOffTeachingSetup: (sessionId, operationId) =>
+        lock.withPermit(
+          afterUserInput(
+            sessionId,
+            handOffTeachingSetupUnlocked(sessionId, operationId)
           )
         ),
       inspectPoint: inspectPointUnlocked,

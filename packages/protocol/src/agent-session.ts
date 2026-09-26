@@ -209,6 +209,17 @@ export const AgentSessionReturnControl = Schema.Struct({
 });
 export type AgentSessionReturnControl = typeof AgentSessionReturnControl.Type;
 
+/**
+ * The agent releasing an agent-opened Teaching browser to the user once setup
+ * is prepared. Control never returns to the agent in that Teaching session
+ * ([ADR 0042](../../../docs/adr/0042-agent-controlled-teaching-setup.md)).
+ */
+export const AgentTeachingSetupHandoff = Schema.Struct({
+  operationId: OperationId,
+  sessionId: AgentSessionId,
+});
+export type AgentTeachingSetupHandoff = typeof AgentTeachingSetupHandoff.Type;
+
 export const AgentSessionStreamSubscribe = Schema.Struct({
   sessionId: AgentSessionId,
 });

@@ -8,7 +8,7 @@ import { AgentSession } from "../../src/services/agent-session.ts";
 import {
   agentProcessLayer,
   agentViewport,
-  sessionTool,
+  startUserTeaching,
   teachingRecordingTool,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
@@ -63,7 +63,7 @@ it.live("records typing into a password field as one withheld fill", () =>
 
     const recordingId = yield* Effect.scoped(
       Effect.gen(function* demonstrateSignIn() {
-        const started = yield* sessionTool("agent_session_start", {
+        const started = yield* startUserTeaching({
           activity: "teaching",
           clientName: "integration-recorder",
           clientVersion: "1.0.0",
