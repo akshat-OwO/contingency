@@ -142,6 +142,12 @@ export const CART_STATE_BEACON = "/cart-beacon";
 /** A path the fixture server accepts and never responds to. */
 export const NEVER_ANSWERED = "/never-answered.bin";
 
+/**
+ * A path answered the way Cloudflare's bot protection refused 1mg.com's login
+ * in #266: its own HTML block page, with its fixed 1970 `Expires` date.
+ */
+export const CLOUDFLARE_BLOCK = "/cloudflare-block";
+
 const NOT_FOUND = 404;
 const OK = 200;
 
@@ -216,6 +222,17 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
           return;
         }
         if (pathname === NEVER_ANSWERED) {
+          return;
+        }
+        if (pathname === CLOUDFLARE_BLOCK) {
+          response
+            .writeHead(403, {
+              "cf-ray": "a41027e22e4691a3-DEL",
+              "content-type": "text/html; charset=UTF-8",
+              expires: "Thu, 01 Jan 1970 00:00:01 GMT",
+              server: "cloudflare",
+            })
+            .end("<title>Attention Required! | Cloudflare</title>");
           return;
         }
         if (pathname === LOAD_READY_BEACON) {

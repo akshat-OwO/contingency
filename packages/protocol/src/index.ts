@@ -147,6 +147,21 @@ export const BrowserConsoleEntry = Schema.Union([
 ]);
 export type BrowserConsoleEntry = typeof BrowserConsoleEntry.Type;
 
+/**
+ * A site's bot protection rejected a request from the session's browser. The
+ * Workspace says so, because a blocked login otherwise looks like a broken
+ * site or a broken Flow Skill (#266).
+ */
+export const BrowserBotProtectionBlock = Schema.Struct({
+  provider: Schema.Literal("cloudflare"),
+  status: Schema.Int,
+  tabId: BrowserTabId,
+  timestamp: Schema.Finite,
+  type: Schema.Literal("bot_protection_block"),
+  url: Schema.String,
+});
+export type BrowserBotProtectionBlock = typeof BrowserBotProtectionBlock.Type;
+
 export const BrowserHeaders = Schema.Record(Schema.String, Schema.String);
 export type BrowserHeaders = typeof BrowserHeaders.Type;
 
@@ -261,6 +276,7 @@ export const BrowserStreamEvent = Schema.Union([
     url: Schema.String,
   }),
   BrowserConsoleEntry,
+  BrowserBotProtectionBlock,
   BrowserTabsEvent,
 ]);
 export type BrowserStreamEvent = typeof BrowserStreamEvent.Type;

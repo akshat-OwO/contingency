@@ -19,12 +19,13 @@ export class ChromiumInstallError extends Data.TaggedError(
 }> {}
 
 /**
- * The browsers a Run or a Create session needs. A headless launch with no
- * channel resolves to the headless shell build, and the full build backs every
- * other mode. Derived video uses Playwright's pinned `ffmpeg` build, so a Run
- * requesting `--video` needs it even though no browser option names it.
+ * The browsers a Run or a Create session needs. Every launch names the
+ * `chromium` channel, so the full build backs headless sessions too and the
+ * separate headless shell is never started. Derived video uses Playwright's
+ * pinned `ffmpeg` build, so a Run requesting `--video` needs it even though
+ * no browser option names it.
  */
-const BROWSERS = ["chromium", "chromium-headless-shell", "ffmpeg"] as const;
+const BROWSERS = ["chromium", "ffmpeg"] as const;
 
 /** The one-line hint that finishes every install failure. */
 const MANUAL_INSTALL =

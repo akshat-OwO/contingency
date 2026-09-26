@@ -4,6 +4,7 @@ import { BrowserRequestId, BrowserTabId } from "@contingency/protocol";
 import { Effect, PubSub, Ref } from "effect";
 import type { ConsoleMessage, Page, Request, Response } from "playwright-core";
 
+import { botProtectionProvider } from "./bot-protection.ts";
 import { restartScreencast } from "./create-browser-screencast.ts";
 import {
   applyEmulationToPage,
@@ -84,6 +85,20 @@ export const initializePage = (session: CreateSession, page: Page): void => {
     );
   });
   page.on("response", (response: Response) => {
+    const provider = botProtectionProvider(
+      response.status(),
+      response.headers()
+    );
+    if (provider !== undefined) {
+      PubSub.publishUnsafe(session.events, {
+        provider,
+        status: response.status(),
+        tabId,
+        timestamp: Date.now(),
+        type: "bot_protection_block",
+        url: response.url(),
+      });
+    }
     const request = response.request();
     const state = readSessionState(session);
     const requestId = state.requestIds.get(request);

@@ -22,9 +22,11 @@ import type {
   Browser,
   BrowserContextOptions,
   CDPSession,
+  LaunchOptions,
   Page,
 } from "playwright-core";
 
+import { headedUserAgent } from "./browser-identity.ts";
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
@@ -225,8 +227,14 @@ const inputSessionFor = (session: CreateSession, page: Page) =>
     return cdp;
   });
 
+/** The one shared Chromium, and the user agent every context presents. */
+interface LaunchedBrowser {
+  readonly browser: Browser;
+  readonly userAgent: string;
+}
+
 const makeService = (
-  getBrowser: Effect.Effect<Browser, BrowserRpcErrorType>
+  getBrowser: Effect.Effect<LaunchedBrowser, BrowserRpcErrorType>
 ): CreateBrowserService => {
   const sessions = Ref.makeUnsafe<ReadonlyMap<SessionId, CreateSession>>(
     new Map()
@@ -263,7 +271,7 @@ const makeService = (
       environment?: SessionEnvironment,
       blockServiceWorkers = false
     ) {
-      const browser = yield* getBrowser;
+      const { browser, userAgent } = yield* getBrowser;
       const decoded = yield* Effect.try({
         catch: () =>
           makeBrowserRpcError(
@@ -286,6 +294,7 @@ const makeService = (
         // headless Run present one environment (ADR 0013).
         ...environmentContextOptions(environment),
         serviceWorkers: blockServiceWorkers ? "block" : "allow",
+        userAgent,
         viewport: { height: viewport.height, width: viewport.width },
       };
       if (recordVideoDirectory !== undefined) {
@@ -303,10 +312,6 @@ const makeService = (
       });
       const page = yield* tryBrowser("Could not create browser page", () =>
         context.newPage()
-      );
-      const defaultUserAgent = yield* tryBrowser(
-        "Could not read the browser user agent",
-        () => page.evaluate(() => navigator.userAgent)
       );
       const state = yield* Ref.make<CreateSessionState>({
         activePage: page,
@@ -326,7 +331,6 @@ const makeService = (
       });
       const session: CreateSession = {
         context,
-        defaultUserAgent,
         emulationSessions: new WeakMap(),
         events,
         id: decoded,
@@ -389,7 +393,7 @@ const makeService = (
       profile: UserAgentProfileId
     ) {
       const session = yield* requireSession(sessionId);
-      const browser = yield* getBrowser;
+      const { browser } = yield* getBrowser;
       const normalizedUrl = yield* validateBrowserUrl(url);
       const identity = resolveIdentity(profile, browser.version());
       yield* Ref.update(session.state, (state) => ({
@@ -483,7 +487,7 @@ const makeService = (
     url: string,
     emulation: DraftEmulation
   ) {
-    const browser = yield* getBrowser;
+    const { browser } = yield* getBrowser;
     const normalizedUrl = yield* validateBrowserUrl(url);
     const finishOpen = (sessionId: SessionId) =>
       Effect.gen(function* finishOpeningSession() {
@@ -745,14 +749,50 @@ const makeService = (
   });
 };
 
+/**
+ * How Contingency starts Chromium, for every Teaching session, Dry Run, and
+ * Run alike. Bot protection such as Cloudflare's rejected the headless shell
+ * build, `navigator.webdriver`, and the `HeadlessChrome` user agent, and #266
+ * found any one of them enough to be refused. These options remove the first
+ * two: the full build in its new headless mode, with Blink's automation marker
+ * off. `launchChromium` removes the third. No window opens either way.
+ */
+const LAUNCH_OPTIONS: LaunchOptions = {
+  args: ["--disable-blink-features=AutomationControlled"],
+  channel: "chromium",
+  handleSIGHUP: false,
+  handleSIGINT: false,
+  handleSIGTERM: false,
+  headless: true,
+};
+
+/**
+ * Launch Chromium and read the user agent it would send, once, before any
+ * session exists. Headless Chromium still names itself `HeadlessChrome`, so
+ * every context presents the headed form instead — set on the context rather
+ * than per Page, so workers and a popup's first request carry it too.
+ */
+const launchChromium = async (): Promise<LaunchedBrowser> => {
+  const browser = await chromium.launch(LAUNCH_OPTIONS);
+  try {
+    const cdp = await browser.newBrowserCDPSession();
+    const version = await cdp.send("Browser.getVersion");
+    await cdp.detach();
+    return { browser, userAgent: headedUserAgent(version.userAgent) };
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
+};
+
 export const CreateBrowserLive = Layer.effect(
   CreateBrowser,
   Effect.gen(function* launchCreateBrowser() {
-    let browser: Browser | undefined;
+    let launched: LaunchedBrowser | undefined;
     const launchLock = yield* Semaphore.make(1);
     const getBrowser = Effect.suspend(() => {
-      if (browser !== undefined) {
-        return Effect.succeed(browser);
+      if (launched !== undefined) {
+        return Effect.succeed(launched);
       }
       // First launch may pay the one-time browser download, so it sits inside
       // the same lock as the launch itself: two sessions must not race the
@@ -764,17 +804,11 @@ export const CreateBrowserLive = Layer.effect(
         Effect.andThen(
           Effect.tryPromise({
             catch: (cause) => browserFailure("Could not start Chromium", cause),
-            try: () =>
-              chromium.launch({
-                handleSIGHUP: false,
-                handleSIGINT: false,
-                handleSIGTERM: false,
-                headless: true,
-              }),
+            try: launchChromium,
           }).pipe(
-            Effect.tap((launched) =>
+            Effect.tap((browser) =>
               Effect.sync(() => {
-                browser = launched;
+                launched = browser;
               })
             )
           )
@@ -783,10 +817,10 @@ export const CreateBrowserLive = Layer.effect(
     }).pipe(launchLock.withPermits(1));
     yield* Effect.addFinalizer(() =>
       Effect.suspend(() => {
-        const launched = browser;
-        return launched === undefined
+        const current = launched;
+        return current === undefined
           ? Effect.void
-          : Effect.promise(() => launched.close()).pipe(Effect.ignore);
+          : Effect.promise(() => current.browser.close()).pipe(Effect.ignore);
       })
     );
     return makeService(getBrowser);

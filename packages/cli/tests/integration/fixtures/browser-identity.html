@@ -42,6 +42,7 @@
             platform: String(data?.platform ?? ""),
             touchEvents: "ontouchstart" in window ? "1" : "0",
             userAgent: navigator.userAgent,
+            webdriver: String(navigator.webdriver),
             width: String(innerWidth),
           });
         });
