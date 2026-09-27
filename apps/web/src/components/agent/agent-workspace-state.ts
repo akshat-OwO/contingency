@@ -15,7 +15,6 @@ import {
   emptyInspectState,
   flatFrameProjection,
 } from "@/components/agent/teaching-inspect-state";
-import type { TeachingClipboardAction } from "@/components/agent/teaching-recording-state";
 
 export type AgentViewPhase =
   | "loading"
@@ -48,12 +47,6 @@ export interface AgentViewState {
   /** A navigation is in flight, so the toolbar does not dispatch it twice. */
   readonly navigationPending: boolean;
   readonly phase: AgentViewPhase;
-  /**
-   * The clipboard hand-off that just succeeded, held briefly so the button
-   * that performed it can confirm the copy, and `undefined` the rest of the
-   * time (#214).
-   */
-  readonly recordingCopied: TeachingClipboardAction | undefined;
   /** What went wrong when Start or Stop was last dispatched. */
   readonly recordingError: string | undefined;
   /** A Teaching recording gesture is in flight. */
@@ -89,7 +82,6 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   navigationError: undefined,
   navigationPending: false,
   phase: "loading",
-  recordingCopied: undefined,
   recordingError: undefined,
   recordingPending: false,
   selectedSessionId: undefined,

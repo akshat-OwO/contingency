@@ -1038,9 +1038,6 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
   expect(
     await screen.findByRole("button", { name: "Start recording" })
   ).toBeVisible();
-  expect(
-    screen.getByRole("button", { name: "Copy agent prompt" })
-  ).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Delete recording" }));
   await waitFor(() => {
     expect(rpc.discardCalls).toHaveLength(1);
@@ -1114,113 +1111,22 @@ const teachingDrafted = {
   },
 } satisfies unknown;
 
-test("names the dry run hand-off for the clipboard write it performs", async () => {
-  const user = userEvent.setup();
-  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
-  const writeText = vi
-    .spyOn(globalThis.navigator.clipboard, "writeText")
-    .mockImplementation(() => Promise.resolve());
-  renderWorkspace(resultFor([teachingDrafted]), session.id);
-
-  // A button reading "Dry run" started nothing, which read as a broken
-  // build. The dock now says what it does (#210).
-  expect(
-    await screen.findByRole("button", { name: "Copy dry run prompt" })
-  ).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
-
-  await user.click(screen.getByRole("button", { name: "Copy dry run prompt" }));
-  await waitFor(() => {
-    expect(writeText).toHaveBeenCalledTimes(1);
-  });
-  expect(writeText.mock.calls[0]?.[0]).toContain(
-    "agent_flow_skill_dry_run_start"
-  );
-});
-
-test("copies the flow skill path rather than claiming to read it", async () => {
-  const user = userEvent.setup();
-  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
-  const writeText = vi
-    .spyOn(globalThis.navigator.clipboard, "writeText")
-    .mockImplementation(() => Promise.resolve());
-  renderWorkspace(resultFor([teachingDrafted]), session.id);
-
-  expect(screen.queryByRole("button", { name: "Read flow skill" })).toBeNull();
-  await user.click(
-    await screen.findByRole("button", { name: "Copy flow skill path" })
-  );
-  await waitFor(() => {
-    expect(writeText).toHaveBeenCalledWith("browse-catalogue/SKILL.md");
-  });
-});
-
-test("confirms a copy on the button that performed it, then lets it rest", async () => {
-  const user = userEvent.setup();
-  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
-  vi.spyOn(globalThis.navigator.clipboard, "writeText").mockImplementation(() =>
-    Promise.resolve()
-  );
-  renderWorkspace(resultFor([teachingDrafted]), session.id);
-
-  await user.click(
-    await screen.findByRole("button", { name: "Copy dry run prompt" })
-  );
-  // The confirmation names what was copied rather than being a colour or a
-  // tick alone, and it reaches assistive technology (#214).
-  const copied = await screen.findByRole("button", {
-    name: "Copied dry run prompt",
-  });
-  expect(copied).toBeVisible();
-  expect(
-    screen.getByRole("status", { name: "Copy confirmation" })
-  ).toHaveTextContent("Copied dry run prompt");
-
-  // The confirmation clears itself: the resting label comes back without the
-  // user doing anything. This waits out the real hold rather than a fake
-  // clock, which the Workspace's own render loop does not survive.
-  await waitFor(
-    () => {
-      expect(
-        screen.getByRole("button", { name: "Copy dry run prompt" })
-      ).toBeVisible();
-    },
-    { timeout: 4000 }
-  );
-  expect(
-    screen.getByRole("status", { name: "Copy confirmation" })
-  ).toHaveTextContent("");
-}, 10_000);
-
-test("sizes the clipboard hand-off like the dock's other secondary actions", async () => {
+test("leaves the hand-off to an agent to the user's own prompt", async () => {
+  // The dock was cluttered with clipboard hand-offs; the user prompts their
+  // agent themselves, so no state offers one (#297).
   renderWorkspace(resultFor([teachingReady]), session.id);
-  const copy = await screen.findByRole("button", {
-    name: "Copy agent prompt",
-  });
-  const neighbour = screen.getByRole("button", { name: "Delete recording" });
-  expect(copy.className).toBe(neighbour.className);
-});
+  expect(
+    await screen.findByRole("button", { name: "Delete recording" })
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: /^Copy/u })).toBeNull();
 
-test("surfaces a refused clipboard write instead of looking like it worked", async () => {
-  const user = userEvent.setup();
-  // `userEvent.setup` installs its own clipboard, so the spy goes in after it.
-  vi.spyOn(globalThis.navigator.clipboard, "writeText").mockImplementation(() =>
-    Promise.reject(new Error("Denied"))
-  );
+  cleanup();
   renderWorkspace(resultFor([teachingDrafted]), session.id);
-
-  await user.click(
-    await screen.findByRole("button", { name: "Copy dry run prompt" })
-  );
-  expect(
-    await screen.findByText(
-      "The dry run prompt could not be copied to the clipboard."
-    )
-  ).toBeVisible();
-  // A refused write confirms nothing: the button keeps its resting label.
-  expect(
-    screen.getByRole("button", { name: "Copy dry run prompt" })
-  ).toBeVisible();
+  await screen.findByText("Flow skill drafted");
+  expect(screen.queryByRole("button", { name: /^Copy/u })).toBeNull();
+  // A button reading "Dry run" started nothing, which read as a broken
+  // build (#210).
+  expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
 });
 
 const dryRunPassedSession = {
@@ -1244,6 +1150,44 @@ const dryRunPassedSession = {
   recordingId: "recording-add-anvil",
   teaching: { actionCount: 4, instructionCount: 0, instructions: [] },
 } satisfies unknown;
+
+const dryRunFailedSession = {
+  ...dryRunPassedSession,
+  captureState: {
+    ...dryRunPassedSession.captureState,
+    _tag: "dry-run-failed",
+    dryRunEndedAt: "2026-08-31T00:00:08.000Z",
+    dryRunResult: {
+      completedAt: "2026-08-31T00:00:08.000Z",
+      inputs: [],
+      observableOutcome:
+        "The Add to cart step never saw the anvil in the cart, so its Done when line did not hold.",
+      outcome: "failed",
+    },
+    dryRunSessionId: "agent-dry-test",
+  },
+} satisfies unknown;
+
+test("keeps a failed Dry Run's explanation behind the details button", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([dryRunFailedSession]), session.id);
+  const explanation =
+    "The Add to cart step never saw the anvil in the cart, so its Done when line did not hold.";
+
+  // The dock shows the state, not the explanation, so it stays one row (#297).
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(await within(dock).findByText("Dry run failed")).toBeVisible();
+  expect(within(dock).queryByText(explanation)).toBeNull();
+
+  // With no Dry Run Summary to read it from, the popover is where it lives.
+  await user.click(within(dock).getByRole("button", { name: "Show details" }));
+  expect(await screen.findByText(explanation)).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByText(explanation)).toBeNull();
+  });
+});
 
 test("shows a Dry Run's assessments and video beside verification", async () => {
   const dryRunSummary = {

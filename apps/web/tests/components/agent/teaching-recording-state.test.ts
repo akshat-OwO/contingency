@@ -2,30 +2,9 @@ import { makeBrowserRpcError } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
 import {
-  flowSkillDryRunPrompt,
   gestureFailureMessage,
-  teachingAgentPrompt,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
-
-test("points the learning agent at Contingency's own authoring skills", () => {
-  const prompt = teachingAgentPrompt("set-delivery-area", "recording-7");
-
-  expect(prompt).toContain("recording-7");
-  expect(prompt).toContain('"set-delivery-area"');
-  for (const uri of [
-    "contingency://skill/writing-for-agents",
-    "contingency://skill/writing-for-agents/SKILL-MECHANICS.md",
-    "contingency://skill/technical-writing",
-    "contingency://skill/unslop",
-  ]) {
-    expect(prompt).toContain(uri);
-  }
-  // Availability is Contingency's job, so the prompt does not hedge, and it
-  // never sends the agent to the skill it must not use.
-  expect(prompt).not.toContain("if available");
-  expect(prompt).toContain("Do not use skill-creator");
-});
 
 test("offers the settled Dry Run, verification, and cleanup actions", () => {
   const progressive = {
@@ -35,17 +14,17 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
     startedAt: "2026-09-16T10:00:00.000Z",
     stoppedAt: "2026-09-16T10:00:00.000Z",
   };
-  // A Dry Run needs inputs the dock cannot collect, so `skill-drafted` offers
-  // the hand-off by name instead of a primary button that starts nothing.
+  // A Dry Run needs inputs the dock cannot collect, so `skill-drafted` leaves
+  // it to the user's agent instead of a button that starts nothing.
   const drafted = teachingRecordingPresentation({
     _tag: "skill-drafted",
     ...progressive,
   });
   expect(drafted.action).toBeNull();
-  expect(drafted.secondaries).toContain("copy-dry-run-prompt");
+  expect(drafted.secondaries).toStrictEqual([]);
 
-  // `dry-run-failed` offered the same prompt-copying primary, so it loses it
-  // on the same terms.
+  // `dry-run-failed` offers no action of its own either; its explanation is
+  // the next step the dock keeps behind its details button (#297).
   const failed = teachingRecordingPresentation({
     _tag: "dry-run-failed",
     ...progressive,
@@ -60,8 +39,8 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
     dryRunStartedAt: progressive.startedAt,
   });
   expect(failed.action).toBeNull();
-  expect(failed.secondaries).toContain("copy-dry-run-prompt");
-  expect(failed.secondaries).toContain("copy-failure");
+  expect(failed.secondaries).toStrictEqual([]);
+  expect(failed.nextStep).toBe("The place order button was never found.");
 
   const result = {
     completedAt: "2026-09-16T10:05:00.000Z",
@@ -122,18 +101,6 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
       completedAt: result.completedAt,
     }).badge
   ).toBe("Recording deleted");
-});
-
-test("hands the dry run to an agent with the inputs it must change", () => {
-  const prompt = flowSkillDryRunPrompt("add-anvil", "recording-7");
-
-  expect(prompt).toContain('"add-anvil"');
-  expect(prompt).toContain("recording-7");
-  expect(prompt).toContain("agent_flow_skill_dry_run_start");
-  expect(prompt).toContain("agent_run_step_assess");
-  expect(prompt).not.toContain("agent_flow_skill_dry_run_report");
-  // The whole reason this is a hand-off rather than a button.
-  expect(prompt).toContain("differs from the recorded journey");
 });
 
 test("names the lifecycle when a gesture lost the race to another process", () => {
