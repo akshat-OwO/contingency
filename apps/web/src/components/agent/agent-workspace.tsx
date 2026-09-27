@@ -42,6 +42,7 @@ import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
+import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
@@ -2137,93 +2138,94 @@ export const AgentWorkspace = ({
 
   return (
     <div className="relative flex h-svh min-h-0 flex-col">
-      <AgentLiveView
-        canvasRef={view.canvasRef}
-        dock={
-          session.activity === "teaching" ? (
-            <TeachingRecordingDock
-              captureState={session.captureState}
-              cleanup={session.recordingCleanup}
-              controller={session.controller}
-              copied={state.recordingCopied}
-              flowSkillName={session.flowSkillName}
-              instructions={session.teaching.instructions}
-              inspecting={state.inspect.open}
-              onGesture={view.changeRecording}
-              onSecondary={view.runSecondary}
-              onSelectSession={view.selectSession}
-              onToggleInspect={view.toggleInspect}
-              pending={state.recordingPending}
-              phase={session.phase}
-              selectedSessionId={state.selectedSessionId}
-              sessions={view.sessions}
-            />
-          ) : (
-            <RunDock
-              controlError={state.controlError}
-              controlPending={state.controlPending}
-              extendError={state.ceilingError}
-              onControl={view.changeControl}
-              onExtendCeiling={view.extendCeiling}
-              onSelectSession={view.selectSession}
-              selectedSessionId={state.selectedSessionId}
-              session={session}
-              sessions={view.sessions}
-              streamConnected={state.streamConnected}
-            />
-          )
-        }
-        input={view.input}
-        inspect={
-          recording && state.inspect.open
-            ? (canvas) => (
-                <InspectOverlay
-                  canvas={canvas}
-                  onAttach={view.attachInspectComment}
-                  onCancel={view.cancelInspectComment}
-                  onDraftChange={view.setInspectDraft}
-                  onExit={view.exitInspect}
-                  onFreeze={view.freezeInspect}
-                  onHover={view.hoverInspect}
-                  projection={state.frameProjection}
-                  state={state.inspect}
-                />
-              )
-            : undefined
-        }
-        notices={
-          session.activity === "teaching" ? (
-            <TeachingRecordingNotices
-              captureState={session.captureState}
-              error={state.recordingError}
-              recordingId={session.recordingId}
+      <WorkspaceWithRunSummary
+        label="Dry Run Summary"
+        summary={
+          session.activity === "teaching" &&
+          (session.captureState._tag === "dry-run-passed" ||
+            session.captureState._tag === "dry-run-failed") &&
+          session.captureState.dryRunSummary !== undefined ? (
+            <RunSummaryView
+              summary={session.captureState.dryRunSummary}
+              videoSrc={`/teaching-recordings/${session.recordingId}/dry-run/video`}
             />
           ) : null
         }
-        onAddressChange={view.setAddress}
-        onAddressSubmit={view.submitAddress}
-        onClearConsole={view.clearConsole}
-        onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
-        onNavigate={view.navigate}
-        onToggleSetup={view.toggleSetup}
-        recording={recording}
-        session={session}
-        state={state}
-      />
-      {session.activity === "teaching" &&
-      (session.captureState._tag === "dry-run-passed" ||
-        session.captureState._tag === "dry-run-failed") &&
-      session.captureState.dryRunSummary !== undefined ? (
-        <aside
-          aria-label="Dry Run Summary"
-          className="bg-background absolute top-20 right-4 z-10 max-h-[calc(100svh-6rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border p-4 shadow-lg"
-        >
-          <RunSummaryView
-            summary={session.captureState.dryRunSummary}
-            videoSrc={`/teaching-recordings/${session.recordingId}/dry-run/video`}
-          />
-        </aside>
-      ) : null}
+      >
+        <AgentLiveView
+          canvasRef={view.canvasRef}
+          dock={
+            session.activity === "teaching" ? (
+              <TeachingRecordingDock
+                captureState={session.captureState}
+                cleanup={session.recordingCleanup}
+                controller={session.controller}
+                copied={state.recordingCopied}
+                flowSkillName={session.flowSkillName}
+                instructions={session.teaching.instructions}
+                inspecting={state.inspect.open}
+                onGesture={view.changeRecording}
+                onSecondary={view.runSecondary}
+                onSelectSession={view.selectSession}
+                onToggleInspect={view.toggleInspect}
+                pending={state.recordingPending}
+                phase={session.phase}
+                selectedSessionId={state.selectedSessionId}
+                sessions={view.sessions}
+              />
+            ) : (
+              <RunDock
+                controlError={state.controlError}
+                controlPending={state.controlPending}
+                extendError={state.ceilingError}
+                onControl={view.changeControl}
+                onExtendCeiling={view.extendCeiling}
+                onSelectSession={view.selectSession}
+                selectedSessionId={state.selectedSessionId}
+                session={session}
+                sessions={view.sessions}
+                streamConnected={state.streamConnected}
+              />
+            )
+          }
+          input={view.input}
+          inspect={
+            recording && state.inspect.open
+              ? (canvas) => (
+                  <InspectOverlay
+                    canvas={canvas}
+                    onAttach={view.attachInspectComment}
+                    onCancel={view.cancelInspectComment}
+                    onDraftChange={view.setInspectDraft}
+                    onExit={view.exitInspect}
+                    onFreeze={view.freezeInspect}
+                    onHover={view.hoverInspect}
+                    projection={state.frameProjection}
+                    state={state.inspect}
+                  />
+                )
+              : undefined
+          }
+          notices={
+            session.activity === "teaching" ? (
+              <TeachingRecordingNotices
+                captureState={session.captureState}
+                error={state.recordingError}
+                recordingId={session.recordingId}
+              />
+            ) : null
+          }
+          onAddressChange={view.setAddress}
+          onAddressSubmit={view.submitAddress}
+          onClearConsole={view.clearConsole}
+          onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
+          onNavigate={view.navigate}
+          onToggleSetup={view.toggleSetup}
+          recording={recording}
+          session={session}
+          state={state}
+        />
+      </WorkspaceWithRunSummary>
     </div>
   );
 };
