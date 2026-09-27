@@ -56,16 +56,10 @@ import {
   WorkspaceEmptyDock,
 } from "@/components/agent/teaching-recording-dock";
 import type {
-  TeachingClipboardAction,
   TeachingRecordingGesture,
   TeachingSecondaryAction,
 } from "@/components/agent/teaching-recording-state";
-import {
-  flowSkillDryRunPrompt,
-  flowSkillRunPrompt,
-  gestureFailureMessage,
-  teachingAgentPrompt,
-} from "@/components/agent/teaching-recording-state";
+import { gestureFailureMessage } from "@/components/agent/teaching-recording-state";
 import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
 import { DockNotices } from "@/components/agent/workspace-dock";
 import {
@@ -86,13 +80,6 @@ import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { ExecutionBoundary } from "./execution-boundary";
-
-/**
- * How long a copied button holds its confirmation. Long enough to read after
- * the eye travels back to the button, short enough that the resting label is
- * back before the user reaches for it again (#214).
- */
-const COPIED_HOLD = "2 seconds";
 
 const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
   session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
@@ -733,7 +720,6 @@ const useAgentView = (
   const pendingMoveRef = useRef<{ input: BrowserInput } | null>(null);
   const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   const recordingFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
-  const copiedFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   // The address bar belongs to whoever is typing in it: a URL event never
   // overwrites what the user has not submitted yet.
   const addressEditingRef = useRef(false);
@@ -1158,11 +1144,6 @@ const useAgentView = (
       recordingFiberRef.current = null;
       if (recordingFiber !== null) {
         Effect.runFork(Fiber.interrupt(recordingFiber));
-      }
-      const copiedFiber = copiedFiberRef.current;
-      copiedFiberRef.current = null;
-      if (copiedFiber !== null) {
-        Effect.runFork(Fiber.interrupt(copiedFiber));
       }
     },
     []
@@ -1623,70 +1604,9 @@ const useAgentView = (
   };
 
   /**
-   * Confirm one clipboard hand-off on the button that performed it. A second
-   * copy interrupts the first one's timer rather than letting it clear a
-   * confirmation it no longer owns.
-   */
-  const confirmCopied = (action: TeachingClipboardAction) => {
-    const running = copiedFiberRef.current;
-    copiedFiberRef.current = null;
-    if (running !== null) {
-      Effect.runFork(Fiber.interrupt(running));
-    }
-    setState((previous) => ({ ...previous, recordingCopied: action }));
-    copiedFiberRef.current = Effect.runFork(
-      Effect.sleep(COPIED_HOLD).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            setState((previous) =>
-              previous.recordingCopied === action
-                ? { ...previous, recordingCopied: undefined }
-                : previous
-            );
-          })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            copiedFiberRef.current = null;
-          })
-        ),
-        Effect.asVoid
-      )
-    );
-  };
-
-  /**
-   * A clipboard hand-off. It runs through the same pending-and-error path a
-   * mutation does, so a copy that the browser refuses says so in the dock
-   * instead of looking like it worked (#210).
-   *
-   * A write nothing on the page reflects is invisible otherwise, so a
-   * successful one confirms itself on the button that performed it (#214).
-   */
-  const copyToClipboard = (
-    action: TeachingClipboardAction,
-    text: string,
-    failure: string
-  ) => {
-    setState((previous) => ({ ...previous, recordingCopied: undefined }));
-    runTeachingMutation(
-      Effect.tryPromise({
-        catch: () => new Error(failure),
-        try: () => globalThis.navigator.clipboard.writeText(text),
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            confirmCopied(action);
-          })
-        )
-      )
-    );
-  };
-
-  /**
-   * The dock's secondary actions. Each one either mutates the recording or
-   * performs the clipboard hand-off its label names, and the union is matched
-   * exhaustively so no action can be rendered with nothing behind it (#210).
+   * The dock's secondary actions. Each one mutates the recording, and the
+   * union is matched exhaustively so no action can be rendered with nothing
+   * behind it (#210).
    */
   const runSecondary = (action: TeachingSecondaryAction, detail?: string) => {
     const current = state.session;
@@ -1694,58 +1614,6 @@ const useAgentView = (
       return;
     }
     switch (action) {
-      case "copy-prompt": {
-        copyToClipboard(
-          action,
-          teachingAgentPrompt(current.flowSkillName, current.recordingId),
-          "The agent prompt could not be copied to the clipboard."
-        );
-        return;
-      }
-      case "copy-learn-again-prompt": {
-        copyToClipboard(
-          action,
-          teachingAgentPrompt(current.flowSkillName, current.recordingId),
-          "The learn again prompt could not be copied to the clipboard."
-        );
-        return;
-      }
-      case "copy-dry-run-prompt": {
-        copyToClipboard(
-          action,
-          flowSkillDryRunPrompt(current.flowSkillName, current.recordingId),
-          "The dry run prompt could not be copied to the clipboard."
-        );
-        return;
-      }
-      case "copy-run-prompt": {
-        copyToClipboard(
-          action,
-          flowSkillRunPrompt(current.flowSkillName),
-          "The run prompt could not be copied to the clipboard."
-        );
-        return;
-      }
-      case "copy-flow-skill-path": {
-        copyToClipboard(
-          action,
-          "skillPath" in current.captureState
-            ? current.captureState.skillPath
-            : current.flowSkillName,
-          "The flow skill path could not be copied to the clipboard."
-        );
-        return;
-      }
-      case "copy-failure": {
-        copyToClipboard(
-          action,
-          current.captureState._tag === "dry-run-failed"
-            ? current.captureState.dryRunResult.observableOutcome
-            : current.flowSkillName,
-          "The failure could not be copied to the clipboard."
-        );
-        return;
-      }
       case "reject-flow": {
         runTeachingMutation(
           Effect.tryPromise({
@@ -2160,7 +2028,6 @@ export const AgentWorkspace = ({
                 captureState={session.captureState}
                 cleanup={session.recordingCleanup}
                 controller={session.controller}
-                copied={state.recordingCopied}
                 flowSkillName={session.flowSkillName}
                 instructions={session.teaching.instructions}
                 inspecting={state.inspect.open}

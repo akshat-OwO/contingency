@@ -8,9 +8,9 @@ import type {
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
 import {
-  CheckIcon,
   CircleAlertIcon,
   CircleIcon,
+  InfoIcon,
   LoaderCircleIcon,
   MousePointerClickIcon,
   SquareIcon,
@@ -18,7 +18,6 @@ import {
 import { useEffect, useState } from "react";
 
 import type {
-  TeachingClipboardAction,
   TeachingRecordingGesture,
   TeachingSecondaryAction,
 } from "@/components/agent/teaching-recording-state";
@@ -39,6 +38,9 @@ import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
 
@@ -53,35 +55,11 @@ const badgeVariant = (
   return tone === "recording" ? "default" : "secondary";
 };
 
-/**
- * Every label names what the button does. A `Copy` label is a hand-off to the
- * MCP conversation and says so, because a button named for an action that
- * only fills the clipboard reads as a broken build (#210).
- */
+/** Every label names what the button does to the recording (#210). */
 const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
-  "copy-dry-run-prompt": "Copy dry run prompt",
-  "copy-failure": "Copy failure",
-  "copy-flow-skill-path": "Copy flow skill path",
-  "copy-learn-again-prompt": "Copy learn again prompt",
-  "copy-prompt": "Copy agent prompt",
-  "copy-run-prompt": "Copy run prompt",
   "delete-recording": "Delete recording",
   "reject-flow": "Reject flow",
   "rename-flow": "Rename flow",
-};
-
-/**
- * What a clipboard button says once the copy has happened. A clipboard write
- * changes nothing the user can see, so the button names what it put there
- * rather than turning a colour or growing a tick alone (#214).
- */
-const COPIED_LABEL: Record<TeachingClipboardAction, string> = {
-  "copy-dry-run-prompt": "Copied dry run prompt",
-  "copy-failure": "Copied failure",
-  "copy-flow-skill-path": "Copied flow skill path",
-  "copy-learn-again-prompt": "Copied learn again prompt",
-  "copy-prompt": "Copied agent prompt",
-  "copy-run-prompt": "Copied run prompt",
 };
 
 /**
@@ -189,15 +167,53 @@ const RecordingComments = ({
 };
 
 /**
- * The Teaching dock: the Flow Skill name, one state badge, one next-step
- * sentence, the inspect toggle, the secondary actions, and at most one primary
- * action, driven entirely by the pushed capture state (ADR 0039).
+ * The state's next-step sentence, behind its own button. Inline, the sentence
+ * wrapped the dock onto several lines, and after a failed Dry Run it carried
+ * the whole failure explanation. Here the dock stays one row and the sentence
+ * stays reachable, which matters when a Dry Run Summary is absent and this is
+ * the only place the failure is explained (#297).
+ */
+const StateDetails = ({
+  badge,
+  nextStep,
+}: {
+  readonly badge: string;
+  readonly nextStep: string;
+}) => (
+  <Popover>
+    <PopoverTrigger
+      render={(props) => (
+        <Button
+          {...props}
+          aria-label="Show details"
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <InfoIcon />
+        </Button>
+      )}
+    />
+    <PopoverContent align="end" className="w-80">
+      <PopoverHeader>
+        <PopoverTitle>{badge}</PopoverTitle>
+        <PopoverDescription className="text-pretty wrap-anywhere">
+          {nextStep}
+        </PopoverDescription>
+      </PopoverHeader>
+    </PopoverContent>
+  </Popover>
+);
+
+/**
+ * The Teaching dock: the Flow Skill name, one state badge, the inspect toggle,
+ * the state's details, the secondary actions, and at most one primary action,
+ * on one row and driven entirely by the pushed capture state (ADR 0039).
  */
 export const TeachingRecordingDock = ({
   captureState,
   cleanup,
   controller,
-  copied,
   flowSkillName,
   instructions,
   inspecting,
@@ -214,8 +230,6 @@ export const TeachingRecordingDock = ({
   readonly cleanup: TeachingRecordingCleanupState | undefined;
   /** Who holds the browser. Start waits for the agent's setup handoff. */
   readonly controller: AgentSessionController;
-  /** The clipboard hand-off that just succeeded, while its copy is fresh. */
-  readonly copied: TeachingClipboardAction | undefined;
   readonly flowSkillName: string;
   /**
    * Every Teaching instruction this recording has collected, oldest first,
@@ -250,7 +264,7 @@ export const TeachingRecordingDock = ({
     setRenaming(true);
   };
   return (
-    <DockShell>
+    <DockShell fit>
       <Wordmark />
       <DockSessionSelect
         onSelect={onSelectSession}
@@ -280,11 +294,12 @@ export const TeachingRecordingDock = ({
       ) : null}
       {/*
           The state sentence changes when the capture state changes, never on a
-          timer tick: the elapsed clock owns its own leaf render.
+          timer tick: the elapsed clock owns its own leaf render. It is spoken
+          here and read from the details popover, so it never widens the dock.
         */}
-      <DockStatus>
+      <output aria-live="polite" className="sr-only">
         {presentation.badge}. {presentation.nextStep}
-      </DockStatus>
+      </output>
       {presentation.showsInspect ? (
         <Button
           aria-label="Inspect an element and comment"
@@ -298,41 +313,24 @@ export const TeachingRecordingDock = ({
         </Button>
       ) : null}
       <RecordingComments instructions={instructions} />
-      {presentation.secondaries.map((secondary) => {
-        const confirmed = secondary === copied;
-        return (
-          <Button
-            disabled={pending}
-            key={secondary}
-            onClick={() =>
-              secondary === "rename-flow"
-                ? startRename()
-                : onSecondary(secondary)
-            }
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            {confirmed ? <CheckIcon aria-hidden="true" /> : null}
-            {confirmed && copied !== undefined
-              ? COPIED_LABEL[copied]
-              : SECONDARY_LABEL[secondary]}
-          </Button>
-        );
-      })}
-      {/*
-          The copied label is on the button, but a button that relabels itself
-          is not announced, so the confirmation is spoken here as well. It is
-          the dock's only always-present live region: `DockStatus` is hidden
-          below `sm`, which takes it out of the accessibility tree.
-        */}
-      <output
-        aria-label="Copy confirmation"
-        aria-live="polite"
-        className="sr-only"
-      >
-        {copied === undefined ? "" : COPIED_LABEL[copied]}
-      </output>
+      <StateDetails
+        badge={presentation.badge}
+        nextStep={presentation.nextStep}
+      />
+      {presentation.secondaries.map((secondary) => (
+        <Button
+          disabled={pending}
+          key={secondary}
+          onClick={() =>
+            secondary === "rename-flow" ? startRename() : onSecondary(secondary)
+          }
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {SECONDARY_LABEL[secondary]}
+        </Button>
+      ))}
       {action === null ? null : (
         <Button
           aria-label={action.accessibleName}
@@ -359,7 +357,7 @@ export const TeachingRecordingDock = ({
         */}
       {renaming ? (
         <form
-          className="flex w-full items-center gap-2"
+          className="flex w-full min-w-80 items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             onSecondary("rename-flow", rename);

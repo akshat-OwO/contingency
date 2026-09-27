@@ -14,9 +14,8 @@ import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
  * every capture source ends at Stop.
  *
  * Every value here performs the action its label names. A Dry Run needs
- * changed inputs the dock has no way to collect, so starting one is a named
- * clipboard hand-off among the secondary actions rather than a gesture that
- * claims to run something (#210).
+ * changed inputs the dock has no way to collect, so starting one is left to
+ * the user's agent rather than a gesture that claims to run something (#210).
  */
 export type TeachingRecordingGesture =
   | "retry-cleanup"
@@ -40,38 +39,24 @@ export interface TeachingRecordingAction {
  * gestures: none of them starts or stops capture, so they stay apart from
  * `TeachingRecordingGesture` and the privacy boundary it names.
  *
- * A `copy-` action hands work to the MCP conversation and says so in its
- * label. Every other value mutates the recording here. Nothing in this union
- * is inert (#210).
+ * Every value mutates the recording here. Nothing in this union is inert
+ * (#210). Handing work to an agent is the user's own prompt, not a dock
+ * button (#297).
  */
 export type TeachingSecondaryAction =
-  | "copy-dry-run-prompt"
-  | "copy-failure"
-  | "copy-flow-skill-path"
-  | "copy-learn-again-prompt"
-  | "copy-prompt"
-  | "copy-run-prompt"
   | "delete-recording"
   | "reject-flow"
   | "rename-flow";
-
-/**
- * The subset of secondary actions that only fill the clipboard. A clipboard
- * write has no consequence the user can see, so the button that performed it
- * is the only place a confirmation can come from, and these are the actions
- * that need one (#214).
- */
-export type TeachingClipboardAction = Extract<
-  TeachingSecondaryAction,
-  `copy-${string}`
->;
 
 export interface TeachingRecordingPresentation {
   /** The one action this state offers, or `null` when it offers none. */
   readonly action: TeachingRecordingAction | null;
   /** The short state name beside the Flow Skill, never a raw recording id. */
   readonly badge: string;
-  /** What the user can do next, in one sentence. */
+  /**
+   * What the user can do next, in one sentence. The dock keeps it behind a
+   * details button so the dock itself stays one row (#297).
+   */
   readonly nextStep: string;
   /** The secondary actions beside the primary one, in dock order. */
   readonly secondaries: readonly TeachingSecondaryAction[];
@@ -199,7 +184,7 @@ export const teachingRecordingPresentation = (
         badge: "Recording saved",
         nextStep:
           "Ask an agent to learn this recording, or start another recording in the same browser setup.",
-        secondaries: ["copy-prompt", "delete-recording"],
+        secondaries: ["delete-recording"],
         showsElapsed: false,
         showsInspect: false,
         tone: "default",
@@ -221,13 +206,8 @@ export const teachingRecordingPresentation = (
       return {
         action: null,
         badge: "Flow skill drafted",
-        nextStep:
-          "Copy the dry-run prompt and hand it to your agent, which dry-runs the flow with different inputs.",
-        secondaries: [
-          "copy-dry-run-prompt",
-          "copy-flow-skill-path",
-          "copy-learn-again-prompt",
-        ],
+        nextStep: "Ask your agent to dry-run the flow with different inputs.",
+        secondaries: [],
         showsElapsed: false,
         showsInspect: true,
         tone: "default",
@@ -249,11 +229,7 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Dry run failed",
         nextStep: captureState.dryRunResult.observableOutcome,
-        secondaries: [
-          "copy-dry-run-prompt",
-          "copy-failure",
-          "copy-learn-again-prompt",
-        ],
+        secondaries: [],
         showsElapsed: false,
         showsInspect: true,
         tone: "failed",
@@ -265,7 +241,7 @@ export const teachingRecordingPresentation = (
         badge: "Dry run passed",
         nextStep:
           "Verify the flow to keep it and delete the recording. Reject to keep the recording.",
-        secondaries: ["reject-flow", "copy-flow-skill-path"],
+        secondaries: ["reject-flow"],
         showsElapsed: false,
         showsInspect: true,
         tone: "default",
@@ -299,7 +275,7 @@ export const teachingRecordingPresentation = (
         badge: "Recording deleted",
         nextStep:
           "The flow skill and its references are all that is left. Run it any time.",
-        secondaries: ["copy-run-prompt", "copy-flow-skill-path"],
+        secondaries: [],
         showsElapsed: false,
         showsInspect: false,
         tone: "default",
@@ -351,69 +327,6 @@ export const elapsedLabel = (startedAt: string, now: number): string => {
 /** The same duration, spoken rather than shown, for the timer's label. */
 export const elapsedSpokenLabel = (startedAt: string, now: number): string =>
   `Elapsed recording time ${elapsedLabel(startedAt, now)}`;
-
-/**
- * The prompt the user hands to a learning agent. It names the authoring skills
- * by MCP URI because Contingency serves them itself (ADR 0039): the agent must
- * not fall back to whatever skills its host happens to have installed, and
- * `skill-creator` is never the right tool for a Flow Skill.
- */
-export const teachingAgentPrompt = (
-  flowSkillName: string,
-  recordingId: string
-): string =>
-  [
-    `Learn the Contingency Teaching Recording ${recordingId} and write the Flow Skill "${flowSkillName}" from it.`,
-    "",
-    "Read these Contingency MCP resources first, then the recording timeline, then save:",
-    "- contingency://skill/writing-for-agents",
-    "- contingency://skill/writing-for-agents/SKILL-MECHANICS.md",
-    "- contingency://skill/technical-writing",
-    "- contingency://skill/unslop",
-    "",
-    'Do not use skill-creator. Claim the recording with agent_teaching_recording_claim action "take", page agent_teaching_timeline_get until nextCursor is null, then call agent_flow_skill_save.',
-    "After saving, ask for the inputs again and call agent_flow_skill_dry_run_start with at least one changed input when the task permits it. Drive the returned fresh Agent Session and assess each Agent Step against its Done when line with agent_run_step_assess.",
-    "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
-    "A pass keeps the recording. Ask me to Verify flow or Reject flow, then call agent_flow_skill_decide with the matching decision.",
-  ].join("\n");
-
-/**
- * The prompt the user hands to an agent to run a verified Flow Skill. Running
- * is the agent's work: Contingency owns the Step order, the ceilings, and the
- * evidence, but a browser nobody drives finishes nothing, so the Workspace
- * hands over the exact call rather than opening an idle Run.
- */
-export const flowSkillRunPrompt = (flowSkillName: string): string =>
-  [
-    `Run the Contingency flow skill "${flowSkillName}".`,
-    "",
-    `Call agent_flow_skills_list to find "${
-      flowSkillName
-    }" in the selected Catalog Root and read the description and declared inputs it reports.`,
-    "Ask me for every declared input, then call agent_flow_skill_run_start with those inputs and the page the first step opens.",
-    'Drive the returned Agent Session with the browser tools and call agent_run_step_assess for each ordered step, judged against its own "Done when:" line.',
-    "Call agent_run_complete when the steps are done or one of them could not be completed.",
-  ].join("\n");
-
-/**
- * The prompt the user hands to an agent to dry-run a drafted Flow Skill. A
- * Dry Run needs inputs that differ from the recorded ones, and only the
- * conversation can ask for them, so the Workspace hands over the exact calls
- * instead of starting a Dry Run with the inputs it already has (#210).
- */
-export const flowSkillDryRunPrompt = (
-  flowSkillName: string,
-  recordingId: string
-): string =>
-  [
-    `Dry-run the Contingency Flow Skill "${flowSkillName}", drafted from Teaching Recording ${recordingId}.`,
-    "",
-    "Read the drafted SKILL.md, ask me for ordinary inputs, and pick at least one value that differs from the recorded journey. For a secret, pass only its name with secret:true; I will supply its value in the Workspace.",
-    `Call agent_flow_skill_dry_run_start with recordingId "${recordingId}" and those inputs. Use agent_variable_enter with the secret input's uppercase Variable name after I supply it.`,
-    "Drive the returned fresh Agent Session with the browser tools and assess each Agent Step against its Done when line with agent_run_step_assess.",
-    "A failure keeps the recording and your claim: fix the package with agent_flow_skill_save under the same claim operation id, then run another Dry Run.",
-    "A pass keeps the recording. Ask me to Verify flow or Reject flow, then call agent_flow_skill_decide with the matching decision.",
-  ].join("\n");
 
 /** What each gesture is called when a sentence has to name the one that failed. */
 const GESTURE_NAME: Record<TeachingRecordingGesture, string> = {
