@@ -19,7 +19,7 @@ import {
   useAtomSet,
   useAtomValue,
 } from "@effect/atom-react";
-import { Effect, Fiber, Result, Schedule, Schema, Semaphore } from "effect";
+import { Effect, Fiber, Result, Schedule, Schema } from "effect";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -65,6 +65,7 @@ import { DockNotices } from "@/components/agent/workspace-dock";
 import {
   keyboardModifiers,
   makeBrowserInputHandlers,
+  makeBrowserInputQueue,
   mousePosition,
   renderFrame,
 } from "@/components/browser/browser-input";
@@ -716,8 +717,24 @@ const useAgentView = (
     { readonly type: "frame" }
   > | null>(null);
   const activeSessionRef = useRef<AgentSessionId | null>(null);
-  const [inputLock] = useState(() => Semaphore.makeUnsafe(1));
-  const pendingMoveRef = useRef<{ input: BrowserInput } | null>(null);
+  const sendBrowserInputRef = useRef(sendBrowserInput);
+  useEffect(() => {
+    sendBrowserInputRef.current = sendBrowserInput;
+  }, [sendBrowserInput]);
+  // One request in flight at a time: the input mutation is one atom, and
+  // setting it again while a send is pending would interrupt that send.
+  const [enqueueInput] = useState(() =>
+    makeBrowserInputQueue((sessionId: AgentSessionId, inputs) =>
+      Effect.tryPromise(() =>
+        sendBrowserInputRef.current({
+          payload: {
+            data: { inputs, sessionId },
+            type: "agent.browser.input.send",
+          },
+        })
+      )
+    )
+  );
   const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   const recordingFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
   // The address bar belongs to whoever is typing in it: a URL event never
@@ -1778,50 +1795,9 @@ const useAgentView = (
 
   const dispatchInput = (browserInput: BrowserInput) => {
     const sessionId = activeSessionRef.current;
-    if (sessionId === null) {
-      return;
+    if (sessionId !== null) {
+      enqueueInput(sessionId, browserInput);
     }
-    let inputForDispatch: () => BrowserInput;
-    if (
-      browserInput.type === "input_mouse" &&
-      browserInput.eventType === "mouseMoved"
-    ) {
-      const pending = pendingMoveRef.current;
-      if (pending !== null) {
-        pending.input = browserInput;
-        return;
-      }
-      const move = { input: browserInput };
-      pendingMoveRef.current = move;
-      inputForDispatch = () => {
-        if (pendingMoveRef.current === move) {
-          pendingMoveRef.current = null;
-        }
-        return move.input;
-      };
-    } else {
-      pendingMoveRef.current = null;
-      inputForDispatch = () => browserInput;
-    }
-    Effect.runFork(
-      inputLock.withPermit(
-        Effect.sync(inputForDispatch).pipe(
-          Effect.flatMap((input) =>
-            Effect.tryPromise({
-              catch: (cause) => cause,
-              try: () =>
-                sendBrowserInput({
-                  payload: {
-                    data: { input, sessionId },
-                    type: "agent.browser.input.send",
-                  },
-                }),
-            })
-          ),
-          Effect.ignore
-        )
-      )
-    );
   };
 
   const input = makeBrowserInputHandlers(dispatchInput);

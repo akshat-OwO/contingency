@@ -84,6 +84,7 @@ import type {
 } from "@contingency/protocol";
 import {
   Cause,
+  Clock,
   Context,
   Effect,
   Exit,
@@ -904,6 +905,25 @@ const shouldCaptureRawInput = (input: BrowserInput): boolean =>
     !MODIFIER_KEYS.has(input.key ?? "")) ||
   (input.type === "input_mouse" && input.eventType === "mouseWheel");
 
+/**
+ * A key that types into the field a burst is typing into. Enter can submit
+ * the form it is typed in, so it ends the burst and is observed on its own.
+ */
+const extendsTypingBurst = (input: BrowserInput): boolean =>
+  isTextEdit(input) && input.type === "input_keyboard" && input.key !== "Enter";
+
+/**
+ * Input that reaches the Page during a burst without ending it: a key coming
+ * back up, a modifier held for a capital or a symbol, the pointer drifting.
+ */
+const passesTypingBurst = (input: BrowserInput): boolean =>
+  isPointerMove(input) ||
+  (input.type === "input_keyboard" &&
+    (input.eventType === "keyUp" || MODIFIER_KEYS.has(input.key ?? "")));
+
+/** How long typing pauses before its burst is recorded. */
+const TYPING_BURST_IDLE_MS = 750;
+
 /** Keep public Teaching records free of credentials and sensitive URL values. */
 const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
   action.type === "navigate"
@@ -1292,8 +1312,31 @@ interface SessionRecord {
    * the same element, however the Page reorders around it.
    */
   readonly textEdit: {
+    /** The typing burst still reaching the Page, observed at its start only. */
+    burst: TypingBurst | undefined;
     open: { readonly key: string; readonly ref: AgentElementRef } | undefined;
   };
+}
+
+/**
+ * Keys the user types into one field with nothing else in between. The field
+ * is observed once when the burst starts and once when it ends, so a key goes
+ * to the Page without waiting on a Browser Snapshot of it (#298).
+ */
+interface TypingBurst {
+  /** When the first key landed: the moment the Fill it records began. */
+  readonly at: string;
+  /** Record the burst and end it. Only the control lock's holder runs it. */
+  readonly close: Effect.Effect<void>;
+  readonly focused: FocusedTextControl;
+  readonly id: string;
+  /** Every key the burst sent, in order: its record if it proves no edit. */
+  readonly keys: BrowserInput[];
+  /** When the latest key was sent, on the Effect clock. */
+  lastKeyAt: number;
+  readonly page: Page;
+  readonly snapshotBefore: AgentSnapshotId | null;
+  readonly urlBefore: string;
 }
 
 /** The control a keystroke was sent to, as the tree before it read it. */
@@ -1850,7 +1893,11 @@ const makeAgentSession = (
       const record = Ref.getUnsafe(sessions).get(sessionId);
       return record === undefined
         ? effect
-        : record.control.lock.withPermit(effect);
+        : record.control.lock.withPermit(
+            Effect.suspend(
+              () => record.textEdit.burst?.close ?? Effect.void
+            ).pipe(Effect.andThen(effect))
+          );
     };
 
     /** A session that carries a Demonstration: a Teaching session, live or not. */
@@ -3936,7 +3983,7 @@ const makeAgentSession = (
                   snapshot: base,
                   supplied: new Map<string, string>(),
                   teachingRecorder: undefined,
-                  textEdit: { open: undefined },
+                  textEdit: { burst: undefined, open: undefined },
                   traceFile,
                   videoFile,
                 };
@@ -4117,26 +4164,31 @@ const makeAgentSession = (
         const observed = yield* snapshotAfter(record, page, urlBefore);
         capture.recordSnapshot(observed);
         const focusedAfter = yield* Effect.result(record.registry.focusedRef());
-        if (Result.isFailure(focusedAfter)) {
+        // The last key typed may have moved focus on — a phone number field
+        // that submits at its tenth digit — and the field still holds what was
+        // typed into it, so it is read wherever focus went.
+        const refAfter =
+          Result.isSuccess(focusedAfter) &&
+          (yield* record.registry.sameElement(
+            focused.ref,
+            focusedAfter.success
+          ))
+            ? focusedAfter.success
+            : yield* observedOrNothing(record.registry.currentRef(focused.ref));
+        if (refAfter === undefined) {
           return;
         }
         const value = editedValue(
-          observed.nodes.find(
-            (candidate) => candidate.ref === focusedAfter.success
-          ),
+          observed.nodes.find((candidate) => candidate.ref === refAfter),
           focused.sensitive
         );
-        // A fill is the field's value changing while it keeps focus. A key that
-        // moved focus elsewhere, or left the value as it was — Enter in a
-        // single-line field, a Backspace in an empty one — is not an edit, so
-        // it ends the fill and is recorded as the key press it was.
+        // A fill is the field's value changing. Keys that left the value as it
+        // was — Enter in a single-line field, a Backspace in an empty one — are
+        // not an edit, so they end the fill and are recorded as the key presses
+        // they were.
         if (
           value === undefined ||
-          !(yield* record.registry.sameElement(
-            focused.ref,
-            focusedAfter.success
-          )) ||
-          !(yield* valueChanged(record, focused, focusedAfter.success, value))
+          !(yield* valueChanged(record, focused, refAfter, value))
         ) {
           return;
         }
@@ -4154,7 +4206,7 @@ const makeAgentSession = (
             {},
             capture.sensitiveValues()
           ),
-          focusedAfter: focusedAfter.success,
+          focusedAfter: refAfter,
           observed,
         };
       });
@@ -4383,6 +4435,227 @@ const makeAgentSession = (
           },
           { currentUrl: input.urlAfter }
         );
+        return true;
+      });
+
+    /** Record a user input the browser refused, then fail with its reason. */
+    const failUserInput = (input: {
+      readonly at: string;
+      readonly failure: BrowserRpcErrorType;
+      readonly id: string;
+      readonly input: BrowserInput;
+      readonly page: Page;
+      readonly record: SessionRecord;
+      readonly sessionId: AgentSessionId;
+      readonly snapshotBefore: AgentSnapshotId | null;
+      readonly urlBefore: string;
+    }): Effect.Effect<never, AgentSessionError> =>
+      Effect.gen(function* recordFailedUserInput() {
+        const description = describeTeachingInput(input.input);
+        const failed = recordingCapture(input.record)?.recordAction({
+          action: { input: teachingInput(input.input), type: "input" },
+          actor: "user",
+          at: input.at,
+          description,
+          detail: input.failure.message,
+          id: input.id,
+          outcome: "failed",
+          snapshotAfter: null,
+          snapshotBefore: input.snapshotBefore,
+          urlAfter: input.page.url(),
+          urlBefore: input.urlBefore,
+        });
+        if (failed !== undefined) {
+          yield* captureTeachingKeyframe(
+            input.record,
+            input.page,
+            failed.id,
+            input.at
+          );
+        }
+        yield* recordEntry(input.sessionId, {
+          actor: "user",
+          at: input.at,
+          description,
+          detail: input.failure.message,
+          dispatched: true,
+          id: input.id,
+          outcome: "failed",
+        });
+        return yield* Effect.fail(input.failure);
+      });
+
+    /**
+     * End the open typing burst: observe its field once more and record what
+     * the burst typed — one Fill when it changed the field's value, otherwise
+     * each key as the raw input it was. It runs under the control lock before
+     * whatever ended the burst is recorded, so the Timeline keeps their order.
+     * Best effort, like Stop closing an open gesture: a Page gone from under
+     * it costs the burst its evidence, never the input that ended it.
+     */
+    const closeTypingBurst = (
+      sessionId: AgentSessionId,
+      opened: SessionRecord
+    ): Effect.Effect<void> =>
+      Effect.gen(function* recordTypingBurst() {
+        const { burst } = opened.textEdit;
+        opened.textEdit.burst = undefined;
+        // Records are copied on every write, so capture is judged by the one
+        // the session holds now rather than the one the burst opened under.
+        const record = Ref.getUnsafe(sessions).get(sessionId) ?? opened;
+        const capture = recordingCapture(record);
+        if (burst === undefined || capture === undefined) {
+          return;
+        }
+        const urlAfter = burst.page.url();
+        const common = {
+          at: burst.at,
+          page: burst.page,
+          record,
+          sessionId,
+          snapshotBefore: burst.snapshotBefore,
+          urlAfter,
+          urlBefore: burst.urlBefore,
+        };
+        if (
+          yield* completeSemanticUserEdit({
+            ...common,
+            focused: burst.focused,
+            id: burst.id,
+          })
+        ) {
+          return;
+        }
+        let lastId: string | undefined;
+        for (const [index, key] of burst.keys.entries()) {
+          const id = index === 0 ? burst.id : `user-input-${randomUUID()}`;
+          const description = describeTeachingInput(key);
+          lastId = capture.recordAction({
+            action: { input: teachingInput(key), type: "input" },
+            actor: "user",
+            at: burst.at,
+            description,
+            id,
+            outcome: "completed",
+            snapshotAfter: null,
+            snapshotBefore: burst.snapshotBefore,
+            urlAfter,
+            urlBefore: burst.urlBefore,
+          }).id;
+          yield* recordEntry(
+            sessionId,
+            {
+              actor: "user",
+              at: burst.at,
+              description,
+              dispatched: true,
+              id,
+              outcome: "completed",
+            },
+            { currentUrl: urlAfter }
+          );
+        }
+        // One Page state follows the whole burst, so one photograph of it.
+        if (lastId !== undefined) {
+          yield* captureTeachingKeyframe(
+            record,
+            burst.page,
+            lastId,
+            now().toISOString()
+          );
+        }
+      }).pipe(Effect.ignore);
+
+    /**
+     * Close a burst once typing pauses, so the Fill is on the Timeline while
+     * the user looks at it rather than only once they do something else.
+     */
+    const watchTypingBurst = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      burst: TypingBurst
+    ): Effect.Effect<void> =>
+      Effect.gen(function* closeWhenTypingPauses() {
+        while (record.textEdit.burst === burst) {
+          const paused = (yield* Clock.currentTimeMillis) - burst.lastKeyAt;
+          if (paused >= TYPING_BURST_IDLE_MS) {
+            break;
+          }
+          yield* Effect.sleep(TYPING_BURST_IDLE_MS - paused);
+        }
+        yield* record.control.lock.withPermit(
+          Effect.suspend(() =>
+            record.textEdit.burst === burst
+              ? closeTypingBurst(sessionId, record)
+              : Effect.void
+          )
+        );
+      });
+
+    const openTypingBurst = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      opened: Omit<TypingBurst, "close">
+    ): Effect.Effect<void> =>
+      Effect.gen(function* startTypingBurst() {
+        const burst = { ...opened, close: closeTypingBurst(sessionId, record) };
+        record.textEdit.burst = burst;
+        yield* Effect.forkIn(
+          watchTypingBurst(sessionId, record, burst),
+          record.scope
+        );
+      });
+
+    /**
+     * Send an input that continues the open typing burst straight to the Page,
+     * and close the burst ahead of one that does not. A key continues it only
+     * while the field it types into still holds focus in the same document,
+     * which one round trip answers without a Browser Snapshot. Answers whether
+     * the input was delivered here.
+     */
+    const continueTypingBurst = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      page: Page,
+      input: BrowserInput
+    ): Effect.Effect<boolean, AgentSessionError> =>
+      Effect.gen(function* typeIntoBurst() {
+        const { burst } = record.textEdit;
+        if (burst === undefined) {
+          return false;
+        }
+        const continues =
+          passesTypingBurst(input) ||
+          (extendsTypingBurst(input) &&
+            page === burst.page &&
+            page.url() === burst.urlBefore &&
+            (yield* record.registry.hasFocus(burst.focused.ref)));
+        if (!continues) {
+          yield* closeTypingBurst(sessionId, record);
+          return false;
+        }
+        const outcome = yield* Effect.result(
+          browser.sendInput(record.browserSessionId, input)
+        );
+        if (Result.isFailure(outcome)) {
+          yield* closeTypingBurst(sessionId, record);
+          return yield* failUserInput({
+            at: now().toISOString(),
+            failure: outcome.failure,
+            id: `user-input-${randomUUID()}`,
+            input,
+            page,
+            record,
+            sessionId,
+            snapshotBefore:
+              recordingCapture(record)?.latestSnapshotId() ?? null,
+            urlBefore: page.url(),
+          });
+        }
+        if (extendsTypingBurst(input)) {
+          burst.keys.push(input);
+          burst.lastKeyAt = yield* Clock.currentTimeMillis;
+        }
         return true;
       });
 
@@ -5051,6 +5324,7 @@ const makeAgentSession = (
               )
             );
           }
+          yield* afterUserInput(sessionId, Effect.void);
           const page = yield* browser.activePage(record.browserSessionId);
           if (input.ref === undefined) {
             const observed = redactCapturedSnapshot(
@@ -6497,7 +6771,10 @@ const makeAgentSession = (
         }),
       recordInstruction: (sessionId, text, operationId, target) =>
         lock.withPermit(
-          recordInstructionUnlocked(sessionId, text, operationId, target)
+          afterUserInput(
+            sessionId,
+            recordInstructionUnlocked(sessionId, text, operationId, target)
+          )
         ),
       recordPendingDecisionState: (
         sessionId,
@@ -6649,7 +6926,12 @@ const makeAgentSession = (
           })
         ),
       returnControl: (sessionId, operationId) =>
-        lock.withPermit(returnControlUnlocked(sessionId, operationId)),
+        lock.withPermit(
+          afterUserInput(
+            sessionId,
+            returnControlUnlocked(sessionId, operationId)
+          )
+        ),
       runViewUrl: (runId) =>
         isAllowedAgentSessionBaseUrl(options.baseUrl)
           ? Effect.sync(() => runViewUrl(options.baseUrl, runId))
@@ -6692,6 +6974,9 @@ const makeAgentSession = (
                 );
               }
               const page = yield* browser.activePage(record.browserSessionId);
+              if (yield* continueTypingBurst(sessionId, record, page, input)) {
+                return;
+              }
               const urlBefore = page.url();
               const { focused, pointed, snapshotBefore } =
                 yield* observeUserInputTarget(record, page, input);
@@ -6706,34 +6991,32 @@ const makeAgentSession = (
               );
               const at = now().toISOString();
               if (Result.isFailure(outcome)) {
-                const failed = recordingCapture(record)?.recordAction({
-                  action,
-                  actor: "user",
+                return yield* failUserInput({
                   at,
-                  description,
-                  detail: outcome.failure.message,
+                  failure: outcome.failure,
                   id,
-                  outcome: "failed",
-                  snapshotAfter: null,
+                  input,
+                  page,
+                  record,
+                  sessionId,
                   snapshotBefore,
-                  urlAfter: page.url(),
                   urlBefore,
                 });
-                if (failed !== undefined) {
-                  yield* captureTeachingKeyframe(record, page, failed.id, at);
-                }
-                yield* recordEntry(sessionId, {
-                  actor: "user",
-                  at,
-                  description,
-                  detail: outcome.failure.message,
-                  dispatched: true,
-                  id,
-                  outcome: "failed",
-                });
-                return yield* Effect.fail(outcome.failure);
               }
               if (isPointerMove(input)) {
+                return;
+              }
+              if (focused !== undefined && extendsTypingBurst(input)) {
+                yield* openTypingBurst(sessionId, record, {
+                  at,
+                  focused,
+                  id,
+                  keys: [input],
+                  lastKeyAt: yield* Clock.currentTimeMillis,
+                  page,
+                  snapshotBefore,
+                  urlBefore,
+                });
                 return;
               }
               const urlAfter = page.url();
@@ -6948,6 +7231,7 @@ const makeAgentSession = (
               )
             );
           }
+          yield* afterUserInput(sessionId, Effect.void);
           const page = yield* browser.activePage(record.browserSessionId);
           const capturedAction =
             action.type === "navigate"

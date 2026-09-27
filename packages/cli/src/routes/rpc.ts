@@ -307,8 +307,14 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "agent.browser.stream.subscribe": ({ data }) =>
         agentStream((service) => service.browserStream(data.sessionId)),
       "agent.browser.input.send": ({ data }) =>
+        // One at a time, in the order the user made them: the first input
+        // the browser refuses ends the batch.
         agentUnavailable((service) =>
-          service.sendInput(data.sessionId, data.input)
+          Effect.forEach(
+            data.inputs,
+            (input) => service.sendInput(data.sessionId, input),
+            { discard: true }
+          )
         ).pipe(
           Effect.as({
             data: {},

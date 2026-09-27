@@ -843,7 +843,7 @@ test("scrolls the browser with the wheel only during Takeover", async () => {
   expect(rpc.inputCalls.at(0)).toMatchObject({
     payload: {
       data: {
-        input: { deltaY: 240, eventType: "mouseWheel", type: "input_mouse" },
+        inputs: [{ deltaY: 240, eventType: "mouseWheel", type: "input_mouse" }],
       },
     },
   });

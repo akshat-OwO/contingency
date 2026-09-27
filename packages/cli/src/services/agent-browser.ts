@@ -731,6 +731,18 @@ export interface AgentElementRegistry {
     x: number,
     y: number
   ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
+  /**
+   * Whether a referenced control holds focus in the live Page right now. One
+   * round trip and no Snapshot, so it is cheap enough to ask before every key.
+   */
+  readonly hasFocus: (ref: string) => Effect.Effect<boolean>;
+  /**
+   * The reference the most recent Snapshot minted for the element an older
+   * reference names. It is stale when that Snapshot did not read the element.
+   */
+  readonly currentRef: (
+    ref: string
+  ) => Effect.Effect<AgentElementRef, BrowserRpcErrorType>;
   /** Resolve the currently focused element to one minted reference. */
   readonly focusedRef: () => Effect.Effect<
     AgentElementRef,
@@ -1135,6 +1147,52 @@ export const makeAgentElementRegistry = (
           Effect.orElseSucceed(() => false)
         );
 
+  const hasFocus = (ref: string): Effect.Effect<boolean> => {
+    const handle = elements.get(ref);
+    return handle === undefined
+      ? Effect.succeed(false)
+      : Effect.tryPromise(() =>
+          handle.evaluate(
+            (element) =>
+              element.isConnected &&
+              element.ownerDocument.activeElement === element
+          )
+        ).pipe(Effect.orElseSucceed(() => false));
+  };
+
+  const currentRef = (
+    ref: string
+  ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> => {
+    const handle = elements.get(ref);
+    if (handle === undefined) {
+      return Effect.fail(staleReference(ref));
+    }
+    if (bounds.get(ref)?.generation === generation) {
+      return Effect.succeed(AgentElementRef.make(ref));
+    }
+    const current = [...bounds].flatMap(([candidate, rectangle]) => {
+      const element = elements.get(candidate);
+      return rectangle.generation === generation && element !== undefined
+        ? [{ element, ref: candidate }]
+        : [];
+    });
+    return Effect.tryPromise({
+      catch: () => staleReference(ref),
+      try: () =>
+        handle.evaluate(
+          (element, candidates) => candidates.indexOf(element),
+          current.map(({ element }) => element)
+        ),
+    }).pipe(
+      Effect.flatMap((index) => {
+        const match = current[index]?.ref;
+        return match === undefined
+          ? Effect.fail(staleReference(ref))
+          : Effect.succeed(AgentElementRef.make(match));
+      })
+    );
+  };
+
   const valueDigest = (
     ref: string
   ): Effect.Effect<string, BrowserRpcErrorType> =>
@@ -1162,8 +1220,10 @@ export const makeAgentElementRegistry = (
 
   return {
     clear,
+    currentRef,
     describe: (ref) => subjects.get(ref),
     focusedRef,
+    hasFocus,
     isSensitive,
     pointElement,
     pointRef,

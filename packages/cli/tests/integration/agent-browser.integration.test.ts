@@ -735,14 +735,16 @@ it.live(
       const refused = yield* Effect.flip(
         agent("agent.browser.input.send", {
           data: {
-            input: {
-              button: "left",
-              clickCount: 1,
-              eventType: "mousePressed",
-              type: "input_mouse",
-              x: 40,
-              y: 40,
-            },
+            inputs: [
+              {
+                button: "left",
+                clickCount: 1,
+                eventType: "mousePressed",
+                type: "input_mouse",
+                x: 40,
+                y: 40,
+              },
+            ],
             sessionId: session.id,
           },
           type: "agent.browser.input.send",
@@ -762,14 +764,16 @@ it.live(
 
       yield* agent("agent.browser.input.send", {
         data: {
-          input: {
-            button: "left",
-            clickCount: 1,
-            eventType: "mousePressed",
-            type: "input_mouse",
-            x: 40,
-            y: 40,
-          },
+          inputs: [
+            {
+              button: "left",
+              clickCount: 1,
+              eventType: "mousePressed",
+              type: "input_mouse",
+              x: 40,
+              y: 40,
+            },
+          ],
           sessionId: session.id,
         },
         type: "agent.browser.input.send",
@@ -797,14 +801,16 @@ it.live(
       const afterReturn = yield* Effect.flip(
         agent("agent.browser.input.send", {
           data: {
-            input: {
-              button: "left",
-              clickCount: 1,
-              eventType: "mousePressed",
-              type: "input_mouse",
-              x: 40,
-              y: 40,
-            },
+            inputs: [
+              {
+                button: "left",
+                clickCount: 1,
+                eventType: "mousePressed",
+                type: "input_mouse",
+                x: 40,
+                y: 40,
+              },
+            ],
             sessionId: session.id,
           },
           type: "agent.browser.input.send",
@@ -812,6 +818,71 @@ it.live(
       );
       expect(afterReturn.code).toBe("agent_control_unavailable");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("types a batch of the user's keys in the order they were made", () =>
+  Effect.gen(function* typeOneBatch() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("typing.html"),
+      "start-batched-input"
+    );
+    yield* agent("agent.session.takeover", {
+      data: {
+        operationId: OperationId.make("takeover-to-type"),
+        reason: "I will type this myself.",
+        sessionId: session.id,
+      },
+      type: "agent.session.takeover",
+    });
+    const text = "ada@example.org";
+    // One request, as the Workspace sends what queued while its previous
+    // request was in flight: a click into Email, then every key down and up.
+    yield* agent("agent.browser.input.send", {
+      data: {
+        inputs: [
+          {
+            button: "left",
+            clickCount: 1,
+            eventType: "mousePressed",
+            type: "input_mouse",
+            x: 120,
+            y: 116,
+          },
+          {
+            button: "left",
+            clickCount: 1,
+            eventType: "mouseReleased",
+            type: "input_mouse",
+            x: 120,
+            y: 116,
+          },
+          ...[...text].flatMap((character) => [
+            {
+              eventType: "keyDown" as const,
+              key: character,
+              text: character,
+              type: "input_keyboard" as const,
+            },
+            {
+              eventType: "keyUp" as const,
+              key: character,
+              type: "input_keyboard" as const,
+            },
+          ]),
+        ],
+        sessionId: session.id,
+      },
+      type: "agent.browser.input.send",
+    });
+
+    const observed = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(findNode(observed.nodes, "textbox", "Email").value).toBe(text);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
 it.live("completes an action that navigates the Page it was read from", () =>

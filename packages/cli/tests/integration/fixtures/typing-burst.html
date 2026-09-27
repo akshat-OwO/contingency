@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in with your mobile</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      input {
+        position: fixed;
+        left: 20px;
+        width: 200px;
+        height: 32px;
+      }
+      [name="mobile"] {
+        top: 100px;
+      }
+      [name="q"] {
+        top: 160px;
+      }
+      button {
+        position: fixed;
+        left: 240px;
+        top: 160px;
+      }
+      ul {
+        margin-top: 240px;
+      }
+    </style>
+  </head>
+  <body>
+    <form action="confirmed.html">
+      <label>Mobile number <input name="mobile" inputmode="tel" /></label>
+      <label>Search <input name="q" /></label>
+      <button>Go</button>
+    </form>
+    <!--
+      A page heavy enough that reading it takes a while, as a storefront's is:
+      a key that waits on a Browser Snapshot here is visibly late.
+    -->
+    <ul id="catalog"></ul>
+    <script>
+      const catalog = document.querySelector("#catalog");
+      for (let index = 0; index < 3000; index += 1) {
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = `#product-${index}`;
+        link.textContent = `Product ${index}`;
+        item.append(link);
+        catalog.append(item);
+      }
+      // A complete number moves on by itself, as sign-in forms do, so the key
+      // that finished it leaves focus somewhere else.
+      const mobile = document.querySelector('[name="mobile"]');
+      mobile.addEventListener("input", () => {
+        if (mobile.value.length === 10) {
+          document.querySelector('[name="q"]').focus();
+        }
+      });
+    </script>
+  </body>
+</html>
