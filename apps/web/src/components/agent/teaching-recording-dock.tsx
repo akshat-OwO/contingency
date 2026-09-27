@@ -264,7 +264,7 @@ export const TeachingRecordingDock = ({
     setRenaming(true);
   };
   return (
-    <DockShell>
+    <DockShell fit>
       <Wordmark />
       <DockSessionSelect
         onSelect={onSelectSession}
@@ -357,7 +357,7 @@ export const TeachingRecordingDock = ({
         */}
       {renaming ? (
         <form
-          className="flex w-full items-center gap-2"
+          className="flex w-full min-w-80 items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             onSecondary("rename-flow", rename);

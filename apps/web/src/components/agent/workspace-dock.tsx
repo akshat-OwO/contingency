@@ -4,6 +4,7 @@ import type {
 } from "@contingency/protocol";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
+import { cn } from "@/lib/utils";
 
 /**
  * The pieces every Workspace dock is made of. Teaching, a Dry Run, an
@@ -57,13 +58,23 @@ export const DockSessionSelect = ({
  */
 export const DockShell = ({
   children,
+  fit = false,
 }: {
   readonly children: React.ReactNode;
+  /**
+   * Size the card to its controls instead of the full dock width. A dock with
+   * no inline sentence has nothing to fill the width with, so a full-width
+   * card leaves a band of empty space beside its controls (#297).
+   */
+  readonly fit?: boolean;
 }) => (
   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
     <section
       aria-label="Workspace dock"
-      className="bg-background pointer-events-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2 shadow-lg"
+      className={cn(
+        "bg-background pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2 shadow-lg",
+        fit ? "w-fit max-w-full" : "w-full max-w-5xl"
+      )}
     >
       {children}
     </section>
