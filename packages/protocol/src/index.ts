@@ -597,9 +597,13 @@ export const AgentSessionControlReturned = response(
  * What the user does with the browser during Takeover. It is deliberately not
  * an MCP tool: raw input belongs to the person who took control, and control
  * is exclusive, so the agent cannot send it at all.
+ *
+ * Inputs arrive in the order the user made them. The Workspace sends what
+ * queued while its previous request was in flight as one batch, so a key never
+ * waits a round trip behind the key before it (#298).
  */
 export const AgentBrowserInputSend = request("agent.browser.input.send", {
-  input: BrowserInput,
+  inputs: Schema.NonEmptyArray(BrowserInput).check(Schema.isMaxLength(256)),
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
 export const AgentBrowserInputSent = response("agent.browser.input.sent", {});
