@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Snapshot layered sheet</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+      }
+      #app {
+        min-height: 100vh;
+        padding: 2rem;
+      }
+      button,
+      input {
+        font: inherit;
+        padding: 0.5rem;
+      }
+      .overlay {
+        background: rgb(0 0 0 / 40%);
+        inset: 0;
+        position: fixed;
+        z-index: 20;
+      }
+      .sheet {
+        background: white;
+        bottom: 0;
+        left: 0;
+        padding: 2rem;
+        position: fixed;
+        right: 0;
+        z-index: 30;
+      }
+      .portal-dialog {
+        background: white;
+        left: 2rem;
+        padding: 1rem;
+        position: fixed;
+        top: 2rem;
+        z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <button id="open" type="button">Login / Sign Up</button>
+      <button id="covered" type="button">Covered control</button>
+    </div>
+    <div id="portal"></div>
+    <script>
+      document.getElementById("open").addEventListener("click", () => {
+        const app = document.getElementById("app");
+        app.setAttribute("aria-hidden", "true");
+        app.insertAdjacentHTML(
+          "beforeend",
+          `<div class="overlay" data-testid="overlay"></div>
+           <section class="sheet" aria-label="Sign in">
+             <label for="mobile">Mobile number</label>
+             <input id="mobile" type="tel" />
+             <button id="code" type="button">Get verification code</button>
+             <button type="button" style="display: none">Display hidden</button>
+             <button type="button" style="visibility: hidden">Visibility hidden</button>
+             <p id="result" role="status"></p>
+           </section>`
+        );
+        document.getElementById("portal").innerHTML =
+          '<div class="portal-dialog" role="dialog" aria-label="Need help with your order?"><button type="button">Close</button></div>';
+        document.getElementById("code").addEventListener("click", () => {
+          document.getElementById("result").textContent = "Code requested";
+        });
+      });
+    </script>
+  </body>
+</html>
