@@ -62,6 +62,7 @@ import type {
   AgentSessionVariableState,
   RunSessionSnapshot,
   BrowserStreamEvent,
+  BrowserFailureReasonType,
   BrowserRpcErrorType,
   BrowserNetworkRequest,
   BrowserNetworkRequestDetail,
@@ -119,6 +120,7 @@ import {
 import type {
   ActionObservation,
   AgentElementRegistry,
+  PrivateInputTarget,
 } from "./agent-browser.ts";
 import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { AgentRunStore } from "./agent-run-store.ts";
@@ -1048,6 +1050,29 @@ const actionSubject = (
     ? registry.describe(action.ref)
     : undefined;
 
+/**
+ * The only words a sensitive control's failure keeps. The raw browser message
+ * can quote what was typed; the reason cannot, and it still separates a
+ * control that went away from a value the page refused.
+ */
+const sensitiveFailureMessage = (
+  prefix: string,
+  reason: BrowserFailureReasonType | undefined
+): string => `${prefix} (${reason ?? "unclassified"}).`;
+
+const sensitiveFailure = (
+  failure: BrowserRpcErrorType,
+  prefix: string
+): BrowserRpcErrorType =>
+  makeBrowserRpcError(
+    failure.code,
+    sensitiveFailureMessage(prefix, failure.reason),
+    failure.reason
+  );
+
+const SENSITIVE_ACTION_FAILED =
+  "The browser action failed for a sensitive control";
+
 const sanitizeActionFailure = (
   failure: AgentSessionError,
   action: AgentBrowserAction,
@@ -1057,10 +1082,7 @@ const sanitizeActionFailure = (
     return failure;
   }
   if (sensitive) {
-    return makeBrowserRpcError(
-      failure.code,
-      "The browser action failed for a sensitive control."
-    );
+    return sensitiveFailure(failure, SENSITIVE_ACTION_FAILED);
   }
   return action.type === "navigate" && failure.code === "agent_browser_failed"
     ? makeBrowserRpcError(
@@ -1073,16 +1095,34 @@ const sanitizeActionFailure = (
 const sanitizeFailureDetail = (
   action: AgentBrowserAction,
   sensitive: boolean,
-  detail: string | undefined
+  failure: AgentSessionError | undefined
 ): string | undefined => {
   if (sensitive) {
-    return "The browser action failed for a sensitive control.";
+    return sensitiveFailureMessage(
+      SENSITIVE_ACTION_FAILED,
+      failure?._tag === "BrowserRpcError" ? failure.reason : undefined
+    );
   }
   if (action.type === "navigate") {
     return `Could not navigate to ${sanitizeTeachingUrl(action.url)}.`;
   }
-  return detail;
+  return failure?.message;
 };
+
+/**
+ * Whether the capture can take one more private Variable at this target.
+ * Both the typed-into controls and the boxes a page may spread the value
+ * across are checked, since the entry records whichever accepted it.
+ */
+const canRecordPrivateInput = (
+  capture: DemonstrationCapture,
+  variable: Variable,
+  value: string,
+  target: PrivateInputTarget
+): boolean =>
+  capture.canRecordVariable(variable, value, target.selector) &&
+  (target.spread === undefined ||
+    capture.canRecordVariable(variable, value, target.spread));
 
 /** How many attempts one Agent Session keeps in its action timeline. */
 
@@ -4733,7 +4773,7 @@ const makeAgentSession = (
           readonly intent: AgentActionIntent;
         },
         privateRegistration?: {
-          readonly selector: string;
+          readonly target: PrivateInputTarget;
           readonly value: string;
           readonly variable: Variable;
         }
@@ -4785,19 +4825,18 @@ const makeAgentSession = (
               page,
               yield* actionTarget(record.registry, action)
             );
-            yield* privateRegistration === undefined
-              ? performAgentAction(page, record.registry, action)
-              : performPrivateVariableInput(
-                  page,
-                  privateRegistration.selector,
-                  privateRegistration.value
-                );
-            const capture = recordingCapture(record);
-            if (privateRegistration !== undefined && capture !== undefined) {
-              capture.recordVariable(
+            if (privateRegistration === undefined) {
+              yield* performAgentAction(page, record.registry, action);
+            } else {
+              const accepted = yield* performPrivateVariableInput(
+                page,
+                privateRegistration.target,
+                privateRegistration.value
+              );
+              recordingCapture(record)?.recordVariable(
                 privateRegistration.variable,
                 privateRegistration.value,
-                privateRegistration.selector
+                accepted
               );
             }
             const { effect, snapshot } = yield* observedAfter(
@@ -4870,7 +4909,7 @@ const makeAgentSession = (
         const detail = sanitizeFailureDetail(
           action,
           sensitive,
-          Option.isSome(cause) ? cause.value.message : undefined
+          Option.isSome(cause) ? cause.value : undefined
         );
         const failedAt = now().toISOString();
         // A failed action may still have moved the Page, so the session records
@@ -5028,7 +5067,7 @@ const makeAgentSession = (
                     action.ref === undefined
                       ? undefined
                       : {
-                          selector: yield* record.registry.privateSelector(
+                          target: yield* record.registry.privateSelector(
                             action.ref,
                             [...privateCapture.value].length
                           ),
@@ -5038,10 +5077,11 @@ const makeAgentSession = (
                   if (
                     privateRegistration !== undefined &&
                     record.capture !== undefined &&
-                    !record.capture.canRecordVariable(
+                    !canRecordPrivateInput(
+                      record.capture,
                       privateRegistration.variable,
                       privateRegistration.value,
-                      privateRegistration.selector
+                      privateRegistration.target
                     )
                   ) {
                     return yield* Effect.fail(
@@ -5352,15 +5392,16 @@ const makeAgentSession = (
           const snapshotBefore = capture.latestSnapshotId();
           const executed = yield* record.control.lock.withPermit(
             Effect.gen(function* fillPrivateValue() {
-              const selector = yield* record.registry.privateSelector(
+              const privateTarget = yield* record.registry.privateSelector(
                 ref,
                 [...input.value].length
               );
               if (
-                !capture.canRecordVariable(
+                !canRecordPrivateInput(
+                  capture,
                   input.variable,
                   input.value,
-                  selector
+                  privateTarget
                 )
               ) {
                 return yield* Effect.fail(
@@ -5370,8 +5411,12 @@ const makeAgentSession = (
                   )
                 );
               }
-              yield* performPrivateVariableInput(page, selector, input.value);
-              capture.recordVariable(input.variable, input.value, selector);
+              const accepted = yield* performPrivateVariableInput(
+                page,
+                privateTarget,
+                input.value
+              );
+              capture.recordVariable(input.variable, input.value, accepted);
               const observed = yield* Effect.result(
                 snapshotAfter(record, page, urlBefore)
               );
@@ -5436,9 +5481,9 @@ const makeAgentSession = (
       }
       const safeFailure =
         outcome.failure._tag === "BrowserRpcError"
-          ? makeBrowserRpcError(
-              outcome.failure.code,
-              "Could not enter the private Variable."
+          ? sensitiveFailure(
+              outcome.failure,
+              "Could not enter the private Variable"
             )
           : outcome.failure;
       yield* remember(operationId, "private-input", sessionId, requestInput, {

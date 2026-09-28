@@ -72,11 +72,15 @@ export {
 export type { SessionPrefix } from "./browser-identifiers.ts";
 
 export {
+  BrowserFailureReason,
   BrowserRpcError,
   isBrowserRpcError,
   makeBrowserRpcError,
 } from "./browser-rpc-error.ts";
-export type { BrowserRpcError as BrowserRpcErrorType } from "./browser-rpc-error.ts";
+export type {
+  BrowserFailureReason as BrowserFailureReasonType,
+  BrowserRpcError as BrowserRpcErrorType,
+} from "./browser-rpc-error.ts";
 
 export const BrowserRequestId = Schema.String.check(Schema.isMinLength(1)).pipe(
   Schema.brand("@contingency/BrowserRequestId")

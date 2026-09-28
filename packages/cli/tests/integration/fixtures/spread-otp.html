@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Spread one-time code</title>
+  </head>
+  <body>
+    <main>
+      <h1>Enter the code</h1>
+      <!--
+        The boxes differ in markup, so they are not one group. The page's own
+        handler spreads a multi-character entry across the box it lands in
+        and the boxes after it, the way real OTP widgets take a pasted code.
+      -->
+      <fieldset id="code">
+        <legend>One-time code</legend>
+        <input
+          aria-label="otp-input 1 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input aria-label="otp-input 2 of 6" maxlength="1" />
+        <input
+          aria-label="otp-input 3 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 4 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 5 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 6 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+      </fieldset>
+      <button hidden id="continue" type="button">Continue</button>
+      <label for="rejected">Rejected code</label>
+      <input id="rejected" name="rejected" type="text" />
+      <label for="backup">Backup code</label>
+      <input id="backup" name="backup" type="text" />
+      <!-- Clicked by coordinate, the way the user's pointer reaches it. -->
+      <button
+        id="remove-backup"
+        style="
+          height: 30px;
+          left: 400px;
+          position: fixed;
+          top: 20px;
+          width: 160px;
+        "
+        type="button"
+      >
+        Remove backup code
+      </button>
+      <output aria-live="polite" id="result"></output>
+    </main>
+    <script>
+      const boxes = [...document.querySelectorAll("#code input")];
+      const proceed = document.getElementById("continue");
+      const result = document.getElementById("result");
+      const update = () => {
+        proceed.hidden = !boxes.every((box) => box.value.length === 1);
+      };
+      const spread = (index, text) => {
+        const characters = [...text];
+        characters.forEach((character, offset) => {
+          const box = boxes[index + offset];
+          if (box !== undefined) {
+            box.value = character;
+          }
+        });
+        boxes[Math.min(index + characters.length, boxes.length) - 1].focus();
+        update();
+      };
+      boxes.forEach((box, index) => {
+        box.addEventListener("beforeinput", (event) => {
+          if (event.data !== null && event.data.length > 1) {
+            event.preventDefault();
+            spread(index, event.data);
+          }
+        });
+        box.addEventListener("paste", (event) => {
+          event.preventDefault();
+          spread(index, event.clipboardData.getData("text"));
+        });
+        box.addEventListener("input", update);
+      });
+      proceed.addEventListener("click", () => {
+        result.textContent = "Signed in";
+      });
+      document.getElementById("rejected").addEventListener("input", (event) => {
+        event.currentTarget.value = "";
+      });
+      document.getElementById("remove-backup").addEventListener("click", () => {
+        document.getElementById("backup").remove();
+        document.querySelector("label[for=backup]").remove();
+      });
+    </script>
+  </body>
+</html>
