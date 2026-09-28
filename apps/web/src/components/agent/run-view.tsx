@@ -46,9 +46,9 @@ const outcomeTone = (
 };
 
 /**
- * The ordered Agent Steps and what each of them produced. A Step with no
- * assessment and a `timed-out` execution is shown as exactly that: the Runner
- * records the ceiling breach and never invents a judgment for it.
+ * The ordered Agent Steps and what each of them produced. A `timed-out` Step
+ * from a Run persisted while Runs had wall-clock ceilings is shown as exactly
+ * that, with no assessment: the Runner never invented a judgment for it.
  */
 const RunSteps = ({
   activeStepIndex,

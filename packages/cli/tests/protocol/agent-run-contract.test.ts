@@ -37,7 +37,6 @@ const summary = {
     reportedModel: "claude-sonnet-5",
     reportedProvider: "anthropic",
   },
-  ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
   coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
   endedAt: "2026-09-04T00:01:00.000Z",
   flowSkillName: "browse-catalogue",
@@ -91,7 +90,7 @@ test("a Run Summary reports assessment counts and coverage separately", () => {
   expect(decoded.steps[0]?.execution).toBe("assessed");
 });
 
-test("a timed-out Agent Step carries an execution outcome and no assessment", () => {
+test("a Run Summary persisted while Runs had ceilings still decodes", () => {
   const decoded = decodeSummary({
     ...summary,
     assessmentCounts: {
@@ -100,15 +99,21 @@ test("a timed-out Agent Step carries an execution outcome and no assessment", ()
       notWorking: 0,
       working: 0,
     },
-    // A timed-out Step was reached but interrupted mid-check, so it counts
-    // as executed without making coverage complete.
+    // Runs no longer have wall-clock ceilings, but a Summary written while
+    // they did carries its budget and a timed-out Step with no assessment.
+    ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
     coverage: { complete: false, executed: 1, total: 1, unexecuted: 0 },
     outcome: "timed-out",
     steps: [{ ...step, execution: "timed-out" }],
     summary: null,
   });
   expect(decoded.outcome).toBe("timed-out");
+  expect(decoded.ceilings?.runMs).toBe(900_000);
   expect(decoded.steps[0]?.assessment).toBeNull();
+});
+
+test("a new Run Summary carries no ceilings", () => {
+  expect(decodeSummary(summary).ceilings).toBeUndefined();
 });
 
 test("client-reported provider and model are recorded as unverified", () => {

@@ -268,6 +268,8 @@ export const agentProcessLayer = (
   initialCatalogRoot: string,
   options: {
     readonly followCatalogSelection?: boolean;
+    /** The Agent Session registry's clock, for tests that move time. */
+    readonly now?: () => Date;
     /** This process's owner marker, under which per-session resources live. */
     readonly resourceDirectory?: string;
   } = {}
@@ -276,6 +278,7 @@ export const agentProcessLayer = (
   const sessionOptions = {
     allowedActivity: "any" as const,
     baseUrl: "http://127.0.0.1:7777",
+    now: options.now ?? (() => new Date()),
     traceDirectory: () =>
       path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
   };

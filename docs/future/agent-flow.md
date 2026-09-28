@@ -123,7 +123,7 @@ Verification uses a fresh browser context with the declared Emulation and Variab
 
 ## Interactive Run semantics
 
-The Runner processes Agent Steps in declared order. The external agent may retry ordinary observations and reversible actions within configurable Step and Run ceilings. Every attempt remains in the Trace and action timeline.
+The Runner processes Agent Steps in declared order. The external agent may retry ordinary observations and reversible actions. A Run has no wall-clock ceiling ([ADR 0043](../adr/0043-agent-runs-have-no-wall-clock-ceiling.md)). Every attempt remains in the Trace and action timeline.
 
 After each Agent Step, the agent submits an evidence-backed assessment:
 
@@ -132,7 +132,7 @@ After each Agent Step, the agent submits an evidence-backed assessment:
 - `inconclusive`
 - `blocked`
 
-Only `working` advances to the next Agent Step. Any other assessment stops the Agent Flow, leaves later Steps unexecuted, and marks coverage incomplete. A hard ceiling records a separate `timed-out` execution outcome and never fabricates an Agent Assessment.
+Only `working` advances to the next Agent Step. Any other assessment stops the Agent Flow, leaves later Steps unexecuted, and marks coverage incomplete.
 
 The Run Summary reports assessment counts separately from coverage. It embeds the full Run video locally. Sending that sensitive video outside Contingency requires explicit user confirmation. Agent Assessments remain available in history but do not produce automatic Regressions or Alerts ([ADR 0034](../adr/0034-agent-assessments-do-not-create-regressions.md)).
 
@@ -167,7 +167,7 @@ After a member fails, the agent asks the user whether to retry it in a fresh con
 
 3. **Runner boundary and Agent Session**
    - Move the existing CLI-owned Runner boundary to shared Contingency services.
-   - Add agent-controlled Run state, ordered Agent Step enforcement, ceilings, idempotent mutations, scoped cleanup, and stale-owner startup cleanup.
+   - Add agent-controlled Run state, ordered Agent Step enforcement, idempotent mutations, scoped cleanup, and stale-owner startup cleanup.
 
 4. **MCP server and browser tools**
    - Add one local server process per client.
@@ -196,7 +196,7 @@ The milestone is complete when a user can teach one login journey, inspect and v
 1. Add Suite manifests and ordered member search.
 2. Add Suite Setup and in-memory storage-state seeding into isolated member contexts.
 3. Add sequential execution, setup failure handling, member failure choices, and Suite coverage summaries.
-4. Exercise the original target scenario: select the company's vertical Suites after a major framework upgrade and report working, not-working, inconclusive, blocked, unexecuted, and timed-out coverage with local evidence.
+4. Exercise the original target scenario: select the company's vertical Suites after a major framework upgrade and report working, not-working, inconclusive, blocked, and unexecuted coverage with local evidence.
 
 ## Explicitly outside the first milestone
 

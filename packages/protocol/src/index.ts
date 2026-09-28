@@ -8,12 +8,7 @@ import {
   AgentHistoryAction,
   AgentNavigateAction,
 } from "./agent-browser.ts";
-import {
-  AgentRunCeilingExtend,
-  AgentRunOpen,
-  AgentRunSummary,
-  AgentRunViewer,
-} from "./agent-run.ts";
+import { AgentRunOpen, AgentRunSummary, AgentRunViewer } from "./agent-run.ts";
 import {
   AgentSessionClose,
   AgentSessionCloseResult,
@@ -317,7 +312,6 @@ export const BrandId = Schema.Literals([
   "agent.browser.navigated",
   "agent.run.summary.get",
   "agent.run.summary.result",
-  "agent.run.ceiling.extend",
   "agent.teaching.recording.start",
   "agent.teaching.recording.started",
   "agent.teaching.recording.stop",
@@ -794,21 +788,6 @@ export const AgentRunSummaryResult = response("agent.run.summary.result", {
   viewUrl: AgentRunViewer.fields.viewUrl,
 });
 
-/**
- * Extending an Agent Step or Run ceiling. It exists only here: the agent whose
- * work the ceiling bounds may not raise its own budget
- * ([ADR 0029](../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
- */
-export const AgentRunCeilingExtendRequest = request(
-  "agent.run.ceiling.extend",
-  {
-    additionalMs: AgentRunCeilingExtend.fields.additionalMs,
-    operationId: AgentRunCeilingExtend.fields.operationId,
-    scope: AgentRunCeilingExtend.fields.scope,
-    sessionId: AgentRunCeilingExtend.fields.sessionId,
-  }
-);
-
 const AgentSessionsGetRpc = Rpc.make("agent.sessions.get", {
   error: BrowserRpcError,
   payload: AgentSessionsGet,
@@ -1013,12 +992,6 @@ const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   payload: AgentRunSummaryGet,
   success: AgentRunSummaryResult,
 });
-const AgentRunCeilingExtendRpc = Rpc.make("agent.run.ceiling.extend", {
-  error: BrowserRpcError,
-  payload: AgentRunCeilingExtendRequest,
-  success: AgentSessionResult,
-});
-
 export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionsGetRpc,
   AgentSessionStartRpc,
@@ -1052,6 +1025,5 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserStorageSetRpc,
   AgentBrowserStorageDeleteRpc,
   AgentBrowserStorageClearRpc,
-  AgentRunSummaryGetRpc,
-  AgentRunCeilingExtendRpc
+  AgentRunSummaryGetRpc
 ) {}

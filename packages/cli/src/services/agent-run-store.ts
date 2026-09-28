@@ -12,41 +12,6 @@ const SUMMARY_FILE = "summary.json";
 export const AGENT_RUN_VIDEO_FILE = "run.webm";
 export const AGENT_RUN_TRACE_FILE = "run.trace.zip";
 
-/**
- * Contingency's own defaults, used when the Catalog Root declares no policy.
- * They are explicit values rather than an inherited library timeout
- * ([ADR 0021](../../../../docs/adr/0021-timeouts-are-set-not-inherited.md)).
- */
-export const DEFAULT_AGENT_STEP_CEILING_MS = 120_000;
-export const DEFAULT_AGENT_RUN_CEILING_MS = 900_000;
-
-const CONFIG_FILE = "catalog.json";
-/**
- * The name this file carried while the Catalog Root stored Agent Flows. It is
- * still read when no `catalog.json` is present so an operator's existing
- * ceiling budget is not silently replaced by Contingency's defaults.
- */
-const LEGACY_CONFIG_FILE = "agent-flow-catalog.json";
-
-/**
- * The Catalog Root's ceiling policy. Every key is optional and an unreadable
- * or partial file falls back to the defaults: a Run must not fail to start
- * because an operator mistyped a budget.
- */
-const AgentRunCeilingPolicy = Schema.Struct({
-  runCeilingMs: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
-  stepCeilingMs: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
-});
-
-const CatalogRunConfiguration = Schema.Struct({
-  agentRunCeilings: Schema.optional(AgentRunCeilingPolicy),
-});
-
-export interface AgentRunCeilingDefaults {
-  readonly runMs: number;
-  readonly stepMs: number;
-}
-
 interface AgentRunStoreDomainError {
   readonly _tag: "AgentRunStoreError";
   readonly code: "agent_run_invalid" | "agent_run_io" | "agent_run_not_found";
@@ -80,10 +45,6 @@ export interface AgentRunStoreService {
   readonly videoFile: (
     runId: AgentRunId
   ) => Effect.Effect<string | null, AgentRunStoreError>;
-  readonly ceilings: () => Effect.Effect<
-    AgentRunCeilingDefaults,
-    AgentRunStoreError
-  >;
 }
 
 export const AgentRunStore = Context.Service<AgentRunStoreService>(
@@ -181,54 +142,7 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
       })
     );
 
-  const ceilings = () =>
-    Effect.gen(function* readCeilings() {
-      const fallback = {
-        runMs: DEFAULT_AGENT_RUN_CEILING_MS,
-        stepMs: DEFAULT_AGENT_STEP_CEILING_MS,
-      };
-      const preferred = path.join(options.root(), CONFIG_FILE);
-      const usePreferred = yield* fileSystem
-        .exists(preferred)
-        .pipe(Effect.mapError(ioError("Could not inspect Catalog policy")));
-      const legacy = path.join(options.root(), LEGACY_CONFIG_FILE);
-      const useLegacy = usePreferred
-        ? false
-        : yield* fileSystem
-            .exists(legacy)
-            .pipe(Effect.mapError(ioError("Could not inspect Catalog policy")));
-      if (!(usePreferred || useLegacy)) {
-        return fallback;
-      }
-      const file = usePreferred ? preferred : legacy;
-      const configured = yield* Effect.result(
-        fileSystem.readFileString(file).pipe(
-          Effect.mapError(ioError("Could not read Catalog policy")),
-          Effect.flatMap((contents) =>
-            Effect.try({
-              catch: () =>
-                storeError("agent_run_invalid", `${file} is not valid JSON.`),
-              try: () => JSON.parse(contents),
-            })
-          ),
-          Effect.flatMap(Schema.decodeUnknownEffect(CatalogRunConfiguration))
-        )
-      );
-      if (configured._tag === "Failure") {
-        yield* Effect.logWarning(
-          "The Catalog Root's Agent Run ceiling policy is unreadable; Contingency's defaults apply.",
-          configured.failure
-        );
-        return fallback;
-      }
-      const policy = configured.success.agentRunCeilings;
-      return {
-        runMs: policy?.runCeilingMs ?? fallback.runMs,
-        stepMs: policy?.stepCeilingMs ?? fallback.stepMs,
-      };
-    });
-
-  return AgentRunStore.of({ ceilings, prepare, read, videoFile, write });
+  return AgentRunStore.of({ prepare, read, videoFile, write });
 });
 
 export const makeAgentRunStoreLayer = (

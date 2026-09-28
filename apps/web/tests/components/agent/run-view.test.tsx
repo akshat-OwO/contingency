@@ -51,16 +51,14 @@ const run = {
     reportedModel: "a-model",
     reportedProvider: "a-provider",
   },
-  ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
   coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
   endedAt: null,
   flowSkillName: "browse-catalogue",
   inputs: [{ name: "product", value: "Mug" }],
+  lastAgentActivityAt: "2026-09-04T00:01:00.000Z",
   outcome: null,
-  runDeadline: "2026-09-04T00:15:00.000Z",
   runId: "agentrun-one",
   startedAt: "2026-09-04T00:00:00.000Z",
-  stepDeadline: "2026-09-04T00:02:00.000Z",
   steps: [
     {
       ...step,
@@ -95,7 +93,6 @@ const run = {
 const summary = {
   assessmentCounts: { blocked: 0, inconclusive: 0, notWorking: 1, working: 1 },
   attribution: run.attribution,
-  ceilings: run.ceilings,
   coverage: run.coverage,
   endedAt: "2026-09-04T00:02:00.000Z",
   flowSkillName: "browse-catalogue",

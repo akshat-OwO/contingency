@@ -143,6 +143,75 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
+it.live(
+  "keeps a Run running however long its agent is idle, and notes when it acts",
+  () =>
+    Effect.gen(function* idleRunStaysRunning() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-run-idle-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* saveSkill(root);
+      let clock = Date.parse("2026-09-28T12:00:00.000Z");
+
+      yield* Effect.scoped(
+        Effect.gen(function* runWithAnIdleAgent() {
+          const started = yield* runTool("agent_flow_skill_run_start", {
+            flowSkillName: FlowSkillName.make("read-delivery"),
+            inputs: [],
+            operationId: OperationId.make("idle-run-start"),
+            url: fixtures.url("delivery.html"),
+          });
+          expect(started.run).not.toHaveProperty("ceilings");
+          expect(started.run).not.toHaveProperty("runDeadline");
+          expect(started.run).not.toHaveProperty("stepDeadline");
+          expect(started.run?.lastAgentActivityAt).toBe(
+            new Date(clock).toISOString()
+          );
+
+          // An hour passes, well beyond the old 120 s and 900 s defaults, with
+          // no agent call. Real time passes too, so nothing polling the clock
+          // could hide behind a Run that was never given the chance to end.
+          clock += 60 * 60_000;
+          yield* Effect.sleep("600 millis");
+          const idle = yield* sessionTool("agent_session_get", {
+            sessionId: started.id,
+          });
+          expect(idle.phase).toBe("running");
+          expect(idle.run?.outcome).toBeNull();
+          expect(idle.run?.activeStepIndex).toBe(0);
+          expect(idle.run?.steps[0]?.execution).toBe("active");
+          // Reading the session is itself an agent call.
+          expect(idle.run?.lastAgentActivityAt).toBe(
+            new Date(clock).toISOString()
+          );
+
+          clock += 5 * 60_000;
+          yield* assessActiveStep(started.id, "working", "idle-assess-1");
+          const assessed = yield* sessionTool("agent_session_get", {
+            sessionId: started.id,
+          });
+          expect(assessed.run?.activeStepIndex).toBe(1);
+          expect(assessed.run?.lastAgentActivityAt).toBe(
+            new Date(clock).toISOString()
+          );
+
+          const summary = yield* runTool("agent_run_complete", {
+            operationId: OperationId.make("idle-complete"),
+            sessionId: started.id,
+          });
+          expect(summary.outcome).toBe("ended-early");
+          expect(summary).not.toHaveProperty("ceilings");
+        }).pipe(
+          Effect.provide(
+            agentProcessLayer(root, { now: () => new Date(clock) })
+          )
+        )
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
 it.live("persists a Run Summary a terminal Agent Assessment ended", () =>
   Effect.gen(function* persistOnTerminalVerdict() {
     const fileSystem = yield* FileSystem.FileSystem;

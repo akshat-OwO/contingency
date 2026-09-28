@@ -29,8 +29,6 @@ export interface AgentViewState {
   /** The latest request the site's bot protection refused, until dismissed. */
   readonly botProtectionBlock: BrowserBotProtectionBlock | undefined;
   readonly browserStreamError: string | undefined;
-  /** What went wrong the last time the dock tried to raise a Run ceiling. */
-  readonly ceilingError: string | undefined;
   /** What the page has logged while this Workspace watched it. */
   readonly consoleEntries: readonly BrowserConsoleEntry[];
   /** What went wrong the last time this View tried to change control. */
@@ -72,7 +70,6 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   address: "",
   botProtectionBlock: undefined,
   browserStreamError: undefined,
-  ceilingError: undefined,
   consoleEntries: [],
   controlError: undefined,
   controlPending: false,

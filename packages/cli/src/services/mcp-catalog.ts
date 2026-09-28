@@ -6,7 +6,7 @@ import {
   FlowSkillList,
   TeachingInstructionRecord,
 } from "@contingency/protocol";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
 import { AgentSession } from "./agent-session.ts";
@@ -142,6 +142,14 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
   agent_pending_decision_resolve: (params) =>
     Effect.gen(function* resolvePendingDecision() {
       const session = yield* AgentSession;
+      // Relaying the user's answer is agent activity on the session that
+      // asked. An unknown id is refused by the resolve that follows.
+      const decision = yield* Effect.option(
+        session.pendingDecision(params.pendingDecisionId)
+      );
+      if (Option.isSome(decision) && decision.value.sessionId !== null) {
+        yield* session.noteAgentActivity(decision.value.sessionId);
+      }
       return yield* session
         .resolvePendingDecision(params)
         .pipe(Effect.mapError(failure));
@@ -149,6 +157,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
   agent_teaching_instruction_record: (params) =>
     Effect.gen(function* recordInstruction() {
       const session = yield* AgentSession;
+      yield* session.noteAgentActivity(params.sessionId);
       return yield* session
         .recordInstruction(params.sessionId, params.text, params.operationId)
         .pipe(Effect.mapError(failure));

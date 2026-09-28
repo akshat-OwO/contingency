@@ -208,11 +208,16 @@ export const AgentSessionTools = withStrictParameters(
   )
 );
 
-/** The handlers behind those tools, shared by MCP and its tests. */
+/**
+ * The handlers behind those tools, shared by MCP and its tests. Every call the
+ * agent makes on a session counts as agent activity, which is what Workspace
+ * reads to say how long a Run's agent has been idle.
+ */
 export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_browser_act: (params) =>
     Effect.gen(function* actInAgentSession() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .act(params.sessionId, params.action, params.operationId, params.intent)
         .pipe(Effect.mapError(failure));
@@ -220,6 +225,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_browser_screenshot: (params) =>
     Effect.gen(function* screenshotAgentSession() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .screenshot(params.sessionId)
         .pipe(Effect.mapError(failure));
@@ -227,6 +233,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_browser_snapshot: (params) =>
     Effect.gen(function* snapshotAgentSession() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .snapshot(params.sessionId)
         .pipe(Effect.mapError(failure));
@@ -241,6 +248,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_session_get: (params) =>
     Effect.gen(function* getAgentSession() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .get(params.sessionId)
         .pipe(Effect.mapError(failure));
@@ -255,6 +263,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_session_takeover_request: (params) =>
     Effect.gen(function* requestAgentTakeover() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .requestTakeover(params.sessionId, params.reason, params.operationId)
         .pipe(Effect.mapError(failure));
@@ -267,6 +276,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_teaching_setup_handoff: (params) =>
     Effect.gen(function* handOffTeachingSetup() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .handOffTeachingSetup(params.sessionId, params.operationId)
         .pipe(Effect.mapError(failure));
@@ -274,6 +284,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
   agent_variable_enter: (params) =>
     Effect.gen(function* enterSuppliedVariable() {
       const service = yield* AgentSession;
+      yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .enterSuppliedVariable(
           params.sessionId,

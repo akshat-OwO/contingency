@@ -461,25 +461,6 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.session.control.returned" as const,
           }))
         ),
-      /**
-       * Raising a ceiling is a direct user action and exists nowhere else: the
-       * agent whose work a ceiling bounds may not extend its own budget
-       * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
-       */
-      "agent.run.ceiling.extend": ({ data }) =>
-        agentUnavailable((service) =>
-          service.extendCeiling(
-            data.sessionId,
-            data.scope,
-            data.additionalMs,
-            data.operationId
-          )
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.result" as const,
-          }))
-        ),
       "agent.run.summary.get": ({ data }) =>
         Effect.gen(function* readRunSummary() {
           const summary = yield* runStoreUnavailable((store) =>

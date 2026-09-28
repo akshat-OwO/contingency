@@ -23,7 +23,6 @@ import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
-  ceilingCalls: [] satisfies unknown[],
   discardCalls: [] satisfies unknown[],
   inputCalls: [] satisfies unknown[],
   inspectedElement: {
@@ -72,12 +71,6 @@ const rpcOverrides = {
   agentReturnControlMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.returnControlCalls.push(payload);
-      return {};
-    })
-  ),
-  agentRunCeilingExtendMutation: Atom.fn(<Payload,>(payload: Payload) =>
-    Effect.sync(() => {
-      rpc.ceilingCalls.push(payload);
       return {};
     })
   ),
@@ -180,16 +173,15 @@ const runningSession = {
       reportedModel: null,
       reportedProvider: null,
     },
-    ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
     coverage: { complete: false, executed: 1, total: 2, unexecuted: 1 },
     endedAt: null,
     flowSkillName: "browse-catalogue",
     inputs: [],
+    // The agent has just acted, so the dock has no idleness to report.
+    lastAgentActivityAt: new Date().toISOString(),
     outcome: null,
-    runDeadline: "2026-08-31T00:15:00.000Z",
     runId: "agentrun-one",
     startedAt: "2026-08-31T00:00:00.000Z",
-    stepDeadline: "2026-08-31T00:02:00.000Z",
     steps: [
       {
         assessment: {
@@ -276,7 +268,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
-  rpc.ceilingCalls = [];
   rpc.discardCalls = [];
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
@@ -404,44 +395,31 @@ test("labels an Interactive Run without exposing a raw session id", async () => 
   expect(option).not.toHaveTextContent(session.id);
 });
 
-test("extends a ceiling only through a direct user action", async () => {
-  const user = userEvent.setup();
+test("a live Run offers no ceiling to extend", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
-  await user.click(
-    await screen.findByRole("button", { name: "Extend Agent Step ceiling" })
-  );
-  await waitFor(() => {
-    expect(rpc.ceilingCalls).toHaveLength(1);
-  });
-  expect(rpc.ceilingCalls[0]).toMatchObject({
-    payload: {
-      data: { additionalMs: 120_000, scope: "step", sessionId: session.id },
-      type: "agent.run.ceiling.extend",
-    },
-  });
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(dock).toHaveTextContent("Agent Step 2 of 2.");
+  expect(screen.queryByRole("button", { name: /ceiling/iu })).toBeNull();
+  expect(dock).not.toHaveTextContent("Agent idle");
 });
 
-test("offers no ceiling extension once the Run has ended", async () => {
+test("says how long an idle agent has been quiet without ending the Run", async () => {
   renderWorkspace(
     resultFor([
       {
         ...runningSession,
         run: {
           ...runningSession.run,
-          activeStepIndex: null,
-          outcome: "timed-out",
+          lastAgentActivityAt: new Date(Date.now() - 12 * 60_000).toISOString(),
         },
       } satisfies unknown,
     ]),
     session.id
   );
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent(
-    "A ceiling was reached, so the run timed out."
-  );
-  expect(
-    screen.queryByRole("button", { name: "Extend Run ceiling" })
-  ).toBeNull();
+  expect(dock).toHaveTextContent("Agent idle for 12 min");
+  // The notice is read-only: the one control is still the one on offer.
+  expect(screen.getByRole("button", { name: "Take control" })).toBeVisible();
 });
 
 test("does not use a foreign URL session id, and still offers the dock", async () => {
@@ -1204,7 +1182,6 @@ test("shows a Dry Run's assessments and video beside verification", async () => 
       reportedModel: null,
       reportedProvider: null,
     },
-    ceilings: { extensions: 0, runMs: 900_000, stepMs: 120_000 },
     coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
     endedAt: "2026-08-31T00:00:08.000Z",
     flowSkillName: "add-anvil",
