@@ -263,6 +263,12 @@ it.live("keeps hidden text out of an ancestor's accessible name", () =>
       "Kept in place"
     );
     expect(findNode(full.nodes, "paragraph", "Total").name).toBe("Total $999");
+    expect(findNode(full.nodes, "button", "Save contents").name).toBe(
+      "Save contents"
+    );
+    expect(findNode(full.nodes, "paragraph", "Hello world").name).toBe(
+      "Hello world"
+    );
 
     // An excluded subtree is not a node of its own either.
     expect(full.nodes.some((node) => node.name.includes("star icon"))).toBe(
@@ -404,6 +410,58 @@ it.live(
         "Chosen: noida"
       );
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("keeps usable controls inside an aria-hidden layer", () =>
+  Effect.gen(function* layeredSnapshot() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("snapshot-layer.html"),
+      "start-snapshot-layer"
+    );
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const open = findNode(before.nodes, "button", "Login / Sign Up");
+    const opened = yield* callTool("agent_browser_act", {
+      action: { ref: open.ref, type: "click" },
+      operationId: OperationId.make("open-snapshot-layer"),
+      sessionId: session.id,
+    });
+    const mobile = findNode(opened.snapshot.nodes, "textbox", "Mobile number");
+    const code = findNode(
+      opened.snapshot.nodes,
+      "button",
+      "Get verification code"
+    );
+    expect(opened.snapshot.nodes.map(({ name }) => name)).not.toContain(
+      "Covered control"
+    );
+    expect(opened.snapshot.nodes.map(({ name }) => name)).not.toContain(
+      "Display hidden"
+    );
+    expect(opened.snapshot.nodes.map(({ name }) => name)).not.toContain(
+      "Visibility hidden"
+    );
+
+    const filled = yield* callTool("agent_browser_act", {
+      action: { ref: mobile.ref, text: "5551234567", type: "fill" },
+      operationId: OperationId.make("fill-snapshot-layer"),
+      sessionId: session.id,
+    });
+    expect(
+      findNode(filled.snapshot.nodes, "textbox", "Mobile number").value
+    ).toBe("5551234567");
+    const clicked = yield* callTool("agent_browser_act", {
+      action: { ref: code.ref, type: "click" },
+      operationId: OperationId.make("click-snapshot-layer-code"),
+      sessionId: session.id,
+    });
+    expect(clicked.entry.outcome).toBe("completed");
+    findNode(clicked.snapshot.nodes, "status", "Code requested");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
 /**

@@ -246,21 +246,98 @@ const PAGE_READING_PRELUDE = `
     }
     return style;
   };
-  // What the accessibility tree keeps: an element the styling hides, or one
-  // \`aria-hidden\` removes, is not there for a reader and is not here either.
-  // The subtree goes with it, so a descendant of a hidden element is hidden
-  // however it styles itself.
+  // CSS-hidden ancestors remove their whole subtree from the Page.
   const isRendered = (element) => {
     if (SKIPPED_TAGS.has(element.tagName)) {
-      return false;
-    }
-    if (element.getAttribute("aria-hidden") === "true") {
       return false;
     }
     const style = styleOf(element);
     return style.visibility !== "hidden" && style.display !== "none";
   };
+  const hitTestable = new Map();
+  const isHitTestable = (element, rect) => {
+    const cached = hitTestable.get(element);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const left = Math.max(0, rect.left);
+    const right = Math.min(innerWidth, rect.right);
+    const top = Math.max(0, rect.top);
+    const bottom = Math.min(innerHeight, rect.bottom);
+    if (right <= left || bottom <= top) {
+      hitTestable.set(element, false);
+      return false;
+    }
+    // The centre can be covered while an edge remains usable. Sample inside
+    // the viewport intersection, and accept a descendant as the hit target.
+    const points = [
+      [0.5, 0.5],
+      [0.1, 0.1],
+      [0.9, 0.1],
+      [0.1, 0.9],
+      [0.9, 0.9],
+    ];
+    const usable = points.some(([x, y]) => {
+      const target = document.elementFromPoint(
+        left + (right - left) * x,
+        top + (bottom - top) * y
+      );
+      return target !== null && element.contains(target);
+    });
+    hitTestable.set(element, usable);
+    return usable;
+  };
+  const interactiveAriaRoots = new Map();
+  const isInteractiveAriaRoot = (root) => {
+    const cached = interactiveAriaRoots.get(root);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const controls = root.querySelectorAll(CONTROL_SELECTOR);
+    let usable =
+      root.matches(CONTROL_SELECTOR) &&
+      isHitTestable(root, root.getBoundingClientRect());
+    for (const control of controls) {
+      if (usable) {
+        break;
+      }
+      usable = isHitTestable(control, control.getBoundingClientRect());
+    }
+    interactiveAriaRoots.set(root, usable);
+    return usable;
+  };
+  const visible = new Map();
   const isVisible = (element) => {
+    const cached = visible.get(element);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const ariaRoots = [];
+    for (
+      let node = element;
+      node !== null && node !== document.documentElement;
+      node = node.parentElement
+    ) {
+      if (!isRendered(node)) {
+        visible.set(element, false);
+        return false;
+      }
+      if (node.getAttribute("aria-hidden") === "true") {
+        ariaRoots.push(node);
+      }
+    }
+    const rect = element.getBoundingClientRect();
+    const shown =
+      (rect.width > 0 || rect.height > 0) &&
+      ariaRoots.every(isInteractiveAriaRoot) &&
+      (ariaRoots.length === 0 || isHitTestable(element, rect));
+    visible.set(element, shown);
+    return shown;
+  };
+  // A display: contents wrapper has no box but still contributes text to an
+  // ancestor's name. Node selection uses hit testing; naming must walk those
+  // wrappers while still excluding CSS-hidden and decorative ARIA trees.
+  const contributesName = (element) => {
     for (
       let node = element;
       node !== null && node !== document.documentElement;
@@ -269,14 +346,15 @@ const PAGE_READING_PRELUDE = `
       if (!isRendered(node)) {
         return false;
       }
+      if (
+        node.getAttribute("aria-hidden") === "true" &&
+        !isInteractiveAriaRoot(node)
+      ) {
+        return false;
+      }
     }
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 || rect.height > 0;
+    return true;
   };
-  // The text a reader would hear for a container: its own text plus that of
-  // every descendant still in the accessibility tree. Reading \`textContent\`
-  // instead folds a hidden empty-state message into the name of the region
-  // that deliberately hides it.
   const renderedText = (element) => {
     let text = "";
     for (const child of element.childNodes) {
@@ -284,7 +362,7 @@ const PAGE_READING_PRELUDE = `
         text += child.nodeValue;
         continue;
       }
-      if (child.nodeType === 1 && isRendered(child)) {
+      if (child.nodeType === 1 && contributesName(child)) {
         text += \` \${renderedText(child)}\`;
       }
     }
@@ -523,10 +601,23 @@ const SNAPSHOT_SCRIPT = (
   const textual = [];
   const everyElement = document.querySelectorAll("*");
   for (const element of everyElement) {
-    if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
+    if (SKIPPED_TAGS.has(element.tagName)) {
       continue;
     }
-    if (element.matches(CONTROL_SELECTOR)) {
+    const isControl = element.matches(CONTROL_SELECTOR);
+    const isContextual = element.matches(CONTEXT_SELECTOR);
+    const hasOwnText = ownsText(element);
+    const mayBeClickable =
+      nativeClickTargets.has(element) ||
+      reactClickTargets.has(element) ||
+      styleOf(element).cursor === "pointer";
+    if (
+      !(isControl || isContextual || hasOwnText || mayBeClickable) ||
+      !isVisible(element)
+    ) {
+      continue;
+    }
+    if (isControl) {
       controls.push(element);
       continue;
     }
@@ -545,11 +636,11 @@ const SNAPSHOT_SCRIPT = (
     if (element.tagName === "LABEL" && element.control) {
       continue;
     }
-    if (element.matches(CONTEXT_SELECTOR)) {
+    if (isContextual) {
       contextual.push(element);
       continue;
     }
-    if (ownsText(element)) {
+    if (hasOwnText) {
       textual.push(element);
     }
   }
