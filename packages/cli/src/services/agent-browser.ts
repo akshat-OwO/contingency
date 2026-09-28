@@ -310,8 +310,27 @@ const PAGE_READING_PRELUDE = `
     visible.set(element, shown);
     return shown;
   };
-  // Include visible descendant text in a container's name, including a
-  // hit-testable layer whose ancestor has aria-hidden set.
+  // A display: contents wrapper has no box but still contributes text to an
+  // ancestor's name. Node selection uses hit testing; naming must walk those
+  // wrappers while still excluding CSS-hidden and decorative ARIA trees.
+  const contributesName = (element) => {
+    for (
+      let node = element;
+      node !== null && node !== document.documentElement;
+      node = node.parentElement
+    ) {
+      if (!isRendered(node)) {
+        return false;
+      }
+      if (
+        node.getAttribute("aria-hidden") === "true" &&
+        !isInteractiveAriaRoot(node)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
   const renderedText = (element) => {
     let text = "";
     for (const child of element.childNodes) {
@@ -319,7 +338,7 @@ const PAGE_READING_PRELUDE = `
         text += child.nodeValue;
         continue;
       }
-      if (child.nodeType === 1 && isVisible(child)) {
+      if (child.nodeType === 1 && contributesName(child)) {
         text += \` \${renderedText(child)}\`;
       }
     }

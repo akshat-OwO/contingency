@@ -263,6 +263,12 @@ it.live("keeps hidden text out of an ancestor's accessible name", () =>
       "Kept in place"
     );
     expect(findNode(full.nodes, "paragraph", "Total").name).toBe("Total $999");
+    expect(findNode(full.nodes, "button", "Save contents").name).toBe(
+      "Save contents"
+    );
+    expect(findNode(full.nodes, "paragraph", "Hello world").name).toBe(
+      "Hello world"
+    );
 
     // An excluded subtree is not a node of its own either.
     expect(full.nodes.some((node) => node.name.includes("star icon"))).toBe(
