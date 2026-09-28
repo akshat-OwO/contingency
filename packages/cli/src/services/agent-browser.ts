@@ -15,10 +15,12 @@ import type {
   AgentPageSettle,
   AgentScreenshot,
   AgentSnapshotNode,
+  BrowserFailureReasonType,
   BrowserRpcErrorType,
 } from "@contingency/protocol";
 import { Effect, Option, Result, Schema } from "effect";
-import type { ElementHandle, JSHandle, Page } from "playwright-core";
+import { errors } from "playwright-core";
+import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
 
 import { networkQuietFor } from "./page-activity.ts";
 import {
@@ -71,19 +73,41 @@ const SENSITIVE_INPUT_SELECTOR = [
   ]),
 ].join(",");
 
+/** A private entry the page refused, named by a reason that holds no value. */
+class PrivateInputRefusedError extends Error {
+  readonly reason: BrowserFailureReasonType;
+
+  constructor(reason: BrowserFailureReasonType, message: string) {
+    super(message);
+    this.name = "PrivateInputRefusedError";
+    this.reason = reason;
+  }
+}
+
+const failureReason = (
+  cause: unknown
+): BrowserFailureReasonType | undefined => {
+  if (cause instanceof PrivateInputRefusedError) {
+    return cause.reason;
+  }
+  return cause instanceof errors.TimeoutError ? "timeout" : undefined;
+};
+
 const browserFailure = (
   description: string,
   cause: unknown
 ): BrowserRpcErrorType =>
   makeBrowserRpcError(
     "agent_browser_failed",
-    `${description}: ${cause instanceof Error ? cause.message : String(cause)}`
+    `${description}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    failureReason(cause)
   );
 
 const staleReference = (ref: string): BrowserRpcErrorType =>
   makeBrowserRpcError(
     "agent_element_stale",
-    `Element reference ${ref} is stale. Take a new Browser Snapshot: the Page navigated or the element left the document.`
+    `Element reference ${ref} is stale. Take a new Browser Snapshot: the Page navigated or the element left the document.`,
+    "detached"
   );
 
 /**
@@ -685,6 +709,19 @@ const disposeHandles = (
  * Nothing is written into the page, so a Snapshot never changes the website
  * under test.
  */
+/**
+ * Where one private Variable is entered. `selector` names the controls the
+ * value is typed into: one field, or every box of a split input such as six
+ * OTP boxes. `spread` is set only when a one-character box stands alone: it
+ * names that box and the one-character inputs after it, which a page's own
+ * handler may have spread the value across. It is read as evidence that the
+ * page accepted the value and is never typed into.
+ */
+export interface PrivateInputTarget {
+  readonly selector: string;
+  readonly spread: string | undefined;
+}
+
 /** One element the Snapshot located, with the box it occupied in the viewport. */
 export interface AgentElementBounds {
   readonly rectangle: {
@@ -713,11 +750,11 @@ export interface AgentElementRegistry {
   readonly isSensitive: (
     ref: string
   ) => Effect.Effect<boolean, BrowserRpcErrorType>;
-  /** A document-local selector for masking a field already marked private. */
+  /** Document-local selectors for entering and masking a private field. */
   readonly privateSelector: (
     ref: string,
     segmentCount?: number
-  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  ) => Effect.Effect<PrivateInputTarget, BrowserRpcErrorType>;
   /** Resolve viewport coordinates through the most recent Snapshot. */
   readonly pointRef: (
     x: number,
@@ -1019,7 +1056,7 @@ export const makeAgentElementRegistry = (
   const privateSelector = (
     ref: string,
     segmentCount = 1
-  ): Effect.Effect<string, BrowserRpcErrorType> =>
+  ): Effect.Effect<PrivateInputTarget, BrowserRpcErrorType> =>
     resolve(ref).pipe(
       Effect.flatMap((element) =>
         Effect.tryPromise({
@@ -1051,12 +1088,18 @@ export const makeAgentElementRegistry = (
                 candidate.tagName !== "INPUT" ||
                 Number(candidate.getAttribute("maxlength")) !== 1
               ) {
-                return selectorFor(candidate);
+                return { selector: selectorFor(candidate), spread: null };
               }
+              // In document order, which is the order a page fills them in.
+              const oneCharacter = new Set<typeof candidate>(
+                [...candidate.ownerDocument.querySelectorAll("input")].filter(
+                  (control) =>
+                    !control.hasAttribute("disabled") &&
+                    Number(control.getAttribute("maxlength")) === 1
+                )
+              );
               const compatible = (control: typeof candidate) =>
-                control.tagName === "INPUT" &&
-                !control.hasAttribute("disabled") &&
-                Number(control.getAttribute("maxlength")) === 1 &&
+                oneCharacter.has(control) &&
                 control.getAttribute("type") ===
                   candidate.getAttribute("type") &&
                 control.getAttribute("inputmode") ===
@@ -1075,14 +1118,33 @@ export const makeAgentElementRegistry = (
                   controls.length === requestedCount &&
                   controls.length - start === requestedCount
                 ) {
-                  return controls.map(selectorFor).join(",");
+                  return {
+                    selector: controls.map(selectorFor).join(","),
+                    spread: null,
+                  };
                 }
                 current = current.parentElement;
               }
-              return selectorFor(candidate);
+              // The boxes differ in markup, so they are not typed into as a
+              // group. A page that spreads a pasted code by itself still
+              // fills the boxes after this one, in document order.
+              const following = [...oneCharacter];
+              const start = following.indexOf(candidate);
+              const spread = following.slice(start, start + requestedCount);
+              return {
+                selector: selectorFor(candidate),
+                spread:
+                  start === -1 || spread.length !== requestedCount
+                    ? null
+                    : spread.map(selectorFor).join(","),
+              };
             }, segmentCount),
         })
-      )
+      ),
+      Effect.map(({ selector, spread }): PrivateInputTarget => ({
+        selector,
+        spread: spread ?? undefined,
+      }))
     );
 
   const pointElement = (
@@ -1905,40 +1967,49 @@ export const performAgentAction = (
   }
 };
 
+/** What the controls hold together, or nothing once they left the document. */
+const readPrivateValue = async (
+  controls: Locator
+): Promise<string | undefined> => {
+  if ((await controls.count()) === 0) {
+    return undefined;
+  }
+  const values = await controls.evaluateAll((elements) =>
+    elements.map((element) =>
+      "value" in element ? String(element.value) : (element.textContent ?? "")
+    )
+  );
+  return values.join("");
+};
+
 /**
  * Enter one private Variable and prove that the target controls accepted it.
  * A comma-separated selector represents a split input such as six OTP boxes.
+ * Succeeds with the selector of the controls that hold the value, so masking
+ * and replay cover every box a page spread the value across.
  */
 export const performPrivateVariableInput = (
   page: Page,
-  selector: string,
+  target: PrivateInputTarget,
   value: string
-): Effect.Effect<void, BrowserRpcErrorType> =>
+): Effect.Effect<string, BrowserRpcErrorType> =>
   attempt("Could not enter the private Variable", async () => {
-    const controls = page.locator(selector);
+    const controls = page.locator(target.selector);
     const count = await controls.count();
     const characters = [...value];
     if (count === 0) {
-      throw new Error("The private control is no longer available.");
+      throw new PrivateInputRefusedError(
+        "detached",
+        "The private control is no longer available."
+      );
     }
     if (count > 1 && count !== characters.length) {
-      throw new Error(
+      throw new PrivateInputRefusedError(
+        "length_mismatch",
         "The split private control does not match the Variable length."
       );
     }
 
-    const readValues = async (): Promise<readonly string[] | undefined> => {
-      if ((await controls.count()) === 0) {
-        return undefined;
-      }
-      return controls.evaluateAll((elements) =>
-        elements.map((element) =>
-          "value" in element
-            ? String(element.value)
-            : (element.textContent ?? "")
-        )
-      );
-    };
     const fillEach = async (
       values: readonly string[],
       index = 0
@@ -1951,26 +2022,34 @@ export const performPrivateVariableInput = (
       await fillEach(values, index + 1);
     };
     await controls.first().fill(value, { timeout: ACTION_TIMEOUT_MS });
-    const initiallyAccepted = await readValues();
-    if (initiallyAccepted === undefined) {
-      return;
-    }
-    let accepted = initiallyAccepted.join("");
-    if (accepted === value) {
-      return;
+    const initiallyAccepted = await readPrivateValue(controls);
+    if (initiallyAccepted === undefined || initiallyAccepted === value) {
+      return target.selector;
     }
     if (count === 1) {
-      throw new Error("The private control did not accept the value.");
+      // A lone one-character box keeps the first character while the page
+      // moves the rest into the boxes after it. Those boxes holding exactly
+      // the value is the page accepting it.
+      if (
+        target.spread !== undefined &&
+        (await readPrivateValue(page.locator(target.spread))) === value
+      ) {
+        return target.spread;
+      }
+      throw new PrivateInputRefusedError(
+        "value_mismatch",
+        "The private control did not accept the value."
+      );
     }
 
     await fillEach(Array.from({ length: count }, () => ""));
     await fillEach(characters);
-    const finallyAccepted = await readValues();
-    if (finallyAccepted === undefined) {
-      return;
+    const finallyAccepted = await readPrivateValue(controls);
+    if (finallyAccepted === undefined || finallyAccepted === value) {
+      return target.selector;
     }
-    accepted = finallyAccepted.join("");
-    if (accepted !== value) {
-      throw new Error("The split private control did not accept the value.");
-    }
-  }).pipe(Effect.asVoid);
+    throw new PrivateInputRefusedError(
+      "value_mismatch",
+      "The split private control did not accept the value."
+    );
+  });

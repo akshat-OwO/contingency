@@ -1,5 +1,24 @@
 import { Schema } from "effect";
 
+/**
+ * Why a browser action failed, in words that never carry what was typed. A
+ * sensitive control's failure keeps only this, so a caller can still tell a
+ * target that went away from a value the page refused.
+ */
+export const BrowserFailureReason = Schema.Literals([
+  // The control left the document or its reference went stale.
+  "detached",
+  // A split control has a different number of boxes than the value has
+  // characters.
+  "length_mismatch",
+  // The browser did not finish the action within its bound.
+  "timeout",
+  // The controls did not end up holding the value that was entered.
+  "value_mismatch",
+]);
+
+export type BrowserFailureReason = typeof BrowserFailureReason.Type;
+
 export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
   code: Schema.Literals([
     "invalid_session",
@@ -48,14 +67,19 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "agent_run_not_found",
   ]),
   message: Schema.String,
+  reason: Schema.optionalKey(BrowserFailureReason),
 });
 
 export type BrowserRpcError = typeof BrowserRpcError.Type;
 
 export const makeBrowserRpcError = (
   code: BrowserRpcError["code"],
-  message: string
-): BrowserRpcError => ({ _tag: "BrowserRpcError", code, message });
+  message: string,
+  reason?: BrowserFailureReason
+): BrowserRpcError =>
+  reason === undefined
+    ? { _tag: "BrowserRpcError", code, message }
+    : { _tag: "BrowserRpcError", code, message, reason };
 
 export const isBrowserRpcError = (value: unknown): value is BrowserRpcError =>
   typeof value === "object" &&

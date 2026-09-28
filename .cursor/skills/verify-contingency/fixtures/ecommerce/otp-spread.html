@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Anvil Works verification code</title>
+  </head>
+  <body>
+    <main>
+      <h1>Enter your verification code</h1>
+      <!--
+        Behaves like a real OTP widget: a multi-character entry in any box is
+        spread by the page across that box and the ones after it, and focus
+        moves to the last filled box. Box 2 has no inputmode, so the boxes do
+        not share one markup shape.
+      -->
+      <fieldset>
+        <legend>One-time code</legend>
+        <input
+          aria-label="otp-input 1 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input aria-label="otp-input 2 of 6" maxlength="1" />
+        <input
+          aria-label="otp-input 3 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 4 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 5 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+        <input
+          aria-label="otp-input 6 of 6"
+          inputmode="numeric"
+          maxlength="1"
+        />
+      </fieldset>
+      <button hidden id="continue" type="button">Continue</button>
+      <output aria-live="polite" id="result"></output>
+    </main>
+    <script>
+      const boxes = [...document.querySelectorAll("fieldset input")];
+      const proceed = document.getElementById("continue");
+      const update = () => {
+        proceed.hidden = !boxes.every((box) => box.value.length === 1);
+      };
+      const spread = (index, text) => {
+        const characters = [...text];
+        characters.forEach((character, offset) => {
+          const box = boxes[index + offset];
+          if (box !== undefined) {
+            box.value = character;
+          }
+        });
+        boxes[Math.min(index + characters.length, boxes.length) - 1].focus();
+        update();
+      };
+      boxes.forEach((box, index) => {
+        box.addEventListener("beforeinput", (event) => {
+          if (event.data !== null && event.data.length > 1) {
+            event.preventDefault();
+            spread(index, event.data);
+          }
+        });
+        box.addEventListener("paste", (event) => {
+          event.preventDefault();
+          spread(index, event.clipboardData.getData("text"));
+        });
+        box.addEventListener("input", () => {
+          if (box.value.length === 1) {
+            boxes[index + 1]?.focus();
+          }
+          update();
+        });
+      });
+      proceed.addEventListener("click", () => {
+        document.getElementById("result").textContent = "Signed in";
+      });
+    </script>
+  </body>
+</html>
