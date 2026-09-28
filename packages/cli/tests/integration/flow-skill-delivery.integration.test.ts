@@ -427,6 +427,53 @@ it.live(
           expect(failedRun.files.map((file) => file.path)).toContain(
             "SKILL.md"
           );
+          const beforeNavigation = yield* sessionTool("agent_browser_act", {
+            action: { type: "navigate", url: fixtures.url("settle.html") },
+            operationId: OperationId.make("delivery-dry-navigate-later"),
+            sessionId: failedRun.session.id,
+          });
+          const navigateLater = findNode(
+            beforeNavigation.snapshot.nodes,
+            "button",
+            "Navigate later"
+          );
+          const clicked = yield* sessionTool("agent_browser_act", {
+            action: { ref: navigateLater.ref, type: "click" },
+            operationId: OperationId.make("delivery-dry-click-later"),
+            sessionId: failedRun.session.id,
+          });
+          expect(clicked.snapshot.url).toBe(fixtures.url("settle.html"));
+          const beforeArrival = yield* sessionTool("agent_session_get", {
+            sessionId: failedRun.session.id,
+          });
+          yield* Effect.sleep("3500 millis");
+          const afterNavigation = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: failedRun.session.id,
+          });
+          const arrivedUrl = `${fixtures.url("settle.html")}?arrived`;
+          expect(afterNavigation.url).toBe(arrivedUrl);
+          const assessedAfterNavigation = yield* runTool(
+            "agent_run_step_assess",
+            {
+              evidence: [{ id: afterNavigation.snapshotId, kind: "snapshot" }],
+              explanation: "The delayed navigation arrived.",
+              operationId: OperationId.make("delivery-dry-assess-later"),
+              outcome: "working",
+              sessionId: failedRun.session.id,
+            }
+          );
+          expect(assessedAfterNavigation.currentUrl).toBe(arrivedUrl);
+          expect(assessedAfterNavigation.timeline.at(-2)?.id).toBe(
+            clicked.entry.id
+          );
+          expect(
+            assessedAfterNavigation.updatedAt >= beforeArrival.updatedAt
+          ).toBe(true);
+          expect(
+            (yield* sessionTool("agent_session_get", {
+              sessionId: failedRun.session.id,
+            })).currentUrl
+          ).toBe(arrivedUrl);
           yield* assessDryRunSteps(failedRun.session.id, "not-working");
           const replayedFailedRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
@@ -454,7 +501,7 @@ it.live(
               failedManifest.lifecycle.dryRunSummary?.coverage.complete
             ).toBe(false);
             expect(
-              failedManifest.lifecycle.dryRunSummary?.steps[1]?.execution
+              failedManifest.lifecycle.dryRunSummary?.steps[2]?.execution
             ).toBe("unexecuted");
           }
           const dryRunDirectory = path.join(recordingDirectory, "dry-run");
