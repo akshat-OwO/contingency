@@ -558,10 +558,23 @@ const SNAPSHOT_SCRIPT = (
   const textual = [];
   const everyElement = document.querySelectorAll("*");
   for (const element of everyElement) {
-    if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
+    if (SKIPPED_TAGS.has(element.tagName)) {
       continue;
     }
-    if (element.matches(CONTROL_SELECTOR)) {
+    const isControl = element.matches(CONTROL_SELECTOR);
+    const isContextual = element.matches(CONTEXT_SELECTOR);
+    const hasOwnText = ownsText(element);
+    const mayBeClickable =
+      nativeClickTargets.has(element) ||
+      reactClickTargets.has(element) ||
+      styleOf(element).cursor === "pointer";
+    if (
+      !(isControl || isContextual || hasOwnText || mayBeClickable) ||
+      !isVisible(element)
+    ) {
+      continue;
+    }
+    if (isControl) {
       controls.push(element);
       continue;
     }
@@ -580,11 +593,11 @@ const SNAPSHOT_SCRIPT = (
     if (element.tagName === "LABEL" && element.control) {
       continue;
     }
-    if (element.matches(CONTEXT_SELECTOR)) {
+    if (isContextual) {
       contextual.push(element);
       continue;
     }
-    if (ownsText(element)) {
+    if (hasOwnText) {
       textual.push(element);
     }
   }
