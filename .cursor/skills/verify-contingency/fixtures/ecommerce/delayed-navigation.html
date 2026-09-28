@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delayed navigation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Delayed navigation</h1>
+      <button id="continue" type="button">Continue later</button>
+      <p id="status">Waiting to continue</p>
+    </main>
+    <script>
+      if (location.search === "?arrived") {
+        document.getElementById("continue").remove();
+        document.getElementById("status").textContent = "Arrived";
+      } else {
+        document.getElementById("continue").addEventListener("click", () => {
+          setTimeout(() => {
+            location.search = "?arrived";
+          }, 3000);
+        });
+      }
+    </script>
+  </body>
+</html>

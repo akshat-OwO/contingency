@@ -803,6 +803,24 @@ it.effect(
     })
 );
 
+it.effect("advances updatedAt when a URL read changes a session", () =>
+  Effect.gen(function* urlReadTimestamp() {
+    const fake = makeFakeBrowser();
+    const service = yield* makeAgentSessionService(fake.browser, {
+      allowedActivity: "any",
+      baseUrl: "http://127.0.0.1:7777",
+      now: () => new Date("2026-09-28T00:00:00.000Z"),
+    });
+    const started = yield* service.start(startInput("start-fixed-clock"));
+    fake.visit("https://example.com/moved");
+
+    const refreshed = yield* service.get(started.id);
+    expect(refreshed.currentUrl).toBe("https://example.com/moved");
+    expect(refreshed.updatedAt > started.updatedAt).toBe(true);
+    expect(refreshed.timeline).toEqual(started.timeline);
+  })
+);
+
 it.effect("names the characters a Teaching name may not contain", () =>
   Effect.gen(function* refusedTeachingName() {
     const fake = makeFakeBrowser();

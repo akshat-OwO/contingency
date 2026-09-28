@@ -2000,17 +2000,28 @@ const makeAgentSession = (
         Effect.map(({ snapshot }) => snapshot)
       );
 
+    /** Save a Page URL observed without inventing an action for that read. */
+    const rememberCurrentUrl = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      currentUrl: string
+    ): Effect.Effect<AgentSessionSnapshot | undefined> =>
+      mutate(sessionId, (snapshot) => {
+        const safeCurrentUrl = sanitizeTeachingUrl(currentUrl);
+        if (snapshot.currentUrl === safeCurrentUrl) {
+          return snapshot;
+        }
+        const at = new Date(
+          Math.max(now().getTime(), Date.parse(snapshot.updatedAt) + 1)
+        ).toISOString();
+        recordingCapture(record)?.recordUrl(currentUrl, at);
+        return { ...snapshot, currentUrl: safeCurrentUrl, updatedAt: at };
+      });
+
     /**
-     * The browser is the authority on where it is. The user drives it directly
-     * during Takeover — a click that navigates goes through raw input and no
-     * action path at all — so the session re-reads the Page's URL whenever it
-     * hands a snapshot out rather than trusting the last write.
-     *
-     * `currentUrl` is a local read on the active Page, not a browser round
-     * trip, and the state is only written when the URL actually changed, so a
-     * change reaches Workspace through the same stream every other change
-     * does. No timeline entry is invented for it: the moment a read notices a
-     * navigation is not the moment the user made it.
+     * The browser is the authority on where it is. Takeover can navigate
+     * without an action path, so session reads check the active Page. A URL
+     * change reaches Workspace through the session stream.
      */
     const refreshedSnapshot = (
       sessionId: AgentSessionId,
@@ -2018,17 +2029,7 @@ const makeAgentSession = (
     ): Effect.Effect<AgentSessionSnapshot> => {
       const browserRefresh = browser.currentUrl(record.browserSessionId).pipe(
         Effect.flatMap((currentUrl) =>
-          mutate(sessionId, (snapshot) => {
-            const safeCurrentUrl = sanitizeTeachingUrl(currentUrl);
-            if (snapshot.currentUrl === safeCurrentUrl) {
-              return snapshot;
-            }
-            const at = now().toISOString();
-            // A URL the user drove to during Takeover is part of the
-            // Demonstration even though no action path recorded it.
-            recordingCapture(record)?.recordUrl(currentUrl, at);
-            return { ...snapshot, currentUrl: safeCurrentUrl, updatedAt: at };
-          })
+          rememberCurrentUrl(sessionId, record, currentUrl)
         ),
         Effect.map((next) => next ?? record.snapshot),
         Effect.orElseSucceed(() => record.snapshot)
@@ -6936,6 +6937,9 @@ const makeAgentSession = (
         observe(sessionId, (record, page) =>
           settledSnapshot(page, record.registry).pipe(
             Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
+            Effect.tap((snapshot) =>
+              rememberCurrentUrl(sessionId, record, snapshot.url)
+            ),
             Effect.tap((snapshot) =>
               Effect.sync(() => {
                 // An observation is the `before` state of the action that
