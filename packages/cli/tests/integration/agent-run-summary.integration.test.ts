@@ -10,6 +10,7 @@ import {
   AGENT_RUNS_DIRECTORY,
   AgentRunStore,
 } from "../../src/services/agent-run-store.ts";
+import { AgentSession } from "../../src/services/agent-session.ts";
 import { agentProcessLayer, runTool, sessionTool } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
@@ -184,6 +185,16 @@ it.live(
           expect(idle.run?.steps[0]?.execution).toBe("active");
           // Reading the session is itself an agent call.
           expect(idle.run?.lastAgentActivityAt).toBe(
+            new Date(clock).toISOString()
+          );
+
+          // Time the user holds the browser is the agent waiting, not idle:
+          // handing control back restarts the agent's idle time.
+          const sessions = yield* AgentSession;
+          yield* sessions.takeover(started.id, "Check the page");
+          clock += 30 * 60_000;
+          const returned = yield* sessions.returnControl(started.id);
+          expect(returned.run?.lastAgentActivityAt).toBe(
             new Date(clock).toISOString()
           );
 

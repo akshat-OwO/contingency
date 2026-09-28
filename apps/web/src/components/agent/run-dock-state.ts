@@ -25,19 +25,27 @@ export const AGENT_IDLE_NOTICE_MS = 10 * 60_000;
 
 /**
  * The idle notice for a live Run whose agent holds the browser, or
- * `undefined` when there is nothing to say. While the user holds control the
- * agent is waiting on them, so its silence is not idleness.
+ * `undefined` when there is nothing to say. While the user holds control, or
+ * the agent has asked for a Takeover, the agent is waiting on the user, so its
+ * silence is not idleness. The Runner restarts the idle time when control
+ * comes back.
  */
 export const agentIdleNotice = (
   session: {
     readonly controller: RunSessionSnapshot["controller"];
+    readonly phase: RunSessionSnapshot["phase"];
     readonly run: Pick<AgentRunState, "lastAgentActivityAt" | "outcome"> | null;
   },
   now: number,
   thresholdMs: number = AGENT_IDLE_NOTICE_MS
 ): string | undefined => {
   const { run } = session;
-  if (run === null || run.outcome !== null || session.controller !== "agent") {
+  if (
+    run === null ||
+    run.outcome !== null ||
+    session.controller !== "agent" ||
+    session.phase === "takeover"
+  ) {
     return undefined;
   }
   const idleMs = now - Date.parse(run.lastAgentActivityAt);

@@ -5660,6 +5660,12 @@ const makeAgentSession = (
           controller: "agent",
           interruptedAction: null,
           phase: "running",
+          // The agent was waiting on the user, not idle: its idle time starts
+          // again from the moment it has the browser back.
+          run:
+            record.snapshot.run === null || record.snapshot.run.outcome !== null
+              ? record.snapshot.run
+              : { ...record.snapshot.run, lastAgentActivityAt: at },
           takeover: null,
           timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
           updatedAt: at,

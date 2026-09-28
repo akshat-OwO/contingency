@@ -11,9 +11,11 @@ const sessionWith = (
   overrides: {
     readonly controller?: "agent" | "user";
     readonly outcome?: "completed" | null;
+    readonly phase?: "running" | "takeover";
   } = {}
 ) => ({
   controller: overrides.controller ?? "agent",
+  phase: overrides.phase ?? "running",
   run: {
     lastAgentActivityAt: new Date(lastActivity).toISOString(),
     outcome: overrides.outcome ?? null,
@@ -43,6 +45,15 @@ test("an agent waiting on the user is not idle", () => {
   expect(
     agentIdleNotice(
       sessionWith({ controller: "user" }),
+      lastActivity + 60 * 60_000
+    )
+  ).toBeUndefined();
+});
+
+test("an agent that asked for a Takeover is waiting, not idle", () => {
+  expect(
+    agentIdleNotice(
+      sessionWith({ phase: "takeover" }),
       lastActivity + 60 * 60_000
     )
   ).toBeUndefined();
