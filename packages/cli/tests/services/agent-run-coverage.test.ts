@@ -25,14 +25,6 @@ test("coverage is complete only when every Agent Step was assessed", () => {
   ).toEqual({ complete: true, executed: 3, total: 3, unexecuted: 0 });
 });
 
-test("a timed-out final Step counts as executed without completing coverage", () => {
-  // The Run reached every Step, but the last one was interrupted mid-check
-  // and produced no assessment: that is not a completely covered journey.
-  expect(
-    coverageOf([step(0, "assessed"), step(1, "assessed"), step(2, "timed-out")])
-  ).toEqual({ complete: false, executed: 3, total: 3, unexecuted: 0 });
-});
-
 test("a terminal assessment leaves the remaining Steps unexecuted", () => {
   expect(
     coverageOf([

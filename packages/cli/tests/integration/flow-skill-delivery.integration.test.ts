@@ -667,14 +667,16 @@ it.live(
             ).toBe(true);
           }
 
-          const ceilingConfig = path.join(root, "catalog.json");
+          // A Catalog Root that still declares the old ceiling policy starts
+          // a Dry Run that no clock ends: only the agent or the user does.
+          const legacyPolicy = path.join(root, "catalog.json");
           yield* fileSystem.writeFileString(
-            ceilingConfig,
+            legacyPolicy,
             JSON.stringify({
               agentRunCeilings: { runCeilingMs: 1000, stepCeilingMs: 100 },
             })
           );
-          const timedRun = yield* teachingRecordingTool(
+          const idleRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
             {
               inputs: [
@@ -686,18 +688,24 @@ it.live(
                   value: "Baner",
                 },
               ],
-              operationId: OperationId.make("delivery-dry-timeout-start"),
+              operationId: OperationId.make("delivery-dry-idle-start"),
               recordingId,
               url: fixtures.url("delivery.html"),
             }
           );
-          yield* Effect.sleep("750 millis");
-          const timedManifest = yield* recordingStore.read(recordingId);
-          expect(timedManifest.lifecycle._tag).toBe("dry-run-failed");
-          expect((yield* session.get(timedRun.session.id)).run?.outcome).toBe(
-            "timed-out"
+          yield* Effect.sleep("1500 millis");
+          const idle = yield* session.get(idleRun.session.id);
+          expect(idle.phase).toBe("running");
+          expect(idle.run?.outcome).toBeNull();
+          expect(idle.run?.activeStepIndex).toBe(0);
+          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
+            "dry-running"
           );
-          yield* fileSystem.remove(ceilingConfig);
+          yield* session.completeRun(idleRun.session.id);
+          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
+            "dry-run-failed"
+          );
+          yield* fileSystem.remove(legacyPolicy);
 
           const finalRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",

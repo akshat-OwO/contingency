@@ -25,7 +25,6 @@ import type {
 import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
-import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import {
   flowSkillProcedureSteps,
@@ -199,14 +198,9 @@ const DryRunInput = Schema.Union([
 ]);
 
 const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
-  dependencies: [
-    AgentSession,
-    AgentRunStore,
-    FileSystem.FileSystem,
-    TeachingRecordingStore,
-  ],
+  dependencies: [AgentSession, FileSystem.FileSystem, TeachingRecordingStore],
   description:
-    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Its numbered procedure becomes ordered Agent Steps. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Assess each Step against its Done when line with agent_run_step_assess. The Dry Run ends and its result is derived when the last Step is assessed or a terminal assessment, ceiling, or agent_run_complete ends it.",
+    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Its numbered procedure becomes ordered Agent Steps. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Assess each Step against its Done when line with agent_run_step_assess. The Dry Run ends and its result is derived when the last Step is assessed or a terminal assessment or agent_run_complete ends it. It has no wall-clock limit.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
@@ -395,9 +389,6 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           name: input.name,
           value: input.secret ? null : input.value,
         }));
-        const defaults = yield* (yield* AgentRunStore)
-          .ceilings()
-          .pipe(Effect.mapError(sessionFailure));
         const startedAt = new Date().toISOString();
         const steps: readonly AgentRunStep[] = procedure.map((step) => ({
           assessment: null,
@@ -426,11 +417,6 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             reportedModel: null,
             reportedProvider: null,
           },
-          ceilings: {
-            extensions: 0,
-            runMs: defaults.runMs,
-            stepMs: defaults.stepMs,
-          },
           coverage: {
             complete: false,
             executed: 0,
@@ -443,8 +429,8 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             name,
             value: value ?? "<redacted>",
           })),
+          lastAgentActivityAt: startedAt,
           outcome: null,
-          runDeadline: startedAt,
           runId: AgentRunId.make(
             `agentrun-${createHash("sha256")
               .update(`${params.recordingId}:${params.operationId}`)
@@ -452,7 +438,6 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
               .slice(0, 32)}`
           ),
           startedAt,
-          stepDeadline: null,
           steps,
           title: manifest.flowSkillName,
           variables: [],

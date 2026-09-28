@@ -136,14 +136,6 @@ export const agentBrowserElementInspectMutation = ContingencyRpcClient.mutation(
   "agent.browser.element.inspect"
 );
 /**
- * Raising an Agent Step or Run ceiling. It is a direct user action and has no
- * MCP tool: the agent whose work a ceiling bounds cannot raise its own budget.
- */
-export const agentRunCeilingExtendMutation = ContingencyRpcClient.mutation(
-  "agent.run.ceiling.extend"
-);
-
-/**
  * One persisted Run Summary, read by the Workspace in summary mode and by the
  * read-only viewer. One atom per Run, so a viewer reads its own Run.
  */

@@ -13,8 +13,6 @@ import { Effect, FileSystem, Layer } from "effect";
 import {
   AGENT_RUNS_DIRECTORY,
   AgentRunStore,
-  DEFAULT_AGENT_RUN_CEILING_MS,
-  DEFAULT_AGENT_STEP_CEILING_MS,
   makeAgentRunStoreLayer,
 } from "../../src/services/agent-run-store.ts";
 
@@ -36,7 +34,6 @@ const summaryFor = (root: string): AgentRunSummary =>
       reportedModel: null,
       reportedProvider: null,
     },
-    ceilings: { extensions: 1, runMs: 900_000, stepMs: 120_000 },
     coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
     endedAt: "2026-09-04T00:02:00.000Z",
     flowSkillName: FlowSkillName.make("browse-catalogue"),
@@ -148,49 +145,47 @@ it.effect("reports a missing Run rather than inventing an empty one", () =>
 );
 
 it.effect(
-  "takes ceilings from the Catalog Root policy when it declares them",
+  "reads a Run Summary persisted while Runs had wall-clock ceilings",
   () =>
-    Effect.gen(function* readCeilingPolicy() {
+    Effect.gen(function* readLegacySummary() {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "contingency-run-store-",
       });
-      const readCeilings = Effect.gen(function* ceilings() {
-        const store = yield* AgentRunStore;
-        return yield* store.ceilings();
-      }).pipe(Effect.provide(layerFor(root)));
-
-      expect(yield* readCeilings).toEqual({
-        runMs: DEFAULT_AGENT_RUN_CEILING_MS,
-        stepMs: DEFAULT_AGENT_STEP_CEILING_MS,
-      });
-
+      const current = summaryFor(root);
+      // Written the way a Runner with ceilings wrote it: a `ceilings` block,
+      // a `timed-out` outcome, and the interrupted Step marked `timed-out`.
+      const legacy = {
+        ...current,
+        ceilings: { extensions: 1, runMs: 900_000, stepMs: 120_000 },
+        outcome: "timed-out",
+        steps: current.steps.map((step) =>
+          step.index === 2
+            ? { ...step, confirmation: false, execution: "timed-out" }
+            : step
+        ),
+      };
+      const directory = path.join(root, AGENT_RUNS_DIRECTORY, current.runId);
+      yield* fileSystem.makeDirectory(directory, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(directory, "summary.json"),
+        JSON.stringify(legacy)
+      );
+      // A Catalog Root may still carry the ceiling policy it once declared.
       yield* fileSystem.writeFileString(
         path.join(root, "catalog.json"),
         JSON.stringify({
           agentRunCeilings: { runCeilingMs: 60_000, stepCeilingMs: 5000 },
         })
       );
-      expect(yield* readCeilings).toEqual({ runMs: 60_000, stepMs: 5000 });
 
-      // A Catalog Root written before the file was renamed keeps its budget.
-      yield* fileSystem.remove(path.join(root, "catalog.json"));
-      yield* fileSystem.writeFileString(
-        path.join(root, "agent-flow-catalog.json"),
-        JSON.stringify({
-          agentRunCeilings: { runCeilingMs: 30_000, stepCeilingMs: 2000 },
-        })
-      );
-      expect(yield* readCeilings).toEqual({ runMs: 30_000, stepMs: 2000 });
+      const read = yield* Effect.gen(function* readAgain() {
+        const store = yield* AgentRunStore;
+        return yield* store.read(current.runId);
+      }).pipe(Effect.provide(layerFor(root)));
 
-      // An unreadable policy must not stop a Run from starting.
-      yield* fileSystem.writeFileString(
-        path.join(root, "catalog.json"),
-        "{ not json"
-      );
-      expect(yield* readCeilings).toEqual({
-        runMs: DEFAULT_AGENT_RUN_CEILING_MS,
-        stepMs: DEFAULT_AGENT_STEP_CEILING_MS,
-      });
+      expect(read.outcome).toBe("timed-out");
+      expect(read.ceilings).toEqual(legacy.ceilings);
+      expect(read.steps[2]?.execution).toBe("timed-out");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

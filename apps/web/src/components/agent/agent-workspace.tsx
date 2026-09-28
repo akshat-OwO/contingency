@@ -141,9 +141,6 @@ const DEFAULT_FLOW_SKILL_NAME = "new-flow";
 /** The viewport a Workspace-opened Teaching session starts under. */
 const WORKSPACE_SESSION_VIEWPORT = { height: 800, width: 1280 };
 
-/** How much one direct user gesture adds to a ceiling. */
-const CEILING_EXTENSION_MS = 120_000;
-
 const LoadingState = () => (
   <main
     aria-busy="true"
@@ -637,7 +634,6 @@ const useAgentView = (
     agentBrowserElementInspectMutation,
     agentBrowserNavigateMutation,
     agentReturnControlMutation,
-    agentRunCeilingExtendMutation,
     agentSessionStartMutation,
     agentSessionsAtom,
     agentTakeoverMutation,
@@ -670,9 +666,6 @@ const useAgentView = (
     mode: "promise",
   });
   const navigateBrowser = useAtomSet(agentBrowserNavigateMutation, {
-    mode: "promise",
-  });
-  const extendRunCeiling = useAtomSet(agentRunCeilingExtendMutation, {
     mode: "promise",
   });
   const startTeachingRecording = useAtomSet(
@@ -1165,48 +1158,6 @@ const useAgentView = (
     },
     []
   );
-
-  /**
-   * Raising a ceiling from the dock. There is deliberately no MCP tool for it,
-   * so this button is the only way either budget grows
-   * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
-   */
-  const extendCeiling = (scope: "run" | "step") => {
-    const current = state.session;
-    if (current === undefined || current.run === null) {
-      return;
-    }
-    Effect.runFork(
-      Effect.result(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            extendRunCeiling({
-              payload: {
-                data: {
-                  additionalMs: CEILING_EXTENSION_MS,
-                  operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                  scope,
-                  sessionId: current.id,
-                },
-                type: "agent.run.ceiling.extend",
-              },
-            }),
-        })
-      ).pipe(
-        Effect.flatMap((outcome) =>
-          Effect.sync(() => {
-            setState((previous) => ({
-              ...previous,
-              ceilingError: Result.isFailure(outcome)
-                ? errorMessage(outcome.failure)
-                : undefined,
-            }));
-          })
-        )
-      )
-    );
-  };
 
   /**
    * One Teaching mutation dispatched from the dock, reported where the other
@@ -1844,7 +1795,6 @@ const useAgentView = (
         nextSession.currentUrl === "about:blank" ? "" : nextSession.currentUrl,
       botProtectionBlock: undefined,
       browserStreamError: undefined,
-      ceilingError: undefined,
       controlError: undefined,
       frameReady: false,
       navigationError: undefined,
@@ -1910,7 +1860,6 @@ const useAgentView = (
     clearConsole,
     dismissBotProtectionBlock,
     exitInspect,
-    extendCeiling,
     freezeInspect,
     hoverInspect,
     input,
@@ -2020,9 +1969,7 @@ export const AgentWorkspace = ({
               <RunDock
                 controlError={state.controlError}
                 controlPending={state.controlPending}
-                extendError={state.ceilingError}
                 onControl={view.changeControl}
-                onExtendCeiling={view.extendCeiling}
                 onSelectSession={view.selectSession}
                 selectedSessionId={state.selectedSessionId}
                 session={session}

@@ -16,12 +16,44 @@ export type RunSessionSnapshot = Extract<
 >;
 
 /**
- * The secondary actions a live Run offers. Raising a ceiling is deliberately
- * only ever a direct user gesture — there is no MCP tool for it, so a stuck
- * agent cannot buy itself more time
- * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
+ * How long the agent may go without calling a tool before the dock says so.
+ * It is a notice only: a Run has no wall-clock ceiling and nothing ends it for
+ * being idle
+ * ([ADR 0043](../../../../docs/adr/0043-agent-runs-have-no-wall-clock-ceiling.md)).
  */
-export type RunDockSecondary = "extend-run-ceiling" | "extend-step-ceiling";
+export const AGENT_IDLE_NOTICE_MS = 10 * 60_000;
+
+/**
+ * The idle notice for a live Run whose agent holds the browser, or
+ * `undefined` when there is nothing to say. While the user holds control, or
+ * the agent has asked for a Takeover, the agent is waiting on the user, so its
+ * silence is not idleness. The Runner restarts the idle time when control
+ * comes back.
+ */
+export const agentIdleNotice = (
+  session: {
+    readonly controller: RunSessionSnapshot["controller"];
+    readonly phase: RunSessionSnapshot["phase"];
+    readonly run: Pick<AgentRunState, "lastAgentActivityAt" | "outcome"> | null;
+  },
+  now: number,
+  thresholdMs: number = AGENT_IDLE_NOTICE_MS
+): string | undefined => {
+  const { run } = session;
+  if (
+    run === null ||
+    run.outcome !== null ||
+    session.controller !== "agent" ||
+    session.phase === "takeover"
+  ) {
+    return undefined;
+  }
+  const idleMs = now - Date.parse(run.lastAgentActivityAt);
+  if (!(idleMs >= thresholdMs)) {
+    return undefined;
+  }
+  return `Agent idle for ${Math.floor(idleMs / 60_000)} min`;
+};
 
 /**
  * The Agent Step a live Interactive Run is on, in full. It is deliberately
@@ -43,8 +75,6 @@ export interface RunDockPresentation {
   readonly coverage: string | undefined;
   /** Where the user is and what happens next, in whole sentences. */
   readonly nextStep: string;
-  /** The secondary actions beside the one control, in dock order. */
-  readonly secondaries: readonly RunDockSecondary[];
   /** The active Agent Step's detail, or `undefined` when none is running. */
   readonly step: RunDockStep | undefined;
   readonly tone: "default" | "failed";
@@ -60,10 +90,8 @@ const RUN_OUTCOME: Record<
     sentence: "An Agent Step was not working, so the run ended early.",
   },
   interrupted: { failed: true, sentence: "The run was interrupted." },
-  "timed-out": {
-    failed: true,
-    sentence: "A ceiling was reached, so the run timed out.",
-  },
+  // Only a Run persisted while Runs had wall-clock ceilings carries this.
+  "timed-out": { failed: true, sentence: "The run timed out." },
 };
 
 const activeStep = (run: AgentRunState): AgentRunStep | undefined =>
@@ -152,10 +180,6 @@ export const runDockPresentation = (
         ? undefined
         : `${run.coverage.executed} of ${run.coverage.total} Agent Steps executed`,
     nextStep: sentences.join(" "),
-    secondaries:
-      run === null || run.outcome !== null
-        ? []
-        : ["extend-step-ceiling", "extend-run-ceiling"],
     step,
     tone: failed ? "failed" : "default",
   };

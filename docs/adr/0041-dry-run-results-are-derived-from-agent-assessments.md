@@ -1,6 +1,8 @@
 # Dry Run results are derived from Agent Assessments
 
 > Supersedes the Dry Run result and its report operation in [ADR 0039](./0039-flow-skills-are-learned-from-temporary-teaching-recordings.md).
+>
+> Amended by [ADR 0043](./0043-agent-runs-have-no-wall-clock-ceiling.md): a Dry Run no longer borrows ceilings, because Runs no longer have them.
 
 A Dry Run executes the Flow Skill's numbered procedure as ordered Agent Steps, and the agent judges each against its `Done when:` line with `agent_run_step_assess`. The Dry Run passes only when every Agent Step is assessed `working`, coverage is complete, and the user never took over. Any other ending fails it. There is no Dry Run report operation.
 

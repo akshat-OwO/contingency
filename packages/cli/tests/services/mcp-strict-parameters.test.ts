@@ -75,6 +75,29 @@ it.effect("refuses an excess property on an agent run tool", () =>
   )
 );
 
+it.effect("refuses the removed Run ceiling fields on Run start", () =>
+  Effect.gen(function* refuseRemovedCeilings() {
+    const built = yield* AgentRunTools;
+    for (const ceiling of ["runCeilingMs", "stepCeilingMs"]) {
+      // SAFETY: only the removed ceiling key departs from the declared shape.
+      const refused = yield* Effect.flip(
+        built.handle("agent_flow_skill_run_start", {
+          flowSkillName: "read-delivery",
+          inputs: [],
+          operationId: "op-1",
+          [ceiling]: 120_000,
+          url: "https://example.com/",
+        } as never)
+      );
+      expect(refused.message).toContain(ceiling);
+    }
+  }).pipe(
+    Effect.provide(
+      AgentRunToolHandlersLive.pipe(Layer.provide(untouchedServices))
+    )
+  )
+);
+
 it.effect("refuses an excess property on an agent session tool", () =>
   Effect.gen(function* refuseExcessOnSessionTool() {
     const built = yield* AgentSessionTools;

@@ -40,9 +40,11 @@ export const advancesAgentRun = (outcome: AgentAssessmentOutcome): boolean =>
   outcome === "working";
 
 /**
- * What the Runner observed, as distinct from what the agent concluded. A
- * ceiling breach is `timed-out` here and produces no Agent Assessment at all,
- * so a system fact is never dressed up as a model judgment.
+ * What the Runner observed, as distinct from what the agent concluded, so a
+ * system fact is never dressed up as a model judgment. `timed-out` is legacy:
+ * Runs once had wall-clock ceilings, and a Run Summary persisted before they
+ * were removed may still carry it
+ * ([ADR 0043](../../../docs/adr/0043-agent-runs-have-no-wall-clock-ceiling.md)).
  */
 export const AgentStepExecution = Schema.Literals([
   "pending",
@@ -78,8 +80,8 @@ export type AgentAssessment = typeof AgentAssessment.Type;
 /** One ordered Agent Step as the Run executed — or did not execute — it. */
 export const AgentRunStep = Schema.Struct({
   /**
-   * `null` until the Step is assessed, and still `null` when it timed out: a
-   * ceiling breach records no assessment.
+   * `null` until the Step is assessed, and still `null` on a legacy
+   * `timed-out` Step: a ceiling breach recorded no assessment.
    */
   assessment: Schema.NullOr(AgentAssessment),
   attempts: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -96,24 +98,21 @@ export const AgentRunStep = Schema.Struct({
 export type AgentRunStep = typeof AgentRunStep.Type;
 
 /**
- * How much wall clock the Run and its current Agent Step have. Both are
- * explicit rather than inherited, and only a direct user action in Agent View
- * extends either ([ADR 0021](../../../docs/adr/0021-timeouts-are-set-not-inherited.md)).
+ * The wall-clock ceilings a Run carried before they were removed. Only a Run
+ * Summary persisted before then has one, so it is read and never written
+ * ([ADR 0043](../../../docs/adr/0043-agent-runs-have-no-wall-clock-ceiling.md)).
  */
-export const AgentRunCeilings = Schema.Struct({
-  /** How many times the user has extended a ceiling in this Run. */
+const LegacyAgentRunCeilings = Schema.Struct({
   extensions: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   runMs: positiveInt,
   stepMs: positiveInt,
 });
-export type AgentRunCeilings = typeof AgentRunCeilings.Type;
 
 /**
  * Which Agent Steps the Run actually reached. Coverage is deliberately not a
  * verdict about the website: a Run whose every executed Step was `not-working`
  * still has complete coverage, and a Run that stopped at Step one does not.
- * A `timed-out` Step counts as executed but was interrupted mid-check, so
- * coverage is complete only when every Step was assessed.
+ * Coverage is complete only when every Step was assessed.
  */
 export const AgentRunCoverage = Schema.Struct({
   complete: Schema.Boolean,
@@ -151,7 +150,8 @@ export type AgentRunAttribution = typeof AgentRunAttribution.Type;
 /**
  * How the Run stopped, as a system fact. It is separate from the assessments:
  * `ended-early` means a terminal Agent Assessment stopped the ordered Steps,
- * `timed-out` means a ceiling did, and neither says whether the website works.
+ * and neither says whether the website works. `timed-out` is legacy: a Run
+ * Summary persisted while Runs had wall-clock ceilings may still carry it.
  */
 export const AgentRunOutcome = Schema.Literals([
   "completed",
@@ -169,7 +169,6 @@ export const AgentRunState = Schema.Struct({
   ),
   assessmentCounts: AgentRunAssessmentCounts,
   attribution: AgentRunAttribution,
-  ceilings: AgentRunCeilings,
   coverage: AgentRunCoverage,
   endedAt: Schema.NullOr(nonEmptyString),
   /** The Flow Skill directory name this Run follows. */
@@ -182,12 +181,14 @@ export const AgentRunState = Schema.Struct({
   inputs: Schema.Array(
     Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
   ),
+  /**
+   * When the agent last called a tool on this Run's session. It never ends the
+   * Run: Workspace reads it only to say how long the agent has been idle.
+   */
+  lastAgentActivityAt: nonEmptyString,
   outcome: Schema.NullOr(AgentRunOutcome),
-  runDeadline: nonEmptyString,
   runId: AgentRunId,
   startedAt: nonEmptyString,
-  /** `null` when no Agent Step is active. */
-  stepDeadline: Schema.NullOr(nonEmptyString),
   steps: Schema.Array(AgentRunStep).check(Schema.isMinLength(1)),
   title: nonEmptyString,
   /**
@@ -213,7 +214,8 @@ export const AgentRunSummary = Schema.Struct({
   agentAccount: Schema.optional(nonEmptyString),
   assessmentCounts: AgentRunAssessmentCounts,
   attribution: AgentRunAttribution,
-  ceilings: AgentRunCeilings,
+  /** Present only on a Summary persisted while Runs had ceilings. */
+  ceilings: Schema.optional(LegacyAgentRunCeilings),
   coverage: AgentRunCoverage,
   endedAt: nonEmptyString,
   flowSkillName: FlowSkillName,
@@ -269,8 +271,6 @@ export const FlowSkillRunStart = Schema.Struct({
   /** Client-asserted, stored unverified. */
   reportedModel: optionalNullable(nonEmptyString),
   reportedProvider: optionalNullable(nonEmptyString),
-  runCeilingMs: optionalNullable(positiveInt),
-  stepCeilingMs: optionalNullable(positiveInt),
   /** Where the Run opens. The Flow Skill's first step names the page. */
   url: nonEmptyString,
 });
@@ -305,12 +305,3 @@ export const AgentRunViewer = Schema.Struct({
   viewUrl: nonEmptyString,
 });
 export type AgentRunViewer = typeof AgentRunViewer.Type;
-
-/** Which ceiling a direct user action in Agent View extended, and by how much. */
-export const AgentRunCeilingExtend = Schema.Struct({
-  additionalMs: positiveInt,
-  operationId: OperationId,
-  scope: Schema.Literals(["run", "step"]),
-  sessionId: AgentSessionId,
-});
-export type AgentRunCeilingExtend = typeof AgentRunCeilingExtend.Type;

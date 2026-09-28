@@ -171,8 +171,8 @@ export interface AgentSessionStartInput {
   readonly openedBy?: AgentSessionController | undefined;
   /**
    * The Interactive Run this session performs, already resolved from a
-   * verified Flow Skill. The session owns its ordered Agent Steps, ceilings,
-   * and evidence from the moment the browser opens.
+   * verified Flow Skill. The session owns its ordered Agent Steps and
+   * evidence from the moment the browser opens.
    */
   readonly run?: AgentRunState | undefined;
   /**
@@ -483,13 +483,15 @@ export interface AgentSessionService {
     agentAccount?: string,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentRunSummary, AgentSessionError>;
-  /** A direct user action in Workspace raising one ceiling. */
-  readonly extendCeiling: (
-    sessionId: AgentSessionId,
-    scope: "run" | "step",
-    additionalMs: number,
-    operationId?: OperationId | string
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Record that the agent just called a tool on this session. A live Run keeps
+   * the time so Workspace can say how long the agent has been idle; nothing
+   * ends a Run for being idle
+   * ([ADR 0043](../../../../docs/adr/0043-agent-runs-have-no-wall-clock-ceiling.md)).
+   */
+  readonly noteAgentActivity: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<void>;
   /** The read-only Workspace link for one persisted Run. */
   readonly runViewUrl: (
     runId: AgentRunId
@@ -1168,19 +1170,14 @@ const assessmentCountsOf = (
 /**
  * How much of the journey the Run actually reached. An executed Step is one
  * the Runner ran to a terminal execution outcome, whatever the agent concluded
- * about it: coverage answers "was this checked", not "did it work". A
- * `timed-out` Step counts as executed — the Run spent its budget there — but
- * it was interrupted mid-check and produced no assessment, so coverage is
- * complete only when every Step was assessed.
+ * about it: coverage answers "was this checked", not "did it work".
  */
 export const coverageOf = (
   steps: readonly AgentRunStep[]
 ): AgentRunCoverage => {
-  const executed = steps.filter(
-    (step) => step.execution === "assessed" || step.execution === "timed-out"
-  ).length;
+  const executed = steps.filter((step) => step.execution === "assessed").length;
   return {
-    complete: steps.every((step) => step.execution === "assessed"),
+    complete: executed === steps.length,
     executed,
     total: steps.length,
     unexecuted: steps.length - executed,
@@ -1232,16 +1229,6 @@ const endedRunOutcome = (advanced: boolean): "completed" | "ended-early" =>
 
 const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
   snapshot.run !== null && snapshot.run.outcome !== null;
-
-const deadlineFrom = (from: Date, ms: number): string =>
-  new Date(from.getTime() + ms).toISOString();
-
-/**
- * How often the Runner re-reads the clock against a Run's ceilings. It is
- * short enough that a breach interrupts the browser promptly and long enough
- * that an idle Run costs nothing measurable.
- */
-const CEILING_POLL_INTERVAL = "250 millis";
 
 const TIMELINE_LIMIT = 200;
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
@@ -1682,7 +1669,6 @@ type AgentOperationKind =
   | "act"
   | "boundary"
   | "assess"
-  | "ceiling"
   | "close"
   | "complete"
   | "control"
@@ -3149,7 +3135,6 @@ const makeAgentSession = (
                             activeStepIndex: null,
                             endedAt: at,
                             outcome: "interrupted",
-                            stepDeadline: null,
                             steps: markRemainingUnexecuted(
                               record.snapshot.run.steps
                             ),
@@ -4058,24 +4043,17 @@ const makeAgentSession = (
                   );
                   const startedNow = now();
                   const startedAt = startedNow.toISOString();
-                  // Both ceilings start when the browser is actually ready, not
-                  // when the request arrived: browser acquisition must not eat
-                  // the budget the user granted the agent's work.
+                  // The Run starts when the browser is actually ready, not
+                  // when the request arrived, so browser acquisition never
+                  // reads as the agent being idle.
                   const run =
                     base.run === null
                       ? null
                       : withDerivedRunTotals({
                           ...base.run,
                           activeStepIndex: 0,
-                          runDeadline: deadlineFrom(
-                            startedNow,
-                            base.run.ceilings.runMs
-                          ),
+                          lastAgentActivityAt: startedAt,
                           startedAt,
-                          stepDeadline: deadlineFrom(
-                            startedNow,
-                            base.run.ceilings.stepMs
-                          ),
                           steps: base.run.steps.map((step, index) =>
                             index === 0
                               ? {
@@ -4790,8 +4768,8 @@ const makeAgentSession = (
             takenOver("This action was not dispatched.")
           );
         }
-        // A waiter on the control lock can wake after a ceiling ended the Run
-        // and interrupted the action ahead of it, so the Run's state is
+        // A waiter on the control lock can wake after the Run ended ahead of
+        // it, so the Run's state is
         // re-read here, beside the Takeover re-check, not only before queuing.
         if (runIsOver(current.snapshot)) {
           return yield* Effect.fail(
@@ -5014,7 +4992,7 @@ const makeAgentSession = (
                 takenOver("This action was not dispatched.")
               );
             }
-            // A Run that hit a ceiling or ended on a terminal assessment is
+            // A Run that ended on a terminal assessment or was completed is
             // over. Its browser is still open only so the Run can be finalized.
             if (runIsOver(record.snapshot)) {
               return yield* Effect.fail(
@@ -5682,6 +5660,12 @@ const makeAgentSession = (
           controller: "agent",
           interruptedAction: null,
           phase: "running",
+          // The agent was waiting on the user, not idle: its idle time starts
+          // again from the moment it has the browser back.
+          run:
+            record.snapshot.run === null || record.snapshot.run.outcome !== null
+              ? record.snapshot.run
+              : { ...record.snapshot.run, lastAgentActivityAt: at },
           takeover: null,
           timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
           updatedAt: at,
@@ -6015,8 +5999,8 @@ const makeAgentSession = (
     /**
      * Finalize a Run exactly once: close the browser, seal the Trace and the
      * video, and persist the Run Summary. Every way a Run can end goes through
-     * here — the last Agent Step assessed, a terminal Agent Assessment, a
-     * ceiling, or an explicit `agent_run_complete` — so a Summary exists for
+     * here — the last Agent Step assessed, a terminal Agent Assessment, or an
+     * explicit `agent_run_complete` — so a Summary exists for
      * every ended Run and a second call answers with the first one's Summary
      * rather than writing another.
      */
@@ -6054,8 +6038,8 @@ const makeAgentSession = (
           Effect.gen(function* finalizeRun() {
             const at = now().toISOString();
             // A read-modify-write over the Run as it stands when the write
-            // lands: a `timed-out` outcome a ceiling recorded is kept, never
-            // clobbered by a snapshot this call built earlier.
+            // lands: an outcome already recorded is kept, never clobbered by a
+            // snapshot this call built earlier.
             const completed = yield* mutate(sessionId, (snapshot) => {
               if (snapshot.run === null) {
                 return snapshot;
@@ -6078,7 +6062,6 @@ const makeAgentSession = (
                     (steps.every((step) => step.execution === "assessed")
                       ? ("completed" as const)
                       : ("ended-early" as const)),
-                  stepDeadline: null,
                   steps,
                 }),
                 takeover: null,
@@ -6099,7 +6082,6 @@ const makeAgentSession = (
             const ended: AgentRunSummary = {
               assessmentCounts: finished.assessmentCounts,
               attribution: finished.attribution,
-              ceilings: finished.ceilings,
               coverage: finished.coverage,
               endedAt: finished.endedAt ?? at,
               flowSkillName: finished.flowSkillName,
@@ -6154,153 +6136,6 @@ const makeAgentSession = (
         }
       });
 
-    /**
-     * A hard ceiling. It interrupts whatever the browser was asked to do,
-     * records `timed-out` as an execution outcome, and stops: the Runner does
-     * not invent an Agent Assessment on the agent's behalf
-     * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
-     */
-    const timeOutRun = Effect.fn("AgentSession.timeOutRun")(
-      function* endRunOnCeiling(sessionId: AgentSessionId, breached: string) {
-        const record = Ref.getUnsafe(sessions).get(sessionId);
-        if (record === undefined || runIsOver(record.snapshot)) {
-          return;
-        }
-        const { inFlight } = record.control;
-        let interrupted: AgentTimelineEntry | null = null;
-        if (inFlight !== undefined) {
-          yield* Fiber.interrupt(inFlight.fiber);
-          record.control.inFlight = undefined;
-          interrupted = {
-            actor: "agent",
-            at: now().toISOString(),
-            description: inFlight.description,
-            detail: `${breached} interrupted this action. The browser may already have performed it.`,
-            dispatched: true,
-            id: inFlight.id,
-            outcome: "interrupted",
-          };
-        }
-        yield* mutate(sessionId, (snapshot) => {
-          if (snapshot.run === null || snapshot.run.outcome !== null) {
-            return snapshot;
-          }
-          const at = now().toISOString();
-          const steps = markRemainingUnexecuted(
-            snapshot.run.steps.map((step) =>
-              step.execution === "active"
-                ? { ...step, endedAt: at, execution: "timed-out" as const }
-                : step
-            )
-          );
-          return {
-            ...snapshot,
-            interruptedAction: interrupted ?? snapshot.interruptedAction,
-            run: withDerivedRunTotals({
-              ...snapshot.run,
-              activeStepIndex: null,
-              endedAt: at,
-              outcome: "timed-out",
-              stepDeadline: null,
-              steps,
-            }),
-            timeline: [
-              ...snapshot.timeline,
-              ...(interrupted === null ? [] : [interrupted]),
-              {
-                actor: "agent" as const,
-                at,
-                description: `${breached} was reached`,
-                detail:
-                  "The Runner recorded a timed-out execution outcome. No Agent Assessment was produced for the interrupted Agent Step.",
-                dispatched: false,
-                id: `ceiling-${randomUUID()}`,
-                outcome: "interrupted" as const,
-              },
-            ].slice(-TIMELINE_LIMIT),
-            updatedAt: at,
-          };
-        });
-        // A ceiling ends the Run as surely as an assessment does, so the
-        // evidence it did gather is sealed and persisted the same way.
-        yield* finalizeEndedRun(sessionId);
-      }
-    );
-
-    /**
-     * The ceilings are wall clock, so they are watched rather than raced
-     * against one action: an agent that stops calling tools altogether must
-     * still lose its Run rather than hold a browser open forever.
-     *
-     * Each tick runs under the session lock — the same one `extendCeiling`,
-     * `assessStep`, and `completeRun` take — so a deadline is re-read after
-     * any user extension it raced, and a breach can never interleave with a
-     * Run mutation that already checked the outcome.
-     */
-    const watchRunCeilings = (
-      sessionId: AgentSessionId
-    ): Effect.Effect<void> => {
-      // Each tick answers whether the Run is still worth watching. A Run that
-      // has ended finalized itself, which closed this fiber's own scope, so
-      // the watcher stops rather than polling a Run nobody can change.
-      const tick = lock.withPermit(
-        Effect.gen(function* watchCeilings() {
-          const record = Ref.getUnsafe(sessions).get(sessionId);
-          const run = record?.snapshot.run ?? null;
-          if (record === undefined || run === null || run.outcome !== null) {
-            return false;
-          }
-          const at = now().getTime();
-          if (at >= Date.parse(run.runDeadline)) {
-            yield* timeOutRun(sessionId, "The Run ceiling");
-            return false;
-          }
-          if (
-            run.stepDeadline !== null &&
-            at >= Date.parse(run.stepDeadline) &&
-            // A paused agent is not a slow agent: the user holds the browser,
-            // so the Agent Step's budget is not being spent on the agent's
-            // work.
-            !agentIsPaused(record.snapshot)
-          ) {
-            yield* timeOutRun(sessionId, "The Agent Step ceiling");
-            return false;
-          }
-          return true;
-        })
-      );
-      const loop: Effect.Effect<void> = tick.pipe(
-        Effect.flatMap((keepWatching) =>
-          keepWatching
-            ? Effect.sleep(CEILING_POLL_INTERVAL).pipe(
-                Effect.andThen(Effect.suspend(() => loop))
-              )
-            : Effect.void
-        ),
-        Effect.catchCause(() => Effect.void)
-      );
-      return loop;
-    };
-
-    /**
-     * Start a session and, when it is performing a Run, watch its ceilings for
-     * as long as it owns a browser. The watcher lives in the session's own
-     * scope, so closing the session stops it. A Run without its watcher would
-     * hold a browser unbounded, so a failure to attach it fails the start
-     * rather than being ignored.
-     */
-    const startAndWatch = (input: AgentSessionStartInput) =>
-      startUnlocked(input).pipe(
-        Effect.tap((snapshot) =>
-          snapshot.run === null
-            ? Effect.void
-            : read(snapshot.id).pipe(
-                Effect.flatMap((record) =>
-                  Effect.forkIn(watchRunCeilings(snapshot.id), record.scope)
-                )
-              )
-        )
-      );
     const assessStepUnlocked = Effect.fn("AgentSession.assessStep")(
       function* assessAgentStep(
         sessionId: AgentSessionId,
@@ -6414,9 +6249,6 @@ const makeAgentSession = (
             // A terminal assessment ends the ordered Steps and leaves the rest
             // unexecuted; `completed` means every Step was reached.
             outcome: hasNext ? null : endedRunOutcome(advance),
-            stepDeadline: hasNext
-              ? deadlineFrom(now(), current.ceilings.stepMs)
-              : null,
             steps: hasNext ? assessed : markRemainingUnexecuted(assessed),
           };
         });
@@ -6452,87 +6284,6 @@ const makeAgentSession = (
           ended
         );
         return ended;
-      }
-    );
-
-    const extendCeilingUnlocked = Effect.fn("AgentSession.extendCeiling")(
-      function* extendRunCeiling(
-        sessionId: AgentSessionId,
-        ceilingScope: "run" | "step",
-        additionalMs: number,
-        operationId?: OperationId | string
-      ) {
-        const requestInput = JSON.stringify({ additionalMs, ceilingScope });
-        const replayed = replaySession(
-          operationId,
-          "ceiling",
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        const record = yield* requireLiveRecord(sessionId);
-        if (record.snapshot.run === null) {
-          return yield* Effect.fail(notRunning(sessionId));
-        }
-        if (record.snapshot.run.outcome !== null) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `Run ${record.snapshot.run.runId} has already ended; its ceilings cannot be extended.`
-            )
-          );
-        }
-        const next = yield* mutateRun(sessionId, (current) => ({
-          ...current,
-          ceilings: {
-            ...current.ceilings,
-            extensions: current.ceilings.extensions + 1,
-            ...(ceilingScope === "run"
-              ? { runMs: current.ceilings.runMs + additionalMs }
-              : { stepMs: current.ceilings.stepMs + additionalMs }),
-          },
-          ...(ceilingScope === "run"
-            ? {
-                runDeadline: deadlineFrom(
-                  new Date(Date.parse(current.runDeadline)),
-                  additionalMs
-                ),
-              }
-            : {
-                stepDeadline:
-                  current.stepDeadline === null
-                    ? null
-                    : deadlineFrom(
-                        new Date(Date.parse(current.stepDeadline)),
-                        additionalMs
-                      ),
-              }),
-        }));
-        if (next === undefined) {
-          return yield* Effect.fail(notRunning(sessionId));
-        }
-        const withEntry = yield* recordEntry(sessionId, {
-          actor: "user",
-          at: now().toISOString(),
-          description: `The user extended the ${ceilingScope === "run" ? "Run" : "Agent Step"} ceiling`,
-          detail: `by ${Math.round(additionalMs / 1000)}s`,
-          dispatched: false,
-          id: `ceiling-extend-${randomUUID()}`,
-          outcome: "completed",
-        });
-        yield* rememberSession(
-          operationId,
-          "ceiling",
-          sessionId,
-          requestInput,
-          withEntry
-        );
-        return withEntry;
       }
     );
 
@@ -6735,15 +6486,6 @@ const makeAgentSession = (
         }),
       enterUserVariable: (sessionId, input, operationId) =>
         enterUserVariableUnlocked(sessionId, input, operationId),
-      extendCeiling: (sessionId, ceilingScope, additionalMs, operationId) =>
-        lock.withPermit(
-          extendCeilingUnlocked(
-            sessionId,
-            ceilingScope,
-            additionalMs,
-            operationId
-          )
-        ),
       get: (sessionId) =>
         read(sessionId).pipe(
           Effect.flatMap((record) => refreshedSnapshot(sessionId, record)),
@@ -6791,6 +6533,18 @@ const makeAgentSession = (
             browser.getNetworkRequests(record.browserSessionId, tabId)
           )
         ),
+      noteAgentActivity: (sessionId) =>
+        mutate(sessionId, (snapshot) =>
+          snapshot.run === null || snapshot.run.outcome !== null
+            ? snapshot
+            : {
+                ...snapshot,
+                run: {
+                  ...snapshot.run,
+                  lastAgentActivityAt: now().toISOString(),
+                },
+              }
+        ).pipe(Effect.asVoid),
       pendingDecision: (pendingDecisionId) =>
         Effect.gen(function* findSessionDecision() {
           for (const record of Ref.getUnsafe(sessions).values()) {
@@ -7192,7 +6946,7 @@ const makeAgentSession = (
             )
           )
         ),
-      start: (input) => lock.withPermit(startAndWatch(input)),
+      start: (input) => lock.withPermit(startUnlocked(input)),
       startTeachingRecording: (sessionId, operationId) =>
         lock.withPermit(startTeachingRecordingUnlocked(sessionId, operationId)),
       stopTeachingRecording: (sessionId, operationId) =>

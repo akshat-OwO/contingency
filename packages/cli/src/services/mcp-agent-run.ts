@@ -88,7 +88,7 @@ const demonstratedEmulation = (emulation: FlowSkillEmulation | undefined) =>
 const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start an Interactive Run of a verified Flow Skill in the selected Catalog Root. It reads the saved SKILL.md, turns its numbered procedure into ordered Agent Steps, opens a fresh browser context at `url`, and activates the first Step. Supply every declared input again; an input declared in SHOUTY_SNAKE_CASE is a runtime Variable that Contingency asks the user for, so pass it here and it is refused. The Execution Boundary is the set of hosts the journey was demonstrated on, recorded in the skill's frontmatter: a `url` outside them is refused outright rather than paused, and any other top-level document the Run reaches pauses for the user. A skill saved before Contingency recorded those hosts falls back to the host of `url`. The browser reopens under the Emulation the skill was demonstrated under, so do not expect a default desktop window. You own your own plan and your own reversible retries inside the current Agent Step; Contingency owns the Step order, the ceilings, and the evidence.",
+    "Start an Interactive Run of a verified Flow Skill in the selected Catalog Root. It reads the saved SKILL.md, turns its numbered procedure into ordered Agent Steps, opens a fresh browser context at `url`, and activates the first Step. Supply every declared input again; an input declared in SHOUTY_SNAKE_CASE is a runtime Variable that Contingency asks the user for, so pass it here and it is refused. The Execution Boundary is the set of hosts the journey was demonstrated on, recorded in the skill's frontmatter: a `url` outside them is refused outright rather than paused, and any other top-level document the Run reaches pauses for the user. A skill saved before Contingency recorded those hosts falls back to the host of `url`. The browser reopens under the Emulation the skill was demonstrated under, so do not expect a default desktop window. You own your own plan and your own reversible retries inside the current Agent Step; Contingency owns the Step order and the evidence. A Run has no wall-clock limit: take the time you need to observe and reason, and it ends only when its Steps are assessed, you complete it, or the session closes.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     clientName: FlowSkillRunStart.fields.clientName,
@@ -98,8 +98,6 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
     operationId: FlowSkillRunStart.fields.operationId,
     reportedModel: FlowSkillRunStart.fields.reportedModel,
     reportedProvider: FlowSkillRunStart.fields.reportedProvider,
-    runCeilingMs: FlowSkillRunStart.fields.runCeilingMs,
-    stepCeilingMs: FlowSkillRunStart.fields.stepCeilingMs,
     url: FlowSkillRunStart.fields.url,
   }),
   success: AgentSessionSnapshot,
@@ -142,12 +140,7 @@ const AgentRunOpenTool = Tool.make("open_run", {
   success: AgentRunViewer,
 });
 
-/**
- * The Interactive Run surface. Extending a ceiling is absent on purpose: the
- * agent whose work a ceiling bounds may not raise its own budget, and only a
- * direct Workspace action can
- * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
- */
+/** The Interactive Run surface. */
 export const AgentRunTools = withStrictParameters(
   Toolkit.make(
     FlowSkillRunStartTool,
@@ -249,7 +242,6 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           })
         );
       }
-      const defaults = yield* store.ceilings().pipe(Effect.mapError(failure));
       const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
       const directory = yield* store
         .prepare(runId)
@@ -285,11 +277,6 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           reportedModel: params.reportedModel ?? null,
           reportedProvider: params.reportedProvider ?? null,
         },
-        ceilings: {
-          extensions: 0,
-          runMs: params.runCeilingMs ?? defaults.runMs,
-          stepMs: params.stepCeilingMs ?? defaults.stepMs,
-        },
         coverage: {
           complete: false,
           executed: 0,
@@ -299,15 +286,10 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         endedAt: null,
         flowSkillName: skill.name,
         inputs: [...supplied].map(([name, value]) => ({ name, value })),
+        lastAgentActivityAt: startedAt,
         outcome: null,
-        // A placeholder, already in the past. The session re-derives both
-        // deadlines from the moment the browser is actually ready, so browser
-        // acquisition never eats the agent's budget — and a Run that somehow
-        // skipped that step times out immediately rather than running unbounded.
-        runDeadline: startedAt,
         runId,
         startedAt,
-        stepDeadline: null,
         steps,
         title: skill.title,
         // Each secret input becomes one `supply_variable` decision the user
@@ -343,6 +325,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
   agent_run_complete: (params) =>
     Effect.gen(function* completeInteractiveRun() {
       const session = yield* AgentSession;
+      yield* session.noteAgentActivity(params.sessionId);
       // The Run persisted its own Summary when it ended. Completing an already
       // ended Run answers with that same Summary rather than writing a second.
       return yield* session
@@ -352,6 +335,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
   agent_run_step_assess: (params) =>
     Effect.gen(function* assessAgentStep() {
       const session = yield* AgentSession;
+      yield* session.noteAgentActivity(params.sessionId);
       return yield* session
         .assessStep(
           params.sessionId,
