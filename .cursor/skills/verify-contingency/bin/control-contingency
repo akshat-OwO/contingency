@@ -50,6 +50,7 @@ Commands:
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
   mcp call --tool <name> [--params <json>]
+  mcp tools [--name <name>]
   mcp resources
   mcp resource --uri <uri>
   mcp stop
@@ -1136,6 +1137,29 @@ const cmdMcpResource = async (flags) => {
   process.stdout.write(`${text.length > 0 ? text : body}\n`);
 };
 
+const cmdMcpTools = async (flags) => {
+  const instance = readInstance();
+  if (typeof instance.brokerUrl !== "string") {
+    fail("No MCP instance is recorded. Run mcp start first.");
+  }
+  const response = await fetch(`${instance.brokerUrl}tools`);
+  const body = await response.text();
+  if (!response.ok) {
+    fail(`tools/list failed (${response.status}): ${body}`);
+  }
+  const result = JSON.parse(body);
+  const name = typeof flags.name === "string" ? flags.name : undefined;
+  if (name === undefined) {
+    process.stdout.write(`${body}\n`);
+    return;
+  }
+  const tool = result.tools?.find((entry) => entry.name === name);
+  if (tool === undefined) {
+    fail(`Tool ${name} is absent from tools/list.`);
+  }
+  process.stdout.write(`${JSON.stringify(tool)}\n`);
+};
+
 const cmdMcpStop = async () => {
   const instance = readInstance();
   if (typeof instance.mcpPid !== "number" || !pidAlive(instance.mcpPid)) {
@@ -1250,6 +1274,10 @@ const main = async () => {
       await cmdMcpCall(parseArgs(argv.slice(2)).flags);
       return;
     }
+    if (action === "tools") {
+      await cmdMcpTools(parseArgs(argv.slice(2)).flags);
+      return;
+    }
     if (action === "resources") {
       await cmdMcpResource({});
       return;
@@ -1262,7 +1290,7 @@ const main = async () => {
       await cmdMcpStop();
       return;
     }
-    fail("mcp needs start, call, resources, resource, or stop.");
+    fail("mcp needs start, call, tools, resources, resource, or stop.");
   }
   fail(`Unknown command: ${command}`);
 };

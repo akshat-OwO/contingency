@@ -64,6 +64,9 @@ export type AgentStepExecution = typeof AgentStepExecution.Type;
 export const AgentAssessmentEvidence = Schema.Struct({
   id: nonEmptyString,
   kind: Schema.Literals(["snapshot", "attempt"]),
+}).annotate({
+  message:
+    'Evidence item needs {kind,id}: kind must be "snapshot" or "attempt" and id must be a non-empty string',
 });
 export type AgentAssessmentEvidence = typeof AgentAssessmentEvidence.Type;
 

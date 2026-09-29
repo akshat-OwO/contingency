@@ -13,6 +13,7 @@ import {
 } from "@contingency/protocol";
 import type { AgentRunState, AgentRunStep } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
+import type { JsonSchema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
 
 import { AgentRunStore } from "./agent-run-store.ts";
@@ -44,6 +45,58 @@ const failure = (
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
   });
+
+const isJsonSchema = (value: unknown): value is JsonSchema.JsonSchema =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Effect emits simple checks under `allOf`. Some MCP clients discard the
+ * entire field's type when that keyword is present. Move independent scalar
+ * checks onto their parent without changing the schema's meaning.
+ */
+const flattenScalarChecks = (
+  schema: JsonSchema.JsonSchema
+): JsonSchema.JsonSchema => {
+  const flattened: JsonSchema.JsonSchema = { ...schema };
+  if (isJsonSchema(schema.properties)) {
+    flattened.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([key, value]) => [
+        key,
+        isJsonSchema(value) ? flattenScalarChecks(value) : value,
+      ])
+    );
+  }
+  if (isJsonSchema(schema.items)) {
+    flattened.items = flattenScalarChecks(schema.items);
+  }
+
+  if (!Array.isArray(schema.allOf)) {
+    return flattened;
+  }
+  const permitted = new Set(["minItems", "minLength", "pattern"]);
+  const constraints: JsonSchema.JsonSchema = {};
+  for (const member of schema.allOf) {
+    if (!isJsonSchema(member)) {
+      return flattened;
+    }
+    for (const [key, value] of Object.entries(member)) {
+      if (
+        !permitted.has(key) ||
+        Object.hasOwn(flattened, key) ||
+        Object.hasOwn(constraints, key)
+      ) {
+        return flattened;
+      }
+      constraints[key] = value;
+    }
+  }
+  delete flattened.allOf;
+  return { ...flattened, ...constraints };
+};
+
+const assessParametersJsonSchema = flattenScalarChecks(
+  Tool.getJsonSchemaFromSchema(AgentRunStepAssess)
+);
 
 /**
  * A declared input whose name is shouty snake case is a runtime Variable: the
@@ -103,20 +156,15 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
   success: AgentSessionSnapshot,
 });
 
-const AgentRunStepAssessTool = Tool.make("agent_run_step_assess", {
-  dependencies: [AgentSession],
+const AgentRunStepAssessTool = Tool.dynamic("agent_run_step_assess", {
   description:
-    'Report your evidence-backed judgment of the active Agent Step in an Interactive Run or Dry Run: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Every reference in `evidence` must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted. Assessing the last Agent Step or ending early closes the browser and writes a Run Summary. A Dry Run passes only when every Step is working, coverage is complete, and no Takeover occurred. Its Summary stays with the Teaching Recording and cannot be opened with open_run.',
+    'Report your evidence-backed judgment of the active Agent Step in an Interactive Run or Dry Run: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Pass evidence as a non-empty array of objects, for example [{"kind":"snapshot","id":"snapshot-2"}] or [{"kind":"attempt","id":"action-123"}]. Every reference must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted. Assessing the last Agent Step or ending early closes the browser and writes a Run Summary. A Dry Run passes only when every Step is working, coverage is complete, and no Takeover occurred. Its Summary stays with the Teaching Recording and cannot be opened with open_run.',
   failure: AgentRunFailure,
-  parameters: Schema.Struct({
-    evidence: AgentRunStepAssess.fields.evidence,
-    explanation: AgentRunStepAssess.fields.explanation,
-    operationId: AgentRunStepAssess.fields.operationId,
-    outcome: AgentRunStepAssess.fields.outcome,
-    sessionId: AgentRunStepAssess.fields.sessionId,
-  }),
+  parameters: assessParametersJsonSchema,
   success: AgentSessionSnapshot,
-});
+})
+  .setParameters(AgentRunStepAssess)
+  .addDependency(AgentSession);
 
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession],

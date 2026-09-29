@@ -126,6 +126,15 @@ const handle = async (request, response) => {
     respond(response, 200, { ok: true });
     return;
   }
+  if (request.method === "GET" && request.url === "/tools") {
+    const message = await send("tools/list", {});
+    if (message.error === undefined) {
+      respond(response, 200, message.result);
+      return;
+    }
+    respond(response, 502, { error: message.error });
+    return;
+  }
   // Resources are how a learning agent reaches Contingency's own authoring
   // skills, so a drive must be able to list and read them from this same
   // process rather than from whatever the host has installed.
@@ -151,7 +160,7 @@ const handle = async (request, response) => {
   }
   if (request.method !== "POST" || request.url !== "/call") {
     respond(response, 404, {
-      error: "POST /call, POST /resource, or GET /health",
+      error: "POST /call, POST /resource, GET /tools, or GET /health",
     });
     return;
   }
