@@ -446,23 +446,25 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           store.directory(manifest.recordingId),
           "dry-run"
         );
-        if (!replay) {
-          yield* fileSystem
-            .remove(evidenceDirectory, { force: true, recursive: true })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new TeachingRecordingFailure({
-                    code: "teaching_recording_io",
-                    diagnostics: [],
-                    message: `Could not replace the previous Dry Run evidence: ${cause.message} (teaching_recording_io)`,
-                  })
-              )
-            );
-        }
-        const session = yield* sessions
-          .start({
-            activity: "run",
+        // The previous evidence is replaced only for a new start: a retry
+        // replays its session, and a changed request conflicts before it.
+        const prepare = Effect.gen(function* prepareDryRun() {
+          if (!replay) {
+            yield* fileSystem
+              .remove(evidenceDirectory, { force: true, recursive: true })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new TeachingRecordingFailure({
+                      code: "teaching_recording_io",
+                      diagnostics: [],
+                      message: `Could not replace the previous Dry Run evidence: ${cause.message} (teaching_recording_io)`,
+                    })
+                )
+              );
+          }
+          return {
+            activity: "run" as const,
             artifactDirectory: evidenceDirectory,
             clientName: "flow-skill-dry-run",
             clientVersion: "1",
@@ -479,12 +481,31 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
               })),
             },
             emulation: manifest.emulation,
-            operationId: params.operationId,
             run,
             url: params.url,
             viewport: manifest.emulation.viewport,
-          })
-          .pipe(Effect.mapError(sessionFailure));
+          };
+        });
+        const session = yield* sessions
+          .startPrepared(
+            {
+              operationId: params.operationId,
+              request: JSON.stringify({
+                activity: "flow-skill-dry-run",
+                inputs: params.inputs,
+                recordingId: params.recordingId,
+                url: params.url,
+              }),
+            },
+            prepare
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              cause instanceof TeachingRecordingFailure
+                ? cause
+                : sessionFailure(cause)
+            )
+          );
         const started = yield* store
           .startDryRun({
             inputs: dryRunInputs,

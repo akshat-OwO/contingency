@@ -290,68 +290,68 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           })
         );
       }
-      const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
-      const directory = yield* store
-        .prepare(runId)
-        .pipe(Effect.mapError(failure));
-      const startedAt = new Date().toISOString();
-      const steps: readonly AgentRunStep[] = skill.steps.map((step) => ({
-        assessment: null,
-        attempts: 0,
-        // A Flow Skill step declares its own observable outcome rather than a
-        // separate confirmation flag, so the conservative Execution Boundary
-        // guard for a mutating action stays in force for every Step.
-        confirmation: false,
-        description: step.description,
-        doneWhen: step.doneWhen,
-        endedAt: null,
-        execution: "pending" as const,
-        index: step.index,
-        name: step.name,
-        startedAt: null,
-      }));
-      const run: AgentRunState = {
-        activeStepIndex: null,
-        assessmentCounts: {
-          blocked: 0,
-          inconclusive: 0,
-          notWorking: 0,
-          working: 0,
-        },
-        attribution: {
-          clientName: params.clientName?.trim() || "unknown",
-          clientVersion: params.clientVersion?.trim() || "unknown",
-          reportedMetadataVerified: false,
-          reportedModel: params.reportedModel ?? null,
-          reportedProvider: params.reportedProvider ?? null,
-        },
-        coverage: {
-          complete: false,
-          executed: 0,
-          total: steps.length,
-          unexecuted: steps.length,
-        },
-        endedAt: null,
-        flowSkillName: skill.name,
-        inputs: [...supplied].map(([name, value]) => ({ name, value })),
-        lastAgentActivityAt: startedAt,
-        outcome: null,
-        runId,
-        startedAt,
-        steps,
-        title: skill.title,
-        // Each secret input becomes one `supply_variable` decision the user
-        // answers by name in the agent conversation (ADR 0037).
-        variables: secretInputs.map((name) => ({
-          name,
-          runtime: true,
-          secret: true,
-          supplied: false,
-        })),
-      };
-      return yield* session
-        .start({
-          activity: "run",
+      // The Run id and directory exist only for a new start: a retry replays
+      // the Run it started, and a changed request conflicts before either.
+      const prepare = Effect.gen(function* prepareInteractiveRun() {
+        const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
+        const directory = yield* store.prepare(runId);
+        const startedAt = new Date().toISOString();
+        const steps: readonly AgentRunStep[] = skill.steps.map((step) => ({
+          assessment: null,
+          attempts: 0,
+          // A Flow Skill step declares its own observable outcome rather than a
+          // separate confirmation flag, so the conservative Execution Boundary
+          // guard for a mutating action stays in force for every Step.
+          confirmation: false,
+          description: step.description,
+          doneWhen: step.doneWhen,
+          endedAt: null,
+          execution: "pending" as const,
+          index: step.index,
+          name: step.name,
+          startedAt: null,
+        }));
+        const run: AgentRunState = {
+          activeStepIndex: null,
+          assessmentCounts: {
+            blocked: 0,
+            inconclusive: 0,
+            notWorking: 0,
+            working: 0,
+          },
+          attribution: {
+            clientName: params.clientName?.trim() || "unknown",
+            clientVersion: params.clientVersion?.trim() || "unknown",
+            reportedMetadataVerified: false,
+            reportedModel: params.reportedModel ?? null,
+            reportedProvider: params.reportedProvider ?? null,
+          },
+          coverage: {
+            complete: false,
+            executed: 0,
+            total: steps.length,
+            unexecuted: steps.length,
+          },
+          endedAt: null,
+          flowSkillName: skill.name,
+          inputs: [...supplied].map(([name, value]) => ({ name, value })),
+          lastAgentActivityAt: startedAt,
+          outcome: null,
+          runId,
+          startedAt,
+          steps,
+          title: skill.title,
+          // Each secret input becomes one `supply_variable` decision the user
+          // answers by name in the agent conversation (ADR 0037).
+          variables: secretInputs.map((name) => ({
+            name,
+            runtime: true,
+            secret: true,
+            supplied: false,
+          })),
+        };
+        return {
+          activity: "run" as const,
           artifactDirectory: directory,
           clientName: params.clientName,
           clientVersion: params.clientVersion,
@@ -359,7 +359,6 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           // A phone-taught journey runs as a phone: the Run reproduces the
           // Emulation the Flow Skill was demonstrated under (ADR 0013).
           emulation: demonstratedEmulation(skill.emulation),
-          operationId: params.operationId,
           run,
           url: params.url,
           viewport: skill.emulation?.viewport ?? {
@@ -367,7 +366,25 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
             height: 800,
             width: 1280,
           },
-        })
+        };
+      });
+      return yield* session
+        .startPrepared(
+          {
+            operationId: params.operationId,
+            request: JSON.stringify({
+              activity: "flow-skill-run",
+              clientName: params.clientName ?? null,
+              clientVersion: params.clientVersion ?? null,
+              flowSkillName: params.flowSkillName,
+              inputs: params.inputs,
+              reportedModel: params.reportedModel ?? null,
+              reportedProvider: params.reportedProvider ?? null,
+              url: params.url,
+            }),
+          },
+          prepare
+        )
         .pipe(Effect.mapError(failure));
     }),
   agent_run_complete: (params) =>
