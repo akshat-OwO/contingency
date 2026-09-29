@@ -133,6 +133,14 @@ it("leaves every published JSON Schema unchanged", () => {
     TeachingRecordingTools,
   ]) {
     for (const shipped of Object.values(toolkit.tools)) {
+      if (shipped.name === "agent_run_step_assess" && Tool.isDynamic(shipped)) {
+        // This tool publishes a client-compatible equivalent of its Effect
+        // schema, while the strict decoder still uses the Effect schema.
+        expect(JSON.stringify(Tool.getJsonSchema(shipped))).not.toContain(
+          '"allOf"'
+        );
+        continue;
+      }
       expect(Tool.getJsonSchema(shipped)).toEqual(
         Tool.getJsonSchemaFromSchema(shipped.parametersSchema)
       );

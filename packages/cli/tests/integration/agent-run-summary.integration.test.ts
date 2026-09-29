@@ -15,9 +15,8 @@ import { agentProcessLayer, runTool, sessionTool } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
 /**
- * A two-step journey over the delivery fixture. The Run is driven by
- * assessments alone: what is under test is when a Run's evidence becomes
- * reachable, not whether the agent can reach a control.
+ * A two-step journey over the delivery fixture. The Run records both kinds of
+ * evidence before its Summary becomes reachable.
  */
 const READ_DELIVERY_SKILL = `---
 name: read-delivery
@@ -88,11 +87,18 @@ it.live(
           expect(run.steps).toHaveLength(2);
 
           yield* assessActiveStep(started.id, "working", "summary-assess-1");
-          const ended = yield* assessActiveStep(
-            started.id,
-            "working",
-            "summary-assess-2"
-          );
+          const acted = yield* sessionTool("agent_browser_act", {
+            action: { type: "navigate", url: fixtures.url("delivery.html") },
+            operationId: OperationId.make("summary-attempt-2"),
+            sessionId: started.id,
+          });
+          const ended = yield* runTool("agent_run_step_assess", {
+            evidence: [{ id: acted.entry.id, kind: "attempt" }],
+            explanation: "The delivery page opened.",
+            operationId: OperationId.make("summary-assess-2"),
+            outcome: "working",
+            sessionId: started.id,
+          });
 
           // Assessing the last ordered Step ends the Run by itself.
           expect(ended.run?.activeStepIndex).toBeNull();
@@ -108,6 +114,9 @@ it.live(
           expect(
             opened.summary.steps.map((step) => step.assessment?.outcome)
           ).toEqual(["working", "working"]);
+          expect(opened.summary.steps[1]?.assessment?.evidence).toEqual([
+            { id: acted.entry.id, kind: "attempt" },
+          ]);
           // Nothing in the Summary is left for a later call to fill in.
           expect(opened.summary.videoPath).not.toBeUndefined();
           expect(opened.summary.tracePath).not.toBeUndefined();
