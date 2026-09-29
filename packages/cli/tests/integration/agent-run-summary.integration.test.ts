@@ -438,3 +438,94 @@ it.live(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.live(
+  "replays a retried Run start and refuses a changed one without new Run state",
+  () =>
+    Effect.gen(function* retryTheRunStart() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-run-start-retry-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* saveSkill(root);
+      const runsDirectory = path.join(root, AGENT_RUNS_DIRECTORY);
+      const request = {
+        clientName: "integration-runner",
+        clientVersion: "1.0.0",
+        flowSkillName: FlowSkillName.make("read-delivery"),
+        inputs: [],
+        operationId: OperationId.make("retry-run-start"),
+        url: fixtures.url("delivery.html"),
+      };
+
+      yield* Effect.scoped(
+        Effect.gen(function* startAndRetry() {
+          const sessions = yield* AgentSession;
+          const started = yield* runTool("agent_flow_skill_run_start", request);
+          const runId = started.run?.runId;
+          const runEntries = yield* fileSystem.readDirectory(runsDirectory);
+          expect(runEntries).toEqual([runId]);
+
+          const retried = yield* runTool("agent_flow_skill_run_start", request);
+          expect(retried.id).toBe(started.id);
+          expect(retried.run?.runId).toBe(runId);
+          expect(yield* sessions.list()).toHaveLength(1);
+          expect(yield* fileSystem.readDirectory(runsDirectory)).toEqual(
+            runEntries
+          );
+
+          const conflicted = yield* Effect.flip(
+            runTool("agent_flow_skill_run_start", {
+              ...request,
+              url: `${fixtures.url("delivery.html")}?changed`,
+            })
+          );
+          expect(conflicted.code).toBe("agent_session_conflict");
+          expect(yield* sessions.list()).toHaveLength(1);
+          expect(yield* fileSystem.readDirectory(runsDirectory)).toEqual(
+            runEntries
+          );
+
+          yield* runTool("agent_run_complete", {
+            operationId: OperationId.make("retry-run-complete"),
+            sessionId: started.id,
+          });
+          const evidence = yield* fileSystem.readDirectory(
+            path.join(runsDirectory, runId ?? "missing"),
+            { recursive: true }
+          );
+
+          // After the Run ends, a retry answers with its closed state and
+          // opens no browser.
+          const retriedAfterClose = yield* runTool(
+            "agent_flow_skill_run_start",
+            request
+          );
+          expect(retriedAfterClose.id).toBe(started.id);
+          expect(retriedAfterClose.run?.runId).toBe(runId);
+          expect(retriedAfterClose.run?.outcome).not.toBeNull();
+          expect(retriedAfterClose.phase).toBe("closed");
+
+          const conflictedAfterClose = yield* Effect.flip(
+            runTool("agent_flow_skill_run_start", {
+              ...request,
+              clientVersion: "2.0.0",
+            })
+          );
+          expect(conflictedAfterClose.code).toBe("agent_session_conflict");
+          // The list holds open sessions only, so a started one would show.
+          expect(yield* sessions.list()).toEqual([]);
+          expect(yield* fileSystem.readDirectory(runsDirectory)).toEqual(
+            runEntries
+          );
+          expect(
+            yield* fileSystem.readDirectory(
+              path.join(runsDirectory, runId ?? "missing"),
+              { recursive: true }
+            )
+          ).toEqual(evidence);
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

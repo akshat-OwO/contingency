@@ -212,6 +212,16 @@ export interface AgentSessionStartInput {
   readonly viewport: AgentSessionStart["viewport"];
 }
 
+/** The public request a prepared start is replayed and compared by. */
+export interface AgentSessionStartRequest {
+  readonly operationId: OperationId | string;
+  /**
+   * The caller's canonical encoding of every public field of the request,
+   * without generated identities.
+   */
+  readonly request: string;
+}
+
 /**
  * One change to the Emulation a live Agent Session browser applies. Absent
  * leaves that part unchanged and `null` clears it, matching the wire contract
@@ -446,6 +456,16 @@ export interface AgentSessionService {
   readonly start: (
     input: AgentSessionStartInput
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Start a session whose resources the caller only creates for a new start.
+   * The operation receipt compares `request`, the caller's public request,
+   * before `prepare` runs, so a retry answers with the session it started and
+   * a changed request under a used operation id fails without side effects.
+   */
+  readonly startPrepared: <E>(
+    request: AgentSessionStartRequest,
+    prepare: Effect.Effect<AgentSessionStartInput, E>
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError | E>;
   /**
    * Enter a Variable the user supplied to this Run into one element. The agent
    * names the Variable, never the value.
@@ -3795,8 +3815,11 @@ const makeAgentSession = (
       );
 
     const startUnlocked = Effect.fn("AgentSession.start")(
-      function* startSession(input: AgentSessionStartInput) {
-        const requestInput = normalizedStartInput(input);
+      function* startSession(
+        input: AgentSessionStartInput,
+        publicRequest?: string
+      ) {
+        const requestInput = publicRequest ?? normalizedStartInput(input);
         const replayed = replaySession(
           input.operationId,
           "start",
@@ -6951,6 +6974,33 @@ const makeAgentSession = (
           )
         ),
       start: (input) => lock.withPermit(startUnlocked(input)),
+      startPrepared: (request, prepare) =>
+        lock.withPermit(
+          Effect.gen(function* startPreparedSession() {
+            const replayed = replaySession(
+              request.operationId,
+              "start",
+              "start",
+              request.request
+            );
+            if (replayed?._tag === "conflict") {
+              return yield* Effect.fail(replayed.error);
+            }
+            // A retry reads the session as it is now, so a Run that has since
+            // ended answers with its closed state rather than a stale start.
+            if (replayed?._tag === "replay") {
+              return (
+                Ref.getUnsafe(sessions).get(replayed.snapshot.id)?.snapshot ??
+                replayed.snapshot
+              );
+            }
+            const input = yield* prepare;
+            return yield* startUnlocked(
+              { ...input, operationId: request.operationId },
+              request.request
+            );
+          })
+        ),
       startTeachingRecording: (sessionId, operationId) =>
         lock.withPermit(startTeachingRecordingUnlocked(sessionId, operationId)),
       stopTeachingRecording: (sessionId, operationId) =>

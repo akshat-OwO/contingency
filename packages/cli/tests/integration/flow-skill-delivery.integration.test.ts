@@ -493,6 +493,44 @@ it.live(
             }
           );
           expect(replayedFailedRun.session.id).toBe(failedRun.session.id);
+          expect(replayedFailedRun.session.run?.runId).toBe(
+            failedRun.session.run?.runId
+          );
+          // The same operation id with a changed input is a different
+          // request: it conflicts before replacing the Dry Run evidence or
+          // opening another session.
+          const agentSessions = yield* AgentSession;
+          const sessionsBeforeConflict = yield* agentSessions.list();
+          const evidenceBeforeConflict = yield* fileSystem.readDirectory(
+            path.join(recordingDirectory, "dry-run"),
+            { recursive: true }
+          );
+          const conflictedDryRun = yield* Effect.flip(
+            teachingRecordingTool("agent_flow_skill_dry_run_start", {
+              inputs: [
+                { changed: true, name: "city", secret: false, value: "Pune" },
+                {
+                  changed: true,
+                  name: "delivery_area",
+                  secret: false,
+                  value: "Kothrud",
+                },
+              ],
+              operationId: OperationId.make("delivery-dry-failed-start"),
+              recordingId,
+              url: fixtures.url("delivery.html"),
+            })
+          );
+          expect(conflictedDryRun.code).toBe("agent_session_conflict");
+          expect(yield* agentSessions.list()).toHaveLength(
+            sessionsBeforeConflict.length
+          );
+          expect(
+            yield* fileSystem.readDirectory(
+              path.join(recordingDirectory, "dry-run"),
+              { recursive: true }
+            )
+          ).toEqual(evidenceBeforeConflict);
           const recordingStore = yield* TeachingRecordingStore;
           const failedManifest = yield* recordingStore.read(recordingId);
           expect(failedManifest.lifecycle._tag).toBe("dry-run-failed");
