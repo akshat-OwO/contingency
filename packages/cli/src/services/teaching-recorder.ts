@@ -314,24 +314,34 @@ export const makeTeachingRecorder = (
         )
       );
     const failure = yield* Ref.make<string | null>(null);
-    yield* Effect.acquireRelease(
-      Effect.tryPromise({
-        catch: (cause) =>
-          browserFailure("Could not start the Teaching Trace", cause),
-        try: () =>
-          target.context.tracing.start({ screenshots: true, snapshots: true }),
-      }),
-      () =>
-        Effect.tryPromise({
-          catch: () => null,
-          try: () => target.context.tracing.stop({ path: traceFile }),
-        }).pipe(Effect.ignore)
-    );
-    const encoder = yield* makeTeachingEncoder({
-      maxBytes: limits.videoBytes,
-      output: videoFile,
-    });
+    // Stop closes this scope to interrupt capture fibers and run encoder /
+    // trace finalizers. `Effect.scope` is not Closeable, so resources must
+    // live on a forked child rather than the current fiber's scope.
     const scope = yield* Scope.fork(yield* Effect.scope);
+    yield* Scope.provide(scope)(
+      Effect.acquireRelease(
+        Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not start the Teaching Trace", cause),
+          try: () =>
+            target.context.tracing.start({
+              screenshots: true,
+              snapshots: true,
+            }),
+        }),
+        () =>
+          Effect.tryPromise({
+            catch: () => null,
+            try: () => target.context.tracing.stop({ path: traceFile }),
+          }).pipe(Effect.ignore)
+      )
+    );
+    const encoder = yield* Scope.provide(scope)(
+      makeTeachingEncoder({
+        maxBytes: limits.videoBytes,
+        output: videoFile,
+      })
+    );
     yield* options.browser.stream(options.browserSessionId).pipe(
       Stream.runForEach((event) => {
         if (event.type !== "frame") {
