@@ -18,6 +18,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 - Treat every command as literal. Keep quoted names and flags unchanged.
 - Run Contingency chrome actions through `control-contingency browser`.
 - Run nested Workspace site actions through `computerUse` at the verification URL. The `browser input-check` command drives its dedicated fixture through the canvas.
+- Use `browser scroll-check --session-id <id> --record` for bounded native wheel measurements before and during Teaching. Start from user-held setup and read its canvas timing JSON, gesture screenshots, and recorded semantic Timeline.
 - Restore nothing in the user's real `.contingency` catalog. Isolated state is deleted on cleanup. Proof artifacts are not.
 
 ## Proof and skip reporting
@@ -42,4 +43,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Workspace](./workspace.md) is the UI recipe for navigation, rapid canvas input, Browser Snapshot context and layered sheets, delayed navigation and Session URL sync, the Teaching Start/Stop capture boundary, Agent Assessment evidence, Dry Runs, Interactive Runs, and persisted Run Summaries.
+- [Workspace](./workspace.md) is the UI recipe for navigation, streaming diagnostics and preferences, scaled Inspect alignment, rapid canvas input, Browser Snapshot context and layered sheets, delayed navigation and Session URL sync, the Teaching Start/Stop capture boundary, Agent Assessment evidence, Dry Runs, Interactive Runs, and persisted Run Summaries.

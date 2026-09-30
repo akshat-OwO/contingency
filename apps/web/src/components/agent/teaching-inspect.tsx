@@ -14,6 +14,7 @@ import type {
   FrameProjection,
   InspectState,
 } from "@/components/agent/teaching-inspect-state";
+import { canvasViewportSize } from "@/components/browser/browser-input";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -35,12 +36,13 @@ const useCanvasBox = (
     const measure = () => {
       const bounds = canvas.getBoundingClientRect();
       const origin = container.getBoundingClientRect();
+      const viewport = canvasViewportSize(canvas);
       const next: CanvasBox = {
         left: bounds.left - origin.left,
         scale:
-          canvas.width === 0 || bounds.width === 0
+          viewport.width === 0 || bounds.width === 0
             ? 1
-            : bounds.width / canvas.width,
+            : bounds.width / viewport.width,
         top: bounds.top - origin.top,
       };
       setBox((current) =>

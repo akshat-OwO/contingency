@@ -69,6 +69,11 @@ import {
   mousePosition,
   renderFrame,
 } from "@/components/browser/browser-input";
+import {
+  browserStreamMetricsAtom,
+  updateStreamMetrics,
+} from "@/components/browser/browser-stream-metrics";
+import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -629,7 +634,6 @@ const useAgentView = (
   onRecoverSession: ((sessionId: AgentSessionId) => void) | undefined
 ) => {
   const {
-    agentBrowserFrameAckMutation,
     agentBrowserInputMutation,
     agentBrowserElementInspectMutation,
     agentBrowserNavigateMutation,
@@ -653,9 +657,12 @@ const useAgentView = (
   const refreshSessions = useAtomRefresh(agentSessionsAtom);
   const [state, setState] = useAtom(agentViewStateAtom);
   const { selectedSessionId } = state;
-  const acknowledgeFrame = useAtomSet(agentBrowserFrameAckMutation, {
-    mode: "promise",
-  });
+  const streamTransport = useAtomValue(
+    browserStreamTransportAtom(selectedSessionId)
+  );
+  const setStreamMetrics = useAtomSet(
+    browserStreamMetricsAtom(selectedSessionId)
+  );
   const requestTakeover = useAtomSet(agentTakeoverMutation, {
     mode: "promise",
   });
@@ -705,10 +712,12 @@ const useAgentView = (
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
+  const frameRenderOwnerRef = useRef<object | null>(null);
   const pendingFrameRef = useRef<Extract<
     BrowserStreamEvent,
     { readonly type: "frame" }
   > | null>(null);
+  const activeStreamRef = useRef<string | null>(null);
   const activeSessionRef = useRef<AgentSessionId | null>(null);
   const sendBrowserInputRef = useRef(sendBrowserInput);
   useEffect(() => {
@@ -871,75 +880,106 @@ const useAgentView = (
     sessions,
   ]);
 
-  const ackFrame = (
-    sessionId: AgentSessionId,
-    frame: Extract<BrowserStreamEvent, { readonly type: "frame" }>
-  ) =>
-    Effect.tryPromise({
-      catch: (cause) => cause,
-      try: () =>
-        acknowledgeFrame({
-          payload: {
-            data: {
-              frameId: frame.seq,
-              sessionId,
-              streamId: frame.streamId,
-            },
-            type: "agent.browser.frame.ack",
-          },
-        }),
-    }).pipe(Effect.ignore);
-
   const enqueueFrame = (
     sessionId: AgentSessionId,
     frame: Extract<BrowserStreamEvent, { readonly type: "frame" }>,
     cancelled: () => boolean
   ) => {
-    const previous = pendingFrameRef.current;
-    if (previous !== null) {
-      Effect.runFork(ackFrame(sessionId, previous));
-    }
+    setStreamMetrics((current) =>
+      updateStreamMetrics(current, {
+        frame,
+        replaced: pendingFrameRef.current !== null,
+        type: "received",
+      })
+    );
+    activeStreamRef.current = frame.streamId;
     pendingFrameRef.current = frame;
-    if (frameRenderFiberRef.current !== null) {
+    if (frameRenderOwnerRef.current !== null) {
       return;
     }
+    const owner = {};
+    frameRenderOwnerRef.current = owner;
     const render = Effect.gen(function* renderLatestFrame() {
       while (pendingFrameRef.current !== null) {
         const latest = pendingFrameRef.current;
         pendingFrameRef.current = null;
+        setStreamMetrics((current) =>
+          updateStreamMetrics(current, { type: "decoding" })
+        );
         const canvas = canvasRef.current;
         if (canvas === null || cancelled()) {
-          yield* ackFrame(sessionId, latest);
+          setStreamMetrics((current) =>
+            updateStreamMetrics(current, { type: "stale" })
+          );
           continue;
         }
-        yield* renderFrame(canvas, latest).pipe(
-          Effect.ensuring(ackFrame(sessionId, latest))
+        const isCurrent = () =>
+          !cancelled() &&
+          activeSessionRef.current === sessionId &&
+          activeStreamRef.current === latest.streamId;
+        const outcome = yield* Effect.result(
+          renderFrame(canvas, latest, isCurrent, (timing) => {
+            setStreamMetrics((current) =>
+              updateStreamMetrics(current, {
+                frame: latest,
+                type: "rendered",
+                ...timing,
+              })
+            );
+          })
         );
-        if (!cancelled()) {
+        if (!isCurrent()) {
+          setStreamMetrics((current) =>
+            updateStreamMetrics(current, { type: "stale" })
+          );
+          continue;
+        }
+        if (Result.isFailure(outcome)) {
+          setStreamMetrics((current) =>
+            updateStreamMetrics(current, { type: "failed" })
+          );
+          setState((current) => ({
+            ...current,
+            browserStreamError: errorMessage(outcome.failure),
+          }));
+          continue;
+        }
+        if (outcome.success) {
           const projection = frameProjection(latest.metadata);
           setState((current) => {
             const same =
               current.frameReady &&
+              current.browserStreamError === undefined &&
               sameProjection(current.frameProjection, projection);
             // A drawn frame is not Workspace state. Returning a new object
             // anyway re-rendered the whole column once per frame, so a Page
             // that repainted kept the column re-rendering with it (#237).
             return same
               ? current
-              : { ...current, frameProjection: projection, frameReady: true };
+              : {
+                  ...current,
+                  browserStreamError: undefined,
+                  frameProjection: projection,
+                  frameReady: true,
+                };
           });
         }
       }
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {
-          frameRenderFiberRef.current = null;
+          if (frameRenderOwnerRef.current === owner) {
+            frameRenderFiberRef.current = null;
+            frameRenderOwnerRef.current = null;
+          }
         })
       )
     );
-    frameRenderFiberRef.current = Effect.runFork(render);
+    const fiber = Effect.runFork(render);
+    if (frameRenderOwnerRef.current === owner) {
+      frameRenderFiberRef.current = fiber;
+    }
   };
-  const ackFrameFromEffect = useEffectEvent(ackFrame);
   const enqueueFrameFromEffect = useEffectEvent(enqueueFrame);
 
   useEffect(() => {
@@ -951,6 +991,7 @@ const useAgentView = (
     let cancelled = false;
     activeSessionRef.current = selectedSessionId;
     pendingFrameRef.current = null;
+    activeStreamRef.current = null;
     setState((current) => ({
       ...current,
       botProtectionBlock: undefined,
@@ -991,55 +1032,62 @@ const useAgentView = (
     const browserFiber = Effect.runFork(
       Effect.gen(function* consumeAgentBrowserStream() {
         const outcome = yield* Effect.result(
-          runAgentBrowserStream(selectedSessionId, (event) =>
-            Effect.sync(() => {
-              if (cancelled || activeSessionRef.current !== selectedSessionId) {
-                return;
-              }
-              if (isFrame(event)) {
-                enqueueFrameFromEffect(
-                  selectedSessionId,
-                  event,
-                  () => cancelled
-                );
-                return;
-              }
-              if (isStatus(event)) {
-                setState((current) => ({
-                  ...current,
-                  phase: current.phase === "switching" ? "live" : current.phase,
-                  streamConnected: event.connected && event.screencasting,
-                  viewportHeight: event.viewportHeight,
-                  viewportWidth: event.viewportWidth,
-                }));
-                return;
-              }
-              if (event.type === "url") {
-                setState((current) => ({
-                  ...current,
-                  session: current.session
-                    ? { ...current.session, currentUrl: event.url }
-                    : current.session,
-                }));
-                return;
-              }
-              if (event.type === "bot_protection_block") {
-                setState((current) => ({
-                  ...current,
-                  botProtectionBlock: event,
-                }));
-                return;
-              }
-              if (event.type === "console" || event.type === "page_error") {
-                setState((current) => ({
-                  ...current,
-                  consoleEntries: appendConsoleEntry(
-                    current.consoleEntries,
-                    event
-                  ),
-                }));
-              }
-            })
+          runAgentBrowserStream(
+            selectedSessionId,
+            (event) =>
+              Effect.sync(() => {
+                if (
+                  cancelled ||
+                  activeSessionRef.current !== selectedSessionId
+                ) {
+                  return;
+                }
+                if (isFrame(event)) {
+                  enqueueFrameFromEffect(
+                    selectedSessionId,
+                    event,
+                    () => cancelled
+                  );
+                  return;
+                }
+                if (isStatus(event)) {
+                  setState((current) => ({
+                    ...current,
+                    phase:
+                      current.phase === "switching" ? "live" : current.phase,
+                    streamConnected: event.connected && event.screencasting,
+                    viewportHeight: event.viewportHeight,
+                    viewportWidth: event.viewportWidth,
+                  }));
+                  return;
+                }
+                if (event.type === "url") {
+                  setState((current) => ({
+                    ...current,
+                    session: current.session
+                      ? { ...current.session, currentUrl: event.url }
+                      : current.session,
+                  }));
+                  return;
+                }
+                if (event.type === "bot_protection_block") {
+                  setState((current) => ({
+                    ...current,
+                    botProtectionBlock: event,
+                  }));
+                  return;
+                }
+                if (event.type === "console" || event.type === "page_error") {
+                  setState((current) => ({
+                    ...current,
+                    consoleEntries: appendConsoleEntry(
+                      current.consoleEntries,
+                      event
+                    ),
+                  }));
+                }
+              }),
+            streamTransport
           )
         );
         if (Result.isFailure(outcome) && !cancelled) {
@@ -1055,6 +1103,9 @@ const useAgentView = (
 
     return () => {
       cancelled = true;
+      setStreamMetrics((current) =>
+        updateStreamMetrics(current, { type: "cancelled" })
+      );
       if (activeSessionRef.current === selectedSessionId) {
         activeSessionRef.current = null;
       }
@@ -1062,16 +1113,14 @@ const useAgentView = (
       Effect.runFork(Fiber.interrupt(browserFiber));
       const frameFiber = frameRenderFiberRef.current;
       if (frameFiber !== null) {
+        frameRenderOwnerRef.current = null;
         Effect.runFork(Fiber.interrupt(frameFiber));
         frameRenderFiberRef.current = null;
       }
-      const pendingFrame = pendingFrameRef.current;
       pendingFrameRef.current = null;
-      if (pendingFrame !== null) {
-        Effect.runFork(ackFrameFromEffect(selectedSessionId, pendingFrame));
-      }
+      activeStreamRef.current = null;
     };
-  }, [selectedSessionId, setState]);
+  }, [selectedSessionId, setState, setStreamMetrics, streamTransport]);
 
   /**
    * Taking control is a direct user action from this View, and returning it is

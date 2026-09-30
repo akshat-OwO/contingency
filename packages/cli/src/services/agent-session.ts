@@ -1363,6 +1363,16 @@ interface SessionRecord {
     burst: TypingBurst | undefined;
     open: { readonly key: string; readonly ref: AgentElementRef } | undefined;
   };
+  /** A scroll photograph waits for input to pause rather than blocking it. */
+  readonly scroll: { burst: ScrollBurst | undefined };
+}
+
+interface ScrollBurst {
+  readonly close: Effect.Effect<void>;
+  readonly capture: DemonstrationCapture;
+  readonly actionId: string;
+  readonly page: Page;
+  lastInputAt: number;
 }
 
 /**
@@ -1942,7 +1952,12 @@ const makeAgentSession = (
         : record.control.lock.withPermit(
             Effect.suspend(
               () => record.textEdit.burst?.close ?? Effect.void
-            ).pipe(Effect.andThen(effect))
+            ).pipe(
+              Effect.andThen(
+                Effect.suspend(() => record.scroll.burst?.close ?? Effect.void)
+              ),
+              Effect.andThen(effect)
+            )
           );
     };
 
@@ -4029,6 +4044,7 @@ const makeAgentSession = (
                   runEvidence: { attempts: new Set(), snapshots: new Set() },
                   scope: sessionScope,
                   screenshots: { directory: undefined },
+                  scroll: { burst: undefined },
                   snapshot: base,
                   supplied: new Map<string, string>(),
                   teachingRecorder: undefined,
@@ -4325,6 +4341,90 @@ const makeAgentSession = (
             capture.latestSnapshotId() ??
             null,
         };
+      });
+
+    const closeScrollBurst = (
+      sessionId: AgentSessionId,
+      opened: SessionRecord,
+      burst: ScrollBurst
+    ): Effect.Effect<void> =>
+      Effect.gen(function* photographSettledScroll() {
+        if (opened.scroll.burst !== burst) {
+          return;
+        }
+        opened.scroll.burst = undefined;
+        const record = Ref.getUnsafe(sessions).get(sessionId) ?? opened;
+        if (recordingCapture(record) !== burst.capture) {
+          return;
+        }
+        yield* captureTeachingKeyframe(
+          record,
+          burst.page,
+          burst.actionId,
+          now().toISOString()
+        );
+      });
+
+    const watchScrollBurst = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      burst: ScrollBurst
+    ): Effect.Effect<void> =>
+      Effect.gen(function* photographWhenScrollingPauses() {
+        while (record.scroll.burst === burst) {
+          const paused = (yield* Clock.currentTimeMillis) - burst.lastInputAt;
+          if (paused < 200) {
+            yield* Effect.sleep(200 - paused);
+            continue;
+          }
+          yield* record.control.lock.withPermit(
+            Effect.gen(function* recheckScrollPause() {
+              if ((yield* Clock.currentTimeMillis) - burst.lastInputAt >= 200) {
+                yield* closeScrollBurst(sessionId, record, burst);
+              }
+            })
+          );
+        }
+      });
+
+    const deferScrollKeyframe = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      page: Page,
+      actionId: string
+    ): Effect.Effect<void> =>
+      Effect.gen(function* rememberScrollPhotograph() {
+        const capture = recordingCapture(record);
+        if (capture === undefined) {
+          return;
+        }
+        const lastInputAt = yield* Clock.currentTimeMillis;
+        const existing = record.scroll.burst;
+        if (
+          existing?.capture === capture &&
+          existing.actionId === actionId &&
+          existing.page === page
+        ) {
+          existing.lastInputAt = lastInputAt;
+          return;
+        }
+        if (existing !== undefined) {
+          yield* existing.close;
+        }
+        const burst: ScrollBurst = {
+          actionId,
+          capture,
+          close: Effect.suspend(() =>
+            closeScrollBurst(sessionId, record, burst)
+          ),
+          lastInputAt,
+          page,
+        };
+        record.scroll.burst = burst;
+        yield* Effect.forkIn(
+          watchScrollBurst(sessionId, record, burst),
+          record.scope
+        );
       });
 
     const completeSemanticUserClick = (input: {
@@ -6797,6 +6897,9 @@ const makeAgentSession = (
                 );
               }
               const page = yield* browser.activePage(record.browserSessionId);
+              if (!isScroll(input) && !isPointerMove(input)) {
+                yield* record.scroll.burst?.close ?? Effect.void;
+              }
               if (yield* continueTypingBurst(sessionId, record, page, input)) {
                 return;
               }
@@ -6878,7 +6981,9 @@ const makeAgentSession = (
                     : raw
                 );
                 if (captured !== undefined) {
-                  yield* captureTeachingKeyframe(record, page, captured.id, at);
+                  yield* isScroll(input)
+                    ? deferScrollKeyframe(sessionId, record, page, captured.id)
+                    : captureTeachingKeyframe(record, page, captured.id, at);
                 }
               }
               return yield* recordEntry(

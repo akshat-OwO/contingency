@@ -9,7 +9,7 @@ import type {
   BrowserStreamId as BrowserStreamIdType,
   FrameSequence,
 } from "@contingency/protocol";
-import { Effect, PubSub, Ref, Result } from "effect";
+import { Context, Effect, PubSub, Ref, Result } from "effect";
 
 import {
   decodeScreencastFrame,
@@ -19,11 +19,26 @@ import {
   tryBrowser,
 } from "./create-browser-session.ts";
 import type {
+  BrowserFrame,
   CreateSession,
-  CreateSessionState,
-  FrameAcknowledgement,
   Screencast,
 } from "./create-browser-session.ts";
+
+/** Internal capture policy, overridden by the repeatable streaming benchmark. */
+export class ScreencastOptions extends Context.Service<
+  ScreencastOptions,
+  {
+    readonly format: "jpeg" | "png";
+    readonly quality: number;
+    readonly maxPixelRatio: number;
+  }
+>()("contingency/ScreencastOptions") {}
+
+export const defaultScreencastOptions: ScreencastOptions["Service"] = {
+  format: "jpeg",
+  maxPixelRatio: 2,
+  quality: 90,
+};
 
 const stopUnlocked = (session: CreateSession) =>
   Effect.gen(function* stopCurrentScreencast() {
@@ -43,7 +58,10 @@ const stopUnlocked = (session: CreateSession) =>
 const startUnlocked = (session: CreateSession) =>
   Effect.gen(function* startCanvasScreencast() {
     const initialState = yield* Ref.get(session.state);
-    if (initialState.screencast !== undefined) {
+    if (
+      initialState.screencast !== undefined ||
+      initialState.streamSubscribers === 0
+    ) {
       return;
     }
     const cdp = yield* tryBrowser("Could not open the canvas stream", () =>
@@ -51,11 +69,20 @@ const startUnlocked = (session: CreateSession) =>
     );
     const screencast: Screencast = {
       cdp,
-      pending: new Map(),
       streamId: BrowserStreamId.make(randomUUID()),
     };
-    yield* Ref.update(session.state, (state) => ({ ...state, screencast }));
+    yield* Ref.update(session.state, (state) => ({
+      ...state,
+      lastStreamId: screencast.streamId,
+      screencast,
+    }));
     cdp.on("Page.screencastFrame", (raw) => {
+      const receivedAt = Date.now();
+      if (
+        readSessionState(session).screencast?.streamId !== screencast.streamId
+      ) {
+        return;
+      }
       const frame = decodeScreencastFrame(raw);
       if (frame === undefined) {
         const { viewport } = readSessionState(session);
@@ -84,15 +111,10 @@ const startUnlocked = (session: CreateSession) =>
           if (current?.streamId !== screencast.streamId) {
             return [undefined, state];
           }
-          const pending = new Map([
-            ...current.pending,
-            [state.sequence, frame.sessionId],
-          ]);
           return [
             state.sequence,
             {
               ...state,
-              screencast: { ...current, pending },
               sequence: state.sequence + 1,
             },
           ];
@@ -101,30 +123,71 @@ const startUnlocked = (session: CreateSession) =>
       if (sequence === undefined) {
         return;
       }
-      PubSub.publishUnsafe(session.events, {
-        data: frame.data,
-        metadata: {
-          deviceHeight: Math.trunc(frame.metadata.deviceHeight),
-          deviceWidth: Math.trunc(frame.metadata.deviceWidth),
-          offsetTop: frame.metadata.offsetTop,
-          pageScaleFactor: frame.metadata.pageScaleFactor,
-          scrollOffsetX: frame.metadata.scrollOffsetX,
-          scrollOffsetY: frame.metadata.scrollOffsetY,
-          timestamp: frame.metadata.timestamp ?? Date.now() / 1000,
-        },
-        seq: FrameSequenceSchema.make(sequence),
-        streamId: screencast.streamId,
-        type: "frame",
-      });
+      Effect.runSync(
+        PubSub.publish<BrowserFrame>(session.frames, {
+          data: Buffer.from(frame.data, "base64"),
+          metadata: {
+            deviceHeight: Math.trunc(frame.metadata.deviceHeight),
+            deviceWidth: Math.trunc(frame.metadata.deviceWidth),
+            offsetTop: frame.metadata.offsetTop,
+            pageScaleFactor: frame.metadata.pageScaleFactor,
+            scrollOffsetX: frame.metadata.scrollOffsetX,
+            scrollOffsetY: frame.metadata.scrollOffsetY,
+            timestamp: frame.metadata.timestamp ?? Date.now() / 1000,
+          },
+          receivedAt,
+          seq: FrameSequenceSchema.make(sequence),
+          streamId: screencast.streamId,
+          type: "frame",
+        })
+      );
+      // Capture owns Chromium's credits. Slow viewers retain only the latest
+      // frame and cannot stall the browser or the Teaching recorder.
+      Effect.runFork(
+        Effect.gen(function* acknowledgeCapturedFrame() {
+          const outcome = yield* Effect.result(
+            tryBrowser("Could not acknowledge the captured frame", () =>
+              cdp.send("Page.screencastFrameAck", {
+                sessionId: frame.sessionId,
+              })
+            ).pipe(Effect.retry({ times: 2 }))
+          );
+          if (Result.isSuccess(outcome)) {
+            return;
+          }
+          yield* session.screencastLock.withPermit(
+            Effect.gen(function* stopFailedCapture() {
+              if (
+                readSessionState(session).screencast?.streamId !==
+                screencast.streamId
+              ) {
+                return;
+              }
+              yield* Effect.logWarning(outcome.failure.message);
+              yield* stopUnlocked(session);
+              emitStatus(session, false);
+            })
+          );
+        })
+      );
     });
     const { viewport } = yield* Ref.get(session.state);
+    const options = yield* Effect.serviceOption(ScreencastOptions).pipe(
+      Effect.map((value) =>
+        value._tag === "Some" ? value.value : defaultScreencastOptions
+      )
+    );
+    const pixelRatio = Math.min(
+      viewport.deviceScaleFactor,
+      options.maxPixelRatio
+    );
     const started = yield* Effect.result(
       tryBrowser("Could not start the canvas stream", () =>
         cdp.send("Page.startScreencast", {
-          format: "jpeg",
-          maxHeight: viewport.height,
-          maxWidth: viewport.width,
-          quality: 80,
+          format: options.format,
+          maxHeight: Math.round(viewport.height * pixelRatio),
+          maxWidth: Math.round(viewport.width * pixelRatio),
+          quality: options.quality,
         })
       )
     );
@@ -156,7 +219,36 @@ export const stopScreencast = (session: CreateSession) =>
   session.screencastLock.withPermit(stopUnlocked(session));
 
 export const startScreencast = (session: CreateSession) =>
-  session.screencastLock.withPermit(startUnlocked(session));
+  Effect.acquireRelease(
+    session.screencastLock.withPermit(
+      Effect.gen(function* subscribeCapture() {
+        yield* Ref.update(session.state, (state) => ({
+          ...state,
+          streamSubscribers: state.streamSubscribers + 1,
+        }));
+        const started = yield* Effect.result(startUnlocked(session));
+        if (Result.isFailure(started)) {
+          yield* Ref.update(session.state, (state) => ({
+            ...state,
+            streamSubscribers: state.streamSubscribers - 1,
+          }));
+          return yield* Effect.fail(started.failure);
+        }
+      })
+    ),
+    () =>
+      session.screencastLock.withPermit(
+        Effect.gen(function* unsubscribeCapture() {
+          const subscribers = yield* Ref.modify(session.state, (state) => [
+            state.streamSubscribers - 1,
+            { ...state, streamSubscribers: state.streamSubscribers - 1 },
+          ]);
+          if (subscribers === 0) {
+            yield* stopUnlocked(session);
+          }
+        })
+      )
+  );
 
 export const restartScreencast = (session: CreateSession) =>
   session.screencastLock.withPermit(
@@ -165,46 +257,16 @@ export const restartScreencast = (session: CreateSession) =>
 
 export const acknowledgeFrame = (
   session: CreateSession,
-  sequence: FrameSequence,
+  _sequence: FrameSequence,
   streamId: BrowserStreamIdType
 ) =>
-  Effect.gen(function* acknowledgeCanvasFrame() {
-    const acknowledgement = yield* Ref.modify(
-      session.state,
-      (state): readonly [FrameAcknowledgement, CreateSessionState] => {
-        const { screencast } = state;
-        if (screencast === undefined || screencast.streamId !== streamId) {
-          return [{ _tag: "stream_changed" }, state];
-        }
-        const cdpSequence = screencast.pending.get(sequence);
-        if (cdpSequence === undefined) {
-          return [{ _tag: "frame_missing" }, state];
-        }
-        const pending = new Map(screencast.pending);
-        pending.delete(sequence);
-        return [
-          { _tag: "acknowledge", cdp: screencast.cdp, cdpSequence },
-          { ...state, screencast: { ...screencast, pending } },
-        ];
-      }
-    );
-    if (acknowledgement._tag === "stream_changed") {
-      return yield* Effect.fail(
+  Effect.suspend(() => {
+    // Retain the public RPC for connected clients from an earlier UI build.
+    // Capture already acknowledged this frame after bounded publication.
+    if (readSessionState(session).lastStreamId !== streamId) {
+      return Effect.fail(
         makeBrowserRpcError("stream_failed", "The canvas stream changed.")
       );
     }
-    if (acknowledgement._tag === "frame_missing") {
-      // Two consumers acknowledge the same frame: the Teaching recorder, which
-      // must keep the stream flowing whether or not anyone is watching, and the
-      // Workspace, which acknowledges what it painted. Whichever arrives second
-      // finds the frame already retired. That is the normal case once a
-      // recording is running, not a failure, so the loser succeeds quietly
-      // rather than tearing down a healthy stream.
-      return;
-    }
-    yield* tryBrowser("Could not acknowledge the canvas frame", () =>
-      acknowledgement.cdp.send("Page.screencastFrameAck", {
-        sessionId: acknowledgement.cdpSequence,
-      })
-    );
+    return Effect.void;
   });

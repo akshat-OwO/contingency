@@ -76,6 +76,7 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 "$CONTROL" browser wait --role region --name "Workspace dock"
 "$CONTROL" browser resize --width 390 --height 844
 "$CONTROL" browser input-check --session-id <teaching-session-id>
+"$CONTROL" browser scroll-check --session-id <teaching-session-id> --record --path scrolling/check
 "$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
 "$CONTROL" browser screenshot --path workspace/entry.png
 ```
@@ -85,9 +86,13 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 | Surface | Drive with |
 | --- | --- |
 | Contingency chrome (nav, dock, session picker, address bar) | `control-contingency browser` |
-| Nested ecommerce site inside the workspace canvas | `computerUse` subagent at the verification URL; `browser input-check` for the fixed rapid-input fixture |
+| Nested ecommerce site inside the workspace canvas | `computerUse` subagent at the verification URL; `browser input-check` for the fixed rapid-input fixture; `browser scroll-check` for bounded native wheel measurements |
 
 Use `browser input-check` only on the dedicated `input-check.html` fixture. Other nested site actions still use `computerUse`.
+
+`browser scroll-check` starts from a user-held Teaching setup. It sends three native wheel gestures, down, up, then down, through the live canvas. Each gesture defaults to 40 events of 80 pixels. Pass `--events` from 2 to 240 and `--delta` up to 1000 to change that bounded drive. `--record` repeats the drive during recording, stops capture, claims the recording, and asserts that the Teaching Timeline retains coalesced scroll actions and keyframes. Open the session's `viewUrl` before running it. Use a fresh disposable session at the requested site and viewport, such as `https://www.1mg.com/` at 1280 by 800. The helper never clicks account or purchase controls.
+
+Its JSON records actual wheel cadence, canvas draw gaps, and a wheel-to-next-draw estimate. Active-gesture draw gaps exclude the deliberate pause between gestures. A driver-only WebSocket observer records JSON frame scroll offsets, so `receivedMotion` shows whether each gesture moved in the requested direction and when offset changes stopped arriving. Draw offset samples name the latest received frame, which may differ from the frame being decoded. These are canvas and receive measurements, not screen paint times. Site animations can draw after scrolling ends. PNGs after each gesture and ARIA snapshots show the resulting Workspace. Read the retained keyframe at the returned path without copying sensitive recording artifacts.
 
 Stable handles in this repo:
 

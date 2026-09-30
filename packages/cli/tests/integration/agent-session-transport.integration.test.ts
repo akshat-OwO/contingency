@@ -1,33 +1,17 @@
 import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import path from "node:path";
 
-import {
-  AgentSessionId,
-  ContingencyRpcs,
-  OperationId,
-} from "@contingency/protocol";
+import { AgentSessionId, OperationId } from "@contingency/protocol";
 import {
   NodeHttpServer,
   NodeServices,
   NodeSocket,
 } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import {
-  Context,
-  Effect,
-  FileSystem,
-  Layer,
-  Option,
-  Schema,
-  Stream,
-} from "effect";
+import { Context, Effect, FileSystem, Layer, Schema, Stream } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
-import * as RpcClient from "effect/rpc/RpcClient";
-import * as RpcSerialization from "effect/rpc/RpcSerialization";
-import { Socket } from "effect/socket";
 
 import { makeRpcRoutes } from "../../src/routes/rpc.ts";
 import {
@@ -39,6 +23,10 @@ import {
   AgentSession,
 } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import {
+  makeLoopbackRpcClient,
+  reservePort,
+} from "./browser-streaming-transport.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -46,147 +34,9 @@ const viewport = {
   width: 640,
 } as const;
 
-const isTcpAddress = (
-  address: AddressInfo | string | null
-): address is AddressInfo => address !== null && typeof address !== "string";
-
-const reservePort = Effect.promise(
-  () =>
-    // oxlint-disable-next-line promise/avoid-new -- Bridges the Node server callback in this test.
-    new Promise<number>((resolve, reject) => {
-      const probe = createServer();
-      probe.once("error", reject);
-      probe.listen(0, "127.0.0.1", () => {
-        const address = probe.address();
-        if (!isTcpAddress(address)) {
-          reject(new Error("Could not reserve a loopback port."));
-          return;
-        }
-        probe.close((cause) =>
-          cause === undefined ? resolve(address.port) : reject(cause)
-        );
-      });
-    })
-);
-
-const makeLoopbackRpcClient = (origin: string) =>
-  Effect.gen(function* makeLoopbackClient() {
-    type StandardWebSocket = InstanceType<typeof globalThis.WebSocket>;
-
-    class OriginWebSocket extends EventTarget {
-      readonly CLOSED = 3;
-      readonly CLOSING = 2;
-      readonly CONNECTING = 0;
-      readonly OPEN = 1;
-      onclose: StandardWebSocket["onclose"] = null;
-      onerror: StandardWebSocket["onerror"] = null;
-      onmessage: StandardWebSocket["onmessage"] = null;
-      onopen: StandardWebSocket["onopen"] = null;
-      private readonly socket: NodeSocket.NodeWS.WebSocket;
-
-      constructor(url: string, options?: Socket.WebSocketConstructorOptions) {
-        super();
-        const protocols = Schema.decodeUnknownOption(
-          Schema.Union([
-            Schema.String,
-            Schema.mutable(Schema.Array(Schema.String)),
-          ])
-        )(options).pipe(Option.getOrUndefined);
-        this.socket = new NodeSocket.NodeWS.WebSocket(url, protocols, {
-          origin,
-        });
-        this.socket.on("open", () => {
-          const event = new Event("open");
-          this.dispatchEvent(event);
-          this.onopen?.(event);
-        });
-        this.socket.on("message", (data) => {
-          const event = new MessageEvent("message", { data });
-          this.dispatchEvent(event);
-          this.onmessage?.(event);
-        });
-        this.socket.on("error", () => {
-          const event = new ErrorEvent("error");
-          this.dispatchEvent(event);
-          this.onerror?.(event);
-        });
-        this.socket.on("close", (code, reason) => {
-          const event = new CloseEvent("close", {
-            code,
-            reason: reason.toString(),
-            wasClean: code === 1000,
-          });
-          this.dispatchEvent(event);
-          this.onclose?.(event);
-        });
-      }
-
-      get binaryType(): StandardWebSocket["binaryType"] {
-        return this.socket.binaryType === "arraybuffer"
-          ? "arraybuffer"
-          : "blob";
-      }
-
-      set binaryType(value: StandardWebSocket["binaryType"]) {
-        this.socket.binaryType = value === "arraybuffer" ? value : "nodebuffer";
-      }
-
-      get bufferedAmount(): number {
-        return this.socket.bufferedAmount;
-      }
-
-      get extensions(): string {
-        return this.socket.extensions;
-      }
-
-      get protocol(): string {
-        return this.socket.protocol;
-      }
-
-      get readyState(): number {
-        return this.socket.readyState;
-      }
-
-      get url(): string {
-        return this.socket.url;
-      }
-
-      close(code?: number, reason?: string): void {
-        this.socket.close(code, reason);
-      }
-
-      send(data: Parameters<StandardWebSocket["send"]>[0]): void {
-        if (data instanceof Blob) {
-          throw new TypeError("Blob WebSocket messages are not used by RPC.");
-        }
-        this.socket.send(data);
-      }
-    }
-
-    const socketConstructor = Layer.succeed(
-      Socket.WebSocketConstructor,
-      (url: string, options?: Socket.WebSocketConstructorOptions) =>
-        new OriginWebSocket(url, options)
-    );
-    const socket = Layer.effect(Socket.Socket)(
-      Socket.makeWebSocket(`${origin.replace("http", "ws")}/ws`).pipe(
-        Effect.provide(socketConstructor)
-      )
-    );
-    const clientLayer = RpcClient.layerProtocolSocket().pipe(
-      Layer.provide(socket),
-      Layer.provide(RpcSerialization.layerJson),
-      Layer.provide(socketConstructor)
-    );
-    const clientContext = yield* Layer.build(clientLayer);
-    return yield* RpcClient.make(ContingencyRpcs, {
-      flatten: true,
-    }).pipe(Effect.provideContext(clientContext));
-  });
-
-it.live(
-  "uses real loopback HTTP/WebSocket RPC for two real Chromium Agent Sessions",
-  () =>
+it.live.each([false, true])(
+  "uses real loopback HTTP/WebSocket RPC for two real Chromium Agent Sessions (binary=%s)",
+  (binary) =>
     Effect.gen(function* publicAgentViewTransport() {
       const port = yield* reservePort;
       const origin = `http://127.0.0.1:${port}`;
@@ -242,7 +92,7 @@ it.live(
           })
       ).pipe(Effect.timeout("2 seconds"));
 
-      const client = yield* makeLoopbackRpcClient(origin);
+      const client = yield* makeLoopbackRpcClient(origin, binary);
 
       const start = (name: string, operationId: string) =>
         client("agent.session.start", {

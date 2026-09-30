@@ -32,6 +32,11 @@ import {
   userAgentOverride,
 } from "./browser-identity.ts";
 
+export type BrowserFrame = Extract<
+  BrowserStreamEvent,
+  { readonly type: "frame" }
+>;
+
 export interface ScreencastFramePayload {
   readonly data: string;
   readonly metadata: {
@@ -48,7 +53,6 @@ export interface ScreencastFramePayload {
 
 export interface Screencast {
   readonly cdp: CDPSession;
-  readonly pending: ReadonlyMap<number, number>;
   readonly streamId: BrowserStreamId;
 }
 
@@ -56,15 +60,6 @@ export interface NetworkRecord {
   readonly request: BrowserNetworkRequest;
   readonly response?: Response;
 }
-
-export type FrameAcknowledgement =
-  | { readonly _tag: "stream_changed" }
-  | { readonly _tag: "frame_missing" }
-  | {
-      readonly _tag: "acknowledge";
-      readonly cdp: CDPSession;
-      readonly cdpSequence: number;
-    };
 
 export interface CreateSessionState {
   readonly activePage: Page;
@@ -76,6 +71,7 @@ export interface CreateSessionState {
    */
   readonly geolocation: Geolocation | undefined;
   readonly locale: string | undefined;
+  readonly lastStreamId: BrowserStreamId | undefined;
   readonly network: ReadonlyMap<BrowserTabId, Map<string, NetworkRecord>>;
   readonly pageIds: ReadonlyMap<Page, BrowserTabId>;
   /**
@@ -87,6 +83,7 @@ export interface CreateSessionState {
   readonly requestIds: WeakMap<Request, string>;
   readonly screencast: Screencast | undefined;
   readonly sequence: number;
+  readonly streamSubscribers: number;
   readonly timezoneId: string | undefined;
   readonly titles: ReadonlyMap<Page, string>;
   /**
@@ -101,6 +98,7 @@ export interface CreateSession {
   readonly context: BrowserContext;
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
+  readonly frames: PubSub.PubSub<BrowserFrame>;
   readonly id: SessionId;
   readonly inputLock: Semaphore.Semaphore;
   readonly inputSession: Ref.Ref<{

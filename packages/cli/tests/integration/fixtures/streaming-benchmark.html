@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>Streaming benchmark</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font:
+        13px Arial,
+        sans-serif;
+      color: #172033;
+      background: #fff;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      padding: 16px;
+      background: #fff;
+      border-bottom: 1px solid #bbc4d4;
+      z-index: 1;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    input {
+      height: 30px;
+      width: 260px;
+    }
+    main {
+      padding: 16px;
+    }
+    p {
+      margin: 8px 0;
+    }
+    .small {
+      font-size: 10px;
+      color: #172033;
+    }
+    .color {
+      color: #0b51bf;
+    }
+    .motion {
+      width: 100%;
+      height: 60px;
+      background: linear-gradient(90deg, #1552bd, #20b8a3, #f89422);
+    }
+    article {
+      padding: 12px;
+      border: 1px solid #ddd;
+      margin: 10px 0;
+    }
+  </style>
+  <header>
+    <h1>Browser stream quality</h1>
+    <label>Typing target <input aria-label="Typing target" /></label
+    ><span id="tick">0</span>
+  </header>
+  <main>
+    <p>The quick brown fox jumps over the lazy dog. 0123456789 @#$%&amp;</p>
+    <p class="small">
+      Small text: Il1 O0 rn m — 10px, 13px and 18px. Crisp borders and high
+      contrast.
+    </p>
+    <p class="small color">
+      Colored small text: address@example.com • $1,234.56 • #abcdef
+    </p>
+    <div class="motion" id="motion"></div>
+    <div id="rows"></div>
+  </main>
+  <script>
+    let rowCount = 0;
+    const appendRows = () => {
+      for (let batch = 0; batch < 80; batch += 1) {
+        const row = rowCount++;
+        const article = document.createElement("article");
+        article.textContent = `Item ${row}: streaming, scrolling, typing and fine text. Price $${row}.99`;
+        document.querySelector("#rows").append(article);
+      }
+    };
+    appendRows();
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (
+          window.innerHeight + window.scrollY >=
+          document.body.scrollHeight - 500
+        )
+          appendRows();
+      },
+      { passive: true }
+    );
+    let tick = 0;
+    let timer;
+    window.startWorkload = (mode) => {
+      clearInterval(timer);
+      window.scrollTo(0, 0);
+      tick = 0;
+      if (mode === "static") return;
+      timer = setInterval(() => {
+        tick += 1;
+        document.querySelector("#tick").textContent = String(tick);
+        if (mode === "scroll") window.scrollTo(0, (tick * 16) % 800);
+        if (mode === "typing")
+          document.querySelector("input").value = `Rapid_typing@1234 ${tick}`;
+        if (mode === "animation")
+          document.querySelector("#motion").style.backgroundPosition =
+            `${tick * 10}px 0`;
+      }, 16);
+    };
+  </script>
+</html>
