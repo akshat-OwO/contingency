@@ -14,7 +14,7 @@ import {
 import type { AgentRunState, AgentRunStep } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
 import type { JsonSchema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
+import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreError } from "./agent-run-store.ts";

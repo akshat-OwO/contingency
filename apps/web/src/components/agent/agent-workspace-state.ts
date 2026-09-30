@@ -5,7 +5,7 @@ import type {
   BrowserConsoleEntry,
 } from "@contingency/protocol";
 import { isLiveAgentSessionPhase } from "@contingency/protocol";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import type {
   FrameProjection,

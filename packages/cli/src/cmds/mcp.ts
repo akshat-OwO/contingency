@@ -12,11 +12,11 @@ import {
   Result,
   Schema,
 } from "effect";
+import { McpProtocol, McpServer } from "effect/ai";
 import type { IllegalArgumentError } from "effect/Cause";
+import { Command } from "effect/cli";
+import { HttpServerError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
-import { McpProtocol, McpServer } from "effect/unstable/ai";
-import { Command } from "effect/unstable/cli";
-import { HttpServerError } from "effect/unstable/http";
 
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
@@ -75,8 +75,8 @@ export const mcpCommand = Command.make(
   {},
   Effect.fnUntraced(function* runMcp() {
     const config = yield* Config.all({
-      host: Config.string("HOST").pipe(Config.withDefault("127.0.0.1")),
-      port: Config.number("PORT").pipe(Config.withDefault(7777)),
+      host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
+      port: Config.Number("PORT").pipe(Config.withDefault(7777)),
     }).pipe(Config.nested("CONTINGENCY_MCP"));
     // This command is intentionally local-only. A non-loopback HOST is not
     // accepted even if an operator accidentally configures one in the shell.

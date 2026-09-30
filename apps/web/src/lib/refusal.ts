@@ -1,5 +1,5 @@
 import { Cause } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 import { failureMessage } from "@/lib/failure-message";
 

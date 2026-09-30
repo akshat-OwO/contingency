@@ -14,7 +14,7 @@ import { json } from "@tanstack/highlight/languages/json";
 import { plaintext } from "@tanstack/highlight/languages/plaintext";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Effect } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import {
   CircleAlertIcon,
   CircleXIcon,

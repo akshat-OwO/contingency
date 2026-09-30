@@ -4,7 +4,7 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Effect } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 

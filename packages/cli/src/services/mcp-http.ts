@@ -1,5 +1,5 @@
 import { Layer } from "effect";
-import { McpProtocol, McpServer } from "effect/unstable/ai";
+import { McpProtocol, McpServer } from "effect/ai";
 
 import { makeHostMiddleware } from "../routes/rpc.ts";
 import { McpAgentRunLayer } from "./mcp-agent-run.ts";

@@ -2,11 +2,7 @@ import path from "node:path";
 
 import { AgentRunId, TeachingRecordingId } from "@contingency/protocol";
 import { Effect, FileSystem, Schema } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { AgentRunStore } from "../services/agent-run-store.ts";
 import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";

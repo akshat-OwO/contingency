@@ -4,7 +4,7 @@ import { connect } from "node:net";
 import { NodeHttpServer } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import { createTrackedServer } from "../../src/services/http-server.ts";
 
@@ -29,7 +29,7 @@ it.live("finishes shutdown while a WebSocket is still connected", () =>
           )
         );
         const { address } = Context.get(context, HttpServer.HttpServer);
-        if (address._tag !== "TcpAddress") {
+        if (address._tag === "UnixPathAddress") {
           return yield* Effect.die("Expected a TCP server.");
         }
         yield* Effect.callback<boolean>((resume) => {

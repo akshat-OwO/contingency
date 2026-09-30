@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { CliError, Command } from "effect/unstable/cli";
+import { CliError, Command } from "effect/cli";
 
 import { mcpCommand } from "./mcp.ts";
 import { webCommand } from "./web.ts";

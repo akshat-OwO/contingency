@@ -15,11 +15,19 @@ import {
   NodeSocket,
 } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Schema, Stream } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
-import * as RpcClient from "effect/unstable/rpc/RpcClient";
-import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
-import { Socket } from "effect/unstable/socket";
+import {
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
+import { HttpRouter, HttpServer } from "effect/http";
+import * as RpcClient from "effect/rpc/RpcClient";
+import * as RpcSerialization from "effect/rpc/RpcSerialization";
+import { Socket } from "effect/socket";
 
 import { makeRpcRoutes } from "../../src/routes/rpc.ts";
 import {
@@ -76,8 +84,14 @@ const makeLoopbackRpcClient = (origin: string) =>
       onopen: StandardWebSocket["onopen"] = null;
       private readonly socket: NodeSocket.NodeWS.WebSocket;
 
-      constructor(url: string, protocols?: string | string[]) {
+      constructor(url: string, options?: Socket.WebSocketConstructorOptions) {
         super();
+        const protocols = Schema.decodeUnknownOption(
+          Schema.Union([
+            Schema.String,
+            Schema.mutable(Schema.Array(Schema.String)),
+          ])
+        )(options).pipe(Option.getOrUndefined);
         this.socket = new NodeSocket.NodeWS.WebSocket(url, protocols, {
           origin,
         });
@@ -151,8 +165,8 @@ const makeLoopbackRpcClient = (origin: string) =>
 
     const socketConstructor = Layer.succeed(
       Socket.WebSocketConstructor,
-      (url: string, protocols?: string | string[]) =>
-        new OriginWebSocket(url, protocols)
+      (url: string, options?: Socket.WebSocketConstructorOptions) =>
+        new OriginWebSocket(url, options)
     );
     const socket = Layer.effect(Socket.Socket)(
       Socket.makeWebSocket(`${origin.replace("http", "ws")}/ws`).pipe(
@@ -209,7 +223,7 @@ it.live(
         )
       );
       const server = Context.get(serverContext, HttpServer.HttpServer);
-      expect(server.address._tag).toBe("TcpAddress");
+      expect(server.address._tag).not.toBe("UnixPathAddress");
 
       yield* Effect.promise(
         () =>

@@ -1,5 +1,5 @@
 import { Duration, Effect, Fiber, Layer, Schedule } from "effect";
-import { Socket } from "effect/unstable/socket";
+import { Socket } from "effect/socket";
 import { useEffect, useState } from "react";
 
 export type WebSocketStatus = "connected" | "connecting" | "disconnected";
@@ -36,10 +36,9 @@ export const useWebSocketStatus = (): WebSocketStatus => {
     const connect = Effect.scoped(
       Effect.gen(function* connectWebSocket() {
         const socket = yield* Socket.Socket;
-
-        yield* socket.runString(() => Effect.void, {
-          onOpen: updateStatus("connected"),
-        });
+        const pull = yield* Socket.readerString(socket);
+        yield* updateStatus("connected");
+        yield* Effect.forever(pull);
       })
     ).pipe(
       Effect.provide(SocketLive),

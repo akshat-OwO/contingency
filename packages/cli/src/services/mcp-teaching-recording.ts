@@ -23,7 +23,7 @@ import type {
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import { Effect, FileSystem, Layer, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
+import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
 import {

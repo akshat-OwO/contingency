@@ -6,7 +6,7 @@ import path from "node:path";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Layer } from "effect";
 import type { Cause, FileSystem } from "effect";
-import { HttpRouter, HttpStaticServer } from "effect/unstable/http";
+import { HttpRouter, HttpStaticServer } from "effect/http";
 
 import {
   makeAgentRunArtifactRoutes,

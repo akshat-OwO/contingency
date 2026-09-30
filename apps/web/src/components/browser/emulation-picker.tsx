@@ -4,7 +4,7 @@ import type {
   SessionEmulation,
 } from "@contingency/protocol";
 import { make as makeScopedAtom, useAtom } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { MapPinIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 

@@ -1,6 +1,6 @@
 import { setImmediate } from "node:timers/promises";
 
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { expect, test } from "vitest";
 
 import { retainedFamily } from "@/lib/retained-state";

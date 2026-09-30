@@ -3,7 +3,7 @@ import { createServer, request } from "node:http";
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Effect, Layer } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import { makeRpcRoutes } from "../../src/routes/rpc.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
@@ -29,7 +29,7 @@ const serving = Effect.fn("servingRpcSecurity")(function* servingRpcSecurity() {
   );
   const server = Context.get(context, HttpServer.HttpServer);
   const { address } = server;
-  if (address._tag !== "TcpAddress") {
+  if (address._tag === "UnixPathAddress") {
     return yield* Effect.die("Expected a TCP server.");
   }
   return `http://127.0.0.1:${address.port}`;
