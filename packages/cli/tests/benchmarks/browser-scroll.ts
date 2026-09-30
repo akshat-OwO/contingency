@@ -20,6 +20,22 @@ const main = Effect.gen(function* benchmarkWheelInput() {
   const fixtures = yield* fixtureServer;
   const services = yield* Layer.build(agentProcessLayer(root));
   const agent = Context.get(services, AgentSession);
+  const width = Number(process.env["SCROLL_BENCHMARK_WIDTH"] ?? "1024");
+  const height = Number(process.env["SCROLL_BENCHMARK_HEIGHT"] ?? "720");
+  if (
+    ![width, height].every(
+      (value) => Number.isInteger(value) && value >= 240 && value <= 4096
+    )
+  ) {
+    return yield* Effect.fail(
+      new Error(
+        "Scroll benchmark dimensions must be integers between 240 and 4096."
+      )
+    );
+  }
+  const url =
+    process.env["SCROLL_BENCHMARK_URL"] ??
+    fixtures.url("streaming-benchmark.html");
   const rows = [];
   for (const pattern of ["down", "down-up"]) {
     for (const recording of [false, true]) {
@@ -29,8 +45,8 @@ const main = Effect.gen(function* benchmarkWheelInput() {
         clientVersion: "1",
         name: "scroll-benchmark",
         operationId: OperationId.make(`scroll-start-${pattern}-${recording}`),
-        url: fixtures.url("streaming-benchmark.html"),
-        viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
+        url,
+        viewport: { deviceScaleFactor: 1, height, width },
       }).pipe(Effect.provideContext(services));
       if (recording) {
         yield* agent.startTeachingRecording(
@@ -48,6 +64,8 @@ const main = Effect.gen(function* benchmarkWheelInput() {
       let completedDistance = 0;
       let dispatchedEvents = 0;
       let failure: unknown;
+      let previousFrameAt: number | undefined;
+      const frameGaps: number[] = [];
       const requestMs: number[] = [];
       const stream = yield* agent.browserStream(session.id).pipe(
         Stream.runForEach((frame) =>
@@ -63,6 +81,11 @@ const main = Effect.gen(function* benchmarkWheelInput() {
               return;
             }
             previousOffset = frame.metadata.scrollOffsetY;
+            const frameAt = performance.now();
+            if (previousFrameAt !== undefined) {
+              frameGaps.push(frameAt - previousFrameAt);
+            }
+            previousFrameAt = frameAt;
             received += 1;
             firstMovementMs ??= performance.now() - started;
             if (
@@ -129,6 +152,7 @@ const main = Effect.gen(function* benchmarkWheelInput() {
         changingFramesPerSecond:
           received / ((finalMovementMs ?? drainedMs) / 1000),
         completedDelta,
+        dispatchMaxMs: Math.max(0, ...requestMs),
         dispatchP95Ms: requestMs.toSorted((a, b) => a - b)[
           Math.ceil(requestMs.length * 0.95) - 1
         ],
@@ -137,7 +161,12 @@ const main = Effect.gen(function* benchmarkWheelInput() {
         failure: failure === undefined ? undefined : String(failure),
         finalMovementMs,
         firstMovementMs,
+        frameGapMaxMs: Math.max(0, ...frameGaps),
+        frameGapP95Ms: frameGaps.toSorted((a, b) => a - b)[
+          Math.ceil(frameGaps.length * 0.95) - 1
+        ],
         gestureMs,
+        height,
         inputEvents: 120,
         movementTailMs:
           finalMovementMs === undefined
@@ -146,6 +175,7 @@ const main = Effect.gen(function* benchmarkWheelInput() {
         pattern,
         recording,
         tailMs: Math.max(0, drainedMs - gestureMs),
+        width,
       };
       rows.push(row);
       process.stdout.write(`${JSON.stringify(row)}\n`);

@@ -39,6 +39,14 @@ const ffmpegArguments = (output: string): readonly string[] => [
   "pipe:0",
   "-c:v",
   "libvpx",
+  // Match Playwright's live recorder: avoid offline VP8 encoding competing
+  // with Chromium for CPU while the user is driving the browser.
+  "-deadline",
+  "realtime",
+  "-cpu-used",
+  "8",
+  "-threads",
+  "1",
   "-fps_mode",
   "vfr",
   "-y",

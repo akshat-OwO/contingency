@@ -18,6 +18,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 - Treat every command as literal. Keep quoted names and flags unchanged.
 - Run Contingency chrome actions through `control-contingency browser`.
 - Run nested Workspace site actions through `computerUse` at the verification URL. The `browser input-check` command drives its dedicated fixture through the canvas.
+- Use `browser scroll-check --session-id <id> --record` for bounded native wheel measurements before and during Teaching. Start from user-held setup and read its canvas timing JSON, gesture screenshots, and recorded semantic Timeline.
 - Restore nothing in the user's real `.contingency` catalog. Isolated state is deleted on cleanup. Proof artifacts are not.
 
 ## Proof and skip reporting
