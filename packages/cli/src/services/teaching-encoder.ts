@@ -47,7 +47,7 @@ const ffmpegArguments = (output: string): readonly string[] => [
 
 export interface TeachingEncoder {
   /** Hand one screencast frame to the encoder. Never fails the caller. */
-  readonly write: (jpegBase64: string) => Effect.Effect<void>;
+  readonly write: (frame: Uint8Array) => Effect.Effect<void>;
   /** Bytes written so far, for the size bound. */
   readonly bytesWritten: Effect.Effect<number>;
   /** Set when ffmpeg died or the size bound tripped. */
@@ -160,13 +160,12 @@ export const makeTeachingEncoder = (
       bytesWritten: Effect.sync(() => state.bytes),
       failure: Effect.sync(() => state.failure),
       unsafeFailure: () => state.failure,
-      write: (jpegBase64: string) =>
+      write: (frame: Uint8Array) =>
         Effect.suspend(() => {
           const { stdin } = child;
           if (state.finished || stdin === null || stdin.destroyed) {
             return Effect.void;
           }
-          const frame = Buffer.from(jpegBase64, "base64");
           if (frame.byteLength === 0) {
             return Effect.void;
           }

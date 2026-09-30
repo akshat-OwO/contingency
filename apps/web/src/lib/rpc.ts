@@ -10,6 +10,8 @@ import { Atom, AtomRpc } from "effect/reactivity";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
 
+import type { BrowserStreamTransport } from "@/components/browser/browser-stream-settings";
+
 const webSocketUrl = Effect.sync(() => {
   const url = new URL("/ws", globalThis.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -23,6 +25,21 @@ const SocketLive = Socket.layerWebSocket(webSocketUrl).pipe(
 const RpcProtocolLive = RpcClient.layerProtocolSocket({
   retryTransientErrors: true,
 }).pipe(Layer.provide(SocketLive), Layer.provide(RpcSerialization.layerJson));
+
+const BrowserRpcProtocolLive = RpcClient.layerProtocolSocket({
+  retryTransientErrors: true,
+}).pipe(
+  Layer.provide(
+    Socket.layerWebSocket(
+      Effect.sync(() => {
+        const url = new URL("/ws/browser", globalThis.location.href);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        return url.href;
+      })
+    ).pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal))
+  ),
+  Layer.provide(RpcSerialization.layerSchemaBinary())
+);
 
 export class ContingencyRpcClient extends AtomRpc.Service<ContingencyRpcClient>()(
   "contingency/web/ContingencyRpcClient",
@@ -188,16 +205,26 @@ export const runAgentSessionStream = (
  */
 export const runAgentBrowserStream = (
   sessionId: AgentSessionId,
-  onEvent: (event: BrowserStreamEvent) => Effect.Effect<void>
+  onEvent: (event: BrowserStreamEvent) => Effect.Effect<void>,
+  transport: BrowserStreamTransport = "json"
 ) =>
   Effect.scoped(
     Effect.gen(function* streamAgentBrowser() {
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
-      const events = client("agent.browser.stream.subscribe", {
-        data: { sessionId },
-        type: "agent.browser.stream.subscribe",
-      });
+      const events = client(
+        "agent.browser.stream.subscribe",
+        {
+          data: { sessionId },
+          type: "agent.browser.stream.subscribe",
+        },
+        { streamBufferSize: 1 }
+      );
 
       yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
     })
-  ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
+  ).pipe(
+    Effect.provide(
+      transport === "binary" ? BrowserRpcProtocolLive : RpcProtocolLive
+    ),
+    Effect.retry(reconnectSchedule)
+  );

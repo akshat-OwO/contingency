@@ -230,7 +230,7 @@ export const BrowserInput = Schema.Union([MouseInput, KeyboardInput]);
 export type BrowserInput = typeof BrowserInput.Type;
 
 export const AgentBrowserFrame = Schema.Struct({
-  data: Schema.String,
+  data: Schema.Uint8Array,
   metadata: Schema.Struct({
     deviceHeight: Schema.Int,
     deviceWidth: Schema.Int,
@@ -240,6 +240,8 @@ export const AgentBrowserFrame = Schema.Struct({
     scrollOffsetY: Schema.Finite,
     timestamp: Schema.Finite,
   }),
+  receivedAt: Schema.optional(Schema.Finite),
+  replayed: Schema.optional(Schema.Boolean),
   seq: FrameSequence,
   type: Schema.Literal("frame"),
 });

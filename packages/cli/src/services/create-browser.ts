@@ -52,6 +52,7 @@ import {
   validateBrowserUrl,
 } from "./create-browser-session.ts";
 import type {
+  BrowserFrame,
   CreateSession,
   CreateSessionState,
 } from "./create-browser-session.ts";
@@ -310,6 +311,10 @@ const makeService = (
       const events = yield* PubSub.unbounded<BrowserStreamEvent>({
         replay: 32,
       });
+      const frames = yield* PubSub.sliding<BrowserFrame>({
+        capacity: 1,
+        replay: 1,
+      });
       const page = yield* tryBrowser("Could not create browser page", () =>
         context.newPage()
       );
@@ -318,6 +323,7 @@ const makeService = (
         colorScheme: environment?.colorScheme,
         geolocation: environment?.geolocation,
         identity: undefined,
+        lastStreamId: undefined,
         locale: environment?.locale,
         network: new Map(),
         pageIds: new Map(),
@@ -325,6 +331,7 @@ const makeService = (
         requestIds: new WeakMap(),
         screencast: undefined,
         sequence: 0,
+        streamSubscribers: 0,
         timezoneId: environment?.timezoneId,
         titles: new Map(),
         viewport,
@@ -333,6 +340,7 @@ const makeService = (
         context,
         emulationSessions: new WeakMap(),
         events,
+        frames,
         id: decoded,
         inputLock: yield* Semaphore.make(1),
         inputSession: yield* Ref.make<{
@@ -473,6 +481,7 @@ const makeService = (
         })
       );
       yield* PubSub.shutdown(session.events);
+      yield* PubSub.shutdown(session.frames);
     }
   );
 
@@ -714,9 +723,30 @@ const makeService = (
     stream: (sessionId) =>
       Stream.unwrap(
         Effect.gen(function* openStream() {
+          const subscribedAt = Date.now();
           const session = yield* requireSession(sessionId);
           yield* startScreencast(session);
-          return Stream.fromPubSub(session.events);
+          return Stream.merge(
+            Stream.fromPubSub(session.events),
+            Stream.fromPubSub(session.frames)
+          ).pipe(
+            Stream.filter(
+              (event) =>
+                event.type !== "frame" ||
+                readSessionState(session).screencast?.streamId ===
+                  event.streamId
+            ),
+            Stream.map((event) =>
+              event.type === "frame"
+                ? {
+                    ...event,
+                    replayed:
+                      event.receivedAt !== undefined &&
+                      event.receivedAt < subscribedAt,
+                  }
+                : event
+            )
+          );
         })
       ),
     switchTab: (sessionId, tabId) =>

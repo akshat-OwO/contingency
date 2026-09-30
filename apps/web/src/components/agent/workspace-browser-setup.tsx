@@ -18,6 +18,7 @@ import {
   RESPONSIVE_PRESET_ID,
 } from "@/components/browser/browser-device-presets";
 import { BrowserDevtools } from "@/components/browser/browser-devtools";
+import { BrowserStreamDiagnostics } from "@/components/browser/browser-stream-diagnostics";
 import { useAgentBrowserTooling } from "@/components/browser/browser-tooling";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { EmulationPicker } from "@/components/browser/emulation-picker";
@@ -346,6 +347,7 @@ export const WorkspaceBrowserSetup = ({
           Waiting for the browser to open a page.
         </p>
       )}
+      {chromeOnly ? null : <BrowserStreamDiagnostics sessionId={sessionId} />}
       {chromeOnly || state.activeTab === undefined ? null : (
         <div className="flex min-h-0 flex-1 flex-col">
           <BrowserDevtools

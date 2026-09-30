@@ -20,6 +20,16 @@ const move = (x: number): BrowserInput => ({
   y: 0,
 });
 
+const wheel = (deltaY: number, x = 50, modifiers = 0): BrowserInput => ({
+  deltaX: 0,
+  deltaY,
+  eventType: "mouseWheel",
+  modifiers,
+  type: "input_mouse",
+  x,
+  y: 50,
+});
+
 /** A server that answers each request only when the test releases it. */
 const heldRequests = () => {
   const sent: {
@@ -115,4 +125,79 @@ test("keeps sending after a request fails", async () => {
   await setImmediate();
 
   expect(sent).toEqual(["a", "b"]);
+});
+
+test("adds queued trackpad deltas without replaying every old sample", async () => {
+  const { answerNext, enqueue, sent } = heldRequests();
+  enqueue("session-1", wheel(12));
+  await setImmediate();
+  for (let index = 0; index < 120; index += 1) {
+    enqueue("session-1", wheel(12));
+  }
+  await answerNext();
+  expect(sent.map(({ inputs }) => inputs)).toEqual([
+    [wheel(12)],
+    [wheel(1440)],
+  ]);
+  await answerNext();
+});
+
+test("preserves reversals, target changes, modifiers, and intervening keys", async () => {
+  const { answerNext, enqueue, sent } = heldRequests();
+  enqueue("session-1", keyDown("a"));
+  await setImmediate();
+  for (const input of [
+    wheel(12),
+    wheel(12),
+    wheel(-12),
+    wheel(-12),
+    wheel(12, 75),
+    wheel(12, 75, 2),
+    keyDown("b"),
+    wheel(12),
+  ]) {
+    enqueue("session-1", input);
+  }
+  await answerNext();
+  expect(sent[1]?.inputs).toEqual([
+    wheel(24),
+    wheel(-24),
+    wheel(12, 75),
+    wheel(12, 75, 2),
+    keyDown("b"),
+    wheel(12),
+  ]);
+  await answerNext();
+});
+
+test("keeps wheel gestures in separate sessions", async () => {
+  const { answerNext, enqueue, sent } = heldRequests();
+  enqueue("session-1", keyDown("a"));
+  await setImmediate();
+  enqueue("session-1", wheel(12));
+  enqueue("session-2", wheel(12));
+  await answerNext();
+  await answerNext();
+  expect(sent.map(({ sessionId, inputs }) => [sessionId, inputs])).toEqual([
+    ["session-1", [keyDown("a")]],
+    ["session-1", [wheel(12)]],
+    ["session-2", [wheel(12)]],
+  ]);
+  await answerNext();
+});
+
+test("combines diagonal samples with zero-axis samples and preserves horizontal reversals", async () => {
+  const { answerNext, enqueue, sent } = heldRequests();
+  enqueue("session-1", keyDown("a"));
+  await setImmediate();
+  enqueue("session-1", wheel(12));
+  enqueue("session-1", { ...wheel(12), deltaX: 2 });
+  enqueue("session-1", { ...wheel(0), deltaX: 3 });
+  enqueue("session-1", { ...wheel(0), deltaX: -2 });
+  await answerNext();
+  expect(sent[1]?.inputs).toEqual([
+    { ...wheel(24), deltaX: 5 },
+    { ...wheel(0), deltaX: -2 },
+  ]);
+  await answerNext();
 });

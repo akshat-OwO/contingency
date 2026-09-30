@@ -26,6 +26,8 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-teaching-dock-actions` renames the Flow Skill in `setup`, and copies the agent prompt or deletes the recording in `ready`.
 - `agent-teaching-recording-boundary` keeps setup out of Teaching artifacts, starts every capture source from the Workspace, and stops them without closing the browser setup.
 - `workspace-input-order` sends rapid clicks and typing through the live Workspace canvas, checks their result in the nested Page, and checks that the Teaching Timeline records the typing as one fill named by the field.
+- `workspace-scroll-order` keeps rapid wheel gestures responsive, preserves distance and down/up reversals, and records scrolling as a semantic gesture.
+- `agent-stream-diagnostics` shows frame, latency, and decode diagnostics, and switches between Local performance and Lower bandwidth while the browser remains usable.
 - `agent-teaching-flow-skill-learning` discovers the stopped Teaching Recording from another MCP process, reads the authoring skills Contingency serves as MCP resources, claims the recording once, pages through its semantic timeline, fetches keyframes one at a time, refuses a package that breaks the Flow Skill contract, and atomically saves a parameterized one.
 - `agent-teaching-flow-skill-dry-run` runs the saved Flow Skill as ordered Agent Steps in a fresh browser context with changed inputs. Each Step gets an Agent Assessment. The Workspace shows the latest Dry Run Summary and video beside the verification choice or failure. Verification deletes its evidence with the Teaching Recording. Cleanup resumes after restart.
 - `agent-execution-boundary` pauses refused domains, new objectives, and per-attempt confirmation, relays each pause as a Pending Decision the agent resolves over MCP, and preserves priority Takeover.
@@ -42,6 +44,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - Open `/` directly.
 - Open the URL printed by `contingency mcp`: `http://127.0.0.1:<port>/`.
 - Follow an MCP client's local Workspace link that includes `?session=<id>`.
+- In a live Workspace, open `Browser setup`, expand `Stream diagnostics`, and choose a `Streaming preference`.
 
 ## Driving it with control-contingency
 
@@ -191,6 +194,11 @@ Preconditions:
 
 ### Browser setup
 
+- **Check scrolling backlog.** Open a user-held Teaching session on an infinite-scroll page. Scroll down, reverse upward before the gesture finishes, and stop input. Require the visible page to catch up promptly instead of continuing old input for seconds. Repeat before and during recording. Stop recording and read `agent_teaching_timeline_get`; require semantic scroll gestures rather than one action per wheel notch. Save the page URL, input cadence, screen evidence, and timeline. A native tool that changes a container's `scrollTop` does not exercise the canvas wheel listener. Background-tab timer throttling invalidates timed synthetic bursts; label such a check as unverified instead of reporting its timer request as actual cadence.
+
+- **Check streaming preferences.** Open `Browser setup` with `control-contingency browser click --role button --name "Browser setup"`, then click the `Stream diagnostics` disclosure through native browser controls. The `Streaming preference` combobox defaults to `Local performance`. Use native browser controls to select `Lower bandwidth`; on macOS, focus the combobox, type `low`, and press Enter. Require the selected option, increasing received/rendered counts after browser activity, and no failures. Save `workspace/stream-diagnostics.aria.txt` and `workspace/stream-diagnostics.png`.
+- **Check scaled input and Inspect.** Repeat the rapid-input recipe with fresh 1024 by 720 Teaching sessions at DPR 2 and 3. Before `input-check`, enable Inspect, click the fixture's `Click target` through the canvas, and require the frozen outline to align with its visible button. Attach a harmless comment and require the recording to remain active. Run one session under each streaming preference. Require the two clicks, final corrected text, and exactly one semantic fill; save the outline screenshot and input-check proof for each preference.
+
 - **Open the panel.** With a live Teaching session open at its `viewUrl`, run `control-contingency browser click --role button --name "Browser setup"`. The `Browser setup` region appears under the canvas with `User agent`, `Device`, and `Emulation` controls and the Console, Network, and Storage tabs.
 - **Change the identity.** Run `control-contingency browser click --role combobox --name "User agent"` and choose `Chrome — Android Mobile`. The identity brings its own device metrics: the applied viewport beside the controls changes with it, and the live canvas re-renders at phone width.
 - **Change the environment.** Open `Emulation`, fill `Locale` with `de-DE` and `Time zone` with `Europe/Berlin`, and choose a colour scheme. Read the session's browser back with `agent_browser_snapshot`; the page observes the values it was given.
@@ -208,6 +216,9 @@ Preconditions: a live Teaching session, and a local page that answers one reques
 - **Proof.** Save `workspace/bot-protection.aria.txt` and `workspace/bot-protection.png` with the alert visible, then `workspace/bot-protection-dismissed.aria.txt`.
 
 ## Gotchas
+
+- Stream latency excludes replayed frames and measures capture receipt through canvas draw submission, not physical display presentation. Remote clock skew can affect it. A static page may emit no new frames until it paints.
+- A DPR setting alone does not prove that the screencast contains native-density pixels. Verify input and outline alignment against the displayed canvas; use the benchmark's native screenshot comparison for source resolution.
 
 - `Loading Agent Sessions…` is transient. Wait for the empty heading or the requested session result. Do not snapshot the spinner.
 - No live Workspace has a header band. Do not wait for `link Workspace` or a `Workspace` heading on `/` with no session or on any live session; wait for the `Workspace dock` region instead.

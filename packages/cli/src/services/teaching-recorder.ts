@@ -347,19 +347,7 @@ export const makeTeachingRecorder = (
         if (event.type !== "frame") {
           return Effect.void;
         }
-        return encoder
-          .write(event.data)
-          .pipe(
-            Effect.andThen(
-              options.browser
-                .acknowledgeFrame(
-                  options.browserSessionId,
-                  event.seq,
-                  event.streamId
-                )
-                .pipe(Effect.ignore)
-            )
-          );
+        return encoder.write(event.data);
       }),
       Effect.tapError((cause) =>
         Ref.set(failure, `Teaching capture stopped: ${cause.message}`)

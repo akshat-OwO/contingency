@@ -509,12 +509,15 @@ export interface RpcRoutesOptions {
 }
 
 export const makeRpcRoutes = ({ allowedOrigins }: RpcRoutesOptions) =>
-  RpcServer.layerHttp({
-    group: ContingencyRpcs,
-    path: "/ws",
-  }).pipe(
+  Layer.merge(
+    RpcServer.layerHttp({ group: ContingencyRpcs, path: "/ws" }).pipe(
+      Layer.provide(RpcSerialization.layerJson)
+    ),
+    RpcServer.layerHttp({ group: ContingencyRpcs, path: "/ws/browser" }).pipe(
+      Layer.provide(RpcSerialization.layerSchemaBinary())
+    )
+  ).pipe(
     Layer.provide(RpcHandlersLive),
-    Layer.provide(RpcSerialization.layerJson),
     Layer.provide(makeOriginMiddleware(allowedOrigins)),
     Layer.provide(makeHostMiddleware(allowedOrigins))
   );
