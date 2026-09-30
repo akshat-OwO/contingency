@@ -87,7 +87,10 @@ const makeLoopbackRpcClient = (origin: string) =>
       constructor(url: string, options?: Socket.WebSocketConstructorOptions) {
         super();
         const protocols = Schema.decodeUnknownOption(
-          Schema.Union([Schema.String, Schema.Array(Schema.String)])
+          Schema.Union([
+            Schema.String,
+            Schema.mutable(Schema.Array(Schema.String)),
+          ])
         )(options).pipe(Option.getOrUndefined);
         this.socket = new NodeSocket.NodeWS.WebSocket(url, protocols, {
           origin,

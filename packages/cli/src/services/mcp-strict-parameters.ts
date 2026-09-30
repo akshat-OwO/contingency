@@ -1,6 +1,6 @@
-import { Effect, Effectable, Schema } from "effect";
-import type { Toolkit, Tool } from "effect/ai";
-import { AiError } from "effect/ai";
+import { Cause, Context, Effect, Effectable, Result, Schema } from "effect";
+import type { Tool } from "effect/ai";
+import { AiError, Toolkit } from "effect/ai";
 
 /**
  * Effect decodes a tool's parameters with the default parse options, which
@@ -65,19 +65,27 @@ export const withStrictParameters = <Tools extends Record<string, Tool.Any>>(
     if (decodeParameters === undefined) {
       return Effect.void;
     }
-    return decodeParameters(params).pipe(
-      Effect.asVoid,
-      Effect.mapError((cause) =>
-        AiError.make({
-          method: `${name}.handle`,
-          module: "Toolkit",
-          reason: new AiError.ToolParameterValidationError({
-            description: cause.message,
-            toolName: name,
-          }),
-        })
-      )
-    );
+    return Effect.gen(function* refuseUndeclaredParameters() {
+      const decoded = yield* Effect.result(decodeParameters(params));
+      if (Result.isSuccess(decoded)) {
+        return;
+      }
+      return yield* Effect.failCause(
+        Cause.annotate(
+          Cause.fail(
+            AiError.make({
+              method: `${name}.handle`,
+              module: "Toolkit",
+              reason: new AiError.ToolParameterValidationError({
+                description: decoded.failure.message,
+                toolName: name,
+              }),
+            })
+          ),
+          Context.make(Toolkit.FailureOrigin, "parameters")
+        )
+      );
+    });
   };
 
   // The tools themselves are reused unchanged, so every published JSON Schema
@@ -89,9 +97,15 @@ export const withStrictParameters = <Tools extends Record<string, Tool.Any>>(
   // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.map` is not an array method.
   const strict = Effect.map(toolkit, (built) => ({
     // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The parameters are parsed by `rejectExcess` and again by the toolkit's own decode.
-    handle: ((name: string, params: unknown, toolCallId?: string) =>
+    handle: ((
+      name: string,
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The parameters are parsed by `rejectExcess` and again by the toolkit's own decode.
+      params: unknown,
+      toolCallId?: string,
+      options?: Parameters<Toolkit.WithHandler<Tools>["handle"]>[3]
+    ) =>
       Effect.flatMap(rejectExcess(name, params), () =>
-        built.handle(name as keyof Tools, params as never, toolCallId)
+        built.handle(name as keyof Tools, params as never, toolCallId, options)
       )) as Toolkit.WithHandler<Tools>["handle"],
     tools: built.tools,
   }));
