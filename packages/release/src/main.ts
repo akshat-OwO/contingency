@@ -2,7 +2,7 @@
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Console, Effect, FileSystem } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 
 import { applyReleaseVersion } from "./apply-version.ts";
 import { resolveReleaseMetadata } from "./release-metadata.ts";
@@ -32,7 +32,7 @@ const emit = Effect.fn("emit")(function* writeStepOutputs(
 const resolveCommand = Command.make(
   "resolve",
   {
-    version: Argument.string("version").pipe(
+    version: Argument.String("version").pipe(
       Argument.withDescription(
         "The release version or tag, for example 1.2.3, v1.2.3, or v1.2.3-alpha.4."
       )
@@ -62,11 +62,11 @@ const resolveCommand = Command.make(
 const applyCommand = Command.make(
   "apply-version",
   {
-    root: Flag.string("root").pipe(
+    root: Flag.String("root").pipe(
       Flag.withDescription("Repository root to stamp manifests in."),
       Flag.withDefault(process.cwd())
     ),
-    version: Argument.string("version").pipe(
+    version: Argument.String("version").pipe(
       Argument.withDescription("The version to write into every manifest.")
     ),
   },

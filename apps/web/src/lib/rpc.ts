@@ -6,13 +6,9 @@ import type {
   BrowserStreamEvent,
 } from "@contingency/protocol";
 import { Duration, Effect, Layer, Schedule, Stream } from "effect";
-import { Atom, AtomRpc } from "effect/unstable/reactivity";
-import {
-  RpcClient,
-  RpcClientError,
-  RpcSerialization,
-} from "effect/unstable/rpc";
-import { Socket } from "effect/unstable/socket";
+import { Atom, AtomRpc } from "effect/reactivity";
+import { RpcClient, RpcClientError, RpcSerialization } from "effect/rpc";
+import { Socket } from "effect/socket";
 
 const webSocketUrl = Effect.sync(() => {
   const url = new URL("/ws", globalThis.location.href);

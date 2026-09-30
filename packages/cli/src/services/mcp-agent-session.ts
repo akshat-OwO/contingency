@@ -14,7 +14,7 @@ import {
   AgentVariableEnter,
 } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
+import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import type { AgentSessionError } from "./agent-session.ts";
 import { AgentSession } from "./agent-session.ts";

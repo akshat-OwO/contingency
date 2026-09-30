@@ -5,12 +5,8 @@ import {
 } from "@contingency/protocol";
 import type { BrowserRpcErrorType } from "@contingency/protocol";
 import { Effect, Layer, Option, Stream } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { RpcSerialization, RpcServer } from "effect/rpc";
 
 import { AgentRunStore } from "../services/agent-run-store.ts";
 import type {

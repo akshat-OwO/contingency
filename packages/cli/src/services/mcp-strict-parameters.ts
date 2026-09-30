@@ -1,6 +1,6 @@
 import { Effect, Effectable, Schema } from "effect";
-import type { Toolkit, Tool } from "effect/unstable/ai";
-import { AiError } from "effect/unstable/ai";
+import type { Toolkit, Tool } from "effect/ai";
+import { AiError } from "effect/ai";
 
 /**
  * Effect decodes a tool's parameters with the default parse options, which
@@ -74,7 +74,6 @@ export const withStrictParameters = <Tools extends Record<string, Tool.Any>>(
           reason: new AiError.ToolParameterValidationError({
             description: cause.message,
             toolName: name,
-            toolParams: params,
           }),
         })
       )

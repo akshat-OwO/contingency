@@ -331,7 +331,7 @@ export const makeTeachingRecorder = (
       maxBytes: limits.videoBytes,
       output: videoFile,
     });
-    const scope = yield* Effect.scope;
+    const scope = yield* Scope.fork(yield* Effect.scope);
     yield* options.browser.stream(options.browserSessionId).pipe(
       Stream.runForEach((event) => {
         if (event.type !== "frame") {

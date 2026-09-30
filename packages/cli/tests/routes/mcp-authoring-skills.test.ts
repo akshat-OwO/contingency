@@ -4,7 +4,7 @@ import path from "node:path";
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
@@ -70,7 +70,7 @@ const serving = Effect.fn("servingAuthoringSkills")(
     );
     const server = Context.get(context, HttpServer.HttpServer);
     const { address } = server;
-    if (address._tag !== "TcpAddress") {
+    if (address._tag === "UnixPathAddress") {
       return yield* Effect.die("Expected a TCP server.");
     }
     return `http://127.0.0.1:${address.port}`;

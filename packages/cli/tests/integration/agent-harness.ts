@@ -10,7 +10,7 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { Effect, Layer, Option, Schema, Stream } from "effect";
-import type { Tool, Toolkit } from "effect/unstable/ai";
+import type { Tool, Toolkit } from "effect/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";

@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { Effect, FileSystem, Layer } from "effect";
-import { McpServer } from "effect/unstable/ai";
+import { McpServer } from "effect/ai";
 
 /**
  * The authoring skills a learning agent must read before it writes a Flow

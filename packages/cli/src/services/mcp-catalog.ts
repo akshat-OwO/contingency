@@ -7,7 +7,7 @@ import {
   TeachingInstructionRecord,
 } from "@contingency/protocol";
 import { Effect, Layer, Option, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/unstable/ai";
+import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";

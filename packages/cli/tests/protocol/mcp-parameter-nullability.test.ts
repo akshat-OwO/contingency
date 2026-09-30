@@ -1,5 +1,5 @@
 import { Exit, Schema } from "effect";
-import type { Tool, Toolkit } from "effect/unstable/ai";
+import type { Tool, Toolkit } from "effect/ai";
 import { expect, test } from "vitest";
 
 import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";

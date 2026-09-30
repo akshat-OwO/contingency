@@ -12,9 +12,10 @@
         "@nubjs/types": ">=0.4.13 <=0.7.4"
       },
       "effect": {
-        "effect": "^4.0.0-beta.106",
-        "@effect/platform-node": "^4.0.0-beta.106",
-        "@effect/vitest": "^4.0.0-beta.106",
+        "effect": "4.0.0-rc.118",
+        "@effect/atom-react": "4.0.0-rc.118",
+        "@effect/platform-node": "4.0.0-rc.118",
+        "@effect/vitest": "4.0.0-rc.118",
         "vitest": "^4.1.10"
       }
     },

@@ -4,7 +4,7 @@ import type {
   BrowserTabId,
   SessionId,
 } from "@contingency/protocol";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 const MAX_CONSOLE_ENTRIES = 10_000;
 const MAX_NETWORK_REQUESTS = 10_000;

@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import { Tool, Toolkit } from "effect/unstable/ai";
+import { Tool, Toolkit } from "effect/ai";
 
 import { AgentRunStore } from "../../src/services/agent-run-store.ts";
 import { AgentSession } from "../../src/services/agent-session.ts";
@@ -55,7 +55,7 @@ it.effect("refuses an excess property on a catalog tool", () =>
     expect(refused.message).toContain("unexpected");
   }).pipe(
     Effect.provide(
-      AgentCatalogToolHandlersLive.pipe(Layer.provide(untouchedServices))
+      AgentCatalogToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
     )
   )
 );
@@ -70,7 +70,7 @@ it.effect("refuses an excess property on an agent run tool", () =>
     expect(refused.message).toContain("unexpected");
   }).pipe(
     Effect.provide(
-      AgentRunToolHandlersLive.pipe(Layer.provide(untouchedServices))
+      AgentRunToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
     )
   )
 );
@@ -93,7 +93,7 @@ it.effect("refuses the removed Run ceiling fields on Run start", () =>
     }
   }).pipe(
     Effect.provide(
-      AgentRunToolHandlersLive.pipe(Layer.provide(untouchedServices))
+      AgentRunToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
     )
   )
 );
@@ -111,7 +111,7 @@ it.effect("refuses an excess property on an agent session tool", () =>
     expect(refused.message).toContain("unexpected");
   }).pipe(
     Effect.provide(
-      AgentSessionToolHandlersLive.pipe(Layer.provide(untouchedServices))
+      AgentSessionToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
     )
   )
 );

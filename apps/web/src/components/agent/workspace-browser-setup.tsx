@@ -10,7 +10,7 @@ import type {
 import { httpOriginFromUrl, isBrowserRpcError } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Effect, Fiber, Result, Schedule } from "effect";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useEffect, useEffectEvent } from "react";
 
 import {

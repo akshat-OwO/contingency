@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { Config, Console, Effect, FileSystem, Layer } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
@@ -23,18 +23,18 @@ import {
 
 export const webCommand = Command.make(
   "web",
-  { noBrowser: Flag.boolean("no-browser").pipe(Flag.withDefault(false)) },
+  { noBrowser: Flag.Boolean("no-browser").pipe(Flag.withDefault(false)) },
   Effect.fnUntraced(function* runWeb({ noBrowser }) {
     const isProduction = process.env.NODE_ENV === "production";
     const uiInterface = yield* UiInterface;
 
     const config = yield* Config.all({
-      devUrl: Config.string("DEV_URL").pipe(
+      devUrl: Config.String("DEV_URL").pipe(
         Config.withDefault("http://localhost:5173")
       ),
-      host: Config.string("HOST").pipe(Config.withDefault("127.0.0.1")),
-      port: Config.number("PORT").pipe(Config.withDefault(7777)),
-      publicUrl: Config.string("PUBLIC_URL").pipe(Config.option),
+      host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
+      port: Config.Number("PORT").pipe(Config.withDefault(7777)),
+      publicUrl: Config.String("PUBLIC_URL").pipe(Config.option),
     }).pipe(Config.nested("CONTINGENCY_WEB"));
     const browserUrl = yield* resolveBrowserUrl({ ...config, isProduction });
 
