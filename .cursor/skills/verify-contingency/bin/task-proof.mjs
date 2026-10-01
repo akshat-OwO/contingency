@@ -42,6 +42,29 @@ let sequence = 0;
 const proofId = Date.now();
 const journal = [];
 const blockers = [];
+// Per-tool call counts and answer sizes, the baseline every MCP efficiency
+// change is measured against (ADR 0045).
+const metrics = new Map();
+const measure = (tool, stdout) => {
+  const entry = metrics.get(tool) ?? { bytes: 0, calls: 0, maxBytes: 0 };
+  const bytes = Buffer.byteLength(stdout);
+  metrics.set(tool, {
+    bytes: entry.bytes + bytes,
+    calls: entry.calls + 1,
+    maxBytes: Math.max(entry.maxBytes, bytes),
+  });
+};
+const metricsReport = (extra) => {
+  const byTool = Object.fromEntries(
+    [...metrics].toSorted(([left], [right]) => left.localeCompare(right))
+  );
+  const totals = { bytes: 0, calls: 0 };
+  for (const entry of metrics.values()) {
+    totals.bytes += entry.bytes;
+    totals.calls += entry.calls;
+  }
+  return { byTool, ...extra, totals };
+};
 const operation = () => `task-proof-${proofId}-${(sequence += 1)}`;
 const secrets = ["disposable-flow-one-9F!", "disposable-flow-two-2G!"];
 const record = (name, value) =>
@@ -95,6 +118,7 @@ const call = (tool, params = {}, refusal = false) =>
         };
       }
     });
+    measure(tool, result.stdout);
     yield* record(`${String((sequence += 1)).padStart(3, "0")}-${tool}.json`, {
       params: publicParams,
       tool,
@@ -883,6 +907,16 @@ const main = Effect.gen(function* main() {
   });
   assert.equal(repeated.intervention.reason, "confirmation");
   state = yield* call("agent_session_get", { sessionId: session.id });
+  const compactState = yield* call("agent_session_get", {
+    sessionId: session.id,
+    view: "compact",
+  });
+  assert.equal(compactState.view, "compact");
+  assert.deepEqual(compactState.pendingDecisions, state.pendingDecisions);
+  const sessionViewBytes = {
+    compact: JSON.stringify(compactState).length,
+    full: JSON.stringify(state).length,
+  };
   yield* call("agent_pending_decision_resolve", {
     decision: "refuse",
     operationId: operation(),
@@ -921,6 +955,8 @@ const main = Effect.gen(function* main() {
   yield* capture("unassessed-closed", closedViewer.viewUrl);
   yield* dryProof(catalog, url);
   yield* reopenProof(catalog, summary, url);
+  const measured = metricsReport({ sessionViewBytes });
+  yield* record("metrics.json", measured);
   yield* record("result.json", {
     blockers,
     features: [
@@ -947,7 +983,9 @@ const main = Effect.gen(function* main() {
       "video-range-serving",
       "user-closure",
       "process-exit",
+      "compact-session-view",
     ],
+    metrics: measured.totals,
     proofId,
     status: blockers.length > 0 ? "blocked" : "passed",
     taskRunId: summary.runId,

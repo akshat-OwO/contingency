@@ -89,7 +89,7 @@ export const AgentPendingDecision = Schema.Struct({
       secret: Schema.Boolean,
     })
   ).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-});
+}).annotate({ identifier: "AgentPendingDecision" });
 export type AgentPendingDecision = typeof AgentPendingDecision.Type;
 
 /** The durable audit record produced when the agent relays the user's choice. */
@@ -111,7 +111,7 @@ export const AgentPendingDecisionResolution = Schema.Struct({
   variableName: Schema.NullOr(variableName).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null))
   ),
-});
+}).annotate({ identifier: "AgentPendingDecisionResolution" });
 export type AgentPendingDecisionResolution =
   typeof AgentPendingDecisionResolution.Type;
 

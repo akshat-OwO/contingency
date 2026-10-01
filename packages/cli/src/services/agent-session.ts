@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
-  advancesAgentRun,
   AgentProcessId,
   AgentElementRef,
   AgentPendingDecisionId,
@@ -30,8 +29,6 @@ import type {
   AgentActionSubject,
   AgentExecutionBoundary,
   DomainScope,
-  AgentAssessmentEvidence,
-  AgentAssessmentOutcome,
   AgentRunAssessmentCounts,
   AgentRunCoverage,
   AgentRunId,
@@ -481,22 +478,6 @@ export interface AgentSessionService {
     operationId?: OperationId | string,
     flowSkillName?: string
   ) => Effect.Effect<AgentActionResult, AgentSessionError>;
-  /** What this session is verifying, for the catalog write that follows. */
-  /**
-   * The agent's evidence-backed judgment of the active Agent Step. Only
-   * `working` advances; anything else ends the ordered Steps and leaves the
-   * rest unexecuted
-   * ([ADR 0029](../../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
-   */
-  readonly assessStep: (
-    sessionId: AgentSessionId,
-    input: {
-      readonly evidence: readonly AgentAssessmentEvidence[];
-      readonly explanation: string;
-      readonly outcome: AgentAssessmentOutcome;
-    },
-    operationId?: OperationId | string
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly updateTask: <E>(
     sessionId: AgentSessionId,
     prepare: Effect.Effect<
@@ -1367,10 +1348,6 @@ const noteRunEvidence = (
     record.runEvidence.snapshots.add(id);
   }
 };
-
-/** How a Run that reached its last ordered Agent Step is recorded. */
-const endedRunOutcome = (advanced: boolean): "completed" | "ended-early" =>
-  advanced ? "completed" : "ended-early";
 
 const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
   snapshot.run !== null && runEnded(snapshot.run);
@@ -5973,27 +5950,6 @@ const makeAgentSession = (
       );
 
     /**
-     * Rewrite the Run on the current snapshot under the session's own
-     * read-modify-write, so a Run change never clobbers a control change it
-     * did not see.
-     */
-    const mutateRun = (
-      sessionId: AgentSessionId,
-      change: (run: AgentRunState, at: string) => AgentRunState
-    ): Effect.Effect<AgentSessionSnapshot | undefined> => {
-      const at = now().toISOString();
-      return mutate(sessionId, (snapshot) =>
-        snapshot.run === null || isTaskRun(snapshot.run)
-          ? snapshot
-          : {
-              ...snapshot,
-              run: withDerivedRunTotals(change(snapshot.run, at)),
-              updatedAt: at,
-            }
-      );
-    };
-
-    /**
      * Write the Run Summary under the Catalog Root. A Run's evidence is worth
      * nothing the caller cannot reach, so persistence is part of ending a Run
      * rather than of the tool that reports it ended.
@@ -6290,178 +6246,6 @@ const makeAgentSession = (
       }
     );
 
-    /**
-     * End a Run that has just reached a terminal state on its own. The Run is
-     * already over either way, so a Summary that could not be written is
-     * reported and the transition stands: `agent_run_complete` still writes
-     * it, which is what the caller would retry anyway.
-     */
-    const finalizeEndedRun = (sessionId: AgentSessionId): Effect.Effect<void> =>
-      Effect.gen(function* persistEndedRun() {
-        const finalized = yield* Effect.result(finalizeRunUnlocked(sessionId));
-        if (finalized._tag === "Failure") {
-          yield* Effect.logWarning(
-            `The Run in Agent Session ${sessionId} ended but its Run Summary was not persisted: ${finalized.failure.message}`
-          );
-        }
-      });
-
-    const assessStepUnlocked = Effect.fn("AgentSession.assessStep")(
-      function* assessAgentStep(
-        sessionId: AgentSessionId,
-        input: {
-          readonly evidence: readonly AgentAssessmentEvidence[];
-          readonly explanation: string;
-          readonly outcome: AgentAssessmentOutcome;
-        },
-        operationId?: OperationId | string
-      ) {
-        const requestInput = JSON.stringify(input);
-        const replayed = replaySession(
-          operationId,
-          "assess",
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        const record = yield* requireLiveRecord(sessionId);
-        if (record.boundaryControl?.pending !== undefined) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              "Resolve the Execution Boundary before assessing an Agent Step."
-            )
-          );
-        }
-        const { run } = record.snapshot;
-        if (run === null || isTaskRun(run)) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_invalid",
-              "Task Runs use agent_run_assess or agent_run_finding, not Agent Steps."
-            )
-          );
-        }
-        if (run.outcome !== null) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `Run ${run.runId} has already ended as ${run.outcome} and accepts no further Agent Assessments.`
-            )
-          );
-        }
-        const activeIndex = run.activeStepIndex;
-        const active =
-          activeIndex === null ? undefined : run.steps[activeIndex];
-        if (activeIndex === null || active === undefined) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `Run ${run.runId} has no active Agent Step to assess.`
-            )
-          );
-        }
-        // Evidence must name something this Agent Step actually produced.
-        // Otherwise an explanation could cite an observation that was never
-        // made ([ADR 0034](../../../../docs/adr/0034-agent-assessments-do-not-create-regressions.md)).
-        const unknown = input.evidence.filter((reference) =>
-          reference.kind === "snapshot"
-            ? !record.runEvidence.snapshots.has(reference.id)
-            : !record.runEvidence.attempts.has(reference.id)
-        );
-        if (unknown.length > 0) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_invalid",
-              `Agent Step ${activeIndex + 1} recorded no ${unknown
-                .map((reference) => `${reference.kind} ${reference.id}`)
-                .join(
-                  ", "
-                )}. Cite a Browser Snapshot or an attempt from this Agent Step.`
-            )
-          );
-        }
-        const advance = advancesAgentRun(input.outcome);
-        const nextIndex = activeIndex + 1;
-        const hasNext = advance && nextIndex < run.steps.length;
-        const next = yield* mutateRun(sessionId, (current, at) => {
-          // Checked above under the same lock; kept here so this callback can
-          // never dress a terminal outcome up as an Agent Assessment even if
-          // the locking around it changes.
-          if (current.outcome !== null) {
-            return current;
-          }
-          const assessment = {
-            attempts: current.steps[activeIndex]?.attempts ?? 0,
-            evidence: input.evidence,
-            explanation: input.explanation,
-            outcome: input.outcome,
-            submittedAt: at,
-          };
-          const assessed = current.steps.map((step, index) => {
-            if (index === activeIndex) {
-              return {
-                ...step,
-                assessment,
-                endedAt: at,
-                execution: "assessed" as const,
-              };
-            }
-            if (hasNext && index === nextIndex) {
-              return { ...step, execution: "active" as const, startedAt: at };
-            }
-            return step;
-          });
-          return {
-            ...current,
-            activeStepIndex: hasNext ? nextIndex : null,
-            endedAt: hasNext ? null : at,
-            // A terminal assessment ends the ordered Steps and leaves the rest
-            // unexecuted; `completed` means every Step was reached.
-            outcome: hasNext ? null : endedRunOutcome(advance),
-            steps: hasNext ? assessed : markRemainingUnexecuted(assessed),
-          };
-        });
-        if (next === undefined) {
-          return yield* Effect.fail(notRunning(sessionId));
-        }
-        // Each Agent Step is judged on its own evidence, so the record of what
-        // the Runner produced starts empty at every boundary.
-        record.runEvidence.attempts.clear();
-        record.runEvidence.snapshots.clear();
-        const withEntry = yield* recordEntry(sessionId, {
-          actor: "agent",
-          at: now().toISOString(),
-          description: `Assessed "${active.name}" as ${input.outcome}`,
-          detail: input.explanation,
-          dispatched: false,
-          id: `assessment-${randomUUID()}`,
-          outcome: "completed",
-        });
-        // The Run is over the moment its last ordered Step is assessed, or the
-        // moment a terminal Agent Assessment stops the rest. Its evidence is
-        // sealed and its Summary written here rather than waiting for a call
-        // the agent has no reason to make.
-        if (!hasNext) {
-          yield* finalizeEndedRun(sessionId);
-        }
-        const ended = hasNext ? withEntry : (yield* read(sessionId)).snapshot;
-        yield* rememberSession(
-          operationId,
-          "assess",
-          sessionId,
-          requestInput,
-          ended
-        );
-        return ended;
-      }
-    );
-
     const completeRunUnlocked = Effect.fn("AgentSession.completeRun")(
       function* completeInteractiveRun(
         sessionId: AgentSessionId,
@@ -6727,8 +6511,6 @@ const makeAgentSession = (
         }),
       act: (sessionId, action, operationId, intent) =>
         actUnlocked(sessionId, action, operationId, undefined, intent),
-      assessStep: (sessionId, input, operationId) =>
-        lock.withPermit(assessStepUnlocked(sessionId, input, operationId)),
       assessTask: (sessionId, input, finding, operationId) =>
         taskMutation(
           sessionId,

@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 
 import {
-  AgentSessionSnapshot,
   AgentRunId,
+  compactAgentSession,
   FlowSkillName,
   FlowSkillDiagnostic,
   FlowSkillFile,
@@ -29,7 +29,13 @@ import {
   flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
 } from "./flow-skill-package.ts";
+import {
+  UnpublishedSession,
+  encodeUnpublishedSession,
+  sessionViewParameter,
+} from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { readOnly } from "./mcp-tool-annotations.ts";
 import { webHost } from "./teaching-demonstration.ts";
 import {
   TeachingRecordingLearning,
@@ -104,26 +110,28 @@ const summaryOf = (
   };
 };
 
-const TeachingRecordingsListTool = Tool.make("agent_teaching_recordings_list", {
-  dependencies: [TeachingRecordingLearning],
-  description:
-    "List process-independent Teaching Recordings that an agent can claim for Flow Skill learning. Recordings created by contingency web appear after Stop, even when this MCP process did not create their browser session. Name a recordingId to answer with that one recording instead, waiting up to timeoutMs (default 30000, at most 60000) for it to reach its next durable state: recording, ready, learning, skill-drafted, dry-running, dry-run-failed, dry-run-passed, verified, or failed. The wait polls the durable manifest, so it works when another process owns the browser, and a recording that never arrives is refused with teaching_recording_timeout.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
-    timeoutMs: Schema.optional(
-      Schema.NullOr(
-        Schema.Int.check(
-          Schema.isBetween({
-            maximum: TEACHING_RECORDING_WAIT_MAX_MS,
-            minimum: 0,
-          })
+const TeachingRecordingsListTool = readOnly(
+  Tool.make("agent_teaching_recordings_list", {
+    dependencies: [TeachingRecordingLearning],
+    description:
+      "List process-independent Teaching Recordings that an agent can claim for Flow Skill learning. Recordings created by contingency web appear after Stop, even when this MCP process did not create their browser session. Name a recordingId to answer with that one recording instead, waiting up to timeoutMs (default 30000, at most 60000) for it to reach its next durable state: recording, ready, learning, skill-drafted, dry-running, dry-run-failed, dry-run-passed, verified, or failed. The wait polls the durable manifest, so it works when another process owns the browser, and a recording that never arrives is refused with teaching_recording_timeout.",
+    failure: TeachingRecordingFailure,
+    parameters: Schema.Struct({
+      recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
+      timeoutMs: Schema.optional(
+        Schema.NullOr(
+          Schema.Int.check(
+            Schema.isBetween({
+              maximum: TEACHING_RECORDING_WAIT_MAX_MS,
+              minimum: 0,
+            })
+          )
         )
-      )
-    ),
-  }),
-  success: TeachingRecordingList,
-});
+      ),
+    }),
+    success: TeachingRecordingList,
+  })
+);
 
 const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
   dependencies: [TeachingRecordingStore],
@@ -140,33 +148,37 @@ const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
   success: TeachingRecordingClaimResult,
 });
 
-const TeachingTimelineGetTool = Tool.make("agent_teaching_timeline_get", {
-  dependencies: [TeachingRecordingLearning],
-  description:
-    "Read one bounded page of a claimed Teaching Recording's semantic timeline. Actions include before, after, appeared, and disappeared accessibility evidence. Instructions and URL transitions stay in order. Keyframes are id and hash references only. Follow nextCursor until it is null.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    claimOperationId: OperationId,
-    cursor: Schema.optional(
-      Schema.NullOr(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
-    ),
-    recordingId: TeachingRecordingId,
-  }),
-  success: TeachingTimeline,
-});
+const TeachingTimelineGetTool = readOnly(
+  Tool.make("agent_teaching_timeline_get", {
+    dependencies: [TeachingRecordingLearning],
+    description:
+      "Read one bounded page of a claimed Teaching Recording's semantic timeline. Actions include before, after, appeared, and disappeared accessibility evidence. Instructions and URL transitions stay in order. Keyframes are id and hash references only. Follow nextCursor until it is null.",
+    failure: TeachingRecordingFailure,
+    parameters: Schema.Struct({
+      claimOperationId: OperationId,
+      cursor: Schema.optional(
+        Schema.NullOr(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
+      ),
+      recordingId: TeachingRecordingId,
+    }),
+    success: TeachingTimeline,
+  })
+);
 
-const TeachingKeyframeGetTool = Tool.make("agent_teaching_keyframe_get", {
-  dependencies: [TeachingRecordingLearning],
-  description:
-    "Get the local PNG file for one keyframe of a claimed Teaching Recording by the id returned in its semantic timeline. Open the returned path with your file tools. The path remains valid while the Teaching Recording is retained; verification or discard removes it. The timeline does not embed images or expose local artifact paths.",
-  failure: TeachingRecordingFailure,
-  parameters: Schema.Struct({
-    claimOperationId: OperationId,
-    keyframeId: Schema.String.check(Schema.isMinLength(1)),
-    recordingId: TeachingRecordingId,
-  }),
-  success: TeachingKeyframeFile,
-});
+const TeachingKeyframeGetTool = readOnly(
+  Tool.make("agent_teaching_keyframe_get", {
+    dependencies: [TeachingRecordingLearning],
+    description:
+      "Get the local PNG file for one keyframe of a claimed Teaching Recording by the id returned in its semantic timeline. Open the returned path with your file tools. The path remains valid while the Teaching Recording is retained; verification or discard removes it. The timeline does not embed images or expose local artifact paths.",
+    failure: TeachingRecordingFailure,
+    parameters: Schema.Struct({
+      claimOperationId: OperationId,
+      keyframeId: Schema.String.check(Schema.isMinLength(1)),
+      recordingId: TeachingRecordingId,
+    }),
+    success: TeachingKeyframeFile,
+  })
+);
 
 const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
   dependencies: [TeachingRecordingLearning],
@@ -206,12 +218,13 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
     operationId: OperationId,
     recordingId: TeachingRecordingId,
     url: Schema.String.check(Schema.isMinLength(1)),
+    view: sessionViewParameter,
   }),
   success: Schema.Struct({
     files: Schema.Array(FlowSkillFile),
     flowSkillName: FlowSkillName,
     recordingId: TeachingRecordingId,
-    session: AgentSessionSnapshot,
+    session: UnpublishedSession,
     skillPath: Schema.String.check(Schema.isMinLength(1)),
   }),
 });
@@ -581,7 +594,9 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           files,
           flowSkillName: started.flowSkillName,
           recordingId: started.recordingId,
-          session,
+          session: yield* encodeUnpublishedSession(
+            params.view === "compact" ? compactAgentSession(session) : session
+          ),
           skillPath: started.lifecycle.skillPath,
         };
       }),
