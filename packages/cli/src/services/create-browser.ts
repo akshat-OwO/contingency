@@ -703,7 +703,9 @@ const makeService = (
         const durationMs = agentPointerTravelMs(
           Math.hypot(pointer.x - from.x, pointer.y - from.y)
         );
-        PubSub.publishUnsafe(session.pointers, {
+        // `publish` applies the sliding strategy; `publishUnsafe` would drop
+        // the newest point once a stalled subscriber fills the ring.
+        yield* PubSub.publish(session.pointers, {
           ...pointer,
           durationMs,
           timestamp: Date.now(),
