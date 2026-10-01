@@ -13,6 +13,7 @@ import {
   agentProcessLayer,
   agentViewport,
   findNode,
+  requireRun,
   runTool,
   sessionTool,
   startUserTeaching,
@@ -142,8 +143,8 @@ const assessDryRunSteps = (
     const session = yield* AgentSession;
     let snapshot = yield* session.get(sessionId);
     while (
-      snapshot.run?.activeStepIndex !== null &&
-      snapshot.run?.activeStepIndex !== undefined
+      requireRun(snapshot).activeStepIndex !== null &&
+      requireRun(snapshot).activeStepIndex !== undefined
     ) {
       const browser = yield* sessionTool("agent_browser_snapshot", {
         sessionId,
@@ -413,8 +414,8 @@ it.live(
             flowSkillName: "set-delivery-area",
             recordingId,
           });
-          expect(failedRun.session.run?.steps.length).toBeGreaterThan(0);
-          expect(failedRun.session.run?.activeStepIndex).toBe(0);
+          expect(requireRun(failedRun.session).steps.length).toBeGreaterThan(0);
+          expect(requireRun(failedRun.session).activeStepIndex).toBe(0);
           const reread = yield* sessionTool("agent_session_get", {
             sessionId: failedRun.session.id,
           });
@@ -594,6 +595,9 @@ it.live(
           const earlySummary = yield* (yield* AgentSession).completeRun(
             endedEarly.session.id
           );
+          if (earlySummary.schemaVersion === 3) {
+            return yield* Effect.die("Expected a historical Dry Run.");
+          }
           expect(earlySummary.coverage.complete).toBe(false);
           expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
             "dry-run-failed"
@@ -796,8 +800,8 @@ it.live(
           yield* Effect.sleep("1500 millis");
           const idle = yield* session.get(idleRun.session.id);
           expect(idle.phase).toBe("running");
-          expect(idle.run?.outcome).toBeNull();
-          expect(idle.run?.activeStepIndex).toBe(0);
+          expect(requireRun(idle).outcome).toBeNull();
+          expect(requireRun(idle).activeStepIndex).toBe(0);
           expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
             "dry-running"
           );
@@ -922,7 +926,8 @@ it.live(
             operationId: OperationId.make("delivery-run-start"),
             url: fixtures.url("delivery.html"),
           });
-          expect(run.run?.steps.length).toBeGreaterThan(0);
+          expect(run.run).toHaveProperty("schemaVersion", 3);
+          expect(run.run).not.toHaveProperty("steps");
           // The Run reproduces the device the journey was demonstrated on, so
           // read the Emulation the browser actually applied rather than any
           // value the start call echoed back.

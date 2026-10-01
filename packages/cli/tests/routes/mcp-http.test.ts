@@ -199,6 +199,16 @@ it.live(
         })
       );
 
+      for (const name of ["agent_run_assess", "agent_run_finding"]) {
+        const taskTool = decoded.result.tools.find(
+          (tool) => tool.name === name
+        );
+        const schema = JSON.stringify(taskTool?.inputSchema);
+        expect(schema).toContain('"enum":["snapshot","attempt"]');
+        expect(schema).not.toContain('"screenshot"');
+        expect(schema).not.toContain('"artifact"');
+      }
+
       const invalid = yield* postMcp(
         origin,
         headers,

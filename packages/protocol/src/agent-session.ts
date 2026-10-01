@@ -140,12 +140,12 @@ export const RunSessionSnapshot = Schema.Struct({
   ),
   flowSkillName: Schema.NullOr(FlowSkillName),
   recordingId: Schema.NullOr(TeachingRecordingId),
-  run: Schema.NullOr(AgentRunState),
+  run: Schema.NullOr(Schema.Union([AgentRunState, TaskAgentRunState])),
   teaching: Schema.Null,
 });
 export type RunSessionSnapshot = typeof RunSessionSnapshot.Type;
 
-/** Task session contract for later runtime integration; no singular skill slot. */
+/** Task-only session contract without a singular skill slot. */
 export const TaskRunSessionSnapshot = Schema.Struct({
   ...AgentSessionSnapshotBase,
   activity: Schema.Literal("run"),

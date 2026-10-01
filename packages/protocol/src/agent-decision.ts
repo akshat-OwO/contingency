@@ -83,7 +83,11 @@ export const AgentPendingDecision = Schema.Struct({
    * the literal never does.
    */
   variable: Schema.NullOr(
-    Schema.Struct({ name: variableName, secret: Schema.Boolean })
+    Schema.Struct({
+      flowSkillName: optionalNullable(nonEmptyString),
+      name: variableName,
+      secret: Schema.Boolean,
+    })
   ).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
 });
 export type AgentPendingDecision = typeof AgentPendingDecision.Type;
@@ -99,6 +103,7 @@ export const AgentPendingDecisionResolution = Schema.Struct({
   operationId: OperationId,
   pendingDecisionId: AgentPendingDecisionId,
   userMessage: optionalNullable(nonEmptyString),
+  variableFlowSkillName: optionalNullable(nonEmptyString),
   /**
    * The Variable a `supply_variable` decision named. Secret Variable names are
    * audited; their values never are.
@@ -147,6 +152,7 @@ export type AgentSessionVariableState = typeof AgentSessionVariableState.Type;
  * Contingency.
  */
 export const AgentVariableEnter = Schema.Struct({
+  flowSkillName: optionalNullable(nonEmptyString),
   name: variableName,
   operationId: OperationId,
   ref: AgentElementRef,

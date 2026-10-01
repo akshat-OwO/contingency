@@ -144,7 +144,10 @@ export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
   if (session.dryRun) {
     return `${session.dryRun.flowSkillName} · Dry Run`;
   }
-  const name = session.run?.flowSkillName ?? session.flowSkillName;
+  const name =
+    session.run !== null && "schemaVersion" in session.run
+      ? session.run.title
+      : (session.run?.flowSkillName ?? session.flowSkillName);
   return `${name ?? session.clientName} · Interactive Run`;
 };
 

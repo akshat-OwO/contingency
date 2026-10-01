@@ -8,7 +8,7 @@ import {
   AgentElementRef,
   AgentPendingDecisionId,
   AgentSessionId,
-  LegacyAgentRunSummary as AgentRunSummary,
+  AgentRunSummary,
   describeActionSubject,
   describeAgentAction,
   makeBrowserRpcError,
@@ -36,6 +36,10 @@ import type {
   AgentRunCoverage,
   AgentRunId,
   AgentRunState,
+  TaskAgentRunState,
+  AgentTaskAssessment,
+  AgentRunTaskInput,
+  AgentRunTaskVariable,
   AgentRunStep,
   AgentPendingDecision,
   AgentPendingDecisionResolution,
@@ -171,10 +175,10 @@ export interface AgentSessionStartInput {
   readonly openedBy?: AgentSessionController | undefined;
   /**
    * The Interactive Run this session performs, already resolved from a
-   * verified Flow Skill. The session owns its ordered Agent Steps and
-   * evidence from the moment the browser opens.
+   * requested task or a historical ordered Flow Skill. The session owns its
+   * execution state and evidence from the moment the browser opens.
    */
-  readonly run?: AgentRunState | undefined;
+  readonly run?: AgentRunState | TaskAgentRunState | undefined;
   /**
    * The Dry Run this session rehearses. A Dry Run follows the saved Flow Skill
    * package rather than ordered Agent Steps, so it names the flow and the
@@ -474,7 +478,8 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     name: string,
     ref: string,
-    operationId?: OperationId | string
+    operationId?: OperationId | string,
+    flowSkillName?: string
   ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   /** What this session is verifying, for the catalog write that follows. */
   /**
@@ -491,6 +496,35 @@ export interface AgentSessionService {
       readonly outcome: AgentAssessmentOutcome;
     },
     operationId?: OperationId | string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly updateTask: <E>(
+    sessionId: AgentSessionId,
+    prepare: Effect.Effect<
+      {
+        readonly instruction?: string | undefined;
+        readonly skills: readonly {
+          readonly flowSkillName: FlowSkillName;
+          readonly hosts: readonly string[];
+          readonly variables: readonly AgentRunTaskVariable[];
+        }[];
+        readonly inputs: readonly AgentRunTaskInput[];
+      },
+      E
+    >,
+    operationId: OperationId,
+    requestInput: string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError | E>;
+  readonly assessTask: (
+    sessionId: AgentSessionId,
+    input: Omit<AgentTaskAssessment, "submittedAt">,
+    finding: boolean,
+    operationId: OperationId
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly requestTaskVariable: (
+    sessionId: AgentSessionId,
+    flowSkillName: string,
+    name: string,
+    operationId: OperationId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * End the Run early and answer with its persistent Run Summary. A Run that
@@ -1215,11 +1249,69 @@ const markRemainingUnexecuted = (
   );
 
 /** Recompute the derived tallies after any change to the ordered Steps. */
-const withDerivedRunTotals = (run: AgentRunState): AgentRunState => ({
-  ...run,
-  assessmentCounts: assessmentCountsOf(run.steps),
-  coverage: coverageOf(run.steps),
-});
+type LiveRun = AgentRunState | TaskAgentRunState;
+const isTaskRun = (run: LiveRun): run is TaskAgentRunState =>
+  "schemaVersion" in run;
+const withDerivedRunTotals = (run: LiveRun): LiveRun =>
+  isTaskRun(run)
+    ? run
+    : {
+        ...run,
+        assessmentCounts: assessmentCountsOf(run.steps),
+        coverage: coverageOf(run.steps),
+      };
+const runEnded = (run: LiveRun): boolean =>
+  isTaskRun(run) ? run.lifecycle.phase === "ended" : run.outcome !== null;
+
+const endClosedRun = (run: LiveRun | null, at: string): LiveRun | null => {
+  if (run === null || runEnded(run)) {
+    return run;
+  }
+  if (isTaskRun(run)) {
+    return {
+      ...run,
+      lifecycle: { endedAt: at, outcome: "user-closed", phase: "ended" },
+    };
+  }
+  return withDerivedRunTotals({
+    ...run,
+    activeStepIndex: null,
+    endedAt: at,
+    outcome: "interrupted",
+    steps: markRemainingUnexecuted(run.steps),
+  });
+};
+const activateRun = (
+  run: LiveRun | null,
+  at: string,
+  emulation: DraftEmulation
+): LiveRun | null => {
+  if (run === null) {
+    return null;
+  }
+  if (isTaskRun(run)) {
+    return {
+      ...run,
+      lastAgentActivityAt: at,
+      startedAt: at,
+      startingEmulation: emulation,
+    };
+  }
+  return withDerivedRunTotals({
+    ...run,
+    activeStepIndex: 0,
+    lastAgentActivityAt: at,
+    startedAt: at,
+    steps: run.steps.map((step, index) =>
+      index === 0 ? { ...step, execution: "active", startedAt: at } : step
+    ),
+  });
+};
+
+const variableKey = (name: string, flowSkillName?: string | null): string =>
+  flowSkillName === undefined || flowSkillName === null
+    ? name
+    : JSON.stringify([flowSkillName, name]);
 
 /**
  * Record what the Runner produced during the active Agent Step, so an
@@ -1232,7 +1324,8 @@ const noteRunEvidence = (
 ): void => {
   if (
     record.snapshot.run === null ||
-    record.snapshot.run.activeStepIndex === null
+    (!isTaskRun(record.snapshot.run) &&
+      record.snapshot.run.activeStepIndex === null)
   ) {
     return;
   }
@@ -1248,7 +1341,7 @@ const endedRunOutcome = (advanced: boolean): "completed" | "ended-early" =>
   advanced ? "completed" : "ended-early";
 
 const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
-  snapshot.run !== null && snapshot.run.outcome !== null;
+  snapshot.run !== null && runEnded(snapshot.run);
 
 const TIMELINE_LIMIT = 200;
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
@@ -1422,7 +1515,7 @@ interface AgentSessionPatch {
   readonly currentUrl?: string;
   readonly decisionHistory?: AgentSessionSnapshot["decisionHistory"];
   readonly pendingDecisions?: AgentSessionSnapshot["pendingDecisions"];
-  readonly run?: AgentRunState | null;
+  readonly run?: AgentRunState | TaskAgentRunState | null;
 }
 
 const domainAllowed = (record: SessionRecord, url: string): boolean => {
@@ -1447,9 +1540,11 @@ const actionBoundaryReasons = (
   action: AgentBrowserAction,
   intent: AgentActionIntent
 ): AgentExecutionBoundary["reason"][] => {
-  const step = record.snapshot.run?.steps.find(
-    (candidate) => candidate.index === record.snapshot.run?.activeStepIndex
-  );
+  const { run } = record.snapshot;
+  const step =
+    run === null || isTaskRun(run)
+      ? undefined
+      : run.steps.find((candidate) => candidate.index === run.activeStepIndex);
   const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
     action.type
   );
@@ -1485,12 +1580,22 @@ const actionBoundaryReasons = (
 const boundaryObjective = (
   record: SessionRecord,
   intent: AgentActionIntent
-): string =>
-  intent.objective ??
-  record.snapshot.run?.steps.find(
-    (step) => step.index === record.snapshot.run?.activeStepIndex
-  )?.description ??
-  "An action the agent did not name an objective for";
+): string => {
+  if (intent.objective !== undefined) {
+    return intent.objective;
+  }
+  const { run } = record.snapshot;
+  if (run === null) {
+    return "An action the agent did not name an objective for";
+  }
+  if (isTaskRun(run)) {
+    return run.instructions.at(-1)?.instruction ?? run.requestedTask;
+  }
+  return (
+    run.steps.find((step) => step.index === run.activeStepIndex)?.description ??
+    "An action the agent did not name an objective for"
+  );
+};
 
 /**
  * What the user is being asked to release, in one line the agent can quote in
@@ -1534,7 +1639,7 @@ const variablePendingDecisions = (
   at: string
 ): readonly AgentPendingDecision[] => {
   const declaring = snapshot.run;
-  if (declaring === null) {
+  if (declaring === null || isTaskRun(declaring)) {
     return [];
   }
   return declaring.variables.flatMap((variable) =>
@@ -1620,10 +1725,14 @@ const variableResolution = (
     // The name is audited; the literal the user supplied never is.
     variableName: pending.variable?.name ?? null,
   } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
+  const scoped =
+    pending.variable?.flowSkillName === undefined
+      ? base
+      : { ...base, variableFlowSkillName: pending.variable.flowSkillName };
   if (userMessage === undefined || userMessage === null) {
-    return base;
+    return scoped;
   }
-  return { ...base, userMessage };
+  return { ...scoped, userMessage };
 };
 
 /**
@@ -1699,6 +1808,10 @@ type AgentOperationKind =
   | "act"
   | "boundary"
   | "assess"
+  | "task-update"
+  | "task-assess"
+  | "task-finding"
+  | "variable-request"
   | "close"
   | "complete"
   | "control"
@@ -3059,162 +3172,6 @@ const makeAgentSession = (
       return recording;
     });
 
-    const closeUnlocked = Effect.fn("AgentSession.close")(
-      function* closeSession(
-        sessionId: AgentSessionId,
-        operationId?: OperationId | string
-      ) {
-        const requestInput = "";
-        const replayed = replaySession(
-          operationId,
-          "close",
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        const existing = Ref.getUnsafe(sessions).get(sessionId);
-        if (existing === undefined) {
-          const durable = yield* readyTeachingSnapshot(sessionId);
-          if (durable !== null) {
-            yield* rememberSession(
-              operationId,
-              "close",
-              sessionId,
-              requestInput,
-              durable
-            );
-            return durable;
-          }
-        }
-        let record = yield* read(sessionId);
-        if (
-          isLive(record.snapshot.phase) &&
-          record.snapshot.activity === "teaching" &&
-          record.snapshot.captureState._tag === "recording" &&
-          record.teachingRecorder !== undefined
-        ) {
-          yield* stopTeachingRecordingUnlocked(
-            sessionId,
-            `close-recording-${String(operationId ?? sessionId)}`,
-            "session-closed"
-          );
-          record = yield* read(sessionId);
-        }
-        if (!isLive(record.snapshot.phase)) {
-          let { snapshot } = record;
-          if (
-            snapshot.activity === "teaching" &&
-            (snapshot.captureState._tag === "recording" ||
-              snapshot.captureState._tag === "finalizing")
-          ) {
-            const stoppedAt =
-              snapshot.captureState._tag === "finalizing"
-                ? snapshot.captureState.stoppedAt
-                : now().toISOString();
-            const { startedAt } = snapshot.captureState;
-            const finalizing = {
-              ...snapshot,
-              boundary: null,
-              captureState: {
-                _tag: "finalizing" as const,
-                startedAt,
-                stoppedAt,
-              },
-              phase: "closed" as const,
-              takeover: null,
-              updatedAt: stoppedAt,
-            };
-            yield* save(sessionId, record, finalizing);
-            snapshot = yield* finishTeachingClose(
-              sessionId,
-              record,
-              finalizing,
-              operationId
-            );
-          }
-          yield* rememberSession(
-            operationId,
-            "close",
-            sessionId,
-            requestInput,
-            snapshot
-          );
-          return snapshot;
-        }
-        return yield* Effect.uninterruptibleMask(() =>
-          Effect.gen(function* closeAtomically() {
-            const at = now().toISOString();
-            const closed =
-              record.snapshot.activity === "teaching"
-                ? {
-                    ...record.snapshot,
-                    boundary: null,
-                    phase: "closed" as const,
-                    takeover: null,
-                    updatedAt: at,
-                  }
-                : {
-                    ...record.snapshot,
-                    boundary: null,
-                    phase: "closed" as const,
-                    run:
-                      record.snapshot.run === null ||
-                      record.snapshot.run.outcome !== null
-                        ? record.snapshot.run
-                        : withDerivedRunTotals({
-                            ...record.snapshot.run,
-                            activeStepIndex: null,
-                            endedAt: at,
-                            outcome: "interrupted",
-                            steps: markRemainingUnexecuted(
-                              record.snapshot.run.steps
-                            ),
-                          }),
-                    takeover: null,
-                    updatedAt: at,
-                  };
-            yield* save(sessionId, record, closed);
-            yield* Scope.close(record.scope, Exit.void);
-            const finished = closed;
-            yield* rememberSession(
-              operationId,
-              "close",
-              sessionId,
-              requestInput,
-              finished
-            );
-            return finished;
-          })
-        );
-      }
-    );
-
-    const interruptUnlocked = Effect.fn("AgentSession.interrupt")(
-      function* interruptSession(sessionId: AgentSessionId) {
-        const record = yield* read(sessionId);
-        if (!isLive(record.snapshot.phase)) {
-          return record.snapshot;
-        }
-        const at = now().toISOString();
-        const interrupted: AgentSessionSnapshot = {
-          ...record.snapshot,
-          error:
-            "The owning process stopped before this Agent Session completed.",
-          phase: "interrupted",
-          takeover: null,
-          updatedAt: at,
-        };
-        yield* save(sessionId, record, interrupted);
-        yield* Scope.close(record.scope, Exit.interrupt());
-        return interrupted;
-      }
-    );
-
     /**
      * Where this session captures. A Run names its own Run directory, so its
      * Trace and video land beside the Run Summary that cites them; Teaching
@@ -3329,7 +3286,8 @@ const makeAgentSession = (
      */
     const requireDeclaredVariable = (
       record: SessionRecord,
-      name: string
+      name: string,
+      flowSkillName?: string | null
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
@@ -3341,14 +3299,18 @@ const makeAgentSession = (
         };
       }
       const declared = declaring.variables.find(
-        (variable) => variable.name === name
+        (variable) =>
+          variable.name === name &&
+          (!("schemaVersion" in declaring) ||
+            ("flowSkillName" in variable &&
+              variable.flowSkillName === flowSkillName))
       );
       return declared === undefined
         ? {
             _tag: "error",
             error: error(
               "agent_session_invalid",
-              `Flow Skill ${declaring.flowSkillName} does not declare Variable ${name}.`
+              `No Variable ${name} is declared for ${flowSkillName ?? ("flowSkillName" in declaring ? declaring.flowSkillName : "the requested skill")}.`
             ),
           }
         : {
@@ -3494,6 +3456,7 @@ const makeAgentSession = (
             run: (() => {
               const patched = safePatch.run ?? snapshot.run;
               return patched === null ||
+                isTaskRun(patched) ||
                 patched.activeStepIndex === null ||
                 !entry.dispatched
                 ? patched
@@ -4086,24 +4049,7 @@ const makeAgentSession = (
                   // The Run starts when the browser is actually ready, not
                   // when the request arrived, so browser acquisition never
                   // reads as the agent being idle.
-                  const run =
-                    base.run === null
-                      ? null
-                      : withDerivedRunTotals({
-                          ...base.run,
-                          activeStepIndex: 0,
-                          lastAgentActivityAt: startedAt,
-                          startedAt,
-                          steps: base.run.steps.map((step, index) =>
-                            index === 0
-                              ? {
-                                  ...step,
-                                  execution: "active" as const,
-                                  startedAt,
-                                }
-                              : step
-                          ),
-                        });
+                  const run = activateRun(base.run, startedAt, emulation);
                   const running: AgentSessionSnapshot =
                     base.activity === "teaching"
                       ? {
@@ -4830,7 +4776,10 @@ const makeAgentSession = (
           action,
           intent,
           operationId: attemptId,
-          stepIndex: record.snapshot.run?.activeStepIndex,
+          stepIndex:
+            record.snapshot.run === null || isTaskRun(record.snapshot.run)
+              ? null
+              : record.snapshot.run.activeStepIndex,
         });
         const reasons = actionBoundaryReasons(record, action, intent);
         for (const reason of reasons) {
@@ -5320,13 +5269,20 @@ const makeAgentSession = (
           return yield* Effect.fail(refusal);
         }
         const supply = input.decision === "supply";
-        const declared = requireDeclaredVariable(record, pending.variable.name);
+        const declared = requireDeclaredVariable(
+          record,
+          pending.variable.name,
+          pending.variable.flowSkillName
+        );
         if (declared._tag === "error") {
           return yield* Effect.fail(declared.error);
         }
         const { name } = pending.variable;
         if (supply && value !== null) {
-          record.supplied.set(name, value);
+          record.supplied.set(
+            variableKey(name, pending.variable.flowSkillName),
+            value
+          );
         }
         const markSupplied = <
           T extends {
@@ -5339,7 +5295,12 @@ const makeAgentSession = (
             ? {
                 ...state,
                 variables: state.variables.map((variable) =>
-                  variable.name === name
+                  variable.name === name &&
+                  (pending.variable?.flowSkillName === undefined ||
+                    pending.variable.flowSkillName === null ||
+                    ("flowSkillName" in variable &&
+                      variable.flowSkillName ===
+                        pending.variable.flowSkillName))
                     ? { ...variable, supplied: true }
                     : variable
                 ),
@@ -5795,7 +5756,7 @@ const makeAgentSession = (
           // The agent was waiting on the user, not idle: its idle time starts
           // again from the moment it has the browser back.
           run:
-            record.snapshot.run === null || record.snapshot.run.outcome !== null
+            record.snapshot.run === null || runEnded(record.snapshot.run)
               ? record.snapshot.run
               : { ...record.snapshot.run, lastAgentActivityAt: at },
           takeover: null,
@@ -5988,7 +5949,7 @@ const makeAgentSession = (
     ): Effect.Effect<AgentSessionSnapshot | undefined> => {
       const at = now().toISOString();
       return mutate(sessionId, (snapshot) =>
-        snapshot.run === null
+        snapshot.run === null || isTaskRun(snapshot.run)
           ? snapshot
           : {
               ...snapshot,
@@ -6039,14 +6000,16 @@ const makeAgentSession = (
               )
             );
           const passed =
+            summary.schemaVersion !== 3 &&
             summary.coverage.complete &&
             summary.steps.every(
               (step) => step.assessment?.outcome === "working"
             ) &&
             !record.dryRunControl.hadTakeover;
-          const lastAssessed = summary.steps.findLast(
-            (step) => step.assessment !== null
-          );
+          const lastAssessed =
+            summary.schemaVersion === 3
+              ? undefined
+              : summary.steps.findLast((step) => step.assessment !== null);
           const observableOutcome =
             lastAssessed === undefined
               ? "No Agent Step was assessed."
@@ -6150,7 +6113,8 @@ const makeAgentSession = (
           // A closing account that arrives after the Run already ended is
           // recorded on the Summary it belongs to; nothing else is rewritten.
           const amended =
-            summaryText === undefined || already.agentAccount !== undefined
+            summaryText === undefined ||
+            ("agentAccount" in already && already.agentAccount !== undefined)
               ? already
               : { ...already, agentAccount: summaryText };
           // A Run whose write never landed is not a persisted Run. This is the
@@ -6175,6 +6139,24 @@ const makeAgentSession = (
             const completed = yield* mutate(sessionId, (snapshot) => {
               if (snapshot.run === null) {
                 return snapshot;
+              }
+              if (isTaskRun(snapshot.run)) {
+                return {
+                  ...snapshot,
+                  boundary: null,
+                  controller: "agent",
+                  pendingDecisions: [],
+                  phase: "completed",
+                  run: {
+                    ...snapshot.run,
+                    lifecycle:
+                      snapshot.run.lifecycle.phase === "ended"
+                        ? snapshot.run.lifecycle
+                        : { endedAt: at, outcome: "completed", phase: "ended" },
+                  },
+                  takeover: null,
+                  updatedAt: at,
+                };
               }
               const steps = markRemainingUnexecuted(snapshot.run.steps);
               return {
@@ -6211,19 +6193,11 @@ const makeAgentSession = (
             // Closing the session scope stops tracing and finalizes the video.
             // Nothing may write to the Run's artifacts after this point.
             yield* Scope.close(record.scope, Exit.void);
-            const ended: AgentRunSummary = {
-              assessmentCounts: finished.assessmentCounts,
+            const commonSummary = {
               attribution: finished.attribution,
-              coverage: finished.coverage,
-              endedAt: finished.endedAt ?? at,
-              flowSkillName: finished.flowSkillName,
-              inputs: finished.inputs,
-              outcome: finished.outcome ?? "ended-early",
               runId: finished.runId,
-              schemaVersion: 2,
               sessionId,
               startedAt: finished.startedAt,
-              steps: finished.steps,
               timeline: [
                 ...new Map(
                   [
@@ -6236,6 +6210,44 @@ const makeAgentSession = (
               tracePath: yield* finalArtifactPath(record, record.traceFile),
               videoPath: yield* finalArtifactPath(record, record.videoFile),
             };
+            const ended: AgentRunSummary = isTaskRun(finished)
+              ? {
+                  ...finished,
+                  ...commonSummary,
+                  endedAt:
+                    finished.lifecycle.phase === "ended"
+                      ? finished.lifecycle.endedAt
+                      : at,
+                  outcome:
+                    finished.lifecycle.phase === "ended"
+                      ? finished.lifecycle.outcome
+                      : "completed",
+                }
+              : {
+                  assessmentCounts: finished.assessmentCounts,
+                  attribution: finished.attribution,
+                  coverage: finished.coverage,
+                  endedAt: finished.endedAt ?? at,
+                  flowSkillName: finished.flowSkillName,
+                  inputs: finished.inputs,
+                  outcome: finished.outcome ?? "ended-early",
+                  runId: finished.runId,
+                  schemaVersion: 2,
+                  sessionId,
+                  startedAt: finished.startedAt,
+                  steps: finished.steps,
+                  timeline: [
+                    ...new Map(
+                      [
+                        ...(record.boundaryControl?.evidence ?? []),
+                        ...completed.timeline,
+                      ].map((entry) => [entry.id, entry])
+                    ).values(),
+                  ].toSorted((left, right) => left.at.localeCompare(right.at)),
+                  title: finished.title,
+                  tracePath: yield* finalArtifactPath(record, record.traceFile),
+                  videoPath: yield* finalArtifactPath(record, record.videoFile),
+                };
             yield* mutate(sessionId, (snapshot) => ({
               ...snapshot,
               phase: "closed",
@@ -6245,8 +6257,11 @@ const makeAgentSession = (
               summaryText === undefined
                 ? ended
                 : { ...ended, agentAccount: summaryText };
-            record.finalized.summary = summary;
-            return yield* persistRunSummary(record, summary);
+            record.finalized.summary = Schema.decodeUnknownSync(
+              AgentRunSummary
+            )(Schema.encodeSync(AgentRunSummary)(summary));
+            record.supplied.clear();
+            return yield* persistRunSummary(record, record.finalized.summary);
           })
         );
       }
@@ -6301,8 +6316,13 @@ const makeAgentSession = (
           );
         }
         const { run } = record.snapshot;
-        if (run === null) {
-          return yield* Effect.fail(notRunning(sessionId));
+        if (run === null || isTaskRun(run)) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_invalid",
+              "Task Runs use agent_run_assess or agent_run_finding, not Agent Steps."
+            )
+          );
         }
         if (run.outcome !== null) {
           return yield* Effect.fail(
@@ -6450,6 +6470,220 @@ const makeAgentSession = (
       }
     );
 
+    const closeUnlocked = Effect.fn("AgentSession.close")(
+      function* closeSession(
+        sessionId: AgentSessionId,
+        operationId?: OperationId | string
+      ) {
+        const requestInput = "";
+        const replayed = replaySession(
+          operationId,
+          "close",
+          sessionId,
+          requestInput
+        );
+        if (replayed?._tag === "replay") {
+          return replayed.snapshot;
+        }
+        if (replayed?._tag === "conflict") {
+          return yield* Effect.fail(replayed.error);
+        }
+        const existing = Ref.getUnsafe(sessions).get(sessionId);
+        if (existing === undefined) {
+          const durable = yield* readyTeachingSnapshot(sessionId);
+          if (durable !== null) {
+            yield* rememberSession(
+              operationId,
+              "close",
+              sessionId,
+              requestInput,
+              durable
+            );
+            return durable;
+          }
+        }
+        let record = yield* read(sessionId);
+        if (
+          isLive(record.snapshot.phase) &&
+          record.snapshot.activity === "teaching" &&
+          record.snapshot.captureState._tag === "recording" &&
+          record.teachingRecorder !== undefined
+        ) {
+          yield* stopTeachingRecordingUnlocked(
+            sessionId,
+            `close-recording-${String(operationId ?? sessionId)}`,
+            "session-closed"
+          );
+          record = yield* read(sessionId);
+        }
+        if (!isLive(record.snapshot.phase)) {
+          let { snapshot } = record;
+          if (snapshot.run !== null && !record.finalized.persisted) {
+            yield* finalizeRunUnlocked(sessionId);
+            ({ snapshot } = yield* read(sessionId));
+          }
+          if (
+            snapshot.activity === "teaching" &&
+            (snapshot.captureState._tag === "recording" ||
+              snapshot.captureState._tag === "finalizing")
+          ) {
+            const stoppedAt =
+              snapshot.captureState._tag === "finalizing"
+                ? snapshot.captureState.stoppedAt
+                : now().toISOString();
+            const { startedAt } = snapshot.captureState;
+            const finalizing = {
+              ...snapshot,
+              boundary: null,
+              captureState: {
+                _tag: "finalizing" as const,
+                startedAt,
+                stoppedAt,
+              },
+              phase: "closed" as const,
+              takeover: null,
+              updatedAt: stoppedAt,
+            };
+            yield* save(sessionId, record, finalizing);
+            snapshot = yield* finishTeachingClose(
+              sessionId,
+              record,
+              finalizing,
+              operationId
+            );
+          }
+          yield* rememberSession(
+            operationId,
+            "close",
+            sessionId,
+            requestInput,
+            snapshot
+          );
+          return snapshot;
+        }
+        return yield* Effect.uninterruptibleMask(() =>
+          Effect.gen(function* closeAtomically() {
+            const at = now().toISOString();
+            const closed =
+              record.snapshot.activity === "teaching"
+                ? {
+                    ...record.snapshot,
+                    boundary: null,
+                    phase: "closed" as const,
+                    takeover: null,
+                    updatedAt: at,
+                  }
+                : {
+                    ...record.snapshot,
+                    boundary: null,
+                    phase: "closed" as const,
+                    run: endClosedRun(record.snapshot.run, at),
+                    takeover: null,
+                    updatedAt: at,
+                  };
+            yield* save(sessionId, record, closed);
+            yield* Scope.close(record.scope, Exit.void);
+            if (closed.run !== null) {
+              yield* finalizeRunUnlocked(sessionId);
+            }
+            const finished = (yield* read(sessionId)).snapshot;
+            yield* rememberSession(
+              operationId,
+              "close",
+              sessionId,
+              requestInput,
+              finished
+            );
+            return finished;
+          })
+        );
+      }
+    );
+
+    const interruptUnlocked = Effect.fn("AgentSession.interrupt")(
+      function* interruptSession(sessionId: AgentSessionId) {
+        const record = yield* read(sessionId);
+        if (!isLive(record.snapshot.phase)) {
+          return record.snapshot;
+        }
+        const at = now().toISOString();
+        const interrupted: AgentSessionSnapshot = {
+          ...record.snapshot,
+          error:
+            "The owning process stopped before this Agent Session completed.",
+          phase: "interrupted",
+          takeover: null,
+          updatedAt: at,
+        };
+        const ended =
+          interrupted.run !== null && isTaskRun(interrupted.run)
+            ? {
+                ...interrupted,
+                run: {
+                  ...interrupted.run,
+                  lifecycle: {
+                    endedAt: at,
+                    outcome: "process-exited" as const,
+                    phase: "ended" as const,
+                  },
+                },
+              }
+            : interrupted;
+        yield* save(sessionId, record, ended);
+        yield* Scope.close(record.scope, Exit.interrupt());
+        if (ended.run !== null) {
+          yield* finalizeRunUnlocked(sessionId);
+        }
+        return interrupted;
+      }
+    );
+
+    const taskMutation = <E>(
+      sessionId: AgentSessionId,
+      operationId: OperationId,
+      kind: AgentOperationKind,
+      requestInput: string,
+      change: (
+        record: SessionRecord,
+        run: TaskAgentRunState
+      ) => Effect.Effect<AgentSessionSnapshot, E>
+    ) =>
+      lock.withPermit(
+        Effect.gen(function* mutateTask() {
+          const replayed = replaySession(
+            operationId,
+            kind,
+            sessionId,
+            requestInput
+          );
+          if (replayed?._tag === "conflict") {
+            return yield* Effect.fail(replayed.error);
+          }
+          if (replayed?._tag === "replay") {
+            return replayed.snapshot;
+          }
+          const record = yield* requireLiveRecord(sessionId);
+          const { run } = record.snapshot;
+          if (run === null || !isTaskRun(run) || runEnded(run)) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                "This session has no live task Run."
+              )
+            );
+          }
+          const next = yield* change(record, run);
+          yield* rememberSession(
+            operationId,
+            kind,
+            sessionId,
+            requestInput,
+            next
+          );
+          return next;
+        })
+      );
+
     const service: AgentSessionService = {
       acknowledgeFrame: (sessionId, sequence, streamId) =>
         Effect.gen(function* acknowledgeAgentFrame() {
@@ -6472,6 +6706,74 @@ const makeAgentSession = (
         actUnlocked(sessionId, action, operationId, undefined, intent),
       assessStep: (sessionId, input, operationId) =>
         lock.withPermit(assessStepUnlocked(sessionId, input, operationId)),
+      assessTask: (sessionId, input, finding, operationId) =>
+        taskMutation(
+          sessionId,
+          operationId,
+          finding ? "task-finding" : "task-assess",
+          JSON.stringify(input),
+          (record, run) =>
+            Effect.gen(function* assessTask() {
+              if (
+                agentIsPaused(record.snapshot) ||
+                record.boundaryControl?.pending !== undefined
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_conflict",
+                    "Return control and resolve the Execution Boundary before assessing the task."
+                  )
+                );
+              }
+              if (
+                input.evidence.length === 0 ||
+                input.explanation.trim().length === 0 ||
+                input.evidence.some((reference) => {
+                  if (reference.kind === "snapshot") {
+                    return !record.runEvidence.snapshots.has(reference.id);
+                  }
+                  if (reference.kind === "attempt") {
+                    return !record.runEvidence.attempts.has(reference.id);
+                  }
+                  return true;
+                })
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "Cite a Browser Snapshot or attempt produced by this Run and explain the assessment."
+                  )
+                );
+              }
+              const at = now().toISOString();
+              const assessment = { ...input, submittedAt: at };
+              return yield* recordEntry(
+                sessionId,
+                {
+                  actor: "agent",
+                  at,
+                  description: `${finding ? "Recorded finding" : "Assessed task"} as ${input.outcome}`,
+                  detail: input.explanation,
+                  dispatched: false,
+                  id: `assessment-${randomUUID()}`,
+                  outcome: "completed",
+                },
+                {
+                  run: {
+                    ...run,
+                    assessment: finding ? run.assessment : assessment,
+                    findings: finding
+                      ? [
+                          ...run.findings,
+                          { ...assessment, id: `finding-${randomUUID()}` },
+                        ]
+                      : run.findings,
+                    lastAgentActivityAt: at,
+                  },
+                }
+              );
+            })
+        ),
       browserStream: (sessionId) =>
         Stream.unwrap(
           read(sessionId).pipe(
@@ -6570,7 +6872,13 @@ const makeAgentSession = (
             )
           )
         ),
-      enterSuppliedVariable: (sessionId, name, ref, operationId) =>
+      enterSuppliedVariable: (
+        sessionId,
+        name,
+        ref,
+        operationId,
+        flowSkillName
+      ) =>
         Effect.gen(function* enterSuppliedVerificationVariable() {
           const record = yield* requireLiveRecord(sessionId);
           // Supplied Variables belong to Runs: even an agent preparing
@@ -6580,7 +6888,7 @@ const makeAgentSession = (
               teachingIsUserLed("This private input was not dispatched.")
             );
           }
-          const declared = requireDeclaredVariable(record, name);
+          const declared = requireDeclaredVariable(record, name, flowSkillName);
           if (declared._tag === "error") {
             return yield* Effect.fail(declared.error);
           }
@@ -6589,7 +6897,7 @@ const makeAgentSession = (
               takenOver("This private input was not dispatched.")
             );
           }
-          const value = record.supplied.get(name);
+          const value = record.supplied.get(variableKey(name, flowSkillName));
           if (value === undefined) {
             return yield* Effect.fail(
               error(
@@ -6608,6 +6916,7 @@ const makeAgentSession = (
             // The fingerprint names the Variable, not its value: a retry of
             // the same request is the same request whatever the user typed.
             requestInput: JSON.stringify({
+              flowSkillName: flowSkillName ?? null,
               kind: "supplied-variable",
               name,
               ref,
@@ -6667,7 +6976,7 @@ const makeAgentSession = (
         ),
       noteAgentActivity: (sessionId) =>
         mutate(sessionId, (snapshot) =>
-          snapshot.run === null || snapshot.run.outcome !== null
+          snapshot.run === null || runEnded(snapshot.run)
             ? snapshot
             : {
                 ...snapshot,
@@ -6742,6 +7051,65 @@ const makeAgentSession = (
       requestTakeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
+        ),
+      requestTaskVariable: (sessionId, flowSkillName, name, operationId) =>
+        taskMutation(
+          sessionId,
+          operationId,
+          "variable-request",
+          JSON.stringify({ flowSkillName, name }),
+          (record, run) =>
+            Effect.gen(function* requestVariable() {
+              const declared = requireDeclaredVariable(
+                record,
+                name,
+                flowSkillName
+              );
+              if (declared._tag === "error") {
+                return yield* Effect.fail(declared.error);
+              }
+              const variable = run.variables.find(
+                (candidate) =>
+                  candidate.flowSkillName === flowSkillName &&
+                  candidate.name === name
+              );
+              if (
+                variable?.supplied ||
+                record.snapshot.pendingDecisions.some(
+                  (decision) =>
+                    decision.variable?.name === name &&
+                    decision.variable.flowSkillName === flowSkillName
+                )
+              ) {
+                return record.snapshot;
+              }
+              const at = now().toISOString();
+              const decision: AgentPendingDecision = {
+                boundaryId: null,
+                createdAt: at,
+                kind: "supply_variable",
+                pendingDecisionId: AgentPendingDecisionId.make(
+                  `pending-${randomUUID()}`
+                ),
+                scopeSummary: `Supply Variable ${flowSkillName}/${name}. The value stays on this machine.`,
+                sessionId,
+                variable: {
+                  flowSkillName,
+                  name,
+                  secret: declared.variable.secret,
+                },
+              };
+              const next = {
+                ...record.snapshot,
+                pendingDecisions: [
+                  ...record.snapshot.pendingDecisions,
+                  decision,
+                ],
+                updatedAt: at,
+              };
+              yield* save(sessionId, record, next);
+              return next;
+            })
         ),
       resolvePendingDecision: (input) =>
         lock.withPermit(
@@ -7185,6 +7553,85 @@ const makeAgentSession = (
       takeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)
+        ),
+      updateTask: (sessionId, prepare, operationId, requestInput) =>
+        taskMutation(
+          sessionId,
+          operationId,
+          "task-update",
+          requestInput,
+          (record, run) =>
+            Effect.gen(function* updateTask() {
+              const input = yield* prepare;
+              const at = now().toISOString();
+              const referencedSkills = [...run.referencedSkills];
+              const variables = [...run.variables];
+              for (const skill of input.skills) {
+                if (
+                  !referencedSkills.some(
+                    (reference) =>
+                      reference.flowSkillName === skill.flowSkillName
+                  )
+                ) {
+                  referencedSkills.push({
+                    flowSkillName: skill.flowSkillName,
+                    referencedAt: at,
+                  });
+                  variables.push(...skill.variables);
+                }
+              }
+              const inputs = [...run.inputs];
+              for (const supplied of input.inputs) {
+                const existing = inputs.findIndex(
+                  (value) =>
+                    value.flowSkillName === supplied.flowSkillName &&
+                    value.name === supplied.name
+                );
+                if (existing === -1) {
+                  inputs.push(supplied);
+                } else {
+                  inputs[existing] = supplied;
+                }
+              }
+              const nextRun = {
+                ...run,
+                assessment:
+                  input.instruction === undefined ? run.assessment : null,
+                inputs,
+                instructions:
+                  input.instruction === undefined
+                    ? run.instructions
+                    : [
+                        ...run.instructions,
+                        { instruction: input.instruction, receivedAt: at },
+                      ],
+                lastAgentActivityAt: at,
+                referencedSkills,
+                variables,
+              };
+              const next = yield* recordEntry(
+                sessionId,
+                {
+                  actor: "user",
+                  at,
+                  description:
+                    input.instruction ??
+                    "Referenced requested Flow Skills or supplied task inputs",
+                  dispatched: false,
+                  id: `instruction-${randomUUID()}`,
+                  outcome: "completed",
+                },
+                { run: nextRun }
+              );
+              // Admit requested hosts only after the task update has landed. No browser
+              // acquisition or Emulation change occurs on this path.
+              for (const skill of input.skills) {
+                for (const host of skill.hosts) {
+                  record.boundaryControl?.hosts.add(host);
+                }
+              }
+              return next;
+            })
         ),
       userNavigate: (sessionId, action) =>
         Effect.gen(function* navigateAsUser() {

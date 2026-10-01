@@ -2,6 +2,7 @@ import type {
   AgentRunState,
   AgentRunStep,
   AgentSessionSnapshot,
+  TaskAgentRunState,
 } from "@contingency/protocol";
 
 import {
@@ -34,7 +35,10 @@ export const agentIdleNotice = (
   session: {
     readonly controller: RunSessionSnapshot["controller"];
     readonly phase: RunSessionSnapshot["phase"];
-    readonly run: Pick<AgentRunState, "lastAgentActivityAt" | "outcome"> | null;
+    readonly run:
+      | Pick<AgentRunState, "lastAgentActivityAt" | "outcome">
+      | TaskAgentRunState
+      | null;
   },
   now: number,
   thresholdMs: number = AGENT_IDLE_NOTICE_MS
@@ -42,7 +46,9 @@ export const agentIdleNotice = (
   const { run } = session;
   if (
     run === null ||
-    run.outcome !== null ||
+    ("lifecycle" in run
+      ? run.lifecycle.phase === "ended"
+      : run.outcome !== null) ||
     session.controller !== "agent" ||
     session.phase === "takeover"
   ) {
@@ -145,6 +151,8 @@ export const runDockPresentation = (
   if (dryRun === null) {
     if (run === null) {
       sentences.push("This session has no flow skill run yet.");
+    } else if ("schemaVersion" in run) {
+      sentences.push(run.instructions.at(-1)?.instruction ?? run.requestedTask);
     } else {
       sentences.push(`Running the flow skill ${run.flowSkillName}.`);
       const active = activeStep(run);
@@ -176,7 +184,7 @@ export const runDockPresentation = (
   return {
     badge: agentStatusLabel(session, streamConnected),
     coverage:
-      run === null
+      run === null || "schemaVersion" in run
         ? undefined
         : `${run.coverage.executed} of ${run.coverage.total} Agent Steps executed`,
     nextStep: sentences.join(" "),
