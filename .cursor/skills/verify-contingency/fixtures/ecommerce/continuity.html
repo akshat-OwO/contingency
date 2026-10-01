@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Task continuity shop</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+      label {
+        display: block;
+        margin: 1rem 0;
+      }
+      button,
+      a {
+        margin-right: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Task continuity shop</h1>
+      <p id="account">Signed out</p>
+      <label>Password <input type="password" name="password" /></label>
+      <button type="button" id="sign-in">Sign in</button>
+      <button type="button" id="add">Add anvil to cart</button>
+      <p id="cart">Cart has 0 items</p>
+      <a href="continuity.html?tab=help" target="_blank">Open help tab</a>
+    </main>
+    <script>
+      const render = () => {
+        document.getElementById("account").textContent =
+          document.cookie.includes("fixture-login=active")
+            ? "Signed in"
+            : "Signed out";
+        document.getElementById("cart").textContent =
+          `Cart has ${sessionStorage.getItem("cart") ?? "0"} items`;
+      };
+      document.getElementById("sign-in").addEventListener("click", () => {
+        document.cookie = "fixture-login=active; Path=/; SameSite=Lax";
+        localStorage.setItem("fixture-account", "signed-in");
+        render();
+      });
+      document.getElementById("add").addEventListener("click", () => {
+        sessionStorage.setItem(
+          "cart",
+          String(Number(sessionStorage.getItem("cart") ?? "0") + 1)
+        );
+        render();
+      });
+      render();
+    </script>
+  </body>
+</html>

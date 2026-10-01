@@ -45,6 +45,7 @@ import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
+import { RuntimeVariables } from "@/components/agent/runtime-variables";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import {
   completeInspectComment,
@@ -548,6 +549,9 @@ const AgentLiveView = ({
   const showsNotices =
     notices !== null ||
     secretVariables.length > 0 ||
+    (session.pendingDecisions ?? []).some(
+      (decision) => decision.kind === "supply_variable"
+    ) ||
     state.botProtectionBlock !== undefined ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
@@ -636,6 +640,7 @@ const AgentLiveView = ({
               </Alert>
             )}
             <ExecutionBoundary session={session} />
+            <RuntimeVariables session={session} />
             {secretVariables.length > 0 ? (
               <DryRunVariables
                 sessionId={session.id}

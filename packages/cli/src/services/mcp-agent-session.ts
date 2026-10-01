@@ -147,7 +147,7 @@ const AgentBrowserScreenshotTool = Tool.make("agent_browser_screenshot", {
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    "Perform one browser action during a Run, or while preparing the setup of a Teaching session you started. Teaching refuses this tool once you hand control to the user: the user demonstrates the journey and you observe it. The action belongs to the active Agent Step by default, and intent.objective may describe it in the agent's own words. Set intent.objectiveKind to \"new\" only when deliberately starting work outside the Flow Skill's Agent Steps. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result's Snapshot is read once the Page settles, up to two seconds, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice.",
+    'Perform one browser action during a Run, or while preparing the setup of a Teaching session you started. Teaching refuses this tool once you hand control to the user: the user demonstrates the journey and you observe it. The action contributes to the user-requested task, and intent.objective may describe it in your own words. Set intent.objectiveKind to "new" when starting an unrelated objective. Declare known irreversible effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result\'s Snapshot is read once the Page settles, up to two seconds, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,
@@ -177,9 +177,10 @@ const AgentTeachingSetupHandoffTool = Tool.make(
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a Variable the user supplied to this Run into one element from the latest Browser Snapshot. You name the Variable and the element; the literal value stays inside Contingency and never reaches you or the Run's artifacts. Fails until the user has supplied that Variable in Workspace.",
+    "Enter a Variable the user supplied to this Run into one element from the latest Browser Snapshot. You name the Variable and the element; the literal value stays inside Contingency and never reaches you or the Run's artifacts. For a task Run, supply flowSkillName as well as name. Request a needed input with agent_run_variable_request and relay its decision before entering it. Dry Run secrets are supplied in Workspace.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
+    flowSkillName: AgentVariableEnter.fields.flowSkillName,
     name: AgentVariableEnter.fields.name,
     operationId: AgentVariableEnter.fields.operationId,
     ref: AgentVariableEnter.fields.ref,
@@ -290,7 +291,8 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
           params.sessionId,
           params.name,
           params.ref,
-          params.operationId
+          params.operationId,
+          params.flowSkillName
         )
         .pipe(Effect.mapError(failure));
     }),

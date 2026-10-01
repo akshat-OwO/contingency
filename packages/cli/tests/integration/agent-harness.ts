@@ -159,7 +159,7 @@ export const findNode = (
 /** The Interactive Run a snapshot is performing. */
 export const requireRun = (snapshot: AgentSessionSnapshot): AgentRunState => {
   const state = snapshot.run;
-  if (state === null) {
+  if (state === null || "schemaVersion" in state) {
     throw new Error("The Agent Session was not performing an Interactive Run.");
   }
   return state;
