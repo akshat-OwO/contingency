@@ -127,14 +127,16 @@ it.live("refuses a result too large to return to the model", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.live("bounds a slow read by the script's deadline and frees the sandbox", () =>
-  Effect.gen(function* slowRead() {
-    const origin = yield* servingMcpHttp({ codeMode: true });
-    const { request } = yield* connectMcp(origin);
-    const started = Date.now();
-    const waited = yield* runIn(
-      request,
-      `try {
+it.live(
+  "bounds a slow read by the script's deadline and frees the sandbox",
+  () =>
+    Effect.gen(function* slowRead() {
+      const origin = yield* servingMcpHttp({ codeMode: true });
+      const { request } = yield* connectMcp(origin);
+      const started = Date.now();
+      const waited = yield* runIn(
+        request,
+        `try {
         contingency.call("agent_teaching_recordings_list", {
           recordingId: "recording-never-arrives",
           timeoutMs: 60000,
@@ -143,15 +145,15 @@ it.live("bounds a slow read by the script's deadline and frees the sandbox", () 
       } catch (error) {
         return error.message;
       }`,
-      500
-    );
-    expect(waited.structuredContent?.result).toBe("Time budget exhausted.");
-    expect(Date.now() - started).toBeLessThan(5000);
+        500
+      );
+      expect(waited.structuredContent?.result).toBe("Time budget exhausted.");
+      expect(Date.now() - started).toBeLessThan(5000);
 
-    // The single sandbox permit was released: the next script runs.
-    const next = yield* runIn(request, "return 1 + 1;");
-    expect(next.structuredContent?.result).toBe(2);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+      // The single sandbox permit was released: the next script runs.
+      const next = yield* runIn(request, "return 1 + 1;");
+      expect(next.structuredContent?.result).toBe(2);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it.live("answers unserializable parameters without wedging the sandbox", () =>

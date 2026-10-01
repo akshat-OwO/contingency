@@ -251,16 +251,16 @@ export const CodeModeToolHandlersLive = CodeModeTools.toLayer(
                             error: `${name} is not a read-only Contingency tool.`,
                           });
                         }
-                        const params: unknown = JSON.parse(
+                        const input: unknown = JSON.parse(
                           context.getString(paramsHandle)
                         );
-                        if (!isJson(params)) {
+                        if (!isJson(input)) {
                           return answer({ error: "Parameters must be JSON." });
                         }
                         // The interrupt handler cannot run while the VM waits
                         // on this call, so the call itself honours the deadline.
                         const result = await run(
-                          Effect.timeoutOption(tool(params), remaining)
+                          Effect.timeoutOption(tool(input), remaining)
                         );
                         if (Option.isNone(result)) {
                           return answer({ error: "Time budget exhausted." });
@@ -270,9 +270,9 @@ export const CodeModeToolHandlersLive = CodeModeTools.toLayer(
                             ? { error: JSON.stringify(result.value.encoded) }
                             : { result: result.value.encoded }
                         );
-                      } catch (cause) {
+                      } catch (error) {
                         return answer({
-                          error: `The call could not be made: ${String(cause).slice(0, 200)}`,
+                          error: `The call could not be made: ${String(error).slice(0, 200)}`,
                         });
                       }
                     }
