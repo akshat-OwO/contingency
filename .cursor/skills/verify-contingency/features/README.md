@@ -4,7 +4,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 
 ## Baseline preconditions
 
-- Build `@contingencyhq/cli` so `packages/cli/dist/index.js` and `packages/cli/dist/web/index.html` exist.
+- Build the current source with `nub exec turbo run build --filter=@contingencyhq/cli --force`. The CLI embeds Workspace; an existing or cached CLI bundle alone does not prove current web source.
 - Launch with `control-contingency launch` so the UI is the production SPA on an ephemeral `127.0.0.1` port, not Vite `:5173` and not a borrowed `:7777`.
 - Export `CONTINGENCY_VERIFY_DIR` from launch stdout.
 - Run `control-contingency doctor` and require `ok`, the printed URL, and a `stateDir` under that verify directory.
@@ -44,3 +44,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 ## Features
 
 - [Workspace](./workspace.md) is the UI recipe for navigation, streaming diagnostics and preferences, scaled Inspect alignment, rapid canvas input, Browser Snapshot context and layered sheets, delayed navigation and Session URL sync, the Teaching Start/Stop capture boundary, Run-owned Agent Assessment evidence, complete or partial Dry Run outcome reports, task-directed Interactive Runs with browser continuity and lazy skill-scoped inputs, and task details, responsive Dry Run results, and persisted task and historical Run Summaries.
+- [Combined task proof](./workspace.md#combined-task-proof) runs `agent-task-combined-proof`, `agent-dry-run-outcomes`, and `agent-summary-restart-proof` together. Its command journal, MCP responses, snapshots, screenshots, persisted rereads, and explicit blockers stay under `artifacts/task-proof/` after cleanup.
