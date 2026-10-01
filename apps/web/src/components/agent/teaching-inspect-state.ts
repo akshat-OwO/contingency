@@ -51,3 +51,21 @@ export const emptyInspectState: InspectState = {
   open: false,
   pending: false,
 };
+
+/** A committed instruction consumes its number even if its Page was left. */
+export const completeInspectComment = (
+  state: InspectState,
+  frozen: AgentInspectedElement,
+  index: number,
+  samePage: boolean
+): InspectState => {
+  const nextCommentIndex = Math.max(state.nextCommentIndex, index + 1);
+  if (!samePage || state.frozen !== frozen) {
+    return { ...state, nextCommentIndex, pending: false };
+  }
+  return {
+    ...emptyInspectState,
+    comments: [...state.comments, { ...frozen, index }],
+    nextCommentIndex,
+  };
+};
