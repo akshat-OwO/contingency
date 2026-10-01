@@ -26,9 +26,18 @@ const initializeBody = JSON.stringify({
   },
 });
 
-const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp() {
+const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
+  skillContent?: string
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const catalogRoot = yield* fileSystem.makeTempDirectoryScoped();
+  if (skillContent !== undefined) {
+    yield* fileSystem.makeDirectory(`${catalogRoot}/input-forms`);
+    yield* fileSystem.writeFileString(
+      `${catalogRoot}/input-forms/SKILL.md`,
+      skillContent
+    );
+  }
   const allowedOrigins = new Set(["http://127.0.0.1:7783"]);
   const context = yield* Layer.build(
     HttpRouter.serve(makeMcpHttpLayer(allowedOrigins)).pipe(
@@ -75,6 +84,68 @@ const postMcp = (
       method: "POST",
     })
   );
+
+it.live("lists every input declaration form as JSON-safe MCP content", () =>
+  Effect.gen(function* listsInputForms() {
+    const origin = yield* serving(`---
+name: input-forms
+description: Exercise input declarations.
+inputs:
+  - bare
+  - name: mapped
+  - name: described
+    description: The documented value.
+---
+
+1. Fill the input fields.
+   Done when: Each field contains its requested value.
+`);
+    const initialized = yield* postMcp(origin, {
+      "mcp-protocol-version": "2025-06-18",
+    });
+    expect(initialized.status).toBe(200);
+    const sessionId = initialized.headers.get("mcp-session-id");
+    expect(sessionId).not.toBeNull();
+    const response = yield* postMcp(
+      origin,
+      {
+        "mcp-protocol-version": "2025-06-18",
+        "mcp-session-id": sessionId ?? "",
+      },
+      JSON.stringify({
+        id: 2,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: { arguments: {}, name: "agent_flow_skills_list" },
+      })
+    );
+    expect(response.status).toBe(200);
+    const payload: unknown = yield* Effect.promise(() => response.json());
+    const listing = {
+      flowSkills: [
+        {
+          description: "Exercise input declarations.",
+          inputs: [
+            { name: "bare" },
+            { name: "mapped" },
+            { description: "The documented value.", name: "described" },
+          ],
+          name: "input-forms",
+          stepCount: 1,
+        },
+      ],
+    };
+    expect(payload).toEqual({
+      id: 2,
+      jsonrpc: "2.0",
+      result: {
+        content: [{ text: JSON.stringify(listing), type: "text" }],
+        isError: false,
+        structuredContent: listing,
+      },
+    });
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
 it.live(
   "serves Streamable HTTP MCP on a stable path so URL clients share one process",

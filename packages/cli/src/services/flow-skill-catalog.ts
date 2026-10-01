@@ -188,7 +188,11 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
       }
       found.push({
         description: read.success.title,
-        inputs: read.success.inputs,
+        inputs: read.success.inputs.map(({ description, name: inputName }) =>
+          description === undefined
+            ? { name: inputName }
+            : { description, name: inputName }
+        ),
         name,
         stepCount: read.success.steps.length,
       });
