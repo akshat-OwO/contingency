@@ -1,5 +1,7 @@
 # Agent-controlled Runs have no wall-clock ceiling
 
+> [ADR 0044](./0044-agents-own-flow-skill-execution.md) supersedes assessment-triggered termination for task Runs. Task assessments and findings leave the browser open; explicit completion, user closure, or process exit end execution. The absence of wall-clock ceilings, per-action timeouts, idle reporting, and historical timeout decoding remain. The ordered-step endings below remain runtime compatibility during integration.
+
 > Supersedes the Step and Run ceilings in [ADR 0029](./0029-contingency-owns-the-sole-runner.md) and the ceilings a Dry Run borrows in [ADR 0041](./0041-dry-run-results-are-derived-from-agent-assessments.md).
 
 An Interactive Run and a Dry Run have no Agent Step ceiling and no Run ceiling. A Run ends only when its last Agent Step is assessed, when an Agent Assessment other than `working` stops the ordered Steps, on `agent_run_complete`, when the user closes the session, or when the process that owns it exits. Nothing ends a Run for being slow.

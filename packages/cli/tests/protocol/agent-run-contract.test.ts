@@ -3,7 +3,7 @@ import {
   AgentAssessmentOutcome,
   agentRunVideoPath,
   AgentRunId,
-  AgentRunSummary,
+  LegacyAgentRunSummary as AgentRunSummary,
 } from "@contingency/protocol";
 import { Schema } from "effect";
 import { expect, test } from "vitest";

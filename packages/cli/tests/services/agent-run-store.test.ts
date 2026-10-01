@@ -5,7 +5,7 @@ import {
   AgentSessionId,
   FlowSkillName,
 } from "@contingency/protocol";
-import type { AgentRunSummary } from "@contingency/protocol";
+import type { LegacyAgentRunSummary as AgentRunSummary } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
@@ -15,6 +15,7 @@ import {
   AgentRunStore,
   makeAgentRunStoreLayer,
 } from "../../src/services/agent-run-store.ts";
+import { taskRunSummary } from "../helpers/task-run.ts";
 
 const runId = AgentRunId.make("agentrun-store-test");
 
@@ -164,6 +165,20 @@ it.effect(
             ? { ...step, confirmation: false, execution: "timed-out" }
             : step
         ),
+        timeline: [
+          {
+            actor: "agent",
+            at: "2026-09-04T00:01:00.000Z",
+            description: "Add the product to the basket",
+            detail: "The basket did not change.",
+            dispatched: true,
+            effect: { kind: "none" },
+            id: "attempt-1",
+            outcome: "failed",
+          },
+        ],
+        tracePath: "artifacts/historical.trace.zip",
+        videoPath: "artifacts/historical.webm",
       };
       const directory = path.join(root, AGENT_RUNS_DIRECTORY, current.runId);
       yield* fileSystem.makeDirectory(directory, { recursive: true });
@@ -185,7 +200,108 @@ it.effect(
       }).pipe(Effect.provide(layerFor(root)));
 
       expect(read.outcome).toBe("timed-out");
+      if (read.schemaVersion !== 2) {
+        return yield* Effect.die("Expected a historical step Run Summary.");
+      }
       expect(read.ceilings).toEqual(legacy.ceilings);
       expect(read.steps[2]?.execution).toBe("timed-out");
+      yield* Effect.gen(function* rewriteLegacySummary() {
+        const store = yield* AgentRunStore;
+        yield* store.write(read);
+      }).pipe(Effect.provide(layerFor(root)));
+      const persisted = JSON.parse(
+        yield* fileSystem.readFileString(path.join(directory, "summary.json"))
+      );
+      expect(persisted).toEqual(legacy);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "round-trips task history, composed inputs, findings, and browser artifacts",
+  () =>
+    Effect.gen(function* persistTaskRun() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-task-run-",
+      });
+      yield* Effect.gen(function* writeTask() {
+        const store = yield* AgentRunStore;
+        yield* store.write(taskRunSummary);
+      }).pipe(Effect.provide(layerFor(root)));
+      yield* Effect.gen(function* readTaskFromAnotherProcess() {
+        const store = yield* AgentRunStore;
+        expect(yield* store.read(taskRunSummary.runId)).toEqual(taskRunSummary);
+        expect(yield* store.videoFile(taskRunSummary.runId)).toBe(
+          path.join(
+            root,
+            AGENT_RUNS_DIRECTORY,
+            taskRunSummary.runId,
+            "run.webm"
+          )
+        );
+      }).pipe(Effect.provide(layerFor(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect("persists an unassessed skill-free task after process exit", () =>
+  Effect.gen(function* persistUnassessedTask() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-task-run-",
+    });
+    yield* Effect.gen(function* roundTrip() {
+      const store = yield* AgentRunStore;
+      const summary = {
+        ...taskRunSummary,
+        assessment: null,
+        findings: [],
+        inputs: [],
+        outcome: "process-exited" as const,
+        referencedSkills: [],
+        variables: [],
+      };
+      yield* store.write(summary);
+      expect(yield* store.read(summary.runId)).toEqual(summary);
+    }).pipe(Effect.provide(layerFor(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect("contains task video paths within the Run directory", () =>
+  Effect.gen(function* containTaskVideo() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-task-run-",
+    });
+    yield* Effect.gen(function* escapedVideo() {
+      const store = yield* AgentRunStore;
+      yield* store.write({
+        ...taskRunSummary,
+        videoPath: "../another-run/run.webm",
+      });
+      expect(yield* store.videoFile(taskRunSummary.runId)).toBeNull();
+    }).pipe(Effect.provide(layerFor(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "reports invalid task data before overwriting an existing summary",
+  () =>
+    Effect.gen(function* preserveValidTask() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-task-run-",
+      });
+      yield* Effect.gen(function* refuseInvalidTask() {
+        const store = yield* AgentRunStore;
+        yield* store.write(taskRunSummary);
+        const failure = yield* Effect.flip(
+          store.write({
+            ...taskRunSummary,
+            requestedTask: "",
+          })
+        );
+        expect(failure.code).toBe("agent_run_invalid");
+        expect(yield* store.read(taskRunSummary.runId)).toEqual(taskRunSummary);
+      }).pipe(Effect.provide(layerFor(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

@@ -8,7 +8,7 @@ import {
   AgentElementRef,
   AgentPendingDecisionId,
   AgentSessionId,
-  AgentRunSummary,
+  LegacyAgentRunSummary as AgentRunSummary,
   describeActionSubject,
   describeAgentAction,
   makeBrowserRpcError,

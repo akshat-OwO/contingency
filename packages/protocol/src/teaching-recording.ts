@@ -15,8 +15,10 @@ import { AgentRunSummary } from "./agent-run.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 export { FlowSkillName } from "./flow-skill-identifiers.ts";
+export { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -31,11 +33,6 @@ export const ContentHash = Schema.String.check(
   Schema.isPattern(/^sha256-[a-f0-9]{64}$/u)
 ).pipe(Schema.brand("@contingency/ContentHash"));
 export type ContentHash = typeof ContentHash.Type;
-
-export const TeachingRecordingId = Schema.String.check(
-  Schema.isPattern(/^recording-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
-).pipe(Schema.brand("@contingency/TeachingRecordingId"));
-export type TeachingRecordingId = typeof TeachingRecordingId.Type;
 
 /** The whole rule, stated the way a caller can act on it. */
 export const flowSkillNameRule =

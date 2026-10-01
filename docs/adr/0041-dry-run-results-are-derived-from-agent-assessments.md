@@ -1,5 +1,7 @@
 # Dry Run results are derived from Agent Assessments
 
+> [ADR 0044](./0044-agents-own-flow-skill-execution.md) supersedes ordered-step result derivation with an explicit evidence-backed assessment of the Flow Skill's complete intended outcome. The agent chooses its route; partial attempts and attempts with Takeover cannot pass. Fresh contexts, saved Teaching Emulation, fresh inputs, explicit user verification, Teaching evidence ownership, and Cleanup remain. The text below records the historical contract, which the runtime retains during integration.
+
 > Supersedes the Dry Run result and its report operation in [ADR 0039](./0039-flow-skills-are-learned-from-temporary-teaching-recordings.md).
 >
 > Amended by [ADR 0043](./0043-agent-runs-have-no-wall-clock-ceiling.md): a Dry Run no longer borrows ceilings, because Runs no longer have them.

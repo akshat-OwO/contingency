@@ -38,9 +38,9 @@ export interface AgentRunStoreService {
   readonly read: (
     runId: AgentRunId
   ) => Effect.Effect<AgentRunSummary, AgentRunStoreError>;
-  readonly write: (
-    summary: AgentRunSummary
-  ) => Effect.Effect<AgentRunSummary, AgentRunStoreError>;
+  readonly write: <Summary extends AgentRunSummary>(
+    summary: Summary
+  ) => Effect.Effect<Summary, AgentRunStoreError>;
   /** The absolute path of a persisted Run's video, or `null` when it has none. */
   readonly videoFile: (
     runId: AgentRunId
@@ -56,7 +56,7 @@ export interface AgentRunStoreOptions {
   readonly root: () => string;
 }
 
-const encodeSummary = Schema.encodeSync(AgentRunSummary);
+const encodeSummary = Schema.encodeEffect(AgentRunSummary);
 const decodeSummary = Schema.decodeUnknownEffect(AgentRunSummary);
 
 const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
@@ -107,13 +107,21 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
       );
     });
 
-  const write = (summary: AgentRunSummary) =>
+  const write = <Summary extends AgentRunSummary>(summary: Summary) =>
     Effect.gen(function* writeSummary() {
+      const encoded = yield* encodeSummary(summary).pipe(
+        Effect.mapError((cause) =>
+          storeError(
+            "agent_run_invalid",
+            `Run ${summary.runId} is not a valid Run Summary: ${cause.message}`
+          )
+        )
+      );
       const directory = yield* prepare(summary.runId);
       yield* fileSystem
         .writeFileString(
           path.join(directory, SUMMARY_FILE),
-          `${JSON.stringify(encodeSummary(summary), null, 2)}\n`
+          `${JSON.stringify(encoded, null, 2)}\n`
         )
         .pipe(
           Effect.mapError(

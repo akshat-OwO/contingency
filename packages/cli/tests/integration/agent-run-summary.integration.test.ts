@@ -108,6 +108,9 @@ it.live(
           // The Summary exists without any further call, and `open_run` in the
           // process that produced it resolves a view URL.
           const opened = yield* runTool("open_run", { runId: run.runId });
+          if (opened.summary.schemaVersion !== 2) {
+            return yield* Effect.die("Expected the ordered runtime's Summary.");
+          }
           expect(opened.summary.outcome).toBe("completed");
           expect(opened.summary.runId).toBe(run.runId);
           expect(opened.viewUrl).toContain(run.runId);
@@ -264,6 +267,9 @@ it.live("persists a Run Summary a terminal Agent Assessment ended", () =>
         expect(ended.run?.outcome).toBe("ended-early");
 
         const opened = yield* runTool("open_run", { runId: run.runId });
+        if (opened.summary.schemaVersion !== 2) {
+          return yield* Effect.die("Expected the ordered runtime's Summary.");
+        }
         expect(opened.summary.outcome).toBe("ended-early");
         expect(opened.summary.coverage).toEqual({
           complete: false,

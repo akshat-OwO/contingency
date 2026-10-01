@@ -157,11 +157,28 @@ export const RunSummaryView = ({
         </p>
       </div>
     </section>
-    <RunTotals
-      assessmentCounts={summary.assessmentCounts}
-      coverage={summary.coverage}
-    />
-    <RunSteps activeStepIndex={null} steps={summary.steps} />
+    {summary.schemaVersion === 2 ? (
+      <>
+        <RunTotals
+          assessmentCounts={summary.assessmentCounts}
+          coverage={summary.coverage}
+        />
+        <RunSteps activeStepIndex={null} steps={summary.steps} />
+      </>
+    ) : (
+      <section aria-label="Task assessment" className="space-y-2 text-sm">
+        <p>{summary.requestedTask}</p>
+        <p>{summary.assessment?.outcome ?? "No Agent Assessment submitted"}</p>
+        {summary.assessment === null ? null : (
+          <p>{summary.assessment.explanation}</p>
+        )}
+        {summary.findings.map((finding) => (
+          <p key={finding.id}>
+            {finding.outcome}: {finding.explanation}
+          </p>
+        ))}
+      </section>
+    )}
     <section aria-labelledby="agent-run-video" className="space-y-2">
       <h2 className="text-sm font-semibold" id="agent-run-video">
         Run video
