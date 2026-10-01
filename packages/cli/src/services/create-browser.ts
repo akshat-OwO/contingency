@@ -8,6 +8,7 @@ import {
   SessionId as SessionIdSchema,
 } from "@contingency/protocol";
 import type {
+  BrowserAgentPointer,
   BrowserInput,
   BrowserRpcErrorType,
   BrowserStreamEvent,
@@ -328,6 +329,10 @@ const makeService = (
         capacity: 1,
         replay: 1,
       });
+      const pointers = yield* PubSub.sliding<BrowserAgentPointer>({
+        capacity: 8,
+        replay: 1,
+      });
       const page = yield* tryBrowser("Could not create browser page", () =>
         context.newPage()
       );
@@ -361,6 +366,7 @@ const makeService = (
           readonly page: Page;
           readonly touchActive: boolean;
         } | null>(null),
+        pointers,
         screencastLock: yield* Semaphore.make(1),
         state,
       };
@@ -495,6 +501,7 @@ const makeService = (
       );
       yield* PubSub.shutdown(session.events);
       yield* PubSub.shutdown(session.frames);
+      yield* PubSub.shutdown(session.pointers);
     }
   );
 
@@ -696,11 +703,11 @@ const makeService = (
         const durationMs = agentPointerTravelMs(
           Math.hypot(pointer.x - from.x, pointer.y - from.y)
         );
-        PubSub.publishUnsafe(session.events, {
+        PubSub.publishUnsafe(session.pointers, {
           ...pointer,
           durationMs,
           timestamp: Date.now(),
-          type: "agent_pointer",
+          type: "agent_pointer" as const,
         });
         // The action waits for the cursor, so a watcher sees the agent reach
         // a control before the Page reacts to it rather than after.
@@ -763,7 +770,10 @@ const makeService = (
           const session = yield* requireSession(sessionId);
           yield* startScreencast(session);
           return Stream.merge(
-            Stream.fromPubSub(session.events),
+            Stream.merge(
+              Stream.fromPubSub(session.events),
+              Stream.fromPubSub(session.pointers)
+            ),
             Stream.fromPubSub(session.frames)
           ).pipe(
             Stream.filter(

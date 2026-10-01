@@ -1,5 +1,6 @@
 import { makeBrowserRpcError } from "@contingency/protocol";
 import type {
+  BrowserAgentPointer,
   BrowserCookie,
   BrowserIdentity,
   BrowserNetworkRequest,
@@ -101,6 +102,12 @@ export interface CreateSession {
   readonly frames: PubSub.PubSub<BrowserFrame>;
   readonly id: SessionId;
   readonly inputLock: Semaphore.Semaphore;
+  /**
+   * The agent's cursor, apart from `events`: one per action would otherwise
+   * push the screencast status a late viewer depends on out of that replay.
+   * A viewer only needs the latest point.
+   */
+  readonly pointers: PubSub.PubSub<BrowserAgentPointer>;
   readonly inputSession: Ref.Ref<{
     readonly cdp: CDPSession;
     readonly page: Page;

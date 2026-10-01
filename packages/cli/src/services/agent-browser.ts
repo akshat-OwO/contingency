@@ -1983,14 +1983,27 @@ const pointAt = (
       if (box === null) {
         return Effect.void;
       }
-      const x = box.x + box.width / 2;
-      const y = box.y + box.height / 2;
+      // Aim at the part of the element on screen, as the click itself does:
+      // the centre of a box taller than the viewport can stay off-screen
+      // after it is scrolled in.
       const viewport = page.viewportSize();
-      const visible =
-        x >= 0 &&
-        y >= 0 &&
-        (viewport === null || (x <= viewport.width && y <= viewport.height));
-      return visible ? sink({ action: pointer.action, x, y }) : Effect.void;
+      const left = Math.max(box.x, 0);
+      const top = Math.max(box.y, 0);
+      const right = Math.min(
+        box.x + box.width,
+        viewport?.width ?? Number.POSITIVE_INFINITY
+      );
+      const bottom = Math.min(
+        box.y + box.height,
+        viewport?.height ?? Number.POSITIVE_INFINITY
+      );
+      return right < left || bottom < top
+        ? Effect.void
+        : sink({
+            action: pointer.action,
+            x: (left + right) / 2,
+            y: (top + bottom) / 2,
+          });
     }),
     Effect.ignore
   );
