@@ -49,6 +49,7 @@ export * from "./storage.ts";
 export * from "./agent-identifiers.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-session.ts";
+export * from "./agent-session-compact.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-browser.ts";
 // oxlint-disable-next-line oxc/no-barrel-file

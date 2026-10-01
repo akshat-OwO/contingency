@@ -7,8 +7,6 @@ import {
   AgentRunOpen,
   AgentRunStepAssess,
   AgentRunSummary,
-  AgentRunViewer,
-  AgentSessionSnapshot,
   FlowSkillRunStart,
   AgentTaskRunStart,
   AgentRunTaskInput,
@@ -20,7 +18,6 @@ import {
 } from "@contingency/protocol";
 import type { TaskAgentRunState } from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
-import type { JsonSchema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentRunStore } from "./agent-run-store.ts";
@@ -33,7 +30,15 @@ import type {
   FlowSkillPackage,
 } from "./flow-skill-catalog.ts";
 import type { FlowSkillEmulation } from "./flow-skill-package.ts";
+import {
+  SessionResult,
+  UnpublishedRunSummary,
+  encodeUnpublishedRunSummary,
+  inView,
+  sessionViewParameter,
+} from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { readOnly } from "./mcp-tool-annotations.ts";
 import { webHost } from "./teaching-demonstration.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
@@ -52,58 +57,6 @@ const failure = (
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
   });
-
-const isJsonSchema = (value: unknown): value is JsonSchema.JsonSchema =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-/**
- * Effect emits simple checks under `allOf`. Some MCP clients discard the
- * entire field's type when that keyword is present. Move independent scalar
- * checks onto their parent without changing the schema's meaning.
- */
-const flattenScalarChecks = (
-  schema: JsonSchema.JsonSchema
-): JsonSchema.JsonSchema => {
-  const flattened: JsonSchema.JsonSchema = { ...schema };
-  if (isJsonSchema(schema.properties)) {
-    flattened.properties = Object.fromEntries(
-      Object.entries(schema.properties).map(([key, value]) => [
-        key,
-        isJsonSchema(value) ? flattenScalarChecks(value) : value,
-      ])
-    );
-  }
-  if (isJsonSchema(schema.items)) {
-    flattened.items = flattenScalarChecks(schema.items);
-  }
-
-  if (!Array.isArray(schema.allOf)) {
-    return flattened;
-  }
-  const permitted = new Set(["minItems", "minLength", "pattern"]);
-  const constraints: JsonSchema.JsonSchema = {};
-  for (const member of schema.allOf) {
-    if (!isJsonSchema(member)) {
-      return flattened;
-    }
-    for (const [key, value] of Object.entries(member)) {
-      if (
-        !permitted.has(key) ||
-        Object.hasOwn(flattened, key) ||
-        Object.hasOwn(constraints, key)
-      ) {
-        return flattened;
-      }
-      constraints[key] = value;
-    }
-  }
-  delete flattened.allOf;
-  return { ...flattened, ...constraints };
-};
-
-const assessParametersJsonSchema = flattenScalarChecks(
-  Tool.getJsonSchemaFromSchema(AgentRunStepAssess)
-);
 
 /**
  * A declared input whose name is shouty snake case is a runtime Variable: the
@@ -159,24 +112,15 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
     reportedModel: FlowSkillRunStart.fields.reportedModel,
     reportedProvider: FlowSkillRunStart.fields.reportedProvider,
     url: FlowSkillRunStart.fields.url,
+    view: sessionViewParameter,
   }),
-  success: AgentSessionSnapshot,
+  success: SessionResult,
 });
-
-const AgentRunStepAssessTool = Tool.dynamic("agent_run_step_assess", {
-  description:
-    'Report your evidence-backed judgment of the active Agent Step in a historical ordered Run: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Pass evidence as a non-empty array of objects, for example [{"kind":"snapshot","id":"snapshot-2"}] or [{"kind":"attempt","id":"action-123"}]. Every reference must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted. Assessing the last Agent Step or ending early closes the browser and writes a Run Summary. New Runs and Dry Runs use agent_run_assess and explicit agent_run_complete.',
-  failure: AgentRunFailure,
-  parameters: assessParametersJsonSchema,
-  success: AgentSessionSnapshot,
-})
-  .setParameters(AgentRunStepAssess)
-  .addDependency(AgentSession);
 
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession],
   description:
-    "Explicitly complete an Interactive Run or seal a Dry Run outcome report, and optionally record your closing account. Completion seals local evidence and disposes resources once; assessments alone do not end the browser. A Dry Run can pass only after this call seals a working, complete outcome report without user Takeover. A partial or unassessed attempt fails. Completing an ended session returns its persisted Run Summary. Nothing leaves the machine.",
+    "Explicitly complete an Interactive Run or seal a Dry Run outcome report, and optionally record your closing account. Call it as soon as your final assessment is recorded: the browser stays open until you do. Completion seals local evidence and disposes resources once; assessments alone do not end the browser. A Dry Run can pass only after this call seals a working, complete outcome report without user Takeover. A partial or unassessed attempt fails. Completing an ended session returns its persisted Run Summary. Nothing leaves the machine.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,
@@ -186,22 +130,31 @@ const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   success: AgentRunSummary,
 });
 
-const AgentRunOpenTool = Tool.make("open_run", {
-  dependencies: [AgentSession, AgentRunStore],
-  description:
-    "Open a new read-only local viewer for a persisted Run, including one recorded by an MCP process that has since exited. It reads the stored Run Summary and evidence and restores no browser state.",
-  failure: AgentRunFailure,
-  parameters: Schema.Struct({ runId: AgentRunOpen.fields.runId }),
-  success: AgentRunViewer,
-});
+const AgentRunOpenTool = readOnly(
+  Tool.make("open_run", {
+    dependencies: [AgentSession, AgentRunStore],
+    description:
+      "Open a new read-only local viewer for a persisted Run, including one recorded by an MCP process that has since exited. It reads the stored Run Summary and evidence and restores no browser state.",
+    failure: AgentRunFailure,
+    parameters: Schema.Struct({ runId: AgentRunOpen.fields.runId }),
+    success: Schema.Struct({
+      summary: UnpublishedRunSummary,
+      /** Local, loopback, and read-only: no browser state is restored. */
+      viewUrl: Schema.String.check(Schema.isMinLength(1)),
+    }),
+  })
+);
 
 const AgentTaskRunStartTool = Tool.make("agent_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
     "Start an Interactive Run for the user's requested task, with zero or more user-requested verified Flow Skills. Inputs are optional until needed. The agent interprets the procedures and stopping points. One browser context and its starting Emulation persist across referenced skills, changed instructions, findings, and recovery. Use agent_run_update to record later user instructions or requested skills, agent_run_variable_request when a private input is needed, agent_run_assess or agent_run_finding to report evidence, and agent_run_complete to seal evidence and close the browser. No wall-clock ceiling applies; per-action timeouts and exclusive Takeover remain.",
   failure: AgentRunFailure,
-  parameters: AgentTaskRunStart,
-  success: AgentSessionSnapshot,
+  parameters: Schema.Struct({
+    ...AgentTaskRunStart.fields,
+    view: sessionViewParameter,
+  }),
+  success: SessionResult,
 });
 const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   dependencies: [AgentSession, FlowSkillCatalog],
@@ -214,8 +167,9 @@ const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
     operationId: OperationId,
     referencedSkills: Schema.Array(FlowSkillName),
     sessionId: AgentSessionId,
+    view: sessionViewParameter,
   }),
-  success: AgentSessionSnapshot,
+  success: SessionResult,
 });
 const taskReportParameters = Schema.Struct({
   evidence: AgentRunStepAssess.fields.evidence,
@@ -224,6 +178,7 @@ const taskReportParameters = Schema.Struct({
   outcome: AgentTaskAssessment.fields.outcome,
   outcomeComplete: optionalNullable(Schema.Boolean),
   sessionId: AgentSessionId,
+  view: sessionViewParameter,
 });
 const taskReport = (
   params: typeof taskReportParameters.Type
@@ -242,10 +197,10 @@ const taskReport = (
 const AgentTaskAssessTool = Tool.make("agent_run_assess", {
   dependencies: [AgentSession],
   description:
-    "Record an evidence-backed model assessment of the requested task or complete Dry Run skill outcome. Cite Snapshot or attempt ids produced by this Run. For a Dry Run, explicitly set outcomeComplete to whether the complete skill outcome was attempted; a partial attempt cannot pass. Every outcome leaves the browser open for exploration or recovery. Use agent_run_complete when finished. A passing Dry Run still needs the user's Workspace verification before Cleanup.",
+    'Record an evidence-backed model assessment of the requested task or complete Dry Run skill outcome. Cite Snapshot or attempt ids produced by this Run, as a non-empty array such as [{"kind":"snapshot","id":"snapshot-2"}] or [{"kind":"attempt","id":"action-123"}]. For a Dry Run, explicitly set outcomeComplete to whether the complete skill outcome was attempted; a partial attempt cannot pass. Every outcome leaves the browser open for exploration or recovery. When this is your final assessment, call agent_run_complete next. A passing Dry Run still needs the user\'s Workspace verification before Cleanup.',
   failure: AgentRunFailure,
   parameters: taskReportParameters,
-  success: AgentSessionSnapshot,
+  success: SessionResult,
 });
 const AgentTaskFindingTool = Tool.make("agent_run_finding", {
   dependencies: [AgentSession],
@@ -253,7 +208,7 @@ const AgentTaskFindingTool = Tool.make("agent_run_finding", {
     "Append an evidence-backed finding without ending the Run or replacing its task assessment. Cite a Snapshot or attempt produced by this Run.",
   failure: AgentRunFailure,
   parameters: taskReportParameters,
-  success: AgentSessionSnapshot,
+  success: SessionResult,
 });
 const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
   dependencies: [AgentSession],
@@ -265,15 +220,15 @@ const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
     name: Schema.String.check(Schema.isPattern(SECRET_INPUT)),
     operationId: OperationId,
     sessionId: AgentSessionId,
+    view: sessionViewParameter,
   }),
-  success: AgentSessionSnapshot,
+  success: SessionResult,
 });
 
 /** The Interactive Run surface. */
 export const AgentRunTools = withStrictParameters(
   Toolkit.make(
     FlowSkillRunStartTool,
-    AgentRunStepAssessTool,
     AgentRunCompleteTool,
     AgentRunOpenTool,
     AgentTaskRunStartTool,
@@ -463,7 +418,7 @@ const startTaskRun = (params: AgentTaskRunStart) =>
   });
 
 export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
-  agent_flow_skill_run_start: (params) =>
+  agent_flow_skill_run_start: ({ view, ...params }) =>
     startTaskRun({
       ...params,
       inputs: params.inputs.map((input) => ({
@@ -472,7 +427,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       })),
       referencedSkills: [params.flowSkillName],
       requestedTask: `Run Flow Skill ${params.flowSkillName}`,
-    }),
+    }).pipe(inView(view)),
   agent_run_assess: (params) =>
     Effect.gen(function* assessTaskRun() {
       const session = yield* AgentSession;
@@ -483,7 +438,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           false,
           params.operationId
         )
-        .pipe(Effect.mapError(failure));
+        .pipe(Effect.mapError(failure), inView(params.view));
     }),
   agent_run_complete: (params) =>
     Effect.gen(function* completeInteractiveRun() {
@@ -505,26 +460,11 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           true,
           params.operationId
         )
-        .pipe(Effect.mapError(failure));
+        .pipe(Effect.mapError(failure), inView(params.view));
     }),
-  agent_run_start: startTaskRun,
-  agent_run_step_assess: (params) =>
-    Effect.gen(function* assessAgentStep() {
-      const session = yield* AgentSession;
-      yield* session.noteAgentActivity(params.sessionId);
-      return yield* session
-        .assessStep(
-          params.sessionId,
-          {
-            evidence: params.evidence,
-            explanation: params.explanation,
-            outcome: params.outcome,
-          },
-          params.operationId
-        )
-        .pipe(Effect.mapError(failure));
-    }),
-  agent_run_update: (params) =>
+  agent_run_start: ({ view, ...params }) =>
+    startTaskRun(params).pipe(inView(view)),
+  agent_run_update: ({ view, ...params }) =>
     Effect.gen(function* updateTaskRun() {
       const session = yield* AgentSession;
       const catalog = yield* FlowSkillCatalog;
@@ -586,7 +526,8 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         .pipe(
           Effect.mapError((cause) =>
             cause instanceof AgentRunFailure ? cause : failure(cause)
-          )
+          ),
+          inView(view)
         );
     }),
   agent_run_variable_request: (params) =>
@@ -599,7 +540,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           params.name,
           params.operationId
         )
-        .pipe(Effect.mapError(failure));
+        .pipe(Effect.mapError(failure), inView(params.view));
     }),
   open_run: (params) =>
     Effect.gen(function* openPersistedRun() {
@@ -611,7 +552,10 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       const viewUrl = yield* session
         .runViewUrl(params.runId)
         .pipe(Effect.mapError(failure));
-      return { summary, viewUrl };
+      return {
+        summary: yield* encodeUnpublishedRunSummary(summary),
+        viewUrl,
+      };
     }),
 });
 

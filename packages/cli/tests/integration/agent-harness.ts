@@ -1,11 +1,16 @@
 import path from "node:path";
 
-import { FlowSkillDiagnostic, OperationId } from "@contingency/protocol";
+import {
+  AgentRunSummary,
+  AgentSessionCompact,
+  AgentSessionSnapshot,
+  FlowSkillDiagnostic,
+  OperationId,
+} from "@contingency/protocol";
 import type {
   AgentActionResult,
   AgentRunState,
   AgentSessionId,
-  AgentSessionSnapshot,
   AgentSnapshotNode,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -69,6 +74,53 @@ const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>
   );
 
 /**
+ * A tool's success as these suites read it. Tests that never ask for
+ * `view:"compact"` read full sessions, and the fields the catalog leaves
+ * unpublished (ADR 0045) are decoded with their protocol schemas.
+ */
+type Readable<T> = T extends { readonly session: infer S }
+  ? unknown extends S
+    ? Omit<T, "session"> & { readonly session: AgentSessionSnapshot }
+    : T
+  : T extends { readonly sessions: infer S }
+    ? unknown extends S
+      ? { readonly sessions: readonly AgentSessionSnapshot[] }
+      : T
+    : T extends { readonly summary: infer S; readonly viewUrl: string }
+      ? unknown extends S
+        ? Omit<T, "summary"> & { readonly summary: AgentRunSummary }
+        : T
+      : Exclude<T, AgentSessionCompact>;
+
+/** The fields each tool leaves unpublished, with the schema that reads them. */
+const unpublishedFields = new Map<string, Schema.Decoder<object>>([
+  [
+    "agent_flow_skill_dry_run_start",
+    Schema.Struct({ session: AgentSessionSnapshot }),
+  ],
+  [
+    "agent_sessions_get",
+    Schema.Struct({ sessions: Schema.Array(AgentSessionSnapshot) }),
+  ],
+  ["open_run", Schema.Struct({ summary: AgentRunSummary })],
+]);
+
+const isCompact = Schema.is(AgentSessionCompact);
+
+const readable = <Value>(name: string, value: Value) =>
+  Effect.gen(function* decodeUnpublished() {
+    if (isCompact(value)) {
+      return yield* Effect.die("A full session was expected, not compact.");
+    }
+    const fields = unpublishedFields.get(name);
+    if (fields === undefined) {
+      return value;
+    }
+    const decoded = yield* Schema.decodeUnknownEffect(fields)(value);
+    return { ...value, ...decoded };
+  });
+
+/**
  * One MCP tool call, as the external agent makes it: validated parameters in,
  * the tool's success value out, and a structured failure raised so a test
  * asserts on it with `Effect.flip`.
@@ -79,7 +131,7 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
   name: Name,
   params: Tool.Parameters<Tools[Name]>
 ) => Effect.Effect<
-  Tool.Success<Tools[Name]>,
+  Readable<Tool.Success<Tools[Name]>>,
   ToolFailure,
   Tool.HandlersFor<Tools> | Tool.ResultDecodingServices<Tools[Name]>
 >;
@@ -109,6 +161,7 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
         return yield* Effect.die(`The ${String(name)} tool is not registered.`);
       }
       return yield* decodeToolSuccess(tool.successSchema, result).pipe(
+        Effect.flatMap((success) => readable(String(name), success)),
         Effect.orDie
       );
     });

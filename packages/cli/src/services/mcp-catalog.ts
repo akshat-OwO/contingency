@@ -2,7 +2,6 @@ import {
   AgentCatalogInfo,
   AgentCatalogSelect,
   AgentPendingDecisionResolve,
-  AgentSessionSnapshot,
   FlowSkillList,
   TeachingInstructionRecord,
 } from "@contingency/protocol";
@@ -13,7 +12,13 @@ import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillCatalogError } from "./flow-skill-catalog.ts";
+import {
+  SessionResult,
+  inView,
+  sessionViewParameter,
+} from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { readOnly } from "./mcp-tool-annotations.ts";
 
 /**
  * The Catalog Root, the Flow Skills inside it, and the two decisions that
@@ -47,14 +52,16 @@ const failure = (cause: AgentSessionError | FlowSkillCatalogError) =>
 // latter encodes to `anyOf: [object, array]`, which MCP clients reject.
 const NoParameters = Schema.Record(Schema.String, Schema.Unknown);
 
-const AgentCatalogGetTool = Tool.make("agent_catalog_get", {
-  dependencies: [FlowSkillCatalog],
-  description:
-    "Read the selected Catalog Root and how many Flow Skills it holds. It defaults to the workspace's .contingency directory; Contingency never scans a user-global catalog.",
-  failure: AgentCatalogFailure,
-  parameters: NoParameters,
-  success: AgentCatalogInfo,
-});
+const AgentCatalogGetTool = readOnly(
+  Tool.make("agent_catalog_get", {
+    dependencies: [FlowSkillCatalog],
+    description:
+      "Read the selected Catalog Root and how many Flow Skills it holds. It defaults to the workspace's .contingency directory; Contingency never scans a user-global catalog.",
+    failure: AgentCatalogFailure,
+    parameters: NoParameters,
+    success: AgentCatalogInfo,
+  })
+);
 
 const AgentCatalogSelectTool = Tool.make("agent_catalog_select", {
   dependencies: [FlowSkillCatalog],
@@ -68,14 +75,16 @@ const AgentCatalogSelectTool = Tool.make("agent_catalog_select", {
   success: AgentCatalogInfo,
 });
 
-const FlowSkillsListTool = Tool.make("agent_flow_skills_list", {
-  dependencies: [FlowSkillCatalog],
-  description:
-    "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from SKILL.md, each declared input with its description when SKILL.md gives one, and how many numbered steps the procedure carries. Use agent_run_start with the user's requested task and optional requested skill names; use agent_run_update to consult another requested skill in the same browser. The listing never reports the Catalog Root or a filesystem path; call agent_catalog_get when you need the selected root.",
-  failure: AgentCatalogFailure,
-  parameters: NoParameters,
-  success: FlowSkillList,
-});
+const FlowSkillsListTool = readOnly(
+  Tool.make("agent_flow_skills_list", {
+    dependencies: [FlowSkillCatalog],
+    description:
+      "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from SKILL.md, each declared input with its description when SKILL.md gives one, and how many numbered steps the procedure carries. Use agent_run_start with the user's requested task and optional requested skill names; use agent_run_update to consult another requested skill in the same browser. The listing never reports the Catalog Root or a filesystem path; call agent_catalog_get when you need the selected root.",
+    failure: AgentCatalogFailure,
+    parameters: NoParameters,
+    success: FlowSkillList,
+  })
+);
 
 const TeachingInstructionRecordTool = Tool.make(
   "agent_teaching_instruction_record",
@@ -88,8 +97,9 @@ const TeachingInstructionRecordTool = Tool.make(
       operationId: TeachingInstructionRecord.fields.operationId,
       sessionId: TeachingInstructionRecord.fields.sessionId,
       text: TeachingInstructionRecord.fields.text,
+      view: sessionViewParameter,
     }),
-    success: AgentSessionSnapshot,
+    success: SessionResult,
   }
 );
 
@@ -106,8 +116,9 @@ const AgentPendingDecisionResolveTool = Tool.make(
       pendingDecisionId: AgentPendingDecisionResolve.fields.pendingDecisionId,
       userMessage: AgentPendingDecisionResolve.fields.userMessage,
       value: AgentPendingDecisionResolve.fields.value,
+      view: sessionViewParameter,
     }),
-    success: AgentSessionSnapshot,
+    success: SessionResult,
   }
 );
 
@@ -139,7 +150,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const catalog = yield* FlowSkillCatalog;
       return yield* catalog.list().pipe(Effect.mapError(failure));
     }),
-  agent_pending_decision_resolve: (params) =>
+  agent_pending_decision_resolve: ({ view, ...params }) =>
     Effect.gen(function* resolvePendingDecision() {
       const session = yield* AgentSession;
       // Relaying the user's answer is agent activity on the session that
@@ -152,7 +163,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       }
       return yield* session
         .resolvePendingDecision(params)
-        .pipe(Effect.mapError(failure));
+        .pipe(Effect.mapError(failure), inView(view));
     }),
   agent_teaching_instruction_record: (params) =>
     Effect.gen(function* recordInstruction() {
@@ -160,7 +171,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       yield* session.noteAgentActivity(params.sessionId);
       return yield* session
         .recordInstruction(params.sessionId, params.text, params.operationId)
-        .pipe(Effect.mapError(failure));
+        .pipe(Effect.mapError(failure), inView(params.view));
     }),
 });
 

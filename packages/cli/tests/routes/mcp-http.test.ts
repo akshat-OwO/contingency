@@ -241,8 +241,13 @@ it.live(
           }),
         })
       )(listedJson);
+      expect(
+        decoded.result.tools.some(
+          (tool) => tool.name === "agent_run_step_assess"
+        )
+      ).toBe(false);
       const assessment = decoded.result.tools.find(
-        (tool) => tool.name === "agent_run_step_assess"
+        (tool) => tool.name === "agent_run_assess"
       );
       expect(assessment?.description).toContain(
         '{"kind":"attempt","id":"action-123"}'
@@ -295,7 +300,7 @@ it.live(
               outcome: "working",
               sessionId: "agent-example",
             },
-            name: "agent_run_step_assess",
+            name: "agent_run_assess",
           },
         })
       );

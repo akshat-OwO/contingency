@@ -1,0 +1,173 @@
+import { NodeServices } from "@effect/platform-node";
+import { expect, it } from "@effect/vitest";
+import { Effect, Schema } from "effect";
+
+import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
+
+const ToolNames = Schema.Struct({
+  result: Schema.Struct({
+    tools: Schema.Array(Schema.Struct({ name: Schema.String })),
+  }),
+});
+
+const CodeRunResult = Schema.Struct({
+  result: Schema.Struct({
+    content: Schema.Array(Schema.Struct({ text: Schema.String })),
+    isError: Schema.Boolean,
+    structuredContent: Schema.optional(
+      Schema.Struct({ calls: Schema.Number, result: Schema.Unknown })
+    ),
+  }),
+});
+
+const runIn = (
+  request: Effect.Success<ReturnType<typeof connectMcp>>["request"],
+  code: string,
+  timeoutMs?: number
+) =>
+  Effect.gen(function* runCodeTool() {
+    const body = yield* request("tools/call", {
+      arguments: timeoutMs === undefined ? { code } : { code, timeoutMs },
+      name: "agent_code_run",
+    });
+    return Schema.decodeUnknownSync(CodeRunResult)(body).result;
+  });
+
+const runScript = (code: string, timeoutMs?: number) =>
+  Effect.gen(function* runInFreshServer() {
+    const origin = yield* servingMcpHttp({ codeMode: true });
+    const { request } = yield* connectMcp(origin);
+    return yield* runIn(request, code, timeoutMs);
+  });
+
+it.live("leaves sandboxed code orchestration out of the default catalog", () =>
+  Effect.gen(function* defaultCatalog() {
+    const origin = yield* servingMcpHttp();
+    const { request } = yield* connectMcp(origin);
+    const { tools } = Schema.decodeUnknownSync(ToolNames)(
+      yield* request("tools/list", {})
+    ).result;
+    expect(tools.map((tool) => tool.name)).not.toContain("agent_code_run");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("aggregates read-only tool results inside the sandbox", () =>
+  Effect.gen(function* aggregate() {
+    const answer = yield* runScript(`
+      const listed = contingency.call("agent_flow_skills_list", {});
+      const catalog = contingency.call("agent_catalog_get", {});
+      return { flowSkills: listed.flowSkills.length, counted: typeof catalog };
+    `);
+    expect(answer.isError).toBe(false);
+    expect(answer.structuredContent).toEqual({
+      calls: 2,
+      result: { counted: "object", flowSkills: 0 },
+    });
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("refuses every tool that is not read-only", () =>
+  Effect.gen(function* refuseWrites() {
+    const answer = yield* runScript(`
+      try {
+        contingency.call("agent_session_start", {});
+        return "started";
+      } catch (error) {
+        return error.message;
+      }
+    `);
+    expect(answer.structuredContent?.result).toBe(
+      "agent_session_start is not a read-only Contingency tool."
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("exposes no host capability beyond the read-only bridge", () =>
+  Effect.gen(function* noHostCapability() {
+    const answer = yield* runScript(`
+      return [typeof require, typeof process, typeof fetch, typeof setTimeout,
+        typeof globalThis.__contingencyCall, typeof contingency.call];
+    `);
+    expect(answer.structuredContent?.result).toEqual([
+      "undefined",
+      "undefined",
+      "undefined",
+      "undefined",
+      "undefined",
+      "function",
+    ]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("stops a script at its time budget", () =>
+  Effect.gen(function* timeBudget() {
+    const started = Date.now();
+    const answer = yield* runScript("while (true) {}", 200);
+    expect(answer.isError).toBe(true);
+    expect(answer.content[0]?.text).toContain("time budget");
+    expect(Date.now() - started).toBeLessThan(5000);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("stops a script at its memory budget", () =>
+  Effect.gen(function* memoryBudget() {
+    const answer = yield* runScript(
+      'let grown = "x"; while (true) { grown += grown; }'
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.content[0]?.text).toContain("code_run_failed");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("refuses a result too large to return to the model", () =>
+  Effect.gen(function* resultBudget() {
+    const answer = yield* runScript('return "x".repeat(20000);');
+    expect(answer.isError).toBe(true);
+    expect(answer.content[0]?.text).toContain("code_run_result_too_large");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "bounds a slow read by the script's deadline and frees the sandbox",
+  () =>
+    Effect.gen(function* slowRead() {
+      const origin = yield* servingMcpHttp({ codeMode: true });
+      const { request } = yield* connectMcp(origin);
+      const started = Date.now();
+      const waited = yield* runIn(
+        request,
+        `try {
+        contingency.call("agent_teaching_recordings_list", {
+          recordingId: "recording-never-arrives",
+          timeoutMs: 60000,
+        });
+        return "answered";
+      } catch (error) {
+        return error.message;
+      }`,
+        500
+      );
+      expect(waited.structuredContent?.result).toBe("Time budget exhausted.");
+      expect(Date.now() - started).toBeLessThan(5000);
+
+      // The single sandbox permit was released: the next script runs.
+      const next = yield* runIn(request, "return 1 + 1;");
+      expect(next.structuredContent?.result).toBe(2);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("answers unserializable parameters without wedging the sandbox", () =>
+  Effect.gen(function* badParameters() {
+    const origin = yield* servingMcpHttp({ codeMode: true });
+    const { request } = yield* connectMcp(origin);
+    const refused = yield* runIn(
+      request,
+      `const loop = {}; loop.self = loop;
+      try { contingency.call("agent_catalog_get", loop); return "called"; }
+      catch (error) { return error.message.length > 0; }`
+    );
+    expect(refused.structuredContent?.result).toBe(true);
+    const next = yield* runIn(request, "return 3;");
+    expect(next.structuredContent?.result).toBe(3);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

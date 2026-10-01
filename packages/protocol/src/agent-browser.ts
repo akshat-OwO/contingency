@@ -80,7 +80,7 @@ export const AgentBrowserSnapshot = Schema.Struct({
   snapshotId: AgentSnapshotId,
   title: Schema.String,
   url: Schema.String,
-});
+}).annotate({ identifier: "AgentBrowserSnapshot" });
 export type AgentBrowserSnapshot = typeof AgentBrowserSnapshot.Type;
 
 /** A visual observation, kept separate from the Browser Snapshot. */
@@ -192,7 +192,7 @@ export const AgentExecutionBoundary = Schema.Struct({
   operationId: nonEmptyString,
   reason: Schema.Literals(["domain", "objective", "confirmation"]),
   requested: nonEmptyString,
-});
+}).annotate({ identifier: "AgentExecutionBoundary" });
 export type AgentExecutionBoundary = typeof AgentExecutionBoundary.Type;
 
 export const AgentActionOutcome = Schema.Literals([
@@ -243,7 +243,7 @@ export const AgentTimelineEntry = Schema.Struct({
   effect: optionalNullable(AgentActionEffect),
   id: nonEmptyString,
   outcome: AgentActionOutcome,
-});
+}).annotate({ identifier: "AgentTimelineEntry" });
 export type AgentTimelineEntry = typeof AgentTimelineEntry.Type;
 
 export const AgentActionResult = Schema.Struct({
@@ -266,6 +266,72 @@ export const AgentBrowserAct = Schema.Struct({
   sessionId: AgentSessionId,
 });
 export type AgentBrowserAct = typeof AgentBrowserAct.Type;
+
+/** The most actions one bounded sequence may carry. */
+export const AGENT_ACTION_SEQUENCE_MAX = 5;
+
+/** One action in a bounded sequence, under its own operation id. */
+export const AgentSequenceAction = Schema.Struct({
+  action: AgentBrowserAction,
+  intent: optionalNullable(AgentActionIntent),
+  operationId: OperationId,
+});
+export type AgentSequenceAction = typeof AgentSequenceAction.Type;
+
+/**
+ * A few browser actions performed in order, each through the same Domain
+ * Scope, Confirmation, controller, and operation-id checks as a single
+ * action. The sequence is not atomic: it stops at the first action that needs
+ * the agent to look again, and the effects of earlier actions remain.
+ */
+export const AgentBrowserActSequence = Schema.Struct({
+  actions: Schema.Array(AgentSequenceAction).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(AGENT_ACTION_SEQUENCE_MAX)
+  ),
+  sessionId: AgentSessionId,
+});
+export type AgentBrowserActSequence = typeof AgentBrowserActSequence.Type;
+
+/**
+ * Why a sequence stopped before or at an action. `intervention` and
+ * `not-completed` leave that action unperformed or refused; `no-effect`,
+ * `unsettled`, and `navigated` mean it ran but the Page must be read again
+ * before anything else is attempted; `error` carries the refusal's code.
+ */
+export const AgentSequenceStopReason = Schema.Literals([
+  "intervention",
+  "not-completed",
+  "no-effect",
+  "unsettled",
+  "navigated",
+  "error",
+]);
+export type AgentSequenceStopReason = typeof AgentSequenceStopReason.Type;
+
+export const AgentActSequenceResult = Schema.Struct({
+  /** The attempts that reached the browser's timeline, in order. */
+  actions: Schema.Array(
+    Schema.Struct({
+      entry: AgentTimelineEntry,
+      intervention: Schema.NullOr(AgentExecutionBoundary),
+      operationId: OperationId,
+    })
+  ),
+  /** The Snapshot read after the last attempted action, when one ran. */
+  snapshot: Schema.NullOr(AgentBrowserSnapshot),
+  stopped: Schema.NullOr(
+    Schema.Struct({
+      code: Schema.NullOr(Schema.String),
+      /** Zero-based index of the action the sequence stopped at. */
+      index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      message: Schema.NullOr(Schema.String),
+      reason: AgentSequenceStopReason,
+    })
+  ),
+  url: Schema.NullOr(Schema.String),
+});
+export type AgentActSequenceResult = typeof AgentActSequenceResult.Type;
 
 /**
  * The acted-on control as the capture-time Browser Snapshot saw it. Actions

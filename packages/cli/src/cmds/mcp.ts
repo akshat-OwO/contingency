@@ -33,7 +33,8 @@ import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
-import { makeMcpHttpLayer } from "../services/mcp-http.ts";
+import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
+import { MCP_INSTRUCTIONS, makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import {
   makeTeachingRecordingStoreLayer,
@@ -75,6 +76,8 @@ export const mcpCommand = Command.make(
   {},
   Effect.fnUntraced(function* runMcp() {
     const config = yield* Config.all({
+      // Opt-in sandboxed code orchestration (ADR 0045).
+      codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
       port: Config.Number("PORT").pipe(Config.withDefault(7777)),
     }).pipe(Config.nested("CONTINGENCY_MCP"));
@@ -85,7 +88,7 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const { host, port } = config;
+    const { codeMode, host, port } = config;
     const browserUrl = new URL(`http://${host}:${port}`);
     const boundOrigin = { url: browserUrl.origin };
     return yield* Effect.scoped(
@@ -155,11 +158,13 @@ export const mcpCommand = Command.make(
           yield* Layer.build(
             Layer.mergeAll(
               McpServer.layerStdio({
+                instructions: MCP_INSTRUCTIONS,
                 name: "Contingency",
-                protocols: [McpProtocol.v2025_06_18],
+                protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
                 version: "0.0.1",
               }),
-              mcpTools
+              mcpTools,
+              codeMode ? McpCodeModeLayer : Layer.empty
             ).pipe(Layer.provide(shared))
           );
         }
@@ -170,7 +175,9 @@ export const mcpCommand = Command.make(
             agentSession,
             allowedOrigins,
             host,
-            mcp: makeMcpHttpLayer(allowedOrigins).pipe(Layer.provide(shared)),
+            mcp: makeMcpHttpLayer(allowedOrigins, { codeMode }).pipe(
+              Layer.provide(shared)
+            ),
             port,
             serveWebUi: true,
             teachingRecordingStore,

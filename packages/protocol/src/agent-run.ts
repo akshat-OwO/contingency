@@ -99,7 +99,7 @@ export const AgentRunStep = Schema.Struct({
   index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   name: nonEmptyString,
   startedAt: Schema.NullOr(nonEmptyString),
-});
+}).annotate({ identifier: "AgentRunStep" });
 export type AgentRunStep = typeof AgentRunStep.Type;
 
 /**
@@ -246,7 +246,7 @@ export const LegacyAgentRunSummary = Schema.Struct({
   /** Relative to the Run's directory; `null` when capture produced none. */
   tracePath: Schema.NullOr(nonEmptyString),
   videoPath: Schema.NullOr(nonEmptyString),
-});
+}).annotate({ identifier: "LegacyAgentRunSummary" });
 export type LegacyAgentRunSummary = typeof LegacyAgentRunSummary.Type;
 
 /** Version 1 predates Flow Skills; retain its identities and original account. */
@@ -279,7 +279,7 @@ export const LegacyAgentFlowRunSummary = Schema.Struct({
   title: nonEmptyString,
   tracePath: Schema.NullOr(nonEmptyString),
   videoPath: Schema.NullOr(nonEmptyString),
-});
+}).annotate({ identifier: "LegacyAgentFlowRunSummary" });
 export type LegacyAgentFlowRunSummary = typeof LegacyAgentFlowRunSummary.Type;
 
 /** A skill requested by the user, including requests made after startup. */
@@ -435,7 +435,9 @@ export const TaskAgentRunSummary = Schema.Struct({
   timeline: Schema.Array(AgentTimelineEntry),
   tracePath: Schema.NullOr(nonEmptyString),
   videoPath: Schema.NullOr(nonEmptyString),
-}).check(taskInputIdentity);
+})
+  .check(taskInputIdentity)
+  .annotate({ identifier: "TaskAgentRunSummary" });
 export type TaskAgentRunSummary = typeof TaskAgentRunSummary.Type;
 
 /** Historical step executions retain their version and meaning on decode. */
