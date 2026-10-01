@@ -309,15 +309,15 @@ it.live(
               sessionId: started.id,
             })).entry.id
           ).toBe(acted.entry.id);
-          expect(
-            (yield* Effect.flip(
-              runTool("agent_run_assess", {
-                ...finding,
-                evidence: [{ id: "invented", kind: "snapshot" }],
-                operationId: operation("task-invalid-evidence"),
-              })
-            )).code
-          ).toBe("agent_session_invalid");
+          const invalidEvidence = yield* Effect.flip(
+            runTool("agent_run_assess", {
+              ...finding,
+              evidence: [{ id: "invented", kind: "snapshot" }],
+              operationId: operation("task-invalid-evidence"),
+            })
+          );
+          expect(invalidEvidence.code).toBe("agent_session_invalid");
+          expect(invalidEvidence.message).not.toContain("outcomeComplete");
           const assessed = yield* runTool("agent_run_assess", {
             ...finding,
             evidence: [{ id: acted.entry.id, kind: "attempt" }],

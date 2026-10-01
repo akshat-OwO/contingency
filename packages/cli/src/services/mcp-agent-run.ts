@@ -176,7 +176,7 @@ const AgentRunStepAssessTool = Tool.dynamic("agent_run_step_assess", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession],
   description:
-    "Explicitly complete an Interactive Run, or end a Dry Run early, and optionally record your closing account. Completion seals local evidence and disposes resources once. A task assessment does not end the browser. An early historical Dry Run ending fails. A session that ended on its own has already finalized the Trace and video, closed the browser, and written its Run Summary; this answers with that same Summary. Nothing leaves the machine.",
+    "Explicitly complete an Interactive Run or seal a Dry Run outcome report, and optionally record your closing account. Completion seals local evidence and disposes resources once; assessments alone do not end the browser. A Dry Run can pass only after this call seals a working, complete outcome report without user Takeover. A partial or unassessed attempt fails. Completing an ended session returns its persisted Run Summary. Nothing leaves the machine.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,

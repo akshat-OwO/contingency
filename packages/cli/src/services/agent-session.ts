@@ -6749,9 +6749,18 @@ const makeAgentSession = (
                 );
               }
               if (
-                (!finding &&
-                  run.purpose.kind === "dry-run" &&
-                  input.outcomeComplete === undefined) ||
+                !finding &&
+                run.purpose.kind === "dry-run" &&
+                input.outcomeComplete === undefined
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "Dry Run assessments must explicitly report outcomeComplete."
+                  )
+                );
+              }
+              if (
                 input.evidence.length === 0 ||
                 input.explanation.trim().length === 0 ||
                 input.evidence.some((reference) => {
@@ -6767,7 +6776,7 @@ const makeAgentSession = (
                 return yield* Effect.fail(
                   error(
                     "agent_session_invalid",
-                    "Cite a Browser Snapshot or attempt produced by this Run and explain the assessment. Dry Run assessments must explicitly report outcomeComplete."
+                    "Cite a Browser Snapshot or attempt produced by this Run and explain the assessment."
                   )
                 );
               }
