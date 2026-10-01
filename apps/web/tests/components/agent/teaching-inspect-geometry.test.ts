@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   pagePointOf,
+  projectDocumentRectangle,
   projectPageRectangle,
   unscaledCanvasBox,
 } from "@/components/agent/teaching-inspect-geometry";
@@ -22,17 +23,41 @@ test("draws over the frame the Page sent, not over an assumed viewport", () => {
   expect(
     projectPageRectangle(
       rectangle,
-      { offsetTop: 24, pageScaleFactor: 2 },
+      { ...flatFrameProjection, offsetTop: 24, pageScaleFactor: 2 },
       { left: 8, scale: 0.5, top: 12 }
     )
   ).toEqual({ height: 40, left: 28, top: 84, width: 120 });
 });
 
 test("reads a pointer back to the Page point the highlight came from", () => {
-  const projection = { offsetTop: 24, pageScaleFactor: 2 };
+  const projection = {
+    ...flatFrameProjection,
+    offsetTop: 24,
+    pageScaleFactor: 2,
+  };
   const box = { left: 8, scale: 0.5, top: 12 };
   const projected = projectPageRectangle(rectangle, projection, box);
   expect(
     pagePointOf({ x: projected.left, y: projected.top }, projection, box)
   ).toEqual({ x: rectangle.x, y: rectangle.y });
+});
+
+test("a document pin follows horizontal and vertical scroll under zoom and canvas scaling", () => {
+  const projection = {
+    ...flatFrameProjection,
+    offsetTop: 24,
+    pageScaleFactor: 2,
+    scrollOffsetX: 10,
+    scrollOffsetY: 80,
+  };
+  expect(
+    projectDocumentRectangle(rectangle, projection, {
+      left: 8,
+      scale: 0.5,
+      top: 12,
+    })
+  ).toEqual({ height: 40, left: 18, top: 4, width: 120 });
+  expect(
+    projectDocumentRectangle(rectangle, flatFrameProjection, unscaledCanvasBox)
+  ).toEqual({ height: 40, left: 20, top: 60, width: 120 });
 });

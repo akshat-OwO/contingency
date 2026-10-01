@@ -129,12 +129,20 @@ const frameProjection = (
     Number.isFinite(metadata.pageScaleFactor) && metadata.pageScaleFactor > 0
       ? metadata.pageScaleFactor
       : 1,
+  scrollOffsetX: Number.isFinite(metadata.scrollOffsetX)
+    ? metadata.scrollOffsetX
+    : 0,
+  scrollOffsetY: Number.isFinite(metadata.scrollOffsetY)
+    ? metadata.scrollOffsetY
+    : 0,
 });
 
 /** Frames arrive many times a second; an unchanged mapping is not a render. */
 const sameProjection = (left: FrameProjection, right: FrameProjection) =>
   left.offsetTop === right.offsetTop &&
-  left.pageScaleFactor === right.pageScaleFactor;
+  left.pageScaleFactor === right.pageScaleFactor &&
+  left.scrollOffsetX === right.scrollOffsetX &&
+  left.scrollOffsetY === right.scrollOffsetY;
 
 const isFlowSkillName = Schema.is(FlowSkillName);
 
@@ -1536,7 +1544,13 @@ const useAgentView = (
                         : undefined,
                       frozen: Result.isFailure(outcome)
                         ? undefined
-                        : outcome.success,
+                        : {
+                            ...outcome.success,
+                            scrollOffsetX:
+                              current.frameProjection.scrollOffsetX,
+                            scrollOffsetY:
+                              current.frameProjection.scrollOffsetY,
+                          },
                     },
                   }
                 : current

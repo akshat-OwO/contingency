@@ -54,6 +54,22 @@ export const projectPageRectangle = (
   width: rectangle.width * projection.pageScaleFactor * box.scale,
 });
 
+/** Pins use document coordinates; outlines use the current viewport. */
+export const projectDocumentRectangle = (
+  rectangle: PageRectangle,
+  projection: FrameProjection,
+  box: CanvasBox
+): OverlayRectangle =>
+  projectPageRectangle(
+    {
+      ...rectangle,
+      x: rectangle.x - projection.scrollOffsetX,
+      y: rectangle.y - projection.scrollOffsetY,
+    },
+    projection,
+    box
+  );
+
 /** The Page viewport point an overlay-box point is over: the inverse. */
 export const pagePointOf = (
   point: Point,

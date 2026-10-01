@@ -10,6 +10,8 @@ const frozen = {
   description: "button: Continue",
   height: 40,
   ref: AgentElementRef.make("e1"),
+  scrollOffsetX: 0,
+  scrollOffsetY: 0,
   width: 120,
   x: 20,
   y: 60,
@@ -56,4 +58,15 @@ test("an older save response cannot roll marker numbering backward", () => {
     ...current,
     pending: false,
   });
+});
+
+test("the pin keeps the document position from selection even if scrolling continues before save", () => {
+  const selection = { ...frozen, scrollOffsetX: 50, scrollOffsetY: 200 };
+  const completed = completeInspectComment(
+    { ...emptyInspectState, frozen: selection, open: true, pending: true },
+    selection,
+    1,
+    true
+  );
+  expect(completed.comments[0]).toMatchObject({ x: 70, y: 260 });
 });
