@@ -6,6 +6,7 @@ import {
   copyFile,
   mkdir,
   readFile,
+  rename,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -602,7 +603,17 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
     }
   });
 const main = Effect.gen(function* main() {
-  yield* io(() => mkdir(artifacts, { recursive: true }));
+  yield* io(async () => {
+    try {
+      await rename(artifacts, `${artifacts}-previous-${proofId}`);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    await mkdir(artifacts, { recursive: true });
+  });
+  yield* record("result.json", { proofId, status: "running" });
   yield* record("doctor.json", JSON.parse(yield* command("doctor")));
   const instance = JSON.parse(
     yield* io(() => readFile(path.join(directory, "instance.json"), "utf-8"))
@@ -937,6 +948,7 @@ const main = Effect.gen(function* main() {
       "user-closure",
       "process-exit",
     ],
+    proofId,
     status: blockers.length > 0 ? "blocked" : "passed",
     taskRunId: summary.runId,
   });
@@ -946,5 +958,12 @@ const main = Effect.gen(function* main() {
   process.exitCode = blockers.length === 0 ? 0 : 2;
 });
 await Effect.runPromise(
-  main.pipe(Effect.ensuring(record("commands.json", journal)))
+  main.pipe(
+    Effect.onExit((exit) =>
+      exit._tag === "Failure"
+        ? record("result.json", { proofId, status: "failed" })
+        : Effect.void
+    ),
+    Effect.ensuring(record("commands.json", journal))
+  )
 );
