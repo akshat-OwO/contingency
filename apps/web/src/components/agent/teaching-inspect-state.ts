@@ -33,6 +33,8 @@ export interface InspectState {
   /** The element a click froze, and the comment being written about it. */
   readonly frozen: AgentInspectedElement | undefined;
   readonly comments: readonly InspectComment[];
+  /** Numbering continues when navigation removes the previous Page's pins. */
+  readonly nextCommentIndex: number;
   readonly draft: string;
   readonly error: string | undefined;
   readonly open: boolean;
@@ -45,6 +47,7 @@ export const emptyInspectState: InspectState = {
   error: undefined,
   frozen: undefined,
   hovered: undefined,
+  nextCommentIndex: 1,
   open: false,
   pending: false,
 };

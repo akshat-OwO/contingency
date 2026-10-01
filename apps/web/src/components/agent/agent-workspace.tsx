@@ -745,6 +745,7 @@ const useAgentView = (
   // One inspect read at a time: a pointer moves far more often than the Page
   // can answer a Browser Snapshot, and a queue of them would outline the past.
   const inspectPendingRef = useRef(false);
+  const inspectPageVersionRef = useRef(0);
 
   const sessions =
     sessionsResult._tag === "Success"
@@ -990,6 +991,7 @@ const useAgentView = (
 
     let cancelled = false;
     activeSessionRef.current = selectedSessionId;
+    inspectPageVersionRef.current += 1;
     pendingFrameRef.current = null;
     activeStreamRef.current = null;
     setState((current) => ({
@@ -1062,8 +1064,13 @@ const useAgentView = (
                   return;
                 }
                 if (event.type === "url") {
+                  inspectPageVersionRef.current += 1;
                   setState((current) => ({
                     ...current,
+                    inspect: {
+                      ...emptyInspectState,
+                      nextCommentIndex: current.inspect.nextCommentIndex,
+                    },
                     session: current.session
                       ? { ...current.session, currentUrl: event.url }
                       : current.session,
@@ -1445,7 +1452,11 @@ const useAgentView = (
     setState((current) => ({
       ...current,
       inspect: current.inspect.open
-        ? { ...emptyInspectState, comments: current.inspect.comments }
+        ? {
+            ...emptyInspectState,
+            comments: current.inspect.comments,
+            nextCommentIndex: current.inspect.nextCommentIndex,
+          }
         : { ...current.inspect, open: true },
     }));
   };
@@ -1458,6 +1469,7 @@ const useAgentView = (
             inspect: {
               ...emptyInspectState,
               comments: current.inspect.comments,
+              nextCommentIndex: current.inspect.nextCommentIndex,
             },
           }
         : current
@@ -1469,11 +1481,15 @@ const useAgentView = (
       return;
     }
     inspectPendingRef.current = true;
+    const pageVersion = inspectPageVersionRef.current;
     Effect.runFork(
       Effect.result(readInspectedElement(x, y)).pipe(
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
             inspectPendingRef.current = false;
+            if (pageVersion !== inspectPageVersionRef.current) {
+              return;
+            }
             setState((current) =>
               current.inspect.open && current.inspect.frozen === undefined
                 ? {
@@ -1494,10 +1510,14 @@ const useAgentView = (
   };
 
   const freezeInspect = (x: number, y: number) => {
+    const pageVersion = inspectPageVersionRef.current;
     Effect.runFork(
       Effect.result(readInspectedElement(x, y)).pipe(
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
+            if (pageVersion !== inspectPageVersionRef.current) {
+              return;
+            }
             setState((current) =>
               current.inspect.open
                 ? {
@@ -1529,6 +1549,7 @@ const useAgentView = (
         draft: "",
         error: undefined,
         frozen: undefined,
+        pending: false,
       },
     }));
   };
@@ -1549,9 +1570,15 @@ const useAgentView = (
     const sessionId = activeSessionRef.current;
     const { frozen } = state.inspect;
     const text = state.inspect.draft.trim();
-    if (sessionId === null || frozen === undefined || text === "") {
+    if (
+      sessionId === null ||
+      frozen === undefined ||
+      text === "" ||
+      state.inspect.pending
+    ) {
       return;
     }
+    const pageVersion = inspectPageVersionRef.current;
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
     setState((current) => ({
       ...current,
@@ -1582,7 +1609,13 @@ const useAgentView = (
       ).pipe(
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
+            if (pageVersion !== inspectPageVersionRef.current) {
+              return;
+            }
             setState((current) => {
+              if (current.inspect.frozen !== frozen) {
+                return current;
+              }
               if (Result.isFailure(outcome)) {
                 return {
                   ...current,
@@ -1596,7 +1629,7 @@ const useAgentView = (
               const comment: InspectComment = {
                 description: frozen.description,
                 height: frozen.height,
-                index: current.inspect.comments.length + 1,
+                index: current.inspect.nextCommentIndex,
                 width: frozen.width,
                 x: frozen.x,
                 y: frozen.y,
@@ -1610,6 +1643,8 @@ const useAgentView = (
                   error: undefined,
                   frozen: undefined,
                   hovered: undefined,
+                  nextCommentIndex: comment.index + 1,
+                  open: false,
                   pending: false,
                 },
               };
@@ -1881,6 +1916,7 @@ const useAgentView = (
       ? state.session.recordingId
       : undefined;
   useEffect(() => {
+    inspectPageVersionRef.current += 1;
     setState((current) =>
       current.inspect === emptyInspectState
         ? current
