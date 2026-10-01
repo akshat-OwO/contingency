@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { RunSummaryView, RunViewer } from "@/components/agent/run-view";
+import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { routeTree } from "@/routeTree.gen";
 
@@ -213,4 +214,161 @@ test("explains when a persisted Run cannot be opened", () => {
     </TestRegistry>
   );
   expect(screen.getByText("This Run could not be opened")).toBeVisible();
+});
+
+const taskSummary = {
+  ...summary,
+  assessment: {
+    evidence: [{ id: "snapshot-task", kind: "snapshot" }],
+    explanation: "The cart remains open with an anvil.",
+    outcome: "working",
+    submittedAt: "2026-09-04T00:01:00.000Z",
+  },
+  findings: [
+    {
+      evidence: [{ id: "attempt-delivery", kind: "attempt" }],
+      explanation: "Delivery is unavailable for the selected area.",
+      id: "finding-delivery",
+      outcome: "not-working",
+      submittedAt: "2026-09-04T00:01:00.000Z",
+    },
+  ],
+  inputs: [],
+  instructions: [
+    {
+      instruction: "Leave the cart open instead.",
+      receivedAt: "2026-09-04T00:01:00.000Z",
+    },
+  ],
+  outcome: "completed",
+  purpose: { kind: "interactive" },
+  referencedSkills: [
+    {
+      flowSkillName: "browse-catalogue",
+      referencedAt: "2026-09-04T00:00:00.000Z",
+    },
+  ],
+  requestedTask: "Add an anvil, then inspect delivery.",
+  schemaVersion: 3,
+  startingEmulation: {
+    permissions: [],
+    userAgentProfile: "default",
+    viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
+  },
+};
+
+test("shows a completed task separately from its assessment and evidence-backed findings", () => {
+  render(<RunSummaryView summary={taskSummary} />);
+  expect(screen.getByText("Execution outcome")).toBeVisible();
+  expect(screen.getByText("completed")).toBeVisible();
+  expect(screen.getByText(taskSummary.requestedTask)).toBeVisible();
+  expect(screen.getByText("Leave the cart open instead.")).toBeVisible();
+  expect(
+    screen.getByRole("region", { name: "Referenced skills" })
+  ).toHaveTextContent("browse-catalogue");
+  expect(
+    screen.getByRole("region", { name: "Task assessment" })
+  ).toHaveTextContent("snapshot-task");
+  expect(screen.getByRole("region", { name: "Findings" })).toHaveTextContent(
+    "attempt-delivery"
+  );
+  expect(screen.queryByRole("list", { name: "Agent Steps" })).toBeNull();
+  expect(screen.queryByText("Coverage")).toBeNull();
+});
+
+test("shows closure without inventing a task assessment", () => {
+  render(
+    <RunSummaryView
+      summary={{ ...taskSummary, assessment: null, outcome: "user-closed" }}
+    />
+  );
+  expect(screen.getByText("user-closed")).toBeVisible();
+  expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
+});
+
+test("explains incomplete Dry Run attempts and Takeover beside the evidence", () => {
+  render(
+    <RunSummaryView
+      summary={{
+        ...taskSummary,
+        assessment: { ...taskSummary.assessment, outcomeComplete: false },
+        purpose: {
+          flowSkillName: "browse-catalogue",
+          kind: "dry-run",
+          recordingId: "recording-one",
+          takeoverOccurred: true,
+        },
+      }}
+    />
+  );
+  expect(screen.getByText("Dry Run")).toBeVisible();
+  expect(
+    screen.getByText(/did not report a complete skill outcome attempt/u)
+  ).toHaveTextContent("User Takeover prevents this Dry Run from passing.");
+});
+
+const dryRunCapture = {
+  _tag: "dry-run-passed",
+  draftedAt: summary.startedAt,
+  dryRunEndedAt: summary.endedAt,
+  dryRunResult: {
+    completedAt: summary.endedAt,
+    inputs: [],
+    observableOutcome: "The cart remains open.",
+    outcome: "passed",
+  },
+  dryRunSessionId: summary.sessionId,
+  dryRunStartedAt: summary.startedAt,
+  dryRunSummary: {
+    ...taskSummary,
+    assessment: { ...taskSummary.assessment, outcomeComplete: true },
+    purpose: {
+      flowSkillName: "browse-catalogue",
+      kind: "dry-run",
+      recordingId: "recording-one",
+      takeoverOccurred: false,
+    },
+  },
+  readyAt: summary.startedAt,
+  skillPath: "browse-catalogue/SKILL.md",
+  startedAt: summary.startedAt,
+  stoppedAt: summary.endedAt,
+};
+
+test("offers user verification only for a completed working Dry Run with a complete report and no Takeover", () => {
+  expect(teachingRecordingPresentation(dryRunCapture).action?.gesture).toBe(
+    "verify-flow"
+  );
+  for (const invalidSummary of [
+    { ...dryRunCapture.dryRunSummary, outcome: "user-closed" },
+    { ...dryRunCapture.dryRunSummary, assessment: null },
+    {
+      ...dryRunCapture.dryRunSummary,
+      assessment: {
+        ...dryRunCapture.dryRunSummary.assessment,
+        outcomeComplete: false,
+      },
+    },
+    {
+      ...dryRunCapture.dryRunSummary,
+      assessment: {
+        ...dryRunCapture.dryRunSummary.assessment,
+        outcome: "not-working",
+      },
+    },
+    {
+      ...dryRunCapture.dryRunSummary,
+      purpose: {
+        ...dryRunCapture.dryRunSummary.purpose,
+        takeoverOccurred: true,
+      },
+    },
+  ]) {
+    const presentation = teachingRecordingPresentation({
+      ...dryRunCapture,
+      dryRunSummary: invalidSummary,
+    });
+    expect(presentation.action).toBeNull();
+    expect(presentation.tone).toBe("failed");
+  }
 });

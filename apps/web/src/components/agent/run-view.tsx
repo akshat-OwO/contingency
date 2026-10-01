@@ -9,6 +9,7 @@ import { agentRunVideoPath } from "@contingency/protocol";
 import { useAtomValue } from "@effect/atom-react";
 import { CircleAlertIcon } from "lucide-react";
 
+import { TaskRunDetails } from "@/components/agent/task-run-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { refusal } from "@/lib/refusal";
@@ -148,6 +149,14 @@ export const RunSummaryView = ({
         </h2>
         <div className="space-y-2 rounded-lg border p-3 text-sm">
           <p className="font-medium">{summary.title ?? summary.runId}</p>
+          {summary.schemaVersion === 3 ? (
+            <p>
+              {summary.purpose.kind === "dry-run"
+                ? "Dry Run"
+                : "Interactive Run"}
+            </p>
+          ) : null}
+          <p className="text-muted-foreground text-xs">Execution outcome</p>
           <Badge
             variant={summary.outcome === "completed" ? "default" : "secondary"}
           >
@@ -166,31 +175,7 @@ export const RunSummaryView = ({
         </div>
       </section>
       {summary.schemaVersion === 3 ? (
-        <section aria-label="Task assessment" className="space-y-2 text-sm">
-          <p>{summary.requestedTask}</p>
-          <p>
-            Agent Assessment:{" "}
-            {summary.assessment?.outcome ?? "No Agent Assessment submitted"}
-          </p>
-          {summary.assessment === null ? null : (
-            <p>{summary.assessment.explanation}</p>
-          )}
-          {summary.purpose.kind === "dry-run" ? (
-            <p>
-              {summary.assessment?.outcomeComplete === true
-                ? "The agent reports a complete skill outcome attempt."
-                : "The agent did not report a complete skill outcome attempt."}
-              {summary.purpose.takeoverOccurred
-                ? " User Takeover prevents this Dry Run from passing."
-                : ""}
-            </p>
-          ) : null}
-          {summary.findings.map((finding) => (
-            <p key={finding.id}>
-              {finding.outcome}: {finding.explanation}
-            </p>
-          ))}
-        </section>
+        <TaskRunDetails run={summary} />
       ) : (
         <>
           <RunTotals

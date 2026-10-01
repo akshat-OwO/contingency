@@ -174,6 +174,9 @@ export const runDockPresentation = (
       `Rehearsing the flow skill ${dryRun.flowSkillName}.`,
       changedInputsSentence(dryRun.inputs)
     );
+    if (run !== null && "schemaVersion" in run) {
+      sentences.push(run.instructions.at(-1)?.instruction ?? run.requestedTask);
+    }
   }
 
   sentences.push(`${control.holder}.`);

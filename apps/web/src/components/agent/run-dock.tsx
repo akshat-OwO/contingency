@@ -14,6 +14,7 @@ import {
   agentIdleNotice,
   runDockPresentation,
 } from "@/components/agent/run-dock-state";
+import { TaskRunDetails } from "@/components/agent/task-run-details";
 import {
   DockSessionSelect,
   DockShell,
@@ -160,6 +161,36 @@ export const RunDock = ({
       <DockStatus>
         {presentation.badge}. {presentation.nextStep}
       </DockStatus>
+      {session.run !== null && "schemaVersion" in session.run ? (
+        <>
+          <p
+            aria-live="polite"
+            className="text-muted-foreground order-last w-full text-xs wrap-anywhere sm:hidden"
+          >
+            {session.run.instructions.at(-1)?.instruction ??
+              session.run.requestedTask}
+          </p>
+          <Popover>
+            <PopoverTrigger
+              render={(props) => (
+                <Button {...props} size="sm" variant="ghost">
+                  Task details
+                </Button>
+              )}
+            />
+            <PopoverContent
+              align="end"
+              side="top"
+              className="max-h-[60svh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
+            >
+              <PopoverTitle>
+                {session.dryRun ? "Dry Run" : "Interactive Run"}
+              </PopoverTitle>
+              <TaskRunDetails run={session.run} />
+            </PopoverContent>
+          </Popover>
+        </>
+      ) : null}
       {presentation.coverage === undefined ? null : (
         <RunCoverage
           coverage={presentation.coverage}

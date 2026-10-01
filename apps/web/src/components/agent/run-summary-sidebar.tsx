@@ -1,3 +1,5 @@
+import { useAtom } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
 import { PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useId, useState } from "react";
@@ -9,6 +11,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /** The rail a collapsed sidebar keeps, wide enough for its expand button. */
 const COLLAPSED_SIZE = "3rem";
@@ -16,24 +19,27 @@ const COLLAPSED_SIZE = "3rem";
 const RunSummarySidebar = ({
   children,
   label,
+  mobile,
 }: {
   readonly children: ReactNode;
   readonly label: string;
+  readonly mobile: boolean;
 }) => {
   const panelRef = usePanelRef();
   const contentId = useId();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsedAtom] = useState(() => Atom.make(false));
+  const [collapsed, setCollapsed] = useAtom(collapsedAtom);
   return (
     <>
       <ResizableHandle aria-label={`Resize ${label}`} withHandle />
       <ResizablePanel
         collapsedSize={COLLAPSED_SIZE}
         collapsible
-        defaultSize="30rem"
+        defaultSize={mobile ? "45%" : "30rem"}
         groupResizeBehavior="preserve-pixel-size"
         id="run-summary"
-        maxSize="48rem"
-        minSize="20rem"
+        maxSize={mobile ? "65%" : "48rem"}
+        minSize={mobile ? "12rem" : "20rem"}
         onResize={() => {
           setCollapsed(panelRef.current?.isCollapsed() ?? false);
         }}
@@ -113,18 +119,26 @@ export const WorkspaceWithRunSummary = ({
   readonly label: string;
   /** The summary to show, or `null` for a full-width Workspace. */
   readonly summary: ReactNode | null;
-}) => (
-  <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
-    <ResizablePanel
-      className="flex min-h-0 flex-col"
-      id="workspace"
-      minSize="20rem"
-      style={{ overflow: "hidden" }}
+}) => {
+  const mobile = useIsMobile();
+  return (
+    <ResizablePanelGroup
+      className="min-h-0 flex-1"
+      orientation={mobile ? "vertical" : "horizontal"}
     >
-      {children}
-    </ResizablePanel>
-    {summary === null ? null : (
-      <RunSummarySidebar label={label}>{summary}</RunSummarySidebar>
-    )}
-  </ResizablePanelGroup>
-);
+      <ResizablePanel
+        className="flex min-h-0 flex-col"
+        id="workspace"
+        minSize={mobile ? "12rem" : "20rem"}
+        style={{ overflow: "hidden" }}
+      >
+        {children}
+      </ResizablePanel>
+      {summary === null ? null : (
+        <RunSummarySidebar label={label} mobile={mobile}>
+          {summary}
+        </RunSummarySidebar>
+      )}
+    </ResizablePanelGroup>
+  );
+};
