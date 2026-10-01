@@ -18,8 +18,7 @@ import {
   TeachingTimeline,
 } from "@contingency/protocol";
 import type {
-  AgentRunState,
-  AgentRunStep,
+  TaskAgentRunState,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import { Effect, FileSystem, Layer, Schema } from "effect";
@@ -200,7 +199,7 @@ const DryRunInput = Schema.Union([
 const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
   dependencies: [AgentSession, FileSystem.FileSystem, TeachingRecordingStore],
   description:
-    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. Its numbered procedure becomes ordered Agent Steps. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Assess each Step against its Done when line with agent_run_step_assess. The Dry Run ends and its result is derived when the last Step is assessed or a terminal assessment or agent_run_complete ends it. It has no wall-clock limit.",
+    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. The saved skill outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete skill outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
@@ -390,26 +389,8 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           value: input.secret ? null : input.value,
         }));
         const startedAt = new Date().toISOString();
-        const steps: readonly AgentRunStep[] = procedure.map((step) => ({
+        const run: TaskAgentRunState = {
           assessment: null,
-          attempts: 0,
-          confirmation: false,
-          description: step.description,
-          doneWhen: step.doneWhen,
-          endedAt: null,
-          execution: "pending",
-          index: step.index,
-          name: step.name,
-          startedAt: null,
-        }));
-        const run: AgentRunState = {
-          activeStepIndex: null,
-          assessmentCounts: {
-            blocked: 0,
-            inconclusive: 0,
-            notWorking: 0,
-            working: 0,
-          },
           attribution: {
             clientName: "flow-skill-dry-run",
             clientVersion: "1",
@@ -417,30 +398,42 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             reportedModel: null,
             reportedProvider: null,
           },
-          coverage: {
-            complete: false,
-            executed: 0,
-            total: steps.length,
-            unexecuted: steps.length,
-          },
-          endedAt: null,
-          flowSkillName: manifest.flowSkillName,
-          inputs: dryRunInputs.map(({ name, value }) => ({
-            name,
-            value: value ?? "<redacted>",
-          })),
+          findings: [],
+          inputs: dryRunInputs.flatMap(({ name, value }) =>
+            value === null
+              ? []
+              : [{ flowSkillName: manifest.flowSkillName, name, value }]
+          ),
+          instructions: [],
           lastAgentActivityAt: startedAt,
-          outcome: null,
+          lifecycle: { phase: "running" },
+          purpose: {
+            flowSkillName: manifest.flowSkillName,
+            kind: "dry-run",
+            recordingId: manifest.recordingId,
+            takeoverOccurred: false,
+          },
+          referencedSkills: [
+            { flowSkillName: manifest.flowSkillName, referencedAt: startedAt },
+          ],
+          requestedTask: frontmatter?.description ?? manifest.flowSkillName,
           runId: AgentRunId.make(
             `agentrun-${createHash("sha256")
               .update(`${params.recordingId}:${params.operationId}`)
               .digest("hex")
               .slice(0, 32)}`
           ),
+          schemaVersion: 3,
           startedAt,
-          steps,
+          startingEmulation: manifest.emulation,
           title: manifest.flowSkillName,
-          variables: [],
+          variables: secretNames.map((name) => ({
+            flowSkillName: manifest.flowSkillName,
+            name,
+            runtime: true,
+            secret: true,
+            supplied: false,
+          })),
         };
         const evidenceDirectory = path.join(
           store.directory(manifest.recordingId),

@@ -165,7 +165,7 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
 
 const AgentRunStepAssessTool = Tool.dynamic("agent_run_step_assess", {
   description:
-    'Report your evidence-backed judgment of the active Agent Step in a historical ordered Run or Dry Run: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Pass evidence as a non-empty array of objects, for example [{"kind":"snapshot","id":"snapshot-2"}] or [{"kind":"attempt","id":"action-123"}]. Every reference must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted. Assessing the last Agent Step or ending early closes the browser and writes a Run Summary. A Dry Run passes only when every Step is working, coverage is complete, and no Takeover occurred. Its Summary stays with the Teaching Recording and cannot be opened with open_run.',
+    'Report your evidence-backed judgment of the active Agent Step in a historical ordered Run: working, not-working, inconclusive, or blocked. The Step\'s own "Done when:" line is what you are judging against. Pass evidence as a non-empty array of objects, for example [{"kind":"snapshot","id":"snapshot-2"}] or [{"kind":"attempt","id":"action-123"}]. Every reference must name a Browser Snapshot or an attempt this Agent Step actually produced. Only `working` advances to the next Agent Step; any other outcome ends the ordered Steps and leaves the rest unexecuted. Assessing the last Agent Step or ending early closes the browser and writes a Run Summary. New Runs and Dry Runs use agent_run_assess and explicit agent_run_complete.',
   failure: AgentRunFailure,
   parameters: assessParametersJsonSchema,
   success: AgentSessionSnapshot,
@@ -222,12 +222,27 @@ const taskReportParameters = Schema.Struct({
   explanation: AgentTaskAssessment.fields.explanation,
   operationId: OperationId,
   outcome: AgentTaskAssessment.fields.outcome,
+  outcomeComplete: optionalNullable(Schema.Boolean),
   sessionId: AgentSessionId,
 });
+const taskReport = (
+  params: typeof taskReportParameters.Type
+): Omit<AgentTaskAssessment, "submittedAt"> => {
+  const report = {
+    evidence: params.evidence,
+    explanation: params.explanation,
+    outcome: params.outcome,
+  };
+  if (params.outcomeComplete === undefined) {
+    // MCP structured results are JSON: omit absent fields instead of storing undefined.
+    return report;
+  }
+  return { ...report, outcomeComplete: params.outcomeComplete };
+};
 const AgentTaskAssessTool = Tool.make("agent_run_assess", {
   dependencies: [AgentSession],
   description:
-    "Record an evidence-backed assessment of the requested task. Cite Snapshot or attempt ids produced by this Run. Every outcome, including not-working or blocked, leaves the browser open for investigation, retry, or changed instructions. Explicitly complete when finished.",
+    "Record an evidence-backed model assessment of the requested task or complete Dry Run skill outcome. Cite Snapshot or attempt ids produced by this Run. For a Dry Run, explicitly set outcomeComplete to whether the complete skill outcome was attempted; a partial attempt cannot pass. Every outcome leaves the browser open for exploration or recovery. Use agent_run_complete when finished. A passing Dry Run still needs the user's Workspace verification before Cleanup.",
   failure: AgentRunFailure,
   parameters: taskReportParameters,
   success: AgentSessionSnapshot,
@@ -464,11 +479,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       return yield* session
         .assessTask(
           params.sessionId,
-          {
-            evidence: params.evidence,
-            explanation: params.explanation,
-            outcome: params.outcome,
-          },
+          taskReport(params),
           false,
           params.operationId
         )
@@ -490,11 +501,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       return yield* session
         .assessTask(
           params.sessionId,
-          {
-            evidence: params.evidence,
-            explanation: params.explanation,
-            outcome: params.outcome,
-          },
+          taskReport(params),
           true,
           params.operationId
         )

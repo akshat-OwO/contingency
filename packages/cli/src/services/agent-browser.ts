@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   AgentElementRef,
@@ -969,7 +969,8 @@ export const makeAgentElementRegistry = (
         yield* clear();
       }
       generation += 1;
-      const snapshotId = AgentSnapshotId.make(`snapshot-${generation}`);
+      // Evidence identity must never collide across sessions or process lifetimes.
+      const snapshotId = AgentSnapshotId.make(`snapshot-${randomUUID()}`);
       const listenerPaths = yield* Effect.tryPromise(() =>
         clickListenerPaths(page)
       ).pipe(Effect.orElseSucceed((): number[][] => []));

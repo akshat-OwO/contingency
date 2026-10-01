@@ -1260,6 +1260,38 @@ const withDerivedRunTotals = (run: LiveRun): LiveRun =>
         assessmentCounts: assessmentCountsOf(run.steps),
         coverage: coverageOf(run.steps),
       };
+const withDryRunTakeover = (
+  run: LiveRun | null,
+  takeoverOccurred: boolean
+): LiveRun | null => {
+  if (run === null || !isTaskRun(run) || run.purpose.kind !== "dry-run") {
+    return run;
+  }
+  return { ...run, purpose: { ...run.purpose, takeoverOccurred } };
+};
+
+const dryRunPassed = (
+  summary: AgentRunSummary,
+  hadTakeover: boolean
+): boolean =>
+  summary.schemaVersion === 3 &&
+  summary.outcome === "completed" &&
+  summary.purpose.kind === "dry-run" &&
+  !summary.purpose.takeoverOccurred &&
+  summary.assessment?.outcome === "working" &&
+  summary.assessment.outcomeComplete === true &&
+  !hadTakeover;
+
+const dryRunObservableOutcome = (summary: AgentRunSummary): string => {
+  if (summary.schemaVersion === 3) {
+    return summary.assessment?.explanation ?? "No task outcome was assessed.";
+  }
+  const last = summary.steps.findLast((step) => step.assessment !== null);
+  return last === undefined
+    ? "No Agent Step was assessed."
+    : `Done when: ${last.doneWhen} ${last.assessment?.explanation ?? ""}`.trim();
+};
+
 const runEnded = (run: LiveRun): boolean =>
   isTaskRun(run) ? run.lifecycle.phase === "ended" : run.outcome !== null;
 
@@ -1314,7 +1346,7 @@ const variableKey = (name: string, flowSkillName?: string | null): string =>
     : JSON.stringify([flowSkillName, name]);
 
 /**
- * Record what the Runner produced during the active Agent Step, so an
+ * Record what the Runner produced during the owning Run, so an
  * assessment can be checked against real evidence.
  */
 const noteRunEvidence = (
@@ -1378,11 +1410,11 @@ type SnapshotWrite = readonly [
 ];
 
 /**
- * What the Runner recorded during the currently active Agent Step. An
+ * What the Runner recorded during the owning Run. An
  * assessment may only cite these ids, so the agent cannot ground a conclusion
- * in evidence Contingency never produced. Reset at every Step boundary.
+ * in evidence Contingency never produced. Historical Step Runs reset at their Step boundaries.
  */
-interface RunStepEvidence {
+interface RunEvidence {
   readonly attempts: Set<string>;
   readonly snapshots: Set<string>;
 }
@@ -1418,7 +1450,7 @@ interface SessionRecord {
   readonly registry: AgentElementRegistry;
   /** The Run directory this session's Trace and video were written into. */
   readonly artifactDirectory: string | undefined;
-  readonly runEvidence: RunStepEvidence;
+  readonly runEvidence: RunEvidence;
   /**
    * The Run Summary this session finalized, and whether the Catalog Root has
    * it. A Run is finalized exactly once, however it ends, but a Summary is
@@ -1548,21 +1580,19 @@ const actionBoundaryReasons = (
   const mutating = !["navigate", "hover", "scroll", "wait_for_text"].includes(
     action.type
   );
-  // A Flow Skill step the agent marked as needing confirmation scopes the
-  // marker to that Step. Without one, retain the conservative guard so
-  // omission cannot bypass it.
+  // Historical Runs retain their Step markers. Task Runs declare confirmation
+  // per action attempt, independently of their procedure or report.
   const needsConfirmation =
     intent.irreversible === true || (mutating && step?.confirmation === true);
-  // Domain Scope already decides where the session may travel, and a navigate
-  // mutates nothing, so an in-scope destination is never an unknown objective
-  // however the agent phrased it (ADR 0027).
+  // Host authority and task authority are independent. An allowed host does
+  // not authorize an explicitly unrelated objective.
   const inScopeNavigate =
     action.type === "navigate" && domainAllowed(record, action.url);
   const reasons: AgentExecutionBoundary["reason"][] = [];
   if (action.type === "navigate" && !inScopeNavigate) {
     reasons.push("domain");
   }
-  if (intent.objectiveKind === "new" && !inScopeNavigate) {
+  if (intent.objectiveKind === "new") {
     reasons.push("objective");
   }
   if (needsConfirmation) {
@@ -1573,9 +1603,8 @@ const actionBoundaryReasons = (
 };
 
 /**
- * What the user is being asked to confirm. The agent's own objective when it
- * named one, and the active Agent Step when it did not: during an Interactive
- * Run the ordered Step really is what the action contributes to.
+ * Describe the attempt in the agent's words, falling back to the latest user
+ * instruction or requested task. Historical Runs retain their Step fallback.
  */
 const boundaryObjective = (
   record: SessionRecord,
@@ -1610,8 +1639,8 @@ const boundaryScopeSummary = (boundary: AgentExecutionBoundary): string => {
   }
   const what =
     boundary.reason === "confirmation"
-      ? "Confirm this irreversible action attempt once"
-      : "Allow this objective outside the Flow Skill's Agent Steps once";
+      ? "Confirm this irreversible or high-impact action attempt once"
+      : "Allow this objective outside the requested task once";
   return `${what}: ${boundary.description} (${boundary.requested}). A retry needs another decision.`;
 };
 
@@ -5657,6 +5686,7 @@ const makeAgentSession = (
           outcome: "completed",
         };
         const current = yield* read(sessionId);
+        const takeoverRun = current.snapshot.run;
         const timeline = [
           ...current.snapshot.timeline,
           ...(interruptedAction === null ? [] : [interruptedAction]),
@@ -5684,6 +5714,10 @@ const makeAgentSession = (
                   by === "user" ? "user" : current.snapshot.controller,
                 interruptedAction,
                 phase: "takeover",
+                run: withDryRunTakeover(
+                  takeoverRun,
+                  record.dryRunControl.hadTakeover
+                ),
                 takeover: { reason, requestedAt: at, requestedBy: by },
                 timeline,
                 updatedAt: at,
@@ -5999,23 +6033,12 @@ const makeAgentSession = (
                 )
               )
             );
-          const passed =
-            summary.schemaVersion !== 3 &&
-            summary.coverage.complete &&
-            summary.steps.every(
-              (step) => step.assessment?.outcome === "working"
-            ) &&
-            !record.dryRunControl.hadTakeover;
-          const lastAssessed =
-            summary.schemaVersion === 3
-              ? undefined
-              : summary.steps.findLast((step) => step.assessment !== null);
-          const observableOutcome =
-            lastAssessed === undefined
-              ? "No Agent Step was assessed."
-              : `Done when: ${lastAssessed.doneWhen} ${lastAssessed.assessment?.explanation ?? ""}`.trim();
+          const passed = dryRunPassed(
+            summary,
+            record.dryRunControl.hadTakeover
+          );
           const mutation = {
-            observableOutcome,
+            observableOutcome: dryRunObservableOutcome(summary),
             operationId: OperationId.make(
               `dry-run-finish-${summary.sessionId}`
             ),
@@ -6726,6 +6749,9 @@ const makeAgentSession = (
                 );
               }
               if (
+                (!finding &&
+                  run.purpose.kind === "dry-run" &&
+                  input.outcomeComplete === undefined) ||
                 input.evidence.length === 0 ||
                 input.explanation.trim().length === 0 ||
                 input.evidence.some((reference) => {
@@ -6741,7 +6767,7 @@ const makeAgentSession = (
                 return yield* Effect.fail(
                   error(
                     "agent_session_invalid",
-                    "Cite a Browser Snapshot or attempt produced by this Run and explain the assessment."
+                    "Cite a Browser Snapshot or attempt produced by this Run and explain the assessment. Dry Run assessments must explicitly report outcomeComplete."
                   )
                 );
               }
@@ -7060,6 +7086,14 @@ const makeAgentSession = (
           JSON.stringify({ flowSkillName, name }),
           (record, run) =>
             Effect.gen(function* requestVariable() {
+              if (run.purpose.kind === "dry-run") {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "Supply Dry Run secrets in the Workspace before agent_variable_enter."
+                  )
+                );
+              }
               const declared = requireDeclaredVariable(
                 record,
                 name,
@@ -7521,6 +7555,7 @@ const makeAgentSession = (
             );
           }
           record.supplied.set(name, value);
+          record.supplied.set(variableKey(name, dryRun.flowSkillName), value);
           const updated = yield* mutate(sessionId, (snapshot) => {
             if (snapshot.activity !== "run" || snapshot.dryRun === null) {
               return snapshot;
@@ -7533,6 +7568,15 @@ const makeAgentSession = (
                   item.name === name ? { ...item, supplied: true } : item
                 ),
               },
+              run:
+                snapshot.run !== null && isTaskRun(snapshot.run)
+                  ? {
+                      ...snapshot.run,
+                      variables: snapshot.run.variables.map((item) =>
+                        item.name === name ? { ...item, supplied: true } : item
+                      ),
+                    }
+                  : snapshot.run,
               updatedAt: now().toISOString(),
             };
           });
@@ -7562,6 +7606,14 @@ const makeAgentSession = (
           requestInput,
           (record, run) =>
             Effect.gen(function* updateTask() {
+              if (run.purpose.kind === "dry-run") {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "A Dry Run assesses the saved complete skill outcome under its Teaching hosts. Start a fresh Dry Run to change inputs."
+                  )
+                );
+              }
               const input = yield* prepare;
               const at = now().toISOString();
               const referencedSkills = [...run.referencedSkills];
