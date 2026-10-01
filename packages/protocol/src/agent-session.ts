@@ -12,7 +12,7 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
-import { AgentRunState } from "./agent-run.ts";
+import { AgentRunState, TaskAgentRunState } from "./agent-run.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 import {
@@ -144,6 +144,16 @@ export const RunSessionSnapshot = Schema.Struct({
   teaching: Schema.Null,
 });
 export type RunSessionSnapshot = typeof RunSessionSnapshot.Type;
+
+/** Task session contract for later runtime integration; no singular skill slot. */
+export const TaskRunSessionSnapshot = Schema.Struct({
+  ...AgentSessionSnapshotBase,
+  activity: Schema.Literal("run"),
+  captureState: Schema.Null,
+  run: TaskAgentRunState,
+  teaching: Schema.Null,
+});
+export type TaskRunSessionSnapshot = typeof TaskRunSessionSnapshot.Type;
 
 export const AgentSessionSnapshot = Schema.Union([
   TeachingSessionSnapshot,

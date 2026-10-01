@@ -535,6 +535,11 @@ it.live(
           const failedManifest = yield* recordingStore.read(recordingId);
           expect(failedManifest.lifecycle._tag).toBe("dry-run-failed");
           if (failedManifest.lifecycle._tag === "dry-run-failed") {
+            if (failedManifest.lifecycle.dryRunSummary?.schemaVersion !== 2) {
+              return yield* Effect.die(
+                "Expected the ordered Dry Run's Summary."
+              );
+            }
             expect(
               failedManifest.lifecycle.dryRunSummary?.coverage.complete
             ).toBe(false);
@@ -698,6 +703,11 @@ it.live(
           const passedManifest = yield* recordingStore.read(recordingId);
           expect(passedManifest.lifecycle._tag).toBe("dry-run-passed");
           if (passedManifest.lifecycle._tag === "dry-run-passed") {
+            if (passedManifest.lifecycle.dryRunSummary?.schemaVersion !== 2) {
+              return yield* Effect.die(
+                "Expected the ordered Dry Run's Summary."
+              );
+            }
             expect(
               passedManifest.lifecycle.dryRunSummary?.coverage.complete
             ).toBe(true);
@@ -747,6 +757,11 @@ it.live(
           const takeoverManifest = yield* recordingStore.read(recordingId);
           expect(takeoverManifest.lifecycle._tag).toBe("dry-run-failed");
           if (takeoverManifest.lifecycle._tag === "dry-run-failed") {
+            if (takeoverManifest.lifecycle.dryRunSummary?.schemaVersion !== 2) {
+              return yield* Effect.die(
+                "Expected the ordered Dry Run's Summary."
+              );
+            }
             expect(
               takeoverManifest.lifecycle.dryRunSummary?.coverage.complete
             ).toBe(true);

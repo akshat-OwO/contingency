@@ -3,8 +3,10 @@ import { Schema } from "effect";
 import { AgentTimelineEntry } from "./agent-browser.ts";
 import { AgentSessionVariableState } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
+import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
@@ -165,7 +167,7 @@ export const AgentRunOutcome = Schema.Literals([
 export type AgentRunOutcome = typeof AgentRunOutcome.Type;
 
 /** Live Run state, carried on the Agent Session snapshot Agent View reads. */
-export const AgentRunState = Schema.Struct({
+export const LegacyAgentRunState = Schema.Struct({
   /** `null` once no Step is active, which is every state after the Run ends. */
   activeStepIndex: Schema.NullOr(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
@@ -201,14 +203,18 @@ export const AgentRunState = Schema.Struct({
    */
   variables: Schema.Array(AgentSessionVariableState),
 });
-export type AgentRunState = typeof AgentRunState.Type;
+export type LegacyAgentRunState = typeof LegacyAgentRunState.Type;
+
+/** Compatibility for the ordered runtime until task execution is integrated. */
+export const AgentRunState = LegacyAgentRunState;
+export type AgentRunState = LegacyAgentRunState;
 
 /**
  * The persisted Run Summary. It outlives the Agent Session and the MCP process
  * that produced it, and `open_run` reads exactly this
  * ([ADR 0030](../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
-export const AgentRunSummary = Schema.Struct({
+export const LegacyAgentRunSummary = Schema.Struct({
   /**
    * The agent's closing account of the Run as a whole. It is absent unless the
    * agent offered one: a Run that ends on its own writes its Summary before
@@ -233,13 +239,224 @@ export const AgentRunSummary = Schema.Struct({
   sessionId: AgentSessionId,
   startedAt: nonEmptyString,
   steps: Schema.Array(AgentRunStep).check(Schema.isMinLength(1)),
+  /** Earlier version 2 writers used this nullable closing-account field. */
+  summary: Schema.optional(Schema.NullOr(nonEmptyString)),
   timeline: Schema.Array(AgentTimelineEntry),
   title: nonEmptyString,
   /** Relative to the Run's directory; `null` when capture produced none. */
   tracePath: Schema.NullOr(nonEmptyString),
   videoPath: Schema.NullOr(nonEmptyString),
 });
+export type LegacyAgentRunSummary = typeof LegacyAgentRunSummary.Type;
+
+/** Version 1 predates Flow Skills; retain its identities and original account. */
+export const LegacyAgentFlowRunSummary = Schema.Struct({
+  agentFlowId: Schema.String.check(
+    Schema.isPattern(/^flow-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
+  ),
+  assessmentCounts: AgentRunAssessmentCounts,
+  attribution: AgentRunAttribution,
+  ceilings: LegacyAgentRunCeilings,
+  coverage: AgentRunCoverage,
+  endedAt: nonEmptyString,
+  outcome: AgentRunOutcome,
+  revisionId: Schema.String.check(
+    Schema.isPattern(/^rev-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
+  ),
+  runId: AgentRunId,
+  schemaVersion: Schema.Literal(1),
+  sessionId: AgentSessionId,
+  startedAt: nonEmptyString,
+  steps: Schema.Array(
+    Schema.Struct({
+      ...AgentRunStep.fields,
+      // Version 1 did not copy a Done when line into its Step records.
+      doneWhen: Schema.optional(nonEmptyString),
+    })
+  ).check(Schema.isMinLength(1)),
+  summary: Schema.NullOr(nonEmptyString),
+  timeline: Schema.Array(AgentTimelineEntry),
+  title: nonEmptyString,
+  tracePath: Schema.NullOr(nonEmptyString),
+  videoPath: Schema.NullOr(nonEmptyString),
+});
+export type LegacyAgentFlowRunSummary = typeof LegacyAgentFlowRunSummary.Type;
+
+/** A skill requested by the user, including requests made after startup. */
+export const AgentRunSkillReference = Schema.Struct({
+  flowSkillName: FlowSkillName,
+  referencedAt: nonEmptyString,
+});
+export type AgentRunSkillReference = typeof AgentRunSkillReference.Type;
+
+/** The skill and name together identify an input. Secret literals never travel. */
+export const AgentRunInputIdentity = Schema.Struct({
+  flowSkillName: FlowSkillName,
+  name: nonEmptyString,
+});
+export type AgentRunInputIdentity = typeof AgentRunInputIdentity.Type;
+
+export const AgentRunTaskInput = Schema.Struct({
+  ...AgentRunInputIdentity.fields,
+  value: nonEmptyString,
+});
+export type AgentRunTaskInput = typeof AgentRunTaskInput.Type;
+
+export const AgentRunTaskVariable = Schema.Struct({
+  ...AgentSessionVariableState.fields,
+  flowSkillName: FlowSkillName,
+});
+export type AgentRunTaskVariable = typeof AgentRunTaskVariable.Type;
+
+/** User redirection is append-only and does not replace the original task. */
+export const AgentRunInstruction = Schema.Struct({
+  instruction: nonEmptyString,
+  receivedAt: nonEmptyString,
+});
+export type AgentRunInstruction = typeof AgentRunInstruction.Type;
+
+/** References recorded browser evidence, never raw Trace or video bytes. */
+export const AgentTaskEvidence = Schema.Struct({
+  id: nonEmptyString,
+  kind: Schema.Literals(["snapshot", "attempt", "screenshot", "artifact"]),
+});
+export type AgentTaskEvidence = typeof AgentTaskEvidence.Type;
+
+export const AgentTaskAssessment = Schema.Struct({
+  evidence: Schema.Array(AgentTaskEvidence).check(Schema.isMinLength(1)),
+  explanation: nonEmptyString,
+  outcome: AgentAssessmentOutcome,
+  submittedAt: nonEmptyString,
+});
+export type AgentTaskAssessment = typeof AgentTaskAssessment.Type;
+
+/** Findings record observations without ending execution or implying coverage. */
+export const AgentTaskFinding = Schema.Struct({
+  ...AgentTaskAssessment.fields,
+  id: nonEmptyString,
+});
+export type AgentTaskFinding = typeof AgentTaskFinding.Type;
+
+/** An execution ending is independent of the nullable task assessment. */
+export const AgentTaskRunOutcome = Schema.Literals([
+  "completed",
+  "user-closed",
+  "process-exited",
+  "crashed",
+  "interrupted",
+]);
+export type AgentTaskRunOutcome = typeof AgentTaskRunOutcome.Type;
+
+export const AgentTaskRunPurpose = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("interactive") }),
+  Schema.Struct({
+    flowSkillName: FlowSkillName,
+    kind: Schema.Literal("dry-run"),
+    recordingId: TeachingRecordingId,
+    takeoverOccurred: Schema.Boolean,
+  }),
+]);
+export type AgentTaskRunPurpose = typeof AgentTaskRunPurpose.Type;
+
+const taskRunFields = {
+  assessment: Schema.NullOr(AgentTaskAssessment),
+  attribution: AgentRunAttribution,
+  findings: Schema.Array(AgentTaskFinding),
+  inputs: Schema.Array(AgentRunTaskInput),
+  instructions: Schema.Array(AgentRunInstruction),
+  purpose: AgentTaskRunPurpose,
+  referencedSkills: Schema.Array(AgentRunSkillReference),
+  requestedTask: nonEmptyString,
+  runId: AgentRunId,
+  schemaVersion: Schema.Literal(3),
+  startedAt: nonEmptyString,
+  startingEmulation: DraftEmulation,
+  title: nonEmptyString,
+  variables: Schema.Array(AgentRunTaskVariable),
+};
+
+const TaskAgentRunRecord = Schema.Struct(taskRunFields);
+
+const taskInputIdentity = Schema.makeFilter(
+  (run: typeof TaskAgentRunRecord.Type) => {
+    const skills = new Set(
+      run.referencedSkills.map((skill) => skill.flowSkillName)
+    );
+    for (const inputs of [run.inputs, run.variables]) {
+      const identities = new Set<string>();
+      for (const input of inputs) {
+        if (!skills.has(input.flowSkillName)) {
+          return "Inputs and Variables must belong to a referenced Flow Skill.";
+        }
+        const identity = JSON.stringify([input.flowSkillName, input.name]);
+        if (identities.has(identity)) {
+          return "Input and Variable identities must be unique within their Flow Skill.";
+        }
+        identities.add(identity);
+      }
+    }
+    const secrets = new Set<string>();
+    for (const variable of run.variables) {
+      if (variable.secret) {
+        secrets.add(JSON.stringify([variable.flowSkillName, variable.name]));
+      }
+    }
+    return run.inputs.some((input) =>
+      secrets.has(JSON.stringify([input.flowSkillName, input.name]))
+    )
+      ? "Secret Variable literals cannot be stored as ordinary inputs."
+      : undefined;
+  }
+);
+
+/** No active Step, step assessments, tallies, or coverage in task executions. */
+export const TaskAgentRunState = Schema.Struct({
+  ...taskRunFields,
+  lastAgentActivityAt: nonEmptyString,
+  lifecycle: Schema.Union([
+    Schema.Struct({ phase: Schema.Literal("running") }),
+    Schema.Struct({
+      endedAt: nonEmptyString,
+      outcome: AgentTaskRunOutcome,
+      phase: Schema.Literal("ended"),
+    }),
+  ]),
+}).check(taskInputIdentity);
+export type TaskAgentRunState = typeof TaskAgentRunState.Type;
+
+export const TaskAgentRunSummary = Schema.Struct({
+  ...taskRunFields,
+  agentAccount: Schema.optional(nonEmptyString),
+  endedAt: nonEmptyString,
+  outcome: AgentTaskRunOutcome,
+  sessionId: AgentSessionId,
+  timeline: Schema.Array(AgentTimelineEntry),
+  tracePath: Schema.NullOr(nonEmptyString),
+  videoPath: Schema.NullOr(nonEmptyString),
+}).check(taskInputIdentity);
+export type TaskAgentRunSummary = typeof TaskAgentRunSummary.Type;
+
+/** Historical step executions retain their version and meaning on decode. */
+export const AgentRunSummary = Schema.Union([
+  LegacyAgentFlowRunSummary,
+  LegacyAgentRunSummary,
+  TaskAgentRunSummary,
+]);
 export type AgentRunSummary = typeof AgentRunSummary.Type;
+
+/** Contract only: task-directed runtime tools are integrated in later phases. */
+export const AgentTaskRunStart = Schema.Struct({
+  clientName: optionalNullable(nonEmptyString),
+  clientVersion: optionalNullable(nonEmptyString),
+  inputs: Schema.Array(AgentRunTaskInput),
+  operationId: OperationId,
+  referencedSkills: Schema.Array(FlowSkillName),
+  reportedModel: optionalNullable(nonEmptyString),
+  reportedProvider: optionalNullable(nonEmptyString),
+  requestedTask: nonEmptyString,
+  url: nonEmptyString,
+});
+export type AgentTaskRunStart = typeof AgentTaskRunStart.Type;
 
 /**
  * Where Agent View fetches a finished Run's video. It is a local loopback path
