@@ -13,7 +13,6 @@ import {
   agentProcessLayer,
   agentViewport,
   findNode,
-  requireRun,
   runTool,
   sessionTool,
   startUserTeaching,
@@ -135,30 +134,31 @@ const driveDeliveryAsAgent = (
     ).toBe(true);
   });
 
-const assessDryRunSteps = (
+const assessDryRunOutcome = (
   sessionId: AgentSessionId,
-  outcome: "working" | "not-working"
+  outcome: "working" | "not-working",
+  outcomeComplete = true
 ) =>
-  Effect.gen(function* assessSteps() {
+  Effect.gen(function* assessOutcome() {
     const session = yield* AgentSession;
-    let snapshot = yield* session.get(sessionId);
-    while (
-      requireRun(snapshot).activeStepIndex !== null &&
-      requireRun(snapshot).activeStepIndex !== undefined
-    ) {
-      const browser = yield* sessionTool("agent_browser_snapshot", {
-        sessionId,
-      });
-      snapshot = yield* session.assessStep(sessionId, {
+    const browser = yield* sessionTool("agent_browser_snapshot", { sessionId });
+    const assessed = yield* session.assessTask(
+      sessionId,
+      {
         evidence: [{ id: browser.snapshotId, kind: "snapshot" }],
         explanation:
           outcome === "working"
-            ? "The expected control or status is visible."
+            ? "The complete delivery status is visible."
             : "The delivery status did not match.",
         outcome,
-      });
-    }
-    return snapshot;
+        outcomeComplete,
+      },
+      false,
+      OperationId.make(`assess-${sessionId}`)
+    );
+    expect(assessed.phase).toBe("running");
+    yield* sessionTool("agent_browser_snapshot", { sessionId });
+    return yield* session.completeRun(sessionId);
   });
 
 /**
@@ -414,8 +414,8 @@ it.live(
             flowSkillName: "set-delivery-area",
             recordingId,
           });
-          expect(requireRun(failedRun.session).steps.length).toBeGreaterThan(0);
-          expect(requireRun(failedRun.session).activeStepIndex).toBe(0);
+          expect(failedRun.session.run).toHaveProperty("schemaVersion", 3);
+          expect(failedRun.session.run).not.toHaveProperty("steps");
           const reread = yield* sessionTool("agent_session_get", {
             sessionId: failedRun.session.id,
           });
@@ -453,16 +453,13 @@ it.live(
           });
           const arrivedUrl = `${fixtures.url("settle.html")}?arrived`;
           expect(afterNavigation.url).toBe(arrivedUrl);
-          const assessedAfterNavigation = yield* runTool(
-            "agent_run_step_assess",
-            {
-              evidence: [{ id: afterNavigation.snapshotId, kind: "snapshot" }],
-              explanation: "The delayed navigation arrived.",
-              operationId: OperationId.make("delivery-dry-assess-later"),
-              outcome: "working",
-              sessionId: failedRun.session.id,
-            }
-          );
+          const assessedAfterNavigation = yield* runTool("agent_run_finding", {
+            evidence: [{ id: afterNavigation.snapshotId, kind: "snapshot" }],
+            explanation: "The delayed navigation arrived.",
+            operationId: OperationId.make("delivery-dry-assess-later"),
+            outcome: "working",
+            sessionId: failedRun.session.id,
+          });
           expect(assessedAfterNavigation.currentUrl).toBe(arrivedUrl);
           expect(assessedAfterNavigation.timeline.at(-2)?.id).toBe(
             clicked.entry.id
@@ -475,7 +472,7 @@ it.live(
               sessionId: failedRun.session.id,
             })).currentUrl
           ).toBe(arrivedUrl);
-          yield* assessDryRunSteps(failedRun.session.id, "not-working");
+          yield* assessDryRunOutcome(failedRun.session.id, "not-working");
           const replayedFailedRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
             {
@@ -536,17 +533,12 @@ it.live(
           const failedManifest = yield* recordingStore.read(recordingId);
           expect(failedManifest.lifecycle._tag).toBe("dry-run-failed");
           if (failedManifest.lifecycle._tag === "dry-run-failed") {
-            if (failedManifest.lifecycle.dryRunSummary?.schemaVersion !== 2) {
-              return yield* Effect.die(
-                "Expected the ordered Dry Run's Summary."
-              );
+            if (failedManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
+              return yield* Effect.die("Expected the task Dry Run's Summary.");
             }
             expect(
-              failedManifest.lifecycle.dryRunSummary?.coverage.complete
-            ).toBe(false);
-            expect(
-              failedManifest.lifecycle.dryRunSummary?.steps[2]?.execution
-            ).toBe("unexecuted");
+              failedManifest.lifecycle.dryRunSummary?.assessment?.outcome
+            ).toBe("not-working");
           }
           const dryRunDirectory = path.join(recordingDirectory, "dry-run");
           expect(
@@ -595,10 +587,30 @@ it.live(
           const earlySummary = yield* (yield* AgentSession).completeRun(
             endedEarly.session.id
           );
-          if (earlySummary.schemaVersion === 3) {
-            return yield* Effect.die("Expected a historical Dry Run.");
-          }
-          expect(earlySummary.coverage.complete).toBe(false);
+          expect(earlySummary.schemaVersion).toBe(3);
+          expect(earlySummary).toHaveProperty("assessment", null);
+          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
+            "dry-run-failed"
+          );
+
+          const partialRun = yield* teachingRecordingTool(
+            "agent_flow_skill_dry_run_start",
+            {
+              inputs: [
+                { changed: true, name: "city", secret: false, value: "Pune" },
+                {
+                  changed: true,
+                  name: "delivery_area",
+                  secret: false,
+                  value: "Kothrud",
+                },
+              ],
+              operationId: OperationId.make("delivery-partial-start"),
+              recordingId,
+              url: fixtures.url("delivery.html"),
+            }
+          );
+          yield* assessDryRunOutcome(partialRun.session.id, "working", false);
           expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
             "dry-run-failed"
           );
@@ -680,6 +692,7 @@ it.live(
             "Bandra"
           );
           expect(supplied.dryRun?.variables[0]?.supplied).toBe(true);
+          expect(supplied.run?.variables[0]?.supplied).toBe(true);
           expect(JSON.stringify(supplied)).not.toContain("Bandra");
           yield* driveDeliveryAsAgent(
             passedRun.session.id,
@@ -703,21 +716,16 @@ it.live(
             flowSkillName: "set-delivery-area",
             recordingId,
           });
-          yield* assessDryRunSteps(passedRun.session.id, "working");
+          yield* assessDryRunOutcome(passedRun.session.id, "working");
           const passedManifest = yield* recordingStore.read(recordingId);
           expect(passedManifest.lifecycle._tag).toBe("dry-run-passed");
           if (passedManifest.lifecycle._tag === "dry-run-passed") {
-            if (passedManifest.lifecycle.dryRunSummary?.schemaVersion !== 2) {
-              return yield* Effect.die(
-                "Expected the ordered Dry Run's Summary."
-              );
+            if (passedManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
+              return yield* Effect.die("Expected the task Dry Run's Summary.");
             }
             expect(
-              passedManifest.lifecycle.dryRunSummary?.coverage.complete
-            ).toBe(true);
-            expect(
-              passedManifest.lifecycle.dryRunSummary?.assessmentCounts.working
-            ).toBe(5);
+              passedManifest.lifecycle.dryRunSummary?.assessment
+            ).toMatchObject({ outcome: "working", outcomeComplete: true });
           }
           const replacementSummary = yield* fileSystem.readFileString(
             path.join(dryRunDirectory, "summary.json")
@@ -757,18 +765,16 @@ it.live(
           );
           yield* session.takeover(takeoverRun.session.id, "Check the page");
           yield* session.returnControl(takeoverRun.session.id);
-          yield* assessDryRunSteps(takeoverRun.session.id, "working");
+          yield* assessDryRunOutcome(takeoverRun.session.id, "working");
           const takeoverManifest = yield* recordingStore.read(recordingId);
           expect(takeoverManifest.lifecycle._tag).toBe("dry-run-failed");
           if (takeoverManifest.lifecycle._tag === "dry-run-failed") {
-            if (takeoverManifest.lifecycle.dryRunSummary?.schemaVersion !== 2) {
-              return yield* Effect.die(
-                "Expected the ordered Dry Run's Summary."
-              );
+            if (takeoverManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
+              return yield* Effect.die("Expected the task Dry Run's Summary.");
             }
             expect(
-              takeoverManifest.lifecycle.dryRunSummary?.coverage.complete
-            ).toBe(true);
+              takeoverManifest.lifecycle.dryRunSummary?.purpose
+            ).toMatchObject({ takeoverOccurred: true });
           }
 
           // A Catalog Root that still declares the old ceiling policy starts
@@ -800,8 +806,7 @@ it.live(
           yield* Effect.sleep("1500 millis");
           const idle = yield* session.get(idleRun.session.id);
           expect(idle.phase).toBe("running");
-          expect(requireRun(idle).outcome).toBeNull();
-          expect(requireRun(idle).activeStepIndex).toBe(0);
+          expect(idle.run).toHaveProperty("lifecycle.phase", "running");
           expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
             "dry-running"
           );
@@ -839,7 +844,7 @@ it.live(
             "Koregaon Park",
             "delivery-dry-final"
           );
-          yield* assessDryRunSteps(finalRun.session.id, "working");
+          yield* assessDryRunOutcome(finalRun.session.id, "working");
           const verified = yield* teachingRecordingTool(
             "agent_flow_skill_decide",
             {
@@ -866,9 +871,9 @@ it.live(
           const verification = yield* fileSystem.readFileString(
             path.join(skillDirectory, "references", "verification.md")
           );
-          expect(verification).toContain("Done when:");
+          expect(verification).toContain("Observable outcome:");
           expect(verification).toContain(
-            "The expected control or status is visible."
+            "The complete delivery status is visible."
           );
           expect(verification).not.toContain("trace.zip");
           expect(verification).not.toContain(".webm");

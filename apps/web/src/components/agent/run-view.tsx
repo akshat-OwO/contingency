@@ -169,11 +169,22 @@ export const RunSummaryView = ({
         <section aria-label="Task assessment" className="space-y-2 text-sm">
           <p>{summary.requestedTask}</p>
           <p>
+            Agent Assessment:{" "}
             {summary.assessment?.outcome ?? "No Agent Assessment submitted"}
           </p>
           {summary.assessment === null ? null : (
             <p>{summary.assessment.explanation}</p>
           )}
+          {summary.purpose.kind === "dry-run" ? (
+            <p>
+              {summary.assessment?.outcomeComplete === true
+                ? "The agent reports a complete skill outcome attempt."
+                : "The agent did not report a complete skill outcome attempt."}
+              {summary.purpose.takeoverOccurred
+                ? " User Takeover prevents this Dry Run from passing."
+                : ""}
+            </p>
+          ) : null}
           {summary.findings.map((finding) => (
             <p key={finding.id}>
               {finding.outcome}: {finding.explanation}

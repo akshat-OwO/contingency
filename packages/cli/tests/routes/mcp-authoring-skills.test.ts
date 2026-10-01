@@ -45,6 +45,14 @@ const PromptList = Schema.Struct({
   }),
 });
 
+const PromptGet = Schema.Struct({
+  result: Schema.Struct({
+    messages: Schema.Array(
+      Schema.Struct({ content: Schema.Struct({ text: Schema.String }) })
+    ),
+  }),
+});
+
 const serving = Effect.fn("servingAuthoringSkills")(
   function* servingAuthoringSkills() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -172,6 +180,22 @@ it.live(
       const prompts = yield* call(PromptList, 5, "prompts/list", {});
       expect(prompts.result.prompts.map((prompt) => prompt.name)).toContain(
         "learn-flow-skill"
+      );
+      const prompt = yield* call(PromptGet, 6, "prompts/get", {
+        name: "learn-flow-skill",
+      });
+      const instructions = prompt.result.messages
+        .map((message) => message.content.text)
+        .join("\n");
+      expect(instructions).toContain("agent_run_assess");
+      expect(instructions).toContain("outcomeComplete");
+      expect(instructions).toContain("agent_run_complete");
+      expect(instructions).toContain(
+        "Completion is required for a passing report too."
+      );
+      expect(instructions).not.toContain("agent_run_step_assess");
+      expect(instructions.indexOf("agent_run_assess")).toBeLessThan(
+        instructions.indexOf("agent_run_complete")
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

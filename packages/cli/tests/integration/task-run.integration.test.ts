@@ -15,6 +15,7 @@ import {
   catalogTool,
   findNode,
   runTool,
+  resolveBoundary,
   sessionTool,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
@@ -26,7 +27,12 @@ const taskRun = (snapshot: AgentSessionSnapshot): TaskAgentRunState => {
   return snapshot.run;
 };
 const operation = OperationId.make;
-const saveSkill = (root: string, name: string, width = 640) =>
+const saveSkill = (
+  root: string,
+  name: string,
+  width = 640,
+  host = "127.0.0.1"
+) =>
   Effect.gen(function* saveVerifiedSkill() {
     const files = yield* FileSystem.FileSystem;
     const directory = path.join(root, name);
@@ -39,7 +45,7 @@ const saveSkill = (root: string, name: string, width = 640) =>
 name: ${name}
 description: Use ${name} to investigate the cart.
 hosts:
-  - 127.0.0.1
+  - ${host}
 emulation:
   viewport: ${width}x480@1
 inputs:
@@ -59,6 +65,140 @@ inputs:
       "- Verified: 2026-10-01T00:00:00.000Z\n"
     );
   });
+
+it.live(
+  "authorizes task exploration, later requested hosts, and exactly one confirmed action attempt",
+  () =>
+    Effect.gen(function* taskAuthority() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-authority-",
+      });
+      const fixture = yield* fixtureServer;
+      yield* saveSkill(root, "later-skill", 640, "localhost");
+      yield* Effect.scoped(
+        Effect.gen(function* checkAuthority() {
+          const started = yield* runTool("agent_run_start", {
+            inputs: [],
+            operationId: operation("authority-start"),
+            referencedSkills: [],
+            requestedTask: "Investigate the cart",
+            url: fixture.url("task-session.html"),
+          });
+          const sessionId = started.id;
+          const action = {
+            type: "navigate" as const,
+            url: fixture.url("task-session.html"),
+          };
+          const unrelated = yield* sessionTool("agent_browser_act", {
+            action,
+            intent: { objective: "Do an unrelated task", objectiveKind: "new" },
+            operationId: operation("authority-unrelated"),
+            sessionId,
+          });
+          expect(unrelated.intervention?.reason).toBe("objective");
+          yield* resolveBoundary({
+            boundaryId: unrelated.intervention?.id ?? "missing",
+            decision: "refuse",
+            operationId: "authority-refuse-objective",
+            sessionId,
+          });
+          const explored = yield* sessionTool("agent_browser_act", {
+            action,
+            intent: {
+              objective:
+                "Explore another route to understand this shopping cart",
+              objectiveKind: "task",
+            },
+            operationId: operation("authority-explore"),
+            sessionId,
+          });
+          expect(explored.entry.outcome).toBe("completed");
+          const nextHost = {
+            ...action,
+            url: action.url.replace("127.0.0.1", "localhost"),
+          };
+          const refused = yield* sessionTool("agent_browser_act", {
+            action: nextHost,
+            operationId: operation("authority-host-before"),
+            sessionId,
+          });
+          expect(refused.intervention?.reason).toBe("domain");
+          expect(
+            (yield* sessionTool("agent_session_get", { sessionId })).currentUrl
+          ).toBe(action.url);
+          yield* resolveBoundary({
+            boundaryId: refused.intervention?.id ?? "missing",
+            decision: "refuse",
+            operationId: "authority-refuse-domain",
+            sessionId,
+          });
+          yield* runTool("agent_run_update", {
+            inputs: [],
+            instruction: "Use the later skill too",
+            operationId: operation("authority-request-skill"),
+            referencedSkills: [FlowSkillName.make("later-skill")],
+            sessionId,
+          });
+          const admitted = yield* sessionTool("agent_browser_act", {
+            action: nextHost,
+            operationId: operation("authority-host-after"),
+            sessionId,
+          });
+          expect(admitted.entry.outcome).toBe("completed");
+          const confirmedAction = {
+            action: {
+              ref: findNode(admitted.snapshot.nodes, "button", "Add anvil").ref,
+              type: "click" as const,
+            },
+            intent: { irreversible: true },
+            operationId: operation("authority-confirmed"),
+            sessionId,
+          };
+          const paused = yield* sessionTool(
+            "agent_browser_act",
+            confirmedAction
+          );
+          expect(paused.intervention?.reason).toBe("confirmation");
+          yield* resolveBoundary({
+            boundaryId: paused.intervention?.id ?? "missing",
+            decision: "allow",
+            operationId: "authority-allow-attempt",
+            sessionId,
+          });
+          const acted = yield* sessionTool(
+            "agent_browser_act",
+            confirmedAction
+          );
+          const replayed = yield* sessionTool(
+            "agent_browser_act",
+            confirmedAction
+          );
+          expect(replayed.entry.id).toBe(acted.entry.id);
+          expect(
+            acted.snapshot.nodes.some((node) =>
+              node.name.includes("Cart has 1 items")
+            )
+          ).toBe(true);
+          const retry = yield* sessionTool("agent_browser_act", {
+            ...confirmedAction,
+            operationId: operation("authority-fresh-attempt"),
+          });
+          expect(retry.intervention?.reason).toBe("confirmation");
+          yield* resolveBoundary({
+            boundaryId: retry.intervention?.id ?? "missing",
+            decision: "refuse",
+            operationId: "authority-refuse-retry",
+            sessionId,
+          });
+          yield* runTool("agent_run_complete", {
+            operationId: operation("authority-complete"),
+            sessionId,
+          });
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
 it.live(
   "keeps a zero-skill task live across failure, changed instructions, retry, and explicit completion",
@@ -97,6 +237,33 @@ it.live(
           const snapshot = yield* sessionTool("agent_browser_snapshot", {
             sessionId: started.id,
           });
+          const foreignRun = yield* runTool("agent_run_start", {
+            ...request,
+            operationId: operation("foreign-task-start"),
+          });
+          const foreign = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: foreignRun.id,
+          });
+          expect(foreign.snapshotId).not.toBe(snapshot.snapshotId);
+          const foreignReport = {
+            evidence: [{ id: foreign.snapshotId, kind: "snapshot" as const }],
+            explanation: "A different Run observed this page.",
+            operationId: operation("task-correctable-evidence"),
+            outcome: "working" as const,
+            sessionId: started.id,
+          };
+          expect(
+            (yield* Effect.flip(runTool("agent_run_assess", foreignReport)))
+              .code
+          ).toBe("agent_session_invalid");
+          yield* runTool("agent_run_assess", {
+            ...foreignReport,
+            evidence: [{ id: snapshot.snapshotId, kind: "snapshot" }],
+          });
+          yield* runTool("agent_run_complete", {
+            operationId: operation("foreign-task-complete"),
+            sessionId: foreignRun.id,
+          });
           const finding = {
             evidence: [{ id: snapshot.snapshotId, kind: "snapshot" as const }],
             explanation: "The cart is empty and needs investigation.",
@@ -106,6 +273,9 @@ it.live(
           };
           const found = yield* runTool("agent_run_finding", finding);
           expect(taskRun(found).findings).toHaveLength(1);
+          expect(taskRun(found).findings[0]).not.toHaveProperty(
+            "outcomeComplete"
+          );
           expect(
             taskRun(yield* runTool("agent_run_finding", finding)).findings
           ).toHaveLength(1);
@@ -139,15 +309,15 @@ it.live(
               sessionId: started.id,
             })).entry.id
           ).toBe(acted.entry.id);
-          expect(
-            (yield* Effect.flip(
-              runTool("agent_run_assess", {
-                ...finding,
-                evidence: [{ id: "invented", kind: "snapshot" }],
-                operationId: operation("task-invalid-evidence"),
-              })
-            )).code
-          ).toBe("agent_session_invalid");
+          const invalidEvidence = yield* Effect.flip(
+            runTool("agent_run_assess", {
+              ...finding,
+              evidence: [{ id: "invented", kind: "snapshot" }],
+              operationId: operation("task-invalid-evidence"),
+            })
+          );
+          expect(invalidEvidence.code).toBe("agent_session_invalid");
+          expect(invalidEvidence.message).not.toContain("outcomeComplete");
           const assessed = yield* runTool("agent_run_assess", {
             ...finding,
             evidence: [{ id: acted.entry.id, kind: "attempt" }],

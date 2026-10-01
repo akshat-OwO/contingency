@@ -326,6 +326,8 @@ export const AgentTaskAssessment = Schema.Struct({
   evidence: Schema.Array(AgentTaskEvidence).check(Schema.isMinLength(1)),
   explanation: nonEmptyString,
   outcome: AgentAssessmentOutcome,
+  /** Required for Dry Run reports: whether the complete skill outcome was attempted. */
+  outcomeComplete: Schema.optional(Schema.Boolean),
   submittedAt: nonEmptyString,
 });
 export type AgentTaskAssessment = typeof AgentTaskAssessment.Type;
