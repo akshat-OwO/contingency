@@ -7,6 +7,7 @@ import type {
 } from "@/components/agent/teaching-inspect-geometry";
 import {
   pagePointOf,
+  projectDocumentRectangle,
   projectPageRectangle,
   unscaledCanvasBox,
 } from "@/components/agent/teaching-inspect-geometry";
@@ -170,7 +171,7 @@ export const InspectOverlay = ({
     >
       {state.comments.map((comment) => (
         <Pin
-          at={projectPageRectangle(comment, projection, box)}
+          at={projectDocumentRectangle(comment, projection, box)}
           index={comment.index}
           key={comment.index}
         />

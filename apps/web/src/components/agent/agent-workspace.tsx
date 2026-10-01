@@ -45,11 +45,11 @@ import { RunDock } from "@/components/agent/run-dock";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
-import { emptyInspectState } from "@/components/agent/teaching-inspect-state";
-import type {
-  FrameProjection,
-  InspectComment,
+import {
+  completeInspectComment,
+  emptyInspectState,
 } from "@/components/agent/teaching-inspect-state";
+import type { FrameProjection } from "@/components/agent/teaching-inspect-state";
 import {
   TeachingRecordingDock,
   TeachingRecordingNotices,
@@ -129,12 +129,20 @@ const frameProjection = (
     Number.isFinite(metadata.pageScaleFactor) && metadata.pageScaleFactor > 0
       ? metadata.pageScaleFactor
       : 1,
+  scrollOffsetX: Number.isFinite(metadata.scrollOffsetX)
+    ? metadata.scrollOffsetX
+    : 0,
+  scrollOffsetY: Number.isFinite(metadata.scrollOffsetY)
+    ? metadata.scrollOffsetY
+    : 0,
 });
 
 /** Frames arrive many times a second; an unchanged mapping is not a render. */
 const sameProjection = (left: FrameProjection, right: FrameProjection) =>
   left.offsetTop === right.offsetTop &&
-  left.pageScaleFactor === right.pageScaleFactor;
+  left.pageScaleFactor === right.pageScaleFactor &&
+  left.scrollOffsetX === right.scrollOffsetX &&
+  left.scrollOffsetY === right.scrollOffsetY;
 
 const isFlowSkillName = Schema.is(FlowSkillName);
 
@@ -745,6 +753,7 @@ const useAgentView = (
   // One inspect read at a time: a pointer moves far more often than the Page
   // can answer a Browser Snapshot, and a queue of them would outline the past.
   const inspectPendingRef = useRef(false);
+  const inspectPageVersionRef = useRef(0);
 
   const sessions =
     sessionsResult._tag === "Success"
@@ -990,6 +999,7 @@ const useAgentView = (
 
     let cancelled = false;
     activeSessionRef.current = selectedSessionId;
+    inspectPageVersionRef.current += 1;
     pendingFrameRef.current = null;
     activeStreamRef.current = null;
     setState((current) => ({
@@ -1062,8 +1072,14 @@ const useAgentView = (
                   return;
                 }
                 if (event.type === "url") {
+                  inspectPageVersionRef.current += 1;
                   setState((current) => ({
                     ...current,
+                    inspect: {
+                      ...emptyInspectState,
+                      nextCommentIndex: current.inspect.nextCommentIndex,
+                      pending: current.inspect.pending,
+                    },
                     session: current.session
                       ? { ...current.session, currentUrl: event.url }
                       : current.session,
@@ -1445,7 +1461,12 @@ const useAgentView = (
     setState((current) => ({
       ...current,
       inspect: current.inspect.open
-        ? { ...emptyInspectState, comments: current.inspect.comments }
+        ? {
+            ...emptyInspectState,
+            comments: current.inspect.comments,
+            nextCommentIndex: current.inspect.nextCommentIndex,
+            pending: current.inspect.pending,
+          }
         : { ...current.inspect, open: true },
     }));
   };
@@ -1458,6 +1479,8 @@ const useAgentView = (
             inspect: {
               ...emptyInspectState,
               comments: current.inspect.comments,
+              nextCommentIndex: current.inspect.nextCommentIndex,
+              pending: current.inspect.pending,
             },
           }
         : current
@@ -1469,11 +1492,15 @@ const useAgentView = (
       return;
     }
     inspectPendingRef.current = true;
+    const pageVersion = inspectPageVersionRef.current;
     Effect.runFork(
       Effect.result(readInspectedElement(x, y)).pipe(
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
             inspectPendingRef.current = false;
+            if (pageVersion !== inspectPageVersionRef.current) {
+              return;
+            }
             setState((current) =>
               current.inspect.open && current.inspect.frozen === undefined
                 ? {
@@ -1494,12 +1521,19 @@ const useAgentView = (
   };
 
   const freezeInspect = (x: number, y: number) => {
+    if (state.inspect.pending) {
+      return;
+    }
+    const pageVersion = inspectPageVersionRef.current;
     Effect.runFork(
       Effect.result(readInspectedElement(x, y)).pipe(
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
+            if (pageVersion !== inspectPageVersionRef.current) {
+              return;
+            }
             setState((current) =>
-              current.inspect.open
+              current.inspect.open && !current.inspect.pending
                 ? {
                     ...current,
                     inspect: {
@@ -1510,7 +1544,13 @@ const useAgentView = (
                         : undefined,
                       frozen: Result.isFailure(outcome)
                         ? undefined
-                        : outcome.success,
+                        : {
+                            ...outcome.success,
+                            scrollOffsetX:
+                              current.frameProjection.scrollOffsetX,
+                            scrollOffsetY:
+                              current.frameProjection.scrollOffsetY,
+                          },
                     },
                   }
                 : current
@@ -1549,9 +1589,16 @@ const useAgentView = (
     const sessionId = activeSessionRef.current;
     const { frozen } = state.inspect;
     const text = state.inspect.draft.trim();
-    if (sessionId === null || frozen === undefined || text === "") {
+    if (
+      sessionId === null ||
+      frozen === undefined ||
+      text === "" ||
+      state.inspect.pending
+    ) {
       return;
     }
+    const pageVersion = inspectPageVersionRef.current;
+    const recordingId = state.session?.recordingId;
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
     setState((current) => ({
       ...current,
@@ -1583,35 +1630,39 @@ const useAgentView = (
         Effect.flatMap((outcome) =>
           Effect.sync(() => {
             setState((current) => {
+              if (
+                current.session?.id !== sessionId ||
+                current.session.recordingId !== recordingId ||
+                current.session.captureState?._tag !== "recording"
+              ) {
+                return current;
+              }
+              const samePage = pageVersion === inspectPageVersionRef.current;
               if (Result.isFailure(outcome)) {
                 return {
                   ...current,
                   inspect: {
                     ...current.inspect,
-                    error: errorMessage(outcome.failure),
+                    error:
+                      samePage && current.inspect.frozen === frozen
+                        ? errorMessage(outcome.failure)
+                        : current.inspect.error,
                     pending: false,
                   },
                 };
               }
-              const comment: InspectComment = {
-                description: frozen.description,
-                height: frozen.height,
-                index: current.inspect.comments.length + 1,
-                width: frozen.width,
-                x: frozen.x,
-                y: frozen.y,
-              };
+              const recorded = outcome.success.data.session;
+              if (recorded.activity !== "teaching") {
+                return current;
+              }
               return {
                 ...current,
-                inspect: {
-                  ...current.inspect,
-                  comments: [...current.inspect.comments, comment],
-                  draft: "",
-                  error: undefined,
-                  frozen: undefined,
-                  hovered: undefined,
-                  pending: false,
-                },
+                inspect: completeInspectComment(
+                  current.inspect,
+                  frozen,
+                  recorded.teaching.instructionCount,
+                  samePage
+                ),
               };
             });
           })
@@ -1881,6 +1932,7 @@ const useAgentView = (
       ? state.session.recordingId
       : undefined;
   useEffect(() => {
+    inspectPageVersionRef.current += 1;
     setState((current) =>
       current.inspect === emptyInspectState
         ? current
