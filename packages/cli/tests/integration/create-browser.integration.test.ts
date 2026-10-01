@@ -703,3 +703,61 @@ it.live("keeps cookies and storage across an identity change", () =>
     yield* browser.close(sessionId);
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
+
+it.live(
+  "keeps the screencast status for a late viewer however often the agent points",
+  () =>
+    Effect.gen(function* lateViewerStatus() {
+      const browser = yield* CreateBrowser;
+      const sessionId = yield* browser.create(
+        "create-pointer-replay",
+        viewport
+      );
+      yield* browser.open(
+        sessionId,
+        "data:text/html,<title>Pointer</title><main>ready</main>",
+        draftEmulation("chrome-windows", viewport)
+      );
+      // A recording holds the screencast, so a later viewer does not start it
+      // and sees the status only through the replay. This holder stops pulling
+      // after its first event, as a subscriber that falls behind would.
+      let framed = false;
+      const holder = yield* Effect.forkChild(
+        browser.stream(sessionId).pipe(
+          Stream.runForEach(() =>
+            Effect.sync(() => {
+              framed = true;
+            }).pipe(Effect.andThen(Effect.never))
+          )
+        )
+      );
+      yield* waitUntil(() => framed);
+      // More than both the control events' replay window and the pointer
+      // ring, at one point so no stroke has a duration to wait out; then one
+      // last point the late viewer must replay.
+      for (let index = 0; index < 40; index += 1) {
+        yield* browser.pointAgent(sessionId, { action: "move", x: 5, y: 5 });
+      }
+      yield* browser.pointAgent(sessionId, { action: "click", x: 6, y: 5 });
+
+      const seen = new Set<string>();
+      let latest: number | undefined;
+      yield* browser.stream(sessionId).pipe(
+        Stream.takeUntil((event) => {
+          seen.add(event.type);
+          if (event.type === "agent_pointer") {
+            latest = event.x;
+          }
+          return seen.has("status") && seen.has("agent_pointer");
+        }),
+        Stream.runDrain,
+        Effect.timeout("10 seconds")
+      );
+      expect(seen).toContain("status");
+      expect(latest).toBe(6);
+
+      yield* Fiber.interrupt(holder);
+      yield* browser.close(sessionId);
+    }).pipe(Effect.provide(CreateBrowserIntegrationLive)),
+  30_000
+);

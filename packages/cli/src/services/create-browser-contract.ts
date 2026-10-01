@@ -1,4 +1,5 @@
 import type {
+  BrowserAgentPointer,
   BrowserCookieWrite,
   BrowserInput,
   BrowserNetworkRequest,
@@ -147,6 +148,15 @@ export interface CreateBrowserService {
     { readonly sessionId: SessionId; readonly url: string },
     BrowserRpcErrorType
   >;
+  /**
+   * Tell every viewer where the agent is about to act, so the Workspace can
+   * draw its cursor travelling there, and resolve once the cursor arrives. A
+   * viewer that joins later replays it.
+   */
+  readonly pointAgent: (
+    sessionId: SessionId,
+    pointer: Pick<BrowserAgentPointer, "action" | "x" | "y">
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly sendInput: (
     sessionId: SessionId,
     input: BrowserInput

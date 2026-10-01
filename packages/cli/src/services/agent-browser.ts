@@ -15,6 +15,7 @@ import type {
   AgentPageSettle,
   AgentScreenshot,
   AgentSnapshotNode,
+  BrowserAgentPointer,
   BrowserFailureReasonType,
   BrowserRpcErrorType,
 } from "@contingency/protocol";
@@ -33,6 +34,13 @@ import {
 
 /** How long one browser action or observation may take before it fails. */
 const ACTION_TIMEOUT_MS = 10_000;
+
+/**
+ * How long finding where the agent's cursor lands may hold up its action. The
+ * cursor is a courtesy to a watcher, so an element that is slow to settle is
+ * acted on without one rather than waited on twice.
+ */
+const POINTER_TIMEOUT_MS = 1000;
 
 /** How many elements one Browser Snapshot describes. */
 const SNAPSHOT_LIMIT = 300;
@@ -1927,20 +1935,139 @@ const attempt = <A>(
     try: operation,
   });
 
+/** Where the agent's cursor lands, reported before the action it precedes. */
+export type AgentPointerSink = (
+  pointer: Pick<BrowserAgentPointer, "action" | "x" | "y">
+) => Effect.Effect<void, BrowserRpcErrorType>;
+
+/**
+ * How an action brings its element into view, so pointing at it first moves
+ * the Page exactly as the action would and no further. A click or hover
+ * scrolls it in; typing focuses it, which scrolls only as far as focus does;
+ * anything else is pointed at only where it already is.
+ */
+type PointerReveal = "scroll" | "focus" | "none";
+
+interface ElementPointer {
+  readonly action: BrowserAgentPointer["action"];
+  readonly reveal: PointerReveal;
+  readonly sink: AgentPointerSink | undefined;
+}
+
+const revealFor = async (
+  element: ElementHandle,
+  reveal: PointerReveal
+): Promise<void> => {
+  if (reveal === "scroll") {
+    await element.scrollIntoViewIfNeeded({ timeout: POINTER_TIMEOUT_MS });
+  } else if (reveal === "focus") {
+    await element.focus();
+  }
+};
+
+/**
+ * Report the centre of the element the action is about to reach. Failing to
+ * find it never fails the action, which reports its own failure.
+ */
+const pointAt = (
+  page: Page,
+  element: ElementHandle,
+  pointer: ElementPointer,
+  sink: AgentPointerSink
+): Effect.Effect<void> =>
+  Effect.tryPromise(async () => {
+    await revealFor(element, pointer.reveal);
+    return element.boundingBox();
+  }).pipe(
+    Effect.flatMap((box) => {
+      if (box === null) {
+        return Effect.void;
+      }
+      // Aim at the part of the element on screen, as the click itself does:
+      // the centre of a box taller than the viewport can stay off-screen
+      // after it is scrolled in.
+      const viewport = page.viewportSize();
+      const left = Math.max(box.x, 0);
+      const top = Math.max(box.y, 0);
+      const right = Math.min(
+        box.x + box.width,
+        viewport?.width ?? Number.POSITIVE_INFINITY
+      );
+      const bottom = Math.min(
+        box.y + box.height,
+        viewport?.height ?? Number.POSITIVE_INFINITY
+      );
+      return right < left || bottom < top
+        ? Effect.void
+        : sink({
+            action: pointer.action,
+            x: (left + right) / 2,
+            y: (top + bottom) / 2,
+          });
+    }),
+    Effect.ignore
+  );
+
+/**
+ * Point at an element the action names by something other than a Snapshot
+ * reference — the focused control a bare key press types into, or the first
+ * box of a private Variable — and release the handle afterwards.
+ */
+const pointAtHandle = (
+  page: Page,
+  find: () => Promise<JSHandle>,
+  sink: AgentPointerSink | undefined
+): Effect.Effect<void> =>
+  sink === undefined
+    ? Effect.void
+    : Effect.acquireUseRelease(
+        Effect.tryPromise(find),
+        (handle) => {
+          const element = handle.asElement();
+          return element === null
+            ? Effect.void
+            : pointAt(
+                page,
+                element,
+                { action: "move", reveal: "focus", sink },
+                sink
+              );
+        },
+        (handle) => Effect.ignore(Effect.tryPromise(() => handle.dispose()))
+      ).pipe(Effect.ignore);
+
+/** The control the keyboard types into, unless nothing but the page has it. */
+const FOCUSED_CONTROL_SCRIPT = `(() => {
+  const active = document.activeElement;
+  return active === null ||
+    active === document.body ||
+    active === document.documentElement
+    ? null
+    : active;
+})()`;
+
+const focusedControl = (page: Page) => () =>
+  page.evaluateHandle<unknown>(FOCUSED_CONTROL_SCRIPT);
+
 /** Resolve a reference and act on the element it still names, or fail. */
 const onElement = <Success>(
+  page: Page,
   registry: AgentElementRegistry,
   ref: string,
   description: string,
+  pointer: ElementPointer,
   operation: (element: ElementHandle) => Promise<Success>
 ): Effect.Effect<void, BrowserRpcErrorType> =>
-  registry
-    .resolve(ref)
-    .pipe(
-      Effect.flatMap((element) =>
-        attempt(description, () => operation(element)).pipe(Effect.asVoid)
-      )
-    );
+  registry.resolve(ref).pipe(
+    Effect.tap((element) =>
+      pointer.sink === undefined
+        ? Effect.void
+        : pointAt(page, element, pointer, pointer.sink)
+    ),
+    Effect.flatMap((element) =>
+      attempt(description, () => operation(element)).pipe(Effect.asVoid)
+    )
+  );
 
 const unreachableAction = (action: never): never => {
   throw new Error(`Unhandled agent action: ${JSON.stringify(action)}`);
@@ -1954,8 +2081,20 @@ const unreachableAction = (action: never): never => {
 export const performAgentAction = (
   page: Page,
   registry: AgentElementRegistry,
-  action: AgentBrowserAction
+  action: AgentBrowserAction,
+  /** Told where the agent's cursor lands; absent when a person acts. */
+  pointer?: AgentPointerSink
 ): Effect.Effect<void, BrowserRpcErrorType> => {
+  const reaches: ElementPointer = {
+    action: "move",
+    reveal: "none",
+    sink: pointer,
+  };
+  const types: ElementPointer = {
+    action: "move",
+    reveal: "focus",
+    sink: pointer,
+  };
   switch (action.type) {
     case "navigate": {
       return attempt(
@@ -1975,33 +2114,41 @@ export const performAgentAction = (
     }
     case "click": {
       return onElement(
+        page,
         registry,
         action.ref,
         `Could not click ${action.ref}`,
+        { action: "click", reveal: "scroll", sink: pointer },
         (element) => element.click({ timeout: ACTION_TIMEOUT_MS })
       );
     }
     case "hover": {
       return onElement(
+        page,
         registry,
         action.ref,
         `Could not hover ${action.ref}`,
+        { action: "move", reveal: "scroll", sink: pointer },
         (element) => element.hover({ timeout: ACTION_TIMEOUT_MS })
       );
     }
     case "fill": {
       return onElement(
+        page,
         registry,
         action.ref,
         `Could not fill ${action.ref}`,
+        types,
         (element) => element.fill(action.text, { timeout: ACTION_TIMEOUT_MS })
       );
     }
     case "select": {
       return onElement(
+        page,
         registry,
         action.ref,
         `Could not select an option in ${action.ref}`,
+        reaches,
         (element) =>
           element.selectOption([...action.values], {
             timeout: ACTION_TIMEOUT_MS,
@@ -2011,13 +2158,19 @@ export const performAgentAction = (
     case "press": {
       const { ref } = action;
       return ref === undefined
-        ? attempt("Could not press a key", () =>
-            page.keyboard.press(action.key)
+        ? pointAtHandle(page, focusedControl(page), pointer).pipe(
+            Effect.andThen(
+              attempt("Could not press a key", () =>
+                page.keyboard.press(action.key)
+              )
+            )
           )
         : onElement(
+            page,
             registry,
             ref,
             `Could not press a key on ${ref}`,
+            types,
             (element) =>
               element.press(action.key, { timeout: ACTION_TIMEOUT_MS })
           );
@@ -2028,13 +2181,19 @@ export const performAgentAction = (
         ? attempt("Could not scroll the Page", () =>
             page.mouse.wheel(action.deltaX, action.deltaY)
           )
-        : onElement(registry, ref, `Could not scroll ${ref}`, (element) =>
-            element.evaluate(
-              (target, delta) => {
-                target.scrollBy(delta.x, delta.y);
-              },
-              { x: action.deltaX, y: action.deltaY }
-            )
+        : onElement(
+            page,
+            registry,
+            ref,
+            `Could not scroll ${ref}`,
+            reaches,
+            (element) =>
+              element.evaluate(
+                (target, delta) => {
+                  target.scrollBy(delta.x, delta.y);
+                },
+                { x: action.deltaX, y: action.deltaY }
+              )
           );
     }
     case "wait_for_text": {
@@ -2073,13 +2232,7 @@ const readPrivateValue = async (
   return values.join("");
 };
 
-/**
- * Enter one private Variable and prove that the target controls accepted it.
- * A comma-separated selector represents a split input such as six OTP boxes.
- * Succeeds with the selector of the controls that hold the value, so masking
- * and replay cover every box a page spread the value across.
- */
-export const performPrivateVariableInput = (
+const enterPrivateVariable = (
   page: Page,
   target: PrivateInputTarget,
   value: string
@@ -2144,3 +2297,26 @@ export const performPrivateVariableInput = (
       "The split private control did not accept the value."
     );
   });
+
+/**
+ * Enter one private Variable and prove that the target controls accepted it.
+ * A comma-separated selector represents a split input such as six OTP boxes.
+ * Succeeds with the selector of the controls that hold the value, so masking
+ * and replay cover every box a page spread the value across.
+ */
+export const performPrivateVariableInput = (
+  page: Page,
+  target: PrivateInputTarget,
+  value: string,
+  /** Told where the agent's cursor lands; absent when a person acts. */
+  pointer?: AgentPointerSink
+): Effect.Effect<string, BrowserRpcErrorType> =>
+  pointAtHandle(
+    page,
+    () =>
+      page
+        .locator(target.selector)
+        .first()
+        .elementHandle({ timeout: POINTER_TIMEOUT_MS }),
+    pointer
+  ).pipe(Effect.andThen(enterPrivateVariable(page, target, value)));

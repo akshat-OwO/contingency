@@ -1,6 +1,7 @@
 import type {
   AgentSessionId,
   AgentSessionSnapshot,
+  BrowserAgentPointer,
   BrowserBotProtectionBlock,
   BrowserConsoleEntry,
 } from "@contingency/protocol";
@@ -26,6 +27,8 @@ export type AgentViewPhase =
 export interface AgentViewState {
   /** What the address bar shows while the user holds the browser. */
   readonly address: string;
+  /** Where the agent last pointed, for the cursor drawn over the frame. */
+  readonly agentPointer: BrowserAgentPointer | undefined;
   /** The latest request the site's bot protection refused, until dismissed. */
   readonly botProtectionBlock: BrowserBotProtectionBlock | undefined;
   readonly browserStreamError: string | undefined;
@@ -68,6 +71,7 @@ export interface AgentViewState {
 
 export const agentViewStateAtom = Atom.make<AgentViewState>({
   address: "",
+  agentPointer: undefined,
   botProtectionBlock: undefined,
   browserStreamError: undefined,
   consoleEntries: [],

@@ -267,9 +267,44 @@ export const AgentBrowserViewEvent = Schema.Union([
   BrowserTabsEvent,
 ]);
 
+/**
+ * Where the agent is about to act, in CSS pixels of the Page viewport. The
+ * Workspace draws a cursor travelling to it, so a watcher sees which control
+ * the agent reaches for. `click` marks a press; `move` only reaches the
+ * control, as a hover, fill, or keyboard action does. `durationMs` is how
+ * long the stroke takes: the server waits that long before acting, so the
+ * cursor arrives before the Page reacts.
+ */
+export const BrowserAgentPointer = Schema.Struct({
+  action: Schema.Literals(["move", "click"]),
+  durationMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  timestamp: Schema.Finite,
+  type: Schema.Literal("agent_pointer"),
+  x: Schema.Finite,
+  y: Schema.Finite,
+});
+export type BrowserAgentPointer = typeof BrowserAgentPointer.Type;
+
+/** Where the agent's cursor enters from, relative to its first target. */
+export const AGENT_POINTER_ENTRY_OFFSET = { x: -72, y: 96 } as const;
+
+/**
+ * How long the agent's cursor takes to travel `distance` CSS pixels. It grows
+ * with the logarithm of the distance, as Fitts's law has it, so a long reach
+ * is not proportionally slower than a short one; the ceiling bounds what the
+ * wait costs each action.
+ */
+export const agentPointerTravelMs = (distance: number): number =>
+  distance < 1
+    ? 0
+    : Math.round(
+        Math.min(420, Math.max(160, 120 + 70 * Math.log2(1 + distance / 24)))
+      );
+
 export const BrowserStreamEvent = Schema.Union([
   Schema.Struct({ ...AgentBrowserFrame.fields, streamId: BrowserStreamId }),
   BrowserStreamStatus,
+  BrowserAgentPointer,
   Schema.Struct({
     tabId: BrowserTabId,
     timestamp: optionalNullable(Schema.Finite),
