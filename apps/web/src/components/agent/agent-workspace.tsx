@@ -32,6 +32,7 @@ import {
 import type { FormEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
+import { AgentCursor } from "@/components/agent/agent-cursor";
 import {
   adoptSessionSnapshot,
   agentViewStateAtom,
@@ -286,6 +287,7 @@ const SwitchingState = () => (
 );
 
 const AgentBrowserCanvas = ({
+  agentCursor,
   canvasRef,
   dockedBelow,
   frameReady,
@@ -294,6 +296,8 @@ const AgentBrowserCanvas = ({
   readOnly,
   recording,
 }: {
+  /** Renders the agent's cursor over the frame, given the canvas it is on. */
+  readonly agentCursor: (canvas: HTMLCanvasElement | null) => React.ReactNode;
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** Whether the floating dock overlaps the bottom of this column. */
   readonly dockedBelow: boolean;
@@ -369,6 +373,7 @@ const AgentBrowserCanvas = ({
           tabIndex={readOnly ? undefined : 0}
         />
         {inspect?.(canvas)}
+        {agentCursor(canvas)}
       </div>
     </div>
   );
@@ -567,6 +572,16 @@ const AgentLiveView = ({
         userHoldsBrowser={!readOnly}
       />
       <AgentBrowserCanvas
+        agentCursor={(canvas) => (
+          <AgentCursor
+            canvas={canvas}
+            // A session's cursor starts where its own agent last pointed.
+            key={session.id}
+            pointer={state.agentPointer}
+            projection={state.frameProjection}
+            visible={session.controller === "agent"}
+          />
+        )}
         canvasRef={canvasRef}
         dockedBelow
         frameReady={state.frameReady}
@@ -994,6 +1009,7 @@ const useAgentView = (
     activeStreamRef.current = null;
     setState((current) => ({
       ...current,
+      agentPointer: undefined,
       botProtectionBlock: undefined,
       browserStreamError: undefined,
       consoleEntries: [],
@@ -1067,6 +1083,13 @@ const useAgentView = (
                     session: current.session
                       ? { ...current.session, currentUrl: event.url }
                       : current.session,
+                  }));
+                  return;
+                }
+                if (event.type === "agent_pointer") {
+                  setState((current) => ({
+                    ...current,
+                    agentPointer: event,
                   }));
                   return;
                 }

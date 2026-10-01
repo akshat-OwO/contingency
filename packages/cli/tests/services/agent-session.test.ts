@@ -162,6 +162,7 @@ const makeFakeBrowser = (options?: {
       emulations.push(emulation);
       return Effect.succeed({ sessionId, url });
     },
+    pointAgent: () => Effect.void,
     sendInput: notUnderTest,
     setEmulation: notUnderTest,
     setStorage: notUnderTest,

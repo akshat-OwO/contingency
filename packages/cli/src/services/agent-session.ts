@@ -4928,12 +4928,20 @@ const makeAgentSession = (
               yield* actionTarget(record.registry, action)
             );
             if (privateRegistration === undefined) {
-              yield* performAgentAction(page, record.registry, action);
+              yield* performAgentAction(
+                page,
+                record.registry,
+                action,
+                (pointer) =>
+                  browser.pointAgent(record.browserSessionId, pointer)
+              );
             } else {
               const accepted = yield* performPrivateVariableInput(
                 page,
                 privateRegistration.target,
-                privateRegistration.value
+                privateRegistration.value,
+                (pointer) =>
+                  browser.pointAgent(record.browserSessionId, pointer)
               );
               recordingCapture(record)?.recordVariable(
                 privateRegistration.variable,

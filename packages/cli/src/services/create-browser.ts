@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  AGENT_POINTER_ENTRY_OFFSET,
+  agentPointerTravelMs,
   makeBrowserRpcError,
   resolveIdentity,
   SessionId as SessionIdSchema,
@@ -67,6 +69,12 @@ export type {
   BrowserStorageDeleteInput,
   BrowserStorageSetInput,
 } from "./create-browser-contract.ts";
+
+/**
+ * How long a click waits after its cursor lands, so the press is seen to land
+ * before the Page answers it.
+ */
+const CLICK_LEAD_MS = 40;
 
 /** An Emulation's environment: everything but the identity it presents. */
 type SessionEnvironment = Omit<DraftEmulation, "userAgentProfile" | "viewport">;
@@ -241,6 +249,11 @@ const makeService = (
     new Map()
   );
   const registryLock = Semaphore.makeUnsafe(1);
+  /** Where each session's agent cursor last landed, to time the next stroke. */
+  const agentPointers = new WeakMap<
+    CreateSession,
+    { readonly x: number; readonly y: number }
+  >();
 
   const requireSession = (
     sessionId: SessionId
@@ -672,6 +685,29 @@ const makeService = (
         publishTabs(session);
       }),
     open,
+    pointAgent: (sessionId, pointer) =>
+      Effect.gen(function* moveAgentPointer() {
+        const session = yield* requireSession(sessionId);
+        const from = agentPointers.get(session) ?? {
+          x: pointer.x + AGENT_POINTER_ENTRY_OFFSET.x,
+          y: pointer.y + AGENT_POINTER_ENTRY_OFFSET.y,
+        };
+        agentPointers.set(session, { x: pointer.x, y: pointer.y });
+        const durationMs = agentPointerTravelMs(
+          Math.hypot(pointer.x - from.x, pointer.y - from.y)
+        );
+        PubSub.publishUnsafe(session.events, {
+          ...pointer,
+          durationMs,
+          timestamp: Date.now(),
+          type: "agent_pointer",
+        });
+        // The action waits for the cursor, so a watcher sees the agent reach
+        // a control before the Page reacts to it rather than after.
+        yield* Effect.sleep(
+          durationMs + (pointer.action === "click" ? CLICK_LEAD_MS : 0)
+        );
+      }),
     sendInput: (sessionId, input) =>
       Effect.gen(function* dispatchBrowserInput() {
         const session = yield* requireSession(sessionId);
