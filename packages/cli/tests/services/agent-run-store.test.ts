@@ -4,11 +4,12 @@ import {
   AgentRunId,
   AgentSessionId,
   FlowSkillName,
+  LegacyAgentFlowRunSummary,
 } from "@contingency/protocol";
 import type { LegacyAgentRunSummary as AgentRunSummary } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer } from "effect";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 
 import {
   AGENT_RUNS_DIRECTORY,
@@ -165,6 +166,7 @@ it.effect(
             ? { ...step, confirmation: false, execution: "timed-out" }
             : step
         ),
+        summary: "The Run hit its ceiling before checkout.",
         timeline: [
           {
             actor: "agent",
@@ -213,6 +215,56 @@ it.effect(
         yield* fileSystem.readFileString(path.join(directory, "summary.json"))
       );
       expect(persisted).toEqual(legacy);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "round-trips version 1 identities, accounts, assessments, and timeout evidence",
+  () =>
+    Effect.gen(function* preserveAgentFlowSummary() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-v1-run-",
+      });
+      const current = summaryFor(root);
+      const {
+        agentAccount,
+        flowSkillName: _flowSkillName,
+        inputs: _inputs,
+        ...shared
+      } = current;
+      const historical = Schema.decodeUnknownSync(LegacyAgentFlowRunSummary)({
+        ...shared,
+        agentFlowId: "flow-checkout",
+        ceilings: { extensions: 1, runMs: 900_000, stepMs: 120_000 },
+        outcome: "timed-out",
+        revisionId: "rev-checkout",
+        schemaVersion: 1,
+        steps: current.steps.map(({ doneWhen: _doneWhen, ...step }) =>
+          step.index === 2 ? { ...step, execution: "timed-out" } : step
+        ),
+        summary: agentAccount,
+        tracePath: "historical.trace.zip",
+        videoPath: "historical.webm",
+      });
+      const directory = path.join(root, AGENT_RUNS_DIRECTORY, historical.runId);
+      yield* fileSystem.makeDirectory(directory, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(directory, "summary.json"),
+        JSON.stringify(historical)
+      );
+      yield* Effect.gen(function* readAndRewriteHistoricalSummary() {
+        const store = yield* AgentRunStore;
+        const read = yield* store.read(historical.runId);
+        expect(read).toEqual(historical);
+        expect(read).not.toHaveProperty("requestedTask");
+        expect(read).not.toHaveProperty("flowSkillName");
+        yield* store.write(read);
+      }).pipe(Effect.provide(layerFor(root)));
+      const persisted = JSON.parse(
+        yield* fileSystem.readFileString(path.join(directory, "summary.json"))
+      );
+      expect(persisted).toEqual(historical);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

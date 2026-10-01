@@ -1,10 +1,15 @@
 import path from "node:path";
 
-import { AgentRunId, FlowSkillName, OperationId } from "@contingency/protocol";
+import {
+  AgentRunId,
+  FlowSkillName,
+  LegacyAgentRunSummary,
+  OperationId,
+} from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Result } from "effect";
+import { Effect, FileSystem, Result, Schema } from "effect";
 
 import {
   AGENT_RUNS_DIRECTORY,
@@ -18,6 +23,8 @@ import { fixtureServer } from "./harness.ts";
  * A two-step journey over the delivery fixture. The Run records both kinds of
  * evidence before its Summary becomes reachable.
  */
+const legacySummary = Schema.decodeUnknownSync(LegacyAgentRunSummary);
+
 const READ_DELIVERY_SKILL = `---
 name: read-delivery
 description: Read the shop's delivery picker and confirm it offers a manual choice. Use when the delivery section must be checked.
@@ -133,7 +140,9 @@ it.live(
             sessionId: started.id,
           });
           expect(completed.runId).toBe(run.runId);
-          expect(completed.agentAccount).toBe("Both Agent Steps worked.");
+          expect(legacySummary(completed).agentAccount).toBe(
+            "Both Agent Steps worked."
+          );
           expect(completed.outcome).toBe("completed");
           return run.runId;
         }).pipe(Effect.provide(agentProcessLayer(root)))
@@ -145,7 +154,9 @@ it.live(
           const store = yield* AgentRunStore;
           const summary = yield* store.read(runId);
           expect(summary.outcome).toBe("completed");
-          expect(summary.agentAccount).toBe("Both Agent Steps worked.");
+          expect(legacySummary(summary).agentAccount).toBe(
+            "Both Agent Steps worked."
+          );
           expect(
             yield* fileSystem.exists(
               path.join(root, AGENT_RUNS_DIRECTORY, runId, "summary.json")
@@ -370,7 +381,7 @@ it.live(
           expect(completed.outcome).toBe("completed");
           const opened = yield* runTool("open_run", { runId: run.runId });
           expect(opened.summary.outcome).toBe("completed");
-          expect(opened.summary.agentAccount).toBeUndefined();
+          expect(legacySummary(opened.summary).agentAccount).toBeUndefined();
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
@@ -406,7 +417,7 @@ it.live(
           yield* assessActiveStep(started.id, "working", "amend-assess-2");
           // The Run ended on its own and its first write landed.
           const stored = yield* runTool("open_run", { runId: run.runId });
-          expect(stored.summary.agentAccount).toBeUndefined();
+          expect(legacySummary(stored.summary).agentAccount).toBeUndefined();
 
           // A directory where the Summary file belongs: the amend cannot be
           // written, so the closing account never reaches the Catalog Root.
@@ -435,9 +446,11 @@ it.live(
             operationId: OperationId.make("amend-complete-retry"),
             sessionId: started.id,
           });
-          expect(completed.agentAccount).toBe("The delivery date was read.");
+          expect(legacySummary(completed).agentAccount).toBe(
+            "The delivery date was read."
+          );
           const opened = yield* runTool("open_run", { runId: run.runId });
-          expect(opened.summary.agentAccount).toBe(
+          expect(legacySummary(opened.summary).agentAccount).toBe(
             "The delivery date was read."
           );
         }).pipe(Effect.provide(agentProcessLayer(root)))

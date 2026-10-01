@@ -239,6 +239,8 @@ export const LegacyAgentRunSummary = Schema.Struct({
   sessionId: AgentSessionId,
   startedAt: nonEmptyString,
   steps: Schema.Array(AgentRunStep).check(Schema.isMinLength(1)),
+  /** Earlier version 2 writers used this nullable closing-account field. */
+  summary: Schema.optional(Schema.NullOr(nonEmptyString)),
   timeline: Schema.Array(AgentTimelineEntry),
   title: nonEmptyString,
   /** Relative to the Run's directory; `null` when capture produced none. */
@@ -246,6 +248,39 @@ export const LegacyAgentRunSummary = Schema.Struct({
   videoPath: Schema.NullOr(nonEmptyString),
 });
 export type LegacyAgentRunSummary = typeof LegacyAgentRunSummary.Type;
+
+/** Version 1 predates Flow Skills; retain its identities and original account. */
+export const LegacyAgentFlowRunSummary = Schema.Struct({
+  agentFlowId: Schema.String.check(
+    Schema.isPattern(/^flow-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
+  ),
+  assessmentCounts: AgentRunAssessmentCounts,
+  attribution: AgentRunAttribution,
+  ceilings: LegacyAgentRunCeilings,
+  coverage: AgentRunCoverage,
+  endedAt: nonEmptyString,
+  outcome: AgentRunOutcome,
+  revisionId: Schema.String.check(
+    Schema.isPattern(/^rev-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
+  ),
+  runId: AgentRunId,
+  schemaVersion: Schema.Literal(1),
+  sessionId: AgentSessionId,
+  startedAt: nonEmptyString,
+  steps: Schema.Array(
+    Schema.Struct({
+      ...AgentRunStep.fields,
+      // Version 1 did not copy a Done when line into its Step records.
+      doneWhen: Schema.optional(nonEmptyString),
+    })
+  ).check(Schema.isMinLength(1)),
+  summary: Schema.NullOr(nonEmptyString),
+  timeline: Schema.Array(AgentTimelineEntry),
+  title: nonEmptyString,
+  tracePath: Schema.NullOr(nonEmptyString),
+  videoPath: Schema.NullOr(nonEmptyString),
+});
+export type LegacyAgentFlowRunSummary = typeof LegacyAgentFlowRunSummary.Type;
 
 /** A skill requested by the user, including requests made after startup. */
 export const AgentRunSkillReference = Schema.Struct({
@@ -401,8 +436,9 @@ export const TaskAgentRunSummary = Schema.Struct({
 }).check(taskInputIdentity);
 export type TaskAgentRunSummary = typeof TaskAgentRunSummary.Type;
 
-/** Version 2 remains a step execution; decoding never migrates its meaning. */
+/** Historical step executions retain their version and meaning on decode. */
 export const AgentRunSummary = Schema.Union([
+  LegacyAgentFlowRunSummary,
   LegacyAgentRunSummary,
   TaskAgentRunSummary,
 ]);

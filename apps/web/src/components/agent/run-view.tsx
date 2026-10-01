@@ -22,8 +22,10 @@ const executionLabel: Record<AgentRunStep["execution"], string> = {
   unexecuted: "Not executed",
 };
 
+type SummaryRunStep = Omit<AgentRunStep, "doneWhen">;
+
 const outcomeTone = (
-  step: AgentRunStep
+  step: SummaryRunStep
 ): "default" | "destructive" | "outline" | "secondary" => {
   if (step.execution === "timed-out") {
     return "destructive";
@@ -55,7 +57,7 @@ const RunSteps = ({
   steps,
 }: {
   readonly activeStepIndex: number | null;
-  readonly steps: readonly AgentRunStep[];
+  readonly steps: readonly SummaryRunStep[];
 }) => (
   <ol aria-label="Agent Steps" className="divide-y rounded-lg border">
     {steps.map((step) => (
@@ -132,79 +134,88 @@ export const RunSummaryView = ({
 }: {
   readonly summary: AgentRunSummary;
   readonly videoSrc?: string;
-}) => (
-  <div className="space-y-5">
-    <section aria-labelledby="agent-run-summary" className="space-y-2">
-      <h2 className="text-sm font-semibold" id="agent-run-summary">
-        Run Summary
-      </h2>
-      <div className="space-y-2 rounded-lg border p-3 text-sm">
-        <p className="font-medium">{summary.title ?? summary.runId}</p>
-        <Badge
-          variant={summary.outcome === "completed" ? "default" : "secondary"}
-        >
-          {summary.outcome}
-        </Badge>
-        <p className="font-mono text-xs wrap-anywhere">{summary.runId}</p>
-        {summary.agentAccount === undefined ? null : (
-          <p className="text-muted-foreground text-xs wrap-anywhere">
-            {summary.agentAccount}
+}) => {
+  const account =
+    summary.schemaVersion === 1
+      ? summary.summary
+      : (summary.agentAccount ??
+        (summary.schemaVersion === 2 ? summary.summary : undefined));
+  return (
+    <div className="space-y-5">
+      <section aria-labelledby="agent-run-summary" className="space-y-2">
+        <h2 className="text-sm font-semibold" id="agent-run-summary">
+          Run Summary
+        </h2>
+        <div className="space-y-2 rounded-lg border p-3 text-sm">
+          <p className="font-medium">{summary.title ?? summary.runId}</p>
+          <Badge
+            variant={summary.outcome === "completed" ? "default" : "secondary"}
+          >
+            {summary.outcome}
+          </Badge>
+          <p className="font-mono text-xs wrap-anywhere">{summary.runId}</p>
+          {account === undefined || account === null ? null : (
+            <p className="text-muted-foreground text-xs wrap-anywhere">
+              {account}
+            </p>
+          )}
+          <p className="text-muted-foreground text-xs">
+            The live browser was closed when this Run ended. This View is
+            read-only.
           </p>
-        )}
-        <p className="text-muted-foreground text-xs">
-          The live browser was closed when this Run ended. This View is
-          read-only.
-        </p>
-      </div>
-    </section>
-    {summary.schemaVersion === 2 ? (
-      <>
-        <RunTotals
-          assessmentCounts={summary.assessmentCounts}
-          coverage={summary.coverage}
-        />
-        <RunSteps activeStepIndex={null} steps={summary.steps} />
-      </>
-    ) : (
-      <section aria-label="Task assessment" className="space-y-2 text-sm">
-        <p>{summary.requestedTask}</p>
-        <p>{summary.assessment?.outcome ?? "No Agent Assessment submitted"}</p>
-        {summary.assessment === null ? null : (
-          <p>{summary.assessment.explanation}</p>
-        )}
-        {summary.findings.map((finding) => (
-          <p key={finding.id}>
-            {finding.outcome}: {finding.explanation}
-          </p>
-        ))}
+        </div>
       </section>
-    )}
-    <section aria-labelledby="agent-run-video" className="space-y-2">
-      <h2 className="text-sm font-semibold" id="agent-run-video">
-        Run video
-      </h2>
-      {summary.videoPath === null ? (
-        <p className="text-muted-foreground text-xs">
-          This Run recorded no video.
-        </p>
+      {summary.schemaVersion === 3 ? (
+        <section aria-label="Task assessment" className="space-y-2 text-sm">
+          <p>{summary.requestedTask}</p>
+          <p>
+            {summary.assessment?.outcome ?? "No Agent Assessment submitted"}
+          </p>
+          {summary.assessment === null ? null : (
+            <p>{summary.assessment.explanation}</p>
+          )}
+          {summary.findings.map((finding) => (
+            <p key={finding.id}>
+              {finding.outcome}: {finding.explanation}
+            </p>
+          ))}
+        </section>
       ) : (
-        <video
-          aria-label="Recorded Run video"
-          className="w-full rounded-lg border"
-          controls
-          preload="metadata"
-          src={videoSrc ?? agentRunVideoPath(summary.runId)}
-        >
-          <track kind="captions" />
-        </video>
+        <>
+          <RunTotals
+            assessmentCounts={summary.assessmentCounts}
+            coverage={summary.coverage}
+          />
+          <RunSteps activeStepIndex={null} steps={summary.steps} />
+        </>
       )}
-      <p className="text-muted-foreground text-xs">
-        The video and Trace stay on this machine. Nothing is uploaded without
-        your direct confirmation.
-      </p>
-    </section>
-  </div>
-);
+      <section aria-labelledby="agent-run-video" className="space-y-2">
+        <h2 className="text-sm font-semibold" id="agent-run-video">
+          Run video
+        </h2>
+        {summary.videoPath === null ? (
+          <p className="text-muted-foreground text-xs">
+            This Run recorded no video.
+          </p>
+        ) : (
+          <video
+            aria-label="Recorded Run video"
+            className="w-full rounded-lg border"
+            controls
+            preload="metadata"
+            src={videoSrc ?? agentRunVideoPath(summary.runId)}
+          >
+            <track kind="captions" />
+          </video>
+        )}
+        <p className="text-muted-foreground text-xs">
+          The video and Trace stay on this machine. Nothing is uploaded without
+          your direct confirmation.
+        </p>
+      </section>
+    </div>
+  );
+};
 
 /**
  * The read-only viewer `open_run` returns. It reads only persisted evidence

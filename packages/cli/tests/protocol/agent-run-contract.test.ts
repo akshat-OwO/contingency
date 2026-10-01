@@ -116,6 +116,15 @@ test("a new Run Summary carries no ceilings", () => {
   expect(decodeSummary(summary).ceilings).toBeUndefined();
 });
 
+test("earlier version 2 closing accounts retain their original field", () => {
+  const decoded = decodeSummary(summary);
+  expect(decoded.summary).toBe(summary.summary);
+  expect(Schema.encodeSync(AgentRunSummary)(decoded).summary).toBe(
+    summary.summary
+  );
+  expect(decoded.agentAccount).toBeUndefined();
+});
+
 test("client-reported provider and model are recorded as unverified", () => {
   const schema = JSON.stringify(Schema.toJsonSchemaDocument(AgentRunSummary));
   expect(schema).toContain("reportedMetadataVerified");
