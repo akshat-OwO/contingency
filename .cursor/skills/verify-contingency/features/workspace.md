@@ -22,6 +22,9 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-return-control` hands the browser back, and the toolbar goes quiet again.
 - `agent-run-dock` shows a task Run's requested task or latest changed instruction, the read-only `Agent idle for <n> min` notice after ten minutes, and one control button. Historical Runs retain Agent Step presentation. A live Dry Run names its rehearsed Flow Skill and changed inputs.
 - `agent-task-continuity` starts a task with zero or multiple verified Flow Skills, preserves one browser across changed instructions and additional skills, requests skill-scoped inputs only when needed, and seals evidence on explicit completion, user closure, or process exit.
+- `agent-task-combined-proof` composes partial flow1 with flow2 in one session, redirects the task, recovers after a finding, and checks lazy skill-scoped values, Domain Scope, per-attempt confirmation, priority Takeover, and operation replay.
+- `agent-dry-run-outcomes` retains evidence for failed, partial, and Takeover attempts, exposes verification only for a complete report without Takeover, retains rejected evidence, and resumes verified Cleanup after restart.
+- `agent-summary-restart-proof` reopens a task summary and an isolated historical version 2 fixture after restart, preserves Step assessments and timeout meaning, and serves both retained videos.
 - `agent-assessment-evidence-contract` publishes a typed evidence array for Agent Assessments, accepts Snapshot and attempt references, and explains the required object shape when an item is malformed.
 - `agent-teaching-inspect` outlines the live element under the pointer during `recording`, attaches a comment as a Teaching instruction, and counts it in the dock.
 - `agent-teaching-dock-actions` renames the Flow Skill in `setup`, and copies the agent prompt or deletes the recording in `ready`.
@@ -151,7 +154,7 @@ Preconditions:
 
 ### Finished Interactive Run
 
-- **Finish a Run.** Use a verified Flow Skill from the Teaching steps above. Call `agent_flow_skill_run_start` with its `flowSkillName`, the fixture `url`, every declared input, client metadata, and a fresh `operationId`. Open the returned `viewUrl` and observe the Interactive Run in the Workspace. Explore the requested task with `agent_browser_snapshot` and browser actions. Report with `agent_run_assess` using evidence owned by this Run; complete explicitly.
+- **Finish a Run.** Use a verified Flow Skill from the Teaching steps above. Call `agent_run_start` with the requested task, `referencedSkills:["<flow-name>"]`, the fixture `url`, `inputs:[]`, client metadata, and a fresh `operationId`. Supply ordinary inputs later through `agent_run_update`; request private inputs only when needed. Open the returned `viewUrl` and observe the Interactive Run in the Workspace. Explore the requested task with `agent_browser_snapshot` and browser actions. Report with `agent_run_assess` using evidence owned by this Run; complete explicitly.
 - **Inspect the Agent Assessment contract.** After `mcp start`, run `control-contingency mcp tools --name agent_run_assess`. Its `inputSchema.properties.evidence` is an array with `minItems:1`; `items` is an object requiring `kind` and `id`, and `kind.enum` is `["snapshot","attempt"]`. That field and its `id` property have no `allOf` wrapper. Use an object such as `{kind:"snapshot",id:"<snapshotId>"}` or `{kind:"attempt",id:"<entry.id>"}`.
 - **Refuse a malformed evidence item.** During a Run or Dry Run, call `agent_run_assess` with `evidence:["<snapshot id>"]` and the active session's id, a fresh operation id, outcome, and explanation. The MCP refusal has code `-32602`, names `["evidence"][0]`, and says that an item needs `{kind,id}` with a `snapshot` or `attempt` kind. The Run remains live; the corrected call may reuse the operation id because validation did not run the handler.
 - **Accept Run-wide evidence.** Take a Snapshot, perform a task-related action, then submit a finding and a negative assessment using the earlier Snapshot. Neither ends the Run. A later working assessment may cite the action attempt. Explicit completion retains the report and findings. A reference from another Run, an unknown id, a missing array, and malformed items are refused. Reuse the rejected operation id for a corrected report and require success.
@@ -208,6 +211,35 @@ Preconditions: MCP and the ecommerce fixture are running in the isolated verific
 - **Persist and replay.** Complete explicitly, replay that operation, and require an identical summary and unchanged artifact filenames. Read `agent-runs/<runId>/summary.json` under the isolated catalog and reopen with `open_run`. Require version 3, original task, changed instructions, referenced skills, assessment, findings, and Trace/video paths. Secret literals and live-only lifecycle fields are absent. User closure and process exit also persist summaries without inventing an assessment.
 - **Cleanup.** Run `cleanup`; confirm the retained MCP responses, ARIA snapshots, and screenshots survive while isolated state is deleted.
 
+### Combined task proof
+
+Preconditions: build current source, launch a fresh isolated instance, run doctor, and start ecommerce and MCP. This drive writes disposable verified `flow1` and `flow2` packages to the isolated catalog. It teaches and saves `dry-proof` through MCP and Workspace. Never point it at another catalog.
+
+Read [the 2026-10-01 proof report](../reports/task-proof-2026-10-01.md) for observed outcomes and the catalog discovery blocker.
+
+- **Run the combined path.** Use these literal commands. Export the directory printed by launch before continuing:
+
+  ```sh
+  nub exec turbo run build --filter=@contingencyhq/cli --force
+  CONTROL=".cursor/skills/verify-contingency/bin/control-contingency"
+  nub "$CONTROL" launch
+  export CONTINGENCY_VERIFY_DIR=<directory printed by launch>
+  nub "$CONTROL" doctor
+  nub "$CONTROL" ecommerce start
+  nub "$CONTROL" mcp start
+  nub .cursor/skills/verify-contingency/bin/task-proof.mjs
+  ```
+
+- **Read the result.** Read `artifacts/task-proof/result.json`, `commands.json`, and `dry-outcomes.json`. `commands.json` pairs each MCP call with its parameters and each Workspace action with its exact command. Each numbered response records stdout, stderr, and exit code. Secret values appear only as `<redacted>` in the journal. A failed assertion stops the drive. Catalog discovery errors are recorded as blockers so independent checks can finish; a blocked result exits 2. `status:"blocked"` is not a successful proof of that entry point.
+- **Check composition.** Compare `continuity-before.json` with `continuity-after.json`. They retain the same two tab IDs, login cookie, localStorage account, sessionStorage cart, and 640x480@1 starting Emulation. Flow2 declares a different host and 390x480@1 Emulation. The later skill changes scope while retaining the initial Emulation. `composed`, `composed-details`, and `composed-390` capture the current instruction and task details.
+- **Check input and intervention evidence.** Read the `agent_run_update` response for distinct `flow1/area=North` and `flow2/area=South`. The fixture has separate `Flow one area` and `Flow two area` fields. Read requests, refusal, supply replay, and scoped entry for both skills' `PASSWORD`; `UNUSED` remains unsupplied. Screenshots and ARIA include `flow1-pending`, `flow1-refused`, `scoped-supplied`, `domain-paused`, `confirmation`, and `confirmation-takeover`. Read the responses to prove that agent actions and an allow decision fail during Takeover, observation succeeds, and returned control permits the original confirmed attempt exactly once. A new attempt pauses again.
+- **Check termination and recovery.** Negative assessment and finding responses leave the session usable. Subsequent area fills and a working report use the same Run. Fabricated evidence is refused. Completion and its replay produce an identical Summary. The persisted reread retains the original task, changed instruction, two skill references, finding, and assessment. `unassessed-closed` and `process-exit-summary.json` preserve closure outcomes without inventing an assessment.
+- **Check Dry Run choices.** `dry-partial-summary`, `dry-failed-summary`, and `dry-takeover-summary` offer no `Verify flow`. The complete attempts do. Retention files assert every recorded artifact exists before verification. `dry-rejected` retains the Teaching Recording. `dry-verification-390` captures the user choice at narrow width. The helper clicks Workspace `Reject flow` and `Verify flow` for this disposable proof, rather than relaying a fabricated user decision through MCP.
+- **Check Cleanup resumption.** The helper places a read-only disposable subdirectory inside this recording to make deletion fail after verification. `cleanup-pending.json` and `cleanup-pending.*` show verified `purge-pending` and `Retry cleanup`. It restores permissions and restarts MCP. The recording directory disappears, while the verified skill remains. This is a deliberate filesystem fault in isolated state, not a product-state rewrite.
+- **Check restarted summaries.** `task-reopened` and `historical-reopened` contain the read-only summary and Run video. Their `open_run` responses exactly match the persisted records. Each `*-reopened-video.json` proves a 206 response with 1024 bytes from the local video route. `legacy-fixture.json` explicitly identifies the historical schema fixture as synthetic; it retains a working assessment, a timed-out Step, an unexecuted Step, and incomplete coverage. Its video and Trace are copied only within isolated state, never into agent-readable artifacts.
+- **Check catalog discovery.** The helper attempts `agent_flow_skills_list` after verification and restart. As observed in #330, inputs without optional descriptions currently cause an internal server error. `catalog-list-blocker.json` names the command and owning phase. Keep this path unverified until the runtime fix lands, then rerun this same command without changing the fixture declarations.
+- **Clean isolated state.** Run `nub "$CONTROL" cleanup`. Confirm the printed state directory no longer exists and `artifacts/task-proof/result.json`, the MCP responses, ARIA, and screenshots remain. On an interrupted drive, restore any `cleanup-obstruction` directory to mode 755 before cleanup. Do not copy raw video or Trace to proof artifacts.
+
 ### Task Run presentation and persisted results
 
 - **Read task details.** In a live version 3 Run, open `Task details` with `control-contingency browser click --role button --name "Task details"`. Require regions `Requested task`, `Referenced skills`, `Task assessment`, and `Findings`. The original task remains beside the ordered changed instructions. Each assessment and finding shows its explanation and typed browser evidence IDs. Close with `control-contingency browser press --key Escape`.
@@ -241,6 +273,11 @@ Preconditions: a live Teaching session, and a local page that answers one reques
 - **Proof.** Save `workspace/bot-protection.aria.txt` and `workspace/bot-protection.png` with the alert visible, then `workspace/bot-protection-dismissed.aria.txt`.
 
 ## Gotchas
+
+- New task Runs use `agent_run_assess`, `agent_run_finding`, and explicit `agent_run_complete`. `agent_run_step_assess`, coverage, active steps, and assessment-triggered termination belong only to historical reports.
+- Resolve Pending Decisions with `pendingDecisionId`, `decision`, and `operationId`. Do not pass `sessionId` to `agent_pending_decision_resolve`. Read the ID from `pendingDecisions[].pendingDecisionId`.
+- Stamped Flow Skill Emulation uses the scalar `viewport: 640x480@1`, not a nested viewport mapping. Read the starting Emulation back before proving continuity.
+- The second fixture host is `localhost` on the ecommerce server's ephemeral port. Verify it answers before the authority drive. A changed port on `127.0.0.1` is not a second host.
 
 - Stream latency excludes replayed frames and measures capture receipt through canvas draw submission, not physical display presentation. Remote clock skew can affect it. A static page may emit no new frames until it paints.
 - A DPR setting alone does not prove that the screencast contains native-density pixels. Verify input and outline alignment against the displayed canvas; use the benchmark's native screenshot comparison for source resolution.
