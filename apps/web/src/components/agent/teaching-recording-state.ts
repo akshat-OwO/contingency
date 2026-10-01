@@ -2,6 +2,7 @@ import { isLiveAgentSessionPhase } from "@contingency/protocol";
 import type {
   AgentSessionController,
   AgentSessionPhase,
+  AgentRunSummary,
   TeachingCaptureState,
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
@@ -87,6 +88,15 @@ const action = (
   gesture: TeachingRecordingGesture,
   label: string
 ): TeachingRecordingAction => ({ accessibleName: label, gesture, label });
+
+/** Historical passes keep their original meaning; task reports require a complete outcome. */
+const canVerifyDryRun = (summary: AgentRunSummary | undefined): boolean =>
+  summary?.schemaVersion !== 3 ||
+  (summary.outcome === "completed" &&
+    summary.purpose.kind === "dry-run" &&
+    !summary.purpose.takeoverOccurred &&
+    summary.assessment?.outcome === "working" &&
+    summary.assessment.outcomeComplete === true);
 
 /**
  * The setup state. An agent-opened session starts with the agent preparing
@@ -236,6 +246,18 @@ export const teachingRecordingPresentation = (
       };
     }
     case "dry-run-passed": {
+      if (!canVerifyDryRun(captureState.dryRunSummary)) {
+        return {
+          action: null,
+          badge: "Dry run failed",
+          nextStep:
+            "This attempt cannot verify the flow. Ask your agent to complete a fresh Dry Run without Takeover.",
+          secondaries: ["reject-flow"],
+          showsElapsed: false,
+          showsInspect: true,
+          tone: "failed",
+        };
+      }
       return {
         action: action("verify-flow", "Verify flow"),
         badge: "Dry run passed",

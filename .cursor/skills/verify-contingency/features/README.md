@@ -43,4 +43,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Workspace](./workspace.md) is the UI recipe for navigation, streaming diagnostics and preferences, scaled Inspect alignment, rapid canvas input, Browser Snapshot context and layered sheets, delayed navigation and Session URL sync, the Teaching Start/Stop capture boundary, Run-owned Agent Assessment evidence, complete or partial Dry Run outcome reports, task-directed Interactive Runs with browser continuity and lazy skill-scoped inputs, and persisted Run Summaries.
+- [Workspace](./workspace.md) is the UI recipe for navigation, streaming diagnostics and preferences, scaled Inspect alignment, rapid canvas input, Browser Snapshot context and layered sheets, delayed navigation and Session URL sync, the Teaching Start/Stop capture boundary, Run-owned Agent Assessment evidence, complete or partial Dry Run outcome reports, task-directed Interactive Runs with browser continuity and lazy skill-scoped inputs, and task details, responsive Dry Run results, and persisted task and historical Run Summaries.
