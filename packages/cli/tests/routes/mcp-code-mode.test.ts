@@ -20,15 +20,24 @@ const CodeRunResult = Schema.Struct({
   }),
 });
 
-const runScript = (code: string, timeoutMs?: number) =>
+const runIn = (
+  request: Effect.Success<ReturnType<typeof connectMcp>>["request"],
+  code: string,
+  timeoutMs?: number
+) =>
   Effect.gen(function* runCodeTool() {
-    const origin = yield* servingMcpHttp({ codeMode: true });
-    const { request } = yield* connectMcp(origin);
     const body = yield* request("tools/call", {
       arguments: timeoutMs === undefined ? { code } : { code, timeoutMs },
       name: "agent_code_run",
     });
     return Schema.decodeUnknownSync(CodeRunResult)(body).result;
+  });
+
+const runScript = (code: string, timeoutMs?: number) =>
+  Effect.gen(function* runInFreshServer() {
+    const origin = yield* servingMcpHttp({ codeMode: true });
+    const { request } = yield* connectMcp(origin);
+    return yield* runIn(request, code, timeoutMs);
   });
 
 it.live("leaves sandboxed code orchestration out of the default catalog", () =>
@@ -77,14 +86,14 @@ it.live("exposes no host capability beyond the read-only bridge", () =>
   Effect.gen(function* noHostCapability() {
     const answer = yield* runScript(`
       return [typeof require, typeof process, typeof fetch, typeof setTimeout,
-        typeof __contingencyCall, typeof contingency.call];
+        typeof globalThis.__contingencyCall, typeof contingency.call];
     `);
     expect(answer.structuredContent?.result).toEqual([
       "undefined",
       "undefined",
       "undefined",
       "undefined",
-      "function",
+      "undefined",
       "function",
     ]);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
@@ -115,5 +124,48 @@ it.live("refuses a result too large to return to the model", () =>
     const answer = yield* runScript('return "x".repeat(20000);');
     expect(answer.isError).toBe(true);
     expect(answer.content[0]?.text).toContain("code_run_result_too_large");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("bounds a slow read by the script's deadline and frees the sandbox", () =>
+  Effect.gen(function* slowRead() {
+    const origin = yield* servingMcpHttp({ codeMode: true });
+    const { request } = yield* connectMcp(origin);
+    const started = Date.now();
+    const waited = yield* runIn(
+      request,
+      `try {
+        contingency.call("agent_teaching_recordings_list", {
+          recordingId: "recording-never-arrives",
+          timeoutMs: 60000,
+        });
+        return "answered";
+      } catch (error) {
+        return error.message;
+      }`,
+      500
+    );
+    expect(waited.structuredContent?.result).toBe("Time budget exhausted.");
+    expect(Date.now() - started).toBeLessThan(5000);
+
+    // The single sandbox permit was released: the next script runs.
+    const next = yield* runIn(request, "return 1 + 1;");
+    expect(next.structuredContent?.result).toBe(2);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("answers unserializable parameters without wedging the sandbox", () =>
+  Effect.gen(function* badParameters() {
+    const origin = yield* servingMcpHttp({ codeMode: true });
+    const { request } = yield* connectMcp(origin);
+    const refused = yield* runIn(
+      request,
+      `const loop = {}; loop.self = loop;
+      try { contingency.call("agent_catalog_get", loop); return "called"; }
+      catch (error) { return error.message.length > 0; }`
+    );
+    expect(refused.structuredContent?.result).toBe(true);
+    const next = yield* runIn(request, "return 3;");
+    expect(next.structuredContent?.result).toBe(3);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

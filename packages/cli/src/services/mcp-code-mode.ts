@@ -1,5 +1,13 @@
 import variant from "@jitl/quickjs-singlefile-mjs-release-asyncify";
-import { Context, Effect, Layer, Schema, Semaphore, Stream } from "effect";
+import {
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Schema,
+  Semaphore,
+  Stream,
+} from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 import {
   newQuickJSAsyncWASMModuleFromVariant,
@@ -156,16 +164,22 @@ const readTools = Effect.gen(function* collectReadTools() {
 /** What the bridge answers inside the sandbox: a result, or why it refused. */
 type BridgeAnswer = { readonly error: string } | { readonly result: Json };
 
+// The raw bridge is captured and removed from the global object, so scripts
+// reach it only through \`contingency.call\`, which always sends JSON text.
 const PRELUDE = `
-const contingency = Object.freeze({
-  call(name, params) {
-    const answer = JSON.parse(__contingencyCall(String(name), JSON.stringify(params ?? {})));
-    if (answer.error !== undefined) {
-      throw new Error(answer.error);
-    }
-    return answer.result;
-  },
-});
+const contingency = (() => {
+  const bridge = globalThis.__contingencyCall;
+  delete globalThis.__contingencyCall;
+  return Object.freeze({
+    call(name, params) {
+      const answer = JSON.parse(bridge(String(name), JSON.stringify(params ?? {})));
+      if (answer.error !== undefined) {
+        throw new Error(answer.error);
+      }
+      return answer.result;
+    },
+  });
+})();
 `;
 
 const wasm = Effect.cached(
@@ -216,31 +230,51 @@ export const CodeModeToolHandlersLive = CodeModeTools.toLayer(
                 Effect.promise(async () => {
                   const call = context.newAsyncifiedFunction(
                     "__contingencyCall",
+                    // A rejected promise here leaves the Asyncify VM suspended
+                    // forever, so every path answers instead of throwing.
                     async (nameHandle, paramsHandle) => {
                       const answer = (body: BridgeAnswer) =>
                         context.newString(JSON.stringify(body));
-                      calls += 1;
-                      if (calls > CODE_MODE_LIMITS.calls) {
-                        return answer({ error: "Call budget exhausted." });
-                      }
-                      if (Date.now() > deadline) {
-                        return answer({ error: "Time budget exhausted." });
-                      }
-                      const name = context.getString(nameHandle);
-                      const tool = tools.get(name);
-                      if (tool === undefined) {
+                      try {
+                        calls += 1;
+                        if (calls > CODE_MODE_LIMITS.calls) {
+                          return answer({ error: "Call budget exhausted." });
+                        }
+                        const remaining = deadline - Date.now();
+                        if (remaining <= 0) {
+                          return answer({ error: "Time budget exhausted." });
+                        }
+                        const name = context.getString(nameHandle);
+                        const tool = tools.get(name);
+                        if (tool === undefined) {
+                          return answer({
+                            error: `${name} is not a read-only Contingency tool.`,
+                          });
+                        }
+                        const params: unknown = JSON.parse(
+                          context.getString(paramsHandle)
+                        );
+                        if (!isJson(params)) {
+                          return answer({ error: "Parameters must be JSON." });
+                        }
+                        // The interrupt handler cannot run while the VM waits
+                        // on this call, so the call itself honours the deadline.
+                        const result = await run(
+                          Effect.timeoutOption(tool(params), remaining)
+                        );
+                        if (Option.isNone(result)) {
+                          return answer({ error: "Time budget exhausted." });
+                        }
+                        return answer(
+                          result.value.isFailure
+                            ? { error: JSON.stringify(result.value.encoded) }
+                            : { result: result.value.encoded }
+                        );
+                      } catch (cause) {
                         return answer({
-                          error: `${name} is not a read-only Contingency tool.`,
+                          error: `The call could not be made: ${String(cause).slice(0, 200)}`,
                         });
                       }
-                      const result = await run(
-                        tool(JSON.parse(context.getString(paramsHandle)))
-                      );
-                      return answer(
-                        result.isFailure
-                          ? { error: JSON.stringify(result.encoded) }
-                          : { result: result.encoded }
-                      );
                     }
                   );
                   context.setProp(context.global, "__contingencyCall", call);
