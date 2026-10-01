@@ -218,7 +218,7 @@ const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   success: AgentSessionSnapshot,
 });
 const taskReportParameters = Schema.Struct({
-  evidence: AgentTaskAssessment.fields.evidence,
+  evidence: AgentRunStepAssess.fields.evidence,
   explanation: AgentTaskAssessment.fields.explanation,
   operationId: OperationId,
   outcome: AgentTaskAssessment.fields.outcome,
@@ -367,7 +367,7 @@ const startTaskRun = (params: AgentTaskRunStart) =>
             return yield* Effect.fail(
               new AgentRunFailure({
                 code: "flow_skill_invalid",
-                message: `The requested skills do not include starting host ${host}.`,
+                message: `The requested skills were demonstrated on ${hosts.join(", ")}, so this Run cannot start on ${host}.`,
               })
             );
           }

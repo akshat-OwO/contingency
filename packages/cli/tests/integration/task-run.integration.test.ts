@@ -221,6 +221,19 @@ it.live(
             url: fixture.url("task-session.html"),
           });
           expect(started.pendingDecisions).toEqual([]);
+          const refusedHost = yield* Effect.flip(
+            runTool("agent_run_start", {
+              inputs: [],
+              operationId: operation("compose-wrong-host"),
+              referencedSkills: [FlowSkillName.make("flow1")],
+              requestedTask: "Inspect another host",
+              url: fixture
+                .url("task-session.html")
+                .replace("127.0.0.1", "localhost"),
+            })
+          );
+          expect(refusedHost.message).toContain("127.0.0.1");
+          expect(refusedHost.message).toContain("localhost");
           const session = yield* AgentSession;
           const before = yield* session.emulation(started.id);
           const observed = yield* sessionTool("agent_browser_snapshot", {
@@ -252,6 +265,9 @@ it.live(
           }
           const tabsBefore = yield* session.tabs(started.id);
           expect(tabsBefore).toHaveLength(2);
+          expect(tabsBefore.map((tab) => tab.url)).toContain(
+            fixture.url("task-session.html?tab=help")
+          );
           const update = {
             inputs: [
               {
