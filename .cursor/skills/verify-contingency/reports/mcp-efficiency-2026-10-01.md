@@ -6,7 +6,7 @@ This proof measures the MCP surface before and after [ADR 0045](../../../../docs
 | --- | --- | --- | --- |
 | `tools/list` bytes, default catalog | 216,458 | 72,652 | −66% |
 | Tools in the default catalog | 31 | 32 | `agent_run_step_assess` removed; `agent_session_history_get` and `agent_browser_act_sequence` added |
-| Largest single tool | 72,797 (`agent_flow_skill_dry_run_start`) | under 9,100 (`agent_browser_act_sequence`) | |
+| Largest single tool | 72,797 (`agent_flow_skill_dry_run_start`) | under 9,100 (`agent_browser_act_sequence`) |  |
 | Output schema bytes | 181,173 | 32,554 | −82% |
 | `tools/list` with `CONTINGENCY_MCP_CODE_MODE=true` | n/a | 73,904 | `agent_code_run` added |
 
