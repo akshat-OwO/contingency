@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Snapshot format</title>
+    <style>
+      .icon {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        background: currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <nav aria-label="Primary">
+      <ul>
+        <li><a href="/shop.html">Shop</a></li>
+        <li><a href="https://example.com/help?token=abc">Help</a></li>
+        <li>
+          <a href="/cart.html"><span class="icon" title="Cart"></span></a>
+        </li>
+      </ul>
+    </nav>
+    <main>
+      <!-- A focus target for a skip link, not a control. -->
+      <div tabindex="-1">
+        <h1>Preferences</h1>
+        <p>Your plan renews on <b>1 March</b>.</p>
+        <form aria-label="Settings">
+          <label><input type="checkbox" name="news" /> Newsletter</label>
+          <label
+            ><input type="radio" name="size" value="s" checked /> Small</label
+          >
+          <label
+            >Nickname <input type="text" name="nickname" value="Ada"
+          /></label>
+          <label
+            >Colour
+            <select name="colour">
+              <option value="">Choose…</option>
+              <option value="red" selected>Red</option>
+            </select>
+          </label>
+          <button type="button" id="save">Save</button>
+          <button type="button" id="replace">Replace save</button>
+        </form>
+        <p id="status" role="status"></p>
+      </div>
+    </main>
+    <script>
+      const save = () => {
+        document.querySelector("#status").textContent = "Saved";
+      };
+      document.querySelector("#save").onclick = save;
+      // Swaps the Save button for an identical new element, which is a new
+      // control even though it reads the same.
+      document.querySelector("#replace").onclick = () => {
+        const current = document.querySelector("#save");
+        const next = current.cloneNode(true);
+        next.onclick = save;
+        current.replaceWith(next);
+      };
+    </script>
+  </body>
+</html>

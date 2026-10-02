@@ -126,10 +126,10 @@ it.live.each(["idle", "stop"])(
           expect(scroll?.appeared.map(({ name }) => name)).toEqual(
             expect.arrayContaining(["Anvil", "Bellows", "Chisel"])
           );
-          // Nothing the user can still see is reported gone. The one exception
-          // is the container whose accessible name is computed from the text
-          // that just arrived, so its old name really is no longer on the Page.
-          expect(scroll?.disappeared.map(({ role }) => role)).toEqual(["main"]);
+          // Nothing the user can still see is reported gone. A container is
+          // named by its own label rather than the text that just arrived in
+          // it, so even the landmark around the catalogue keeps its line.
+          expect(scroll?.disappeared).toEqual([]);
           const keyframe = timeline.entries.find(
             (entry) =>
               entry._tag === "keyframe" && entry.actionId === scroll?.id
