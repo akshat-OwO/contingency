@@ -152,7 +152,7 @@ const TeachingTimelineGetTool = readOnly(
   Tool.make("agent_teaching_timeline_get", {
     dependencies: [TeachingRecordingLearning],
     description:
-      "Read one bounded page of a claimed Teaching Recording's semantic timeline. Actions include before, after, appeared, and disappeared accessibility evidence. Instructions and URL transitions stay in order. Keyframes are id and hash references only. Follow nextCursor until it is null.",
+      "Read one bounded page of a claimed Teaching Recording's semantic timeline. Actions include before, after, appeared, and disappeared accessibility evidence. Navigation observations and keyframes carry capture:transitional: destination rendering was not verified. A keyframe's url is its own capture URL. Missing capture metadata, including in older recordings, does not prove readiness. Instructions and URL transitions stay in order. Keyframes carry references, never bytes. Follow nextCursor until it is null.",
     failure: TeachingRecordingFailure,
     parameters: Schema.Struct({
       claimOperationId: OperationId,

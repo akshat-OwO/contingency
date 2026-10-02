@@ -3,6 +3,7 @@ import path from "node:path";
 import type {
   AgentBrowserSnapshot,
   BrowserRpcErrorType,
+  CapturedAction,
   DraftEmulation,
   TeachingCaptureLimits,
   TeachingEvent,
@@ -92,6 +93,16 @@ const observation = (
   title: snapshot?.title ?? "",
   url: snapshot?.url ?? fallbackUrl,
 });
+
+/** Navigation capture describes an instant, with no destination-ready claim. */
+const withNavigationCapture = <A extends object>(
+  value: A,
+  navigating: boolean
+): A | (A & { readonly capture: "transitional" }) =>
+  navigating ? { ...value, capture: "transitional" } : value;
+
+const observedNavigation = (action: CapturedAction, url: string): boolean =>
+  action.urlBefore !== action.urlAfter || url !== action.urlBefore;
 
 const targetFor = (
   snapshot: AgentBrowserSnapshot | undefined,
@@ -241,6 +252,7 @@ export const teachingEventsFor = (
       text: instruction.text,
     });
   }
+  const navigationActionIds = new Set<string>();
   for (const action of demonstration.actions) {
     const before =
       action.snapshotBefore === null
@@ -251,9 +263,14 @@ export const teachingEventsFor = (
         ? undefined
         : demonstration.snapshots.get(action.snapshotAfter);
     const ref = "ref" in action.action ? action.action.ref : undefined;
+    const afterObservation = observation(after, action.urlAfter);
+    const navigating = observedNavigation(action, afterObservation.url);
+    if (navigating) {
+      navigationActionIds.add(action.id);
+    }
     pending.push({
       _tag: "action",
-      after: observation(after, action.urlAfter),
+      after: withNavigationCapture(afterObservation, navigating),
       appeared: summaries(before, after),
       at: action.at,
       before: observation(before, action.urlBefore),
@@ -266,14 +283,29 @@ export const teachingEventsFor = (
       target: filledTarget(targetFor(before ?? after, ref), action.action),
     });
   }
+  const actionsById = new Map(
+    demonstration.actions.map((action) => [action.id, action])
+  );
   for (const keyframe of demonstration.keyframes) {
-    pending.push({
-      _tag: "keyframe",
-      actionId: keyframe.actionId,
-      at: keyframe.capturedAt,
-      hash: ContentHash.make(keyframe.contentHash),
-      path: `${keyframe.id}.png`,
-    });
+    const action = actionsById.get(keyframe.actionId ?? "");
+    // A keyframe is another instant, not a proof of the action's final state.
+    // Even a later coalesced snapshot cannot verify what this PNG rendered.
+    const navigating =
+      action !== undefined &&
+      (navigationActionIds.has(action.id) || keyframe.url !== action.urlBefore);
+    pending.push(
+      withNavigationCapture(
+        {
+          _tag: "keyframe",
+          actionId: keyframe.actionId,
+          at: keyframe.capturedAt,
+          hash: ContentHash.make(keyframe.contentHash),
+          path: `${keyframe.id}.png`,
+          url: keyframe.url,
+        },
+        navigating
+      )
+    );
   }
   pending.sort((left, right) => left.at.localeCompare(right.at));
   pending.push({

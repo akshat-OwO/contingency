@@ -320,6 +320,8 @@ export type TeachingTargetSummary = typeof TeachingTargetSummary.Type;
 
 /** What the Page looked like at one instant, bounded to what a reader needs. */
 export const TeachingObservation = Schema.Struct({
+  /** Navigation was observed, but destination rendering was not verified. */
+  capture: Schema.optionalKey(Schema.Literal("transitional")),
   nodeCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   title: Schema.String,
   url: Schema.String,
@@ -377,9 +379,12 @@ const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
 const TeachingKeyframeEvent = Schema.TaggedStruct("keyframe", {
   ...teachingEventBase,
   actionId: Schema.NullOr(Schema.String),
+  capture: Schema.optionalKey(Schema.Literal("transitional")),
   hash: ContentHash,
   /** Relative to the recording directory. */
   path: nonEmptyString,
+  /** The screenshot's own URL, not the associated action's destination. */
+  url: Schema.optionalKey(Schema.String),
 });
 
 /** Why capture ended. A limit or an encoder failure is visible to the reader. */
@@ -472,9 +477,12 @@ export type TeachingRecordingClaimResult =
 export const TeachingTimelineKeyframe = Schema.TaggedStruct("keyframe", {
   actionId: Schema.NullOr(Schema.String),
   at: nonEmptyString,
+  /** Absence, including on older recordings, does not prove readiness. */
+  capture: Schema.optionalKey(Schema.Literal("transitional")),
   hash: ContentHash,
   id: nonEmptyString,
   seq: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  url: Schema.optionalKey(Schema.String),
 });
 
 export const TeachingTimelineEntry = Schema.Union([

@@ -282,21 +282,31 @@ const eventProjection = (
           candidate.hash === event.hash &&
           candidate.path === event.path
       );
-      return artifact === undefined
-        ? Effect.fail(
-            learningError(
-              "teaching_recording_invalid",
-              `Teaching Recording ${manifest.recordingId} references an unknown keyframe.`
-            )
+      if (artifact === undefined) {
+        return Effect.fail(
+          learningError(
+            "teaching_recording_invalid",
+            `Teaching Recording ${manifest.recordingId} references an unknown keyframe.`
           )
-        : Effect.succeed({
-            _tag: "keyframe",
-            actionId: event.actionId,
-            at: event.at,
-            hash: event.hash,
-            id: artifact.id,
-            seq: event.seq,
-          });
+        );
+      }
+      const frame = {
+        _tag: "keyframe" as const,
+        actionId: event.actionId,
+        at: event.at,
+        hash: event.hash,
+        id: artifact.id,
+        seq: event.seq,
+      };
+      const captured =
+        event.capture === undefined
+          ? frame
+          : { ...frame, capture: event.capture };
+      return Effect.succeed(
+        event.url === undefined
+          ? captured
+          : { ...captured, url: sanitizeTeachingUrl(event.url) }
+      );
     }
     default: {
       return Effect.succeed(event);

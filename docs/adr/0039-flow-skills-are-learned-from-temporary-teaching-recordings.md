@@ -102,6 +102,8 @@ One learning claim covers the whole attempt. The claim an agent takes on a `read
 
 MCP does not return the raw Trace or the whole video in one response. The agent reads the timeline first and requests visual evidence when the timeline is not enough.
 
+Teaching captures user actions without waiting for destination readiness. Navigation observations and their keyframes carry `capture: transitional`, and each keyframe reference carries the URL observed for that PNG. The marker means destination rendering was not verified, even when the image already shows it. Missing metadata in an older recording does not prove readiness. A learning agent uses later evidence to establish destination content and writes a completion condition beyond the URL.
+
 ## Flow Skill package
 
 The Flow Skill lives at `.contingency/<flow-name>/SKILL.md`. It contains the inputs, preconditions, ordered work, completion criteria, branches, and observable outcome.

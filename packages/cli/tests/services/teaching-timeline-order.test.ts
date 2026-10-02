@@ -180,9 +180,101 @@ it("keeps the Page a navigating click started on as its before state", () => {
     url: SHOP_URL,
   });
   expect(action?.after).toEqual({
+    capture: "transitional",
     nodeCount: 1,
     title: CART_URL,
     url: CART_URL,
   });
   expect(action?.target?.name).toBe("Cart");
+});
+
+it("keeps a navigation keyframe's own URL when its pixels precede the destination", () => {
+  const capture = capturing();
+  const before = snapshotOf("snapshot-click-before", SHOP_URL, [
+    "View details",
+  ]);
+  capture.recordSnapshot(before);
+  const click = capture.recordAction({
+    action: { ref: AgentElementRef.make("e1"), type: "click" },
+    actor: "user",
+    at: "2026-09-24T00:00:01.000Z",
+    description: 'Click link "View details"',
+    id: "navigation-click",
+    outcome: "completed",
+    snapshotAfter: snapshotOf("snapshot-click-after", CART_URL, [
+      "View details",
+    ]),
+    snapshotBefore: before.snapshotId,
+    urlAfter: SHOP_URL,
+    urlBefore: SHOP_URL,
+  });
+  capture.recordKeyframe(screenshot("2026-09-24T00:00:01.100Z"), click.id);
+  const events = teachingEventsFor(
+    capture.current(),
+    EMULATION,
+    STARTED_AT,
+    "2026-09-24T00:00:02.000Z",
+    "user"
+  );
+  const action = events.find((event) => event._tag === "action");
+  const keyframe = events.find((event) => event._tag === "keyframe");
+  expect(action?.after).toMatchObject({
+    capture: "transitional",
+    url: CART_URL,
+  });
+  expect(action?.appeared).toEqual([]);
+  expect(keyframe).toMatchObject({
+    actionId: click.id,
+    capture: "transitional",
+    url: SHOP_URL,
+  });
+});
+
+it("marks a keyframe that observes navigation after an unchanged action snapshot", () => {
+  const capture = capturing();
+  const action = capture.recordAction({
+    ...keystroke("2026-09-24T00:00:01.000Z", "sku"),
+    coalesceKey: undefined,
+  });
+  capture.recordKeyframe(
+    screenshot("2026-09-24T00:00:01.100Z", CART_URL),
+    action.id
+  );
+  const events = teachingEventsFor(
+    capture.current(),
+    EMULATION,
+    STARTED_AT,
+    "2026-09-24T00:00:02.000Z",
+    "user"
+  );
+  expect(events.find((event) => event._tag === "keyframe")).toMatchObject({
+    capture: "transitional",
+    url: CART_URL,
+  });
+  expect(
+    events.find((event) => event._tag === "action")?.after
+  ).not.toHaveProperty("capture");
+});
+
+it("redacts known private values from the keyframe URL exposed to learning", () => {
+  const capture = makeDemonstrationCapture(SHOP_URL, () => [
+    "private-account-123",
+  ]);
+  capture.recordKeyframe(
+    screenshot(
+      "2026-09-24T00:00:01.100Z",
+      "https://shop.test/profile/private-account-123?token=private-token&tab=details"
+    )
+  );
+  const events = teachingEventsFor(
+    capture.current(),
+    EMULATION,
+    STARTED_AT,
+    "2026-09-24T00:00:02.000Z",
+    "user"
+  );
+  const keyframe = events.find((event) => event._tag === "keyframe");
+  expect(keyframe?.url).not.toContain("private-account-123");
+  expect(keyframe?.url).not.toContain("private-token");
+  expect(keyframe?.url).toContain("tab=details");
 });

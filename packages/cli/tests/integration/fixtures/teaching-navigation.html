@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Navigation evidence fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font: 24px sans-serif;
+        background: #ffe0cc;
+      }
+      main {
+        padding: 80px 24px;
+      }
+      button {
+        font: 24px sans-serif;
+        padding: 20px;
+      }
+      body.arrived {
+        background: #bce8ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Account overview</h1>
+      <button type="button">View details</button>
+      <p>Previous page content</p>
+    </main>
+    <script>
+      const delay = Number(
+        new URLSearchParams(location.search).get("delay") ?? 1500
+      );
+      document.querySelector("button").addEventListener("click", () => {
+        history.pushState(
+          {},
+          "",
+          location.pathname + "?profile&delay=" + delay
+        );
+        setTimeout(() => {
+          document.body.className = "arrived";
+          document.querySelector("main").innerHTML =
+            "<h1>User profile</h1><p>Destination content ready</p>";
+        }, delay);
+      });
+    </script>
+  </body>
+</html>
