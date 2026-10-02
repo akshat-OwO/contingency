@@ -61,9 +61,45 @@
         Remove backup code
       </button>
       <output aria-live="polite" id="result"></output>
+      <div
+        aria-label="Editable code"
+        contenteditable="true"
+        role="textbox"
+      ></div>
     </main>
     <script>
       const boxes = [...document.querySelectorAll("#code input")];
+      const variant = new URLSearchParams(location.search).get("variant");
+      if (variant === "editable-delayed") {
+        document
+          .querySelector('[contenteditable="true"]')
+          .addEventListener("beforeinput", (event) => {
+            event.preventDefault();
+            const target = event.currentTarget;
+            setTimeout(() => {
+              target.textContent = event.data;
+            }, 150);
+          });
+      }
+      if (variant === "missing-length") {
+        boxes.forEach((box) => box.removeAttribute("maxlength"));
+      }
+      if (variant === "hidden") boxes[5].hidden = true;
+      if (variant === "disabled") boxes[5].disabled = true;
+      if (variant === "separate") {
+        const other = document.createElement("fieldset");
+        document.body.append(other);
+        other.append(...boxes.slice(1));
+      }
+      if (variant === "unrelated") {
+        boxes.forEach((box, index) => {
+          box.removeAttribute("maxlength");
+          box.setAttribute(
+            "aria-label",
+            index === 0 ? "OTP" : `Other field ${index}`
+          );
+        });
+      }
       const proceed = document.getElementById("continue");
       const result = document.getElementById("result");
       const update = () => {
@@ -71,6 +107,8 @@
       };
       const spread = (index, text) => {
         const characters = [...text];
+        if (variant === "partial") characters.pop();
+        if (variant === "wrong") characters[5] = "X";
         characters.forEach((character, offset) => {
           const box = boxes[index + offset];
           if (box !== undefined) {
@@ -84,7 +122,13 @@
         box.addEventListener("beforeinput", (event) => {
           if (event.data !== null && event.data.length > 1) {
             event.preventDefault();
-            spread(index, event.data);
+            if (variant === "delayed") {
+              setTimeout(() => spread(index, event.data), 150);
+            } else if (variant === "non-settling") {
+              box.value = event.data[0];
+            } else {
+              spread(index, event.data);
+            }
           }
         });
         box.addEventListener("paste", (event) => {
@@ -94,7 +138,10 @@
         box.addEventListener("input", update);
       });
       proceed.addEventListener("click", () => {
-        result.textContent = "Signed in";
+        result.textContent =
+          boxes.map((box) => box.value).join("") === "482915"
+            ? "Signed in"
+            : "Rejected";
       });
       document.getElementById("rejected").addEventListener("input", (event) => {
         event.currentTarget.value = "";
