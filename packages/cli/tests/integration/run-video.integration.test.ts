@@ -140,10 +140,12 @@ window.sampleRegions = async (regions) => {
   }
   const samples = [];
   for (const region of regions) {
-    await new Promise((resolve) => {
-      video.addEventListener("seeked", resolve, { once: true });
-      video.currentTime = region.at;
-    });
+    // Seeking and presenting the decoded frame are separate signals.
+    // Wait for both before reading pixels, including on a loaded CI runner.
+    const sought = new Promise((resolve) => video.addEventListener("seeked", resolve, { once: true }));
+    const presented = new Promise((resolve) => video.requestVideoFrameCallback(resolve));
+    video.currentTime = region.at;
+    await Promise.all([sought, presented]);
     context.drawImage(video, 0, 0);
     const { data } = context.getImageData(region.x, region.y, region.width, region.height);
     let dark = 0;
