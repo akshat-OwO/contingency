@@ -12,6 +12,7 @@ import { Effect, FileSystem } from "effect";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
   agentProcessLayer,
+  awaitRunVideo,
   catalogTool,
   findNode,
   runTool,
@@ -343,10 +344,24 @@ it.live(
           expect(summary.findings).toHaveLength(1);
           expect(summary.instructions).toHaveLength(1);
           expect(summary.tracePath).not.toBeNull();
-          expect(summary.videoPath).not.toBeNull();
-          const artifacts = yield* files.readDirectory(
-            path.join(root, "agent-runs", run.runId)
-          );
+          expect(summary.videoPath).toBe("run.webm");
+          // The video plays the Run's actions in real time and fast-forwards
+          // the gaps between them, from offset zero to the Run's end.
+          const segments = summary.videoTimeMap?.segments ?? [];
+          expect(segments.some(({ kind }) => kind === "real-time")).toBe(true);
+          expect(segments[0]?.runFromMs).toBe(0);
+          for (const [index, segment] of segments.entries()) {
+            expect(segment.runFromMs).toBe(segments[index - 1]?.runToMs ?? 0);
+          }
+          const runDirectory = path.join(root, "agent-runs", run.runId);
+          expect(yield* awaitRunVideo(runDirectory)).toEqual({
+            condensed: true,
+            state: "ready",
+          });
+          const artifacts = yield* files.readDirectory(runDirectory);
+          expect(artifacts).toContain("run.webm");
+          expect(artifacts).not.toContain("footage.webm");
+          expect(artifacts).not.toContain("footage.json");
           expect(yield* runTool("agent_run_complete", closing)).toEqual(
             summary
           );

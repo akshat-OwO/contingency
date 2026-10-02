@@ -282,7 +282,6 @@ const makeService = (
     function* createSession(
       name: string,
       viewport: Viewport,
-      recordVideoDirectory?: string,
       environment?: SessionEnvironment,
       blockServiceWorkers = false
     ) {
@@ -303,7 +302,7 @@ const makeService = (
           )
         );
       }
-      let contextOptions: BrowserContextOptions = {
+      const contextOptions: BrowserContextOptions = {
         deviceScaleFactor: viewport.deviceScaleFactor,
         // The same translation a Run applies, so a session authored here and a
         // headless Run present one environment (ADR 0013).
@@ -312,12 +311,6 @@ const makeService = (
         userAgent,
         viewport: { height: viewport.height, width: viewport.width },
       };
-      if (recordVideoDirectory !== undefined) {
-        contextOptions = {
-          ...contextOptions,
-          recordVideo: { dir: recordVideoDirectory },
-        };
-      }
       const context = yield* tryBrowser(
         "Could not create browser session",
         () => browser.newContext(contextOptions)
@@ -387,18 +380,11 @@ const makeService = (
   const create = (
     name: string,
     viewport: Viewport,
-    recordVideoDirectory?: string,
     environment?: SessionEnvironment,
     blockServiceWorkers = false
   ) =>
     registryLock.withPermit(
-      createUnlocked(
-        name,
-        viewport,
-        recordVideoDirectory,
-        environment,
-        blockServiceWorkers
-      )
+      createUnlocked(name, viewport, environment, blockServiceWorkers)
     );
 
   const setViewport = Effect.fn("CreateBrowser.setViewport")(
@@ -549,12 +535,7 @@ const makeService = (
       return yield* finishOpen(requestedSessionId);
     }
     return yield* Effect.acquireUseRelease(
-      create(
-        `create-${randomUUID()}`,
-        emulation.viewport,
-        undefined,
-        emulation
-      ),
+      create(`create-${randomUUID()}`, emulation.viewport, emulation),
       finishOpen,
       (sessionId, exit) =>
         Exit.isSuccess(exit)
@@ -612,8 +593,24 @@ const makeService = (
           })
         );
       }),
-    create: (name, viewport, directory, blockServiceWorkers) =>
-      create(name, viewport, directory, undefined, blockServiceWorkers),
+    compositor: (size) =>
+      Effect.gen(function* openCompositor() {
+        const { browser } = yield* getBrowser;
+        const context = yield* Effect.acquireRelease(
+          tryBrowser("Could not open the video compositor", () =>
+            browser.newContext({
+              serviceWorkers: "block",
+              viewport: { height: size.height, width: size.width },
+            })
+          ),
+          (opened) => Effect.promise(() => opened.close()).pipe(Effect.ignore)
+        );
+        return yield* tryBrowser("Could not open the video compositor", () =>
+          context.newPage()
+        );
+      }),
+    create: (name, viewport, blockServiceWorkers) =>
+      create(name, viewport, undefined, blockServiceWorkers),
     currentUrl: (sessionId) =>
       Effect.gen(function* readCurrentUrl() {
         const session = yield* requireSession(sessionId);

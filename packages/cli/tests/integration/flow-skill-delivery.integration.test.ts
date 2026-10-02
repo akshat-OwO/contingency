@@ -12,6 +12,7 @@ import { TeachingRecordingStore } from "../../src/services/teaching-recording-st
 import {
   agentProcessLayer,
   agentViewport,
+  awaitRunVideo,
   findNode,
   runTool,
   sessionTool,
@@ -554,6 +555,7 @@ it.live(
                 path.join(dryRunDirectory, tracePath ?? "missing")
               )
             ).toBe(true);
+            expect((yield* awaitRunVideo(dryRunDirectory)).state).toBe("ready");
             expect(
               yield* fileSystem.exists(
                 path.join(dryRunDirectory, videoPath ?? "missing")

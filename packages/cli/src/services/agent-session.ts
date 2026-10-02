@@ -15,7 +15,10 @@ import type {
   AgentRunCoverage,
   AgentRunId,
   AgentRunState,
+  RunVideoFastForward,
+  RunVideoTimeMap,
   TaskAgentRunState,
+  TaskAgentRunSummary,
   AgentTaskAssessment,
   AgentRunTaskInput,
   AgentRunTaskVariable,
@@ -137,6 +140,11 @@ import type {
   BrowserStorageSetInput,
   CreateBrowserService,
 } from "./create-browser-contract.ts";
+import { makeRunFootage } from "./run-footage.ts";
+import type { FootageManifest, RunFootage } from "./run-footage.ts";
+import { planRunVideo } from "./run-video-plan.ts";
+import { RUN_VIDEO_FILE, RunVideoRenderer } from "./run-video-renderer.ts";
+import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
@@ -162,6 +170,8 @@ export interface AgentSessionServiceOptions {
   readonly resourceDirectory?: string;
   /** Durable local directory for Teaching Trace archives, resolved at start. */
   readonly traceDirectory?: () => string;
+  /** How Run videos fast-forward Idle Gaps; `capped` unless configured. */
+  readonly videoFastForward?: RunVideoFastForward;
 }
 
 export interface AgentSessionStartInput {
@@ -582,23 +592,23 @@ const error = (
   message: string
 ): AgentSessionDomainError => ({ _tag: "AgentSessionError", code, message });
 
-const teachingVideoFile = (
-  page: Page
-): Effect.Effect<string | undefined, AgentSessionError> =>
-  Effect.gen(function* locateTeachingVideo() {
-    const video = page.video();
-    if (video === null) {
-      return;
-    }
-    return yield* Effect.tryPromise({
-      catch: (cause) =>
-        error(
-          "agent_session_invalid",
-          `Could not locate the Teaching video: ${cause instanceof Error ? cause.message : String(cause)}`
-        ),
-      try: () => video.path(),
-    });
-  });
+/** How a Run's video will play its footage, fixed when the Run ends. */
+const runVideoTimeMap = (footage: FootageManifest): RunVideoTimeMap => ({
+  fastForward: footage.fastForward,
+  segments: planRunVideo(footage),
+  startedAt: new Date(footage.startedAt).toISOString(),
+});
+
+/** A task Run's Summary, with the time map of the video it captured. */
+const withVideoTimeMap = (
+  footage: FootageManifest | undefined,
+  summary: TaskAgentRunSummary
+): TaskAgentRunSummary => {
+  if (footage === undefined) {
+    return summary;
+  }
+  return { ...summary, videoTimeMap: runVideoTimeMap(footage) };
+};
 
 const processId = (configured: string | undefined): string =>
   configured?.trim() || `mcp-${process.pid}-${randomUUID()}`;
@@ -1416,8 +1426,13 @@ interface SessionRecord {
   readonly emulation: DraftEmulation;
   /** A local Teaching Trace, finalized by the session scope. */
   readonly traceFile: string | undefined;
-  /** The sensitive local video Playwright finalizes when the session closes. */
+  /** The sensitive local Teaching video, finalized when the session closes. */
   readonly videoFile: string | undefined;
+  /**
+   * A Run's real-time capture, sealed when the session closes and condensed
+   * into the Run's video afterwards. Teaching has none.
+   */
+  readonly footage: RunFootage | undefined;
   /** The Browser Snapshot references this session has minted. */
   readonly registry: AgentElementRegistry;
   /** The Run directory this session's Trace and video were written into. */
@@ -1803,7 +1818,6 @@ const withoutBoundaryDecision = (
 interface TeachingArtifacts {
   readonly retentionFile: string | undefined;
   readonly traceFile: string | undefined;
-  readonly videoFile: string | undefined;
 }
 
 type AgentOperationKind =
@@ -1856,7 +1870,8 @@ const makeAgentSession = (
   fileSystem?: FileSystem.FileSystem,
   parentScope?: Scope.Scope,
   teachingRecordingStore?: TeachingRecordingStoreService,
-  runStore?: AgentRunStoreService
+  runStore?: AgentRunStoreService,
+  runVideoRenderer?: RunVideoRendererService
 ): Effect.Effect<AgentSessionService> =>
   Effect.sync(() => {
     const sessions = Ref.makeUnsafe<ReadonlyMap<AgentSessionId, SessionRecord>>(
@@ -2102,7 +2117,14 @@ const makeAgentSession = (
       );
 
     const publish = (snapshot: AgentSessionSnapshot): Effect.Effect<void> =>
-      Effect.sync(() => PubSub.publishUnsafe(events, snapshot));
+      Effect.sync(() => {
+        // Every control change is published, so this is where a Run's video
+        // learns when a person held the browser.
+        Ref.getUnsafe(sessions)
+          .get(snapshot.id)
+          ?.footage?.markController(snapshot.controller, Date.now());
+        PubSub.publishUnsafe(events, snapshot);
+      });
 
     const save = (
       sessionId: AgentSessionId,
@@ -2870,6 +2892,7 @@ const makeAgentSession = (
         ...record,
         artifactDirectory: undefined,
         capture: undefined,
+        footage: undefined,
         retentionFile: undefined,
         snapshot: discarded,
         traceFile: undefined,
@@ -3216,16 +3239,11 @@ const makeAgentSession = (
       browserSessionId: SessionId,
       sessionId: AgentSessionId,
       sessionScope: Scope.Closeable,
-      videoPaths: Set<Promise<string>>,
       retention: boolean
     ): Effect.Effect<TeachingArtifacts, AgentSessionError> =>
       Effect.gen(function* startLocalTeachingArtifacts() {
         if (directory === undefined) {
-          return {
-            retentionFile: undefined,
-            traceFile: undefined,
-            videoFile: undefined,
-          };
+          return { retentionFile: undefined, traceFile: undefined };
         }
         const traceFile = path.join(directory, `${sessionId}.trace.zip`);
         const target = yield* browser.activeTarget(browserSessionId).pipe(
@@ -3233,20 +3251,8 @@ const makeAgentSession = (
           Effect.orElseSucceed(() => Option.none())
         );
         if (Option.isNone(target)) {
-          return {
-            retentionFile: undefined,
-            traceFile: undefined,
-            videoFile: undefined,
-          };
+          return { retentionFile: undefined, traceFile: undefined };
         }
-        const rememberVideo = (page: Page): void => {
-          const video = page.video();
-          if (video !== null) {
-            videoPaths.add(video.path());
-          }
-        };
-        rememberVideo(target.value.page);
-        target.value.context.on("page", rememberVideo);
         yield* Scope.provide(sessionScope)(
           Effect.acquireRelease(
             Effect.tryPromise({
@@ -3269,7 +3275,6 @@ const makeAgentSession = (
               }).pipe(Effect.ignore)
           )
         );
-        const videoFile = yield* teachingVideoFile(target.value.page);
         // A Run's artifacts are governed by its own Run directory, not by the
         // Teaching retention policy, so no retention manifest is written for it.
         const retentionFile = retention
@@ -3277,11 +3282,57 @@ const makeAgentSession = (
               directory,
               sessionId,
               traceFile,
-              videoFile === undefined ? [] : [videoFile]
+              []
             )
           : undefined;
-        return { retentionFile, traceFile, videoFile };
+        return { retentionFile, traceFile };
       });
+
+    /**
+     * A Run's real-time capture, closed with the session. Teaching records
+     * its own video, so only a Run with a directory to write into has one.
+     */
+    const startRunFootage = (
+      directory: string | undefined,
+      browserSessionId: SessionId,
+      viewport: Viewport,
+      sessionScope: Scope.Closeable
+    ): Effect.Effect<RunFootage | undefined> =>
+      directory === undefined || fileSystem === undefined
+        ? Effect.undefined
+        : Scope.provide(sessionScope)(
+            makeRunFootage({
+              browser,
+              browserSessionId,
+              directory,
+              fastForward: options.videoFastForward ?? "capped",
+              fileSystem,
+              viewport,
+            })
+          );
+
+    /**
+     * The video a finished Run's Summary names. Footage is condensed after
+     * the Run ends, so the Summary names the file it will become.
+     */
+    const runVideoPath = (
+      record: SessionRecord,
+      footage: FootageManifest | undefined
+    ): Effect.Effect<string | null> =>
+      footage === undefined
+        ? finalArtifactPath(record, record.videoFile)
+        : Effect.succeed(RUN_VIDEO_FILE);
+
+    /** Start condensing a finished Run's footage into its video. */
+    const condenseRunVideo = (
+      record: SessionRecord,
+      footage: FootageManifest | undefined
+    ): Effect.Effect<void> =>
+      footage === undefined ||
+      record.artifactDirectory === undefined ||
+      runVideoRenderer === undefined
+        ? Effect.void
+        : runVideoRenderer.render(record.artifactDirectory);
 
     const notDeclaringVariables = (sessionId: AgentSessionId) =>
       error(
@@ -3918,28 +3969,33 @@ const makeAgentSession = (
                       )
                     );
                 }
-                const videoPaths = new Set<Promise<string>>();
                 const acquired = yield* Scope.provide(sessionScope)(
                   Effect.acquireRelease(
                     browser.create(
                       browserName,
                       emulation.viewport,
-                      activity === "teaching" ? undefined : artifactDirectory,
                       input.domainScope !== undefined
                     ),
                     (browserSessionId) =>
                       browser.close(browserSessionId).pipe(Effect.ignore)
                   )
                 );
-                const { retentionFile, traceFile, videoFile } =
+                const { retentionFile, traceFile } =
                   yield* startTeachingArtifacts(
                     activity === "teaching" ? undefined : artifactDirectory,
                     acquired,
                     sessionId,
                     sessionScope,
-                    videoPaths,
                     activity === "teaching"
                   );
+                // Registered after the Trace, so closing the session seals
+                // the footage first and the Trace after it.
+                const footage = yield* startRunFootage(
+                  activity === "teaching" ? undefined : artifactDirectory,
+                  acquired,
+                  emulation.viewport,
+                  sessionScope
+                );
                 const at = now().toISOString();
                 const common = {
                   boundary: null,
@@ -4020,6 +4076,7 @@ const makeAgentSession = (
                   dryRunControl: { hadTakeover: false },
                   emulation,
                   finalized: { persisted: false, summary: undefined },
+                  footage,
                   registry,
                   retentionFile,
                   runEvidence: { attempts: new Set(), snapshots: new Set() },
@@ -4032,7 +4089,7 @@ const makeAgentSession = (
                   teachingRecorder: undefined,
                   textEdit: { burst: undefined, open: undefined },
                   traceFile,
-                  videoFile,
+                  videoFile: undefined,
                 };
                 yield* Scope.addFinalizer(
                   sessionScope,
@@ -4898,6 +4955,9 @@ const makeAgentSession = (
           recordingCapture(record)?.latestSnapshotId() ?? null;
         // The action runs on a child fiber so a user Takeover can interrupt it
         // and wait for its cleanup rather than racing it.
+        // The Action Window runs from dispatch until the Page has settled,
+        // whether the action completes, fails, or is taken over.
+        const windowStartedAt = Date.now();
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
             const observation = yield* beginActionObservation(
@@ -4945,7 +5005,13 @@ const makeAgentSession = (
               snapshot,
               url: snapshot.url,
             };
-          })
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                record.footage?.markAction(windowStartedAt, Date.now());
+              })
+            )
+          )
         );
         record.control.inFlight = {
           action:
@@ -6353,9 +6419,10 @@ const makeAgentSession = (
             ) {
               return yield* Effect.fail(notRunning(sessionId));
             }
-            // Closing the session scope stops tracing and finalizes the video.
+            // Closing the session scope stops tracing and seals the footage.
             // Nothing may write to the Run's artifacts after this point.
             yield* Scope.close(record.scope, Exit.void);
+            const footage = record.footage?.manifest();
             const commonSummary = {
               attribution: finished.attribution,
               runId: finished.runId,
@@ -6371,10 +6438,10 @@ const makeAgentSession = (
               ].toSorted((left, right) => left.at.localeCompare(right.at)),
               title: finished.title,
               tracePath: yield* finalArtifactPath(record, record.traceFile),
-              videoPath: yield* finalArtifactPath(record, record.videoFile),
+              videoPath: yield* runVideoPath(record, footage),
             };
             const ended: AgentRunSummary = isTaskRun(finished)
-              ? {
+              ? withVideoTimeMap(footage, {
                   ...finished,
                   ...commonSummary,
                   endedAt:
@@ -6385,7 +6452,7 @@ const makeAgentSession = (
                     finished.lifecycle.phase === "ended"
                       ? finished.lifecycle.outcome
                       : "completed",
-                }
+                })
               : {
                   assessmentCounts: finished.assessmentCounts,
                   attribution: finished.attribution,
@@ -6424,6 +6491,7 @@ const makeAgentSession = (
               AgentRunSummary
             )(Schema.encodeSync(AgentRunSummary)(summary));
             record.supplied.clear();
+            yield* condenseRunVideo(record, footage);
             return yield* persistRunSummary(record, record.finalized.summary);
           })
         );
@@ -7862,6 +7930,12 @@ export const makeAgentSessionLayer = (
       const runStore = Option.getOrUndefined(
         yield* Effect.serviceOption(AgentRunStore)
       );
+      // Condensing a Run's footage needs a browser to draw in; without the
+      // renderer a Run still saves its footage, and the video route condenses
+      // it on first request.
+      const runVideoRenderer = Option.getOrUndefined(
+        yield* Effect.serviceOption(RunVideoRenderer)
+      );
       const parentScope = yield* Scope.Scope;
       const service = yield* PubSub.unbounded<AgentSessionSnapshot>().pipe(
         Effect.flatMap((events) =>
@@ -7872,7 +7946,8 @@ export const makeAgentSessionLayer = (
             fileSystem,
             parentScope,
             teachingRecordingStore,
-            runStore
+            runStore,
+            runVideoRenderer
           )
         )
       );

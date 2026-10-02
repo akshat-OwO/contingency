@@ -1,4 +1,8 @@
-import type { Point } from "@/components/agent/teaching-inspect-geometry";
+/** A point in Page viewport pixels. */
+export interface CursorPoint {
+  readonly x: number;
+  readonly y: number;
+}
 
 /**
  * One stroke of the agent's cursor between two Page viewport points: a single
@@ -6,14 +10,15 @@ import type { Point } from "@/components/agent/teaching-inspect-geometry";
  * the same points rarely trace the same line. It follows agent-browser's
  * human input mode — eased progress along the line, with the bow applied on
  * raw time so the arc peaks mid-stroke — rather than a wandering path, which
- * reads as jitter at the speed a stroke runs.
+ * reads as jitter at the speed a stroke runs. The Workspace draws it live and
+ * the Run's video draws it again, so both share this one definition.
  */
 export interface CursorPath {
   /** Signed sideways offset at the middle of the stroke, in Page pixels. */
   readonly bend: number;
   readonly durationMs: number;
-  readonly from: Point;
-  readonly to: Point;
+  readonly from: CursorPoint;
+  readonly to: CursorPoint;
 }
 
 /** A source of uniform numbers in [0, 1), injected so tests are repeatable. */
@@ -28,8 +33,8 @@ const BEND_LIMIT = 40;
  * before acting, so only the stroke's shape is random.
  */
 export const planCursorPath = (
-  from: Point,
-  to: Point,
+  from: CursorPoint,
+  to: CursorPoint,
   durationMs: number,
   random: RandomSource = Math.random
 ): CursorPath => {
@@ -47,7 +52,10 @@ const ease = (time: number): number =>
   time * time * time * (10 - 15 * time + 6 * time * time);
 
 /** Where the cursor is `elapsedMs` into the stroke. */
-export const cursorPointAt = (path: CursorPath, elapsedMs: number): Point => {
+export const cursorPointAt = (
+  path: CursorPath,
+  elapsedMs: number
+): CursorPoint => {
   if (path.durationMs <= 0 || elapsedMs >= path.durationMs) {
     return path.to;
   }

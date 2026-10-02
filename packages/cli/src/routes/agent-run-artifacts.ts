@@ -1,48 +1,62 @@
 import path from "node:path";
 
-import { AgentRunId, TeachingRecordingId } from "@contingency/protocol";
-import { Effect, FileSystem, Schema } from "effect";
+import {
+  AgentRunId,
+  RunVideoStatus,
+  TeachingRecordingId,
+} from "@contingency/protocol";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { AgentRunStore } from "../services/agent-run-store.ts";
+import { parseByteRange } from "../services/byte-range.ts";
+import {
+  RUN_VIDEO_FILE,
+  RunVideoRenderer,
+} from "../services/run-video-renderer.ts";
 import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";
 import { isAllowedHost } from "../services/web-url.ts";
 
 const isAgentRunId = Schema.is(AgentRunId);
 const isTeachingRecordingId = Schema.is(TeachingRecordingId);
 
-export interface ByteRange {
-  readonly end: number;
-  readonly start: number;
-}
+const statusResponse = HttpServerResponse.schemaJson(RunVideoStatus);
 
 /**
- * The single byte range a request asked for, or `undefined` for the whole
- * file. Only the one-range form is honoured, which is the only form a media
- * element sends.
+ * A finished Run's video is condensed after its Summary is written, so the
+ * Workspace asks whether it is ready before pointing a media element at it.
+ * The answer changes as the encode runs, so it is never cached.
  */
-export const parseByteRange = (
-  header: string | undefined,
-  size: number
-): ByteRange | undefined => {
-  const match = /^bytes=(?<start>\d*)-(?<end>\d*)$/u.exec(header?.trim() ?? "");
-  if (match === null || size === 0) {
-    return undefined;
-  }
-  const { end, start } = match.groups ?? {};
-  if (
-    start === undefined ||
-    end === undefined ||
-    (start === "" && end === "")
-  ) {
-    return undefined;
-  }
-  // A suffix range — `bytes=-1024` — asks for the file's last N bytes.
-  const from = start === "" ? Math.max(size - Number(end), 0) : Number(start);
-  const to =
-    start === "" || end === "" ? size - 1 : Math.min(Number(end), size - 1);
-  return from > to || from >= size ? undefined : { end: to, start: from };
-};
+const videoStatus = (status: RunVideoStatus) =>
+  statusResponse(status, { headers: { "cache-control": "no-store" } }).pipe(
+    Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 500 }))
+  );
+
+const unavailable: RunVideoStatus = { state: "unavailable" };
+
+/**
+ * The status of the video a Summary names. Only `run.webm` is condensed; a
+ * Run recorded before Runs condensed their videos kept Playwright's real-time
+ * recording under another name, and is served as it is.
+ */
+const statusOf = (directory: string, videoName: string) =>
+  Effect.gen(function* readVideoStatus() {
+    if (videoName === RUN_VIDEO_FILE) {
+      const renderer = yield* RunVideoRenderer;
+      return yield* renderer.status(directory);
+    }
+    const fileSystem = yield* FileSystem.FileSystem;
+    const present = yield* fileSystem
+      .exists(path.join(directory, videoName))
+      .pipe(Effect.orElseSucceed(() => false));
+    return present
+      ? ({
+          condensed: false,
+          reason: "This Run was recorded before Run videos were condensed.",
+          state: "ready",
+        } satisfies RunVideoStatus)
+      : unavailable;
+  });
 
 /**
  * Serves one finished Interactive Run's video from the Run's own directory.
@@ -62,6 +76,39 @@ export const makeAgentRunArtifactRoutes = ({
 }: {
   readonly allowedOrigins: ReadonlySet<string>;
 }) =>
+  Layer.mergeAll(
+    HttpRouter.add(
+      "GET",
+      "/agent-runs/:runId/video/status",
+      Effect.gen(function* serveAgentRunVideoStatus() {
+        const parameters = yield* HttpRouter.params;
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const store = yield* AgentRunStore;
+        if (!isAllowedHost(request.headers.host, allowedOrigins)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const runId = parameters.runId ?? "";
+        if (!isAgentRunId(runId)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const resolved = yield* Effect.result(store.videoFile(runId));
+        if (resolved._tag === "Failure") {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        return yield* videoStatus(
+          resolved.success === null
+            ? unavailable
+            : yield* statusOf(
+                path.dirname(resolved.success),
+                path.basename(resolved.success)
+              )
+        );
+      })
+    ),
+    agentRunVideoRoute(allowedOrigins)
+  );
+
+const agentRunVideoRoute = (allowedOrigins: ReadonlySet<string>) =>
   HttpRouter.add(
     "GET",
     // The pattern behind the protocol's `agentRunVideoPath`, which Agent View
@@ -120,6 +167,49 @@ export const makeDryRunArtifactRoutes = ({
 }: {
   readonly allowedOrigins: ReadonlySet<string>;
 }) =>
+  Layer.mergeAll(
+    HttpRouter.add(
+      "GET",
+      "/teaching-recordings/:recordingId/dry-run/video/status",
+      Effect.gen(function* serveDryRunVideoStatus() {
+        const parameters = yield* HttpRouter.params;
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const store = yield* TeachingRecordingStore;
+        if (!isAllowedHost(request.headers.host, allowedOrigins)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const recordingId = parameters.recordingId ?? "";
+        if (!isTeachingRecordingId(recordingId)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const manifest = yield* Effect.result(store.read(recordingId));
+        if (
+          manifest._tag === "Failure" ||
+          (manifest.success.lifecycle._tag !== "dry-run-passed" &&
+            manifest.success.lifecycle._tag !== "dry-run-failed")
+        ) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const videoPath = manifest.success.lifecycle.dryRunSummary?.videoPath;
+        if (
+          videoPath === null ||
+          videoPath === undefined ||
+          path.basename(videoPath) !== videoPath
+        ) {
+          return yield* videoStatus(unavailable);
+        }
+        return yield* videoStatus(
+          yield* statusOf(
+            path.join(store.directory(recordingId), "dry-run"),
+            videoPath
+          )
+        );
+      })
+    ),
+    dryRunVideoRoute(allowedOrigins)
+  );
+
+const dryRunVideoRoute = (allowedOrigins: ReadonlySet<string>) =>
   HttpRouter.add(
     "GET",
     "/teaching-recordings/:recordingId/dry-run/video",

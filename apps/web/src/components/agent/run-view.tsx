@@ -11,6 +11,7 @@ import { CircleAlertIcon } from "lucide-react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
+import { RunVideo } from "@/components/agent/run-video";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -199,15 +200,7 @@ export const RunSummaryView = ({
             This Run recorded no video.
           </p>
         ) : (
-          <video
-            aria-label="Recorded Run video"
-            className="w-full rounded-lg border"
-            controls
-            preload="metadata"
-            src={videoSrc ?? agentRunVideoPath(summary.runId)}
-          >
-            <track kind="captions" />
-          </video>
+          <RunVideo src={videoSrc ?? agentRunVideoPath(summary.runId)} />
         )}
         <p className="text-muted-foreground text-xs">
           The video and Trace stay on this machine. Nothing is uploaded without
