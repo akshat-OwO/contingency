@@ -614,7 +614,10 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
         const deadline = Date.now() + 120_000;
         for (;;) {
           const response = await fetch(
-            new URL(`/agent-runs/${expected.runId}/video/status`, viewer.viewUrl)
+            new URL(
+              `/agent-runs/${expected.runId}/video/status`,
+              viewer.viewUrl
+            )
           );
           assert.equal(response.status, 200);
           const body = await response.json();
