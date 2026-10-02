@@ -29,7 +29,7 @@ const SetupVariable = ({
   );
   const [state, setState] = useAtom(stateAtom);
   const submit = async (value: string | null) => {
-    setState({ ...state, error: "", pending: true });
+    setState((current) => ({ ...current, error: "", pending: true }));
     try {
       await answer({
         payload: {
@@ -70,7 +70,7 @@ const SetupVariable = ({
           value={state.value}
           disabled={state.pending}
           onChange={(event) =>
-            setState({ ...state, value: event.target.value })
+            setState((current) => ({ ...current, value: event.target.value }))
           }
         />
       </label>

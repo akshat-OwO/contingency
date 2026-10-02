@@ -1342,6 +1342,12 @@ const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
   snapshot.run !== null && runEnded(snapshot.run);
 
 const TIMELINE_LIMIT = 200;
+const SETUP_VARIABLE_LIMIT = 64;
+/**
+ * Retired values must keep masking Page reflections until the session closes.
+ * Bound that per-field scan even when an agent repeatedly replaces a code.
+ */
+const SETUP_PRIVATE_VALUE_LIMIT = 256;
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
 
 /**
@@ -5277,7 +5283,7 @@ const makeAgentSession = (
           );
         }
         if (input.value !== null) {
-          if (record.setupSensitiveValues.size >= 256) {
+          if (record.setupSensitiveValues.size >= SETUP_PRIVATE_VALUE_LIMIT) {
             return yield* Effect.fail(
               error(
                 "agent_session_invalid",
@@ -5360,7 +5366,10 @@ const makeAgentSession = (
                 existing === undefined ||
                 existing.status === "refused"
               ) {
-                if (existing === undefined && variables.length >= 64) {
+                if (
+                  existing === undefined &&
+                  variables.length >= SETUP_VARIABLE_LIMIT
+                ) {
                   return yield* Effect.fail(
                     error(
                       "agent_session_invalid",
