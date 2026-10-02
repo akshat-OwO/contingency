@@ -23,6 +23,7 @@ import {
   AgentSessionActivity,
   AgentSessionPhase,
   AgentTakeoverRequest,
+  AgentSetupVariable,
 } from "./agent-session.ts";
 import type { AgentSessionSnapshot } from "./agent-session.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
@@ -115,6 +116,7 @@ export const AgentSessionCompact = Schema.Struct({
   pendingDecisions: Schema.Array(AgentPendingDecision),
   phase: AgentSessionPhase,
   run: Schema.NullOr(Schema.Union([CompactTaskRun, CompactOrderedRun])),
+  setupVariables: Schema.Array(AgentSetupVariable),
   takeover: Schema.NullOr(AgentTakeoverRequest),
   teaching: Schema.NullOr(CompactTeaching),
   updatedAt: Schema.String,
@@ -195,6 +197,7 @@ export const compactAgentSession = (
   pendingDecisions: snapshot.pendingDecisions,
   phase: snapshot.phase,
   run: compactRun(snapshot.run),
+  setupVariables: snapshot.setupVariables ?? [],
   takeover: snapshot.takeover,
   teaching:
     snapshot.activity === "teaching"

@@ -13,6 +13,11 @@ import type {
   Variable,
 } from "@contingency/protocol";
 
+import {
+  redactActionText,
+  redactAgentSnapshot,
+  redactKnownValues,
+} from "./agent-browser.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { Demonstration } from "./teaching-demonstration.ts";
 
@@ -180,7 +185,8 @@ const gestureStart = (
 ): string => previous?.at ?? at;
 
 export const makeDemonstrationCapture = (
-  initialUrl: string
+  initialUrl: string,
+  externalSensitiveValues: () => readonly string[] = () => []
 ): DemonstrationCapture => {
   const actions: CapturedAction[] = [];
   const instructions: TeachingInstruction[] = [];
@@ -195,8 +201,16 @@ export const makeDemonstrationCapture = (
   const variables = new Map<string, Variable>();
   const privateValues = new Set<string>();
   const privateSelectors = new Set<string>();
+  const sensitiveValues = () =>
+    [...privateValues, ...externalSensitiveValues()].toSorted(
+      (left, right) => right.length - left.length
+    );
+  const redact = (text: string) => redactKnownValues(text, sensitiveValues());
+  const safeUrl = (url: string) => redact(sanitizeTeachingUrl(url));
+  const redactCapturedAction = (action: CapturedAction["action"]) =>
+    action.type === "input" ? action : redactActionText(action, redact);
   let latestSnapshot: AgentSnapshotId | null = null;
-  const startUrl = sanitizeTeachingUrl(initialUrl);
+  const startUrl = safeUrl(initialUrl);
   let currentUrl = startUrl;
   let lastEventAt = Number.NEGATIVE_INFINITY;
   let lastCoalesced:
@@ -216,8 +230,8 @@ export const makeDemonstrationCapture = (
 
   const recordSnapshot = (snapshot: AgentBrowserSnapshot): void => {
     snapshots.set(snapshot.snapshotId, {
-      ...snapshot,
-      url: sanitizeTeachingUrl(snapshot.url),
+      ...redactAgentSnapshot(snapshot, sensitiveValues()),
+      url: safeUrl(snapshot.url),
     });
     latestSnapshot = snapshot.snapshotId;
     while (snapshots.size > SNAPSHOT_LIMIT) {
@@ -281,26 +295,27 @@ export const makeDemonstrationCapture = (
       // after tree without the Page being snapshotted twice.
       closeOpenGesture(input.snapshotBefore);
     }
+    const coalesced = coalescedAction(input, previous);
     const capturedBase = {
-      action: coalescedAction(input, previous),
+      action: redactCapturedAction(coalesced),
       actor: input.actor,
       at: gestureStart(previous, at),
-      description: input.description,
+      description: redact(input.description),
       id: previous?.id ?? input.id,
       outcome: input.outcome,
       snapshotAfter: input.snapshotAfter?.snapshotId ?? null,
       snapshotBefore: previous?.snapshotBefore ?? input.snapshotBefore,
-      urlAfter: sanitizeTeachingUrl(input.urlAfter),
-      urlBefore: previous?.urlBefore ?? sanitizeTeachingUrl(input.urlBefore),
+      urlAfter: safeUrl(input.urlAfter),
+      urlBefore: previous?.urlBefore ?? safeUrl(input.urlBefore),
     };
     const captured: CapturedAction =
       input.detail === undefined
         ? capturedBase
-        : { ...capturedBase, detail: input.detail };
+        : { ...capturedBase, detail: redact(input.detail) };
     // The action is what moved the Page, so the transition it caused is
     // attributed to it even when the URL was noticed only afterwards.
-    transition(sanitizeTeachingUrl(input.urlBefore), at, null);
-    transition(sanitizeTeachingUrl(input.urlAfter), at, captured.id);
+    transition(safeUrl(input.urlBefore), at, null);
+    transition(safeUrl(input.urlAfter), at, captured.id);
     let index: number;
     if (previous === undefined || previousIndex === undefined) {
       actions.push(captured);
@@ -401,8 +416,8 @@ export const makeDemonstrationCapture = (
       const instruction: TeachingInstruction = {
         at: eventTime(at),
         id: `instruction-${randomUUID()}`,
-        target: target ?? null,
-        text,
+        target: target === undefined ? null : redact(target),
+        text: redact(text),
       };
       instructions.push(instruction);
       trim(instructions, INSTRUCTION_LIMIT);
@@ -447,16 +462,14 @@ export const makeDemonstrationCapture = (
       return captured;
     },
     recordSnapshot,
-    recordUrl: (url, at) =>
-      transition(sanitizeTeachingUrl(url), eventTime(at), null),
+    recordUrl: (url, at) => transition(safeUrl(url), eventTime(at), null),
     recordVariable: (variable, value, selector) => {
       variables.set(variable.name, variable);
       privateValues.add(value);
       privateSelectors.add(selector);
     },
     sensitiveSelectors: () => [...privateSelectors],
-    sensitiveValues: () =>
-      [...privateValues].toSorted((left, right) => right.length - left.length),
+    sensitiveValues,
     stopTime: eventTime,
   };
 };

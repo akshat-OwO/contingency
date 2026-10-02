@@ -4,6 +4,8 @@ Contingency lets companies teach product sanity journeys through user-led browse
 
 The execution terms below reflect the accepted design in [ADR 0044](./docs/adr/0044-agents-own-flow-skill-execution.md). Task contracts and storage are defined; the current runtime still enforces Agent Steps until lifecycle, authority, assessments, and Workspace integration land in #322 through #325.
 
+Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-controlled-teaching-setup.md).
+
 ## Language
 
 **Suite**: A named, ordered manifest of Flow Skills that defines the required sanity coverage for one business area. The first version runs members sequentially; after a member fails, the agent pauses and asks the user whether to retry it, continue, or stop. An agent may suggest changes to a Suite, but it may not infer that an unlisted Flow Skill is required or claim complete coverage without running every listed Flow Skill. Suites are not built yet; see `docs/future/agent-flow.md`. _Avoid_: vertical (as the persisted artifact), inferred coverage, test bucket
@@ -50,7 +52,9 @@ The execution terms below reflect the accepted design in [ADR 0044](./docs/adr/0
 
 **Cleanup**: The verify-then-purge sequence that deletes a Teaching Recording's video, Trace, events, and keyframes, together with the evidence of its Dry Runs, once the user verifies the Flow Skill learned from it. Cleanup is idempotent and resumes at startup, and a cleanup failure never rolls back the verified Flow Skill: the Workspace names the retained sensitive files and offers a retry. After cleanup only the Flow Skill and its references remain. _Avoid_: Artifact Retention (superseded), Flow Skill deletion, catalog archival, Variable lifetime
 
-**Variable**: A named value declared by a Flow Skill and supplied when needed, scoped to that skill so equally named inputs in different skills can differ. Its independent `secret` and `runtime` properties describe redaction and interactive prompting; a 2FA code is both, while a target environment URL is neither. _Avoid_: Secret Variable (superseded), environment variable, captured secret, redacted value
+**Variable**: A named input supplied when needed, scoped to its declaring Flow Skill or, for a Setup Variable, its Agent Session. Its independent `secret` and `runtime` properties describe redaction and interactive prompting; a 2FA code is both, while a target environment URL is neither. _Avoid_: Secret Variable (superseded), environment variable, captured secret, redacted value
+
+**Setup Variable**: A private Variable requested by name and purpose during agent-held Teaching setup, supplied by the user in Workspace without a saved Flow Skill. It is reusable until setup handoff, supports explicit replacement, and belongs to setup rather than the Teaching Recording or the learned Flow Skill. _Avoid_: Flow Skill input, captured secret, persisted credential
 
 **Emulation**: The coherent browser device and environment one session runs under, recorded with a Teaching Recording and reproduced by its Dry Run. It covers viewport, browser identity, geolocation, website permission decisions, locale, timezone, and color scheme. Coordinates and permission are independent: a site receives the emulated location only when the session grants it access, and observes denial when the session denies it. _Avoid_: device profile, override, spoofing
 

@@ -1631,7 +1631,7 @@ export const redactKnownValues = (
   }
   let redacted = text;
   for (const value of values) {
-    if (value.length < 4) {
+    if (value.length === 0) {
       continue;
     }
     redacted = redacted.split(value).join(REDACTED);
@@ -1643,8 +1643,7 @@ export const redactKnownValues = (
  * A control's own value is redacted whenever it is any part of a known private
  * value, not only the whole of it. Split one-time-code inputs hold one
  * character each, so the digit-per-box form of a declared Variable is
- * reassembleable from Snapshot values that the length-bounded rewrite above
- * deliberately refuses to apply to free page text. Over-redacting a public
+ * reassembleable even when no control holds the full value. Over-redacting a public
  * control that happens to hold a segment of a secret is the safe direction.
  */
 const redactControlValue = (
@@ -1682,6 +1681,7 @@ export const redactAgentSnapshot = (
       : { ...redacted, value, valueWithheld: true };
   }),
   title: redactKnownValues(snapshot.title, values),
+  url: redactKnownValues(snapshot.url, values),
 });
 
 export const captureAgentScreenshot = (
@@ -2548,3 +2548,30 @@ export const performPrivateVariableInput = (
         .elementHandle({ timeout: POINTER_TIMEOUT_MS }),
     pointer
   ).pipe(Effect.andThen(enterPrivateVariable(page, target, value)));
+
+/** Strip private literals from every free-text field an action carries. */
+export const redactActionText = (
+  action: AgentBrowserAction,
+  redact: (text: string) => string
+): AgentBrowserAction => {
+  switch (action.type) {
+    case "fill": {
+      return { ...action, text: redact(action.text) };
+    }
+    case "select": {
+      return { ...action, values: action.values.map(redact) };
+    }
+    case "wait_for_text": {
+      return { ...action, text: redact(action.text) };
+    }
+    // `sanitizeTeachingUrl` rewrites query parameters whose names look like
+    // secrets; a private value the session knows about can still sit in a path
+    // segment or an unmatched parameter.
+    case "navigate": {
+      return { ...action, url: redact(action.url) };
+    }
+    default: {
+      return action;
+    }
+  }
+};

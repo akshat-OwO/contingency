@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Teaching setup sign in</title>
+  </head>
+  <body>
+    <main>
+      <h1>Sign in for Teaching setup</h1>
+      <label for="code">Verification code</label>
+      <input id="code" autocomplete="off" />
+      <button id="sign-in" type="button">Sign in</button>
+      <output id="echo" aria-live="polite"></output>
+      <p id="status">Signed out</p>
+      <button
+        id="continue"
+        type="button"
+        style="
+          position: fixed;
+          left: 24px;
+          top: 220px;
+          width: 160px;
+          height: 44px;
+        "
+      >
+        Continue to shop
+      </button>
+    </main>
+    <script>
+      const code = document.getElementById("code");
+      const echo = document.getElementById("echo");
+      const status = document.getElementById("status");
+      const previous = new Set();
+      code.addEventListener("input", () => {
+        if (code.value.length >= 6) previous.add(code.value);
+        echo.textContent = [...previous].join(" / ");
+      });
+      document.getElementById("sign-in").addEventListener("click", () => {
+        if (code.value.length >= 6) {
+          document.cookie = "setup-authenticated=1; path=/";
+          status.textContent = "Signed in";
+        }
+      });
+      document.getElementById("continue").addEventListener("click", () => {
+        status.textContent = document.cookie.includes("setup-authenticated=1")
+          ? "Authenticated shop ready"
+          : "Please sign in";
+      });
+    </script>
+  </body>
+</html>
