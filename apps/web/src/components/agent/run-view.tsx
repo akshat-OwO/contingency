@@ -9,6 +9,8 @@ import { agentRunVideoPath } from "@contingency/protocol";
 import { useAtomValue } from "@effect/atom-react";
 import { CircleAlertIcon } from "lucide-react";
 
+import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
+import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -136,6 +138,9 @@ export const RunSummaryView = ({
   readonly summary: AgentRunSummary;
   readonly videoSrc?: string;
 }) => {
+  if (isTaskDryRunSummary(summary)) {
+    return <DryRunSummaryView summary={summary} videoSrc={videoSrc} />;
+  }
   const account =
     summary.schemaVersion === 1
       ? summary.summary

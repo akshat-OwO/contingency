@@ -4,12 +4,14 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Cause } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
+import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { RunSummaryView, RunViewer } from "@/components/agent/run-view";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
@@ -286,25 +288,126 @@ test("shows closure without inventing a task assessment", () => {
   expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
 });
 
-test("explains incomplete Dry Run attempts and Takeover beside the evidence", () => {
+const dryRunTask = {
+  ...taskSummary,
+  purpose: {
+    flowSkillName: "browse-catalogue",
+    kind: "dry-run",
+    recordingId: "recording-one",
+    takeoverOccurred: false,
+  },
+} as const;
+
+const checkRow = (label: string) =>
+  within(screen.getByRole("list", { name: "Pass checks" }))
+    .getByText(label)
+    .closest("li");
+
+test("leads a passing task Dry Run with its video, verdict, and pass checks", () => {
   render(
-    <RunSummaryView
+    <DryRunSummaryView
       summary={{
-        ...taskSummary,
-        assessment: { ...taskSummary.assessment, outcomeComplete: false },
-        purpose: {
-          flowSkillName: "browse-catalogue",
-          kind: "dry-run",
-          recordingId: "recording-one",
-          takeoverOccurred: true,
-        },
+        ...dryRunTask,
+        assessment: { ...dryRunTask.assessment, outcomeComplete: true },
       }}
     />
   );
-  expect(screen.getByText("Dry Run")).toBeVisible();
+  expect(screen.getByLabelText("Recorded Run video")).toHaveAttribute(
+    "src",
+    "/agent-runs/agentrun-one/video"
+  );
+  expect(screen.getByText("Dry Run passed")).toBeVisible();
+  for (const label of [
+    "Run finished",
+    "Agent assessment",
+    "Full outcome attempted",
+    "No takeover",
+  ]) {
+    expect(
+      within(checkRow(label) ?? document.body).getByLabelText("Passed")
+    ).toBeVisible();
+  }
   expect(
-    screen.getByText(/did not report a complete skill outcome attempt/u)
-  ).toHaveTextContent("User Takeover prevents this Dry Run from passing.");
+    screen.getByText("The cart remains open with an anvil.")
+  ).toBeVisible();
+  expect(
+    screen.getByRole("list", { name: "Browser evidence" })
+  ).toHaveTextContent("snapshot: snapshot-task");
+});
+
+test("names the failed check for an incomplete Dry Run with Takeover", () => {
+  render(
+    <RunSummaryView
+      summary={{
+        ...dryRunTask,
+        assessment: { ...dryRunTask.assessment, outcomeComplete: false },
+        purpose: { ...dryRunTask.purpose, takeoverOccurred: true },
+      }}
+    />
+  );
+  expect(screen.getByText("Dry Run failed")).toBeVisible();
+  expect(checkRow("Full outcome attempted")).toHaveTextContent("No");
+  expect(
+    within(checkRow("Full outcome attempted") ?? document.body).getByLabelText(
+      "Failed"
+    )
+  ).toBeVisible();
+  expect(checkRow("No takeover")).toHaveTextContent("User took control");
+  expect(
+    within(checkRow("Run finished") ?? document.body).getByLabelText("Passed")
+  ).toBeVisible();
+});
+
+test("fails a Dry Run the Runner observed failing even when every check passes", () => {
+  render(
+    <DryRunSummaryView
+      result={{
+        completedAt: dryRunTask.endedAt,
+        inputs: [],
+        observableOutcome: "The cart was empty after reload.",
+        outcome: "failed",
+      }}
+      summary={{
+        ...dryRunTask,
+        assessment: { ...dryRunTask.assessment, outcomeComplete: true },
+      }}
+    />
+  );
+  expect(screen.getByText("Dry Run failed")).toBeVisible();
+  expect(screen.getByText("The cart was empty after reload.")).toBeVisible();
+});
+
+test("keeps findings and the task behind their tabs", async () => {
+  const user = userEvent.setup();
+  render(
+    <DryRunSummaryView
+      summary={{
+        ...dryRunTask,
+        assessment: null,
+        outcome: "user-closed",
+        videoPath: null,
+      }}
+    />
+  );
+  expect(screen.getByText("Dry Run failed")).toBeVisible();
+  expect(screen.getByText("This Run recorded no video.")).toBeVisible();
+  expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
+  expect(checkRow("Run finished")).toHaveTextContent("Closed by user");
+  expect(screen.queryByRole("list", { name: "Findings" })).toBeNull();
+
+  await user.click(screen.getByRole("tab", { name: /Findings/u }));
+  expect(screen.getByRole("list", { name: "Findings" })).toHaveTextContent(
+    "Delivery is unavailable for the selected area."
+  );
+  expect(screen.getByRole("list", { name: "Findings" })).toHaveTextContent(
+    "attempt: attempt-delivery"
+  );
+
+  await user.click(screen.getByRole("tab", { name: "Task" }));
+  expect(screen.getByText(dryRunTask.requestedTask)).toBeVisible();
+  expect(
+    screen.getByRole("list", { name: "Changed instructions" })
+  ).toHaveTextContent("Leave the cart open instead.");
 });
 
 const dryRunCapture = {
