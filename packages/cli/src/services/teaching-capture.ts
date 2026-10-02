@@ -439,7 +439,7 @@ export const makeDemonstrationCapture = (
         contentHash,
         format: keyframe.format,
         id: keyframes[replacing]?.id ?? `keyframe-${randomUUID()}`,
-        url: keyframe.url,
+        url: safeUrl(keyframe.url),
       };
       // One recorded action keeps one keyframe: a later moment of the same
       // gesture replaces the earlier one, so the timeline shows the state the

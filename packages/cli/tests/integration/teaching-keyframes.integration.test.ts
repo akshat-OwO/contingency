@@ -162,6 +162,7 @@ it.live(
               "hash",
               "id",
               "seq",
+              "url",
             ]);
           }
           expect(JSON.stringify(timeline)).not.toContain('"image"');
@@ -203,3 +204,103 @@ it.live(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+for (const delay of [0, 1500]) {
+  it.live(
+    `preserves transitional navigation evidence with a ${delay} ms render delay`,
+    () =>
+      Effect.gen(function* recordNavigationEvidence() {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const root = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-navigation-keyframe-",
+        });
+        const fixtures = yield* fixtureServer;
+        const recordingId = yield* Effect.scoped(
+          Effect.gen(function* clickWhileRecording() {
+            const started = yield* startUserTeaching({
+              activity: "teaching",
+              clientName: "integration-recorder",
+              clientVersion: "1.0.0",
+              name: "navigation-evidence",
+              operationId: OperationId.make("navigation-start-session"),
+              url: `${fixtures.url("teaching-navigation.html")}?delay=${delay}`,
+              viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
+            });
+            if (started.recordingId === null) {
+              return yield* Effect.die(
+                "Teaching did not allocate a recording."
+              );
+            }
+            const service = yield* AgentSession;
+            yield* service.startTeachingRecording(
+              started.id,
+              OperationId.make("navigation-start-recording")
+            );
+            yield* clickAsUser(started.id, { x: 120, y: 288 });
+            // Let the delayed Page finish before Stop: later rendering must not
+            // turn the earlier PNG into evidence of the final destination.
+            yield* Effect.sleep(1600);
+            const settled = yield* sessionTool("agent_browser_snapshot", {
+              sessionId: started.id,
+            });
+            findNode(settled.nodes, "heading", "User profile");
+            yield* service.stopTeachingRecording(
+              started.id,
+              OperationId.make("navigation-stop-recording")
+            );
+            return started.recordingId;
+          }).pipe(Effect.provide(agentProcessLayer(root)))
+        );
+        yield* Effect.scoped(
+          Effect.gen(function* readNavigationInLaterProcess() {
+            const claimOperationId = OperationId.make("navigation-claim");
+            yield* teachingRecordingTool("agent_teaching_recording_claim", {
+              action: "take",
+              operationId: claimOperationId,
+              recordingId,
+            });
+            const timeline = yield* teachingRecordingTool(
+              "agent_teaching_timeline_get",
+              { claimOperationId, recordingId }
+            );
+            const actions = timeline.entries.filter(
+              (entry) => entry._tag === "action"
+            );
+            expect(actions).toHaveLength(1);
+            const [action] = actions;
+            expect(action).toMatchObject({
+              after: { capture: "transitional" },
+              description: 'Click button "View details"',
+              kind: "click",
+            });
+            expect(action?.after.url).toContain("?profile&delay=");
+            if (delay > 0) {
+              expect(action?.appeared).toEqual([]);
+              expect(action?.disappeared).toEqual([]);
+            }
+            const keyframes = timeline.entries.filter(
+              (entry) => entry._tag === "keyframe"
+            );
+            expect(keyframes).toHaveLength(1);
+            const [keyframe] = keyframes;
+            if (keyframe === undefined) {
+              return yield* Effect.die("The navigation kept no keyframe.");
+            }
+            expect(keyframe).toMatchObject({
+              actionId: action?.id,
+              capture: "transitional",
+              url: action?.after.url,
+            });
+            const file = yield* teachingRecordingTool(
+              "agent_teaching_keyframe_get",
+              { claimOperationId, keyframeId: keyframe.id, recordingId }
+            );
+            const bytes = yield* fileSystem.readFile(file.path);
+            expect(
+              `sha256-${createHash("sha256").update(bytes).digest("hex")}`
+            ).toBe(keyframe.hash);
+          }).pipe(Effect.provide(agentProcessLayer(root)))
+        );
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}

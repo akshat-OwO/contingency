@@ -133,6 +133,20 @@ test("learning-agent contracts use recording ids and bounded references", () => 
     recordingId: "recording-checkout",
   });
   expect(timeline.entries[0]).not.toHaveProperty("path");
+  expect(timeline.entries[0]).not.toHaveProperty("capture");
+  expect(timeline.entries[0]).not.toHaveProperty("url");
+  const transitional = decodeTimeline({
+    ...timeline,
+    entries: timeline.entries.map((entry) => ({
+      ...entry,
+      capture: "transitional",
+      url: "https://shop.example.test/profile",
+    })),
+  });
+  expect(transitional.entries[0]).toMatchObject({
+    capture: "transitional",
+    url: "https://shop.example.test/profile",
+  });
   expect(
     decodeKeyframe({
       bytes: 123,
