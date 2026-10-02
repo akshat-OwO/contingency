@@ -94,7 +94,7 @@ test("diffs lines as a multiset so one more identical row is one addition", () =
   );
 });
 
-test("compares only reads that saw the whole first page", () => {
+test("compares only reads that saw the whole document", () => {
   const coverage = {
     nextCursor: null,
     offset: 0,
@@ -118,6 +118,13 @@ test("compares only reads that saw the whole first page", () => {
     isWholePage({
       ...snapshotOf([]),
       coverage: { ...coverage, interactive: true },
+    })
+  ).toBe(false);
+  // Which nodes a truncated read holds moves with the viewport.
+  expect(
+    isWholePage({
+      ...snapshotOf([]),
+      coverage: { ...coverage, nextCursor: "next", truncated: true },
     })
   ).toBe(false);
 });

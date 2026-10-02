@@ -307,7 +307,7 @@ export const AgentBrowserSnapshotRead = Schema.Struct({
 
 /**
  * How an action result carries the Snapshot read after it. `diff` lists only
- * the lines that changed since the previous full read of the same Page, and
+ * the lines that changed since the previous complete, untruncated read of the same Page, and
  * falls back to `text` when there is nothing to compare against.
  */
 export const AgentActionSnapshotFormat = Schema.Literals([

@@ -101,12 +101,14 @@ export const diffSnapshotLines = (previous: string, next: string): string => {
 };
 
 /**
- * Whether a Snapshot read the whole first page of the document, so a later
- * read can be compared with it. A scoped, filtered, or continued read
- * describes only part of the Page.
+ * Whether a Snapshot read the whole document, so a later read can be compared
+ * with it. A scoped, filtered, or continued read describes only part of the
+ * Page, and so does a truncated one: which nodes fit its budget depends on
+ * what the viewport shows, so a scroll alone would read as change.
  */
 export const isWholePage = (snapshot: AgentBrowserSnapshot): boolean =>
   snapshot.coverage === undefined ||
   (snapshot.coverage.offset === 0 &&
+    !snapshot.coverage.truncated &&
     snapshot.coverage.selector === null &&
     snapshot.coverage.interactive !== true);
