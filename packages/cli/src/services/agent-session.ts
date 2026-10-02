@@ -51,6 +51,7 @@ import type {
   AgentBrowserAction,
   AgentBrowserSnapshot,
   AgentSnapshotNode,
+  AgentSnapshotOptions,
   AgentScreenshot,
   AgentScreenshotFile,
   AgentInspectedElement,
@@ -403,7 +404,8 @@ export interface AgentSessionService {
     action: AgentNavigateAction | AgentHistoryAction
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly snapshot: (
-    sessionId: AgentSessionId
+    sessionId: AgentSessionId,
+    options?: AgentSnapshotOptions
   ) => Effect.Effect<AgentBrowserSnapshot, AgentSessionError>;
   /**
    * Browser setup tooling the Workspace drives during teaching setup. The
@@ -3773,22 +3775,18 @@ const makeAgentSession = (
     ): Effect.Effect<AgentInspectedElement, AgentSessionError> =>
       observe(sessionId, (record, page) =>
         Effect.gen(function* inspectPointedElement() {
-          const snapshot = redactCapturedSnapshot(
-            record,
-            yield* record.registry.snapshot(page)
-          );
-          const located = yield* record.registry.pointElement(x, y);
-          const node = snapshot.nodes.find(
-            (candidate) => candidate.ref === located.ref
-          );
-          const subject = node ?? record.registry.describe(located.ref);
+          const located = yield* record.registry.inspect(page, x, y);
+          const subject = record.registry.describe(located.ref);
           return {
             description:
               subject === undefined
                 ? "element"
-                : `${subject.role}${
-                    subject.name === "" ? "" : `: ${subject.name}`
-                  }`,
+                : redactKnownValues(
+                    `${subject.role}${
+                      subject.name === "" ? "" : `: ${subject.name}`
+                    }`,
+                    sessionSensitiveValues(record)
+                  ),
             height: located.rectangle.height,
             ref: located.ref,
             width: located.rectangle.width,
@@ -7262,9 +7260,9 @@ const makeAgentSession = (
             browser.setStorage(record.browserSessionId, tabId, input)
           )
         ),
-      snapshot: (sessionId) =>
+      snapshot: (sessionId, snapshotOptions) =>
         observe(sessionId, (record, page) =>
-          settledSnapshot(page, record.registry).pipe(
+          settledSnapshot(page, record.registry, snapshotOptions).pipe(
             Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
             Effect.tap((snapshot) =>
               rememberCurrentUrl(sessionId, record, snapshot.url)

@@ -6,6 +6,7 @@ import {
   AgentBrowserActSequence,
   AgentBrowserObserve,
   AgentBrowserSnapshot,
+  AgentBrowserSnapshotRead,
   AgentScreenshotFile,
   AgentSessionClose,
   AgentSessionGet,
@@ -35,6 +36,33 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+
+/** Format the already-redacted observation without duplicating its nodes. */
+const compactBrowserSnapshot = (
+  snapshot: typeof AgentBrowserSnapshot.Type
+): typeof AgentBrowserSnapshot.Type => ({
+  ...snapshot,
+  nodes: [],
+  text: snapshot.nodes
+    .map((node) => {
+      const state = [
+        node.disabled ? "disabled" : undefined,
+        node.checked === undefined ? undefined : `checked=${node.checked}`,
+        node.clickable ? "clickable" : undefined,
+        node.valueWithheld ? "value withheld" : undefined,
+        node.value === undefined || node.value === ""
+          ? undefined
+          : `value=${JSON.stringify(node.value)}`,
+        node.context === undefined
+          ? undefined
+          : `context=${JSON.stringify(node.context)}`,
+      ]
+        .filter((value) => value !== undefined)
+        .join(" ");
+      return `${"  ".repeat(node.depth)}@${node.ref} ${node.role} ${JSON.stringify(node.name)}${state === "" ? "" : ` [${state}]`}`;
+    })
+    .join("\n"),
+});
 
 const AgentSessionStartParameters = Schema.Struct({
   activity: AgentSessionStart.fields.activity,
@@ -161,9 +189,9 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      "Read a compact Browser Snapshot with short-lived element references. References expire when the Page navigates or the element leaves the document. The read waits up to two seconds for requests to finish and the document to stop changing; settle.settled is false when the Page was still busy at that bound, and settle.pending says with what. An action already returns a Snapshot: read again only after effect none, an unsettled Snapshot, a stale reference, or a change you did not cause.",
+      'Read a bounded Browser Snapshot. coverage reports eligible nodes, scope, truncation, and nextCursor. Pass selector to scope to a CSS section before budgeting, or cursor to continue the same stable observation. A changed Page expires continuation: take a fresh snapshot. format:"text" returns compact ref lines in text with an empty nodes array; structured is the default. References expire on navigation or detachment. settle describes readiness, not coverage. Read again after effect none, an unsettled action snapshot, a stale ref, or a change you did not cause.',
     failure: AgentSessionFailure,
-    parameters: AgentBrowserObserveParameters,
+    parameters: AgentBrowserSnapshotRead,
     success: AgentBrowserSnapshot,
   })
 );
@@ -366,8 +394,18 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
       const service = yield* AgentSession;
       yield* service.noteAgentActivity(params.sessionId);
       return yield* service
-        .snapshot(params.sessionId)
-        .pipe(Effect.mapError(failure));
+        .snapshot(params.sessionId, {
+          cursor: params.cursor,
+          selector: params.selector,
+        })
+        .pipe(
+          Effect.mapError(failure),
+          Effect.map((snapshot) =>
+            params.format === "text"
+              ? compactBrowserSnapshot(snapshot)
+              : snapshot
+          )
+        );
     }),
   agent_session_close: (params) =>
     Effect.gen(function* closeAgentSession() {

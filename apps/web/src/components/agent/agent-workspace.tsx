@@ -1579,6 +1579,7 @@ const useAgentView = (
                             scrollOffsetY:
                               current.frameProjection.scrollOffsetY,
                           },
+                      hovered: undefined,
                     },
                   }
                 : current

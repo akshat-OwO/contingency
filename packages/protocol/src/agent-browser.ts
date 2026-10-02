@@ -68,6 +68,21 @@ export const AgentPageSettle = Schema.Struct({
 });
 export type AgentPageSettle = typeof AgentPageSettle.Type;
 
+export const AgentSnapshotCoverage = Schema.Struct({
+  nextCursor: Schema.NullOr(Schema.String),
+  offset: Schema.Int,
+  returned: Schema.Int,
+  selector: Schema.NullOr(Schema.String),
+  total: Schema.Int,
+  truncated: Schema.Boolean,
+}).annotate({ identifier: "AgentSnapshotCoverage" });
+
+export const AgentSnapshotOptions = Schema.Struct({
+  cursor: optionalNullable(nonEmptyString),
+  selector: optionalNullable(nonEmptyString),
+});
+export type AgentSnapshotOptions = typeof AgentSnapshotOptions.Type;
+
 /**
  * A compact accessibility representation of the current Page. It is
  * deliberately not a DOM dump: the external agent receives roles, names, and
@@ -75,9 +90,11 @@ export type AgentPageSettle = typeof AgentPageSettle.Type;
  */
 export const AgentBrowserSnapshot = Schema.Struct({
   capturedAt: nonEmptyString,
+  coverage: optionalNullable(AgentSnapshotCoverage),
   nodes: Schema.Array(AgentSnapshotNode),
   settle: optionalNullable(AgentPageSettle),
   snapshotId: AgentSnapshotId,
+  text: optionalNullable(Schema.String),
   title: Schema.String,
   url: Schema.String,
 }).annotate({ identifier: "AgentBrowserSnapshot" });
@@ -258,6 +275,12 @@ export const AgentBrowserObserve = Schema.Struct({
   sessionId: AgentSessionId,
 });
 export type AgentBrowserObserve = typeof AgentBrowserObserve.Type;
+
+export const AgentBrowserSnapshotRead = Schema.Struct({
+  ...AgentBrowserObserve.fields,
+  ...AgentSnapshotOptions.fields,
+  format: optionalNullable(Schema.Literals(["structured", "text"])),
+});
 
 export const AgentBrowserAct = Schema.Struct({
   action: AgentBrowserAction,

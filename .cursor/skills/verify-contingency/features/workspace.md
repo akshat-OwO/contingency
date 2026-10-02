@@ -13,6 +13,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-live-session` shows a live session's browser and the dock that carries its state.
 - `agent-same-document-snapshot` returns destination nodes with the destination URL after an agent action routes without loading a new document.
 - `agent-snapshot-session-url` keeps an Agent Session's URL aligned with a later Browser Snapshot after delayed navigation.
+- `agent-snapshot-coverage` reports truncation, pages omitted nodes with a bounded continuation, scopes a section with `selector`, and offers redacted compact text with usable refs.
 - `agent-snapshot-context` reports scripted location rows as named clickable controls, attaches product context to repeated buttons, and omits decorative images.
 - `agent-snapshot-layer` exposes the usable controls of a top sheet even when its ancestor has `aria-hidden="true"`, while omitting covered and CSS-hidden controls.
 - `agent-act-settle-effect` reports whether an agent action's Snapshot was read after the Page settled, and whether the action was seen to change anything.
@@ -27,6 +28,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-summary-restart-proof` reopens a task summary and an isolated historical version 2 fixture after restart, preserves Step assessments and timeout meaning, and serves both retained videos.
 - `agent-mcp-efficiency` keeps `tools/list` under its byte budget, answers session-returning tools with `view:"compact"`, pages omitted history with `agent_session_history_get`, performs a bounded `agent_browser_act_sequence`, and marks read-only tools with MCP hints (ADR 0045).
 - `agent-assessment-evidence-contract` publishes a typed evidence array for Agent Assessments, accepts Snapshot and attempt references, and explains the required object shape when an item is malformed.
+- `agent-teaching-inspect-large-cart` selects live controls and bill text beyond the first 300 snapshot nodes, shows a retry notice for an empty point, and records the selected subjects.
 - `agent-teaching-inspect` outlines the live element under the pointer during `recording`, attaches a comment as a Teaching instruction, and counts it in the dock.
 - `agent-teaching-dock-actions` renames the Flow Skill in `setup`, and copies the agent prompt or deletes the recording in `ready`.
 - `agent-teaching-recording-boundary` keeps setup out of Teaching artifacts, starts every capture source from the Workspace, and stops them without closing the browser setup.
@@ -70,6 +72,19 @@ Preconditions:
 - **Proof (web empty).** Capture the empty web state. Run `control-contingency browser goto --path /`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-web.aria.txt` and `control-contingency browser screenshot --path workspace/empty-web.png`. Both show the `Workspace dock` with `Contingency`, the badge `No session`, and `No browser session` on the canvas.
 - **Proof (390px).** Run `control-contingency browser resize --width 390 --height 844`, then `control-contingency browser screenshot --path workspace/empty-web-390.png` and `control-contingency browser snapshot --aria --path workspace/empty-web-390.aria.txt`. `Open browser session` is still on screen and the next-step sentence is hidden rather than ellipsized. Return to desktop with `control-contingency browser resize --width 1440 --height 900`.
 - **Proof (MCP empty).** After `mcp start`, capture the empty MCP state. Run `control-contingency browser goto --url "$mcpUrl"`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-mcp.aria.txt` and `control-contingency browser screenshot --path workspace/empty-mcp.png`.
+
+### Large cart snapshots and Inspect
+
+Preconditions: `launch`, `doctor`, `ecommerce start`, and `mcp start` have succeeded. Use a fresh Teaching session at `$ECOMMERCE_URL` with `shop.html` replaced by `snapshot-cart.html`, at 390 by 844 with DPR 1. Hand setup to the user, open its `viewUrl`, then press `Start recording`.
+
+- **Observe the budget.** Run `control-contingency mcp call --tool agent_browser_snapshot --params '{"sessionId":"<id>"}'`. Require 300 nodes, `coverage.truncated:true`, `coverage.total` greater than 300, and a non-null `coverage.nextCursor`. The first page omits `Change quantity` and `Total amount: 24.00`.
+- **Read the rest.** Repeat that call with `cursor` from the preceding result until `nextCursor` is null. Require consecutive offsets, at most 300 nodes per page, all 320 `Add to cart` buttons with distinct product contexts, and the bill total. Pass `selector:"#bill"` for the visible bill section. Pass `format:"text"` for compact lines with `@eN` refs and `nodes:[]`. Require the total, readiness, coverage, and withheld password state, without the disposable private code echoed elsewhere on the page.
+- **Select outside the budget.** Press `Inspect an element and comment`, then click the visible quantity button through the canvas. Require an aligned outline and editor subject `button: Change quantity`. Enter `Set the quantity to two.` and press `Attach`. Enable Inspect again and select the displayed total; require `paragraph: Total amount: 24.00`. Attach `Check the displayed bill total.`.
+- **Recover from a miss.** Enable Inspect and click blank space to the right of Cart. Require an `alert` saying `Could not select this element` while no editor is open. Click the quantity button again and require the editor with no alert. Cancel the editor and exit Inspect.
+- **Invalidate continuation.** Read a fresh global snapshot and keep its cursor. Through the canvas, press `Change quantity`. Continuing the old cursor must refuse with `agent_element_stale` and ask for a fresh snapshot. A fresh `selector:"dialog"` snapshot exposes Quantity and Save quantity. Change Quantity to 2 and save through the canvas; a fresh bill snapshot reports `Total amount: 48.00`.
+- **Follow changes.** Press `Move bill` and select the relocated quantity button with Inspect. Cancel, scroll the canvas, and select the fixed bill again. Navigate with Browser address to the same fixture with `?count=20`; Inspect must still select the bill. Cancel and exit Inspect after each check.
+- **Read the recording.** Press `Stop recording`, claim the recording, and call `agent_teaching_timeline_get`. Require exactly two instruction events with the supplied text and subjects `button: Change quantity` and `paragraph: Total amount: 24.00`; neither description may contain an `eN` ref.
+- **Proof.** Retain global, continuation, scoped/text and stale-cursor MCP responses, quantity/bill/miss/retry screenshots and ARIA snapshots, and the claimed timeline under `artifacts/snapshot-cart/`. Run `cleanup` and confirm those files survive.
 
 ### Live session and Takeover
 
@@ -297,7 +312,7 @@ Preconditions: a live Teaching session, and a local page that answers one reques
 - `Loading Agent Sessions…` is transient. Wait for the empty heading or the requested session result. Do not snapshot the spinner.
 - No live Workspace has a header band. Do not wait for `link Workspace` or a `Workspace` heading on `/` with no session or on any live session; wait for the `Workspace dock` region instead.
 - The action timeline is no longer rendered anywhere in Workspace. Assert it through `agent_session_get`.
-- Inspect hit-tests the live Page through a Browser Snapshot. A stale outline means the Page moved, not that the click missed; re-hover rather than clicking the canvas as if it were the DOM.
+- Inspect hit-tests the live Page independently of the snapshot node budget. A stale outline means the Page moved, not that the click missed; re-hover rather than clicking the canvas as if it were the DOM.
 - Empty means the current `web` or `mcp` process owns zero sessions.
 - A bad `?session=` value names a session that the current process does not own. With no replacement, the notice names the server process. With a live replacement, the URL adopts its id and the dock stays available.
 - Closing Workspace does not pause a real session.
@@ -310,6 +325,7 @@ Preconditions: a live Teaching session, and a local page that answers one reques
 - `agent_browser_screenshot` answers with `path`, `bytes`, `format`, `capturedAt`, and `url` — never the image bytes (#240). Read the PNG at `path` yourself; it is deleted when the Agent Session closes.
 - `agent_teaching_keyframe_get` answers with `path`, `bytes`, `format`, `hash`, `id`, and `recordingId` for a claimed recording. Read the PNG at `path` and compare its SHA-256 with `hash`. The file survives the creating Agent Session and is deleted when the user verifies the Flow Skill and cleanup purges the Teaching Recording (#262).
 - A failed tool call exits non-zero and prints the reason (`Element reference e12 is stale…`, `Could not find "X": Timeout…`). Assert on that text rather than on the exit code alone.
+- Snapshot cursors are bounded and single-use. Navigation, document mutations, scrolling, viewport changes, or changed control values/layout invalidate continuation; read a fresh snapshot.
 - Element references expire when the Page navigates. Take a fresh `agent_browser_snapshot` after any navigation before acting on a `ref`.
 - Only `"activity":"teaching"` sessions capture. `agent_teaching_instruction_record` against a Run session exits `2` with `agent_session_invalid`.
 - Flow Skill learning uses the process-independent Teaching Recording tools after Stop. It needs neither `agent_session_close` nor the live Agent Session.
