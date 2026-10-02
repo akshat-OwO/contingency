@@ -44,14 +44,18 @@ const refuseFootagePromote = Layer.effect(
   })
 ).pipe(Layer.provide(NodeServices.layer));
 
-const awaitLockReleased = (directory: string) =>
-  Effect.gen(function* waitForLock() {
+const awaitRenderAttempt = (directory: string) =>
+  Effect.gen(function* waitForAttempt() {
     const fileSystem = yield* FileSystem.FileSystem;
-    for (const _attempt of Array.from({ length: 40 })) {
-      if (!(yield* fileSystem.exists(path.join(directory, LOCK_FILE)))) {
+    const lock = path.join(directory, LOCK_FILE);
+    // Give the forked render a moment to take the lock so a fast finish is
+    // not mistaken for a render that never started.
+    yield* Effect.sleep("50 millis");
+    for (const _attempt of Array.from({ length: 80 })) {
+      if (!(yield* fileSystem.exists(lock))) {
         return;
       }
-      yield* Effect.sleep("50 millis");
+      yield* Effect.sleep("25 millis");
     }
     return yield* Effect.fail(
       new Error("The Run video lock was never released.")
@@ -71,46 +75,45 @@ const seedUnreadableFootage = (directory: string) =>
     );
   });
 
-it.effect(
-  "promotes footage to the Run video when condensing cannot start",
-  () =>
-    Effect.gen(function* promoteFootage() {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const directory = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-run-video-fallback-",
-      });
-      yield* seedUnreadableFootage(directory);
-      const renderer = yield* RunVideoRenderer;
-      expect(yield* renderer.status(directory)).toEqual({
-        state: "preparing",
-      });
-      yield* awaitLockReleased(directory);
-      expect(yield* renderer.status(directory)).toEqual({
-        condensed: false,
-        reason: "The footage manifest is not valid JSON.",
-        state: "ready",
-      });
-      expect(
-        yield* fileSystem.readFileString(path.join(directory, RUN_VIDEO_FILE))
-      ).toBe("real-time footage");
-      expect(
-        yield* fileSystem.exists(path.join(directory, FOOTAGE_VIDEO_FILE))
-      ).toBe(false);
-      expect(
-        yield* fileSystem.exists(path.join(directory, FOOTAGE_MANIFEST_FILE))
-      ).toBe(false);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        RunVideoRendererLive.pipe(
-          Layer.provide(UnusedBrowser),
-          Layer.provideMerge(NodeServices.layer)
-        )
+it.live("promotes footage to the Run video when condensing cannot start", () =>
+  Effect.gen(function* promoteFootage() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-run-video-fallback-",
+    });
+    yield* seedUnreadableFootage(directory);
+    const renderer = yield* RunVideoRenderer;
+    expect(yield* renderer.status(directory)).toEqual({
+      state: "preparing",
+    });
+    yield* awaitRenderAttempt(directory);
+    expect(yield* renderer.status(directory)).toEqual({
+      condensed: false,
+      reason:
+        "The footage manifest could not be read: The footage manifest is not valid JSON.",
+      state: "ready",
+    });
+    expect(
+      yield* fileSystem.readFileString(path.join(directory, RUN_VIDEO_FILE))
+    ).toBe("real-time footage");
+    expect(
+      yield* fileSystem.exists(path.join(directory, FOOTAGE_VIDEO_FILE))
+    ).toBe(false);
+    expect(
+      yield* fileSystem.exists(path.join(directory, FOOTAGE_MANIFEST_FILE))
+    ).toBe(false);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      RunVideoRendererLive.pipe(
+        Layer.provide(UnusedBrowser),
+        Layer.provideMerge(NodeServices.layer)
       )
     )
+  )
 );
 
-it.effect("keeps footage when promoting it to the Run video fails", () =>
+it.live("keeps footage when promoting it to the Run video fails", () =>
   Effect.gen(function* keepFootageAfterFailedPromote() {
     const fileSystem = yield* FileSystem.FileSystem;
     const directory = yield* fileSystem.makeTempDirectoryScoped({
@@ -121,7 +124,7 @@ it.effect("keeps footage when promoting it to the Run video fails", () =>
     expect(yield* renderer.status(directory)).toEqual({
       state: "preparing",
     });
-    yield* awaitLockReleased(directory);
+    yield* awaitRenderAttempt(directory);
     expect(
       yield* fileSystem.readFileString(path.join(directory, FOOTAGE_VIDEO_FILE))
     ).toBe("real-time footage");
