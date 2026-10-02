@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snapshot cart</title>
+    <style>
+      body {
+        font: 16px system-ui;
+        margin: 20px;
+      }
+      button,
+      input {
+        padding: 10px;
+      }
+      #recommendations {
+        padding-top: 600px;
+      }
+      article {
+        margin-bottom: 16px;
+      }
+      #bill {
+        position: fixed;
+        top: 180px;
+        left: 20px;
+        width: 280px;
+        padding: 16px;
+        background: white;
+        border: 1px solid;
+      }
+      dialog {
+        max-width: 280px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="reduce" type="button">Remove recommendations</button>
+    <button id="change-layout" type="button">Move bill</button>
+    <h1>Cart</h1>
+    <div id="recommendations" aria-label="Recommendations"></div>
+    <section id="bill" aria-label="Bill summary">
+      <h2>Bill summary</h2>
+      <button id="quantity" type="button">Change quantity</button>
+      <p>Item total: 24.00</p>
+      <p id="total">Total amount: 24.00</p>
+      <label
+        >Private code
+        <input
+          type="password"
+          autocomplete="current-password"
+          value="fixture-private-cart-code"
+      /></label>
+      <p>Account note: fixture-private-cart-code</p>
+    </section>
+    <dialog aria-label="Change quantity">
+      <label
+        >Quantity <input id="quantity-input" type="number" value="1" min="1"
+      /></label>
+      <button id="save" type="button">Save quantity</button>
+      <button id="cancel" type="button">Cancel quantity</button>
+    </dialog>
+    <script>
+      const recommendations = document.querySelector("#recommendations");
+      const count = Number(
+        new URLSearchParams(location.search).get("count") ?? 320
+      );
+      for (let index = 0; index < count; index += 1) {
+        const article = document.createElement("article");
+        const title = document.createElement("h2");
+        title.textContent = `Recommended product ${index + 1}`;
+        const button = document.createElement("button");
+        button.textContent = "Add to cart";
+        button.type = "button";
+        article.append(title, button);
+        recommendations.append(article);
+      }
+      const dialog = document.querySelector("dialog");
+      document.querySelector("#quantity").onclick = () => dialog.showModal();
+      document.querySelector("#cancel").onclick = () => dialog.close();
+      document.querySelector("#save").onclick = () => {
+        const quantity = Number(
+          document.querySelector("#quantity-input").value
+        );
+        document.querySelector("#total").textContent =
+          `Total amount: ${(24 * quantity).toFixed(2)}`;
+        dialog.close();
+      };
+      document.querySelector("#reduce").onclick = () =>
+        recommendations.replaceChildren();
+      document.querySelector("#change-layout").onclick = () => {
+        document.querySelector("#bill").style.top = "260px";
+      };
+    </script>
+  </body>
+</html>

@@ -107,6 +107,15 @@ export const InspectOverlay = ({
       }}
       ref={setContainer}
     >
+      {state.error !== undefined && state.frozen === undefined ? (
+        <p
+          className="bg-background text-destructive pointer-events-none absolute top-3 left-1/2 z-10 max-w-sm -translate-x-1/2 rounded-md border p-3 text-sm shadow-lg"
+          role="alert"
+        >
+          Could not select this element. Try another visible element or retry
+          after the page finishes updating.
+        </p>
+      ) : null}
       {state.comments.map((comment) => (
         <Pin
           at={projectDocumentRectangle(comment, projection, box)}

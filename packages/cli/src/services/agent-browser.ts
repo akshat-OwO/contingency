@@ -15,11 +15,12 @@ import type {
   AgentPageSettle,
   AgentScreenshot,
   AgentSnapshotNode,
+  AgentSnapshotOptions,
   BrowserAgentPointer,
   BrowserFailureReasonType,
   BrowserRpcErrorType,
 } from "@contingency/protocol";
-import { Effect, Option, Result, Schema } from "effect";
+import { Effect, Option, Result, Schema, Semaphore } from "effect";
 import { errors } from "playwright-core";
 import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
 
@@ -511,8 +512,25 @@ const clickListenerPaths = async (page: Page): Promise<number[][]> => {
  * writing anything into the page under test.
  */
 const SNAPSHOT_SCRIPT = (
-  listenerPaths: readonly (readonly number[])[]
+  listenerPaths: readonly (readonly number[])[],
+  selector: string | undefined,
+  offset: number,
+  point?: { readonly x: number; readonly y: number }
 ) => `(() => {${PAGE_READING_PRELUDE}
+  const scope = ${JSON.stringify(selector)} === undefined ? document :
+    document.querySelector(${JSON.stringify(selector)});
+  if (scope === null) {
+    throw new Error("Snapshot selector matched no section. Take a fresh snapshot and choose a current selector.");
+  }
+  const point = ${JSON.stringify(point)};
+  const ancestors = [];
+  if (point) {
+    for (let element = document.elementFromPoint(point.x, point.y);
+         element && element !== document.body && element !== document.documentElement;
+         element = element.parentElement) {
+      ancestors.push(element);
+    }
+  }
   const nativeClickTargets = new Set(
     ${JSON.stringify(listenerPaths)}.map((path) => {
       let element = document.documentElement;
@@ -529,7 +547,7 @@ const SNAPSHOT_SCRIPT = (
     typeof element[key]?.onClick === "function"
   );
   const reactClickTargets = new Set(
-    Array.from(document.querySelectorAll("*")).filter(hasReactClick)
+    Array.from(point ? ancestors : document.querySelectorAll("*")).filter(hasReactClick)
   );
   const delegatedClickTargets = new Set();
   for (const element of reactClickTargets) {
@@ -600,14 +618,14 @@ const SNAPSHOT_SCRIPT = (
     }
     return null;
   };
-  // Controls come before prose when the budget runs out: a journey is driven
-  // by what it can act on, and a Page that overflows the limit is one whose
-  // text matters least.
+  // Select by semantic priority, then restore document order for traversal.
   const controls = [];
   const contextual = [];
   const clickable = new Set();
   const textual = [];
-  const everyElement = document.querySelectorAll("*");
+  const everyElement = point ? ancestors :
+    scope === document ? document.querySelectorAll("*") :
+    [scope, ...scope.querySelectorAll("*")];
   for (const element of everyElement) {
     if (SKIPPED_TAGS.has(element.tagName)) {
       continue;
@@ -652,11 +670,17 @@ const SNAPSHOT_SCRIPT = (
       textual.push(element);
     }
   }
-  const candidates = controls.slice(0, ${SNAPSHOT_LIMIT});
-  const contextBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
-  candidates.push(...contextual.slice(0, contextBudget));
-  const textBudget = Math.max(0, ${SNAPSHOT_LIMIT} - candidates.length);
-  candidates.push(...textual.slice(0, textBudget));
+  const eligible = [...controls, ...contextual, ...textual];
+  // Property-only edits and CSS layout changes need not create mutations.
+  const signature = point ? null : JSON.stringify(eligible.map((element) => {
+    const bounds = element.getBoundingClientRect();
+    return [accessibleName(element), isSensitive(element) ? null : element.value,
+      element.checked, element.disabled, bounds.x, bounds.y, bounds.width, bounds.height];
+  }));
+  const picked = point ? controls[0] ?? ancestors.find((element) =>
+    eligible.includes(element) && ownsText(element)) ?? eligible[0] : undefined;
+  const candidates = point ? (picked ? [picked] : []) :
+    eligible.slice(${offset}, ${offset} + ${SNAPSHOT_LIMIT});
   const included = new Set(candidates);
   // The budget picks controls first, but the Snapshot is a tree read in
   // document order: \`depth\` counts included ancestors, and a reader walks
@@ -721,8 +745,25 @@ const SNAPSHOT_SCRIPT = (
     nodes.push(node);
     elements.push(element);
   }
+  const guard = point ? null : {
+    document: document.documentElement, url: location.href, changed: false,
+    scrollX, scrollY, width: innerWidth, height: innerHeight, signature,
+  };
+  if (guard && !guard.observer) {
+    guard.observer = new MutationObserver(() => { guard.changed = true; });
+    guard.observer.observe(document.documentElement, {
+      subtree: true, childList: true, attributes: true, characterData: true,
+    });
+    guard.valid = () => guard.document === document.documentElement &&
+      guard.url === location.href && !guard.changed &&
+      guard.observer.takeRecords().length === 0 && guard.scrollX === scrollX &&
+      guard.scrollY === scrollY && guard.width === innerWidth && guard.height === innerHeight;
+    guard.stop = () => guard.observer.disconnect();
+  }
   return {
     elements,
+    guard,
+    total: eligible.length,
     focusedIndex: elements.indexOf(document.activeElement),
     nodes,
     title: document.title,
@@ -772,13 +813,27 @@ const CollectedNodes = Schema.Array(
 const CollectedPage = Schema.Struct({
   focusedIndex: Schema.Int,
   title: Schema.String,
+  total: Schema.Int,
   url: Schema.String,
 });
 
-const property = (
+/** Guard objects are constructed by SNAPSHOT_SCRIPT, never supplied by a Page. */
+interface SnapshotGuard {
+  readonly signature: string;
+  readonly stop: () => void;
+  readonly valid: () => boolean;
+}
+
+interface SnapshotContinuation {
+  readonly guard: JSHandle<SnapshotGuard | null>;
+  readonly offset: number;
+  readonly selector: string | undefined;
+}
+
+const property = <A = unknown>(
   handle: JSHandle<unknown>,
   name: string
-): Effect.Effect<JSHandle<unknown>, BrowserRpcErrorType> =>
+): Effect.Effect<JSHandle<A>, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) =>
       browserFailure("Could not read the Browser Snapshot", cause),
@@ -796,6 +851,29 @@ const disposeHandles = (
       [...handles].map((handle) => handle.dispose().catch(ignoreDisposeFailure))
     );
   });
+
+const releaseGuard = (guard: JSHandle<SnapshotGuard | null>) =>
+  Effect.tryPromise(() => guard.evaluate((value) => value?.stop())).pipe(
+    Effect.ignore,
+    Effect.andThen(disposeHandles([guard]))
+  );
+
+const matchesContinuation = (
+  continuation: SnapshotContinuation | undefined,
+  current: JSHandle<SnapshotGuard | null>
+) =>
+  continuation === undefined
+    ? Effect.succeed(true)
+    : Effect.tryPromise(() =>
+        continuation.guard.evaluate(
+          (previous, next) =>
+            previous !== null &&
+            next !== null &&
+            previous.signature === next.signature &&
+            previous.valid(),
+          current
+        )
+      ).pipe(Effect.orElseSucceed(() => false));
 
 /**
  * The Browser Snapshots one Agent Session has minted references from.
@@ -886,8 +964,15 @@ export interface AgentElementRegistry {
   >;
   /** Read the Page and mint a new generation of references for it. */
   readonly snapshot: (
-    page: Page
+    page: Page,
+    options?: AgentSnapshotOptions
   ) => Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType>;
+  /** Resolve the live DOM hit independently of snapshot output limits. */
+  readonly inspect: (
+    page: Page,
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
   /**
    * Whether two references, minted by the same or different Snapshots, name
    * one live element. References are re-minted on every Snapshot, so this is
@@ -908,6 +993,8 @@ export interface AgentElementRegistry {
 export const makeAgentElementRegistry = (
   now: () => Date = () => new Date()
 ): AgentElementRegistry => {
+  const reads = Semaphore.makeUnsafe(1);
+  const continuations = new Map<string, SnapshotContinuation>();
   const elements = new Map<string, ElementHandle>();
   const subjects = new Map<string, AgentActionSubject>();
   const bounds = new Map<
@@ -929,15 +1016,20 @@ export const makeAgentElementRegistry = (
   /** The focused reference minted by the most recent Snapshot. */
   let focused: AgentElementRef | undefined;
 
-  const clear = (): Effect.Effect<void> => {
-    const handles = [...elements.values()];
-    elements.clear();
-    bounds.clear();
-    subjects.clear();
-    documentUrl = undefined;
-    focused = undefined;
-    return disposeHandles(handles);
-  };
+  const clear = (): Effect.Effect<void> =>
+    Effect.gen(function* clearRegistry() {
+      const handles = [...elements.values()];
+      elements.clear();
+      bounds.clear();
+      subjects.clear();
+      documentUrl = undefined;
+      focused = undefined;
+      for (const continuation of continuations.values()) {
+        yield* releaseGuard(continuation.guard);
+      }
+      continuations.clear();
+      yield* disposeHandles(handles);
+    });
 
   /** Release the oldest references once the session is tracking too many. */
   const trim = (): Effect.Effect<void> => {
@@ -958,16 +1050,101 @@ export const makeAgentElementRegistry = (
     return disposeHandles(released);
   };
 
-  const snapshot = (
-    page: Page
+  const continuationFor = (
+    options: AgentSnapshotOptions
+  ): Effect.Effect<SnapshotContinuation | null, BrowserRpcErrorType> => {
+    if (options.cursor === undefined) {
+      return Effect.succeed(null);
+    }
+    const continuation = continuations.get(options.cursor);
+    if (
+      continuation === undefined ||
+      (options.selector !== undefined &&
+        options.selector !== continuation.selector)
+    ) {
+      return Effect.fail(
+        makeBrowserRpcError(
+          "agent_element_stale",
+          "Snapshot continuation expired or its section changed. Take a fresh snapshot."
+        )
+      );
+    }
+    return Effect.succeed(continuation);
+  };
+
+  const retainContinuation = (
+    cursor: string | undefined,
+    continuation: SnapshotContinuation | undefined,
+    guard: JSHandle<SnapshotGuard | null>,
+    offset: number,
+    total: number,
+    returned: number,
+    selector: string | undefined,
+    inspecting: boolean
+  ) =>
+    Effect.gen(function* retainSnapshotPage() {
+      const nextOffset = offset + returned;
+      const truncated = !inspecting && nextOffset < total;
+      const nextCursor = truncated ? `snapshot-page-${randomUUID()}` : null;
+      if (cursor !== undefined) {
+        continuations.delete(cursor);
+      }
+      if (nextCursor === null) {
+        yield* releaseGuard(guard);
+        if (continuation !== undefined) {
+          yield* releaseGuard(continuation.guard);
+        }
+      } else {
+        continuations.set(nextCursor, {
+          guard: continuation?.guard ?? guard,
+          offset: nextOffset,
+          selector,
+        });
+        if (continuation !== undefined) {
+          yield* releaseGuard(guard);
+        }
+        while (continuations.size > 8) {
+          const oldest = continuations.entries().next().value;
+          if (oldest !== undefined) {
+            continuations.delete(oldest[0]);
+            yield* releaseGuard(oldest[1].guard);
+          }
+        }
+      }
+      return {
+        nextCursor,
+        offset,
+        returned,
+        selector: selector ?? null,
+        total,
+        truncated,
+      };
+    });
+
+  const readSnapshot = (
+    page: Page,
+    options: AgentSnapshotOptions = {},
+    point?: { readonly x: number; readonly y: number }
   ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> =>
     Effect.gen(function* captureBrowserSnapshot() {
+      const cursor = options.cursor ?? undefined;
+      const continuation = (yield* continuationFor(options)) ?? undefined;
       // A navigation ends every reference read in the old document. Snapshots
       // of the same document add references rather than replacing them, so a
       // reference stays usable until its element leaves the page.
       if (documentUrl !== undefined && documentUrl !== page.url()) {
         yield* clear();
+        if (continuation !== undefined) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_element_stale",
+              "The Page navigated. Take a fresh snapshot before continuing."
+            )
+          );
+        }
       }
+      const selector = continuation?.selector ?? options.selector ?? undefined;
+      const offset = continuation?.offset ?? 0;
       generation += 1;
       // Evidence identity must never collide across sessions or process lifetimes.
       const snapshotId = AgentSnapshotId.make(`snapshot-${randomUUID()}`);
@@ -978,7 +1155,9 @@ export const makeAgentElementRegistry = (
         Effect.tryPromise({
           catch: (cause) => browserFailure("Could not read the Page", cause),
           try: () =>
-            page.evaluateHandle<unknown>(SNAPSHOT_SCRIPT(listenerPaths)),
+            page.evaluateHandle<unknown>(
+              SNAPSHOT_SCRIPT(listenerPaths, selector, offset, point)
+            ),
         }),
         (handle) =>
           Effect.gen(function* readCollectedPage() {
@@ -992,12 +1171,18 @@ export const makeAgentElementRegistry = (
             const titleHandle = yield* property(handle, "title");
             const urlHandle = yield* property(handle, "url");
             const focusedIndexHandle = yield* property(handle, "focusedIndex");
+            const totalHandle = yield* property(handle, "total");
+            const guard = yield* property<SnapshotGuard | null>(
+              handle,
+              "guard"
+            );
             const rawPage = yield* Effect.tryPromise({
               catch: (cause) =>
                 browserFailure("Could not read the Browser Snapshot", cause),
               try: async () => ({
                 focusedIndex: await focusedIndexHandle.jsonValue(),
                 title: await titleHandle.jsonValue(),
+                total: await totalHandle.jsonValue(),
                 url: await urlHandle.jsonValue(),
               }),
             });
@@ -1012,11 +1197,34 @@ export const makeAgentElementRegistry = (
               nodesHandle,
               titleHandle,
               urlHandle,
+              totalHandle,
             ]);
-            return { handles, rawNodes, rawPage };
+            return { guard, handles, rawNodes, rawPage };
           }),
         (handle) => disposeHandles([handle])
       );
+      const identity = yield* Schema.decodeUnknownEffect(CollectedPage)(
+        collected.rawPage
+      ).pipe(
+        Effect.mapError((cause) =>
+          browserFailure("Invalid snapshot metadata", cause)
+        )
+      );
+      const valid = yield* matchesContinuation(continuation, collected.guard);
+      if (!valid) {
+        yield* releaseGuard(collected.guard);
+        yield* disposeHandles([...collected.handles.values()]);
+        if (cursor !== undefined && continuation !== undefined) {
+          continuations.delete(cursor);
+          yield* releaseGuard(continuation.guard);
+        }
+        return yield* Effect.fail(
+          makeBrowserRpcError(
+            "agent_element_stale",
+            "The Page changed while paging its snapshot. Take a fresh snapshot."
+          )
+        );
+      }
       const decodedNodes = yield* Schema.decodeUnknownEffect(CollectedNodes)(
         collected.rawNodes
       ).pipe(
@@ -1027,18 +1235,11 @@ export const makeAgentElementRegistry = (
           )
         )
       );
-      const identity = yield* Schema.decodeUnknownEffect(CollectedPage)(
-        collected.rawPage
-      ).pipe(
-        Effect.orElseSucceed(() => ({
-          focusedIndex: -1,
-          title: "",
-          url: page.url(),
-        }))
-      );
       const nodes: AgentSnapshotNode[] = [];
       const orphaned: JSHandle<unknown>[] = [];
-      focused = undefined;
+      if (point === undefined) {
+        focused = undefined;
+      }
       let index = 0;
       for (const [, entry] of collected.handles) {
         const element = entry.asElement();
@@ -1062,14 +1263,28 @@ export const makeAgentElementRegistry = (
       yield* disposeHandles(orphaned);
       documentUrl = identity.url;
       yield* trim();
+      const coverage = yield* retainContinuation(
+        cursor,
+        continuation,
+        collected.guard,
+        offset,
+        identity.total,
+        nodes.length,
+        selector,
+        point !== undefined
+      );
       return {
         capturedAt: now().toISOString(),
+        coverage,
         nodes,
         snapshotId,
         title: identity.title,
         url: sanitizeTeachingUrl(identity.url),
       };
     });
+
+  const snapshot = (page: Page, options?: AgentSnapshotOptions) =>
+    reads.withPermit(readSnapshot(page, options));
 
   const resolve = (
     ref: string
@@ -1294,6 +1509,13 @@ export const makeAgentElementRegistry = (
   ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
     pointElement(x, y).pipe(Effect.map(({ ref }) => ref));
 
+  const inspect = (page: Page, x: number, y: number) =>
+    reads.withPermit(
+      readSnapshot(page, {}, { x, y }).pipe(
+        Effect.flatMap(() => pointElement(x, y))
+      )
+    );
+
   const sameElement = (left: string, right: string): Effect.Effect<boolean> =>
     left === right
       ? Effect.succeed(elements.has(left))
@@ -1386,6 +1608,7 @@ export const makeAgentElementRegistry = (
     describe: (ref) => subjects.get(ref),
     focusedRef,
     hasFocus,
+    inspect,
     isSensitive,
     pointElement,
     pointRef,
@@ -1447,6 +1670,9 @@ export const redactAgentSnapshot = (
       ...node,
       name: redactKnownValues(node.name, values),
     };
+    if (node.context !== undefined) {
+      redacted.context = redactKnownValues(node.context, values);
+    }
     if (node.value === undefined) {
       return redacted;
     }
@@ -1918,12 +2144,13 @@ export const observeAfterAction = (
  */
 export const settledSnapshot = (
   page: Page,
-  registry: AgentElementRegistry
+  registry: AgentElementRegistry,
+  options?: AgentSnapshotOptions
 ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> =>
   Effect.gen(function* readSettledPage() {
     const installed = yield* installProbe(page);
     const quiet = yield* awaitQuiet(page, 0, installed);
-    const snapshot = yield* registry.snapshot(page);
+    const snapshot = yield* registry.snapshot(page, options);
     return { ...snapshot, settle: quiet.settle };
   });
 

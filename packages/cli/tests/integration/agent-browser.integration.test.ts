@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import {
+  AgentElementRef,
   ContingencyRpcs,
   describeActionSubject,
   OperationId,
@@ -1194,4 +1195,186 @@ it.live("shows a navigation that starts after the bound on the next read", () =>
     expect(reread.url).toBe(`${fixtures.url("settle.html")}?arrived`);
     expect(reread.settle?.settled).toBe(true);
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "reports snapshot coverage, scopes bill text, and pages without losing eligible content",
+  () =>
+    Effect.gen(function* snapshotCoverage() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("snapshot-cart.html"),
+        "snapshot-cart-coverage"
+      );
+      const first = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      expect(first.nodes).toHaveLength(300);
+      expect(first.coverage?.truncated).toBe(true);
+      expect(first.coverage?.selector).toBeNull();
+      expect(
+        first.nodes.some((node) => node.name.includes("Total amount"))
+      ).toBe(false);
+      expect(first.settle?.settled).toBe(true);
+
+      const all = [...first.nodes];
+      let cursor = first.coverage?.nextCursor;
+      let offset = all.length;
+      while (cursor) {
+        const next = yield* callTool("agent_browser_snapshot", {
+          cursor,
+          sessionId: session.id,
+        });
+        expect(next.coverage?.offset).toBe(offset);
+        expect(next.nodes.length).toBeLessThanOrEqual(300);
+        all.push(...next.nodes);
+        offset += next.nodes.length;
+        cursor = next.coverage?.nextCursor;
+      }
+      expect(all).toHaveLength(first.coverage?.total ?? -1);
+      const products = all.filter(
+        (node) => node.role === "button" && node.name === "Add to cart"
+      );
+      expect(products).toHaveLength(320);
+      expect(new Set(products.map((node) => node.context)).size).toBe(320);
+      findNode(all, "paragraph", "Total amount: 24.00");
+
+      const scoped = yield* callTool("agent_browser_snapshot", {
+        selector: "#bill",
+        sessionId: session.id,
+      });
+      expect(scoped.coverage).toMatchObject({
+        nextCursor: null,
+        offset: 0,
+        returned: scoped.nodes.length,
+        selector: "#bill",
+        truncated: false,
+      });
+      findNode(scoped.nodes, "paragraph", "Total amount: 24.00");
+      expect(JSON.stringify(scoped)).not.toContain("fixture-private-cart-code");
+      const missing = yield* Effect.flip(
+        callTool("agent_browser_snapshot", {
+          selector: "#missing",
+          sessionId: session.id,
+        })
+      );
+      expect(missing.message).toContain("matched no section");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "formats redacted compact snapshots with usable refs and invalidates changed continuation",
+  () =>
+    Effect.gen(function* compactSnapshot() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("snapshot-cart.html"),
+        "snapshot-cart-text"
+      );
+      const recommendations = yield* callTool("agent_browser_snapshot", {
+        selector: "#recommendations",
+        sessionId: session.id,
+      });
+      const text = yield* callTool("agent_browser_snapshot", {
+        format: "text",
+        selector: "#bill",
+        sessionId: session.id,
+      });
+      expect(text.nodes).toEqual([]);
+      expect(text.text).toContain('paragraph "Total amount: 24.00"');
+      expect(text.text).toContain("value withheld");
+      expect(JSON.stringify(text)).not.toContain("fixture-private-cart-code");
+      const ref = text.text?.match(/@(?<ref>e\d+) button "Change quantity"/u)
+        ?.groups?.["ref"];
+      expect(ref).toBeDefined();
+      const opened = yield* callTool("agent_browser_act", {
+        action: { ref: AgentElementRef.make(ref ?? "e0"), type: "click" },
+        operationId: OperationId.make("snapshot-cart-open-dialog"),
+        sessionId: session.id,
+      });
+      expect(opened.entry.outcome).toBe("completed");
+      const stale = yield* Effect.flip(
+        callTool("agent_browser_snapshot", {
+          cursor: recommendations.coverage?.nextCursor ?? undefined,
+          sessionId: session.id,
+        })
+      );
+      expect(stale.message).toContain("Take a fresh snapshot");
+      const openedDialog = yield* callTool("agent_browser_snapshot", {
+        selector: "dialog",
+        sessionId: session.id,
+      });
+      const quantity = findNode(openedDialog.nodes, "textbox", "Quantity");
+      yield* callTool("agent_browser_act", {
+        action: { ref: quantity.ref, text: "2", type: "fill" },
+        operationId: OperationId.make("snapshot-cart-fill-quantity"),
+        sessionId: session.id,
+      });
+      const dialog = yield* callTool("agent_browser_snapshot", {
+        selector: "dialog",
+        sessionId: session.id,
+      });
+      const save = findNode(dialog.nodes, "button", "Save quantity");
+      yield* callTool("agent_browser_act", {
+        action: { ref: save.ref, type: "click" },
+        operationId: OperationId.make("snapshot-cart-save-quantity"),
+        sessionId: session.id,
+      });
+      const updated = yield* callTool("agent_browser_snapshot", {
+        selector: "#bill",
+        sessionId: session.id,
+      });
+      findNode(updated.nodes, "paragraph", "Total amount: 48.00");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "inspects live controls and bill text omitted from the global snapshot budget",
+  () =>
+    Effect.gen(function* inspectLargeCart() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("snapshot-cart.html"),
+        "snapshot-cart-inspect"
+      );
+      const first = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      expect(first.nodes.some((node) => node.name === "Change quantity")).toBe(
+        false
+      );
+      const inspected = yield* agent("agent.browser.element.inspect", {
+        data: { sessionId: session.id, x: 80, y: 280 },
+        type: "agent.browser.element.inspect",
+      });
+      expect(inspected.data.element.description).toBe(
+        "button: Change quantity"
+      );
+      expect(inspected.data.element.width).toBeGreaterThan(0);
+      const total = yield* agent("agent.browser.element.inspect", {
+        data: { sessionId: session.id, x: 80, y: 369 },
+        type: "agent.browser.element.inspect",
+      });
+      expect(total.data.element.description).toBe(
+        "paragraph: Total amount: 24.00"
+      );
+      const miss = yield* Effect.flip(
+        agent("agent.browser.element.inspect", {
+          data: { sessionId: session.id, x: 620, y: 40 },
+          type: "agent.browser.element.inspect",
+        })
+      );
+      expect(miss.message).toContain("contains that point");
+      const retry = yield* agent("agent.browser.element.inspect", {
+        data: { sessionId: session.id, x: 80, y: 280 },
+        type: "agent.browser.element.inspect",
+      });
+      expect(retry.data.element.description).toBe("button: Change quantity");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
