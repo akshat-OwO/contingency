@@ -390,7 +390,7 @@ export const makeTeachingRecorder = (
 
     // A ceiling is documented to end the recording, not merely to truncate the
     // artifact at Stop. The watchdog trips `breach`, the loop exits, and the
-    // Agent Session -- which owns `capture` -- reacts to `limitReached`.
+    // Agent Session -- which owns `captureState` -- reacts to `limitReached`.
     const limitReached = yield* Deferred.make<string>();
     let breach: string | undefined;
     let measuredBytes = 0;
