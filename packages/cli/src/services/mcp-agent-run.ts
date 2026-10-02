@@ -21,14 +21,8 @@ import { Effect, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentRunStore } from "./agent-run-store.ts";
-import type { AgentRunStoreError } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
-import type { AgentSessionError } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
-import type {
-  FlowSkillCatalogError,
-  FlowSkillPackage,
-} from "./flow-skill-catalog.ts";
 import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import {
   SessionResult,
@@ -39,6 +33,12 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import {
+  PRIVATE_INPUT_NAME,
+  readRequestedSkills,
+  taskVariables,
+  validateTaskInputs,
+} from "./requested-flow-skills.ts";
 import { webHost } from "./teaching-demonstration.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
@@ -50,20 +50,11 @@ class AgentRunFailure extends Schema.Error<AgentRunFailure>("AgentRunFailure")({
   message: Schema.String,
 }) {}
 
-const failure = (
-  cause: AgentSessionError | FlowSkillCatalogError | AgentRunStoreError
-) =>
+const failure = (cause: { readonly code: string; readonly message: string }) =>
   new AgentRunFailure({
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
   });
-
-/**
- * A declared input whose name is shouty snake case is a runtime Variable: the
- * user supplies it through a `supply_variable` decision and the literal never
- * enters a tool call. Every other input is ordinary text the agent passes in.
- */
-const SECRET_INPUT = /^[A-Z][A-Z0-9_]*$/u;
 
 /**
  * A stamped identity that no longer exists in this build falls back to the
@@ -213,12 +204,13 @@ const AgentTaskFindingTool = Tool.make("agent_run_finding", {
 const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
   dependencies: [AgentSession],
   description:
-    "Request a declared private/runtime input only when needed. The flowSkillName and name together identify the value. Present the returned Pending Decision to the user, relay supply/refusal with agent_pending_decision_resolve, then enter it with agent_variable_enter using the same flowSkillName. Unused declared inputs do not pause startup or browser actions.",
+    "Request a declared private/runtime input only when needed. The flowSkillName and name together identify the value. Present the returned Pending Decision to the user, relay supply/refusal with agent_pending_decision_resolve, then enter it with agent_variable_enter using the same flowSkillName. For a Dry Run prerequisite, the user supplies or refuses the value in Workspace. Set replace:true to invalidate a supplied value and request a fresh one. Unused declared inputs do not pause startup or browser actions.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     flowSkillName: FlowSkillName,
-    name: Schema.String.check(Schema.isPattern(SECRET_INPUT)),
+    name: Schema.String.check(Schema.isPattern(PRIVATE_INPUT_NAME)),
     operationId: OperationId,
+    replace: optionalNullable(Schema.Boolean),
     sessionId: AgentSessionId,
     view: sessionViewParameter,
   }),
@@ -238,71 +230,6 @@ export const AgentRunTools = withStrictParameters(
     AgentTaskVariableRequestTool
   )
 );
-
-const readRequestedSkills = (names: readonly FlowSkillName[]) =>
-  Effect.gen(function* readSkills() {
-    const catalog = yield* FlowSkillCatalog;
-    const skills: FlowSkillPackage[] = [];
-    for (const name of new Set(names)) {
-      const skill = yield* catalog.read(name).pipe(Effect.mapError(failure));
-      if (
-        !skill.files.some(
-          (file) =>
-            file.path === "references/verification.md" &&
-            /^- Verified: .+$/mu.test(file.content)
-        )
-      ) {
-        return yield* Effect.fail(
-          new AgentRunFailure({
-            code: "flow_skill_invalid",
-            message: `Flow Skill ${name} has not been verified by the user.`,
-          })
-        );
-      }
-      skills.push(skill);
-    }
-    return skills;
-  });
-const taskVariables = (skill: FlowSkillPackage) =>
-  skill.inputs.flatMap((input) =>
-    SECRET_INPUT.test(input.name)
-      ? [
-          {
-            flowSkillName: skill.name,
-            name: input.name,
-            runtime: true,
-            secret: true,
-            supplied: false,
-          },
-        ]
-      : []
-  );
-const validateTaskInputs = (
-  skills: readonly FlowSkillPackage[],
-  inputs: readonly AgentRunTaskInput[]
-) =>
-  Effect.gen(function* validateInputs() {
-    const identities = new Set<string>();
-    const skillsByName = new Map(skills.map((skill) => [skill.name, skill]));
-    for (const input of inputs) {
-      const skill = skillsByName.get(input.flowSkillName);
-      const identity = JSON.stringify([input.flowSkillName, input.name]);
-      if (
-        skill === undefined ||
-        !skill.inputs.some((declared) => declared.name === input.name) ||
-        SECRET_INPUT.test(input.name) ||
-        identities.has(identity)
-      ) {
-        return yield* Effect.fail(
-          new AgentRunFailure({
-            code: "flow_skill_invalid",
-            message: `Input ${input.flowSkillName}/${input.name} must be a unique declared ordinary input. Private values use on-demand Variable decisions.`,
-          })
-        );
-      }
-      identities.add(identity);
-    }
-  });
 
 const startTaskRun = (params: AgentTaskRunStart) =>
   Effect.gen(function* openTaskRun() {
@@ -538,7 +465,8 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           params.sessionId,
           params.flowSkillName,
           params.name,
-          params.operationId
+          params.operationId,
+          params.replace ?? false
         )
         .pipe(Effect.mapError(failure), inView(params.view));
     }),

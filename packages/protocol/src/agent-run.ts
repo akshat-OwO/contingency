@@ -306,6 +306,7 @@ export type AgentRunTaskInput = typeof AgentRunTaskInput.Type;
 export const AgentRunTaskVariable = Schema.Struct({
   ...AgentSessionVariableState.fields,
   flowSkillName: FlowSkillName,
+  lastAnswer: Schema.optional(Schema.Literals(["supplied", "refused"])),
 });
 export type AgentRunTaskVariable = typeof AgentRunTaskVariable.Type;
 

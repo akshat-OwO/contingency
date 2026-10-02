@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dry Run prerequisite shop</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+      }
+      label {
+        display: block;
+        margin: 12px 0;
+      }
+      section {
+        margin-bottom: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Dry Run prerequisite shop</h1>
+      <section aria-label="Location setup">
+        <label>City <input id="city" /></label>
+        <label>Delivery area <input id="area" /></label>
+        <button type="button" id="location">Save location</button>
+        <p id="delivery">Location needed</p>
+      </section>
+      <section aria-label="Login setup">
+        <label
+          >Verification code
+          <input id="code" type="password" autocomplete="off"
+        /></label>
+        <button type="button" id="login">Sign in</button>
+        <p id="account">Signed out</p>
+      </section>
+      <section aria-label="Cart journey">
+        <label>SKU <input id="sku" /></label>
+        <button type="button" id="add">Add SKU to cart</button>
+        <p id="cart">Cart has 0 items</p>
+      </section>
+    </main>
+    <script>
+      // Synthetic verification input. The exact value must reach the private field.
+      const expectedCode = "fixture-login-code";
+      const render = () => {
+        const location = sessionStorage.getItem("prerequisite-location");
+        const authenticated = document.cookie.includes(
+          "prerequisite-authenticated=1"
+        );
+        document.getElementById("delivery").textContent = location
+          ? `Delivering to ${location}`
+          : "Location needed";
+        document.getElementById("account").textContent = authenticated
+          ? "Signed in"
+          : "Signed out";
+        document.getElementById("cart").textContent =
+          `Cart has ${sessionStorage.getItem("prerequisite-cart") ?? "0"} items`;
+        document.getElementById("add").disabled = !location || !authenticated;
+      };
+      document.getElementById("location").addEventListener("click", () => {
+        const city = document.getElementById("city").value;
+        const area = document.getElementById("area").value;
+        if (city && area)
+          sessionStorage.setItem("prerequisite-location", `${area}, ${city}`);
+        render();
+      });
+      document.getElementById("login").addEventListener("click", () => {
+        if (document.getElementById("code").value !== expectedCode) return;
+        document.cookie = "prerequisite-authenticated=1; Path=/; SameSite=Lax";
+        document.getElementById("code").value = "";
+        render();
+      });
+      document.getElementById("add").addEventListener("click", () => {
+        if (document.getElementById("sku").value !== "ANVIL-001") return;
+        sessionStorage.setItem(
+          "prerequisite-cart",
+          String(Number(sessionStorage.getItem("prerequisite-cart") ?? "0") + 1)
+        );
+        render();
+      });
+      render();
+    </script>
+  </body>
+</html>

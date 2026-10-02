@@ -1,11 +1,16 @@
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 
+import { DryRunPrerequisiteVariables } from "./dry-run-prerequisite-variables";
+
 /** Read-only requests; private values are supplied in the MCP conversation. */
 export const RuntimeVariables = ({
   session,
 }: {
   readonly session: AgentSessionSnapshot;
 }) => {
+  if (session.dryRun?.flowSkillName !== undefined) {
+    return <DryRunPrerequisiteVariables session={session} />;
+  }
   const pending = (session.pendingDecisions ?? []).filter(
     (decision) => decision.kind === "supply_variable"
   );

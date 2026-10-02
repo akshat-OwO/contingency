@@ -401,6 +401,48 @@ test("labels an Interactive Run without exposing a raw session id", async () => 
   expect(option).not.toHaveTextContent(session.id);
 });
 
+test("keeps a prerequisite refusal visible after its request closes", async () => {
+  renderWorkspace(
+    resultFor([
+      {
+        ...dryRunSession,
+        pendingDecisions: [],
+        run: {
+          assessment: null,
+          findings: [],
+          inputs: [],
+          instructions: [],
+          lifecycle: { phase: "running" },
+          purpose: {
+            flowSkillName: "add-anvil",
+            kind: "dry-run",
+            recordingId: "recording-add-anvil",
+            takeoverOccurred: false,
+          },
+          referencedSkills: [],
+          requestedTask: "Add an anvil.",
+          schemaVersion: 3,
+          variables: [
+            {
+              flowSkillName: "login",
+              lastAnswer: "refused",
+              name: "PASSWORD",
+              runtime: true,
+              secret: true,
+              supplied: false,
+            },
+          ],
+        },
+      },
+    ]),
+    session.id
+  );
+  expect(
+    await screen.findByRole("region", { name: "Prerequisite Variables" })
+  ).toHaveTextContent("login/PASSWORD refused");
+  expect(screen.queryByRole("textbox", { name: "login/PASSWORD" })).toBeNull();
+});
+
 test("a live Run offers no ceiling to extend", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
