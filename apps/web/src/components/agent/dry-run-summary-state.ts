@@ -79,13 +79,23 @@ export const dryRunChecksPass = (summary: TaskDryRunSummary): boolean =>
   dryRunChecks(summary).every((check) => check.passed);
 
 /**
- * Whether the Dry Run passed. A Runner result of `failed` fails it even when
- * every check passes: the observable outcome is a system fact, not a report.
+ * What the summary may claim about the Dry Run as a whole. A Runner result of
+ * `failed` fails it even when every check passes: the observable outcome is a
+ * system fact, not a report. Without that result, as in a persisted record
+ * reopened by `open_run`, green checks are all the record proves, so the
+ * verdict says exactly that instead of claiming a pass.
  */
-export const dryRunPassed = (
+export type DryRunVerdict = "checks-passed" | "failed" | "passed";
+
+export const dryRunVerdict = (
   summary: TaskDryRunSummary,
   result: FlowSkillDryRunResult | undefined
-): boolean => result?.outcome !== "failed" && dryRunChecksPass(summary);
+): DryRunVerdict => {
+  if (result?.outcome === "failed" || !dryRunChecksPass(summary)) {
+    return "failed";
+  }
+  return result === undefined ? "checks-passed" : "passed";
+};
 
 /** `1m 04s`, or `42s` under a minute. */
 export const runDuration = (summary: TaskAgentRunSummary): string => {

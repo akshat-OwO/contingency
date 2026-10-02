@@ -10,11 +10,14 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import type { TaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
+import type {
+  DryRunVerdict,
+  TaskDryRunSummary,
+} from "@/components/agent/dry-run-summary-state";
 import {
   assessmentOutcomeLabel,
   dryRunChecks,
-  dryRunPassed,
+  dryRunVerdict,
   evidenceCount,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
@@ -24,26 +27,32 @@ import { cn } from "@/lib/utils";
 
 const passedTone = "text-emerald-600 dark:text-emerald-400";
 
+const verdictLabel: Record<DryRunVerdict, string> = {
+  "checks-passed": "All checks passed",
+  failed: "Dry Run failed",
+  passed: "Dry Run passed",
+};
+
 const Verdict = ({
   className,
-  passed,
+  verdict,
 }: {
   readonly className?: string;
-  readonly passed: boolean;
+  readonly verdict: DryRunVerdict;
 }) => (
   <span
     className={cn(
       "inline-flex items-center gap-1 font-medium",
-      passed ? passedTone : "text-destructive",
+      verdict === "failed" ? "text-destructive" : passedTone,
       className
     )}
   >
-    {passed ? (
-      <CircleCheckIcon aria-hidden="true" className="size-3.5" />
-    ) : (
+    {verdict === "failed" ? (
       <CircleXIcon aria-hidden="true" className="size-3.5" />
+    ) : (
+      <CircleCheckIcon aria-hidden="true" className="size-3.5" />
     )}
-    {passed ? "Dry Run passed" : "Dry Run failed"}
+    {verdictLabel[verdict]}
   </span>
 );
 
@@ -56,18 +65,18 @@ const Verdict = ({
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
 const DryRunVideo = ({
-  passed,
   src,
   summary,
+  verdict,
 }: {
-  readonly passed: boolean;
+  readonly verdict: DryRunVerdict;
   readonly src: string;
   readonly summary: TaskDryRunSummary;
 }) => (
   <section aria-label="Run video" className="space-y-1.5">
     {summary.videoPath === null ? (
       <>
-        <Verdict className="text-sm" passed={passed} />
+        <Verdict className="text-sm" verdict={verdict} />
         <p className="text-muted-foreground text-xs">
           This Run recorded no video.
         </p>
@@ -85,7 +94,7 @@ const DryRunVideo = ({
         </video>
         <Verdict
           className="bg-background/90 pointer-events-none absolute top-2 left-2 rounded-full px-2 py-0.5 text-xs shadow-sm"
-          passed={passed}
+          verdict={verdict}
         />
       </div>
     )}
@@ -102,9 +111,9 @@ const Stat = ({
   readonly label: string;
   readonly value: ReactNode;
 }) => (
-  <div className="px-2 py-2 text-center">
-    <dd className="text-lg font-semibold tabular-nums">{value}</dd>
+  <div className="flex flex-col-reverse px-2 py-2 text-center">
     <dt className="text-muted-foreground text-xs">{label}</dt>
+    <dd className="text-lg font-semibold tabular-nums">{value}</dd>
   </div>
 );
 
@@ -181,13 +190,13 @@ export const DryRunSummaryView = ({
   readonly summary: TaskDryRunSummary;
   readonly videoSrc?: string | undefined;
 }) => {
-  const passed = dryRunPassed(summary, result);
+  const verdict = dryRunVerdict(summary, result);
   return (
     <div className="space-y-3">
       <DryRunVideo
-        passed={passed}
         src={videoSrc ?? agentRunVideoPath(summary.runId)}
         summary={summary}
+        verdict={verdict}
       />
       <dl className="grid grid-cols-4 divide-x rounded-lg border">
         <Stat label="Duration" value={runDuration(summary)} />

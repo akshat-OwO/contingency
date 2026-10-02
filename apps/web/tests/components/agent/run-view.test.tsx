@@ -298,14 +298,27 @@ const dryRunTask = {
   },
 } as const;
 
-const checkRow = (label: string) =>
-  within(screen.getByRole("list", { name: "Pass checks" }))
+const checkRow = (label: string): HTMLElement => {
+  const row = within(screen.getByRole("list", { name: "Pass checks" }))
     .getByText(label)
     .closest("li");
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`No pass check row for ${label}`);
+  }
+  return row;
+};
+
+const passedResult = {
+  completedAt: dryRunTask.endedAt,
+  inputs: [],
+  observableOutcome: "The cart remains open with an anvil.",
+  outcome: "passed",
+} as const;
 
 test("leads a passing task Dry Run with its video, verdict, and pass checks", () => {
   render(
     <DryRunSummaryView
+      result={passedResult}
       summary={{
         ...dryRunTask,
         assessment: { ...dryRunTask.assessment, outcomeComplete: true },
@@ -323,9 +336,7 @@ test("leads a passing task Dry Run with its video, verdict, and pass checks", ()
     "Full outcome attempted",
     "No takeover",
   ]) {
-    expect(
-      within(checkRow(label) ?? document.body).getByLabelText("Passed")
-    ).toBeVisible();
+    expect(within(checkRow(label)).getByLabelText("Passed")).toBeVisible();
   }
   expect(
     screen.getByText("The cart remains open with an anvil.")
@@ -333,6 +344,19 @@ test("leads a passing task Dry Run with its video, verdict, and pass checks", ()
   expect(
     screen.getByRole("list", { name: "Browser evidence" })
   ).toHaveTextContent("snapshot: snapshot-task");
+});
+
+test("claims only green checks when a reopened Dry Run has no Runner result", () => {
+  render(
+    <RunSummaryView
+      summary={{
+        ...dryRunTask,
+        assessment: { ...dryRunTask.assessment, outcomeComplete: true },
+      }}
+    />
+  );
+  expect(screen.getByText("All checks passed")).toBeVisible();
+  expect(screen.queryByText("Dry Run passed")).toBeNull();
 });
 
 test("names the failed check for an incomplete Dry Run with Takeover", () => {
@@ -348,13 +372,11 @@ test("names the failed check for an incomplete Dry Run with Takeover", () => {
   expect(screen.getByText("Dry Run failed")).toBeVisible();
   expect(checkRow("Full outcome attempted")).toHaveTextContent("No");
   expect(
-    within(checkRow("Full outcome attempted") ?? document.body).getByLabelText(
-      "Failed"
-    )
+    within(checkRow("Full outcome attempted")).getByLabelText("Failed")
   ).toBeVisible();
   expect(checkRow("No takeover")).toHaveTextContent("User took control");
   expect(
-    within(checkRow("Run finished") ?? document.body).getByLabelText("Passed")
+    within(checkRow("Run finished")).getByLabelText("Passed")
   ).toBeVisible();
 });
 
