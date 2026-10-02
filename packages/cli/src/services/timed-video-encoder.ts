@@ -116,6 +116,9 @@ export const matroskaClusterHeader = (
  * Unlike Playwright's recorder, input probing is left at its defaults:
  * shortening it makes ffmpeg guess a frame rate from the first frames and
  * drop the ones a sparse, repaint-driven stream stamps between its ticks.
+ * The encoder counts in milliseconds for the same reason: left to itself it
+ * counts in ticks of the guessed rate, so a caret blinking at 2fps would
+ * round every later frame to the half second.
  */
 const ffmpegArguments = (
   output: string,
@@ -133,6 +136,8 @@ const ffmpegArguments = (
   `scale=${width}:${height}`,
   "-fps_mode",
   "passthrough",
+  "-enc_time_base",
+  "1/1000",
   "-c:v",
   "libvpx",
   "-qmin",

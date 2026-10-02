@@ -254,6 +254,52 @@ it.live(
 );
 
 it.live(
+  "keeps each footage frame at its own stamp when repaints come at a steady rate",
+  () =>
+    Effect.gen(function* encodeSteadyRepaints() {
+      const directory = yield* temporaryDirectory;
+      const file = path.join(directory, FOOTAGE_VIDEO_FILE);
+      yield* Effect.scoped(
+        Effect.gen(function* recordCaretBlink() {
+          const browser = yield* CreateBrowser;
+          const page = yield* browser.compositor({
+            height: HEIGHT,
+            width: WIDTH,
+          });
+          const red = yield* solidFrame(page, "rgb(220 40 40)");
+          const green = yield* solidFrame(page, "rgb(40 200 60)");
+          const blue = yield* solidFrame(page, "rgb(40 60 220)");
+          const encoder = yield* makeTimedVideoEncoder({
+            height: HEIGHT,
+            label: "test footage",
+            lossy: false,
+            output: file,
+            width: WIDTH,
+          });
+          // A Page that loads, then sits with a caret blinking at 2fps; on a
+          // half-second clock the first blink would show at 3.5s.
+          yield* encoder.write(red, 0);
+          yield* encoder.write(green, 56);
+          for (const atMs of [3509, 4009, 4509, 5009, 5509, 6009]) {
+            yield* encoder.write(blue, atMs);
+          }
+          expect(yield* encoder.finish).toBeUndefined();
+        })
+      );
+      const region = { height: 10, width: 10, x: 40, y: 40 };
+      const sample = yield* sampleVideo(file, [
+        { at: 0.1, ...region },
+        { at: 3.504, ...region },
+        { at: 3.52, ...region },
+      ]);
+      const [loaded, beforeBlink, blinking] = sample.regions;
+      expect(loaded?.mean[1]).toBeGreaterThan(150);
+      expect(beforeBlink?.mean[1]).toBeGreaterThan(150);
+      expect(blinking?.mean[2]).toBeGreaterThan(150);
+    }).pipe(Effect.provide(RendererLive))
+);
+
+it.live(
   "keeps the real-time footage as the video when it cannot be condensed",
   () =>
     Effect.gen(function* fallBackToFootage() {
