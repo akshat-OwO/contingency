@@ -41,6 +41,8 @@ import {
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
+import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
+import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
@@ -91,6 +93,34 @@ import { ExecutionBoundary } from "./execution-boundary";
 
 const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
   session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
+
+/**
+ * The summary docked beside a finished Dry Run, or `null` while there is none.
+ * A task Dry Run gets the pass checks and the Runner's result; a historical
+ * Step record keeps the view it was persisted for.
+ */
+const finishedDryRunSummary = (session: AgentSessionSnapshot) => {
+  if (
+    session.activity !== "teaching" ||
+    (session.captureState._tag !== "dry-run-passed" &&
+      session.captureState._tag !== "dry-run-failed") ||
+    session.captureState.dryRunSummary === undefined
+  ) {
+    return null;
+  }
+  const { dryRunResult, dryRunSummary } = session.captureState;
+  const videoSrc = `/teaching-recordings/${session.recordingId}/dry-run/video`;
+  if (isTaskDryRunSummary(dryRunSummary)) {
+    return (
+      <DryRunSummaryView
+        result={dryRunResult}
+        summary={dryRunSummary}
+        videoSrc={videoSrc}
+      />
+    );
+  }
+  return <RunSummaryView summary={dryRunSummary} videoSrc={videoSrc} />;
+};
 
 /**
  * What the Workspace shows for a failure it has no better sentence for. It is
@@ -2062,17 +2092,7 @@ export const AgentWorkspace = ({
     <div className="relative flex h-svh min-h-0 flex-col">
       <WorkspaceWithRunSummary
         label="Dry Run Summary"
-        summary={
-          session.activity === "teaching" &&
-          (session.captureState._tag === "dry-run-passed" ||
-            session.captureState._tag === "dry-run-failed") &&
-          session.captureState.dryRunSummary !== undefined ? (
-            <RunSummaryView
-              summary={session.captureState.dryRunSummary}
-              videoSrc={`/teaching-recordings/${session.recordingId}/dry-run/video`}
-            />
-          ) : null
-        }
+        summary={finishedDryRunSummary(session)}
       >
         <AgentLiveView
           canvasRef={view.canvasRef}

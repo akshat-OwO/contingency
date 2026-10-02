@@ -7,6 +7,10 @@ import type {
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
 
+import {
+  dryRunChecksPass,
+  isTaskDryRunSummary,
+} from "@/components/agent/dry-run-summary-state";
 import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
 
 /**
@@ -92,11 +96,7 @@ const action = (
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
 const canVerifyDryRun = (summary: AgentRunSummary | undefined): boolean =>
   summary?.schemaVersion !== 3 ||
-  (summary.outcome === "completed" &&
-    summary.purpose.kind === "dry-run" &&
-    !summary.purpose.takeoverOccurred &&
-    summary.assessment?.outcome === "working" &&
-    summary.assessment.outcomeComplete === true);
+  (isTaskDryRunSummary(summary) && dryRunChecksPass(summary));
 
 /**
  * The setup state. An agent-opened session starts with the agent preparing
