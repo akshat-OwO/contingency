@@ -8,6 +8,7 @@ import {
   AgentHistoryAction,
   AgentNavigateAction,
 } from "./agent-browser.ts";
+import { AgentPendingDecisionResolve } from "./agent-decision.ts";
 import { AgentRunOpen, AgentRunSummary, AgentRunViewer } from "./agent-run.ts";
 import {
   AgentSessionClose,
@@ -680,6 +681,18 @@ export const AgentDryRunVariableSupplied = response(
   "agent.dry-run.variable.supplied",
   { session: AgentSessionSnapshot }
 );
+/** Workspace answers a scoped prerequisite request without passing private values to MCP. */
+export const AgentDryRunVariableAnswer = request(
+  "agent.dry-run.variable.answer",
+  {
+    sessionId: AgentBrowserObserve.fields.sessionId,
+    ...AgentPendingDecisionResolve.fields,
+  }
+);
+export const AgentDryRunVariableAnswered = response(
+  "agent.dry-run.variable.answered",
+  { session: AgentSessionSnapshot }
+);
 
 export const AgentSetupVariableAnswerRequest = request(
   "agent.setup.variable.answer",
@@ -990,6 +1003,11 @@ const AgentSetupVariableAnswerRpc = Rpc.make("agent.setup.variable.answer", {
   payload: AgentSetupVariableAnswerRequest,
   success: AgentSetupVariableAnswered,
 });
+const AgentDryRunVariableAnswerRpc = Rpc.make("agent.dry-run.variable.answer", {
+  error: BrowserRpcError,
+  payload: AgentDryRunVariableAnswer,
+  success: AgentDryRunVariableAnswered,
+});
 const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   error: BrowserRpcError,
   payload: AgentBrowserNavigate,
@@ -1074,6 +1092,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
   AgentDryRunVariableSupplyRpc,
+  AgentDryRunVariableAnswerRpc,
   AgentSetupVariableAnswerRpc,
   AgentBrowserNavigateRpc,
   AgentBrowserEmulationGetRpc,

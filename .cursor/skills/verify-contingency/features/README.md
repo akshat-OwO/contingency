@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Dry Run prerequisites](./workspace.md#dry-run-prerequisites) proves startup-fixed verified setup skills, private Workspace supply and refusal, skill-scoped replacement, and a complete cart outcome in one fresh context using the gated prerequisite shop.
+
 - [Teaching setup Variables](./workspace.md#teaching-setup-variables) proves private Workspace supply and refusal before recording, replacement and replay, masking across handoff, and setup-free learned inputs with the isolated sign-in fixture.
 
 - [Teaching navigation evidence](./workspace.md#teaching-navigation-evidence) proves transitional navigation metadata and each keyframe's capture URL with delayed and immediate destination rendering.

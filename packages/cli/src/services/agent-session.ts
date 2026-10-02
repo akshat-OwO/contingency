@@ -527,7 +527,12 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     flowSkillName: string,
     name: string,
-    operationId: OperationId
+    operationId: OperationId,
+    replace?: boolean
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly answerDryRunVariable: (
+    sessionId: AgentSessionId,
+    input: AgentPendingDecisionResolve
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
    * End the Run early and answer with its persistent Run Summary. A Run that
@@ -3352,7 +3357,10 @@ const makeAgentSession = (
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
-      const declaring = record.snapshot.dryRun ?? record.snapshot.run;
+      const declaring =
+        record.snapshot.run !== null && isTaskRun(record.snapshot.run)
+          ? record.snapshot.run
+          : (record.snapshot.dryRun ?? record.snapshot.run);
       if (declaring === null) {
         return {
           _tag: "error",
@@ -3364,7 +3372,8 @@ const makeAgentSession = (
           variable.name === name &&
           (!("schemaVersion" in declaring) ||
             ("flowSkillName" in variable &&
-              variable.flowSkillName === flowSkillName))
+              variable.flowSkillName ===
+                (flowSkillName ?? record.snapshot.dryRun?.flowSkillName)))
       );
       return declared === undefined
         ? {
@@ -5558,6 +5567,27 @@ const makeAgentSession = (
                 ),
               }
             : state;
+        const answeredRun = () => {
+          const { run } = record.snapshot;
+          if (run === null) {
+            return null;
+          }
+          if (record.snapshot.dryRun !== null && isTaskRun(run)) {
+            const lastAnswer: "supplied" | "refused" = supply
+              ? "supplied"
+              : "refused";
+            return {
+              ...run,
+              variables: run.variables.map((variable) =>
+                variable.flowSkillName === pending.variable?.flowSkillName &&
+                variable.name === name
+                  ? { ...variable, lastAnswer, supplied: supply }
+                  : variable
+              ),
+            };
+          }
+          return markSupplied(run);
+        };
         const decidedAt = now().toISOString();
         const resolution = variableResolution(
           pending,
@@ -5585,10 +5615,7 @@ const makeAgentSession = (
               (decision) =>
                 decision.pendingDecisionId !== input.pendingDecisionId
             ),
-            run:
-              record.snapshot.run === null
-                ? null
-                : markSupplied(record.snapshot.run),
+            run: answeredRun(),
           }
         );
         yield* rememberSession(
@@ -5630,6 +5657,14 @@ const makeAgentSession = (
       );
       if (sessionOwner === undefined) {
         return null;
+      }
+      if (sessionOwner.snapshot.dryRun !== null) {
+        return yield* Effect.fail(
+          error(
+            "agent_session_invalid",
+            "Supply or refuse Dry Run prerequisite Variables in Workspace."
+          )
+        );
       }
       return yield* resolveVariableUnlocked(sessionOwner.snapshot.id, input);
     });
@@ -6763,6 +6798,30 @@ const makeAgentSession = (
         }),
       act: (sessionId, action, operationId, intent) =>
         actUnlocked(sessionId, action, operationId, undefined, intent),
+      answerDryRunVariable: (sessionId, input) =>
+        lock.withPermit(
+          Effect.gen(function* answerPrerequisiteVariable() {
+            const record = yield* read(sessionId);
+            if (record.snapshot.dryRun === null) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  "Only a Dry Run accepts a prerequisite Variable in Workspace."
+                )
+              );
+            }
+            const answered = yield* resolveVariableUnlocked(sessionId, input);
+            if (answered.id !== sessionId) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  "This Variable answer belongs to another Agent Session."
+                )
+              );
+            }
+            return answered;
+          })
+        ),
       answerSetupVariable: setupVariableMutation,
       assessTask: (sessionId, input, finding, operationId) =>
         taskMutation(
@@ -7182,15 +7241,32 @@ const makeAgentSession = (
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
         ),
-      requestTaskVariable: (sessionId, flowSkillName, name, operationId) =>
+      requestTaskVariable: (
+        sessionId,
+        flowSkillName,
+        name,
+        operationId,
+        replace = false
+      ) =>
         taskMutation(
           sessionId,
           operationId,
           "variable-request",
-          JSON.stringify({ flowSkillName, name }),
+          JSON.stringify({ flowSkillName, name, replace }),
           (record, run) =>
             Effect.gen(function* requestVariable() {
-              if (run.purpose.kind === "dry-run") {
+              if (record.snapshot.activity !== "run") {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "Only a Run requests a scoped Variable."
+                  )
+                );
+              }
+              if (
+                run.purpose.kind === "dry-run" &&
+                flowSkillName === run.purpose.flowSkillName
+              ) {
                 return yield* Effect.fail(
                   error(
                     "agent_session_invalid",
@@ -7212,7 +7288,7 @@ const makeAgentSession = (
                   candidate.name === name
               );
               if (
-                variable?.supplied ||
+                (variable?.supplied && !replace) ||
                 record.snapshot.pendingDecisions.some(
                   (decision) =>
                     decision.variable?.name === name &&
@@ -7220,6 +7296,9 @@ const makeAgentSession = (
                 )
               ) {
                 return record.snapshot;
+              }
+              if (replace) {
+                record.supplied.delete(variableKey(name, flowSkillName));
               }
               const at = now().toISOString();
               const decision: AgentPendingDecision = {
@@ -7243,6 +7322,19 @@ const makeAgentSession = (
                   ...record.snapshot.pendingDecisions,
                   decision,
                 ],
+                run: {
+                  ...run,
+                  variables: run.variables.map((item) => {
+                    if (
+                      item.flowSkillName !== flowSkillName ||
+                      item.name !== name
+                    ) {
+                      return item;
+                    }
+                    const { lastAnswer: _lastAnswer, ...unanswered } = item;
+                    return { ...unanswered, supplied: false };
+                  }),
+                },
                 updatedAt: at,
               };
               yield* save(sessionId, record, next);
@@ -7677,7 +7769,10 @@ const makeAgentSession = (
                   ? {
                       ...snapshot.run,
                       variables: snapshot.run.variables.map((item) =>
-                        item.name === name ? { ...item, supplied: true } : item
+                        item.name === name &&
+                        item.flowSkillName === dryRun.flowSkillName
+                          ? { ...item, supplied: true }
+                          : item
                       ),
                     }
                   : snapshot.run,

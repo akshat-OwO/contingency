@@ -3,12 +3,14 @@ import path from "node:path";
 
 import {
   AgentRunId,
+  AgentRunTaskInput,
   compactAgentSession,
   FlowSkillName,
   FlowSkillDiagnostic,
   FlowSkillFile,
   FlowSkillSaveResult,
   OperationId,
+  optionalNullable,
   TEACHING_RECORDING_WAIT_MAX_MS,
   TeachingKeyframeFile,
   TeachingRecordingClaimResult,
@@ -25,6 +27,7 @@ import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
+import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
@@ -36,6 +39,12 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import {
+  PRIVATE_INPUT_NAME,
+  readRequestedSkills,
+  taskVariables,
+  validateTaskInputs,
+} from "./requested-flow-skills.ts";
 import { webHost } from "./teaching-demonstration.ts";
 import {
   TeachingRecordingLearning,
@@ -209,13 +218,20 @@ const DryRunInput = Schema.Union([
 ]);
 
 const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
-  dependencies: [AgentSession, FileSystem.FileSystem, TeachingRecordingStore],
+  dependencies: [
+    AgentSession,
+    FileSystem.FileSystem,
+    TeachingRecordingStore,
+    FlowSkillCatalog,
+  ],
   description:
-    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. The saved skill outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete skill outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
+    "Start a saved Flow Skill in a fresh browser context with the Teaching Recording's Emulation. The saved skill outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Pass explicitly user-requested verified skill names in prerequisites and their declared ordinary inputs in prerequisiteInputs, scoped by flowSkillName and name. All ordinary prerequisite inputs are fixed at startup. The result includes prerequisite procedures; they share this fresh context without widening Teaching hosts or replacing its outcome. Request prerequisite private Variables on demand with agent_run_variable_request; the user supplies or refuses them in Workspace. Changes to prerequisites or ordinary inputs require a fresh Dry Run. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete skill outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
     operationId: OperationId,
+    prerequisiteInputs: optionalNullable(Schema.Array(AgentRunTaskInput)),
+    prerequisites: optionalNullable(Schema.Array(FlowSkillName)),
     recordingId: TeachingRecordingId,
     url: Schema.String.check(Schema.isMinLength(1)),
     view: sessionViewParameter,
@@ -223,6 +239,12 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
   success: Schema.Struct({
     files: Schema.Array(FlowSkillFile),
     flowSkillName: FlowSkillName,
+    prerequisites: Schema.Array(
+      Schema.Struct({
+        files: Schema.Array(FlowSkillFile),
+        flowSkillName: FlowSkillName,
+      })
+    ),
     recordingId: TeachingRecordingId,
     session: UnpublishedSession,
     skillPath: Schema.String.check(Schema.isMinLength(1)),
@@ -401,6 +423,48 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           name: input.name,
           value: input.secret ? null : input.value,
         }));
+        const prerequisiteNames = params.prerequisites ?? [];
+        const prerequisiteInputs = params.prerequisiteInputs ?? [];
+        if (
+          new Set(prerequisiteNames).size !== prerequisiteNames.length ||
+          prerequisiteNames.includes(manifest.flowSkillName)
+        ) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_invalid",
+              diagnostics: [],
+              message:
+                "Dry Run prerequisites must be distinct verified skills other than the tested skill. (teaching_recording_invalid)",
+            })
+          );
+        }
+        const prerequisites = yield* readRequestedSkills(
+          prerequisiteNames
+        ).pipe(Effect.mapError(sessionFailure));
+        yield* validateTaskInputs(prerequisites, prerequisiteInputs).pipe(
+          Effect.mapError(sessionFailure)
+        );
+        for (const skill of prerequisites) {
+          if (
+            skill.inputs.some(
+              (input) =>
+                !PRIVATE_INPUT_NAME.test(input.name) &&
+                !prerequisiteInputs.some(
+                  (supplied) =>
+                    supplied.flowSkillName === skill.name &&
+                    supplied.name === input.name
+                )
+            )
+          ) {
+            return yield* Effect.fail(
+              new TeachingRecordingFailure({
+                code: "teaching_recording_invalid",
+                diagnostics: [],
+                message: `Supply every ordinary prerequisite input for ${skill.name} at Dry Run startup. (teaching_recording_invalid)`,
+              })
+            );
+          }
+        }
         const startedAt = new Date().toISOString();
         const run: TaskAgentRunState = {
           assessment: null,
@@ -412,11 +476,14 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
             reportedProvider: null,
           },
           findings: [],
-          inputs: dryRunInputs.flatMap(({ name, value }) =>
-            value === null
-              ? []
-              : [{ flowSkillName: manifest.flowSkillName, name, value }]
-          ),
+          inputs: [
+            ...prerequisiteInputs,
+            ...dryRunInputs.flatMap(({ name, value }) =>
+              value === null
+                ? []
+                : [{ flowSkillName: manifest.flowSkillName, name, value }]
+            ),
+          ],
           instructions: [],
           lastAgentActivityAt: startedAt,
           lifecycle: { phase: "running" },
@@ -428,6 +495,10 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           },
           referencedSkills: [
             { flowSkillName: manifest.flowSkillName, referencedAt: startedAt },
+            ...prerequisites.map((skill) => ({
+              flowSkillName: skill.name,
+              referencedAt: startedAt,
+            })),
           ],
           requestedTask: frontmatter?.description ?? manifest.flowSkillName,
           runId: AgentRunId.make(
@@ -440,13 +511,16 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           startedAt,
           startingEmulation: manifest.emulation,
           title: manifest.flowSkillName,
-          variables: secretNames.map((name) => ({
-            flowSkillName: manifest.flowSkillName,
-            name,
-            runtime: true,
-            secret: true,
-            supplied: false,
-          })),
+          variables: [
+            ...prerequisites.flatMap(taskVariables),
+            ...secretNames.map((name) => ({
+              flowSkillName: manifest.flowSkillName,
+              name,
+              runtime: true,
+              secret: true,
+              supplied: false,
+            })),
+          ],
         };
         const evidenceDirectory = path.join(
           store.directory(manifest.recordingId),
@@ -499,6 +573,8 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
               request: JSON.stringify({
                 activity: "flow-skill-dry-run",
                 inputs: params.inputs,
+                prerequisiteInputs,
+                prerequisites: prerequisiteNames,
                 recordingId: params.recordingId,
                 url: params.url,
               }),
@@ -593,6 +669,10 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         return {
           files,
           flowSkillName: started.flowSkillName,
+          prerequisites: prerequisites.map((skill) => ({
+            files: skill.files,
+            flowSkillName: skill.name,
+          })),
           recordingId: started.recordingId,
           session: yield* encodeUnpublishedSession(
             params.view === "compact" ? compactAgentSession(session) : session

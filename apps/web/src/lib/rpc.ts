@@ -72,6 +72,9 @@ export const agentDryRunVariableSupplyMutation = ContingencyRpcClient.mutation(
 export const agentSetupVariableAnswerMutation = ContingencyRpcClient.mutation(
   "agent.setup.variable.answer"
 );
+export const agentDryRunVariableAnswerMutation = ContingencyRpcClient.mutation(
+  "agent.dry-run.variable.answer"
+);
 /** History and address-bar navigation while the user holds the browser. */
 export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
   "agent.browser.navigate"
