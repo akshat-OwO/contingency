@@ -57,6 +57,10 @@ export * from "./agent-decision.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-cursor-path.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./run-video.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./teaching-recording.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./optional-field.ts";

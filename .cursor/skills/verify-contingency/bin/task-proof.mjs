@@ -608,6 +608,25 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
         );
         assert.ok(aria.includes("timed-out"));
       }
+      // A Run's video is condensed after its Summary is written, so wait for
+      // it to be ready before reading bytes.
+      const status = yield* io(async () => {
+        const deadline = Date.now() + 120_000;
+        for (;;) {
+          const response = await fetch(
+            new URL(`/agent-runs/${expected.runId}/video/status`, viewer.viewUrl)
+          );
+          assert.equal(response.status, 200);
+          const body = await response.json();
+          if (body.state !== "preparing") {
+            return body;
+          }
+          assert.ok(Date.now() < deadline, "The Run video never became ready.");
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      });
+      assert.equal(status.state, "ready");
+      yield* record(`${name}-reopened-video-status.json`, status);
       const video = yield* io(async () => {
         const response = await fetch(
           new URL(`/agent-runs/${expected.runId}/video`, viewer.viewUrl),

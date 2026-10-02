@@ -36,6 +36,7 @@ import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import { MCP_INSTRUCTIONS, makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
+import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -80,6 +81,11 @@ export const mcpCommand = Command.make(
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
       port: Config.Number("PORT").pipe(Config.withDefault(7777)),
+      // How Run videos fast-forward Idle Gaps (ADR 0046).
+      videoFastForward: Config.Literals(
+        ["capped", "fixed"],
+        "VIDEO_FAST_FORWARD"
+      ).pipe(Config.withDefault("capped" as const)),
     }).pipe(Config.nested("CONTINGENCY_MCP"));
     // This command is intentionally local-only. A non-loopback HOST is not
     // accepted even if an operator accidentally configures one in the shell.
@@ -88,7 +94,7 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const { codeMode, host, port } = config;
+    const { codeMode, host, port, videoFastForward } = config;
     const browserUrl = new URL(`http://${host}:${port}`);
     const boundOrigin = { url: browserUrl.origin };
     return yield* Effect.scoped(
@@ -124,6 +130,9 @@ export const mcpCommand = Command.make(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
           )
         );
+        const runVideoRenderer = Layer.succeedContext(
+          yield* Layer.build(RunVideoRendererLive)
+        );
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
@@ -134,8 +143,15 @@ export const mcpCommand = Command.make(
               resourceDirectory: ownerMarker,
               traceDirectory: () =>
                 path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
+              videoFastForward,
             }).pipe(
-              Layer.provide(Layer.merge(runStore, teachingRecordingStore))
+              Layer.provide(
+                Layer.mergeAll(
+                  runStore,
+                  teachingRecordingStore,
+                  runVideoRenderer
+                )
+              )
             )
           )
         );
@@ -179,6 +195,7 @@ export const mcpCommand = Command.make(
               Layer.provide(shared)
             ),
             port,
+            runVideoRenderer,
             serveWebUi: true,
             teachingRecordingStore,
           }).pipe(Layer.provide(agentSession))

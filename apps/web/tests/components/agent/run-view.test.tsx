@@ -17,12 +17,20 @@ import { teachingRecordingPresentation } from "@/components/agent/teaching-recor
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { routeTree } from "@/routeTree.gen";
 
+const readyVideo = {
+  _tag: "Success",
+  value: { condensed: true, state: "ready" },
+  waiting: false,
+} as const;
+
 const rpc = vi.hoisted(() => ({
   summaryResult: { _tag: "Initial", waiting: true } satisfies unknown,
+  videoStatus: { _tag: "Initial", waiting: true } satisfies unknown,
 }));
 
 const rpcOverrides = {
   agentRunSummaryAtom: () => Atom.make(() => rpc.summaryResult),
+  runVideoStatusAtom: () => Atom.make(() => rpc.videoStatus),
 };
 
 const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
@@ -159,6 +167,7 @@ test("reports assessment counts separately from coverage", () => {
 });
 
 test("embeds the local Run video in the summary of a finished Run", () => {
+  rpc.videoStatus = readyVideo;
   render(
     <TestRegistry>
       <RunSummaryView summary={asSummary} />
@@ -167,6 +176,43 @@ test("embeds the local Run video in the summary of a finished Run", () => {
   expect(screen.getByText("Run Summary")).toBeVisible();
   const video = screen.getByLabelText("Recorded Run video");
   expect(video).toHaveAttribute("src", "/agent-runs/agentrun-one/video");
+  expect(screen.queryByText(/Playing in real time/u)).toBeNull();
+});
+
+test("says the video is being prepared until it is condensed", () => {
+  rpc.videoStatus = {
+    _tag: "Success",
+    value: { state: "preparing" },
+    waiting: true,
+  };
+  render(
+    <TestRegistry>
+      <RunSummaryView summary={asSummary} />
+    </TestRegistry>
+  );
+  expect(screen.getByRole("status")).toHaveTextContent("Preparing video…");
+  expect(screen.queryByLabelText("Recorded Run video")).toBeNull();
+});
+
+test("plays a video that could not be condensed in real time, with the reason", () => {
+  rpc.videoStatus = {
+    _tag: "Success",
+    value: {
+      condensed: false,
+      reason: "The footage could not be decoded.",
+      state: "ready",
+    },
+    waiting: false,
+  };
+  render(
+    <TestRegistry>
+      <RunSummaryView summary={asSummary} />
+    </TestRegistry>
+  );
+  expect(screen.getByLabelText("Recorded Run video")).toBeVisible();
+  expect(
+    screen.getByText("Playing in real time. The footage could not be decoded.")
+  ).toBeVisible();
 });
 
 test("opens persisted Run evidence in the Workspace route without a live session", async () => {
@@ -316,14 +362,17 @@ const passedResult = {
 } as const;
 
 test("leads a passing task Dry Run with its video, verdict, and pass checks", () => {
+  rpc.videoStatus = readyVideo;
   render(
-    <DryRunSummaryView
-      result={passedResult}
-      summary={{
-        ...dryRunTask,
-        assessment: { ...dryRunTask.assessment, outcomeComplete: true },
-      }}
-    />
+    <TestRegistry>
+      <DryRunSummaryView
+        result={passedResult}
+        summary={{
+          ...dryRunTask,
+          assessment: { ...dryRunTask.assessment, outcomeComplete: true },
+        }}
+      />
+    </TestRegistry>
   );
   expect(screen.getByLabelText("Recorded Run video")).toHaveAttribute(
     "src",

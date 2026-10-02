@@ -39,6 +39,10 @@ import {
   TeachingRecordingTools,
 } from "../../src/services/mcp-teaching-recording.ts";
 import {
+  RunVideoRenderer,
+  RunVideoRendererLive,
+} from "../../src/services/run-video-renderer.ts";
+import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
 } from "../../src/services/teaching-recording-store.ts";
@@ -358,7 +362,11 @@ export const agentProcessLayer = (
                 ...sessionOptions,
                 resourceDirectory: options.resourceDirectory,
               }
-        ).pipe(Layer.provide(Layer.merge(runStore, recordingStore))),
+        ).pipe(
+          Layer.provide(
+            Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
+          )
+        ),
         makeFlowSkillCatalogLayer(
           options.followCatalogSelection === true
             ? {
@@ -370,7 +378,8 @@ export const agentProcessLayer = (
             : catalogOptions
         ),
         runStore,
-        recordingStore
+        recordingStore,
+        RunVideoRendererLive
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
@@ -378,3 +387,18 @@ export const agentProcessLayer = (
     )
   );
 };
+
+/**
+ * Wait for a finished Run's video to be condensed. It is encoded after the
+ * Run Summary is written, so a test that reads the file waits for it.
+ */
+export const awaitRunVideo = (directory: string) =>
+  Effect.gen(function* pollRunVideo() {
+    const renderer = yield* RunVideoRenderer;
+    let status = yield* renderer.status(directory);
+    while (status.state === "preparing") {
+      yield* Effect.sleep("100 millis");
+      status = yield* renderer.status(directory);
+    }
+    return status;
+  }).pipe(Effect.timeout("120 seconds"));

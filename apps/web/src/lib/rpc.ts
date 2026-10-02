@@ -1,11 +1,16 @@
-import { ContingencyRpcs, isBrowserRpcError } from "@contingency/protocol";
+import {
+  ContingencyRpcs,
+  isBrowserRpcError,
+  RunVideoStatus,
+  runVideoStatusPath,
+} from "@contingency/protocol";
 import type {
   AgentRunId,
   AgentSessionId,
   AgentSessionSnapshot,
   BrowserStreamEvent,
 } from "@contingency/protocol";
-import { Duration, Effect, Layer, Schedule, Stream } from "effect";
+import { Duration, Effect, Layer, Schedule, Schema, Stream } from "effect";
 import { Atom, AtomRpc } from "effect/reactivity";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
@@ -157,6 +162,33 @@ export const agentRunSummaryAtom = Atom.family((runId: AgentRunId) =>
     data: { runId },
     type: "agent.run.summary.get",
   })
+);
+
+const decodeRunVideoStatus = Schema.decodeUnknownEffect(RunVideoStatus);
+
+/**
+ * Where a finished Run's video stands. It is condensed after the Run ends,
+ * so the Workspace asks until it is ready, or known to be unavailable,
+ * before pointing a media element at it. One atom per video URL.
+ */
+export const runVideoStatusAtom = Atom.family((videoUrl: string) =>
+  Atom.make(
+    Stream.fromEffect(
+      Effect.tryPromise(async () => {
+        const response = await fetch(runVideoStatusPath(videoUrl), {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`The video status answered ${response.status}.`);
+        }
+        const body: unknown = await response.json();
+        return body;
+      }).pipe(Effect.flatMap(decodeRunVideoStatus))
+    ).pipe(
+      Stream.repeat(Schedule.spaced("1 second")),
+      Stream.takeUntil((status) => status.state !== "preparing")
+    )
+  )
 );
 
 const reconnectSchedule = Schedule.exponential("100 millis").pipe(

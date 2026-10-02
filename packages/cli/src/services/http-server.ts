@@ -16,6 +16,7 @@ import { makeRpcRoutes } from "../routes/rpc.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
 
 export { isAllowedWebSocketOrigin } from "./web-url.ts";
@@ -66,6 +67,8 @@ export interface HttpServerOptions {
    * and the read-only viewer. Absent in a process that serves no Runs.
    */
   readonly agentRunStore?: Layer.Layer<AgentRunStoreService>;
+  /** Condenses Run footage, and reports a video's readiness to the Workspace. */
+  readonly runVideoRenderer: Layer.Layer<RunVideoRendererService>;
   readonly teachingRecordingStore: Layer.Layer<TeachingRecordingStoreService>;
   readonly allowedOrigins: ReadonlySet<string>;
   /** A shared process-owned registry for MCP and the Workspace, when supplied. */
@@ -91,6 +94,7 @@ export const makeHttpServerLayer = ({
   host,
   mcp = Layer.empty,
   port,
+  runVideoRenderer,
   serveWebUi,
   teachingRecordingStore,
 }: HttpServerOptions) => {
@@ -124,6 +128,7 @@ export const makeHttpServerLayer = ({
         )
       ).pipe(
         Layer.provide(agentRunStore),
-        Layer.provide(teachingRecordingStore)
+        Layer.provide(teachingRecordingStore),
+        Layer.provide(runVideoRenderer)
       );
 };

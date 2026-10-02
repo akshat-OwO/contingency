@@ -9,6 +9,7 @@ import type {
 } from "@contingency/protocol";
 import {
   describeFlowSkillName,
+  dryRunVideoPath,
   FlowSkillName,
   flowSkillNameRule,
   OperationId,
@@ -109,7 +110,7 @@ const finishedDryRunSummary = (session: AgentSessionSnapshot) => {
     return null;
   }
   const { dryRunResult, dryRunSummary } = session.captureState;
-  const videoSrc = `/teaching-recordings/${session.recordingId}/dry-run/video`;
+  const videoSrc = dryRunVideoPath(session.recordingId);
   if (isTaskDryRunSummary(dryRunSummary)) {
     return (
       <DryRunSummaryView
