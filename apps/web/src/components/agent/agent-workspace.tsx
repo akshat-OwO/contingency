@@ -48,6 +48,7 @@ import { RunDock } from "@/components/agent/run-dock";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { RuntimeVariables } from "@/components/agent/runtime-variables";
+import { SetupVariables } from "@/components/agent/setup-variables";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import {
   completeInspectComment,
@@ -579,6 +580,8 @@ const AgentLiveView = ({
   const showsNotices =
     notices !== null ||
     secretVariables.length > 0 ||
+    (session.controller === "agent" &&
+      (session.setupVariables?.length ?? 0) > 0) ||
     (session.pendingDecisions ?? []).some(
       (decision) => decision.kind === "supply_variable"
     ) ||
@@ -671,6 +674,7 @@ const AgentLiveView = ({
             )}
             <ExecutionBoundary session={session} />
             <RuntimeVariables session={session} />
+            <SetupVariables session={session} />
             {secretVariables.length > 0 ? (
               <DryRunVariables
                 sessionId={session.id}

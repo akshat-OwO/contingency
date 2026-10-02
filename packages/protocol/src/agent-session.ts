@@ -26,6 +26,37 @@ import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
+export const SetupVariableName = Schema.String.check(
+  Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+  Schema.isMaxLength(128)
+);
+export const AgentSetupVariable = Schema.Struct({
+  name: SetupVariableName,
+  purpose: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  requestId: nonEmptyString,
+  status: Schema.Literals(["requested", "supplied", "refused", "cancelled"]),
+});
+export type AgentSetupVariable = typeof AgentSetupVariable.Type;
+
+export const AgentSetupVariableRequest = Schema.Struct({
+  name: SetupVariableName,
+  operationId: OperationId,
+  purpose: AgentSetupVariable.fields.purpose,
+  replace: Schema.Boolean,
+  sessionId: AgentSessionId,
+});
+export type AgentSetupVariableRequest = typeof AgentSetupVariableRequest.Type;
+
+export const AgentSetupVariableAnswer = Schema.Struct({
+  operationId: OperationId,
+  requestId: nonEmptyString,
+  sessionId: AgentSessionId,
+  value: Schema.NullOr(
+    Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8192))
+  ),
+});
+export type AgentSetupVariableAnswer = typeof AgentSetupVariableAnswer.Type;
+
 export const AgentSessionActivity = Schema.Literals(["teaching", "run"]);
 export type AgentSessionActivity = typeof AgentSessionActivity.Type;
 
@@ -82,6 +113,7 @@ const AgentSessionSnapshotBase = {
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
   phase: AgentSessionPhase,
+  setupVariables: Schema.optional(Schema.Array(AgentSetupVariable)),
   takeover: Schema.NullOr(AgentTakeoverRequest),
   /** The most recent attempts, oldest first, in the order they were made. */
   timeline: Schema.Array(AgentTimelineEntry),

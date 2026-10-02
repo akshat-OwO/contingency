@@ -430,6 +430,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             type: "agent.dry-run.variable.supplied" as const,
           }))
         ),
+      "agent.setup.variable.answer": ({ data }) =>
+        agentUnavailable((service) => service.answerSetupVariable(data)).pipe(
+          Effect.map((session) => ({
+            data: { session },
+            type: "agent.setup.variable.answered" as const,
+          }))
+        ),
       "agent.browser.navigate": ({ data }) =>
         agentUnavailable((service) =>
           service.userNavigate(data.sessionId, data.action)

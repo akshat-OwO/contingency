@@ -20,6 +20,7 @@ import {
   AgentSessionStreamSubscribe,
   AgentSessionReturnControl,
   AgentSessionTakeover,
+  AgentSetupVariableAnswer,
 } from "./agent-session.ts";
 import { BrowserTabId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
@@ -346,6 +347,8 @@ export const BrandId = Schema.Literals([
   "agent.teaching.variable.input.result",
   "agent.dry-run.variable.supply",
   "agent.dry-run.variable.supplied",
+  "agent.setup.variable.answer",
+  "agent.setup.variable.answered",
   "agent.browser.navigate",
   "agent.browser.navigated",
   "agent.run.summary.get",
@@ -674,6 +677,15 @@ export const AgentDryRunVariableSupplied = response(
   { session: AgentSessionSnapshot }
 );
 
+export const AgentSetupVariableAnswerRequest = request(
+  "agent.setup.variable.answer",
+  AgentSetupVariableAnswer.fields
+);
+export const AgentSetupVariableAnswered = response(
+  "agent.setup.variable.answered",
+  { session: AgentSessionSnapshot }
+);
+
 /**
  * Address-bar and history navigation while the user holds the browser. It
  * carries the same actions the agent may take, so a Takeover is a real
@@ -969,6 +981,11 @@ const AgentDryRunVariableSupplyRpc = Rpc.make("agent.dry-run.variable.supply", {
   payload: AgentDryRunVariableSupply,
   success: AgentDryRunVariableSupplied,
 });
+const AgentSetupVariableAnswerRpc = Rpc.make("agent.setup.variable.answer", {
+  error: BrowserRpcError,
+  payload: AgentSetupVariableAnswerRequest,
+  success: AgentSetupVariableAnswered,
+});
 const AgentBrowserNavigateRpc = Rpc.make("agent.browser.navigate", {
   error: BrowserRpcError,
   payload: AgentBrowserNavigate,
@@ -1053,6 +1070,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserInputSendRpc,
   AgentTeachingVariableInputRpc,
   AgentDryRunVariableSupplyRpc,
+  AgentSetupVariableAnswerRpc,
   AgentBrowserNavigateRpc,
   AgentBrowserEmulationGetRpc,
   AgentBrowserEmulationSetRpc,

@@ -15,6 +15,7 @@ import {
   AgentSessionStart,
   AgentSessionTakeover,
   AgentTeachingSetupHandoff,
+  AgentSetupVariableRequest,
   AgentVariableEnter,
   compactAgentSession,
 } from "@contingency/protocol";
@@ -248,7 +249,7 @@ const AgentTeachingSetupHandoffTool = Tool.make(
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a Variable the user supplied to this Run into one element from the latest Browser Snapshot. You name the Variable and the element; the literal value stays inside Contingency and never reaches you or the Run's artifacts. For a task Run, supply flowSkillName as well as name. Request a needed input with agent_run_variable_request and relay its decision before entering it. Dry Run secrets are supplied in Workspace.",
+    "Enter a supplied private Variable into one element from the latest Browser Snapshot. The literal stays inside Contingency. During agent-held Teaching setup, request it with agent_teaching_setup_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_run_variable_request and relay its decision. Dry Run secrets are supplied in Workspace. Setup access ends at handoff.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     flowSkillName: AgentVariableEnter.fields.flowSkillName,
@@ -259,6 +260,21 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   }),
   success: AgentActionResult,
 });
+
+const AgentSetupVariableRequestTool = Tool.make(
+  "agent_teaching_setup_variable_request",
+  {
+    dependencies: [AgentSession],
+    description:
+      "Request a private Setup Variable by uppercase name and purpose while you hold Teaching setup. The user supplies or refuses it directly in Workspace; you never receive the literal. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter a supplied Variable with agent_variable_enter without flowSkillName. Handoff cancels requests and ends access. Setup inputs are never declared in the learned Flow Skill.",
+    failure: AgentSessionFailure,
+    parameters: Schema.Struct({
+      ...AgentSetupVariableRequest.fields,
+      view: sessionViewParameter,
+    }),
+    success: SessionResult,
+  }
+);
 
 /** Why a sequence must stop after an attempt, or `null` to continue. */
 const sequenceStop = (
@@ -303,6 +319,7 @@ export const AgentSessionTools = withStrictParameters(
     AgentBrowserActSequenceTool,
     AgentTakeoverRequestTool,
     AgentTeachingSetupHandoffTool,
+    AgentSetupVariableRequestTool,
     AgentVariableEnterTool
   )
 );
@@ -511,6 +528,13 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
       yield* service.noteAgentActivity(params.sessionId);
       return yield* service
         .handOffTeachingSetup(params.sessionId, params.operationId)
+        .pipe(Effect.mapError(failure), inView(params.view));
+    }),
+  agent_teaching_setup_variable_request: (params) =>
+    Effect.gen(function* requestSetupVariable() {
+      const service = yield* AgentSession;
+      return yield* service
+        .requestSetupVariable(params)
         .pipe(Effect.mapError(failure), inView(params.view));
     }),
   agent_variable_enter: (params) =>

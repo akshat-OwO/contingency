@@ -2,28 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import {
-  AgentProcessId,
-  AgentElementRef,
-  AgentPendingDecisionId,
-  AgentSessionId,
-  AgentRunSummary,
-  describeActionSubject,
-  describeAgentAction,
-  makeBrowserRpcError,
-  UserAgentProfileId,
-  TeachingCaptureState,
-  TeachingRecordingCleanupState,
-  TeachingRecordingId,
-  describeFlowSkillName,
-  FlowSkillName,
-  isLiveAgentSessionPhase,
-  flowSkillNameRule,
-  ContentHash,
-  OperationId,
-  viewportForIdentity,
-} from "@contingency/protocol";
 import type {
+  AgentSetupVariable,
+  AgentSetupVariableRequest,
+  AgentSetupVariableAnswer,
   AgentActionResult,
   AgentActionIntent,
   AgentActionSubject,
@@ -86,6 +68,27 @@ import type {
   TeachingStopReason,
 } from "@contingency/protocol";
 import {
+  AgentProcessId,
+  AgentElementRef,
+  AgentPendingDecisionId,
+  AgentSessionId,
+  AgentRunSummary,
+  describeActionSubject,
+  describeAgentAction,
+  makeBrowserRpcError,
+  UserAgentProfileId,
+  TeachingCaptureState,
+  TeachingRecordingCleanupState,
+  TeachingRecordingId,
+  describeFlowSkillName,
+  FlowSkillName,
+  isLiveAgentSessionPhase,
+  flowSkillNameRule,
+  ContentHash,
+  OperationId,
+  viewportForIdentity,
+} from "@contingency/protocol";
+import {
   Cause,
   Clock,
   Context,
@@ -115,6 +118,7 @@ import {
   performAgentAction,
   performPrivateVariableInput,
   redactAgentSnapshot,
+  redactActionText,
   redactKnownValues,
   settledSnapshot,
   snapshotAfterAction,
@@ -329,6 +333,12 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     name: string,
     value: string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly requestSetupVariable: (
+    input: AgentSetupVariableRequest
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly answerSetupVariable: (
+    input: AgentSetupVariableAnswer
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Stream browser events through the Agent Session boundary. */
   readonly browserStream: (
@@ -785,10 +795,14 @@ const variableReference = (name: string): string => `{{${name}}}`;
  * Demonstration, so without the supplied literals its Snapshots would hand the
  * agent back the value the user typed privately.
  */
-const sessionSensitiveValues = (record: SessionRecord): readonly string[] => [
-  ...(record.capture?.sensitiveValues() ?? []),
-  ...record.supplied.values(),
-];
+const sessionSensitiveValues = (record: SessionRecord): readonly string[] =>
+  [
+    ...new Set([
+      ...(record.capture?.sensitiveValues() ?? []),
+      ...record.supplied.values(),
+      ...record.setupSensitiveValues,
+    ]),
+  ].toSorted((left, right) => right.length - left.length);
 
 const redactCapturedSnapshot = (
   record: SessionRecord,
@@ -1011,33 +1025,6 @@ const editedValue = (
     return node?.value ?? undefined;
   }
   return node.valueWithheld === true ? SENSITIVE_INPUT : "";
-};
-
-/** Strip private literals from every free-text field an action carries. */
-const redactActionText = (
-  action: AgentBrowserAction,
-  redact: (text: string) => string
-): AgentBrowserAction => {
-  switch (action.type) {
-    case "fill": {
-      return { ...action, text: redact(action.text) };
-    }
-    case "select": {
-      return { ...action, values: action.values.map(redact) };
-    }
-    case "wait_for_text": {
-      return { ...action, text: redact(action.text) };
-    }
-    // `sanitizeTeachingUrl` rewrites query parameters whose names look like
-    // secrets; a private value the session knows about can still sit in a path
-    // segment or an unmatched parameter.
-    case "navigate": {
-      return { ...action, url: redact(action.url) };
-    }
-    default: {
-      return action;
-    }
-  }
 };
 
 /**
@@ -1355,6 +1342,12 @@ const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
   snapshot.run !== null && runEnded(snapshot.run);
 
 const TIMELINE_LIMIT = 200;
+const SETUP_VARIABLE_LIMIT = 64;
+/**
+ * Retired values must keep masking Page reflections until the session closes.
+ * Bound that per-field scan even when an agent repeatedly replaces a code.
+ */
+const SETUP_PRIVATE_VALUE_LIMIT = 256;
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
 
 /**
@@ -1447,6 +1440,7 @@ interface SessionRecord {
    * session and are never published, persisted, or returned.
    */
   readonly supplied: Map<string, string>;
+  readonly setupSensitiveValues: Set<string>;
   /** Start-scoped capture resources. Absent during setup and after Stop. */
   readonly teachingRecorder: TeachingRecorder | undefined;
   /** The local sensitive-artifact retention manifest. */
@@ -1820,6 +1814,8 @@ type AgentOperationKind =
   | "task-assess"
   | "task-finding"
   | "variable-request"
+  | "setup-variable-request"
+  | "setup-variable-answer"
   | "close"
   | "complete"
   | "control"
@@ -2163,14 +2159,17 @@ const makeAgentSession = (
       currentUrl: string
     ): Effect.Effect<AgentSessionSnapshot | undefined> =>
       mutate(sessionId, (snapshot) => {
-        const safeCurrentUrl = sanitizeTeachingUrl(currentUrl);
+        const safeCurrentUrl = redactKnownValues(
+          sanitizeTeachingUrl(currentUrl),
+          sessionSensitiveValues(record)
+        );
         if (snapshot.currentUrl === safeCurrentUrl) {
           return snapshot;
         }
         const at = new Date(
           Math.max(now().getTime(), Date.parse(snapshot.updatedAt) + 1)
         ).toISOString();
-        recordingCapture(record)?.recordUrl(currentUrl, at);
+        recordingCapture(record)?.recordUrl(safeCurrentUrl, at);
         return { ...snapshot, currentUrl: safeCurrentUrl, updatedAt: at };
       });
 
@@ -3072,7 +3071,10 @@ const makeAgentSession = (
           )
         );
       }
-      const capture = makeDemonstrationCapture(record.snapshot.currentUrl);
+      const capture = makeDemonstrationCapture(
+        record.snapshot.currentUrl,
+        () => [...record.setupSensitiveValues]
+      );
       const recorderScope = yield* Scope.make("sequential");
       yield* Scope.addFinalizer(
         record.scope,
@@ -3387,11 +3389,20 @@ const makeAgentSession = (
     /** Append one attempt to the timeline and publish the new state. */
     const recordEntry = (
       sessionId: AgentSessionId,
-      entry: AgentTimelineEntry,
+      rawEntry: AgentTimelineEntry,
       patch: AgentSessionPatch = {}
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
         const record = Ref.getUnsafe(sessions).get(sessionId);
+        const values =
+          record === undefined ? [] : sessionSensitiveValues(record);
+        const entry = {
+          ...rawEntry,
+          description: redactKnownValues(rawEntry.description, values),
+        };
+        if (rawEntry.detail !== undefined) {
+          entry.detail = redactKnownValues(rawEntry.detail, values);
+        }
         // The entry joins the timeline as it stands now: an action that ran
         // while control changed hands records what it did without undoing the
         // change it raced.
@@ -3400,7 +3411,10 @@ const makeAgentSession = (
             ? patch
             : {
                 ...patch,
-                currentUrl: sanitizeTeachingUrl(patch.currentUrl),
+                currentUrl: redactKnownValues(
+                  sanitizeTeachingUrl(patch.currentUrl),
+                  record === undefined ? [] : sessionSensitiveValues(record)
+                ),
               };
         if (record !== undefined && entry.dispatched) {
           noteRunEvidence(record, "attempt", entry.id);
@@ -4012,6 +4026,7 @@ const makeAgentSession = (
                   scope: sessionScope,
                   screenshots: { directory: undefined },
                   scroll: { burst: undefined },
+                  setupSensitiveValues: new Set<string>(),
                   snapshot: base,
                   supplied: new Map<string, string>(),
                   teachingRecorder: undefined,
@@ -4019,6 +4034,15 @@ const makeAgentSession = (
                   traceFile,
                   videoFile,
                 };
+                yield* Scope.addFinalizer(
+                  sessionScope,
+                  Effect.sync(() => {
+                    if (record.snapshot.activity === "teaching") {
+                      record.supplied.clear();
+                    }
+                    record.setupSensitiveValues.clear();
+                  })
+                );
                 yield* Ref.update(sessions, (current) =>
                   new Map(current).set(sessionId, record)
                 );
@@ -5098,11 +5122,8 @@ const makeAgentSession = (
               sanitizeSensitiveAction(action, sensitive);
             const privateValues =
               privateCapture === undefined
-                ? (record.capture?.sensitiveValues() ?? [])
-                : [
-                    ...(record.capture?.sensitiveValues() ?? []),
-                    privateCapture.value,
-                  ];
+                ? sessionSensitiveValues(record)
+                : [...sessionSensitiveValues(record), privateCapture.value];
             const description = describeCapturedAction(
               actionSubject(record.registry, capturedAction),
               capturedAction,
@@ -5189,11 +5210,24 @@ const makeAgentSession = (
           });
           return outcome.success;
         }
+        const current = Ref.getUnsafe(sessions).get(sessionId);
+        const message = redactKnownValues(
+          outcome.failure.message,
+          current === undefined ? [] : sessionSensitiveValues(current)
+        );
+        const failure =
+          outcome.failure._tag === "BrowserRpcError"
+            ? makeBrowserRpcError(
+                outcome.failure.code,
+                message,
+                outcome.failure.reason
+              )
+            : error(outcome.failure.code, message);
         yield* remember(operationId, operationKind, sessionId, requestInput, {
-          error: outcome.failure,
+          error: failure,
           kind: "act-failure",
         });
-        return yield* Effect.fail(outcome.failure);
+        return yield* Effect.fail(failure);
       }
     );
 
@@ -5228,6 +5262,154 @@ const makeAgentSession = (
       }
       return entry.gate.withPermit(executeAction(...args));
     };
+
+    const answerSetupRequest = Effect.fn("AgentSession.answerSetupRequest")(
+      function* answerSetupRequest(
+        record: SessionRecord,
+        variables: AgentSetupVariable[],
+        input: AgentSetupVariableAnswer
+      ) {
+        const existing = variables.find(
+          (variable) =>
+            variable.requestId === input.requestId &&
+            variable.status === "requested"
+        );
+        if (existing === undefined) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              "This Setup Variable request is stale or belongs to another session."
+            )
+          );
+        }
+        if (input.value !== null) {
+          if (record.setupSensitiveValues.size >= SETUP_PRIVATE_VALUE_LIMIT) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_invalid",
+                "This setup has reached its private-value limit. Start another session."
+              )
+            );
+          }
+          record.supplied.set(variableKey(existing.name), input.value);
+          record.setupSensitiveValues.add(input.value);
+        }
+        variables[variables.indexOf(existing)] = {
+          ...existing,
+          status: input.value === null ? "refused" : "supplied",
+        };
+      }
+    );
+
+    const setupVariableMutation = (
+      input: AgentSetupVariableRequest | AgentSetupVariableAnswer
+    ) =>
+      lock.withPermit(
+        afterUserInput(
+          input.sessionId,
+          Effect.gen(function* mutateSetupVariable() {
+            const requesting = "name" in input;
+            const kind = requesting
+              ? "setup-variable-request"
+              : "setup-variable-answer";
+            const fingerprint = requesting
+              ? JSON.stringify({
+                  name: input.name,
+                  purpose: input.purpose,
+                  replace: input.replace,
+                })
+              : JSON.stringify({
+                  ...input,
+                  value:
+                    input.value === null
+                      ? null
+                      : createHash("sha256").update(input.value).digest("hex"),
+                });
+            const replayed = replaySession(
+              input.operationId,
+              kind,
+              input.sessionId,
+              fingerprint
+            );
+            if (replayed?._tag === "conflict") {
+              return yield* Effect.fail(replayed.error);
+            }
+            if (replayed?._tag === "replay") {
+              return replayed.snapshot;
+            }
+            const record = yield* requireLiveRecord(input.sessionId);
+            if (!agentPreparesTeaching(record.snapshot)) {
+              return yield* Effect.fail(
+                teachingIsUserLed(
+                  "Setup Variables require agent-held Teaching setup."
+                )
+              );
+            }
+            const variables = [...(record.snapshot.setupVariables ?? [])];
+            if (requesting) {
+              const existing = variables.find(
+                (variable) => variable.name === input.name
+              );
+              if (
+                existing !== undefined &&
+                existing.purpose !== input.purpose
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_conflict",
+                    "This Setup Variable already has a different purpose."
+                  )
+                );
+              }
+              if (
+                input.replace ||
+                existing === undefined ||
+                existing.status === "refused"
+              ) {
+                if (
+                  existing === undefined &&
+                  variables.length >= SETUP_VARIABLE_LIMIT
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "A setup supports at most 64 Variables."
+                    )
+                  );
+                }
+                record.supplied.delete(variableKey(input.name));
+                const declaration = {
+                  name: input.name,
+                  purpose: input.purpose,
+                  requestId: `setup-${randomUUID()}`,
+                  status: "requested" as const,
+                };
+                if (existing === undefined) {
+                  variables.push(declaration);
+                } else {
+                  variables[variables.indexOf(existing)] = declaration;
+                }
+              }
+            } else {
+              yield* answerSetupRequest(record, variables, input);
+            }
+            const next = {
+              ...record.snapshot,
+              setupVariables: variables,
+              updatedAt: now().toISOString(),
+            };
+            yield* save(input.sessionId, record, next);
+            yield* rememberSession(
+              input.operationId,
+              kind,
+              input.sessionId,
+              fingerprint,
+              next
+            );
+            return next;
+          }).pipe(Effect.uninterruptible)
+        )
+      );
 
     /**
      * Apply the user's answer to one runtime Variable decision. A supplied
@@ -5850,9 +6032,13 @@ const makeAgentSession = (
       const next: AgentSessionSnapshot = {
         ...record.snapshot,
         controller: "user",
+        setupVariables: (record.snapshot.setupVariables ?? []).map(
+          (variable) => ({ ...variable, status: "cancelled" as const })
+        ),
         timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
         updatedAt: at,
       };
+      record.supplied.clear();
       yield* save(sessionId, record, next);
       yield* rememberSession(
         operationId,
@@ -6509,6 +6695,7 @@ const makeAgentSession = (
         }),
       act: (sessionId, action, operationId, intent) =>
         actUnlocked(sessionId, action, operationId, undefined, intent),
+      answerSetupVariable: setupVariableMutation,
       assessTask: (sessionId, input, finding, operationId) =>
         taskMutation(
           sessionId,
@@ -6696,11 +6883,68 @@ const makeAgentSession = (
       ) =>
         Effect.gen(function* enterSuppliedVerificationVariable() {
           const record = yield* requireLiveRecord(sessionId);
-          // Supplied Variables belong to Runs: even an agent preparing
-          // Teaching setup has none to enter.
           if (record.snapshot.activity === "teaching") {
-            return yield* Effect.fail(
-              teachingIsUserLed("This private input was not dispatched.")
+            return yield* lock.withPermit(
+              Effect.gen(function* enterSetupVariable() {
+                const requestInput = JSON.stringify({
+                  flowSkillName: flowSkillName ?? null,
+                  kind: "supplied-variable",
+                  name,
+                  ref,
+                });
+                const replayed = replay(
+                  operationId,
+                  "private-input",
+                  sessionId,
+                  requestInput
+                );
+                if (replayed?._tag === "conflict") {
+                  return yield* Effect.fail(replayed.error);
+                }
+                if (replayed?._tag === "replay") {
+                  if (replayed.result.kind === "act") {
+                    return replayed.result.result;
+                  }
+                  if (replayed.result.kind === "act-failure") {
+                    return yield* Effect.fail(replayed.result.error);
+                  }
+                }
+                const current = yield* requireLiveRecord(sessionId);
+                if (
+                  !agentPreparesTeaching(current.snapshot) ||
+                  (flowSkillName !== null && flowSkillName !== undefined)
+                ) {
+                  return yield* Effect.fail(
+                    teachingIsUserLed(
+                      "This private input was not dispatched. Setup Variables require agent-held Teaching setup and no flowSkillName."
+                    )
+                  );
+                }
+                const declared = current.snapshot.setupVariables?.find(
+                  (variable) =>
+                    variable.name === name && variable.status === "supplied"
+                );
+                const value = current.supplied.get(variableKey(name));
+                if (declared === undefined || value === undefined) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "This Setup Variable has no supplied value."
+                    )
+                  );
+                }
+                const action = {
+                  ref: AgentElementRef.make(ref),
+                  text: value,
+                  type: "fill" as const,
+                };
+                return yield* actUnlocked(sessionId, action, operationId, {
+                  action: { ...action, text: variableReference(name) },
+                  requestInput,
+                  value,
+                  variable: { name, runtime: true, secret: true },
+                });
+              })
             );
           }
           const declared = requireDeclaredVariable(record, name, flowSkillName);
@@ -6766,7 +7010,9 @@ const makeAgentSession = (
         lock.withPermit(
           afterUserInput(
             sessionId,
-            handOffTeachingSetupUnlocked(sessionId, operationId)
+            handOffTeachingSetupUnlocked(sessionId, operationId).pipe(
+              Effect.uninterruptible
+            )
           )
         ),
       inspectPoint: inspectPointUnlocked,
@@ -6863,6 +7109,7 @@ const makeAgentSession = (
             operationId ?? OperationId.make(`rename-${randomUUID()}`)
           )
         ),
+      requestSetupVariable: setupVariableMutation,
       requestTakeover: (sessionId, reason, operationId) =>
         lock.withPermit(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
