@@ -148,6 +148,8 @@ for (const variant of [
   "disabled",
   "separate",
   "unrelated",
+  "editable",
+  "editable-delayed",
 ] as const) {
   it.live(`verifies private segmented entry in a ${variant} Dry Run`, () =>
     Effect.gen(function* verifyDryRunEntry() {
@@ -224,10 +226,12 @@ for (const variant of [
           const before = yield* sessionTool("agent_browser_snapshot", {
             sessionId,
           });
+          const codeTarget =
+            variant === "unrelated" ? "OTP" : "otp-input 1 of 6";
           const { ref } = findNode(
             before.nodes,
             "textbox",
-            variant === "unrelated" ? "OTP" : "otp-input 1 of 6"
+            variant.startsWith("editable") ? "Editable code" : codeTarget
           );
           const enter = () =>
             session.enterSuppliedVariable(
@@ -236,9 +240,13 @@ for (const variant of [
               ref,
               OperationId.make("dry-enter")
             );
-          const succeeds = ["baseline", "missing-length", "delayed"].includes(
-            variant
-          );
+          const succeeds = [
+            "baseline",
+            "missing-length",
+            "delayed",
+            "editable",
+            "editable-delayed",
+          ].includes(variant);
           const dispatchedAt = Date.now();
           const first = yield* Effect.result(enter());
           expect(Date.now() - dispatchedAt).toBeLessThan(13_000);
@@ -263,12 +271,14 @@ for (const variant of [
           expect(history.timeline).toHaveLength(1);
           if (Result.isSuccess(first)) {
             expect(history.timeline.at(-1)?.id).toBe(first.success.entry.id);
-            expect(
-              after.nodes.filter(
-                (node) =>
-                  node.name.startsWith("otp-input") && node.valueWithheld
-              )
-            ).toHaveLength(6);
+            if (!variant.startsWith("editable")) {
+              expect(
+                after.nodes.filter(
+                  (node) =>
+                    node.name.startsWith("otp-input") && node.valueWithheld
+                )
+              ).toHaveLength(6);
+            }
           }
           for (const node of after.nodes.filter(
             (control) =>
@@ -281,7 +291,7 @@ for (const variant of [
           expect(JSON.stringify([first, replay, after, history])).not.toContain(
             OTP
           );
-          if (succeeds) {
+          if (succeeds && !variant.startsWith("editable")) {
             const submitted = yield* sessionTool("agent_browser_act", {
               action: {
                 ref: findNode(after.nodes, "button", "Continue").ref,

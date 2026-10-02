@@ -61,10 +61,26 @@
         Remove backup code
       </button>
       <output aria-live="polite" id="result"></output>
+      <div
+        aria-label="Editable code"
+        contenteditable="true"
+        role="textbox"
+      ></div>
     </main>
     <script>
       const boxes = [...document.querySelectorAll("#code input")];
       const variant = new URLSearchParams(location.search).get("variant");
+      if (variant === "editable-delayed") {
+        document
+          .querySelector('[contenteditable="true"]')
+          .addEventListener("beforeinput", (event) => {
+            event.preventDefault();
+            const target = event.currentTarget;
+            setTimeout(() => {
+              target.textContent = event.data;
+            }, 150);
+          });
+      }
       if (variant === "missing-length") {
         boxes.forEach((box) => box.removeAttribute("maxlength"));
       }

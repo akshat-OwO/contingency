@@ -2548,18 +2548,22 @@ const enterPrivateVariable = (
               elements.length === (segments ? expectedCount : 1) &&
               elements.every(
                 (element) =>
-                  "value" in element &&
+                  (!segments || "value" in element) &&
                   !element.matches(":disabled, [readonly]") &&
                   element.getClientRects().length > 0 &&
                   element.checkVisibility({ checkVisibilityCSS: true }) &&
                   (!segments ||
                     (element.closest('fieldset, [role="group"]') ??
                       element.parentElement) === group) &&
-                  (!segments || [...String(element.value)].length === 1)
+                  (!segments ||
+                    ("value" in element &&
+                      [...String(element.value)].length === 1))
               ) &&
               elements
                 .map((element) =>
-                  "value" in element ? String(element.value) : ""
+                  "value" in element
+                    ? String(element.value)
+                    : (element.textContent ?? "")
                 )
                 .join("") === expected
             );
