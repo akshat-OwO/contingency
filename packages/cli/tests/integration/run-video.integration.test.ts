@@ -210,10 +210,18 @@ it.live(
 
       const status = yield* awaitReady(directory);
       expect(status).toEqual({ condensed: true, state: "ready" });
-      // The real-time footage does not outlive the condensed video.
-      expect(yield* fileSystem.readDirectory(directory)).toEqual([
-        RUN_VIDEO_FILE,
-      ]);
+      // The real-time footage does not outlive the condensed video. The
+      // encode lock can still be present for a moment after the file is
+      // ready, so this asserts the evidence files, not an exact listing.
+      expect(
+        yield* fileSystem.exists(path.join(directory, FOOTAGE_VIDEO_FILE))
+      ).toBe(false);
+      expect(
+        yield* fileSystem.exists(path.join(directory, FOOTAGE_MANIFEST_FILE))
+      ).toBe(false);
+      expect(
+        yield* fileSystem.exists(path.join(directory, RUN_VIDEO_FILE))
+      ).toBe(true);
 
       // The arrow's 20px box hangs below and right of its tip at (320, 200);
       // the badge pill sits in the bottom-right corner.

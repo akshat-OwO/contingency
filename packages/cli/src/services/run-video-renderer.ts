@@ -302,11 +302,22 @@ export const RunVideoRendererLive = Layer.effect(
 
     /**
      * Keep the real-time footage as the Run's video and say why, so a video
-     * that could not be condensed is still evidence rather than lost.
+     * that could not be condensed is still evidence rather than lost. The
+     * footage is only deleted after it has become `run.webm`; a failed
+     * rename leaves the source so a later status read can retry.
      */
     const fallBack = (directory: string, reason: string) =>
       Effect.gen(function* keepRealTimeFootage() {
         yield* Effect.logWarning(`Run video kept in real time: ${reason}`);
+        const renamed = yield* Effect.result(
+          fileSystem.rename(
+            path.join(directory, FOOTAGE_VIDEO_FILE),
+            path.join(directory, RUN_VIDEO_FILE)
+          )
+        );
+        if (renamed._tag === "Failure") {
+          return;
+        }
         yield* fileSystem
           .writeFileString(
             path.join(directory, FALLBACK_FILE),
@@ -314,14 +325,18 @@ export const RunVideoRendererLive = Layer.effect(
             { mode: 0o600 }
           )
           .pipe(Effect.ignore);
-        yield* fileSystem
-          .rename(
-            path.join(directory, FOOTAGE_VIDEO_FILE),
-            path.join(directory, RUN_VIDEO_FILE)
-          )
-          .pipe(Effect.ignore);
         yield* removeFootage(directory);
       });
+
+    /** A successful condense replaces any earlier real-time fallback note. */
+    const keepCondensed = (directory: string) =>
+      removeFootage(directory).pipe(
+        Effect.andThen(
+          fileSystem
+            .remove(path.join(directory, FALLBACK_FILE), { force: true })
+            .pipe(Effect.ignore)
+        )
+      );
 
     const readManifest = (directory: string) =>
       fileSystem
@@ -366,7 +381,7 @@ export const RunVideoRendererLive = Layer.effect(
             .pipe(
               Effect.matchEffect({
                 onFailure: (cause) => fallBack(directory, cause.message),
-                onSuccess: () => removeFootage(directory),
+                onSuccess: () => keepCondensed(directory),
               })
             );
         }).pipe(
