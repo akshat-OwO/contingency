@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 
-import { parseByteRange } from "../../src/routes/agent-run-artifacts.ts";
+import { parseByteRange } from "../../src/services/byte-range.ts";
 
 it("reads the one byte range a media element asks for", () => {
   expect(parseByteRange("bytes=0-99", 500)).toEqual({ end: 99, start: 0 });

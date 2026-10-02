@@ -20,7 +20,7 @@ import type {
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import type { Effect, Stream } from "effect";
+import type { Effect, Scope, Stream } from "effect";
 import { Context } from "effect";
 import type { BrowserContext, Page } from "playwright-core";
 
@@ -90,11 +90,18 @@ export interface CreateBrowserService {
     sessionId: SessionId,
     tabId: BrowserTabId
   ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /**
+   * A blank Page in its own context on the shared Chromium, for drawing a
+   * Run's video. It belongs to no session, so no viewer, Trace, or agent ever
+   * sees it, and closing the scope closes its context.
+   */
+  readonly compositor: (size: {
+    readonly height: number;
+    readonly width: number;
+  }) => Effect.Effect<Page, BrowserRpcErrorType, Scope.Scope>;
   readonly create: (
     name: string,
     viewport: Viewport,
-    /** Local directory for Playwright's unredacted, sensitive Page videos. */
-    recordVideoDirectory?: string,
     blockServiceWorkers?: boolean
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly currentUrl: (

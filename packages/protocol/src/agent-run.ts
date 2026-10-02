@@ -6,6 +6,7 @@ import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { RunVideoTimeMap } from "./run-video.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -435,6 +436,8 @@ export const TaskAgentRunSummary = Schema.Struct({
   timeline: Schema.Array(AgentTimelineEntry),
   tracePath: Schema.NullOr(nonEmptyString),
   videoPath: Schema.NullOr(nonEmptyString),
+  /** Absent when no video was captured, and on Summaries written before it. */
+  videoTimeMap: Schema.optional(RunVideoTimeMap),
 })
   .check(taskInputIdentity)
   .annotate({ identifier: "TaskAgentRunSummary" });

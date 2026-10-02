@@ -21,6 +21,7 @@ export default defineConfig({
     {
       files: [
         "packages/cli/src/services/recorder-events.ts",
+        "packages/cli/src/services/run-footage.ts",
         "packages/protocol/src/agent-browser.ts",
         "packages/protocol/src/agent-decision.ts",
         "packages/protocol/src/agent-identifiers.ts",
@@ -35,6 +36,7 @@ export default defineConfig({
         "packages/protocol/src/flow.ts",
         "packages/protocol/src/index.ts",
         "packages/protocol/src/run.ts",
+        "packages/protocol/src/run-video.ts",
         "packages/protocol/src/storage.ts",
         "packages/protocol/src/viewport.ts",
       ],

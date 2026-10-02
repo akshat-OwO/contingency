@@ -21,6 +21,7 @@ import {
   evidenceCount,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
+import { RunVideo } from "@/components/agent/run-video";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -83,15 +84,10 @@ const DryRunVideo = ({
       </>
     ) : (
       <div className="relative">
-        <video
-          aria-label="Recorded Run video"
-          className="max-h-[min(24rem,50svh)] w-full rounded-lg border bg-black object-contain"
-          controls
-          preload="metadata"
+        <RunVideo
+          className="max-h-[min(24rem,50svh)] bg-black object-contain"
           src={src}
-        >
-          <track kind="captions" />
-        </video>
+        />
         <Verdict
           className="bg-background/90 pointer-events-none absolute top-2 left-2 rounded-full px-2 py-0.5 text-xs shadow-sm"
           verdict={verdict}

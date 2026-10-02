@@ -1,19 +1,11 @@
 import { spawn } from "node:child_process";
-import type { ChildProcess } from "node:child_process";
 
 import type { BrowserRpcErrorType } from "@contingency/protocol";
 import { Effect } from "effect";
 import type { Scope } from "effect";
-import { registry as playwrightRegistry } from "playwright-core/lib/coreBundle";
 
 import { browserFailure } from "./create-browser-session.ts";
-
-/**
- * How long a finalizing encoder may take to flush and exit before it is
- * killed. Closing the Teaching scope must never hang the Agent Session, and a
- * VP8 encoder with a full frame queue still drains well inside this window.
- */
-const ENCODER_EXIT_TIMEOUT_MS = 10_000;
+import { awaitExit, findFfmpeg } from "./ffmpeg.ts";
 
 /**
  * The bundled ffmpeg accepts `pipe:0` but not the `-` shorthand, and it ships
@@ -80,34 +72,6 @@ interface EncoderState {
   failure: string | undefined;
   finished: boolean;
 }
-
-const findFfmpeg = (): string => {
-  const executable = playwrightRegistry.registry.findExecutable("ffmpeg");
-  if (executable === undefined) {
-    throw new Error("Playwright's ffmpeg executable is unavailable.");
-  }
-  return executable.executablePath();
-};
-
-/** Wait for ffmpeg to flush and exit, killing it if it overstays. */
-const awaitExit = (process: ChildProcess): Promise<void> =>
-  // oxlint-disable-next-line promise/avoid-new -- ChildProcess has no exit Promise.
-  new Promise((resolve) => {
-    if (process.exitCode !== null || process.signalCode !== null) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(() => {
-      process.kill("SIGKILL");
-    }, ENCODER_EXIT_TIMEOUT_MS);
-    timer.unref?.();
-    const settle = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    process.once("close", settle);
-    process.once("error", settle);
-  });
 
 /**
  * A scoped ffmpeg process that turns the browser's screencast frames into one

@@ -1,12 +1,12 @@
 import type { BrowserAgentPointer } from "@contingency/protocol";
-import { AGENT_POINTER_ENTRY_OFFSET } from "@contingency/protocol";
+import {
+  AGENT_POINTER_ENTRY_OFFSET,
+  cursorPointAt,
+  planCursorPath,
+} from "@contingency/protocol";
 import { MousePointer2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import {
-  cursorPointAt,
-  planCursorPath,
-} from "@/components/agent/agent-cursor-path";
 import type {
   CanvasBox,
   Point,

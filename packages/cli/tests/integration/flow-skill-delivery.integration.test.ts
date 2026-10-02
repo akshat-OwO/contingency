@@ -12,6 +12,7 @@ import { TeachingRecordingStore } from "../../src/services/teaching-recording-st
 import {
   agentProcessLayer,
   agentViewport,
+  awaitRunVideo,
   findNode,
   runTool,
   sessionTool,
@@ -283,7 +284,7 @@ it.live(
           const serialized = JSON.stringify(timeline);
           expect(serialized).toContain("Confirm delivery area");
           expect(serialized).toContain(DEMONSTRATED_AREA);
-          // A reference is re-minted by every Snapshot and dies with the
+          // A reference means nothing outside its session and dies with the
           // document, and the Flow Skill contract rejects a step that names
           // one. Every demonstrated click must therefore reach the learning
           // agent as the role and accessible name of what the user hit.
@@ -554,6 +555,7 @@ it.live(
                 path.join(dryRunDirectory, tracePath ?? "missing")
               )
             ).toBe(true);
+            expect((yield* awaitRunVideo(dryRunDirectory)).state).toBe("ready");
             expect(
               yield* fileSystem.exists(
                 path.join(dryRunDirectory, videoPath ?? "missing")

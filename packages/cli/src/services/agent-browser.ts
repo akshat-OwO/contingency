@@ -14,6 +14,7 @@ import type {
   AgentPageActivity,
   AgentPageSettle,
   AgentScreenshot,
+  AgentSnapshotCoverage,
   AgentSnapshotNode,
   AgentSnapshotOptions,
   BrowserAgentPointer,
@@ -183,7 +184,7 @@ const PAGE_READING_PRELUDE = `
   // cursor instead.
   const CONTROL_SELECTOR =
     "a[href],button,input,select,textarea,summary,[onclick]," +
-    "[tabindex],[contenteditable=''],[contenteditable='true']," +
+    "[tabindex]:not([tabindex='-1']),[contenteditable=''],[contenteditable='true']," +
     "[role='button'],[role='link'],[role='checkbox'],[role='radio']," +
     "[role='switch'],[role='combobox'],[role='listbox'],[role='option']," +
     "[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']," +
@@ -364,6 +365,22 @@ const PAGE_READING_PRELUDE = `
     }
     return true;
   };
+  // What a child element contributes to the name of the element around it:
+  // its own text alternative when it has one, as for an icon or an image, and
+  // otherwise its text. A select or textarea inside a label contributes
+  // nothing — its text is the options it offers or the value it holds.
+  const childText = (child, read) => {
+    if (child.tagName === "SELECT" || child.tagName === "TEXTAREA") {
+      return "";
+    }
+    const alternative =
+      child.getAttribute("aria-label") ||
+      (child.tagName === "IMG" ? child.getAttribute("alt") : null);
+    if (alternative) {
+      return alternative;
+    }
+    return read(child) || child.getAttribute("title") || "";
+  };
   const renderedText = (element) => {
     let text = "";
     for (const child of element.childNodes) {
@@ -372,7 +389,7 @@ const PAGE_READING_PRELUDE = `
         continue;
       }
       if (child.nodeType === 1 && contributesName(child)) {
-        text += \` \${renderedText(child)}\`;
+        text += \` \${childText(child, renderedText)}\`;
       }
     }
     return text;
@@ -413,7 +430,7 @@ const PAGE_READING_PRELUDE = `
   // standard, not the first thing a text field answers with: a control with a
   // visible label is asked for by that label, in a Flow Skill and in a
   // recorded Teaching action alike.
-  const accessibleName = (element) => {
+  const accessibleName = (element, content = renderedText) => {
     const labelled = element.getAttribute("aria-labelledby");
     const labelledText =
       labelled === null
@@ -438,7 +455,11 @@ const PAGE_READING_PRELUDE = `
       element.getAttribute("alt") ||
       element.getAttribute("title") ||
       element.getAttribute("placeholder") ||
-      renderedText(element) ||
+      // A select's text is every option it offers and a textarea's is its
+      // value; neither is what the control is called.
+      (element.tagName === "SELECT" || element.tagName === "TEXTAREA"
+        ? ""
+        : content(element)) ||
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
   };
@@ -505,24 +526,45 @@ const clickListenerPaths = async (page: Page): Promise<number[][]> => {
   }
 };
 
+/** What one Snapshot read asks of the Page. */
+interface SnapshotRequest {
+  /** Keep only controls and clickable rows. */
+  readonly interactive: boolean;
+  readonly listenerPaths: readonly (readonly number[])[];
+  readonly offset: number;
+  /** Inspect reads the elements under one viewport point and nothing else. */
+  readonly point: { readonly x: number; readonly y: number } | undefined;
+  readonly selector: string | undefined;
+  /** Report each link's destination. */
+  readonly urls: boolean;
+}
+
 /**
  * What the Page is asked for. It collects the interactive controls, landmarks,
  * headings, and text a journey is described in — not the DOM — and hands back
  * the elements themselves so Contingency can mint references for them without
  * writing anything into the page under test.
+ *
+ * The script evaluates to a function of the elements earlier Snapshots already
+ * named. Each node reports the index of its element among them, so a control
+ * read twice keeps the reference it was first given.
  */
-const SNAPSHOT_SCRIPT = (
-  listenerPaths: readonly (readonly number[])[],
-  selector: string | undefined,
-  offset: number,
-  point?: { readonly x: number; readonly y: number }
-) => `(() => {${PAGE_READING_PRELUDE}
+const SNAPSHOT_SCRIPT = ({
+  interactive,
+  listenerPaths,
+  offset,
+  point,
+  selector,
+  urls,
+}: SnapshotRequest) => `((known) => {${PAGE_READING_PRELUDE}
+  const knownIndex = new Map(known.map((element, index) => [element, index]));
   const scope = ${JSON.stringify(selector)} === undefined ? document :
     document.querySelector(${JSON.stringify(selector)});
   if (scope === null) {
     throw new Error("Snapshot selector matched no section. Take a fresh snapshot and choose a current selector.");
   }
   const point = ${JSON.stringify(point)};
+  const interactiveOnly = ${JSON.stringify(interactive)};
   const ancestors = [];
   if (point) {
     for (let element = document.elementFromPoint(point.x, point.y);
@@ -670,7 +712,181 @@ const SNAPSHOT_SCRIPT = (
       textual.push(element);
     }
   }
-  const eligible = [...controls, ...contextual, ...textual];
+  const controlSet = new Set(controls);
+  const roleOf = (element) => {
+    const tagRole = element.tagName === "INPUT"
+      ? INPUT_ROLES[element.type] || "textbox"
+      : ROLE_BY_TAG[element.tagName] || element.tagName.toLowerCase();
+    return element.getAttribute("role") || tagRole;
+  };
+  // An Inspect read sees only the ancestors of one point, so it has no
+  // descendants to fold text into and keeps the selection as it was.
+  const kept = new Set([...controls, ...contextual, ...textual]);
+  const isInline = (element) => styleOf(element).display === "inline";
+  if (!point) {
+    // An inline run of text — a bold word, a price in a span — reads as part
+    // of the sentence or control around it. Reported on its own it splits one
+    // sentence into several nodes and repeats the words in the block's name.
+    for (const element of textual) {
+      if (!isInline(element)) {
+        continue;
+      }
+      let ancestor = element.parentElement;
+      while (ancestor && !kept.has(ancestor) && isInline(ancestor)) {
+        ancestor = ancestor.parentElement;
+      }
+      if (ancestor && kept.has(ancestor) &&
+          (controlSet.has(ancestor) || ownsText(ancestor))) {
+        kept.delete(element);
+      }
+    }
+  }
+  // A node that is not a control is named by the text it holds itself. Text
+  // inside a block reported on its own belongs to that block, so a landmark
+  // does not repeat the whole page and a form does not repeat its fields. A
+  // link inside prose stays in the sentence it is part of.
+  // A label is the name of the control it labels, so its words are read
+  // there and not again in the form around it.
+  const readsSeparately = (child, withInlineControls) =>
+    (kept.has(child) &&
+      !(withInlineControls && controlSet.has(child) && isInline(child))) ||
+    (child.tagName === "LABEL" && child.control);
+  const textOutside = (withInlineControls) => {
+    const read = (element) => {
+      let text = "";
+      for (const child of element.childNodes) {
+        if (child.nodeType === 3) {
+          text += child.nodeValue;
+          continue;
+        }
+        if (child.nodeType !== 1 || !contributesName(child) ||
+            readsSeparately(child, withInlineControls)) {
+          text += " ";
+          continue;
+        }
+        text += \` \${childText(child, read)}\`;
+      }
+      return text;
+    };
+    return read;
+  };
+  const ownText = textOutside(true);
+  const textBesideControls = textOutside(false);
+  const MEANINGFUL = /[\\p{L}\\p{N}]/u;
+  // Controls that hold other reported controls, such as a clickable panel
+  // around a toolbar. Named by their content they would repeat every child.
+  const hostsControls = new Set();
+  const names = new Map();
+  const nameOf = (element) => {
+    let name = names.get(element);
+    if (name !== undefined) {
+      return name;
+    }
+    if (point) {
+      name = accessibleName(element);
+    } else if (controlSet.has(element) && !hostsControls.has(element)) {
+      name = accessibleName(element);
+    } else if (controlSet.has(element)) {
+      name = accessibleName(element, textBesideControls);
+    } else {
+      name = accessibleName(element, ownText);
+      // A block whose only words are the links inside it — a list item
+      // around one link, a table cell of navigation — says nothing the links
+      // do not.
+      if (!controlSet.has(element) &&
+          !MEANINGFUL.test(accessibleName(element, textBesideControls))) {
+        name = "";
+      }
+    }
+    name = redactSensitive(name);
+    if (!MEANINGFUL.test(name)) {
+      name = "";
+    }
+    names.set(element, name);
+    return name;
+  };
+  if (!point) {
+    for (const element of controls) {
+      if (!kept.has(element)) {
+        continue;
+      }
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if (controlSet.has(ancestor) && kept.has(ancestor)) {
+          hostsControls.add(ancestor);
+        }
+      }
+    }
+  }
+  // A control's name as its whole content reads, computed once: every text
+  // node inside a large clickable panel asks for it.
+  const contentNames = new Map();
+  const contentNameOf = (element) => {
+    let name = contentNames.get(element);
+    if (name === undefined) {
+      name = accessibleName(element);
+      contentNames.set(element, name);
+    }
+    return name;
+  };
+  // Landmarks and other containers that say where a node sits. Unnamed, they
+  // are kept only while something inside them is reported.
+  const STRUCTURE_ROLES = new Set([
+    "alertdialog", "article", "banner", "complementary", "contentinfo",
+    "dialog", "form", "main", "navigation", "search",
+  ]);
+  if (!point) {
+    for (const element of [...contextual, ...textual]) {
+      if (!kept.has(element)) {
+        continue;
+      }
+      const name = nameOf(element);
+      if (name === "") {
+        if (!STRUCTURE_ROLES.has(roleOf(element))) {
+          kept.delete(element);
+        }
+        continue;
+      }
+      // Text a control already carries as its name is read with the control.
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if (controlSet.has(ancestor) && contentNameOf(ancestor).includes(name)) {
+          kept.delete(element);
+          break;
+        }
+      }
+    }
+    const isEmptyStructure = (element) =>
+      !controlSet.has(element) && nameOf(element) === "";
+    const occupied = new Set();
+    for (const element of kept) {
+      if (isEmptyStructure(element)) {
+        continue;
+      }
+      for (let ancestor = element.parentElement; ancestor && !occupied.has(ancestor); ancestor = ancestor.parentElement) {
+        occupied.add(ancestor);
+      }
+    }
+    for (const element of [...kept]) {
+      if (isEmptyStructure(element) && !occupied.has(element)) {
+        kept.delete(element);
+      }
+    }
+  }
+  // What the viewport shows is read first: a fixed bill, the dialog that just
+  // opened, the row under the cursor. Beyond it the budget prefers controls,
+  // then landmarks and headings, then text.
+  const inViewport = (element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.bottom > 0 && rect.right > 0 &&
+      rect.top < innerHeight && rect.left < innerWidth;
+  };
+  const tiers = (interactiveOnly ? [controls] : [controls, contextual, textual])
+    .map((tier) => tier.filter((element) => kept.has(element)));
+  const eligible = point
+    ? tiers.flat()
+    : [
+        ...tiers.flatMap((tier) => tier.filter(inViewport)),
+        ...tiers.flatMap((tier) => tier.filter((element) => !inViewport(element))),
+      ];
   // Property-only edits and CSS layout changes need not create mutations.
   const signature = point ? null : JSON.stringify(eligible.map((element) => {
     const bounds = element.getBoundingClientRect();
@@ -691,13 +907,15 @@ const SNAPSHOT_SCRIPT = (
   );
   const elements = [];
   const nodes = [];
+  // Inputs that hold no text a reader types: their value attribute is a
+  // submission token such as "on", not state.
+  const VALUELESS_INPUTS = new Set([
+    "button", "checkbox", "file", "hidden", "image", "radio", "reset", "submit",
+  ]);
   for (const element of ordered) {
-    const isInput = element.tagName === "INPUT";
-    const tagRole = isInput
-      ? INPUT_ROLES[element.type] || "textbox"
-      : ROLE_BY_TAG[element.tagName] || element.tagName.toLowerCase();
-    const role = element.getAttribute("role") || tagRole;
-    const name = redactSensitive(accessibleName(element));
+    const role = roleOf(element);
+    const name = nameOf(element);
+    const isControl = controlSet.has(element);
     let depth = 0;
     for (
       let ancestor = element.parentElement;
@@ -712,35 +930,61 @@ const SNAPSHOT_SCRIPT = (
     const node = {
       depth: Math.min(depth, 64),
       height: bounds.height,
+      known: knownIndex.get(element) ?? -1,
       name,
       role,
       width: bounds.width,
       x: bounds.x,
       y: bounds.y,
     };
+    if (isControl) {
+      node.interactive = true;
+    }
     if (clickable.has(element)) {
       node.clickable = true;
     }
     if (element.matches(CONTROL_SELECTOR)) {
       const item = itemContext(element);
       if (item !== null) {
-        node.context = redactSensitive(itemLabel(item, element));
+        const context = redactSensitive(itemLabel(item, element));
+        // A context the name already says tells two controls apart no better.
+        if (!name.toLowerCase().includes(context.toLowerCase())) {
+          node.context = context;
+        }
       }
     }
     if (element.disabled === true) {
       node.disabled = true;
     }
-    if (typeof element.checked === "boolean") {
+    if (element.tagName === "INPUT" &&
+        (element.type === "checkbox" || element.type === "radio")) {
       node.checked = element.checked;
+    } else {
+      const ariaChecked = element.getAttribute("aria-checked");
+      if (ariaChecked === "true" || ariaChecked === "false") {
+        node.checked = ariaChecked === "true";
+      }
     }
-    if (typeof element.value === "string") {
+    const holdsValue =
+      (element.tagName === "INPUT" && !VALUELESS_INPUTS.has(element.type)) ||
+      element.tagName === "TEXTAREA" ||
+      element.tagName === "SELECT";
+    if (holdsValue) {
+      // A select reads as the option it shows, which is also what a select
+      // action may name it by.
+      const value = element.tagName === "SELECT"
+        ? Array.from(element.selectedOptions, (option) => option.label).join(", ")
+        : element.value;
       if (isSensitive(element)) {
-        if (element.value.length > 0) {
+        if (value.length > 0) {
           node.valueWithheld = true;
         }
-      } else {
-        node.value = element.value.slice(0, ${NAME_LIMIT});
+      } else if (value.length > 0) {
+        node.value = value.slice(0, ${NAME_LIMIT});
       }
+    }
+    if (${JSON.stringify(urls)} && element.tagName === "A" && element.href) {
+      node.url = element.href;
     }
     nodes.push(node);
     elements.push(element);
@@ -769,7 +1013,7 @@ const SNAPSHOT_SCRIPT = (
     title: document.title,
     url: location.href,
   };
-})()`;
+})`;
 
 /**
  * Whether any element the Snapshot would report carries the phrase. A
@@ -801,8 +1045,11 @@ const CollectedNodes = Schema.Array(
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
     height: Schema.Finite,
+    interactive: Schema.optional(Schema.Boolean),
+    known: Schema.Int,
     name: Schema.String,
     role: Schema.String,
+    url: Schema.optional(Schema.String),
     value: Schema.optional(Schema.String),
     valueWithheld: Schema.optional(Schema.Boolean),
     width: Schema.Finite,
@@ -826,9 +1073,51 @@ interface SnapshotGuard {
 
 interface SnapshotContinuation {
   readonly guard: JSHandle<SnapshotGuard | null>;
+  readonly interactive: boolean;
   readonly offset: number;
   readonly selector: string | undefined;
+  readonly urls: boolean;
 }
+
+/**
+ * Where a link leads, as short as it can be said: a same-origin path, else the
+ * whole URL. Credentials, fragments, and secret-looking query values are
+ * stripped the same way a Snapshot's own URL is.
+ */
+const linkDestination = (href: string, pageUrl: string): string => {
+  const sanitized = sanitizeTeachingUrl(href);
+  try {
+    const target = new URL(sanitized);
+    return target.origin === new URL(pageUrl).origin
+      ? `${target.pathname}${target.search}`
+      : sanitized;
+  } catch {
+    return sanitized;
+  }
+};
+
+/** The scope a read keeps: its continuation's, else the one it asked for. */
+const scopeOf = (
+  options: AgentSnapshotOptions,
+  continuation: SnapshotContinuation | undefined
+): Pick<SnapshotContinuation, "interactive" | "selector" | "urls"> => ({
+  interactive: continuation?.interactive ?? options.interactive ?? false,
+  selector: continuation?.selector ?? options.selector ?? undefined,
+  urls: continuation?.urls ?? options.urls ?? false,
+});
+
+/** What SNAPSHOT_SCRIPT answers. Every field is decoded before it is used. */
+interface PageReading {
+  readonly elements: readonly object[];
+  readonly focusedIndex: number;
+  readonly guard: SnapshotGuard | null;
+  readonly nodes: readonly object[];
+  readonly title: string;
+  readonly total: number;
+  readonly url: string;
+}
+
+type ReadPage = (known: readonly unknown[]) => PageReading;
 
 const property = <A = unknown>(
   handle: JSHandle<unknown>,
@@ -850,6 +1139,33 @@ const disposeHandles = (
     await Promise.all(
       [...handles].map((handle) => handle.dispose().catch(ignoreDisposeFailure))
     );
+  });
+
+/**
+ * Run the Snapshot script against the elements earlier reads named. The
+ * script evaluates to a function, so the known elements travel as arguments
+ * rather than being written anywhere the page could see them.
+ */
+const evaluateSnapshot = (
+  page: Page,
+  request: SnapshotRequest,
+  known: readonly ElementHandle[]
+): Effect.Effect<JSHandle<PageReading>, BrowserRpcErrorType> =>
+  Effect.tryPromise({
+    catch: (cause) => browserFailure("Could not read the Page", cause),
+    try: async () => {
+      const read = await page.evaluateHandle<ReadPage>(
+        SNAPSHOT_SCRIPT(request)
+      );
+      try {
+        return await read.evaluateHandle(
+          (collect, elements) => collect(elements),
+          [...known]
+        );
+      } finally {
+        await read.dispose().catch(ignoreDisposeFailure);
+      }
+    },
   });
 
 const releaseGuard = (guard: JSHandle<SnapshotGuard | null>) =>
@@ -880,9 +1196,12 @@ const matchesContinuation = (
  *
  * References are short-lived by construction. They expire when the Page
  * navigates away from the document they were read in, and when the element
- * they name leaves that document. They are numbered from a counter that never
- * restarts, so a reference from an earlier Snapshot can only ever miss — it
- * can never quietly resolve to whatever now occupies its old position.
+ * they name leaves that document. Until then every Snapshot that reads the
+ * element reports the same reference, so the agent can tell a control it saw
+ * before from a new one. New references come from a counter that never
+ * restarts, so a reference from an earlier document or a replaced element can
+ * only ever miss — it can never quietly resolve to whatever now occupies its
+ * old position.
  * Nothing is written into the page, so a Snapshot never changes the website
  * under test.
  */
@@ -961,7 +1280,10 @@ export interface AgentElementRegistry {
     AgentElementRef,
     BrowserRpcErrorType
   >;
-  /** Read the Page and mint a new generation of references for it. */
+  /**
+   * Read the Page. An element an earlier Snapshot of this document named keeps
+   * its reference; any other element is given a new one.
+   */
   readonly snapshot: (
     page: Page,
     options?: AgentSnapshotOptions
@@ -974,9 +1296,10 @@ export interface AgentElementRegistry {
   ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
   /**
    * Whether two references, minted by the same or different Snapshots, name
-   * one live element. References are re-minted on every Snapshot, so this is
-   * the only way to tell that a control is still the one read earlier. A
-   * stale reference names nothing, so it matches nothing.
+   * one live element. A Snapshot keeps an element's reference, but a
+   * reference resolved before a navigation or minted by Inspect may differ
+   * from the one the newest Snapshot reports. A stale reference names
+   * nothing, so it matches nothing.
    */
   readonly sameElement: (left: string, right: string) => Effect.Effect<boolean>;
   /**
@@ -1059,7 +1382,9 @@ export const makeAgentElementRegistry = (
     if (
       continuation === undefined ||
       (options.selector !== undefined &&
-        options.selector !== continuation.selector)
+        options.selector !== continuation.selector) ||
+      (options.interactive !== undefined &&
+        options.interactive !== continuation.interactive)
     ) {
       return Effect.fail(
         makeBrowserRpcError(
@@ -1078,7 +1403,7 @@ export const makeAgentElementRegistry = (
     offset: number,
     total: number,
     returned: number,
-    selector: string | undefined,
+    scope: Pick<SnapshotContinuation, "interactive" | "selector" | "urls">,
     inspecting: boolean
   ) =>
     Effect.gen(function* retainSnapshotPage() {
@@ -1095,9 +1420,9 @@ export const makeAgentElementRegistry = (
         }
       } else {
         continuations.set(nextCursor, {
+          ...scope,
           guard: continuation?.guard ?? guard,
           offset: nextOffset,
-          selector,
         });
         if (continuation !== undefined) {
           yield* releaseGuard(guard);
@@ -1110,15 +1435,57 @@ export const makeAgentElementRegistry = (
           }
         }
       }
-      return {
+      const coverage: AgentSnapshotCoverage = {
         nextCursor,
         offset,
         returned,
-        selector: selector ?? null,
+        selector: scope.selector ?? null,
         total,
         truncated,
       };
+      return scope.interactive ? { ...coverage, interactive: true } : coverage;
     });
+
+  /**
+   * A reload keeps the URL but replaces the document, and a handle from the
+   * old one cannot even be passed to the new one. Its references end exactly
+   * as a navigation's do.
+   */
+  const forgetReplacedDocument = (page: Page): Effect.Effect<void> =>
+    elements.size === 0
+      ? Effect.void
+      : Effect.tryPromise(() =>
+          page.evaluate((known) => known.length, [...elements.values()])
+        ).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+          Effect.flatMap((same) => (same ? Effect.void : clear()))
+        );
+
+  /**
+   * The reference for an element a read returned. One an earlier read named
+   * keeps its reference: the handle an in-flight action may hold stays the
+   * live one, the new handle is released, and the read moves the reference to
+   * the back of the release order. Anything else is given a new reference.
+   */
+  const adopt = (
+    knownRef: string | undefined,
+    element: ElementHandle,
+    released: JSHandle<unknown>[]
+  ): AgentElementRef => {
+    const previous =
+      knownRef === undefined ? undefined : elements.get(knownRef);
+    if (knownRef !== undefined && previous !== undefined) {
+      released.push(element);
+      elements.delete(knownRef);
+      elements.set(knownRef, previous);
+      return AgentElementRef.make(knownRef);
+    }
+    minted += 1;
+    const ref = AgentElementRef.make(`e${minted}`);
+    elements.set(ref, element);
+    return ref;
+  };
 
   const readSnapshot = (
     page: Page,
@@ -1142,8 +1509,13 @@ export const makeAgentElementRegistry = (
           );
         }
       }
-      const selector = continuation?.selector ?? options.selector ?? undefined;
+      const scope = scopeOf(options, continuation);
       const offset = continuation?.offset ?? 0;
+      yield* forgetReplacedDocument(page);
+      // The elements earlier Snapshots of this document named, in reference
+      // order, so the Page can say which of them it read again.
+      const knownRefs = [...elements.keys()];
+      const knownHandles = [...elements.values()];
       generation += 1;
       // Evidence identity must never collide across sessions or process lifetimes.
       const snapshotId = AgentSnapshotId.make(`snapshot-${randomUUID()}`);
@@ -1151,13 +1523,11 @@ export const makeAgentElementRegistry = (
         clickListenerPaths(page)
       ).pipe(Effect.orElseSucceed((): number[][] => []));
       const collected = yield* Effect.acquireUseRelease(
-        Effect.tryPromise({
-          catch: (cause) => browserFailure("Could not read the Page", cause),
-          try: () =>
-            page.evaluateHandle<unknown>(
-              SNAPSHOT_SCRIPT(listenerPaths, selector, offset, point)
-            ),
-        }),
+        evaluateSnapshot(
+          page,
+          { ...scope, listenerPaths, offset, point },
+          knownHandles
+        ),
         (handle) =>
           Effect.gen(function* readCollectedPage() {
             const nodesHandle = yield* property(handle, "nodes");
@@ -1248,16 +1618,18 @@ export const makeAgentElementRegistry = (
           orphaned.push(entry);
           continue;
         }
-        const { height, width, x, y, ...node } = collectedNode;
-        minted += 1;
-        const ref = AgentElementRef.make(`e${minted}`);
-        elements.set(ref, element);
+        const { height, known, url, width, x, y, ...node } = collectedNode;
+        const ref = adopt(knownRefs[known], element, orphaned);
         bounds.set(ref, { generation, height, width, x, y });
         subjects.set(ref, { name: node.name, role: node.role });
         if (index - 1 === identity.focusedIndex) {
           focused = ref;
         }
-        nodes.push({ ...node, ref });
+        nodes.push(
+          url === undefined
+            ? { ...node, ref }
+            : { ...node, ref, url: linkDestination(url, identity.url) }
+        );
       }
       yield* disposeHandles(orphaned);
       documentUrl = identity.url;
@@ -1269,7 +1641,7 @@ export const makeAgentElementRegistry = (
         offset,
         identity.total,
         nodes.length,
-        selector,
+        scope,
         point !== undefined
       );
       return {
@@ -1690,6 +2062,9 @@ export const redactAgentSnapshot = (
     };
     if (node.context !== undefined) {
       redacted.context = redactKnownValues(node.context, values);
+    }
+    if (node.url !== undefined) {
+      redacted.url = redactKnownValues(node.url, values);
     }
     if (node.value === undefined) {
       return redacted;

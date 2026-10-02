@@ -118,6 +118,7 @@ const makeFakeBrowser = (options?: {
       });
     },
     closeTab: notUnderTest,
+    compositor: notUnderTest,
     create: (_name, createdViewport) =>
       Effect.sync(() => {
         const sessionId = SessionId.make(`create-agent-${created.length + 1}`);

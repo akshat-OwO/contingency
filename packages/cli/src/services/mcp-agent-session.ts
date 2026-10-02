@@ -2,6 +2,7 @@ import {
   AGENT_ACTION_SEQUENCE_MAX,
   AgentActSequenceResult,
   AgentActionResult,
+  AgentActionSnapshotFormat,
   AgentBrowserAct,
   AgentBrowserActSequence,
   AgentBrowserObserve,
@@ -18,16 +19,24 @@ import {
   AgentSetupVariableRequest,
   AgentVariableEnter,
   compactAgentSession,
+  optionalNullable,
 } from "@contingency/protocol";
 import type {
   AgentActionSignal,
   AgentSequenceStopReason,
+  AgentSessionId,
 } from "@contingency/protocol";
 import { Effect, Layer, Result, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import type { AgentSessionError } from "./agent-session.ts";
 import { AgentSession } from "./agent-session.ts";
+import {
+  diffSnapshotLines,
+  isWholePage,
+  snapshotLines,
+  textSnapshot,
+} from "./agent-snapshot-text.ts";
 import {
   SessionResult,
   UnpublishedSession,
@@ -38,31 +47,74 @@ import {
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
 
-/** Format the already-redacted observation without duplicating its nodes. */
-const compactBrowserSnapshot = (
-  snapshot: typeof AgentBrowserSnapshot.Type
-): typeof AgentBrowserSnapshot.Type => ({
-  ...snapshot,
-  nodes: [],
-  text: snapshot.nodes
-    .map((node) => {
-      const state = [
-        node.disabled ? "disabled" : undefined,
-        node.checked === undefined ? undefined : `checked=${node.checked}`,
-        node.clickable ? "clickable" : undefined,
-        node.valueWithheld ? "value withheld" : undefined,
-        node.value === undefined || node.value === ""
-          ? undefined
-          : `value=${JSON.stringify(node.value)}`,
-        node.context === undefined
-          ? undefined
-          : `context=${JSON.stringify(node.context)}`,
-      ]
-        .filter((value) => value !== undefined)
-        .join(" ");
-      return `${"  ".repeat(node.depth)}@${node.ref} ${node.role} ${JSON.stringify(node.name)}${state === "" ? "" : ` [${state}]`}`;
-    })
-    .join("\n"),
+type BrowserSnapshot = typeof AgentBrowserSnapshot.Type;
+
+/** How many sessions keep a diff base. A closed session's base ages out. */
+const BASELINE_LIMIT = 64;
+
+/**
+ * The last complete, untruncated text Snapshot each session was handed, which an action
+ * answering in `diff` compares against. It is replaced by every whole-page
+ * read, whatever its format, so a diff is always relative to the newest full
+ * picture the agent holds of that Page.
+ */
+const makeSnapshotBaselines = () => {
+  const baselines = new Map<
+    AgentSessionId,
+    { readonly text: string; readonly url: string }
+  >();
+  const remember = (sessionId: AgentSessionId, snapshot: BrowserSnapshot) => {
+    if (!isWholePage(snapshot)) {
+      return;
+    }
+    baselines.delete(sessionId);
+    baselines.set(sessionId, {
+      text: snapshotLines(snapshot),
+      url: snapshot.url,
+    });
+    while (baselines.size > BASELINE_LIMIT) {
+      const oldest = baselines.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      baselines.delete(oldest);
+    }
+  };
+  /** Hand a Snapshot over in the format the agent asked for. */
+  const present = (
+    sessionId: AgentSessionId,
+    snapshot: BrowserSnapshot,
+    format: AgentActionSnapshotFormat
+  ): BrowserSnapshot => {
+    const base = baselines.get(sessionId);
+    remember(sessionId, snapshot);
+    if (format === "structured") {
+      return snapshot;
+    }
+    // A diff against another document, or against a read that saw only part
+    // of this one, would describe changes that did not happen.
+    if (
+      format === "diff" &&
+      base !== undefined &&
+      base.url === snapshot.url &&
+      isWholePage(snapshot)
+    ) {
+      return {
+        ...snapshot,
+        nodes: [],
+        text: diffSnapshotLines(base.text, snapshotLines(snapshot)),
+      };
+    }
+    return textSnapshot(snapshot);
+  };
+  return { present };
+};
+
+const actionSnapshotFormat = optionalNullable(AgentActionSnapshotFormat);
+
+const AgentBrowserActSequenceParameters = Schema.Struct({
+  ...AgentBrowserActSequence.fields,
+  format: actionSnapshotFormat,
 });
 
 const AgentSessionStartParameters = Schema.Struct({
@@ -116,6 +168,7 @@ const AgentBrowserObserveParameters = Schema.Struct({
 
 const AgentBrowserActParameters = Schema.Struct({
   action: AgentBrowserAct.fields.action,
+  format: actionSnapshotFormat,
   intent: AgentBrowserAct.fields.intent,
   operationId: AgentBrowserAct.fields.operationId,
   sessionId: AgentBrowserAct.fields.sessionId,
@@ -190,7 +243,7 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      'Read a bounded Browser Snapshot. coverage reports eligible nodes, scope, truncation, and nextCursor. Pass selector to scope to a CSS section before budgeting, or cursor to continue the same stable observation. A changed Page expires continuation: take a fresh snapshot. format:"text" returns compact ref lines in text with an empty nodes array; structured is the default. References expire on navigation or detachment. settle describes readiness, not coverage. Read again after effect none, an unsettled action snapshot, a stale ref, or a change you did not cause.',
+      'Read a bounded Browser Snapshot. The default text format answers one line per node in text, with nodes empty: indentation is nesting, then role, quoted name, and [state]. Only controls carry an @eN reference; text and landmarks have none. An element keeps its reference across reads until it leaves the document or the Page navigates. format:"structured" returns the node array instead. What the viewport shows is read first. coverage reports eligible nodes, scope, truncation, and nextCursor. Pass interactive:true to read only controls, urls:true to add link destinations, selector to scope to a CSS section before budgeting, or cursor to continue the same stable observation. A changed Page expires continuation: take a fresh snapshot. settle describes readiness, not coverage. Read again after effect none, an unsettled action snapshot, a stale ref, or a change you did not cause.',
     failure: AgentSessionFailure,
     parameters: AgentBrowserSnapshotRead,
     success: AgentBrowserSnapshot,
@@ -211,7 +264,7 @@ const AgentBrowserScreenshotTool = readOnly(
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    'Perform one browser action during a Run, or while preparing the setup of a Teaching session you started. Teaching refuses this tool once you hand control to the user: the user demonstrates the journey and you observe it. The action contributes to the user-requested task, and intent.objective may describe it in your own words. Set intent.objectiveKind to "new" when starting an unrelated objective. Declare known irreversible or high-impact effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result\'s Snapshot is read once the Page settles, up to two seconds, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice. Otherwise the returned Snapshot is current: reason from it without another read.',
+    'Perform one browser action during a Run, or while preparing the setup of a Teaching session you started. Teaching refuses this tool once you hand control to the user: the user demonstrates the journey and you observe it. The action contributes to the user-requested task, and intent.objective may describe it in your own words. Set intent.objectiveKind to "new" when starting an unrelated objective. Declare known irreversible or high-impact effects in intent.irreversible. Contingency enforces Domain Scope and requires user Confirmation for an irreversible action. An intervention means the action was refused; resolve its Pending Decision before retrying the exact operation id. A new operation id needs fresh confirmation. The result\'s Snapshot is read once the Page settles, up to two seconds, in the text format unless format says otherwise; format:"diff" answers only the lines that changed since your previous complete read of the same Page, and the full text when there is none or either read was truncated, and entry.effect says what the action was seen to change: observed with its signals (url, page, dom, focus, value, scroll), or none. After effect none, or a Snapshot whose settle.settled is false, read the Page again with agent_browser_snapshot before repeating the action: it may still be reacting, and a repeat can act twice. Otherwise the returned Snapshot is current: reason from it without another read.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,
@@ -219,9 +272,9 @@ const AgentBrowserActTool = Tool.make("agent_browser_act", {
 
 const AgentBrowserActSequenceTool = Tool.make("agent_browser_act_sequence", {
   dependencies: [AgentSession],
-  description: `Perform up to ${AGENT_ACTION_SEQUENCE_MAX} browser actions in order, such as filling a known form, when each target is in the current Snapshot. Each action has its own operation id and intent and passes every check agent_browser_act applies. The sequence is not atomic. It stops at the first action that is refused or interrupted, needs a Pending Decision, fails, has effect none, leaves the Page unsettled, or navigates before the last action. stopped names that action and why, and earlier effects remain. The answer carries each attempt and one Snapshot read after the last action that ran. Replaying the same operation ids replays completed attempts instead of repeating them. Do not continue past a stop without reading the Page.`,
+  description: `Perform up to ${AGENT_ACTION_SEQUENCE_MAX} browser actions in order, such as filling a known form, when each target is in the current Snapshot. Each action has its own operation id and intent and passes every check agent_browser_act applies. The sequence is not atomic. It stops at the first action that is refused or interrupted, needs a Pending Decision, fails, has effect none, leaves the Page unsettled, or navigates before the last action. stopped names that action and why, and earlier effects remain. The answer carries each attempt and one Snapshot read after the last action that ran, formatted as agent_browser_act formats it. Replaying the same operation ids replays completed attempts instead of repeating them. Do not continue past a stop without reading the Page.`,
   failure: AgentSessionFailure,
-  parameters: AgentBrowserActSequence,
+  parameters: AgentBrowserActSequenceParameters,
   success: AgentActSequenceResult,
 });
 
@@ -329,229 +382,272 @@ export const AgentSessionTools = withStrictParameters(
  * agent makes on a session counts as agent activity, which is what Workspace
  * reads to say how long a Run's agent has been idle.
  */
-export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer({
-  agent_browser_act: (params) =>
-    Effect.gen(function* actInAgentSession() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .act(params.sessionId, params.action, params.operationId, params.intent)
-        .pipe(Effect.mapError(failure));
-    }),
-  agent_browser_act_sequence: (params) =>
-    Effect.gen(function* actInSequence() {
-      const service = yield* AgentSession;
-      const operationIds = new Set(
-        params.actions.map((step) => step.operationId)
-      );
-      if (operationIds.size !== params.actions.length) {
-        return yield* Effect.fail(
-          new AgentSessionFailure({
-            code: "agent_session_invalid",
-            message:
-              "Each action in a sequence needs its own operation id. (agent_session_invalid)",
-          })
-        );
-      }
-      yield* service.noteAgentActivity(params.sessionId);
-      const actions: AgentActSequenceResult["actions"][number][] = [];
-      let lastResult: AgentActionResult | null = null;
-      let stopped: AgentActSequenceResult["stopped"] = null;
-      for (const [index, step] of params.actions.entries()) {
-        const attempt = yield* Effect.result(
-          service.act(
-            params.sessionId,
-            step.action,
-            step.operationId,
-            step.intent
-          )
-        );
-        if (Result.isFailure(attempt)) {
-          stopped = {
-            code: attempt.failure.code,
-            index,
-            message: attempt.failure.message,
-            reason: "error",
+export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
+  Effect.sync(() => {
+    const baselines = makeSnapshotBaselines();
+    return {
+      agent_browser_act: (params) =>
+        Effect.gen(function* actInAgentSession() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          const result = yield* service
+            .act(
+              params.sessionId,
+              params.action,
+              params.operationId,
+              params.intent
+            )
+            .pipe(Effect.mapError(failure));
+          return {
+            ...result,
+            snapshot: baselines.present(
+              params.sessionId,
+              result.snapshot,
+              params.format ?? "text"
+            ),
           };
-          break;
-        }
-        const result = attempt.success;
-        lastResult = result;
-        actions.push({
-          entry: result.entry,
-          intervention: result.intervention ?? null,
-          operationId: step.operationId,
-        });
-        const reason = sequenceStop(
-          result,
-          index === params.actions.length - 1
-        );
-        if (reason !== null) {
-          stopped = { code: null, index, message: null, reason };
-          break;
-        }
-      }
-      return {
-        actions,
-        snapshot: lastResult?.snapshot ?? null,
-        stopped,
-        url: lastResult?.url ?? null,
-      };
-    }),
-  agent_browser_screenshot: (params) =>
-    Effect.gen(function* screenshotAgentSession() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .screenshot(params.sessionId)
-        .pipe(Effect.mapError(failure));
-    }),
-  agent_browser_snapshot: (params) =>
-    Effect.gen(function* snapshotAgentSession() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .snapshot(params.sessionId, {
-          cursor: params.cursor,
-          selector: params.selector,
-        })
-        .pipe(
-          Effect.mapError(failure),
-          Effect.map((snapshot) =>
-            params.format === "text"
-              ? compactBrowserSnapshot(snapshot)
-              : snapshot
-          )
-        );
-    }),
-  agent_session_close: (params) =>
-    Effect.gen(function* closeAgentSession() {
-      const service = yield* AgentSession;
-      return yield* service
-        .close(params.sessionId, params.operationId)
-        .pipe(Effect.mapError(failure), inView(params.view));
-    }),
-  agent_session_get: (params) =>
-    Effect.gen(function* getAgentSession() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .get(params.sessionId)
-        .pipe(Effect.mapError(failure), inView(params.view));
-    }),
-  agent_session_history_get: (params) =>
-    Effect.gen(function* pageAgentSessionHistory() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      const snapshot = yield* service
-        .get(params.sessionId)
-        .pipe(Effect.mapError(failure));
-      const limit = params.limit ?? 20;
-      const page = <T>(entries: readonly T[], idOf: (entry: T) => string) => {
-        const newestFirst = entries.toReversed();
-        const cursor =
-          params.before === undefined
-            ? -1
-            : newestFirst.findIndex((entry) => idOf(entry) === params.before);
-        if (params.before !== undefined && cursor === -1) {
-          return Effect.fail(
-            new AgentSessionFailure({
-              code: "agent_session_history_cursor_expired",
-              message:
-                "That entry is no longer retained. Start again without before. (agent_session_history_cursor_expired)",
-            })
+        }),
+      agent_browser_act_sequence: (params) =>
+        Effect.gen(function* actInSequence() {
+          const service = yield* AgentSession;
+          const operationIds = new Set(
+            params.actions.map((step) => step.operationId)
           );
-        }
-        const start = cursor + 1;
-        const items = newestFirst.slice(start, start + limit);
-        const oldest = items.at(-1);
-        return Effect.succeed({
-          items,
-          nextBefore:
-            oldest === undefined || start + limit >= newestFirst.length
-              ? null
-              : idOf(oldest),
-          total: entries.length,
-        });
-      };
-      if (params.kind === "timeline") {
-        const timeline = yield* page(snapshot.timeline, (entry) => entry.id);
-        return {
-          decisions: [],
-          nextBefore: timeline.nextBefore,
-          timeline: timeline.items,
-          total: timeline.total,
-        };
-      }
-      const decisions = yield* page(
-        snapshot.decisionHistory,
-        (entry) => entry.pendingDecisionId
-      );
-      return {
-        decisions: decisions.items,
-        nextBefore: decisions.nextBefore,
-        timeline: [],
-        total: decisions.total,
-      };
-    }),
-  agent_session_start: ({ view, ...params }) =>
-    Effect.gen(function* startAgentSession() {
-      const service = yield* AgentSession;
-      return yield* service
-        .start({ ...params, openedBy: "agent" })
-        .pipe(Effect.mapError(failure), inView(view));
-    }),
-  agent_session_takeover_request: (params) =>
-    Effect.gen(function* requestAgentTakeover() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .requestTakeover(params.sessionId, params.reason, params.operationId)
-        .pipe(Effect.mapError(failure), inView(params.view));
-    }),
-  agent_sessions_get: (params) =>
-    Effect.gen(function* listAgentSessions() {
-      const service = yield* AgentSession;
-      const sessions = yield* service.list();
-      return {
-        // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.forEach` is not an array method.
-        sessions: yield* Effect.forEach(sessions, (session) =>
-          encodeUnpublishedSession(
-            params.view === "compact" ? compactAgentSession(session) : session
-          )
-        ),
-      };
-    }),
-  agent_teaching_setup_handoff: (params) =>
-    Effect.gen(function* handOffTeachingSetup() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .handOffTeachingSetup(params.sessionId, params.operationId)
-        .pipe(Effect.mapError(failure), inView(params.view));
-    }),
-  agent_teaching_setup_variable_request: (params) =>
-    Effect.gen(function* requestSetupVariable() {
-      const service = yield* AgentSession;
-      return yield* service
-        .requestSetupVariable(params)
-        .pipe(Effect.mapError(failure), inView(params.view));
-    }),
-  agent_variable_enter: (params) =>
-    Effect.gen(function* enterSuppliedVariable() {
-      const service = yield* AgentSession;
-      yield* service.noteAgentActivity(params.sessionId);
-      return yield* service
-        .enterSuppliedVariable(
-          params.sessionId,
-          params.name,
-          params.ref,
-          params.operationId,
-          params.flowSkillName
-        )
-        .pipe(Effect.mapError(failure));
-    }),
-});
+          if (operationIds.size !== params.actions.length) {
+            return yield* Effect.fail(
+              new AgentSessionFailure({
+                code: "agent_session_invalid",
+                message:
+                  "Each action in a sequence needs its own operation id. (agent_session_invalid)",
+              })
+            );
+          }
+          yield* service.noteAgentActivity(params.sessionId);
+          const actions: AgentActSequenceResult["actions"][number][] = [];
+          let lastResult: AgentActionResult | null = null;
+          let stopped: AgentActSequenceResult["stopped"] = null;
+          for (const [index, step] of params.actions.entries()) {
+            const attempt = yield* Effect.result(
+              service.act(
+                params.sessionId,
+                step.action,
+                step.operationId,
+                step.intent
+              )
+            );
+            if (Result.isFailure(attempt)) {
+              stopped = {
+                code: attempt.failure.code,
+                index,
+                message: attempt.failure.message,
+                reason: "error",
+              };
+              break;
+            }
+            const result = attempt.success;
+            lastResult = result;
+            actions.push({
+              entry: result.entry,
+              intervention: result.intervention ?? null,
+              operationId: step.operationId,
+            });
+            const reason = sequenceStop(
+              result,
+              index === params.actions.length - 1
+            );
+            if (reason !== null) {
+              stopped = { code: null, index, message: null, reason };
+              break;
+            }
+          }
+          return {
+            actions,
+            snapshot:
+              lastResult === null
+                ? null
+                : baselines.present(
+                    params.sessionId,
+                    lastResult.snapshot,
+                    params.format ?? "text"
+                  ),
+            stopped,
+            url: lastResult?.url ?? null,
+          };
+        }),
+      agent_browser_screenshot: (params) =>
+        Effect.gen(function* screenshotAgentSession() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          return yield* service
+            .screenshot(params.sessionId)
+            .pipe(Effect.mapError(failure));
+        }),
+      agent_browser_snapshot: (params) =>
+        Effect.gen(function* snapshotAgentSession() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          return yield* service
+            .snapshot(params.sessionId, {
+              cursor: params.cursor,
+              interactive: params.interactive,
+              selector: params.selector,
+              urls: params.urls,
+            })
+            .pipe(
+              Effect.mapError(failure),
+              Effect.map((snapshot) =>
+                baselines.present(
+                  params.sessionId,
+                  snapshot,
+                  params.format ?? "text"
+                )
+              )
+            );
+        }),
+      agent_session_close: (params) =>
+        Effect.gen(function* closeAgentSession() {
+          const service = yield* AgentSession;
+          return yield* service
+            .close(params.sessionId, params.operationId)
+            .pipe(Effect.mapError(failure), inView(params.view));
+        }),
+      agent_session_get: (params) =>
+        Effect.gen(function* getAgentSession() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          return yield* service
+            .get(params.sessionId)
+            .pipe(Effect.mapError(failure), inView(params.view));
+        }),
+      agent_session_history_get: (params) =>
+        Effect.gen(function* pageAgentSessionHistory() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          const snapshot = yield* service
+            .get(params.sessionId)
+            .pipe(Effect.mapError(failure));
+          const limit = params.limit ?? 20;
+          const page = <T>(
+            entries: readonly T[],
+            idOf: (entry: T) => string
+          ) => {
+            const newestFirst = entries.toReversed();
+            const cursor =
+              params.before === undefined
+                ? -1
+                : newestFirst.findIndex(
+                    (entry) => idOf(entry) === params.before
+                  );
+            if (params.before !== undefined && cursor === -1) {
+              return Effect.fail(
+                new AgentSessionFailure({
+                  code: "agent_session_history_cursor_expired",
+                  message:
+                    "That entry is no longer retained. Start again without before. (agent_session_history_cursor_expired)",
+                })
+              );
+            }
+            const start = cursor + 1;
+            const items = newestFirst.slice(start, start + limit);
+            const oldest = items.at(-1);
+            return Effect.succeed({
+              items,
+              nextBefore:
+                oldest === undefined || start + limit >= newestFirst.length
+                  ? null
+                  : idOf(oldest),
+              total: entries.length,
+            });
+          };
+          if (params.kind === "timeline") {
+            const timeline = yield* page(
+              snapshot.timeline,
+              (entry) => entry.id
+            );
+            return {
+              decisions: [],
+              nextBefore: timeline.nextBefore,
+              timeline: timeline.items,
+              total: timeline.total,
+            };
+          }
+          const decisions = yield* page(
+            snapshot.decisionHistory,
+            (entry) => entry.pendingDecisionId
+          );
+          return {
+            decisions: decisions.items,
+            nextBefore: decisions.nextBefore,
+            timeline: [],
+            total: decisions.total,
+          };
+        }),
+      agent_session_start: ({ view, ...params }) =>
+        Effect.gen(function* startAgentSession() {
+          const service = yield* AgentSession;
+          return yield* service
+            .start({ ...params, openedBy: "agent" })
+            .pipe(Effect.mapError(failure), inView(view));
+        }),
+      agent_session_takeover_request: (params) =>
+        Effect.gen(function* requestAgentTakeover() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          return yield* service
+            .requestTakeover(
+              params.sessionId,
+              params.reason,
+              params.operationId
+            )
+            .pipe(Effect.mapError(failure), inView(params.view));
+        }),
+      agent_sessions_get: (params) =>
+        Effect.gen(function* listAgentSessions() {
+          const service = yield* AgentSession;
+          const sessions = yield* service.list();
+          return {
+            // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.forEach` is not an array method.
+            sessions: yield* Effect.forEach(sessions, (session) =>
+              encodeUnpublishedSession(
+                params.view === "compact"
+                  ? compactAgentSession(session)
+                  : session
+              )
+            ),
+          };
+        }),
+      agent_teaching_setup_handoff: (params) =>
+        Effect.gen(function* handOffTeachingSetup() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          return yield* service
+            .handOffTeachingSetup(params.sessionId, params.operationId)
+            .pipe(Effect.mapError(failure), inView(params.view));
+        }),
+      agent_teaching_setup_variable_request: (params) =>
+        Effect.gen(function* requestSetupVariable() {
+          const service = yield* AgentSession;
+          return yield* service
+            .requestSetupVariable(params)
+            .pipe(Effect.mapError(failure), inView(params.view));
+        }),
+      agent_variable_enter: (params) =>
+        Effect.gen(function* enterSuppliedVariable() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          return yield* service
+            .enterSuppliedVariable(
+              params.sessionId,
+              params.name,
+              params.ref,
+              params.operationId,
+              params.flowSkillName
+            )
+            .pipe(Effect.mapError(failure));
+        }),
+    };
+  })
+);
 
 /** MCP's typed tool surface over the process-owned Agent Session service. */
 export const McpAgentSessionLayer = McpServer.toolkit(AgentSessionTools).pipe(

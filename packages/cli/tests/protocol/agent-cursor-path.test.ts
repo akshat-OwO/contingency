@@ -1,9 +1,5 @@
+import { cursorPointAt, planCursorPath } from "@contingency/protocol";
 import { describe, expect, it } from "vitest";
-
-import {
-  cursorPointAt,
-  planCursorPath,
-} from "@/components/agent/agent-cursor-path";
 
 /** A repeatable stand-in for `Math.random`. */
 const seeded = (seed: number) => {

@@ -11,6 +11,7 @@ import {
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import { defaultCatalogRoot } from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
+import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -60,6 +61,11 @@ export const webCommand = Command.make(
             })
           )
         );
+        // A Teaching-only process ends no Runs, but it serves their videos
+        // and condenses any footage a Run process left unfinished.
+        const runVideoRenderer = Layer.succeedContext(
+          yield* Layer.build(RunVideoRendererLive)
+        );
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
@@ -85,6 +91,7 @@ export const webCommand = Command.make(
             allowedOrigins: resolveAllowedOrigins(browserUrl),
             host: config.host,
             port: config.port,
+            runVideoRenderer,
             serveWebUi: isProduction,
             teachingRecordingStore,
           }).pipe(Layer.provide(agentSession))

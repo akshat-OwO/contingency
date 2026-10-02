@@ -37,6 +37,10 @@ export type AgentSnapshotId = typeof AgentSnapshotId.Type;
  * neither a role nor an `onclick` attribute reveals them.
  * `context` names the nearest repeated item containing a control, so two
  * buttons with the same name can be associated with different products.
+ * `interactive` marks a node an action is meant to name: a control or a
+ * clickable row. Text and landmarks keep a reference for Contingency's own
+ * use, but the compact text form shows references only on interactive nodes.
+ * `url` is a link's destination, present only when the read asked for URLs.
  */
 export const AgentSnapshotNode = Schema.Struct({
   checked: optionalNullable(Schema.Boolean),
@@ -44,9 +48,11 @@ export const AgentSnapshotNode = Schema.Struct({
   context: optionalNullable(Schema.String),
   depth: Schema.Int.check(Schema.isBetween({ maximum: 64, minimum: 0 })),
   disabled: optionalNullable(Schema.Boolean),
+  interactive: optionalNullable(Schema.Boolean),
   name: Schema.String,
   ref: AgentElementRef,
   role: nonEmptyString,
+  url: optionalNullable(Schema.String),
   value: optionalNullable(Schema.String),
   valueWithheld: optionalNullable(Schema.Boolean),
 });
@@ -69,6 +75,7 @@ export const AgentPageSettle = Schema.Struct({
 export type AgentPageSettle = typeof AgentPageSettle.Type;
 
 export const AgentSnapshotCoverage = Schema.Struct({
+  interactive: optionalNullable(Schema.Boolean),
   nextCursor: Schema.NullOr(Schema.String),
   offset: Schema.Int,
   returned: Schema.Int,
@@ -76,10 +83,18 @@ export const AgentSnapshotCoverage = Schema.Struct({
   total: Schema.Int,
   truncated: Schema.Boolean,
 }).annotate({ identifier: "AgentSnapshotCoverage" });
+export type AgentSnapshotCoverage = typeof AgentSnapshotCoverage.Type;
 
+/**
+ * How a Browser Snapshot is scoped. `interactive` keeps only controls and
+ * clickable rows, before the node budget is applied. `urls` adds each link's
+ * destination. A continuation keeps the scope of the read that minted it.
+ */
 export const AgentSnapshotOptions = Schema.Struct({
   cursor: optionalNullable(nonEmptyString),
+  interactive: optionalNullable(Schema.Boolean),
   selector: optionalNullable(nonEmptyString),
+  urls: optionalNullable(Schema.Boolean),
 });
 export type AgentSnapshotOptions = typeof AgentSnapshotOptions.Type;
 
@@ -276,11 +291,31 @@ export const AgentBrowserObserve = Schema.Struct({
 });
 export type AgentBrowserObserve = typeof AgentBrowserObserve.Type;
 
+/**
+ * How a Browser Snapshot is handed to the external agent. `text` is the
+ * default: one line per node, with references only on what an action can
+ * name. `structured` is the full node array.
+ */
+export const AgentSnapshotFormat = Schema.Literals(["text", "structured"]);
+export type AgentSnapshotFormat = typeof AgentSnapshotFormat.Type;
+
 export const AgentBrowserSnapshotRead = Schema.Struct({
   ...AgentBrowserObserve.fields,
   ...AgentSnapshotOptions.fields,
-  format: optionalNullable(Schema.Literals(["structured", "text"])),
+  format: optionalNullable(AgentSnapshotFormat),
 });
+
+/**
+ * How an action result carries the Snapshot read after it. `diff` lists only
+ * the lines that changed since the previous complete, untruncated read of the same Page, and
+ * falls back to `text` when there is nothing to compare against.
+ */
+export const AgentActionSnapshotFormat = Schema.Literals([
+  "text",
+  "diff",
+  "structured",
+]);
+export type AgentActionSnapshotFormat = typeof AgentActionSnapshotFormat.Type;
 
 export const AgentBrowserAct = Schema.Struct({
   action: AgentBrowserAction,

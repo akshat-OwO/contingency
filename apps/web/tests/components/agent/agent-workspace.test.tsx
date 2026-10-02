@@ -126,6 +126,12 @@ const rpcOverrides = {
     rpc.agentStreamFailureMessage === undefined
       ? Effect.never
       : Effect.fail(new Error(rpc.agentStreamFailureMessage)),
+  runVideoStatusAtom: () =>
+    Atom.make(() => ({
+      _tag: "Success",
+      value: { condensed: true, state: "ready" },
+      waiting: false,
+    })),
 };
 
 const TestRegistry = ({ children }: { readonly children: ReactNode }) => (

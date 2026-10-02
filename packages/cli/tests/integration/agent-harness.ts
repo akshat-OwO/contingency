@@ -14,7 +14,7 @@ import type {
   AgentSnapshotNode,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import { Effect, Layer, Option, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Predicate, Schema, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -38,6 +38,10 @@ import {
   TeachingRecordingToolHandlersLive,
   TeachingRecordingTools,
 } from "../../src/services/mcp-teaching-recording.ts";
+import {
+  RunVideoRenderer,
+  RunVideoRendererLive,
+} from "../../src/services/run-video-renderer.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -120,13 +124,44 @@ const readable = <Value>(name: string, value: Value) =>
     return { ...value, ...decoded };
   });
 
+/** Tools that answer with a Browser Snapshot and take a `format`. */
+const SNAPSHOT_TOOLS = new Set([
+  "agent_browser_act",
+  "agent_browser_act_sequence",
+  "agent_browser_snapshot",
+]);
+
+/**
+ * How a test call asks for its Snapshot. Most tests assert on node fields, so
+ * they read the structured form unless they name a format. `agent` sends the
+ * parameters untouched and gets the format an external agent gets by default.
+ */
+export type SnapshotFormatDefault = "structured" | "agent";
+
+const withSnapshotFormat = <Params>(
+  name: string,
+  params: Params,
+  snapshotFormat: SnapshotFormatDefault
+): Params => {
+  if (
+    snapshotFormat !== "structured" ||
+    !SNAPSHOT_TOOLS.has(name) ||
+    !Predicate.isObjectKeyword(params) ||
+    Predicate.hasProperty(params, "format")
+  ) {
+    return params;
+  }
+  return { ...params, format: "structured" };
+};
+
 /**
  * One MCP tool call, as the external agent makes it: validated parameters in,
  * the tool's success value out, and a structured failure raised so a test
  * asserts on it with `Effect.flip`.
  */
 export function makeCall<Tools extends Record<string, Tool.Any>>(
-  toolkit: Toolkit.Toolkit<Tools>
+  toolkit: Toolkit.Toolkit<Tools>,
+  snapshotFormat?: SnapshotFormatDefault
 ): <Name extends keyof Tools>(
   name: Name,
   params: Tool.Parameters<Tools[Name]>
@@ -136,7 +171,8 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
   Tool.HandlersFor<Tools> | Tool.ResultDecodingServices<Tools[Name]>
 >;
 export function makeCall<Tools extends Record<string, Tool.Any>>(
-  toolkit: Toolkit.Toolkit<Tools>
+  toolkit: Toolkit.Toolkit<Tools>,
+  snapshotFormat: SnapshotFormatDefault = "structured"
 ) {
   return <Name extends keyof Tools>(
     name: Name,
@@ -145,7 +181,7 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
     Effect.gen(function* callTool() {
       const handlers = yield* toolkit;
       const results = yield* handlers
-        .handle(name, params)
+        .handle(name, withSnapshotFormat(String(name), params, snapshotFormat))
         .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
       const last = results.at(-1);
       if (last === undefined) {
@@ -358,7 +394,11 @@ export const agentProcessLayer = (
                 ...sessionOptions,
                 resourceDirectory: options.resourceDirectory,
               }
-        ).pipe(Layer.provide(Layer.merge(runStore, recordingStore))),
+        ).pipe(
+          Layer.provide(
+            Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
+          )
+        ),
         makeFlowSkillCatalogLayer(
           options.followCatalogSelection === true
             ? {
@@ -370,7 +410,8 @@ export const agentProcessLayer = (
             : catalogOptions
         ),
         runStore,
-        recordingStore
+        recordingStore,
+        RunVideoRendererLive
       ).pipe(
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
@@ -378,3 +419,18 @@ export const agentProcessLayer = (
     )
   );
 };
+
+/**
+ * Wait for a finished Run's video to be condensed. It is encoded after the
+ * Run Summary is written, so a test that reads the file waits for it.
+ */
+export const awaitRunVideo = (directory: string) =>
+  Effect.gen(function* pollRunVideo() {
+    const renderer = yield* RunVideoRenderer;
+    let status = yield* renderer.status(directory);
+    while (status.state === "preparing") {
+      yield* Effect.sleep("100 millis");
+      status = yield* renderer.status(directory);
+    }
+    return status;
+  }).pipe(Effect.timeout("120 seconds"));
