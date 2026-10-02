@@ -47,12 +47,18 @@
     </main>
     <script>
       const boxes = [...document.querySelectorAll("fieldset input")];
+      const params = new URLSearchParams(location.search);
+      const variant = params.get("variant");
+      if (variant === "missing-length") {
+        boxes.forEach((box) => box.removeAttribute("maxlength"));
+      }
       const proceed = document.getElementById("continue");
       const update = () => {
         proceed.hidden = !boxes.every((box) => box.value.length === 1);
       };
       const spread = (index, text) => {
         const characters = [...text];
+        if (variant === "partial") characters.pop();
         characters.forEach((character, offset) => {
           const box = boxes[index + offset];
           if (box !== undefined) {
@@ -66,7 +72,11 @@
         box.addEventListener("beforeinput", (event) => {
           if (event.data !== null && event.data.length > 1) {
             event.preventDefault();
-            spread(index, event.data);
+            if (variant === "delayed") {
+              setTimeout(() => spread(index, event.data), 150);
+            } else {
+              spread(index, event.data);
+            }
           }
         });
         box.addEventListener("paste", (event) => {
@@ -81,7 +91,14 @@
         });
       });
       proceed.addEventListener("click", () => {
-        document.getElementById("result").textContent = "Signed in";
+        const accepted = boxes.map((box) => box.value).join("") === "482915";
+        document.getElementById("result").textContent = accepted
+          ? "Signed in"
+          : "Rejected";
+        if (accepted) {
+          boxes[0].closest("fieldset").hidden = true;
+          proceed.hidden = true;
+        }
       });
     </script>
   </body>

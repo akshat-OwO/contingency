@@ -889,9 +889,8 @@ const matchesContinuation = (
 /**
  * Where one private Variable is entered. `selector` names the controls the
  * value is typed into: one field, or every box of a split input such as six
- * OTP boxes. `spread` is set only when a one-character box stands alone: it
- * names that box and the one-character inputs after it, which a page's own
- * handler may have spread the value across. It is read as evidence that the
+ * OTP boxes. `spread` names associated controls in the same widget, which
+ * the page may distribute the value across. It is read as evidence that the
  * page accepted the value and is never typed into.
  */
 export interface PrivateInputTarget {
@@ -1398,16 +1397,56 @@ export const makeAgentElementRegistry = (
                 }
                 return `html > ${selectorParts.join(" > ")}`;
               };
+              if (requestedCount <= 1 || candidate.tagName !== "INPUT") {
+                return { selector: selectorFor(candidate), spread: null };
+              }
+              // Stay inside the nearest widget. Other forms and verification
+              // groups must never provide acceptance evidence or receive input.
+              const group =
+                candidate.closest('fieldset, [role="group"]') ??
+                candidate.parentElement;
+              const eligible = (control: typeof candidate) =>
+                control.tagName === "INPUT" &&
+                !control.matches(":disabled, [readonly]") &&
+                ["text", "tel", "number", "password"].includes(
+                  control.getAttribute("type") ?? "text"
+                ) &&
+                control.getClientRects().length > 0 &&
+                control.checkVisibility({ checkVisibilityCSS: true }) &&
+                (control.closest('fieldset, [role="group"]') ??
+                  control.parentElement) === group;
+              const associated = [...(group?.querySelectorAll("input") ?? [])];
               if (
-                requestedCount <= 1 ||
-                candidate.tagName !== "INPUT" ||
-                Number(candidate.getAttribute("maxlength")) !== 1
+                associated.length !== requestedCount ||
+                associated[0] !== candidate ||
+                !associated.every(eligible)
               ) {
                 return { selector: selectorFor(candidate), spread: null };
               }
-              // In document order, which is the order a page fills them in.
+              const firstLabel = candidate.getAttribute("aria-label") ?? "";
+              const position = /^(?<name>.*\S)\s+1\s+of\s+(?<count>\d+)$/u.exec(
+                firstLabel
+              )?.groups;
+              const labelledSegments =
+                position !== undefined &&
+                Number(position.count) === requestedCount &&
+                associated.every(
+                  (control, index) =>
+                    control.getAttribute("aria-label") ===
+                    `${position.name} ${index + 1} of ${requestedCount}`
+                );
+              if (
+                !labelledSegments &&
+                !associated.every(
+                  (control) => Number(control.getAttribute("maxlength")) === 1
+                )
+              ) {
+                return { selector: selectorFor(candidate), spread: null };
+              }
+              // Explicit one-character, compatible controls can be filled
+              // individually. Missing length metadata is evidence-only.
               const oneCharacter = new Set<typeof candidate>(
-                [...candidate.ownerDocument.querySelectorAll("input")].filter(
+                associated.filter(
                   (control) =>
                     !control.hasAttribute("disabled") &&
                     Number(control.getAttribute("maxlength")) === 1
@@ -1419,39 +1458,19 @@ export const makeAgentElementRegistry = (
                   candidate.getAttribute("type") &&
                 control.getAttribute("inputmode") ===
                   candidate.getAttribute("inputmode");
-              let current: typeof candidate | null = candidate.parentElement;
-              while (
-                current !== null &&
-                current !== current.ownerDocument.documentElement
-              ) {
-                const controls = [...current.querySelectorAll("input")].filter(
-                  compatible
-                );
-                const start = controls.indexOf(candidate);
-                if (
-                  start !== -1 &&
-                  controls.length === requestedCount &&
-                  controls.length - start === requestedCount
-                ) {
-                  return {
-                    selector: controls.map(selectorFor).join(","),
-                    spread: null,
-                  };
-                }
-                current = current.parentElement;
+              const controls = associated.filter(compatible);
+              if (controls.length === requestedCount) {
+                return {
+                  selector: controls.map(selectorFor).join(","),
+                  spread: null,
+                };
               }
               // The boxes differ in markup, so they are not typed into as a
               // group. A page that spreads a pasted code by itself still
               // fills the boxes after this one, in document order.
-              const following = [...oneCharacter];
-              const start = following.indexOf(candidate);
-              const spread = following.slice(start, start + requestedCount);
               return {
                 selector: selectorFor(candidate),
-                spread:
-                  start === -1 || spread.length !== requestedCount
-                    ? null
-                    : spread.map(selectorFor).join(","),
+                spread: associated.map(selectorFor).join(","),
               };
             }, segmentCount),
         })
@@ -2460,12 +2479,16 @@ const readPrivateValue = async (
   return values.join("");
 };
 
+const decodePrivateSelector = Schema.decodeUnknownSync(Schema.String);
+
 const enterPrivateVariable = (
   page: Page,
   target: PrivateInputTarget,
   value: string
 ): Effect.Effect<string, BrowserRpcErrorType> =>
   attempt("Could not enter the private Variable", async () => {
+    const deadline = Date.now() + ACTION_TIMEOUT_MS;
+    const remaining = () => Math.max(1, deadline - Date.now());
     const controls = page.locator(target.selector);
     const count = await controls.count();
     const characters = [...value];
@@ -2490,35 +2513,83 @@ const enterPrivateVariable = (
       if (next === undefined) {
         return;
       }
-      await controls.nth(index).fill(next, { timeout: ACTION_TIMEOUT_MS });
+      await controls.nth(index).fill(next, { timeout: remaining() });
       await fillEach(values, index + 1);
     };
-    await controls.first().fill(value, { timeout: ACTION_TIMEOUT_MS });
+    await controls.first().fill(value, { timeout: remaining() });
     const initiallyAccepted = await readPrivateValue(controls);
-    if (initiallyAccepted === undefined || initiallyAccepted === value) {
+    if (count === 1 && initiallyAccepted === value) {
       return target.selector;
     }
-    if (count === 1) {
-      // A lone one-character box keeps the first character while the page
-      // moves the rest into the boxes after it. Those boxes holding exactly
-      // the value is the page accepting it.
-      if (
-        target.spread !== undefined &&
-        (await readPrivateValue(page.locator(target.spread))) === value
-      ) {
-        return target.spread;
-      }
-      throw new PrivateInputRefusedError(
-        "value_mismatch",
-        "The private control did not accept the value."
+    if (count > 1) {
+      await fillEach(Array.from({ length: count }, () => ""));
+      await fillEach(characters);
+    }
+    const controlHandle = await controls
+      .first()
+      .elementHandle({ timeout: remaining() });
+    try {
+      // Poll acceptance, not elapsed time or a submit button. Page-managed
+      // distribution can finish after fill returns, but must finish within
+      // the same action budget. A prefix never proves complete acceptance.
+      const accepted = await page.waitForFunction(
+        ({ selector, spread, expected, expectedCount, split, anchor }) => {
+          if (anchor === null) {
+            return false;
+          }
+          const accepts = (query: string, segments: boolean) => {
+            const elements = [...anchor.ownerDocument.querySelectorAll(query)];
+            const group =
+              anchor.closest('fieldset, [role="group"]') ??
+              anchor.parentElement;
+            return (
+              anchor.isConnected &&
+              elements[0] === anchor &&
+              elements.length === (segments ? expectedCount : 1) &&
+              elements.every(
+                (element) =>
+                  "value" in element &&
+                  !element.matches(":disabled, [readonly]") &&
+                  element.getClientRects().length > 0 &&
+                  element.checkVisibility({ checkVisibilityCSS: true }) &&
+                  (!segments ||
+                    (element.closest('fieldset, [role="group"]') ??
+                      element.parentElement) === group) &&
+                  (!segments || [...String(element.value)].length === 1)
+              ) &&
+              elements
+                .map((element) =>
+                  "value" in element ? String(element.value) : ""
+                )
+                .join("") === expected
+            );
+          };
+          if (accepts(selector, split)) {
+            return selector;
+          }
+          return spread !== undefined && accepts(spread, true) ? spread : false;
+        },
+        {
+          anchor: controlHandle,
+          expected: value,
+          expectedCount: characters.length,
+          selector: target.selector,
+          split: count > 1,
+          spread: target.spread,
+        },
+        { timeout: remaining() }
       );
-    }
-
-    await fillEach(Array.from({ length: count }, () => ""));
-    await fillEach(characters);
-    const finallyAccepted = await readPrivateValue(controls);
-    if (finallyAccepted === undefined || finallyAccepted === value) {
-      return target.selector;
+      try {
+        return decodePrivateSelector(await accepted.jsonValue());
+      } finally {
+        await accepted.dispose();
+      }
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError)) {
+        throw error;
+      }
+    } finally {
+      await controlHandle?.dispose();
     }
     throw new PrivateInputRefusedError(
       "value_mismatch",
