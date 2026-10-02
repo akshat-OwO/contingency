@@ -250,11 +250,14 @@ it.live("keeps hidden text out of an ancestor's accessible name", () =>
     });
 
     // A cart with an item in it does not say it is empty. The paragraph
-    // carrying that sentence is hidden, so a Step judging the region by its
-    // text reads the state the Page is showing.
-    const region = findNode(full.nodes, "main", "Cart");
-    expect(region.name).toContain("SKU anvil-001");
-    expect(region.name).not.toContain("Your cart is empty.");
+    // carrying that sentence is hidden, so no node reads the state the Page
+    // is not showing.
+    expect(findNode(full.nodes, "listitem", "SKU anvil-001").name).toBe(
+      "SKU anvil-001"
+    );
+    expect(
+      full.nodes.some((node) => node.name.includes("Your cart is empty."))
+    ).toBe(false);
 
     // The rest of the accessibility tree's exclusions hold the same way.
     expect(findNode(full.nodes, "paragraph", "Removed").name).toBe(
@@ -285,11 +288,21 @@ it.live("keeps hidden text out of an ancestor's accessible name", () =>
       sessionId: empty.id,
     });
 
-    // Visible text still flattens upward: with the cart empty it is the
-    // message that reaches the region, and the item that does not.
-    const emptyRegion = findNode(emptied.nodes, "main", "Cart");
-    expect(emptyRegion.name).toContain("Your cart is empty.");
-    expect(emptyRegion.name).not.toContain("SKU anvil-001");
+    // With the cart empty it is the message the Page shows, and the item it
+    // does not.
+    findNode(emptied.nodes, "paragraph", "Your cart is empty.");
+    expect(
+      emptied.nodes.some((node) => node.name.includes("SKU anvil-001"))
+    ).toBe(false);
+    // A Snapshot names a landmark by its label, but a wait still matches the
+    // accessible name visible text flattens into: this phrase spans the
+    // heading and the message, so only the region's name carries it.
+    const waited = yield* callTool("agent_browser_act", {
+      action: { text: "Cart Your cart is empty", type: "wait_for_text" },
+      operationId: OperationId.make("hidden-text-wait-region"),
+      sessionId: empty.id,
+    });
+    expect(waited.entry.outcome).toBe("completed");
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
@@ -384,9 +397,14 @@ it.live(
         "Backpack",
         "Bike Light",
       ]);
-      expect(
-        findNode(observed.nodes, "article", "Useful article").name
-      ).toContain("Read more");
+      // A container is named by its own label, never by the text of what it
+      // holds: the heading and the button inside it are nodes of their own.
+      const article = observed.nodes.find((node) => node.role === "article");
+      expect(article?.name).toBe("");
+      findNode(observed.nodes, "heading", "Useful article");
+      expect(findNode(observed.nodes, "button", "Read more").context).toBe(
+        "Useful article"
+      );
       expect(
         observed.nodes.filter(
           (node) => node.role === "image" && node.name === ""
@@ -1214,9 +1232,10 @@ it.live(
       expect(first.nodes).toHaveLength(300);
       expect(first.coverage?.truncated).toBe(true);
       expect(first.coverage?.selector).toBeNull();
-      expect(
-        first.nodes.some((node) => node.name.includes("Total amount"))
-      ).toBe(false);
+      // The bill is fixed in the viewport, and what the viewport shows is
+      // read before the 320 products scrolled out of view.
+      findNode(first.nodes, "paragraph", "Total amount: 24.00");
+      findNode(first.nodes, "button", "Change quantity");
       expect(first.settle?.settled).toBe(true);
 
       const all = [...first.nodes];
@@ -1234,6 +1253,7 @@ it.live(
         cursor = next.coverage?.nextCursor;
       }
       expect(all).toHaveLength(first.coverage?.total ?? -1);
+      expect(new Set(all.map((node) => node.ref)).size).toBe(all.length);
       const products = all.filter(
         (node) => node.role === "button" && node.name === "Add to cart"
       );
@@ -1333,7 +1353,7 @@ it.live(
 );
 
 it.live(
-  "inspects live controls and bill text omitted from the global snapshot budget",
+  "inspects live controls and bill text the latest snapshot did not read",
   () =>
     Effect.gen(function* inspectLargeCart() {
       const fixtures = yield* fixtureServer;
@@ -1343,7 +1363,10 @@ it.live(
         fixtures.url("snapshot-cart.html"),
         "snapshot-cart-inspect"
       );
+      // Inspect hit-tests the live Page rather than whatever the agent last
+      // read, so a snapshot of another section leaves the bill selectable.
       const first = yield* callTool("agent_browser_snapshot", {
+        selector: "#recommendations",
         sessionId: session.id,
       });
       expect(first.nodes.some((node) => node.name === "Change quantity")).toBe(

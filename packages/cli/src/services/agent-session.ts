@@ -1070,7 +1070,7 @@ export const describeCapturedAction = (
 /**
  * How a click reads when the tree recorded beside it does not describe the
  * control it hit. The bare reference is the one thing a later reader cannot
- * use — it is re-minted on every Snapshot and dies with the document — and the
+ * use — it means nothing outside the session and dies with the document — and the
  * Flow Skill contract rejects a step that names one, so an unresolved click
  * says it is unresolved rather than handing on a reference or a name no
  * recorded tree can be joined back to.
@@ -4284,8 +4284,8 @@ const makeAgentSession = (
         const action = { ref: focused.ref, text: value, type: "fill" as const };
         // The same description the agent-driven path produces, so a recording
         // reads in roles, accessible names and the value that landed whoever
-        // typed it. References are re-minted on every Snapshot, so the subject
-        // comes from the tree the reference was read in — the one recorded
+        // typed it. A reference can outlive the tree it was read in, so the
+        // subject comes from that tree — the one recorded
         // before the edit, which a later reader joins the entry back to.
         return {
           action,
