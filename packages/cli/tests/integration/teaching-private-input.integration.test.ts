@@ -2,7 +2,7 @@ import { OperationId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Result } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
@@ -11,6 +11,7 @@ import {
   findNode,
   sessionTool,
   startUserTeaching,
+  teachingRecordingTool,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
@@ -135,3 +136,174 @@ it.live(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+for (const variant of [
+  "baseline",
+  "missing-length",
+  "delayed",
+  "partial",
+  "wrong",
+  "non-settling",
+  "hidden",
+  "disabled",
+  "separate",
+  "unrelated",
+  "editable",
+  "editable-delayed",
+] as const) {
+  it.live(`verifies private segmented entry in a ${variant} Dry Run`, () =>
+    Effect.gen(function* verifyDryRunEntry() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "private-spread-dry-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* Effect.scoped(
+        Effect.gen(function* driveEntry() {
+          const session = yield* AgentSession;
+          const started = yield* startUserTeaching({
+            activity: "teaching",
+            clientName: "integration-recorder",
+            clientVersion: "1.0.0",
+            name: "spread-code",
+            operationId: OperationId.make("seed-start"),
+            url: fixtures.url("spread-otp.html"),
+            viewport: agentViewport,
+          });
+          yield* session.startTeachingRecording(started.id, "seed-record");
+          const seed = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: started.id,
+          });
+          yield* session.enterUserVariable(
+            started.id,
+            {
+              ref: findNode(seed.nodes, "textbox", "otp-input 1 of 6").ref,
+              value: OTP,
+              variable: OTP_VARIABLE,
+            },
+            "seed-fill"
+          );
+          yield* session.stopTeachingRecording(started.id, "seed-stop");
+          const { recordingId } = started;
+          if (recordingId === null) {
+            return yield* Effect.die("Expected a Teaching Recording.");
+          }
+          const claimOperationId = OperationId.make("seed-claim");
+          yield* teachingRecordingTool("agent_teaching_recording_claim", {
+            action: "take",
+            operationId: claimOperationId,
+            recordingId,
+          });
+          const captured = yield* teachingRecordingTool(
+            "agent_teaching_timeline_get",
+            { claimOperationId, recordingId }
+          );
+          expect(JSON.stringify(captured)).toContain("{{OTP}}");
+          expect(JSON.stringify(captured)).not.toContain(OTP);
+          yield* teachingRecordingTool("agent_flow_skill_save", {
+            claimOperationId,
+            files: [
+              {
+                content:
+                  "---\nname: spread-code\ndescription: Enter the verification code.\ninputs:\n  - otp\n---\n\n1. Enter {{otp}} in the first code box.\n   Done when: Continue appears.\n",
+                path: "SKILL.md",
+              },
+            ],
+            operationId: OperationId.make("seed-save"),
+            recordingId,
+          });
+          const dry = yield* teachingRecordingTool(
+            "agent_flow_skill_dry_run_start",
+            {
+              inputs: [{ changed: true, name: "otp", secret: true }],
+              operationId: OperationId.make("dry-start"),
+              recordingId,
+              url: `${fixtures.url("spread-otp.html")}?variant=${variant}`,
+            }
+          );
+          const sessionId = dry.session.id;
+          yield* session.supplyDryRunVariable(sessionId, "OTP", OTP);
+          const before = yield* sessionTool("agent_browser_snapshot", {
+            sessionId,
+          });
+          const codeTarget =
+            variant === "unrelated" ? "OTP" : "otp-input 1 of 6";
+          const { ref } = findNode(
+            before.nodes,
+            "textbox",
+            variant.startsWith("editable") ? "Editable code" : codeTarget
+          );
+          const enter = () =>
+            session.enterSuppliedVariable(
+              sessionId,
+              "OTP",
+              ref,
+              OperationId.make("dry-enter")
+            );
+          const succeeds = [
+            "baseline",
+            "missing-length",
+            "delayed",
+            "editable",
+            "editable-delayed",
+          ].includes(variant);
+          const dispatchedAt = Date.now();
+          const first = yield* Effect.result(enter());
+          expect(Date.now() - dispatchedAt).toBeLessThan(13_000);
+          expect(Result.isSuccess(first)).toBe(succeeds);
+          if (Result.isSuccess(first)) {
+            expect(first.success.entry.outcome).toBe("completed");
+            expect(first.success.entry.effect).toBeDefined();
+          } else {
+            expect(first.failure.message).toContain("value_mismatch");
+          }
+          const replay = yield* Effect.result(enter());
+          expect(replay).toEqual(first);
+          const after = yield* sessionTool("agent_browser_snapshot", {
+            sessionId,
+          });
+          const history = yield* sessionTool("agent_session_get", {
+            sessionId,
+          });
+          expect(history.timeline.at(-1)?.outcome).toBe(
+            succeeds ? "completed" : "failed"
+          );
+          expect(history.timeline).toHaveLength(1);
+          if (Result.isSuccess(first)) {
+            expect(history.timeline.at(-1)?.id).toBe(first.success.entry.id);
+            if (!variant.startsWith("editable")) {
+              expect(
+                after.nodes.filter(
+                  (node) =>
+                    node.name.startsWith("otp-input") && node.valueWithheld
+                )
+              ).toHaveLength(6);
+            }
+          }
+          for (const node of after.nodes.filter(
+            (control) =>
+              control.role === "textbox" &&
+              control.value !== undefined &&
+              control.value !== ""
+          )) {
+            expect(node.valueWithheld).toBe(true);
+          }
+          expect(JSON.stringify([first, replay, after, history])).not.toContain(
+            OTP
+          );
+          if (succeeds && !variant.startsWith("editable")) {
+            const submitted = yield* sessionTool("agent_browser_act", {
+              action: {
+                ref: findNode(after.nodes, "button", "Continue").ref,
+                type: "click",
+              },
+              operationId: OperationId.make("dry-submit"),
+              sessionId,
+            });
+            findNode(submitted.snapshot.nodes, "output", "Signed in");
+          }
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}
