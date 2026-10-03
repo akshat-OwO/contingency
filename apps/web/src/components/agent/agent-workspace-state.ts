@@ -34,32 +34,16 @@ export interface AgentViewState {
   readonly browserStreamError: string | undefined;
   /** What the page has logged while this Workspace watched it. */
   readonly consoleEntries: readonly BrowserConsoleEntry[];
-  /** What went wrong the last time this View tried to change control. */
-  readonly controlError: string | undefined;
-  /** A control change is in flight, so the control button is not offered twice. */
-  readonly controlPending: boolean;
   /** How the frame on the canvas maps onto the Page viewport it came from. */
   readonly frameProjection: FrameProjection;
   readonly frameReady: boolean;
   /** Inspect mode over the live frame, and the comments it has attached. */
   readonly inspect: InspectState;
-  /** What went wrong the last time the user navigated the browser. */
-  readonly navigationError: string | undefined;
-  /** A navigation is in flight, so the toolbar does not dispatch it twice. */
-  readonly navigationPending: boolean;
   readonly phase: AgentViewPhase;
-  /** What went wrong when Start or Stop was last dispatched. */
-  readonly recordingError: string | undefined;
-  /** A Teaching recording gesture is in flight. */
-  readonly recordingPending: boolean;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
   /** Whether the browser setup panel is showing beside the live canvas. */
   readonly setupOpen: boolean;
-  /** What went wrong the last time the empty canvas tried to open a session. */
-  readonly startError: string | undefined;
-  /** A session is being opened from the empty canvas. */
-  readonly startPending: boolean;
   readonly streamConnected: boolean;
   /**
    * The `?session=` id that did not resolve when this process owns no session.
@@ -75,21 +59,13 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   botProtectionBlock: undefined,
   browserStreamError: undefined,
   consoleEntries: [],
-  controlError: undefined,
-  controlPending: false,
   frameProjection: flatFrameProjection,
   frameReady: false,
   inspect: emptyInspectState,
-  navigationError: undefined,
-  navigationPending: false,
   phase: "loading",
-  recordingError: undefined,
-  recordingPending: false,
   selectedSessionId: undefined,
   session: undefined,
   setupOpen: false,
-  startError: undefined,
-  startPending: false,
   streamConnected: false,
   unresolvedSessionId: undefined,
   viewportHeight: 0,
