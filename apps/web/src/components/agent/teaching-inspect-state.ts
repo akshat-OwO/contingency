@@ -37,55 +37,152 @@ export const flatFrameProjection: FrameProjection = {
   scrollOffsetY: 0,
 };
 
+/**
+ * Commenting while recording. The composer is the one place a comment is
+ * written; inspect only picks the element it attaches to. A comment with no
+ * element is a page comment, which the protocol records with a `null` target.
+ */
 export interface InspectState {
   /** The element the pointer is over, in Page viewport coordinates. */
   readonly hovered: AgentInspectedElement | undefined;
-  /** The element a click froze, and the comment being written about it. */
+  /** The element attached to the comment being written, if any. */
   readonly frozen: InspectSelection | undefined;
   readonly comments: readonly InspectComment[];
   /** Numbering continues when navigation removes the previous Page's pins. */
   readonly nextCommentIndex: number;
   readonly draft: string;
   readonly error: string | undefined;
+  /** Whether the composer is open. */
+  readonly composing: boolean;
+  /** The pin whose comment the user is pointing at in the composer's list. */
+  readonly highlighted: number | undefined;
+  /** Whether inspect is picking an element. */
   readonly open: boolean;
   readonly pending: boolean;
+  /** Whether cancelling a pick goes back to the composer it was started from. */
+  readonly returnsToComposer: boolean;
 }
 
 export const emptyInspectState: InspectState = {
   comments: [],
+  composing: false,
   draft: "",
   error: undefined,
   frozen: undefined,
+  highlighted: undefined,
   hovered: undefined,
   nextCommentIndex: 1,
   open: false,
   pending: false,
+  returnsToComposer: false,
 };
 
-/** A committed instruction consumes its number even if its Page was left. */
+export const openComposer = (state: InspectState): InspectState => ({
+  ...state,
+  composing: true,
+  hovered: undefined,
+  open: false,
+  returnsToComposer: false,
+});
+
+/** The draft and the attached element survive closing, so nothing is lost. */
+export const closeComposer = (state: InspectState): InspectState => ({
+  ...state,
+  composing: false,
+  error: undefined,
+  highlighted: undefined,
+});
+
+export const startPicking = (state: InspectState): InspectState => ({
+  ...state,
+  composing: false,
+  error: undefined,
+  highlighted: undefined,
+  hovered: undefined,
+  open: true,
+  returnsToComposer: state.composing,
+});
+
+export const stopPicking = (state: InspectState): InspectState =>
+  state.open
+    ? {
+        ...state,
+        composing: state.returnsToComposer,
+        error: undefined,
+        hovered: undefined,
+        open: false,
+        returnsToComposer: false,
+      }
+    : state;
+
+/** A picked element lands in the composer, which opens to write about it. */
+export const attachSelection = (
+  state: InspectState,
+  selection: InspectSelection
+): InspectState => ({
+  ...state,
+  composing: true,
+  error: undefined,
+  frozen: selection,
+  hovered: undefined,
+  open: false,
+  returnsToComposer: false,
+});
+
+/**
+ * A new Page invalidates every element reference and pin taken on the old one.
+ * The draft is still the user's words, so it stays.
+ */
+export const leavePage = (state: InspectState): InspectState => ({
+  ...emptyInspectState,
+  composing: state.composing,
+  draft: state.draft,
+  nextCommentIndex: state.nextCommentIndex,
+  pending: state.pending,
+});
+
+/**
+ * A committed instruction consumes its number even if its Page was left. The
+ * composer is read-only while the save is in flight, so a draft that still
+ * reads as the sent text is the comment that was sent, and it is cleared. Its
+ * pin lands only on the Page it was taken on.
+ */
 export const completeInspectComment = (
   state: InspectState,
-  frozen: InspectSelection,
+  sent: {
+    readonly frozen: InspectSelection | undefined;
+    readonly text: string;
+  },
   index: number,
   samePage: boolean
 ): InspectState => {
   const nextCommentIndex = Math.max(state.nextCommentIndex, index + 1);
-  if (!samePage || state.frozen !== frozen) {
+  const { frozen, text } = sent;
+  if (state.draft.trim() !== text) {
     return { ...state, nextCommentIndex, pending: false };
   }
   return {
-    ...emptyInspectState,
-    comments: [
-      ...state.comments,
-      {
-        description: frozen.description,
-        height: frozen.height,
-        index,
-        width: frozen.width,
-        x: frozen.x + frozen.scrollOffsetX,
-        y: frozen.y + frozen.scrollOffsetY,
-      },
-    ],
+    ...state,
+    comments:
+      frozen === undefined || !samePage || state.frozen !== frozen
+        ? state.comments
+        : [
+            ...state.comments,
+            {
+              description: frozen.description,
+              height: frozen.height,
+              index,
+              width: frozen.width,
+              x: frozen.x + frozen.scrollOffsetX,
+              y: frozen.y + frozen.scrollOffsetY,
+            },
+          ],
+    composing: false,
+    draft: "",
+    error: undefined,
+    frozen: undefined,
+    highlighted: undefined,
     nextCommentIndex,
+    pending: false,
   };
 };

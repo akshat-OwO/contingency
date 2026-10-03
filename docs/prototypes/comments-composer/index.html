@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype: Teaching comments</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist/index.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/fill/style.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/bold/style.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      @custom-variant dark (&:is(.dark *));
+
+      @theme inline {
+        --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+        --color-background: var(--background);
+        --color-foreground: var(--foreground);
+        --color-card: var(--card);
+        --color-muted: var(--muted);
+        --color-muted-foreground: var(--muted-foreground);
+        --color-primary: var(--primary);
+        --color-primary-foreground: var(--primary-foreground);
+        --color-secondary: var(--secondary);
+        --color-accent: var(--accent);
+        --color-accent-foreground: var(--accent-foreground);
+        --color-destructive: var(--destructive);
+        --color-border: var(--border);
+        --color-ring: var(--ring);
+        --color-inspect: var(--inspect);
+      }
+
+      :root {
+        --background: oklch(1 0 0);
+        --foreground: oklch(0.145 0 0);
+        --card: oklch(1 0 0);
+        --primary: oklch(0.205 0 0);
+        --primary-foreground: oklch(0.985 0 0);
+        --secondary: oklch(0.97 0 0);
+        --muted: oklch(0.97 0 0);
+        --muted-foreground: oklch(0.556 0 0);
+        --accent: oklch(0.97 0 0);
+        --accent-foreground: oklch(0.205 0 0);
+        --destructive: oklch(0.577 0.245 27.325);
+        --border: oklch(0.922 0 0);
+        --ring: oklch(0.708 0 0);
+        --inspect: oklch(0.623 0.214 259.815);
+        --surface: oklch(1 0 0 / 94%);
+        --page: oklch(0.985 0 0);
+      }
+
+      .dark {
+        --background: oklch(0.145 0 0);
+        --foreground: oklch(0.985 0 0);
+        --card: oklch(0.205 0 0);
+        --primary: oklch(0.922 0 0);
+        --primary-foreground: oklch(0.205 0 0);
+        --secondary: oklch(0.269 0 0);
+        --muted: oklch(0.269 0 0);
+        --muted-foreground: oklch(0.708 0 0);
+        --accent: oklch(0.269 0 0);
+        --accent-foreground: oklch(0.985 0 0);
+        --destructive: oklch(0.704 0.191 22.216);
+        --border: oklch(1 0 0 / 10%);
+        --ring: oklch(0.556 0 0);
+        --inspect: oklch(0.707 0.165 254.624);
+        --surface: oklch(0.205 0 0 / 94%);
+        --page: oklch(0.18 0 0);
+      }
+
+      @layer base {
+        * {
+          border-color: var(--border);
+        }
+        body {
+          background-color: var(--background);
+          color: var(--foreground);
+        }
+        :focus-visible {
+          outline: 2px solid var(--ring);
+          outline-offset: 2px;
+        }
+      }
+
+      @utility btn {
+        @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium whitespace-nowrap transition-[background-color,color,transform,opacity] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40;
+      }
+      @utility btn-primary {
+        @apply btn bg-primary text-primary-foreground hover:opacity-90;
+      }
+      @utility btn-destructive {
+        @apply btn bg-destructive text-white hover:opacity-90;
+      }
+      @utility btn-outline {
+        @apply btn bg-background hover:bg-accent border;
+      }
+      @utility btn-ghost {
+        @apply btn hover:bg-accent;
+      }
+      @utility icon-btn {
+        @apply btn text-muted-foreground hover:bg-accent hover:text-foreground aria-pressed:bg-inspect/15 aria-pressed:text-inspect aria-expanded:bg-accent aria-expanded:text-foreground size-8 rounded-full p-0 text-[17px];
+      }
+      @utility glass {
+        background-color: var(--surface);
+        backdrop-filter: blur(16px) saturate(1.6);
+        -webkit-backdrop-filter: blur(16px) saturate(1.6);
+      }
+      @utility float-shadow {
+        box-shadow:
+          0 0 0 1px oklch(0 0 0 / 6%),
+          0 8px 24px -6px oklch(0 0 0 / 16%),
+          0 2px 6px -2px oklch(0 0 0 / 8%);
+        .dark & {
+          box-shadow:
+            0 0 0 1px oklch(1 0 0 / 9%),
+            0 12px 32px -8px oklch(0 0 0 / 60%);
+        }
+      }
+      @utility mono {
+        font-family: ui-monospace, "SFMono-Regular", "Geist Mono", monospace;
+      }
+      @utility kbd {
+        @apply mono bg-muted text-muted-foreground inline-grid h-5 min-w-5 place-items-center rounded border px-1 text-[10px] font-medium;
+      }
+      @utility mock-field {
+        @apply bg-background h-9 rounded-md border px-3 text-sm;
+      }
+
+      .comment-input {
+        field-sizing: content;
+        min-height: 1.5rem;
+        max-height: 8.5rem;
+      }
+
+      [data-inspecting="true"] #page,
+      [data-inspecting="true"] #page * {
+        cursor: crosshair !important;
+      }
+
+      [data-enter] {
+        animation: pop-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+      }
+      [data-enter="up"] {
+        transform-origin: bottom left;
+      }
+      [data-enter="down"] {
+        animation-name: drop-in;
+      }
+      [data-enter="side"] {
+        animation-name: slide-in;
+      }
+      [data-enter="fade"] {
+        animation-name: fade-in;
+        animation-duration: 160ms;
+      }
+      @keyframes pop-in {
+        from {
+          opacity: 0;
+          transform: translateY(6px) scale(0.97);
+        }
+      }
+      @keyframes drop-in {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.98);
+        }
+      }
+      @keyframes slide-in {
+        from {
+          opacity: 0;
+          transform: translateX(16px);
+        }
+      }
+      @keyframes fade-in {
+        from {
+          opacity: 0;
+        }
+      }
+      .bump {
+        animation: bump 360ms cubic-bezier(0.23, 1, 0.32, 1);
+      }
+      @keyframes bump {
+        40% {
+          transform: scale(1.25);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          transition-duration: 0.001ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="h-svh overflow-hidden font-sans antialiased">
+    <div class="flex h-full flex-col">
+      <!-- Prototype control strip. Not part of the proposed Workspace. -->
+      <div
+        class="bg-muted/60 flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 text-xs"
+      >
+        <span class="font-semibold">Prototype: Teaching comments</span>
+        <div
+          aria-label="Variant"
+          class="bg-background flex rounded-md border p-0.5"
+          id="variant-switch"
+          role="radiogroup"
+        ></div>
+        <button
+          class="btn-outline h-7 px-2 text-xs"
+          id="theme-toggle"
+          type="button"
+        >
+          Dark mode
+        </button>
+        <button class="btn-outline h-7 px-2 text-xs" id="reset" type="button">
+          Reset comments
+        </button>
+        <span
+          class="text-muted-foreground hidden lg:inline"
+          id="variant-note"
+        ></span>
+      </div>
+
+      <main class="relative flex min-h-0 flex-1 flex-col" id="app"></main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

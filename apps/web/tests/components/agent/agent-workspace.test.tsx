@@ -34,6 +34,9 @@ const rpc = vi.hoisted(() => ({
     y: 60,
   } satisfies unknown,
   instructionCalls: [] satisfies unknown[],
+  instructionFailure: undefined satisfies unknown,
+  /* A failing save settles only once the test opens this gate. */
+  instructionGate: Promise.resolve(true),
   navigateCalls: [] satisfies unknown[],
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
@@ -98,10 +101,21 @@ const rpcOverrides = {
   ),
   agentTeachingInstructionRecordMutation: Atom.fn(
     <Payload,>(payload: Payload) =>
-      Effect.sync(() => {
-        rpc.instructionCalls.push(payload);
-        return {};
-      })
+      rpc.instructionFailure === undefined
+        ? Effect.sync(() => {
+            rpc.instructionCalls.push(payload);
+            return {
+              data: {
+                session: {
+                  activity: "teaching",
+                  teaching: { instructionCount: rpc.instructionCalls.length },
+                },
+              },
+            };
+          })
+        : Effect.promise(() => rpc.instructionGate).pipe(
+            Effect.andThen(Effect.fail(rpc.instructionFailure))
+          )
   ),
   agentTeachingRecordingDiscardMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -285,6 +299,8 @@ afterEach(() => {
   rpc.stopRecordingCalls = [];
   rpc.takeoverCalls = [];
   rpc.verifyFailure = undefined;
+  rpc.instructionFailure = undefined;
+  rpc.instructionGate = Promise.resolve(true);
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -902,9 +918,7 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   expect(
     within(dock).getByRole("button", { name: "Stop recording" })
   ).toBeVisible();
-  expect(
-    within(dock).getByRole("button", { name: "Inspect an element and comment" })
-  ).toBeVisible();
+  expect(within(dock).getByRole("button", { name: "Comment" })).toBeVisible();
   expect(
     within(dock).queryByRole("button", { name: "Start recording" })
   ).toBeNull();
@@ -919,9 +933,7 @@ test("keeps every dock control reachable from the keyboard", async () => {
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   const controls = [
     within(dock).getByRole("combobox", { name: "Agent Session" }),
-    within(dock).getByRole("button", {
-      name: "Inspect an element and comment",
-    }),
+    within(dock).getByRole("button", { name: "Comment" }),
     within(dock).getByRole("button", { name: "Stop recording" }),
   ];
   for (const control of controls) {
@@ -932,28 +944,34 @@ test("keeps every dock control reachable from the keyboard", async () => {
   expect(dock).not.toHaveFocus();
 });
 
-test("attaches an inspect comment as a Teaching instruction", async () => {
+test("attaches an inspected element to a comment", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const composer = await screen.findByRole("dialog", { name: "Comment" });
   await user.click(
-    await screen.findByRole("button", {
-      name: "Inspect an element and comment",
-    })
+    within(composer).getByRole("button", { name: /Attach element/u })
   );
+  // Picking closes the composer so the whole Page can be pointed at.
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  expect(screen.getByText("Click an element to attach it")).toBeVisible();
   const canvas = screen.getByLabelText("Live browser viewport");
-  const overlay = canvas.nextElementSibling;
-  expect(overlay).not.toBeNull();
-  // SAFETY: the assertion above proves the overlay element exists.
-  await user.click(overlay as Element);
-  // The frozen element is filled, not only outlined, so the user can see which
-  // element the comment attaches to (#212).
-  // SAFETY: the click froze an element, so the overlay drew its highlight.
-  const highlight = (overlay as Element).firstElementChild as Element;
-  expect(highlight.className).toContain("bg-blue-500/20");
-  expect(highlight.className).toContain("border-blue-500");
-  const field = await screen.findByLabelText("Describe the change");
-  await user.type(field, "Use the express checkout here.");
-  await user.click(screen.getByRole("button", { name: "Attach" }));
+  // SAFETY: while recording, the comment layer is the canvas's next sibling.
+  await user.click(canvas.nextElementSibling as Element);
+
+  // The picked element lands in the reopened composer as a removable chip.
+  const reopened = await screen.findByRole("dialog", { name: "Comment" });
+  expect(
+    within(reopened).getByRole("button", { name: "Remove attached element" })
+  ).toBeVisible();
+  expect(reopened).toHaveTextContent("button: Place order");
+  const field = within(reopened).getByRole("textbox", { name: "Comment" });
+  await waitFor(() => {
+    expect(field).toHaveFocus();
+  });
+  await user.type(field, "Use the express checkout here.{Enter}");
 
   await waitFor(() => {
     expect(rpc.instructionCalls).toHaveLength(1);
@@ -968,11 +986,102 @@ test("attaches an inspect comment as a Teaching instruction", async () => {
       type: "agent.teaching.instruction.record",
     },
   });
-  // The dock adds no second instruction field beside inspect's own.
-  expect(screen.queryByLabelText("Add instruction")).toBeNull();
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  // The comment's element keeps a numbered pin on the Page.
+  expect(canvas.nextElementSibling).toHaveTextContent("1");
 });
 
-test("reads the attached comments back from the dock's count", async () => {
+test("adds a page comment without inspecting an element", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const field = await screen.findByRole("textbox", { name: "Comment" });
+  await user.type(field, "Dismiss the cookie banner if it shows.");
+  await user.click(screen.getByRole("button", { name: /Add comment/u }));
+  await waitFor(() => {
+    expect(rpc.instructionCalls).toHaveLength(1);
+  });
+  expect(rpc.instructionCalls[0]).toMatchObject({
+    payload: { data: { text: "Dismiss the cookie banner if it shows." } },
+  });
+  expect(rpc.instructionCalls[0]).not.toMatchObject({
+    payload: { data: { target: expect.any(String) } },
+  });
+});
+
+test("reopens the composer on the unsent draft when a save fails after it was closed", async () => {
+  const user = userEvent.setup();
+  rpc.instructionFailure = new Error("The recording refused the instruction.");
+  const gate = Promise.withResolvers<boolean>();
+  rpc.instructionGate = gate.promise;
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const field = await screen.findByRole("textbox", { name: "Comment" });
+  await user.type(field, "Dismiss the cookie banner.{Enter}");
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  gate.resolve(true);
+  const reopened = await screen.findByRole("dialog", { name: "Comment" });
+  expect(await within(reopened).findByRole("alert")).toHaveTextContent(
+    "The recording refused the instruction."
+  );
+  expect(
+    within(reopened).getByRole("textbox", { name: "Comment" })
+  ).toHaveValue("Dismiss the cookie banner.");
+});
+
+test("keeps single-key shortcuts for the Page while the browser holds focus", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const trigger = within(dock).getByRole("button", { name: "Comment" });
+  // Outside the Page the hint is the single key.
+  expect(trigger).toHaveTextContent("/");
+
+  const canvas = screen.getByLabelText("Live browser viewport");
+  canvas.focus();
+  await waitFor(() => {
+    expect(trigger).toHaveTextContent("Ctrl");
+  });
+  rpc.inputCalls.length = 0;
+  await user.keyboard("/");
+  await waitFor(() => {
+    expect(rpc.inputCalls.length).toBeGreaterThan(0);
+  });
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  // The chord is Contingency's: it opens the composer and never reaches the Page.
+  rpc.inputCalls.length = 0;
+  await user.keyboard("{Control>}{Shift>}K{/Shift}{/Control}");
+  expect(await screen.findByRole("dialog", { name: "Comment" })).toBeVisible();
+  const forwarded = JSON.stringify(rpc.inputCalls);
+  expect(forwarded).not.toContain('"key":"K"');
+  expect(forwarded).not.toContain('"key":"k"');
+});
+
+test("opens the composer with a single key outside the Page", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+  await user.keyboard("/");
+  const composer = await screen.findByRole("dialog", { name: "Comment" });
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(composer).not.toBeInTheDocument();
+  });
+  await user.keyboard("i");
+  expect(screen.getByText("Click an element to attach it")).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByText("Click an element to attach it")).toBeNull();
+  });
+});
+
+test("reads earlier comments back in the composer", async () => {
   const user = userEvent.setup();
   renderWorkspace(
     resultFor([
@@ -1001,30 +1110,28 @@ test("reads the attached comments back from the dock's count", async () => {
     ]),
     session.id
   );
-  const count = await screen.findByRole("button", { name: "2 comments" });
-  await user.click(count);
-  const list = await screen.findByRole("list");
+  await user.click(
+    await screen.findByRole("button", { name: "Comment, 2 comments so far" })
+  );
+  const list = await screen.findByRole("list", { name: "Earlier comments" });
   const items = within(list).getAllByRole("listitem");
   // Newest first: the instruction just attached is the one being checked.
   expect(items[0]).toHaveTextContent("Stop once the receipt shows.");
+  expect(items[0]).toHaveTextContent("0:02");
+  expect(items[0]).toHaveTextContent("Page");
   expect(items[1]).toHaveTextContent("Use the express checkout here.");
   expect(items[1]).toHaveTextContent("button: Place order");
 
   await user.keyboard("{Escape}");
   await waitFor(() => {
-    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Earlier comments" })).toBeNull();
   });
 });
 
-test("leaves the dock's comment count out when nothing is attached", async () => {
+test("names no count on the comment trigger when nothing is attached", async () => {
   renderWorkspace(resultFor([teachingRecording]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(
-    within(dock).queryByRole("button", { name: /^\d+ comments?$/u })
-  ).toBeNull();
-  expect(
-    within(dock).getByRole("button", { name: "Inspect an element and comment" })
-  ).toBeVisible();
+  expect(within(dock).getByRole("button", { name: "Comment" })).toBeVisible();
 });
 
 test("offers Rename flow in setup and deletion once a recording is saved", async () => {
@@ -1076,25 +1183,14 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
   });
 });
 
-test("leaves inspect and its pins with the recording they belong to", async () => {
+test("leaves the composer and its pins with the recording they belong to", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);
-  await user.click(
-    await screen.findByRole("button", {
-      name: "Inspect an element and comment",
-    })
-  );
-  const canvas = screen.getByLabelText("Live browser viewport");
-  // SAFETY: inspect mode is open, so the overlay is the canvas's next sibling.
-  await user.click(canvas.nextElementSibling as Element);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
   await user.type(
-    await screen.findByLabelText("Describe the change"),
-    "Use the express checkout here."
+    await screen.findByRole("textbox", { name: "Comment" }),
+    "Half-written comment"
   );
-  await user.click(screen.getByRole("button", { name: "Attach" }));
-  await waitFor(() => {
-    expect(rpc.instructionCalls).toHaveLength(1);
-  });
 
   cleanup();
   renderWorkspace(
@@ -1112,7 +1208,8 @@ test("leaves inspect and its pins with the recording they belong to", async () =
     session.id
   );
   await screen.findByText("Recording saved");
-  expect(screen.queryByLabelText("Describe the change")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Comment/u })).toBeNull();
 });
 
 const teachingReady = {
