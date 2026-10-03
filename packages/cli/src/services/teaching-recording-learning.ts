@@ -31,12 +31,12 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { webHost } from "./domain-scope.ts";
 import {
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
-import { webHost } from "./teaching-demonstration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts";
 

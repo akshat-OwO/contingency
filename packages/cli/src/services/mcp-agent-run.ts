@@ -22,6 +22,7 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
+import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import {
@@ -39,7 +40,6 @@ import {
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
-import { webHost } from "./teaching-demonstration.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
