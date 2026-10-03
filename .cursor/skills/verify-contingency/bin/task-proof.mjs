@@ -161,7 +161,8 @@ const capture = (name, url) =>
   });
 const click = (name) =>
   command("browser", "click", "--role", "button", "--name", name);
-const snapshot = (sessionId) => call("agent_browser_snapshot", { sessionId });
+const snapshot = (sessionId) =>
+  call("agent_browser_snapshot", { format: "structured", sessionId });
 const act = (sessionId, action, extra = {}) =>
   call("agent_browser_act", {
     action,

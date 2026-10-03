@@ -75,9 +75,14 @@ export interface FlowSkillPackage {
 export interface FlowSkillCatalogService {
   readonly info: () => Effect.Effect<AgentCatalogInfo, FlowSkillCatalogError>;
   readonly list: () => Effect.Effect<FlowSkillList, FlowSkillCatalogError>;
-  /** Read one saved package, or refuse when the directory holds no SKILL.md. */
+  /**
+   * Read one saved package, or refuse when the directory holds no SKILL.md.
+   * `root` names a Catalog Root other than the selected one, such as the root
+   * that holds the Teaching Recording a package was learned from.
+   */
   readonly read: (
-    flowSkillName: FlowSkillName | string
+    flowSkillName: FlowSkillName | string,
+    root?: string
   ) => Effect.Effect<FlowSkillPackage, FlowSkillCatalogError>;
   readonly root: () => string;
   readonly select: (
@@ -99,6 +104,17 @@ export interface FlowSkillCatalogOptions {
 /** Directories the Catalog Root owns that are never Flow Skills. */
 const RESERVED = new Set([TEACHING_RECORDINGS_DIRECTORY, "agent-runs"]);
 
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+
+/** The file's text, or undefined when its bytes are not UTF-8 text. */
+const decodeText = (bytes: Uint8Array): string | undefined => {
+  try {
+    return utf8.decode(bytes);
+  } catch {
+    return undefined;
+  }
+};
+
 const isFlowSkillDirectory = (name: string): boolean =>
   !(name.startsWith(".") || RESERVED.has(name));
 
@@ -111,7 +127,7 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   // rather than a Ref.
   let selected = path.resolve(options.root);
 
-  const readPackage = Effect.fnUntraced(function* readFlowSkillPackage(
+  const readSkillFile = Effect.fnUntraced(function* readFlowSkillFile(
     root: string,
     name: string
   ) {
@@ -128,40 +144,69 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         )
       );
     }
-    const skillContent = yield* fileSystem
+    const content = yield* fileSystem
       .readFileString(skillFile)
       .pipe(Effect.mapError(ioError(`Could not read ${skillFile}`)));
+    return { content, directory };
+  });
+
+  /**
+   * Every text file under `references/`, the same set Teaching Recording
+   * learning saves. A file that is not UTF-8 text, such as an image a user
+   * committed beside the package, is not part of the package an agent reads.
+   */
+  const readReferences = Effect.fnUntraced(function* readReferenceFiles(
+    directory: string
+  ) {
     const referenceDirectory = path.join(directory, "references");
-    const referencesPresent = yield* fileSystem
+    const present = yield* fileSystem
       .exists(referenceDirectory)
       .pipe(Effect.mapError(ioError(`Could not read ${referenceDirectory}`)));
-    const referenceNames = referencesPresent
-      ? yield* fileSystem
-          .readDirectory(referenceDirectory, { recursive: true })
-          .pipe(
-            Effect.mapError(ioError(`Could not read ${referenceDirectory}`))
-          )
-      : [];
-    const references = yield* Effect.forEach(
-      referenceNames.filter((file) => file.endsWith(".md")),
-      (file) =>
-        fileSystem.readFileString(path.join(referenceDirectory, file)).pipe(
-          Effect.map((content) => ({
-            content,
-            path: `references/${file.split(path.sep).join("/")}`,
-          })),
-          Effect.mapError(ioError(`Could not read references/${file}`))
-        )
-    );
-    const frontmatter = readFlowSkillFrontmatter(skillContent);
+    if (!present) {
+      return [];
+    }
+    const names = yield* fileSystem
+      .readDirectory(referenceDirectory, { recursive: true })
+      .pipe(Effect.mapError(ioError(`Could not read ${referenceDirectory}`)));
+    const references: FlowSkillFile[] = [];
+    for (const file of names.toSorted()) {
+      const filePath = path.join(referenceDirectory, file);
+      const context = `Could not read references/${file}`;
+      const info = yield* fileSystem
+        .stat(filePath)
+        .pipe(Effect.mapError(ioError(context)));
+      if (info.type !== "File") {
+        continue;
+      }
+      const bytes = yield* fileSystem
+        .readFile(filePath)
+        .pipe(Effect.mapError(ioError(context)));
+      const content = decodeText(bytes);
+      if (content !== undefined) {
+        references.push({
+          content,
+          path: `references/${file.split(path.sep).join("/")}`,
+        });
+      }
+    }
+    return references;
+  });
+
+  const readPackage = Effect.fnUntraced(function* readFlowSkillPackage(
+    root: string,
+    name: string
+  ) {
+    const skill = yield* readSkillFile(root, name);
+    const references = yield* readReferences(skill.directory);
+    const frontmatter = readFlowSkillFrontmatter(skill.content);
     return {
-      directory,
+      directory: skill.directory,
       emulation: frontmatter?.emulation,
-      files: [{ content: skillContent, path: SKILL_FILE }, ...references],
+      files: [{ content: skill.content, path: SKILL_FILE }, ...references],
       hosts: frontmatter?.hosts ?? [],
       inputs: frontmatter?.inputs ?? [],
       name: FlowSkillName.make(name),
-      steps: flowSkillProcedureSteps(skillContent),
+      steps: flowSkillProcedureSteps(skill.content),
       title: frontmatter?.description ?? name,
     } satisfies FlowSkillPackage;
   });
@@ -182,19 +227,22 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
     for (const name of names.filter(isFlowSkillDirectory).toSorted()) {
       // A directory without a SKILL.md is somebody else's, not a broken Flow
       // Skill, so it is skipped rather than reported.
-      const read = yield* Effect.result(readPackage(root, name));
+      // A listing needs only SKILL.md, so references are not read here.
+      const read = yield* Effect.result(readSkillFile(root, name));
       if (read._tag === "Failure") {
         continue;
       }
+      const frontmatter = readFlowSkillFrontmatter(read.success.content);
       found.push({
-        description: read.success.title,
-        inputs: read.success.inputs.map(({ description, name: inputName }) =>
-          description === undefined
-            ? { name: inputName }
-            : { description, name: inputName }
+        description: frontmatter?.description ?? name,
+        inputs: (frontmatter?.inputs ?? []).map(
+          ({ description, name: inputName }) =>
+            description === undefined
+              ? { name: inputName }
+              : { description, name: inputName }
         ),
         name,
-        stepCount: read.success.steps.length,
+        stepCount: flowSkillProcedureSteps(read.success.content).length,
       });
     }
     return found;
@@ -213,8 +261,10 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         }))
       ),
     list,
-    read: Effect.fnUntraced(function* readSelectedFlowSkill(flowSkillName) {
-      const root = selected;
+    read: Effect.fnUntraced(function* readFlowSkill(
+      flowSkillName,
+      root = selected
+    ) {
       const name = String(flowSkillName);
       if (!isFlowSkillDirectory(name) || name.includes(path.sep)) {
         return yield* Effect.fail(
