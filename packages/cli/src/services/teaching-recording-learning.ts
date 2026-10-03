@@ -37,6 +37,7 @@ import {
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import { teachingRecordingSummary } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts";
 
@@ -105,53 +106,6 @@ const processIsStale = (pid: number): boolean => {
     return Schema.decodeUnknownOption(ProcessError)(error).pipe(
       Option.exists(({ code }) => code === "ESRCH")
     );
-  }
-};
-
-const summaryOf = (
-  manifest: TeachingRecordingManifest
-): TeachingRecordingSummary | undefined => {
-  const { lifecycle } = manifest;
-  switch (lifecycle._tag) {
-    case "recording":
-    case "ready":
-    case "learning":
-    case "skill-drafted":
-    case "dry-running":
-    case "dry-run-passed":
-    case "verified": {
-      return {
-        cleanup: manifest.cleanup,
-        failure: null,
-        flowSkillName: manifest.flowSkillName,
-        lifecycle: lifecycle._tag,
-        recordingId: manifest.recordingId,
-        updatedAt: manifest.updatedAt,
-      };
-    }
-    case "dry-run-failed": {
-      return {
-        cleanup: manifest.cleanup,
-        failure: lifecycle.dryRunResult.observableOutcome,
-        flowSkillName: manifest.flowSkillName,
-        lifecycle: lifecycle._tag,
-        recordingId: manifest.recordingId,
-        updatedAt: manifest.updatedAt,
-      };
-    }
-    case "failed": {
-      return {
-        cleanup: manifest.cleanup,
-        failure: lifecycle.error,
-        flowSkillName: manifest.flowSkillName,
-        lifecycle: "failed",
-        recordingId: manifest.recordingId,
-        updatedAt: manifest.updatedAt,
-      };
-    }
-    default: {
-      return undefined;
-    }
   }
 };
 
@@ -415,7 +369,7 @@ const makeTeachingRecordingLearning = Effect.fn(
     store.listReady().pipe(
       Effect.map((manifests) =>
         manifests.flatMap((manifest) => {
-          const summary = summaryOf(manifest);
+          const summary = teachingRecordingSummary(manifest);
           return summary === undefined ? [] : [summary];
         })
       ),
@@ -428,7 +382,7 @@ const makeTeachingRecordingLearning = Effect.fn(
       while (Date.now() <= deadline) {
         const result = yield* Effect.result(store.read(recordingId));
         if (Result.isSuccess(result)) {
-          const summary = summaryOf(result.success);
+          const summary = teachingRecordingSummary(result.success);
           if (summary !== undefined) {
             return summary;
           }

@@ -3,7 +3,10 @@ import {
   makeBrowserRpcError,
   isBrowserRpcError,
 } from "@contingency/protocol";
-import type { BrowserRpcErrorType } from "@contingency/protocol";
+import type {
+  BrowserRpcErrorType,
+  TeachingRecordingManifest,
+} from "@contingency/protocol";
 import { Effect, Layer, Option, Stream } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { RpcSerialization, RpcServer } from "effect/rpc";
@@ -18,6 +21,10 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import {
+  decideFlowSkill,
+  stopDryRun,
+} from "../services/teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";
 import type {
   TeachingRecordingStoreError,
@@ -48,6 +55,12 @@ const teachingRecordingError = (
   }
   return makeBrowserRpcError(code, cause.message);
 };
+
+/** The Workspace's view of a recording after a lifecycle gesture. */
+const recordingState = (manifest: TeachingRecordingManifest) => ({
+  captureState: manifest.lifecycle,
+  cleanup: manifest.cleanup,
+});
 
 /**
  * Persisted Run evidence, read by the Workspace in summary mode and by the
@@ -101,14 +114,17 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         )
       );
     const teachingRecordingUnavailable = <A>(
-      operation: (
-        service: TeachingRecordingStoreService
-      ) => Effect.Effect<A, TeachingRecordingStoreError>
+      operation: Effect.Effect<
+        A,
+        TeachingRecordingStoreError,
+        TeachingRecordingStoreService
+      >
     ): Effect.Effect<A, BrowserRpcErrorType> =>
       Effect.serviceOption(TeachingRecordingStore).pipe(
         Effect.flatMap((service) =>
           Option.isSome(service)
-            ? operation(service.value).pipe(
+            ? operation.pipe(
+                Effect.provideService(TeachingRecordingStore, service.value),
                 Effect.mapError(teachingRecordingError)
               )
             : Effect.fail(
@@ -193,65 +209,36 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           }))
         ),
       "agent.teaching.dry-run.stop": ({ data }) =>
-        teachingRecordingUnavailable((store) =>
-          Effect.gen(function* stopDryRun() {
-            // Persist the stop before touching the browser. The store mutation
-            // is the only lock the two processes share, so a passing report
-            // that lands first wins and Stop reports the conflict instead of
-            // killing a Dry Run the user already accepted.
-            const manifest = yield* store.failDryRun({
-              observableOutcome:
-                "The user stopped the Dry Run before it completed.",
-              ...data,
-            });
-            const { lifecycle } = manifest;
-            if (lifecycle._tag === "dry-run-failed") {
-              // Only the process that started the Dry Run owns its session.
-              // Closing here covers a Workspace that owns it; the starting
-              // process closes its own once the manifest leaves dry-running.
-              yield* agentUnavailable((service) =>
-                service.completeRun(lifecycle.dryRunSessionId)
-              ).pipe(Effect.ignore);
-            }
-            return {
-              data: {
-                captureState: manifest.lifecycle,
-                cleanup: manifest.cleanup,
-              },
-              type: "agent.teaching.dry-run.stopped" as const,
-            };
-          })
+        teachingRecordingUnavailable(stopDryRun(data)).pipe(
+          Effect.map((manifest) => ({
+            data: recordingState(manifest),
+            type: "agent.teaching.dry-run.stopped" as const,
+          }))
         ),
       "agent.teaching.flow.reject": ({ data }) =>
-        teachingRecordingUnavailable((store) => store.reject(data)).pipe(
+        teachingRecordingUnavailable(
+          decideFlowSkill({ ...data, decision: "reject" })
+        ).pipe(
           Effect.map((manifest) => ({
-            data: {
-              captureState: manifest.lifecycle,
-              cleanup: manifest.cleanup,
-            },
+            data: recordingState(manifest),
             type: "agent.teaching.flow.rejected" as const,
           }))
         ),
       "agent.teaching.flow.verify": ({ data }) =>
-        teachingRecordingUnavailable((store) =>
-          store.verify(data).pipe(
-            Effect.andThen(store.cleanup(data)),
-            Effect.map((manifest) => ({
-              data: {
-                captureState: manifest.lifecycle,
-                cleanup: manifest.cleanup,
-              },
-              type: "agent.teaching.flow.verified" as const,
-            }))
-          )
+        teachingRecordingUnavailable(
+          decideFlowSkill({ ...data, decision: "verify" })
+        ).pipe(
+          Effect.map((manifest) => ({
+            data: recordingState(manifest),
+            type: "agent.teaching.flow.verified" as const,
+          }))
         ),
       "agent.teaching.cleanup.retry": ({ data }) =>
-        teachingRecordingUnavailable((store) => store.cleanup(data)).pipe(
+        teachingRecordingUnavailable(
+          decideFlowSkill({ ...data, decision: "retry-cleanup" })
+        ).pipe(
           Effect.map((manifest) => ({
-            data: {
-              captureState: manifest.lifecycle,
-              cleanup: manifest.cleanup,
-            },
+            data: recordingState(manifest),
             type: "agent.teaching.cleanup.retried" as const,
           }))
         ),

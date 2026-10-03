@@ -75,9 +75,14 @@ export interface FlowSkillPackage {
 export interface FlowSkillCatalogService {
   readonly info: () => Effect.Effect<AgentCatalogInfo, FlowSkillCatalogError>;
   readonly list: () => Effect.Effect<FlowSkillList, FlowSkillCatalogError>;
-  /** Read one saved package, or refuse when the directory holds no SKILL.md. */
+  /**
+   * Read one saved package, or refuse when the directory holds no SKILL.md.
+   * `root` names a Catalog Root other than the selected one, such as the root
+   * that holds the Teaching Recording a package was learned from.
+   */
   readonly read: (
-    flowSkillName: FlowSkillName | string
+    flowSkillName: FlowSkillName | string,
+    root?: string
   ) => Effect.Effect<FlowSkillPackage, FlowSkillCatalogError>;
   readonly root: () => string;
   readonly select: (
@@ -142,8 +147,17 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
             Effect.mapError(ioError(`Could not read ${referenceDirectory}`))
           )
       : [];
+    // A package is SKILL.md plus every file under references/, the same set
+    // Teaching Recording learning saves.
+    // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.forEach` is not an array method.
+    const referenceFiles = yield* Effect.forEach(referenceNames, (file) =>
+      fileSystem.stat(path.join(referenceDirectory, file)).pipe(
+        Effect.map((info) => (info.type === "File" ? [file] : [])),
+        Effect.mapError(ioError(`Could not read references/${file}`))
+      )
+    ).pipe(Effect.map((found) => found.flat()));
     const references = yield* Effect.forEach(
-      referenceNames.filter((file) => file.endsWith(".md")),
+      referenceFiles.toSorted(),
       (file) =>
         fileSystem.readFileString(path.join(referenceDirectory, file)).pipe(
           Effect.map((content) => ({
@@ -213,8 +227,10 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         }))
       ),
     list,
-    read: Effect.fnUntraced(function* readSelectedFlowSkill(flowSkillName) {
-      const root = selected;
+    read: Effect.fnUntraced(function* readFlowSkill(
+      flowSkillName,
+      root = selected
+    ) {
       const name = String(flowSkillName);
       if (!isFlowSkillDirectory(name) || name.includes(path.sep)) {
         return yield* Effect.fail(
