@@ -27,6 +27,7 @@ import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
+import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   flowSkillProcedureSteps,
@@ -45,7 +46,6 @@ import {
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
-import { webHost } from "./teaching-demonstration.ts";
 import {
   TeachingRecordingLearning,
   TeachingRecordingLearningLive,
