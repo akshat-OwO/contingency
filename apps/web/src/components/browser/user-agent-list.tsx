@@ -68,6 +68,10 @@ export const UserAgentList = ({
   readonly value: UserAgentProfileId;
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
+  // A legacy identity is not offered, so the first option keeps the tab stop.
+  const tabStop = selectableUserAgentProfiles.some(({ id }) => id === value)
+    ? value
+    : selectableUserAgentProfiles[0]?.id;
   const choose = (profile: UserAgentProfile) => {
     if (profile.id !== value) {
       onValueChange(profile.id);
@@ -132,7 +136,7 @@ export const UserAgentList = ({
                   }
                 }}
                 role="option"
-                tabIndex={selected ? 0 : -1}
+                tabIndex={profile.id === tabStop ? 0 : -1}
               >
                 {profile.label}
                 {selected ? (

@@ -1,3 +1,5 @@
+import { selectableUserAgentProfiles } from "@contingency/protocol";
+import type { UserAgentProfileId } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -67,13 +69,41 @@ test("marks the identity the browser presents", () => {
 test("moves focus with the arrows and applies an identity only on Enter", async () => {
   const onValueChange = renderList();
   const user = userEvent.setup();
+  const options = screen.getAllByRole("option");
+  const [first, second] = options;
+  const last = options.at(-1);
 
   await user.tab();
-  expect(screen.getByRole("option", { name: "Browser default" })).toHaveFocus();
+  expect(first).toHaveFocus();
+  await user.keyboard("{ArrowDown}");
+  expect(second).toHaveFocus();
+  await user.keyboard("{End}");
+  expect(last).toHaveFocus();
+  // Focus stops at the ends rather than wrapping.
+  await user.keyboard("{ArrowDown}");
+  expect(last).toHaveFocus();
+  await user.keyboard("{Home}");
+  expect(first).toHaveFocus();
   await user.keyboard("{ArrowDown}");
   expect(onValueChange).not.toHaveBeenCalled();
-  const focused = globalThis.document.activeElement;
-  expect(focused).toHaveAttribute("role", "option");
   await user.keyboard("{Enter}");
-  expect(onValueChange).toHaveBeenCalledTimes(1);
+  expect(onValueChange).toHaveBeenCalledWith(
+    selectableUserAgentProfiles[1]?.id
+  );
+});
+
+test("keeps a tab stop when the applied identity is not offered", async () => {
+  render(
+    <UserAgentList
+      disabled={false}
+      onValueChange={vi.fn()}
+      // SAFETY: a legacy identity outside the offered list, as an older
+      // session may report.
+      value={"safari-iphone" as UserAgentProfileId}
+    />
+  );
+  const user = userEvent.setup();
+
+  await user.tab();
+  expect(screen.getAllByRole("option").at(0)).toHaveFocus();
 });
