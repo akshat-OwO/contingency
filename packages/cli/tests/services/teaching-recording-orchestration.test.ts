@@ -71,6 +71,11 @@ const writeSkill = (
       path.join(root, name, "references/notes.txt"),
       "Shelf notes."
     );
+    // Bytes that are not UTF-8 text are not part of the package an agent reads.
+    yield* files.writeFile(
+      path.join(root, name, "references/shelf.png"),
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe])
+    );
     if (verified) {
       yield* files.writeFileString(
         path.join(root, name, "references/verification.md"),
@@ -327,7 +332,7 @@ it.effect(
         const started = yield* startDryRun(startInput(recordingId));
         expect(started.manifest.lifecycle._tag).toBe("dry-running");
         expect(started.skillPath).toBe("cart/SKILL.md");
-        // The package is read through the catalog, references included.
+        // The package is read through the catalog, text references included.
         expect(started.files.map((file) => file.path)).toEqual([
           "SKILL.md",
           "references/notes.txt",
