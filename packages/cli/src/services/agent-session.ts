@@ -105,32 +105,24 @@ import {
   Semaphore,
   Stream,
 } from "effect";
-import type { Page } from "playwright-core";
 
+import type {
+  AgentBrowser,
+  AgentBrowserTab,
+  AgentBrowserObservation,
+  AgentBrowserFactory,
+  PrivateInputTarget,
+} from "./agent-browser-contract.ts";
 import {
-  actionTarget,
-  beginActionObservation,
-  captureAgentScreenshot,
-  makeAgentElementRegistry,
-  observeAfterAction,
-  performAgentAction,
-  performPrivateVariableInput,
   redactAgentSnapshot,
   redactActionText,
   redactKnownValues,
-  settledSnapshot,
-  snapshotAfterAction,
 } from "./agent-browser.ts";
-import type {
-  ActionObservation,
-  AgentElementRegistry,
-  PrivateInputTarget,
-} from "./agent-browser.ts";
-import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
+import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
   BrowserStorageDeleteInput,
@@ -174,6 +166,8 @@ export { coverageOf } from "./run-lifecycle.ts";
 
 /** Options for the one process-owned Agent Session registry. */
 export interface AgentSessionServiceOptions {
+  /** Browser behavior supplied at the same seam production uses. */
+  readonly agentBrowserFactory?: AgentBrowserFactory;
   readonly allowedActivity: AgentSessionActivity | "any";
   /** The URL at which Workspace is served, normally loopback. */
   readonly baseUrl: string;
@@ -1072,7 +1066,7 @@ export const UNRESOLVED_CLICK_DESCRIPTION = "Click an unidentified control";
 
 /** The control an action names, as the live Snapshot generation described it. */
 const actionSubject = (
-  registry: AgentElementRegistry,
+  registry: AgentBrowser,
   action: AgentBrowserAction
 ): AgentActionSubject | undefined =>
   "ref" in action && action.ref !== undefined
@@ -1250,7 +1244,7 @@ interface SessionRecord {
    */
   readonly footage: RunFootage | undefined;
   /** The Browser Snapshot references this session has minted. */
-  readonly registry: AgentElementRegistry;
+  readonly agentBrowser: AgentBrowser;
   /** The Run directory this session's Trace and video were written into. */
   readonly artifactDirectory: string | undefined;
   readonly runEvidence: RunEvidence;
@@ -1297,7 +1291,7 @@ interface ScrollBurst {
   readonly close: Effect.Effect<void>;
   readonly capture: DemonstrationCapture;
   readonly actionId: string;
-  readonly page: Page;
+  readonly page: AgentBrowserTab;
   lastInputAt: number;
 }
 
@@ -1317,7 +1311,7 @@ interface TypingBurst {
   readonly keys: BrowserInput[];
   /** When the latest key was sent, on the Effect clock. */
   lastKeyAt: number;
-  readonly page: Page;
+  readonly page: AgentBrowserTab;
   readonly snapshotBefore: AgentSnapshotId | null;
   readonly urlBefore: string;
 }
@@ -1544,6 +1538,8 @@ const makeAgentSession = (
     const ledger = makeSessionOperationLedger();
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
+    const agentBrowserFactory =
+      options.agentBrowserFactory ?? makeChromiumAgentBrowser;
 
     const writeTeachingRetentionManifest = (
       directory: string,
@@ -1671,7 +1667,7 @@ const makeAgentSession = (
      */
     const captureTeachingKeyframe = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       actionId: string,
       at: string,
       force = false
@@ -1684,13 +1680,13 @@ const makeAgentSession = (
         ) {
           return;
         }
-        const keyframe = yield* captureAgentScreenshot(
-          page,
-          now,
-          true,
-          sessionSensitiveValues(record),
-          capture.sensitiveSelectors()
-        ).pipe(Effect.option);
+        const keyframe = yield* page
+          .screenshot(
+            true,
+            sessionSensitiveValues(record),
+            capture.sensitiveSelectors()
+          )
+          .pipe(Effect.option);
         if (Option.isSome(keyframe)) {
           capture.recordKeyframe(keyframe.value, actionId);
         }
@@ -2185,9 +2181,9 @@ const makeAgentSession = (
           // same reasoning covers its keyframe, which still holds a state the user
           // was moving through rather than the one they left on the screen.
           const openActionId = capture.openActionId();
-          yield* browser.activePage(record.browserSessionId).pipe(
+          yield* record.agentBrowser.active().pipe(
             Effect.flatMap((page) =>
-              snapshotAfterAction(page, record.registry, page.url()).pipe(
+              page.snapshotAfter(page.url()).pipe(
                 Effect.tap((snapshot) =>
                   Effect.sync(() =>
                     capture.closeCoalescedAction(
@@ -3083,21 +3079,21 @@ const makeAgentSession = (
       sessionId: AgentSessionId,
       read_: (
         record: SessionRecord,
-        page: Page
+        page: AgentBrowserTab
       ) => Effect.Effect<A, AgentSessionError>
     ): Effect.Effect<A, AgentSessionError> =>
       Effect.gen(function* observeAgentBrowser() {
         const record = yield* requireLiveRecord(sessionId);
-        const page = yield* browser.activePage(record.browserSessionId);
+        const page = yield* record.agentBrowser.active();
         return yield* read_(record, page);
       });
 
     const snapshotAfter = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       urlBefore: string
     ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
-      snapshotAfterAction(page, record.registry, urlBefore).pipe(
+      page.snapshotAfter(urlBefore).pipe(
         Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
         Effect.tap((snapshot) =>
           Effect.sync(() =>
@@ -3112,11 +3108,10 @@ const makeAgentSession = (
      */
     const observedAfter = (
       record: SessionRecord,
-      page: Page,
       action: AgentBrowserAction,
-      observation: ActionObservation
+      observation: AgentBrowserObservation
     ) =>
-      observeAfterAction(page, record.registry, observation).pipe(
+      observation.observe().pipe(
         Effect.map(({ effect, snapshot }) => ({
           effect:
             action.type === "wait_for_text" ? undefined : (effect ?? undefined),
@@ -3131,7 +3126,7 @@ const makeAgentSession = (
 
     const boundaryResult = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       boundary: AgentExecutionBoundary,
       urlBefore: string
     ) =>
@@ -3304,8 +3299,8 @@ const makeAgentSession = (
     ): Effect.Effect<AgentInspectedElement, AgentSessionError> =>
       observe(sessionId, (record, page) =>
         Effect.gen(function* inspectPointedElement() {
-          const located = yield* record.registry.inspect(page, x, y);
-          const subject = record.registry.describe(located.ref);
+          const located = yield* page.inspect(x, y);
+          const subject = record.agentBrowser.describe(located.ref);
           return {
             description:
               subject === undefined
@@ -3511,9 +3506,14 @@ const makeAgentSession = (
                       ...opening,
                       pendingDecisions: variablePendingDecisions(opening, at),
                     };
-                    const registry = makeAgentElementRegistry(now);
-                    yield* Scope.addFinalizer(sessionScope, registry.clear());
+                    const agentBrowser = yield* agentBrowserFactory({
+                      browser,
+                      now,
+                      scope: sessionScope,
+                      sessionId: acquired,
+                    });
                     const record: SessionRecord = {
+                      agentBrowser,
                       artifactDirectory,
                       browserSessionId: acquired,
                       capture:
@@ -3537,7 +3537,6 @@ const makeAgentSession = (
                             }),
                       finalized: makeRunFinalizationState(),
                       footage,
-                      registry,
                       retentionFile,
                       runEvidence: {
                         attempts: new Set(),
@@ -3574,20 +3573,12 @@ const makeAgentSession = (
                       // named no URL. Otherwise an identity asked for here would
                       // never apply to the pages the agent later visits.
                       if (record.executionBoundary !== undefined) {
-                        const target = yield* browser.activeTarget(acquired);
-                        target.context.once(
-                          "close",
-                          record.executionBoundary.dispose
-                        );
-                        yield* installAgentNavigationBoundary(
-                          target.context,
-                          target.page,
-                          {
-                            allows: record.executionBoundary.allows,
-                            refuse: (url) =>
-                              pauseNavigation(sessionId, record, url),
-                          }
-                        );
+                        yield* record.agentBrowser.enforceNavigation({
+                          allows: record.executionBoundary.allows,
+                          dispose: record.executionBoundary.dispose,
+                          refuse: (url) =>
+                            pauseNavigation(sessionId, record, url),
+                        });
                       }
                       yield* browser.open(
                         acquired,
@@ -3643,14 +3634,14 @@ const makeAgentSession = (
       }
     );
 
-    const observeFocusedTextControl = (record: SessionRecord, page: Page) =>
+    const observeFocusedTextControl = (
+      record: SessionRecord,
+      page: AgentBrowserTab
+    ) =>
       Effect.gen(function* observeFocusedControl() {
-        const snapshot = redactCapturedSnapshot(
-          record,
-          yield* record.registry.snapshot(page)
-        );
+        const snapshot = redactCapturedSnapshot(record, yield* page.snapshot());
         recordingCapture(record)?.recordSnapshot(snapshot);
-        const ref = yield* record.registry.focusedRef();
+        const ref = yield* record.agentBrowser.focusedRef();
         const node = snapshot.nodes.find((candidate) => candidate.ref === ref);
         if (node === undefined) {
           return yield* Effect.fail(
@@ -3660,32 +3651,29 @@ const makeAgentSession = (
             )
           );
         }
-        const sensitive = yield* record.registry.isSensitive(ref);
+        const sensitive = yield* record.agentBrowser.isSensitive(ref);
         return {
           node,
           ref,
           sensitive,
           snapshot,
           valueDigest: sensitive
-            ? yield* record.registry.valueDigest(ref)
+            ? yield* record.agentBrowser.valueDigest(ref)
             : undefined,
         };
       });
 
     const observePointedControl = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       x: number,
       y: number
     ) =>
       Effect.gen(function* observeUserClickTarget() {
-        const snapshot = redactCapturedSnapshot(
-          record,
-          yield* record.registry.snapshot(page)
-        );
+        const snapshot = redactCapturedSnapshot(record, yield* page.snapshot());
         recordingCapture(record)?.recordSnapshot(snapshot);
         return {
-          ref: yield* record.registry.pointRef(x, y),
+          ref: yield* record.agentBrowser.pointRef(x, y),
           snapshot,
         };
       });
@@ -3702,7 +3690,7 @@ const makeAgentSession = (
       value: string
     ): Effect.Effect<boolean> =>
       focused.sensitive
-        ? observedOrNothing(record.registry.valueDigest(refAfter)).pipe(
+        ? observedOrNothing(record.agentBrowser.valueDigest(refAfter)).pipe(
             Effect.map(
               (digest) => digest !== undefined && digest !== focused.valueDigest
             )
@@ -3711,7 +3699,7 @@ const makeAgentSession = (
 
     const semanticUserEdit = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       urlBefore: string,
       focused: FocusedTextControl
     ) =>
@@ -3722,18 +3710,22 @@ const makeAgentSession = (
         }
         const observed = yield* snapshotAfter(record, page, urlBefore);
         capture.recordSnapshot(observed);
-        const focusedAfter = yield* Effect.result(record.registry.focusedRef());
+        const focusedAfter = yield* Effect.result(
+          record.agentBrowser.focusedRef()
+        );
         // The last key typed may have moved focus on — a phone number field
         // that submits at its tenth digit — and the field still holds what was
         // typed into it, so it is read wherever focus went.
         const refAfter =
           Result.isSuccess(focusedAfter) &&
-          (yield* record.registry.sameElement(
+          (yield* record.agentBrowser.sameElement(
             focused.ref,
             focusedAfter.success
           ))
             ? focusedAfter.success
-            : yield* observedOrNothing(record.registry.currentRef(focused.ref));
+            : yield* observedOrNothing(
+                record.agentBrowser.currentRef(focused.ref)
+              );
         if (refAfter === undefined) {
           return;
         }
@@ -3772,7 +3764,7 @@ const makeAgentSession = (
 
     const semanticUserClick = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       urlBefore: string
     ) =>
       snapshotAfter(record, page, urlBefore).pipe(
@@ -3787,12 +3779,12 @@ const makeAgentSession = (
      * has no `before` to be credited against, and a Teaching session that
      * scrolls before it does anything else has no observation at all.
      */
-    const observeScrollOrigin = (record: SessionRecord, page: Page) =>
+    const observeScrollOrigin = (
+      record: SessionRecord,
+      page: AgentBrowserTab
+    ) =>
       Effect.gen(function* observeScrollOriginTree() {
-        const snapshot = redactCapturedSnapshot(
-          record,
-          yield* record.registry.snapshot(page)
-        );
+        const snapshot = redactCapturedSnapshot(record, yield* page.snapshot());
         recordingCapture(record)?.recordSnapshot(snapshot);
         return snapshot;
       });
@@ -3805,7 +3797,7 @@ const makeAgentSession = (
      */
     const observeUserInputTarget = (
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       input: BrowserInput
     ) =>
       Effect.gen(function* observeSemanticInputTarget() {
@@ -3891,7 +3883,7 @@ const makeAgentSession = (
     const deferScrollKeyframe = (
       sessionId: AgentSessionId,
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       actionId: string
     ): Effect.Effect<void> =>
       Effect.gen(function* rememberScrollPhotograph() {
@@ -3931,7 +3923,7 @@ const makeAgentSession = (
     const completeSemanticUserClick = (input: {
       readonly at: string;
       readonly id: string;
-      readonly page: Page;
+      readonly page: AgentBrowserTab;
       readonly pointed:
         | {
             readonly ref: AgentElementRef;
@@ -4012,7 +4004,7 @@ const makeAgentSession = (
       readonly at: string;
       readonly focused: FocusedTextControl | undefined;
       readonly id: string;
-      readonly page: Page;
+      readonly page: AgentBrowserTab;
       readonly record: SessionRecord;
       readonly sessionId: AgentSessionId;
       readonly snapshotBefore: AgentSnapshotId | null;
@@ -4041,7 +4033,7 @@ const makeAgentSession = (
         const continues =
           open !== undefined &&
           capture.openCoalesceKey() === open.key &&
-          (yield* input.record.registry.sameElement(
+          (yield* input.record.agentBrowser.sameElement(
             open.ref,
             input.focused.ref
           ));
@@ -4087,7 +4079,7 @@ const makeAgentSession = (
       readonly failure: BrowserRpcErrorType;
       readonly id: string;
       readonly input: BrowserInput;
-      readonly page: Page;
+      readonly page: AgentBrowserTab;
       readonly record: SessionRecord;
       readonly sessionId: AgentSessionId;
       readonly snapshotBefore: AgentSnapshotId | null;
@@ -4259,7 +4251,7 @@ const makeAgentSession = (
     const continueTypingBurst = (
       sessionId: AgentSessionId,
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       input: BrowserInput
     ): Effect.Effect<boolean, AgentSessionError> =>
       Effect.gen(function* typeIntoBurst() {
@@ -4272,7 +4264,7 @@ const makeAgentSession = (
           (extendsTypingBurst(input) &&
             page === burst.page &&
             page.url() === burst.urlBefore &&
-            (yield* record.registry.hasFocus(burst.focused.ref)));
+            (yield* record.agentBrowser.hasFocus(burst.focused.ref)));
         if (!continues) {
           yield* closeTypingBurst(sessionId, record);
           return false;
@@ -4305,7 +4297,7 @@ const makeAgentSession = (
     const checkActionBoundary = (
       sessionId: AgentSessionId,
       record: SessionRecord,
-      page: Page,
+      page: AgentBrowserTab,
       action: AgentBrowserAction,
       capturedAction: AgentBrowserAction,
       description: string,
@@ -4341,7 +4333,7 @@ const makeAgentSession = (
       function* dispatchAgentBrowserAction(
         sessionId: AgentSessionId,
         record: SessionRecord,
-        page: Page,
+        page: AgentBrowserTab,
         action: AgentBrowserAction,
         capturedAction: AgentBrowserAction,
         description: string,
@@ -4407,21 +4399,13 @@ const makeAgentSession = (
         const windowStartedAt = Date.now();
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
-            const observation = yield* beginActionObservation(
-              page,
-              yield* actionTarget(record.registry, action)
-            );
+            const observation = yield* page.beginObservation(action);
             if (privateRegistration === undefined) {
-              yield* performAgentAction(
-                page,
-                record.registry,
-                action,
-                (pointer) =>
-                  browser.pointAgent(record.browserSessionId, pointer)
+              yield* page.perform(action, (pointer) =>
+                browser.pointAgent(record.browserSessionId, pointer)
               );
             } else {
-              const accepted = yield* performPrivateVariableInput(
-                page,
+              const accepted = yield* page.enterPrivate(
                 privateRegistration.target,
                 privateRegistration.value,
                 (pointer) =>
@@ -4435,7 +4419,6 @@ const makeAgentSession = (
             }
             const { effect, snapshot } = yield* observedAfter(
               record,
-              page,
               action,
               observation
             );
@@ -4601,11 +4584,11 @@ const makeAgentSession = (
                 )
               );
             }
-            const page = yield* browser.activePage(record.browserSessionId);
+            const page = yield* record.agentBrowser.active();
             const sensitive =
               privateCapture !== undefined ||
               ("ref" in action && action.ref !== undefined
-                ? yield* record.registry.isSensitive(action.ref)
+                ? yield* record.agentBrowser.isSensitive(action.ref)
                 : false);
             const capturedAction =
               privateCapture?.action ??
@@ -4615,7 +4598,7 @@ const makeAgentSession = (
                 ? sessionSensitiveValues(record)
                 : [...sessionSensitiveValues(record), privateCapture.value];
             const description = describeCapturedAction(
-              actionSubject(record.registry, capturedAction),
+              actionSubject(record.agentBrowser, capturedAction),
               capturedAction,
               intent,
               privateValues
@@ -4624,7 +4607,7 @@ const makeAgentSession = (
               privateCapture === undefined
                 ? description
                 : describeCapturedAction(
-                    actionSubject(record.registry, action),
+                    actionSubject(record.agentBrowser, action),
                     sanitizeSensitiveAction(action, true),
                     intent,
                     privateValues
@@ -4641,7 +4624,7 @@ const makeAgentSession = (
                     action.ref === undefined
                       ? undefined
                       : {
-                          target: yield* record.registry.privateSelector(
+                          target: yield* record.agentBrowser.privateSelector(
                             action.ref,
                             [...privateCapture.value].length
                           ),
@@ -5102,23 +5085,23 @@ const makeAgentSession = (
             );
           }
           yield* afterUserInput(sessionId, Effect.void);
-          const page = yield* browser.activePage(record.browserSessionId);
+          const page = yield* record.agentBrowser.active();
           if (input.ref === undefined) {
             const observed = redactCapturedSnapshot(
               record,
-              yield* record.registry.snapshot(page)
+              yield* page.snapshot()
             );
             capture.recordSnapshot(observed);
           }
           const ref = AgentElementRef.make(
-            input.ref ?? (yield* record.registry.focusedRef())
+            input.ref ?? (yield* record.agentBrowser.focusedRef())
           );
           const action = { ref, text: input.value, type: "fill" as const };
           const capturedAction = {
             ...action,
             text: variableReference(input.variable.name),
           };
-          const subject = actionSubject(record.registry, action);
+          const subject = actionSubject(record.agentBrowser, action);
           const target =
             subject === undefined
               ? "an unidentified control"
@@ -5129,7 +5112,7 @@ const makeAgentSession = (
           const snapshotBefore = capture.latestSnapshotId();
           const executed = yield* record.control.lock.withPermit(
             Effect.gen(function* fillPrivateValue() {
-              const privateTarget = yield* record.registry.privateSelector(
+              const privateTarget = yield* record.agentBrowser.privateSelector(
                 ref,
                 [...input.value].length
               );
@@ -5148,8 +5131,7 @@ const makeAgentSession = (
                   )
                 );
               }
-              const accepted = yield* performPrivateVariableInput(
-                page,
+              const accepted = yield* page.enterPrivate(
                 privateTarget,
                 input.value
               );
@@ -6492,22 +6474,22 @@ const makeAgentSession = (
             ),
       screenshot: (sessionId) =>
         observe(sessionId, (record, page) =>
-          captureAgentScreenshot(
-            page,
-            now,
-            true,
-            sessionSensitiveValues(record),
-            record.capture?.sensitiveSelectors() ?? []
-          ).pipe(
-            Effect.tap((screenshot) =>
-              Effect.sync(() => {
-                recordingCapture(record)?.recordKeyframe(screenshot);
-              })
-            ),
-            Effect.flatMap((screenshot) =>
-              writeScreenshotFile(record, screenshot)
+          page
+            .screenshot(
+              true,
+              sessionSensitiveValues(record),
+              record.capture?.sensitiveSelectors() ?? []
             )
-          )
+            .pipe(
+              Effect.tap((screenshot) =>
+                Effect.sync(() => {
+                  recordingCapture(record)?.recordKeyframe(screenshot);
+                })
+              ),
+              Effect.flatMap((screenshot) =>
+                writeScreenshotFile(record, screenshot)
+              )
+            )
         ),
       sendInput: (sessionId, input) =>
         Effect.gen(function* sendUserInput() {
@@ -6522,7 +6504,7 @@ const makeAgentSession = (
                   )
                 );
               }
-              const page = yield* browser.activePage(record.browserSessionId);
+              const page = yield* record.agentBrowser.active();
               if (!isScroll(input) && !isPointerMove(input)) {
                 yield* record.scroll.burst?.close ?? Effect.void;
               }
@@ -6689,7 +6671,7 @@ const makeAgentSession = (
         ),
       snapshot: (sessionId, snapshotOptions) =>
         observe(sessionId, (record, page) =>
-          settledSnapshot(page, record.registry, snapshotOptions).pipe(
+          page.settledSnapshot(snapshotOptions).pipe(
             Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
             Effect.tap((snapshot) =>
               rememberCurrentUrl(sessionId, record, snapshot.url)
@@ -6868,13 +6850,13 @@ const makeAgentSession = (
             );
           }
           yield* afterUserInput(sessionId, Effect.void);
-          const page = yield* browser.activePage(record.browserSessionId);
+          const page = yield* record.agentBrowser.active();
           const capturedAction =
             action.type === "navigate"
               ? { ...action, url: sanitizeTeachingUrl(action.url) }
               : action;
           const description = describeCapturedAction(
-            actionSubject(record.registry, capturedAction),
+            actionSubject(record.agentBrowser, capturedAction),
             capturedAction,
             {},
             record.capture?.sensitiveValues() ?? []
@@ -6887,7 +6869,7 @@ const makeAgentSession = (
           // second click races the first, and Playwright cancels the pending
           // navigation: both attempts report success and the page never moves.
           const outcome = yield* record.control.lock.withPermit(
-            Effect.result(performAgentAction(page, record.registry, action))
+            Effect.result(page.perform(action))
           );
           const at = now().toISOString();
           if (Result.isFailure(outcome)) {
