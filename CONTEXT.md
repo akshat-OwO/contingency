@@ -28,6 +28,8 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Agent Step**: The historical execution unit that bound a Run to one numbered instruction and its assessment. New Runs have no Agent Steps; numbered instructions remain part of the Flow Skill's written procedure. _Avoid_: current Run progress, captured action, generated to-do item
 
+**Example Flow Skill**: A read-only Flow Skill supplied by Contingency for its demo site, labeled Example and limited to that site's journeys. It carries no claim of user verification; a variation the user teaches is an ordinary Flow Skill. Example support is planned under [ADR 0050](./docs/adr/0050-bundled-example-skills-have-distinct-authority.md). _Avoid_: Verified Flow Skill, seeded verification, user-taught example
+
 **Confirmation**: The user's authorization for one irreversible or high-impact browser action attempt. Retrying the action requires fresh Confirmation; the requested task authorizes exploration and recovery, while an unrelated task requires separate user authorization. _Avoid_: Confirmation Step (superseded), ordinary click confirmation, model warning
 
 **Verified Flow Skill**: A Flow Skill the user has explicitly verified in the Workspace after a passing Dry Run. Verification is the only gesture that authorizes deleting the Teaching Recording, and it is what makes the Flow Skill reusable for later Runs. Rejection returns the Flow Skill to drafted and keeps every Teaching artifact for another edit. _Avoid_: Approved Agent Flow (superseded), trusted recording, published Run
