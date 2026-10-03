@@ -343,14 +343,24 @@ export const makeRunScans = (
       }
     }).pipe(lockFor(owner.sessionId).withPermits(1));
   return {
-    clearPendingInterruption: (sessionId: string) => {
-      if (!registry.get(active).has(sessionId)) {
-        clearCollection(sessionId);
-      }
-    },
     current: (sessionId: string) => registry.get(active).get(sessionId)?.report,
     interrupt,
     start,
     stop,
+    withInterruption: <A, E, R>(
+      sessionId: string,
+      reason: string,
+      operation: Effect.Effect<A, E, R>
+    ) =>
+      Effect.sync(() => interrupt(sessionId, reason)).pipe(
+        Effect.flatMap(() => operation),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (!registry.get(active).has(sessionId)) {
+              clearCollection(sessionId);
+            }
+          })
+        )
+      ),
   };
 };

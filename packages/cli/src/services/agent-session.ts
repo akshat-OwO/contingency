@@ -7058,6 +7058,9 @@ const makeAgentSession = (
       takeover: (sessionId, reason, operationId) =>
         Effect.gen(function* interruptScanAndTakeover() {
           yield* requireLiveRecord(sessionId);
+          const operation = ledger.serializeMutation(
+            beginTakeoverUnlocked(sessionId, reason, "user", operationId)
+          );
           if (
             ledger.replaySession(
               operationId,
@@ -7066,17 +7069,13 @@ const makeAgentSession = (
               JSON.stringify({ by: "user", reason })
             ) === undefined
           ) {
-            runScans.interrupt(sessionId, "Takeover interrupted the scan.");
-          }
-          return yield* ledger
-            .serializeMutation(
-              beginTakeoverUnlocked(sessionId, reason, "user", operationId)
-            )
-            .pipe(
-              Effect.tapError(() =>
-                Effect.sync(() => runScans.clearPendingInterruption(sessionId))
-              )
+            return yield* runScans.withInterruption(
+              sessionId,
+              "Takeover interrupted the scan.",
+              operation
             );
+          }
+          return yield* operation;
         }),
       updateTask: (sessionId, prepare, operationId, requestInput) =>
         taskMutation(

@@ -155,17 +155,23 @@ it.effect(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect(
-  "clears a pending interruption when takeover fails before collection",
-  () =>
+it.effect.each([
+  { label: "fails", operation: Effect.fail(new Error("Failed takeover")) },
+  { label: "dies", operation: Effect.die(new Error("Failed takeover")) },
+  { label: "is interrupted", operation: Effect.interrupt },
+])(
+  "clears a pending interruption when takeover $label before collection",
+  ({ operation }) =>
     Effect.gen(function* clearFailedTakeover() {
       const fs = yield* FileSystem.FileSystem;
       const directory = yield* fs.makeTempDirectoryScoped();
       const reports: ScanReport[] = [];
       let wasAborted = true;
       const scans = makeRunScans(fs, () => new Date("2026-10-03T00:00:00Z"));
-      scans.interrupt("session", "Failed takeover");
-      scans.clearPendingInterruption("session");
+      const takeover = yield* Effect.forkChild(
+        scans.withInterruption("session", "Failed takeover", operation)
+      );
+      yield* Fiber.await(takeover);
       yield* scans.start(
         {
           collect: (_mode, signal) => {
