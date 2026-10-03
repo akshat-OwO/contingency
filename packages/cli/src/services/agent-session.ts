@@ -1202,11 +1202,6 @@ const SETUP_VARIABLE_LIMIT = 64;
 const SETUP_PRIVATE_VALUE_LIMIT = 256;
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
 
-/**
- * The action the agent has dispatched to the browser right now, if any. A user
- * Takeover interrupts this fiber and reports the attempt as dispatched: the
- * browser may already have performed it, and Contingency cannot undo it.
- */
 /** A Variable's literal entered as a browser action, and its replay key. */
 interface PrivateCapture {
   readonly action: AgentBrowserAction;
@@ -1215,6 +1210,11 @@ interface PrivateCapture {
   readonly variable: Variable;
 }
 
+/**
+ * The action the agent has dispatched to the browser right now, if any. A user
+ * Takeover interrupts this fiber and reports the attempt as dispatched: the
+ * browser may already have performed it, and Contingency cannot undo it.
+ */
 interface InFlightAction {
   readonly action: AgentBrowserAction;
   readonly description: string;
@@ -5131,7 +5131,6 @@ const makeAgentSession = (
       );
     };
 
-    /** Resolve or replay a Variable decision, or leave a boundary id alone. */
     /**
      * Resolve or replay a Variable decision, or leave a boundary id alone.
      * Leaving it keeps nothing, so the same id can resolve the boundary.
