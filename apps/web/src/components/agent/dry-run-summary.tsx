@@ -26,6 +26,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { ScanResults } from "./scan-results.tsx";
+
 const passedTone = "text-emerald-600 dark:text-emerald-400";
 
 const verdictLabel: Record<DryRunVerdict, string> = {
@@ -200,6 +202,7 @@ export const DryRunSummaryView = ({
         <Stat label="Findings" value={summary.findings.length} />
         <Stat label="Evidence" value={evidenceCount(summary)} />
       </dl>
+      <ScanResults run={summary} />
       <Tabs defaultValue="verdict">
         <TabsList className="w-full">
           <TabsTrigger value="verdict">Verdict</TabsTrigger>

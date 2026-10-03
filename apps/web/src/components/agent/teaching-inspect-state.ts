@@ -1,4 +1,7 @@
-import type { AgentInspectedElement } from "@contingency/protocol";
+import type {
+  TeachingScan,
+  AgentInspectedElement,
+} from "@contingency/protocol";
 
 /** One attached comment, pinned where the user put it on the live Page. */
 export interface InspectComment {
@@ -50,6 +53,8 @@ export interface InspectState {
   readonly comments: readonly InspectComment[];
   /** Numbering continues when navigation removes the previous Page's pins. */
   readonly nextCommentIndex: number;
+  readonly scan?: TeachingScan | undefined;
+  readonly scanMenu?: boolean | undefined;
   readonly draft: string;
   readonly error: string | undefined;
   /** Whether the composer is open. */
@@ -73,6 +78,8 @@ export const emptyInspectState: InspectState = {
   nextCommentIndex: 1,
   open: false,
   returnsToComposer: false,
+  scan: undefined,
+  scanMenu: false,
 };
 
 export const openComposer = (state: InspectState): InspectState => ({
@@ -136,6 +143,7 @@ export const leavePage = (state: InspectState): InspectState => ({
   composing: state.composing,
   draft: state.draft,
   nextCommentIndex: state.nextCommentIndex,
+  scan: state.scan,
 });
 
 /**
@@ -180,5 +188,7 @@ export const completeInspectComment = (
     frozen: undefined,
     highlighted: undefined,
     nextCommentIndex,
+    scan: undefined,
+    scanMenu: false,
   };
 };

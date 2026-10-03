@@ -5,10 +5,12 @@ import {
   RunVideoStatus,
   TeachingRecordingId,
 } from "@contingency/protocol";
+import type { AgentSessionId } from "@contingency/protocol";
 import { Effect, FileSystem, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { AgentRunStore } from "../services/agent-run-store.ts";
+import { AgentSession } from "../services/agent-session.ts";
 import { parseByteRange } from "../services/byte-range.ts";
 import {
   RUN_VIDEO_FILE,
@@ -105,6 +107,7 @@ export const makeAgentRunArtifactRoutes = ({
         );
       })
     ),
+    scanArtifactRoute(allowedOrigins, false),
     agentRunVideoRoute(allowedOrigins)
   );
 
@@ -206,6 +209,7 @@ export const makeDryRunArtifactRoutes = ({
         );
       })
     ),
+    scanArtifactRoute(allowedOrigins, true),
     dryRunVideoRoute(allowedOrigins)
   );
 
@@ -266,6 +270,111 @@ const dryRunVideoRoute = (allowedOrigins: ReadonlySet<string>) =>
         headers,
         offset: range?.start,
         status: range === undefined ? 200 : 206,
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.succeed(HttpServerResponse.empty({ status: 404 }))
+        )
+      );
+    })
+  );
+
+const liveDryRunScan = (sessionId: AgentSessionId, reportId: string) =>
+  Effect.gen(function* locateLiveDryRunScan() {
+    const session = yield* AgentSession;
+    const live = yield* Effect.result(session.get(sessionId));
+    if (
+      live._tag === "Failure" ||
+      live.success.run === null ||
+      !("runId" in live.success.run)
+    ) {
+      return null;
+    }
+    return yield* session
+      .scanArtifact(live.success.run.runId, reportId)
+      .pipe(Effect.orElseSucceed(() => null));
+  });
+
+const scanArtifactRoute = (
+  allowedOrigins: ReadonlySet<string>,
+  dryRun: boolean
+) =>
+  HttpRouter.add(
+    "GET",
+    dryRun
+      ? "/teaching-recordings/:recordingId/dry-run/scans/:reportId"
+      : "/agent-runs/:runId/scans/:reportId",
+    Effect.gen(function* serveScanReport() {
+      const parameters = yield* HttpRouter.params;
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      if (!isAllowedHost(request.headers.host, allowedOrigins)) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      const reportId = parameters.reportId ?? "";
+      if (!/^scan-[a-f0-9-]+$/u.test(reportId)) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      let file: string | null = null;
+      if (dryRun) {
+        const recordingId = parameters.recordingId ?? "";
+        if (!isTeachingRecordingId(recordingId)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const store = yield* TeachingRecordingStore;
+        const manifest = yield* Effect.result(store.read(recordingId));
+        if (manifest._tag === "Success") {
+          if ("dryRunSessionId" in manifest.success.lifecycle) {
+            file = yield* liveDryRunScan(
+              manifest.success.lifecycle.dryRunSessionId,
+              reportId
+            );
+          }
+          const summary =
+            "dryRunSummary" in manifest.success.lifecycle
+              ? manifest.success.lifecycle.dryRunSummary
+              : undefined;
+          if (
+            summary?.schemaVersion === 3 &&
+            summary.scanReports?.some(
+              (scan) =>
+                scan.id === reportId &&
+                scan.reportPath === `scans/${reportId}.json`
+            )
+          ) {
+            file = path.join(
+              store.directory(recordingId),
+              "dry-run",
+              `scans/${reportId}.json`
+            );
+          }
+        }
+      } else {
+        const runId = parameters.runId ?? "";
+        if (!isAgentRunId(runId)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        const session = yield* AgentSession;
+        const live = yield* Effect.result(
+          session.scanArtifact(runId, reportId)
+        );
+        if (live._tag === "Success") {
+          file = live.success;
+        } else {
+          const store = yield* AgentRunStore;
+          file = yield* store
+            .scanFile(runId, reportId)
+            .pipe(Effect.orElseSucceed(() => null));
+        }
+      }
+      if (file === null) {
+        return HttpServerResponse.empty({ status: 404 });
+      }
+      return yield* HttpServerResponse.file(file, {
+        contentType: "application/json",
+        headers: {
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          "content-disposition": `attachment; filename="${reportId}.json"`,
+        },
       }).pipe(
         Effect.catchCause(() =>
           Effect.succeed(HttpServerResponse.empty({ status: 404 }))

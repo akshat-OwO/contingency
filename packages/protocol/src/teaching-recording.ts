@@ -15,6 +15,7 @@ import { AgentRunSummary } from "./agent-run.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { TeachingScan } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 export { FlowSkillName } from "./flow-skill-identifiers.ts";
@@ -367,6 +368,7 @@ const TeachingUrlEvent = Schema.TaggedStruct("url", {
 
 /** Free text the user relayed while demonstrating. */
 const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
+  scan: Schema.optional(TeachingScan),
   ...teachingEventBase,
   /** The element the instruction was attached to, when it named one. */
   target: Schema.NullOr(nonEmptyString).pipe(
@@ -642,6 +644,7 @@ export type TeachingKeyframeBytes = typeof TeachingKeyframeBytes.Type;
 export const TeachingInstruction = Schema.Struct({
   at: nonEmptyString,
   id: nonEmptyString,
+  scan: Schema.optional(TeachingScan),
   /**
    * The element the instruction was attached to, by role and accessible name,
    * when it was attached to one. An instruction relayed over MCP names no
@@ -665,6 +668,7 @@ export type UrlTransition = typeof UrlTransition.Type;
 
 export const TeachingInstructionRecord = Schema.Struct({
   operationId: OperationId,
+  scan: Schema.optional(TeachingScan),
   sessionId: AgentSessionId,
   text: nonEmptyString,
 });

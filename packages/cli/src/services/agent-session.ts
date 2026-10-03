@@ -2,7 +2,29 @@ import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import {
+  openTeachingTimespan,
+  AgentProcessId,
+  AgentElementRef,
+  AgentPendingDecisionId,
+  AgentSessionId,
+  describeActionSubject,
+  describeAgentAction,
+  makeBrowserRpcError,
+  UserAgentProfileId,
+  TeachingCaptureState,
+  TeachingRecordingCleanupState,
+  TeachingRecordingId,
+  describeFlowSkillName,
+  FlowSkillName,
+  isLiveAgentSessionPhase,
+  flowSkillNameRule,
+  ContentHash,
+  OperationId,
+  viewportForIdentity,
+} from "@contingency/protocol";
 import type {
+  TeachingScan,
   AgentSetupVariable,
   AgentSetupVariableRequest,
   AgentSetupVariableAnswer,
@@ -67,26 +89,6 @@ import type {
   AgentRunSummary,
 } from "@contingency/protocol";
 import {
-  AgentProcessId,
-  AgentElementRef,
-  AgentPendingDecisionId,
-  AgentSessionId,
-  describeActionSubject,
-  describeAgentAction,
-  makeBrowserRpcError,
-  UserAgentProfileId,
-  TeachingCaptureState,
-  TeachingRecordingCleanupState,
-  TeachingRecordingId,
-  describeFlowSkillName,
-  FlowSkillName,
-  isLiveAgentSessionPhase,
-  flowSkillNameRule,
-  ContentHash,
-  OperationId,
-  viewportForIdentity,
-} from "@contingency/protocol";
-import {
   Cause,
   Clock,
   Context,
@@ -148,8 +150,10 @@ import {
   withDryRunTakeover,
 } from "./run-lifecycle.ts";
 import type { RunEvidence } from "./run-lifecycle.ts";
+import { makeRunScans } from "./run-scans.ts";
 import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
+import { beginScanCollection } from "./scan-engine.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { AgentOperationKind } from "./session-operation-ledger.ts";
 import { makeSessionOperationLedger } from "./session-operation-ledger.ts";
@@ -275,6 +279,25 @@ export interface AgentEmulationPatch {
 }
 
 export interface AgentSessionService {
+  readonly scan: (
+    sessionId: AgentSessionId,
+    flowSkillName: string,
+    requirementId: string,
+    action: "start" | "stop",
+    operationId: OperationId,
+    retryInstructionAt?: string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly scanScope: (
+    sessionId: AgentSessionId,
+    flowSkillName: string,
+    requirementId: string,
+    reason: string,
+    operationId: OperationId
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly scanArtifact: (
+    runId: string,
+    reportId: string
+  ) => Effect.Effect<string, AgentSessionError>;
   /**
    * Apply the user's explicit choice to a paused Execution Boundary or a
    * runtime Variable this session still needs. The agent relays the choice
@@ -388,7 +411,8 @@ export interface AgentSessionService {
     text: string,
     operationId?: OperationId | string,
     /** The element the instruction was attached to, when it named one. */
-    target?: string | undefined
+    target?: string | undefined,
+    scan?: TeachingScan
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Ask the user to take control, and answer immediately with the link. */
   readonly requestTakeover: (
@@ -1538,6 +1562,7 @@ const makeAgentSession = (
     const ledger = makeSessionOperationLedger();
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
+    const runScans = makeRunScans(fileSystem, now);
     const agentBrowserFactory =
       options.agentBrowserFactory ?? makeChromiumAgentBrowser;
 
@@ -3429,7 +3454,8 @@ const makeAgentSession = (
                         browser.create(
                           browserName,
                           emulation.viewport,
-                          input.domainScope !== undefined
+                          input.domainScope !== undefined,
+                          activity === "run"
                         ),
                         (browserSessionId) =>
                           browser.close(browserSessionId).pipe(Effect.ignore)
@@ -5259,6 +5285,7 @@ const makeAgentSession = (
             if (by === "user" && record.snapshot.dryRun !== null) {
               record.dryRunControl.hadTakeover = true;
             }
+            yield* runScans.stop(sessionId, "Takeover interrupted the scan.");
             record.executionBoundary?.invalidateAttempts();
             const inFlight =
               by === "user" ? record.control.inFlight : undefined;
@@ -5523,9 +5550,14 @@ const makeAgentSession = (
       sessionId: AgentSessionId,
       text: string,
       operationId?: OperationId | string,
-      target?: string | undefined
+      target?: string | undefined,
+      scan?: TeachingScan
     ) {
-      const requestInput = JSON.stringify({ target: target ?? null, text });
+      const requestInput = JSON.stringify({
+        scan: scan ?? null,
+        target: target ?? null,
+        text,
+      });
       return yield* ledger.session(
         operationId,
         "instruction",
@@ -5553,10 +5585,46 @@ const makeAgentSession = (
             );
           }
           const at = now().toISOString();
+          if (scan !== undefined) {
+            const open = openTeachingTimespan(capture.progress().instructions);
+            if (
+              scan.phase === "start" &&
+              capture
+                .progress()
+                .instructions.filter(
+                  (instruction) => instruction.scan?.phase === "start"
+                ).length >= 50
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  "A recording supports up to 50 scan requirements."
+                )
+              );
+            }
+            const known = capture
+              .progress()
+              .instructions.some(
+                (instruction) => instruction.scan?.id === scan.id
+              );
+            if (
+              scan.phase === "stop"
+                ? scan.mode !== "timespan" || open?.id !== scan.id
+                : open !== undefined || known
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  "Scans cannot overlap; a stop must match the open timespan ID."
+                )
+              );
+            }
+          }
           const instruction: TeachingInstruction = capture.recordInstruction(
             text,
             at,
-            target
+            target,
+            scan
           );
           const next = yield* recordEntry(sessionId, {
             actor: "user",
@@ -5599,6 +5667,10 @@ const makeAgentSession = (
     });
     const finalizeRunUnlocked = Effect.fn("AgentSession.finalizeRun")(
       function* finalizeRun(sessionId: AgentSessionId, summaryText?: string) {
+        yield* runScans.stop(
+          sessionId,
+          "The Run ended before the scan stop condition."
+        );
         const record = yield* read(sessionId);
         return yield* runLifecycle.finalize(
           record,
@@ -5741,6 +5813,7 @@ const makeAgentSession = (
                         updatedAt: at,
                       };
                 yield* save(sessionId, record, closed);
+                yield* runScans.stop(sessionId, "The Run was closed.");
                 yield* Scope.close(record.scope, Exit.void);
                 if (closed.run !== null) {
                   yield* finalizeRunUnlocked(sessionId);
@@ -5784,6 +5857,7 @@ const makeAgentSession = (
               }
             : interrupted;
         yield* save(sessionId, record, ended);
+        yield* runScans.stop(sessionId, "The owning process stopped.");
         yield* Scope.close(record.scope, Exit.interrupt());
         if (ended.run !== null) {
           yield* finalizeRunUnlocked(sessionId);
@@ -6214,11 +6288,17 @@ const makeAgentSession = (
             )
           );
         }),
-      recordInstruction: (sessionId, text, operationId, target) =>
+      recordInstruction: (sessionId, text, operationId, target, scan) =>
         ledger.serializeMutation(
           afterUserInput(
             sessionId,
-            recordInstructionUnlocked(sessionId, text, operationId, target)
+            recordInstructionUnlocked(
+              sessionId,
+              text,
+              operationId,
+              target,
+              scan
+            )
           )
         ),
       recordPendingDecisionState: (
@@ -6472,6 +6552,189 @@ const makeAgentSession = (
                 "Workspace must be served from a loopback URL."
               )
             ),
+      scan: (
+        sessionId,
+        flowSkillName,
+        requirementId,
+        action,
+        operationId,
+        retryInstructionAt
+      ) =>
+        taskMutation(
+          sessionId,
+          operationId,
+          "scan",
+          JSON.stringify({
+            action,
+            flowSkillName,
+            requirementId,
+            retryInstructionAt,
+          }),
+          (record, run) =>
+            record.control.lock.withPermit(
+              Effect.gen(function* executeScan() {
+                if (
+                  record.snapshot.controller !== "agent" ||
+                  record.snapshot.boundary !== null
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "Return control and resolve the Execution Boundary before scanning."
+                    )
+                  );
+                }
+                const requirement = run.scanRequirements?.find(
+                  (candidate) =>
+                    candidate.flowSkillName === flowSkillName &&
+                    candidate.id === requirementId
+                );
+                if (
+                  requirement === undefined ||
+                  requirement.outsideScope !== undefined ||
+                  record.artifactDirectory === undefined
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "This Run has no applicable scan with that identity."
+                    )
+                  );
+                }
+                const target = yield* browser.activeTarget(
+                  record.browserSessionId
+                );
+                const active = runScans.current(sessionId);
+                if (action === "stop") {
+                  if (
+                    active?.requirementId !== requirementId ||
+                    active.flowSkillName !== flowSkillName
+                  ) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "Stop must name the active scan requirement."
+                      )
+                    );
+                  }
+                  yield* runScans.stop(
+                    sessionId,
+                    active.tabId === target.tabId
+                      ? undefined
+                      : "The measured tab changed."
+                  );
+                } else {
+                  yield* runScans.start(
+                    {
+                      collect: (mode, signal) =>
+                        beginScanCollection(
+                          target.page,
+                          mode,
+                          signal,
+                          target.performanceEndpoint
+                        ),
+                      directory: record.artifactDirectory,
+                      emulation: yield* browser.getEmulation(
+                        record.browserSessionId
+                      ),
+                      page: target.page,
+                      publish: (report) =>
+                        mutate(sessionId, (snapshot) =>
+                          snapshot.run === null || !isTaskRun(snapshot.run)
+                            ? snapshot
+                            : {
+                                ...snapshot,
+                                run: {
+                                  ...snapshot.run,
+                                  scanReports: [
+                                    ...(snapshot.run.scanReports ?? []).filter(
+                                      (previous) => previous.id !== report.id
+                                    ),
+                                    report,
+                                  ],
+                                },
+                              }
+                        ).pipe(Effect.asVoid),
+                      run,
+                      sessionId,
+                      tabId: target.tabId,
+                    },
+                    requirement,
+                    retryInstructionAt
+                  );
+                }
+                return (yield* read(sessionId)).snapshot;
+              })
+            )
+        ),
+      scanArtifact: (runId, reportId) =>
+        Effect.gen(function* locateScanReport() {
+          for (const record of Ref.getUnsafe(sessions).values()) {
+            const { run } = record.snapshot;
+            if (run === null || !isTaskRun(run) || run.runId !== runId) {
+              continue;
+            }
+            const report = run.scanReports?.find(
+              (candidate) => candidate.id === reportId
+            );
+            if (
+              report?.reportPath !== undefined &&
+              record.artifactDirectory !== undefined
+            ) {
+              return path.join(record.artifactDirectory, report.reportPath);
+            }
+          }
+          return yield* Effect.fail(
+            error("agent_session_invalid", "Unknown scan report.")
+          );
+        }),
+      scanScope: (
+        sessionId,
+        flowSkillName,
+        requirementId,
+        reason,
+        operationId
+      ) =>
+        taskMutation(
+          sessionId,
+          operationId,
+          "scan-scope",
+          JSON.stringify({ flowSkillName, reason, requirementId }),
+          (record, run) => {
+            if (
+              run.purpose.kind === "dry-run" ||
+              !run.scanRequirements?.some(
+                (requirement) =>
+                  requirement.flowSkillName === flowSkillName &&
+                  requirement.id === requirementId
+              )
+            ) {
+              return Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  "Only Interactive Run requirements may be declared outside the requested scope."
+                )
+              );
+            }
+            return mutate(sessionId, (snapshot) =>
+              snapshot.activity === "run"
+                ? {
+                    ...snapshot,
+                    run: {
+                      ...run,
+                      scanRequirements: (run.scanRequirements ?? []).map(
+                        (requirement) =>
+                          requirement.flowSkillName === flowSkillName &&
+                          requirement.id === requirementId
+                            ? { ...requirement, outsideScope: reason }
+                            : requirement
+                      ),
+                    },
+                  }
+                : snapshot
+            ).pipe(Effect.map((snapshot) => snapshot ?? record.snapshot));
+          }
+        ),
       screenshot: (sessionId) =>
         observe(sessionId, (record, page) =>
           page
@@ -6798,9 +7061,27 @@ const makeAgentSession = (
           Effect.flatMap((record) => browser.getTabs(record.browserSessionId))
         ),
       takeover: (sessionId, reason, operationId) =>
-        ledger.serializeMutation(
-          beginTakeoverUnlocked(sessionId, reason, "user", operationId)
-        ),
+        Effect.gen(function* interruptScanAndTakeover() {
+          yield* requireLiveRecord(sessionId);
+          const operation = ledger.serializeMutation(
+            beginTakeoverUnlocked(sessionId, reason, "user", operationId)
+          );
+          if (
+            ledger.replaySession(
+              operationId,
+              "takeover",
+              sessionId,
+              JSON.stringify({ by: "user", reason })
+            ) === undefined
+          ) {
+            return yield* runScans.withInterruption(
+              sessionId,
+              "Takeover interrupted the scan.",
+              operation
+            );
+          }
+          return yield* operation;
+        }),
       updateTask: (sessionId, prepare, operationId, requestInput) =>
         taskMutation(
           sessionId,

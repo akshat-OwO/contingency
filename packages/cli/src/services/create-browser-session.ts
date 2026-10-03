@@ -96,6 +96,7 @@ export interface CreateSessionState {
 }
 
 export interface CreateSession {
+  readonly performanceEndpoint?: string | undefined;
   readonly context: BrowserContext;
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;

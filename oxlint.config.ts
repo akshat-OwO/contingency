@@ -37,6 +37,7 @@ export default defineConfig({
         "packages/protocol/src/index.ts",
         "packages/protocol/src/run.ts",
         "packages/protocol/src/run-video.ts",
+        "packages/protocol/src/scans.ts",
         "packages/protocol/src/storage.ts",
         "packages/protocol/src/viewport.ts",
       ],

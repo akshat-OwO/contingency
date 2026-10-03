@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { KeyframeHash } from "@contingency/protocol";
 import type {
+  TeachingScan,
   AgentBrowserSnapshot,
   AgentScreenshot,
   AgentSnapshotId,
@@ -12,6 +12,7 @@ import type {
   TeachingProgress,
   Variable,
 } from "@contingency/protocol";
+import { KeyframeHash } from "@contingency/protocol";
 
 import {
   redactActionText,
@@ -106,7 +107,8 @@ export interface DemonstrationCapture {
   readonly recordInstruction: (
     text: string,
     at: string,
-    target?: string | undefined
+    target?: string | undefined,
+    scan?: TeachingScan
   ) => TeachingInstruction;
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
@@ -412,15 +414,23 @@ export const makeDemonstrationCapture = (
       instructions: [...instructions],
     }),
     recordAction,
-    recordInstruction: (text, at, target) => {
+    recordInstruction: (text, at, target, scan) => {
       const instruction: TeachingInstruction = {
         at: eventTime(at),
         id: `instruction-${randomUUID()}`,
+        scan,
         target: target === undefined ? null : redact(target),
         text: redact(text),
       };
       instructions.push(instruction);
-      trim(instructions, INSTRUCTION_LIMIT);
+      if (instructions.length > INSTRUCTION_LIMIT) {
+        const removable = instructions.findIndex(
+          (entry) => entry.scan === undefined
+        );
+        if (removable !== -1) {
+          instructions.splice(removable, 1);
+        }
+      }
       return instruction;
     },
     recordKeyframe: (keyframe, actionId) => {

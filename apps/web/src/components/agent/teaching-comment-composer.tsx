@@ -1,6 +1,14 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import type { TeachingInstruction } from "@contingency/protocol";
+import { openTeachingTimespan } from "@contingency/protocol";
+import type {
+  TeachingScan,
+  ScanMode,
+  TeachingInstruction,
+} from "@contingency/protocol";
 import {
+  AccessibilityIcon,
+  GaugeIcon,
+  SquareIcon,
   AppWindowIcon,
   CornerDownLeftIcon,
   CrosshairIcon,
@@ -26,7 +34,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  PopoverTitle,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+const scanLabels: Record<ScanMode, string> = {
+  accessibility: "Accessibility scan",
+  navigation: "Measure the next navigation",
+  reload: "Reload at this point",
+  timespan: "Interaction timespan",
+};
 
 /** A shortcut's keys, one `Kbd` each, so `⌘ ⇧ K` reads as three keys. */
 export const ShortcutKbd = ({
@@ -118,6 +139,13 @@ const CommentHistory = ({
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="text-sm leading-snug text-pretty wrap-anywhere">
                   {instruction.text}
+                  {instruction.scan === undefined ? null : (
+                    <span className="text-muted-foreground mt-1 block text-xs">
+                      {instruction.scan.phase === "stop"
+                        ? "End interaction timespan"
+                        : scanLabels[instruction.scan.mode]}
+                    </span>
+                  )}
                 </span>
                 <span className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs">
                   <span className="shrink-0 font-mono tabular-nums">
@@ -132,6 +160,87 @@ const CommentHistory = ({
     </ul>
   );
 };
+
+const ScanButtons = ({
+  open,
+  onOpenChange,
+  openTimespan,
+  pending,
+  selectScan,
+}: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly openTimespan: TeachingScan | undefined;
+  readonly pending: boolean;
+  readonly selectScan: (mode: ScanMode, stop?: boolean) => void;
+}) => (
+  <>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        render={
+          <Button
+            aria-label="Performance scan"
+            title="Performance scan"
+            disabled={pending}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          />
+        }
+      >
+        <GaugeIcon aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent align="start" positionerClassName="z-[60]">
+        <PopoverTitle>Teach a scan for later Runs</PopoverTitle>
+        {openTimespan === undefined ? (
+          (["reload", "navigation", "timespan"] as const).map((mode) => (
+            <Button
+              className="justify-start"
+              key={mode}
+              onClick={() => selectScan(mode)}
+              variant="ghost"
+            >
+              {scanLabels[mode]}
+            </Button>
+          ))
+        ) : (
+          <Button
+            className="justify-start"
+            onClick={() => selectScan("timespan", true)}
+            variant="ghost"
+          >
+            <SquareIcon />
+            End timespan
+          </Button>
+        )}
+        <Button
+          className="justify-start"
+          disabled={openTimespan !== undefined}
+          onClick={() => selectScan("accessibility")}
+          variant="ghost"
+        >
+          <AccessibilityIcon />
+          Accessibility scan
+        </Button>
+        <p className="text-muted-foreground px-2 text-xs">
+          The agent will propose when to scan for your review. Reload may
+          discard transient page state.
+        </p>
+      </PopoverContent>
+    </Popover>
+    <Button
+      aria-label="Accessibility scan"
+      title="Accessibility scan"
+      disabled={pending || openTimespan !== undefined}
+      onClick={() => selectScan("accessibility")}
+      size="icon-sm"
+      type="button"
+      variant="ghost"
+    >
+      <AccessibilityIcon aria-hidden="true" />
+    </Button>
+  </>
+);
 
 /**
  * The comment composer: a command-palette dialog over the browser. A comment
@@ -150,6 +259,8 @@ export const CommentComposer = ({
   onOpenChange,
   onPick,
   onSubmit,
+  onScanChange,
+  onScanMenuChange,
   pending,
   platform,
   startedAt,
@@ -163,6 +274,8 @@ export const CommentComposer = ({
   readonly onOpenChange: (open: boolean) => void;
   readonly onPick: () => void;
   readonly onSubmit: () => void;
+  readonly onScanChange: (scan?: TeachingScan) => void;
+  readonly onScanMenuChange: (open: boolean) => void;
   /** A save is in flight, so the composer is read-only until it answers. */
   readonly pending: boolean;
   readonly platform: ShortcutPlatform;
@@ -171,6 +284,28 @@ export const CommentComposer = ({
 }) => {
   const field = useRef<HTMLTextAreaElement>(null);
   const attached = state.frozen;
+  const openTimespan = openTeachingTimespan(instructions);
+  const selectScan = (mode: ScanMode, stop = false) => {
+    onScanChange({
+      id:
+        stop && openTimespan !== undefined
+          ? openTimespan.id
+          : globalThis.crypto.randomUUID(),
+      mode,
+      phase: stop ? "stop" : "start",
+    });
+    if (
+      state.draft.trim() === "" ||
+      /^@(?:performance|a11y)$/u.test(state.draft.trim())
+    ) {
+      onDraftChange(
+        stop
+          ? "Stop the timespan performance scan here."
+          : `Run ${scanLabels[mode].toLowerCase()} here.`
+      );
+    }
+    field.current?.focus();
+  };
   const canSubmit = !pending && state.draft.trim() !== "";
   const pinned = new Set(state.comments.map((comment) => comment.index));
   return (
@@ -190,6 +325,27 @@ export const CommentComposer = ({
             Tell the agent something about this moment of the recording.
           </DialogDescription>
           <div className="flex flex-col gap-2 px-4 pt-4 pb-2">
+            {state.scan === undefined ? null : (
+              <span className="bg-muted inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-0.5 pl-2 text-xs">
+                {state.scan.phase === "stop"
+                  ? "End interaction timespan"
+                  : scanLabels[state.scan.mode]}
+                <Button
+                  aria-label="Remove scan"
+                  disabled={pending}
+                  onClick={() => onScanChange()}
+                  size="icon-xs"
+                  variant="ghost"
+                >
+                  <XIcon />
+                </Button>
+              </span>
+            )}
+            {openTimespan === undefined ? null : (
+              <p className="text-muted-foreground text-xs">
+                Open timespan · collection happens in later Runs
+              </p>
+            )}
             {attached === undefined ? null : (
               <span className="inline-flex max-w-full items-center gap-1 self-start rounded-md bg-blue-500/10 py-0.5 pr-0.5 pl-1.5 text-sm font-medium text-blue-600 dark:text-blue-400">
                 <CrosshairIcon
@@ -254,11 +410,19 @@ export const CommentComposer = ({
               <MousePointerClickIcon aria-hidden="true" />
               {attached === undefined ? "Attach element" : "Change element"}
               <ShortcutKbd
+                className="hidden sm:inline-flex"
                 platform={platform}
                 scope="chord"
                 shortcut="inspect"
               />
             </Button>
+            <ScanButtons
+              open={state.scanMenu ?? false}
+              onOpenChange={onScanMenuChange}
+              openTimespan={openTimespan}
+              pending={pending}
+              selectScan={selectScan}
+            />
             <span className="flex-1" />
             {state.error === undefined ? null : (
               <p
@@ -314,6 +478,7 @@ export const CommentComposer = ({
             </span>
             <span className="inline-flex items-center gap-1.5">
               <ShortcutKbd
+                className="hidden sm:inline-flex"
                 platform={platform}
                 scope="chord"
                 shortcut="inspect"

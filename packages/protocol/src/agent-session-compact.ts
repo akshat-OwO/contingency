@@ -28,6 +28,7 @@ import {
 import type { AgentSessionSnapshot } from "./agent-session.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { scanRequirementsField, scanReportsField } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 const nonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -62,6 +63,8 @@ const CompactTaskRun = Schema.Struct({
   referencedSkills: Schema.Array(FlowSkillName),
   requestedTask: Schema.String,
   runId: AgentRunId,
+  scanReports: scanReportsField,
+  scanRequirements: scanRequirementsField,
   variables: Schema.Array(AgentRunTaskVariable),
 });
 
@@ -156,6 +159,8 @@ const compactRun = (
       ),
       requestedTask: run.requestedTask,
       runId: run.runId,
+      scanReports: run.scanReports ?? [],
+      scanRequirements: run.scanRequirements ?? [],
       variables: run.variables,
     };
   }

@@ -31,6 +31,8 @@ import type { BrowserContext, Page } from "playwright-core";
  */
 export interface BrowserTarget {
   readonly context: BrowserContext;
+  /** Owned Chromium endpoint, supplied only to internal performance collectors. */
+  readonly performanceEndpoint?: string | undefined;
   readonly page: Page;
   readonly tabId: BrowserTabId;
 }
@@ -102,7 +104,9 @@ export interface CreateBrowserService {
   readonly create: (
     name: string,
     viewport: Viewport,
-    blockServiceWorkers?: boolean
+    blockServiceWorkers?: boolean,
+    /** Run-only capability, isolated from Teaching and video compositor contexts. */
+    performanceScans?: boolean
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly currentUrl: (
     sessionId: SessionId

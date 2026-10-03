@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import {
+  scanCoverage,
+  AgentRunSummary,
+  OperationId,
+} from "@contingency/protocol";
 import type {
   AgentRunState,
   TaskAgentRunState,
@@ -16,8 +21,8 @@ import type {
   AgentRunTaskInput,
   AgentRunTaskVariable,
   FlowSkillName,
+  ScanReference,
 } from "@contingency/protocol";
-import { AgentRunSummary, OperationId } from "@contingency/protocol";
 import type { FileSystem } from "effect";
 import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
@@ -125,7 +130,8 @@ const dryRunPassed = (
   !summary.purpose.takeoverOccurred &&
   summary.assessment?.outcome === "working" &&
   summary.assessment.outcomeComplete === true &&
-  !hadTakeover;
+  !hadTakeover &&
+  scanCoverage(summary).complete;
 
 const dryRunObservableOutcome = (summary: AgentRunSummary): string => {
   if (summary.schemaVersion === 3) {
@@ -260,6 +266,7 @@ export interface TaskRunUpdate {
     readonly flowSkillName: FlowSkillName;
     readonly hosts: readonly string[];
     readonly variables: readonly AgentRunTaskVariable[];
+    readonly scans?: readonly ScanReference[];
   }[];
   readonly inputs: readonly AgentRunTaskInput[];
 }
@@ -300,6 +307,12 @@ const assessTaskRun = (
         if (reference.kind === "attempt") {
           return !evidence.attempts.has(reference.id);
         }
+        if (reference.kind === "artifact") {
+          return !(run.scanReports ?? []).some(
+            (report) =>
+              report.id === reference.id && report.reportPath !== undefined
+          );
+        }
         return true;
       })
     ) {
@@ -338,8 +351,20 @@ const withTaskUpdate = (
   at: string
 ): TaskAgentRunState => {
   const referencedSkills = [...run.referencedSkills];
+  const scanRequirements = [...(run.scanRequirements ?? [])];
   const variables = [...run.variables];
   for (const skill of input.skills) {
+    for (const scan of skill.scans ?? []) {
+      if (
+        !scanRequirements.some(
+          (existing) =>
+            existing.flowSkillName === scan.flowSkillName &&
+            existing.id === scan.id
+        )
+      ) {
+        scanRequirements.push(scan);
+      }
+    }
     if (
       !referencedSkills.some(
         (reference) => reference.flowSkillName === skill.flowSkillName
@@ -378,6 +403,7 @@ const withTaskUpdate = (
           ],
     lastAgentActivityAt: at,
     referencedSkills,
+    scanRequirements,
     variables,
   };
 };

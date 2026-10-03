@@ -1,3 +1,4 @@
+import { scanCoverage } from "@contingency/protocol";
 import type {
   AgentAssessmentOutcome,
   AgentRunSummary,
@@ -48,6 +49,11 @@ export const assessmentOutcomeLabel: Record<AgentAssessmentOutcome, string> = {
 export const dryRunChecks = (
   summary: TaskDryRunSummary
 ): readonly DryRunCheck[] => [
+  {
+    label: "Required scans",
+    passed: scanCoverage(summary).complete,
+    value: `${scanCoverage(summary).fulfilled}/${scanCoverage(summary).total} completed`,
+  },
   {
     label: "Run finished",
     passed: summary.outcome === "completed",

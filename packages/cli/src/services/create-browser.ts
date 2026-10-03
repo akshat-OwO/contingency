@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import {
   AGENT_POINTER_ENTRY_OFFSET,
@@ -19,7 +21,18 @@ import type {
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import { Effect, Exit, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
+import { NodeFileSystem } from "@effect/platform-node";
+import {
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  PubSub,
+  Ref,
+  Semaphore,
+  Stream,
+} from "effect";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { chromium } from "playwright-core";
 import type {
   Browser,
@@ -240,11 +253,14 @@ const inputSessionFor = (session: CreateSession, page: Page) =>
 /** The one shared Chromium, and the user agent every context presents. */
 interface LaunchedBrowser {
   readonly browser: Browser;
+  readonly performanceEndpoint?: string | undefined;
   readonly userAgent: string;
 }
 
 const makeService = (
-  getBrowser: Effect.Effect<LaunchedBrowser, BrowserRpcErrorType>
+  getBrowser: (
+    performanceScans?: boolean
+  ) => Effect.Effect<LaunchedBrowser, BrowserRpcErrorType>
 ): CreateBrowserService => {
   const sessions = Ref.makeUnsafe<ReadonlyMap<SessionId, CreateSession>>(
     new Map()
@@ -283,9 +299,11 @@ const makeService = (
       name: string,
       viewport: Viewport,
       environment?: SessionEnvironment,
-      blockServiceWorkers = false
+      blockServiceWorkers = false,
+      performanceScans = false
     ) {
-      const { browser, userAgent } = yield* getBrowser;
+      const { browser, performanceEndpoint, userAgent } =
+        yield* getBrowser(performanceScans);
       const decoded = yield* Effect.try({
         catch: () =>
           makeBrowserRpcError(
@@ -359,6 +377,7 @@ const makeService = (
           readonly page: Page;
           readonly touchActive: boolean;
         } | null>(null),
+        performanceEndpoint,
         pointers,
         screencastLock: yield* Semaphore.make(1),
         state,
@@ -381,10 +400,17 @@ const makeService = (
     name: string,
     viewport: Viewport,
     environment?: SessionEnvironment,
-    blockServiceWorkers = false
+    blockServiceWorkers = false,
+    performanceScans = false
   ) =>
     registryLock.withPermit(
-      createUnlocked(name, viewport, environment, blockServiceWorkers)
+      createUnlocked(
+        name,
+        viewport,
+        environment,
+        blockServiceWorkers,
+        performanceScans
+      )
     );
 
   const setViewport = Effect.fn("CreateBrowser.setViewport")(
@@ -406,7 +432,15 @@ const makeService = (
       profile: UserAgentProfileId
     ) {
       const session = yield* requireSession(sessionId);
-      const { browser } = yield* getBrowser;
+      const browser = session.context.browser();
+      if (browser === null) {
+        return yield* Effect.fail(
+          makeBrowserRpcError(
+            "session_not_found",
+            "The session browser closed."
+          )
+        );
+      }
       const normalizedUrl = yield* validateBrowserUrl(url);
       const identity = resolveIdentity(profile, browser.version());
       yield* Ref.update(session.state, (state) => ({
@@ -502,11 +536,19 @@ const makeService = (
     url: string,
     emulation: DraftEmulation
   ) {
-    const { browser } = yield* getBrowser;
     const normalizedUrl = yield* validateBrowserUrl(url);
     const finishOpen = (sessionId: SessionId) =>
       Effect.gen(function* finishOpeningSession() {
         const session = yield* requireSession(sessionId);
+        const browser = session.context.browser();
+        if (browser === null) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "session_not_found",
+              "The session browser closed."
+            )
+          );
+        }
         const identity = resolveIdentity(
           emulation.userAgentProfile,
           browser.version()
@@ -562,7 +604,12 @@ const makeService = (
         const session = yield* requireSession(sessionId);
         if (requestedTabId !== undefined) {
           const page = yield* requirePage(session, requestedTabId);
-          return { context: session.context, page, tabId: requestedTabId };
+          return {
+            context: session.context,
+            page,
+            performanceEndpoint: session.performanceEndpoint,
+            tabId: requestedTabId,
+          };
         }
         const state = readSessionState(session);
         const tabId = state.pageIds.get(state.activePage);
@@ -574,7 +621,12 @@ const makeService = (
             )
           );
         }
-        return { context: session.context, page: state.activePage, tabId };
+        return {
+          context: session.context,
+          page: state.activePage,
+          performanceEndpoint: session.performanceEndpoint,
+          tabId,
+        };
       }),
     clearStorage: storage.clear,
     close: closeSession,
@@ -595,7 +647,7 @@ const makeService = (
       }),
     compositor: (size) =>
       Effect.gen(function* openCompositor() {
-        const { browser } = yield* getBrowser;
+        const { browser } = yield* getBrowser();
         const context = yield* Effect.acquireRelease(
           tryBrowser("Could not open the video compositor", () =>
             browser.newContext({
@@ -609,8 +661,8 @@ const makeService = (
           context.newPage()
         );
       }),
-    create: (name, viewport, blockServiceWorkers) =>
-      create(name, viewport, undefined, blockServiceWorkers),
+    create: (name, viewport, blockServiceWorkers, performanceScans) =>
+      create(name, viewport, undefined, blockServiceWorkers, performanceScans),
     currentUrl: (sessionId) =>
       Effect.gen(function* readCurrentUrl() {
         const session = yield* requireSession(sessionId);
@@ -847,13 +899,54 @@ const LAUNCH_OPTIONS: LaunchOptions = {
  * every context presents the headed form instead — set on the context rather
  * than per Page, so workers and a popup's first request carry it too.
  */
-const launchChromium = async (): Promise<LaunchedBrowser> => {
-  const browser = await chromium.launch(LAUNCH_OPTIONS);
+const launchChromium = async (
+  performanceDirectory?: string
+): Promise<LaunchedBrowser> => {
+  // Runs keep scan capability when skills are added later. Teaching and video
+  // composition use a separate process without a debugging port.
+  const persistent =
+    performanceDirectory === undefined
+      ? undefined
+      : await chromium.launchPersistentContext(performanceDirectory, {
+          ...LAUNCH_OPTIONS,
+          args: [
+            ...(LAUNCH_OPTIONS.args ?? []),
+            "--remote-debugging-port=0",
+            "--remote-debugging-address=127.0.0.1",
+          ],
+        });
+  const browser =
+    persistent === undefined
+      ? await chromium.launch(LAUNCH_OPTIONS)
+      : persistent.browser();
+  if (browser === null) {
+    await persistent?.close();
+    throw new Error("The scan browser did not publish its owner.");
+  }
   try {
+    let performanceEndpoint: string | undefined;
+    if (performanceDirectory !== undefined) {
+      const endpoint = await readFile(
+        path.join(performanceDirectory, "DevToolsActivePort"),
+        "utf-8"
+      );
+      const [port, route] = endpoint.trim().split("\n");
+      if (
+        !/^\d+$/u.test(port ?? "") ||
+        !route?.startsWith("/devtools/browser/")
+      ) {
+        throw new Error("Chromium published an invalid debugging endpoint.");
+      }
+      performanceEndpoint = `ws://127.0.0.1:${port}${route}`;
+    }
     const cdp = await browser.newBrowserCDPSession();
     const version = await cdp.send("Browser.getVersion");
     await cdp.detach();
-    return { browser, userAgent: headedUserAgent(version.userAgent) };
+    return {
+      browser,
+      performanceEndpoint,
+      userAgent: headedUserAgent(version.userAgent),
+    };
   } catch (error) {
     await browser.close();
     throw error;
@@ -863,41 +956,58 @@ const launchChromium = async (): Promise<LaunchedBrowser> => {
 export const CreateBrowserLive = Layer.effect(
   CreateBrowser,
   Effect.gen(function* launchCreateBrowser() {
-    let launched: LaunchedBrowser | undefined;
+    const fs = yield* FileSystem.FileSystem;
+    const performanceDirectory = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-scan-browser-",
+    });
+    const registry = AtomRegistry.make();
+    const launched = Atom.make<ReadonlyMap<boolean, LaunchedBrowser>>(
+      new Map()
+    ).pipe(Atom.keepAlive);
     const launchLock = yield* Semaphore.make(1);
-    const getBrowser = Effect.suspend(() => {
-      if (launched !== undefined) {
-        return Effect.succeed(launched);
-      }
-      // First launch may pay the one-time browser download, so it sits inside
-      // the same lock as the launch itself: two sessions must not race the
-      // installer.
-      return ensureChromiumInstalled.pipe(
-        Effect.mapError((failure) =>
-          browserFailure("Could not install Chromium", failure)
-        ),
-        Effect.andThen(
-          Effect.tryPromise({
-            catch: (cause) => browserFailure("Could not start Chromium", cause),
-            try: launchChromium,
-          }).pipe(
-            Effect.tap((browser) =>
-              Effect.sync(() => {
-                launched = browser;
-              })
+    const getBrowser = (performanceScans = false) =>
+      Effect.suspend(() => {
+        const existing = registry.get(launched).get(performanceScans);
+        if (existing !== undefined) {
+          return Effect.succeed(existing);
+        }
+        // First launch may pay the one-time browser download, so it sits inside
+        // the same lock as the launch itself: two sessions must not race the
+        // installer.
+        return ensureChromiumInstalled.pipe(
+          Effect.mapError((failure) =>
+            browserFailure("Could not install Chromium", failure)
+          ),
+          Effect.andThen(
+            Effect.tryPromise({
+              catch: (cause) =>
+                browserFailure("Could not start Chromium", cause),
+              try: () =>
+                launchChromium(
+                  performanceScans ? performanceDirectory : undefined
+                ),
+            }).pipe(
+              Effect.tap((browser) =>
+                Effect.sync(() => {
+                  registry.update(launched, (current) =>
+                    new Map(current).set(performanceScans, browser)
+                  );
+                })
+              )
             )
           )
-        )
-      );
-    }).pipe(launchLock.withPermits(1));
+        );
+      }).pipe(launchLock.withPermits(1));
     yield* Effect.addFinalizer(() =>
-      Effect.suspend(() => {
-        const current = launched;
-        return current === undefined
-          ? Effect.void
-          : Effect.promise(() => current.browser.close()).pipe(Effect.ignore);
-      })
+      Effect.suspend(() =>
+        Effect.forEach(
+          registry.get(launched).values(),
+          (current) =>
+            Effect.promise(() => current.browser.close()).pipe(Effect.ignore),
+          { discard: true }
+        ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
+      )
     );
     return makeService(getBrowser);
   })
-);
+).pipe(Layer.provide(NodeFileSystem.layer));

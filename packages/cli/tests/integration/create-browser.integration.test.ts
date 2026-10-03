@@ -7,6 +7,7 @@ import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
+import { beginScanCollection } from "../../src/services/scan-engine.ts";
 import {
   CLOUDFLARE_BLOCK,
   draftEmulation,
@@ -19,6 +20,15 @@ const viewport = {
   height: 480,
   width: 640,
 } as const;
+
+interface BrowserNavigator extends Navigator {
+  readonly webdriver: boolean;
+}
+const readWebdriver = () => {
+  // SAFETY: This callback executes in Chromium, whose Navigator exposes webdriver; Node's Navigator type omits it.
+  const browserNavigator = navigator as BrowserNavigator;
+  return browserNavigator.webdriver;
+};
 
 const CreateBrowserIntegrationLive = Layer.merge(
   CreateBrowserLive,
@@ -760,4 +770,73 @@ it.live(
       yield* browser.close(sessionId);
     }).pipe(Effect.provide(CreateBrowserIntegrationLive)),
   30_000
+);
+
+it.live(
+  "isolates Teaching from scan-capable Run debugging and keeps webdriver hidden",
+  () =>
+    Effect.gen(function* isolateScanBrowser() {
+      const browser = yield* CreateBrowser;
+      const teachingId = yield* browser.create(
+        "create-scan-teaching",
+        viewport
+      );
+      const runId = yield* browser.create(
+        "create-scan-run",
+        viewport,
+        false,
+        true
+      );
+      const teachingPage = yield* browser.activePage(teachingId);
+      const runPage = yield* browser.activePage(runId);
+      const fixtures = yield* fixtureServer;
+      yield* browser.open(
+        runId,
+        `${fixtures.origin}/stateful.html`,
+        draftEmulation("default", viewport)
+      );
+      expect(teachingPage.context().browser()).not.toBe(
+        runPage.context().browser()
+      );
+      const markers = yield* Effect.promise(() =>
+        Promise.all([
+          teachingPage.evaluate(readWebdriver),
+          runPage.evaluate(readWebdriver),
+        ])
+      );
+      expect(markers).toEqual([false, false]);
+      const owner = runPage.context().browser();
+      if (owner === null) {
+        throw new Error("Run browser missing");
+      }
+      const session = yield* Effect.promise(() => owner.newBrowserCDPSession());
+      const commandFailure = yield* Effect.flip(
+        Effect.tryPromise({
+          catch: (cause) => new Error(String(cause)),
+          try: () => session.send("Browser.getBrowserCommandLine"),
+        })
+      );
+      expect(commandFailure.message).toContain("--enable-automation not set");
+      const target = yield* browser.activeTarget(runId);
+      expect(target.performanceEndpoint).toMatch(
+        /^ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\//u
+      );
+      expect(
+        (yield* browser.activeTarget(teachingId)).performanceEndpoint
+      ).toBeUndefined();
+      yield* Effect.promise(() => session.detach());
+      const measured = yield* Effect.acquireUseRelease(
+        Effect.promise(() =>
+          beginScanCollection(
+            runPage,
+            "timespan",
+            new AbortController().signal,
+            target.performanceEndpoint
+          )
+        ),
+        (collection) => Effect.promise(collection.finish),
+        (collection) => Effect.promise(collection.cancel)
+      );
+      expect(measured.report).toHaveProperty("steps.0.lhr.lighthouseVersion");
+    }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
