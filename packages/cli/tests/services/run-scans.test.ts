@@ -154,3 +154,42 @@ it.effect(
       expect(reused.message).toContain("explicit user instruction");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.effect(
+  "clears a pending interruption when takeover fails before collection",
+  () =>
+    Effect.gen(function* clearFailedTakeover() {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const reports: ScanReport[] = [];
+      let wasAborted = true;
+      const scans = makeRunScans(fs, () => new Date("2026-10-03T00:00:00Z"));
+      scans.interrupt("session", "Failed takeover");
+      scans.clearPendingInterruption("session");
+      yield* scans.start(
+        {
+          collect: (_mode, signal) => {
+            wasAborted = signal.aborted;
+            return Promise.reject(new Error("Expected engine refusal"));
+          },
+          directory,
+          emulation: {
+            ...taskRunSummary.startingEmulation,
+            userAgent: "scan-test",
+          },
+          page,
+          publish: (report) =>
+            Effect.sync(() => {
+              reports.push(report);
+            }),
+          run: run(),
+          sessionId: "session",
+          tabId: "tab",
+        },
+        requirement
+      );
+      expect(wasAborted).toBe(false);
+      expect(reports.at(-1)?.status).toBe("failed");
+      expect(reports.at(-1)?.summary).not.toContain("Failed takeover");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

@@ -102,7 +102,9 @@ export interface CreateBrowserService {
   readonly create: (
     name: string,
     viewport: Viewport,
-    blockServiceWorkers?: boolean
+    blockServiceWorkers?: boolean,
+    /** Run-only capability, isolated from Teaching and video compositor contexts. */
+    performanceScans?: boolean
   ) => Effect.Effect<SessionId, BrowserRpcErrorType>;
   readonly currentUrl: (
     sessionId: SessionId

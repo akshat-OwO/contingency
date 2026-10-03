@@ -3454,7 +3454,8 @@ const makeAgentSession = (
                         browser.create(
                           browserName,
                           emulation.viewport,
-                          input.domainScope !== undefined
+                          input.domainScope !== undefined,
+                          activity === "run"
                         ),
                         (browserSessionId) =>
                           browser.close(browserSessionId).pipe(Effect.ignore)
@@ -7067,9 +7068,15 @@ const makeAgentSession = (
           ) {
             runScans.interrupt(sessionId, "Takeover interrupted the scan.");
           }
-          return yield* ledger.serializeMutation(
-            beginTakeoverUnlocked(sessionId, reason, "user", operationId)
-          );
+          return yield* ledger
+            .serializeMutation(
+              beginTakeoverUnlocked(sessionId, reason, "user", operationId)
+            )
+            .pipe(
+              Effect.tapError(() =>
+                Effect.sync(() => runScans.clearPendingInterruption(sessionId))
+              )
+            );
         }),
       updateTask: (sessionId, prepare, operationId, requestInput) =>
         taskMutation(
