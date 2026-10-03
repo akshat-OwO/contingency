@@ -32,6 +32,12 @@ export const shortcutPlatform = (): ShortcutPlatform =>
  * The chord Contingency keeps for itself while the user is driving the Page:
  * the platform's primary modifier with Shift. Pages rarely bind either chord,
  * and `⌘⇧C` is the inspect chord browser DevTools already taught.
+ *
+ * Both chords are also browser shortcuts in the Workspace tab: `⌘⇧C` /
+ * `Ctrl+Shift+C` is the DevTools element picker, and `Ctrl+Shift+K` opens
+ * Firefox's web console. While recording, the capture-phase handler calls
+ * `preventDefault` on both, so the Workspace wins and DevTools stays reachable
+ * through its other shortcuts (`F12`, `⌥⌘I`, `Ctrl+Shift+I`).
  */
 export const chordShortcut = (
   event: KeyLike,
