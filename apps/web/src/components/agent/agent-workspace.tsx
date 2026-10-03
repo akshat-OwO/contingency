@@ -50,12 +50,28 @@ import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar"
 import { RunSummaryView } from "@/components/agent/run-view";
 import { RuntimeVariables } from "@/components/agent/runtime-variables";
 import { SetupVariables } from "@/components/agent/setup-variables";
+import { CommentComposer } from "@/components/agent/teaching-comment-composer";
+import type { CommentShortcut } from "@/components/agent/teaching-comment-shortcuts";
+import {
+  shortcutPlatform,
+  useCommentShortcuts,
+  useElementFocused,
+} from "@/components/agent/teaching-comment-shortcuts";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import {
+  attachSelection,
+  closeComposer,
   completeInspectComment,
   emptyInspectState,
+  leavePage,
+  openComposer,
+  startPicking,
+  stopPicking,
 } from "@/components/agent/teaching-inspect-state";
-import type { FrameProjection } from "@/components/agent/teaching-inspect-state";
+import type {
+  FrameProjection,
+  InspectState,
+} from "@/components/agent/teaching-inspect-state";
 import {
   TeachingRecordingDock,
   TeachingRecordingNotices,
@@ -1131,11 +1147,7 @@ const useAgentView = (
                   inspectPageVersionRef.current += 1;
                   setState((current) => ({
                     ...current,
-                    inspect: {
-                      ...emptyInspectState,
-                      nextCommentIndex: current.inspect.nextCommentIndex,
-                      pending: current.inspect.pending,
-                    },
+                    inspect: leavePage(current.inspect),
                     session: current.session
                       ? { ...current.session, currentUrl: event.url }
                       : current.session,
@@ -1520,34 +1532,55 @@ const useAgentView = (
     }).pipe(Effect.map((answer) => answer.data.element));
   };
 
-  const toggleInspect = () => {
-    setState((current) => ({
-      ...current,
-      inspect: current.inspect.open
-        ? {
-            ...emptyInspectState,
-            comments: current.inspect.comments,
-            nextCommentIndex: current.inspect.nextCommentIndex,
-            pending: current.inspect.pending,
-          }
-        : { ...current.inspect, open: true },
-    }));
+  const updateInspect = (update: (inspect: InspectState) => InspectState) => {
+    setState((current) => {
+      const inspect = update(current.inspect);
+      return inspect === current.inspect ? current : { ...current, inspect };
+    });
+  };
+
+  const openCommentComposer = () => {
+    updateInspect(openComposer);
+  };
+
+  const changeComposerOpen = (open: boolean) => {
+    updateInspect(open ? openComposer : closeComposer);
+  };
+
+  const pickElement = () => {
+    updateInspect(startPicking);
   };
 
   const exitInspect = () => {
-    setState((current) =>
-      current.inspect.open
-        ? {
-            ...current,
-            inspect: {
-              ...emptyInspectState,
-              comments: current.inspect.comments,
-              nextCommentIndex: current.inspect.nextCommentIndex,
-              pending: current.inspect.pending,
-            },
-          }
-        : current
+    updateInspect(stopPicking);
+  };
+
+  const detachElement = () => {
+    updateInspect((inspect) =>
+      inspect.frozen === undefined || inspect.pending
+        ? inspect
+        : { ...inspect, frozen: undefined }
     );
+  };
+
+  const highlightComment = (index: number | undefined) => {
+    updateInspect((inspect) =>
+      inspect.highlighted === index
+        ? inspect
+        : { ...inspect, highlighted: index }
+    );
+  };
+
+  /** A shortcut toggles: pressing it again leaves what it opened. */
+  const runCommentShortcut = (shortcut: CommentShortcut) => {
+    updateInspect((inspect) => {
+      if (shortcut === "compose") {
+        return inspect.composing
+          ? closeComposer(inspect)
+          : openComposer(inspect);
+      }
+      return inspect.open ? stopPicking(inspect) : startPicking(inspect);
+    });
   };
 
   const hoverInspect = (x: number, y: number) => {
@@ -1565,7 +1598,7 @@ const useAgentView = (
               return;
             }
             setState((current) =>
-              current.inspect.open && current.inspect.frozen === undefined
+              current.inspect.open
                 ? {
                     ...current,
                     inspect: {
@@ -1595,46 +1628,33 @@ const useAgentView = (
             if (pageVersion !== inspectPageVersionRef.current) {
               return;
             }
-            setState((current) =>
-              current.inspect.open && !current.inspect.pending
-                ? {
-                    ...current,
-                    inspect: {
-                      ...current.inspect,
-                      draft: "",
-                      error: Result.isFailure(outcome)
-                        ? errorMessage(outcome.failure)
-                        : undefined,
-                      frozen: Result.isFailure(outcome)
-                        ? undefined
-                        : {
-                            ...outcome.success,
-                            scrollOffsetX:
-                              current.frameProjection.scrollOffsetX,
-                            scrollOffsetY:
-                              current.frameProjection.scrollOffsetY,
-                          },
-                      hovered: undefined,
-                    },
-                  }
-                : current
-            );
+            setState((current) => {
+              if (!current.inspect.open || current.inspect.pending) {
+                return current;
+              }
+              if (Result.isFailure(outcome)) {
+                return {
+                  ...current,
+                  inspect: {
+                    ...current.inspect,
+                    error: errorMessage(outcome.failure),
+                    hovered: undefined,
+                  },
+                };
+              }
+              return {
+                ...current,
+                inspect: attachSelection(current.inspect, {
+                  ...outcome.success,
+                  scrollOffsetX: current.frameProjection.scrollOffsetX,
+                  scrollOffsetY: current.frameProjection.scrollOffsetY,
+                }),
+              };
+            });
           })
         )
       )
     );
-  };
-
-  const cancelInspectComment = () => {
-    setState((current) => ({
-      ...current,
-      inspect: {
-        ...current.inspect,
-        draft: "",
-        error: undefined,
-        frozen: undefined,
-      },
-    }));
   };
 
   const setInspectDraft = (draft: string) => {
@@ -1645,20 +1665,16 @@ const useAgentView = (
   };
 
   /**
-   * Attaching a comment records a Teaching instruction on the live recording.
+   * Adding a comment records a Teaching instruction on the live recording.
    * It is the same instruction path the agent relays over MCP, so the
-   * Demonstration has one instruction stream rather than two (#191).
+   * Demonstration has one instruction stream rather than two (#191). A
+   * comment with no attached element is a page comment.
    */
-  const attachInspectComment = () => {
+  const submitComment = () => {
     const sessionId = activeSessionRef.current;
     const { frozen } = state.inspect;
     const text = state.inspect.draft.trim();
-    if (
-      sessionId === null ||
-      frozen === undefined ||
-      text === "" ||
-      state.inspect.pending
-    ) {
+    if (sessionId === null || text === "" || state.inspect.pending) {
       return;
     }
     const pageVersion = inspectPageVersionRef.current;
@@ -1683,7 +1699,7 @@ const useAgentView = (
                     so the dock's comment list can name what each instruction
                     landed on without parsing a prefix back out (#213).
                   */
-                  target: frozen.description,
+                  target: frozen?.description,
                   text,
                 },
                 type: "agent.teaching.instruction.record",
@@ -1708,7 +1724,7 @@ const useAgentView = (
                   inspect: {
                     ...current.inspect,
                     error:
-                      samePage && current.inspect.frozen === frozen
+                      current.inspect.draft.trim() === text
                         ? errorMessage(outcome.failure)
                         : current.inspect.error,
                     pending: false,
@@ -1723,7 +1739,7 @@ const useAgentView = (
                 ...current,
                 inspect: completeInspectComment(
                   current.inspect,
-                  frozen,
+                  { frozen, text },
                   recorded.teaching.instructionCount,
                   samePage
                 ),
@@ -2017,19 +2033,23 @@ const useAgentView = (
   };
 
   return {
-    attachInspectComment,
-    cancelInspectComment,
     canvasRef,
+    changeComposerOpen,
     changeControl,
     changeRecording,
     clearConsole,
+    detachElement,
     dismissBotProtectionBlock,
     exitInspect,
     freezeInspect,
+    highlightComment,
     hoverInspect,
     input,
     navigate,
+    openCommentComposer,
     openSession,
+    pickElement,
+    runCommentShortcut,
     runSecondary,
     selectSession,
     sessions,
@@ -2038,7 +2058,7 @@ const useAgentView = (
     setInspectDraft,
     state,
     submitAddress,
-    toggleInspect,
+    submitComment,
     toggleSetup,
   };
 };
@@ -2058,6 +2078,18 @@ export const AgentWorkspace = ({
     onRecoverSession
   );
   const { sessionsResult, state } = view;
+  const recording =
+    state.session?.activity === "teaching" &&
+    state.session.captureState._tag === "recording";
+  const [platform] = useState(shortcutPlatform);
+  const browserFocused = useElementFocused(view.canvasRef);
+  useCommentShortcuts({
+    browser: view.canvasRef,
+    enabled: recording && state.phase !== "unavailable",
+    onCancelPick: view.exitInspect,
+    onShortcut: view.runCommentShortcut,
+    picking: state.inspect.open,
+  });
   if (sessionsResult._tag === "Initial") {
     return <LoadingState />;
   }
@@ -2091,8 +2123,6 @@ export const AgentWorkspace = ({
   }
 
   const { session } = state;
-  const teaching = session.activity === "teaching";
-  const recording = teaching && session.captureState._tag === "recording";
 
   return (
     <div className="relative flex h-svh min-h-0 flex-col">
@@ -2105,18 +2135,19 @@ export const AgentWorkspace = ({
           dock={
             session.activity === "teaching" ? (
               <TeachingRecordingDock
+                browserFocused={browserFocused}
                 captureState={session.captureState}
                 cleanup={session.recordingCleanup}
                 controller={session.controller}
                 flowSkillName={session.flowSkillName}
                 instructions={session.teaching.instructions}
-                inspecting={state.inspect.open}
+                onComment={view.openCommentComposer}
                 onGesture={view.changeRecording}
                 onSecondary={view.runSecondary}
                 onSelectSession={view.selectSession}
-                onToggleInspect={view.toggleInspect}
                 pending={state.recordingPending}
                 phase={session.phase}
+                platform={platform}
                 selectedSessionId={state.selectedSessionId}
                 sessions={view.sessions}
               />
@@ -2135,14 +2166,11 @@ export const AgentWorkspace = ({
           }
           input={view.input}
           inspect={
-            recording && state.inspect.open
+            recording
               ? (canvas) => (
                   <InspectOverlay
                     canvas={canvas}
-                    onAttach={view.attachInspectComment}
-                    onCancel={view.cancelInspectComment}
-                    onDraftChange={view.setInspectDraft}
-                    onExit={view.exitInspect}
+                    onCancel={view.exitInspect}
                     onFreeze={view.freezeInspect}
                     onHover={view.hoverInspect}
                     projection={state.frameProjection}
@@ -2171,6 +2199,21 @@ export const AgentWorkspace = ({
           state={state}
         />
       </WorkspaceWithRunSummary>
+      {session.activity === "teaching" &&
+      session.captureState._tag === "recording" ? (
+        <CommentComposer
+          instructions={session.teaching.instructions}
+          onDetach={view.detachElement}
+          onDraftChange={view.setInspectDraft}
+          onHighlight={view.highlightComment}
+          onOpenChange={view.changeComposerOpen}
+          onPick={view.pickElement}
+          onSubmit={view.submitComment}
+          platform={platform}
+          startedAt={session.captureState.startedAt}
+          state={state.inspect}
+        />
+      ) : null}
     </div>
   );
 };

@@ -12,11 +12,14 @@ import {
   CircleIcon,
   InfoIcon,
   LoaderCircleIcon,
-  MousePointerClickIcon,
+  MessageSquareTextIcon,
   SquareIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { ShortcutKbd } from "@/components/agent/teaching-comment-composer";
+import type { ShortcutPlatform } from "@/components/agent/teaching-comment-shortcuts";
+import { ariaKeyShortcuts } from "@/components/agent/teaching-comment-shortcuts";
 import type {
   TeachingRecordingGesture,
   TeachingSecondaryAction,
@@ -113,58 +116,46 @@ export const WorkspaceEmptyDock = () => (
 );
 
 /**
- * The comments this recording has collected, behind their own count. The count
- * is a control rather than a label: a user who attached several instructions
- * has no other way to read back what they said or which element each one
- * landed on (#213). The list is read-only — an instruction is a recorded
- * event, so retracting one has to be recorded rather than rewritten.
- *
- * With nothing attached there is no control at all, so the dock never offers a
- * button that opens an empty overlay.
+ * The way into the comment composer, with the comment count beside it. The
+ * shortcut hint follows focus: with the browser focused, single keys belong to
+ * the Page, so only the chord opens the composer.
  */
-const RecordingComments = ({
-  instructions,
+const CommentTrigger = ({
+  browserFocused,
+  count,
+  onComment,
+  platform,
 }: {
-  readonly instructions: readonly TeachingInstruction[];
-}) => {
-  if (instructions.length === 0) {
-    return null;
-  }
-  const count = instructions.length;
-  /* Newest first: the instruction just attached is the one being checked. */
-  const newestFirst = instructions.toReversed();
-  return (
-    <Popover>
-      <PopoverTrigger
-        render={(props) => (
-          <Button
-            {...props}
-            aria-label={`${count} ${count === 1 ? "comment" : "comments"}`}
-            size="sm"
-            variant="ghost"
-          >
-            <span className="tabular-nums">{count}</span>
-            {count === 1 ? "comment" : "comments"}
-          </Button>
-        )}
-      />
-      <PopoverContent align="end">
-        <ul className="flex max-h-64 flex-col gap-2.5 overflow-y-auto">
-          {newestFirst.map((instruction) => (
-            <li className="flex flex-col gap-0.5" key={instruction.id}>
-              <span>{instruction.text}</span>
-              {instruction.target === null ? null : (
-                <span className="text-muted-foreground text-xs">
-                  {instruction.target}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </PopoverContent>
-    </Popover>
-  );
-};
+  readonly browserFocused: boolean;
+  readonly count: number;
+  readonly onComment: () => void;
+  readonly platform: ShortcutPlatform;
+}) => (
+  <Button
+    aria-keyshortcuts={ariaKeyShortcuts("compose", platform)}
+    aria-label={
+      count === 0
+        ? "Comment"
+        : `Comment, ${count} ${count === 1 ? "comment" : "comments"} so far`
+    }
+    onClick={onComment}
+    size="sm"
+    type="button"
+    variant="ghost"
+  >
+    <MessageSquareTextIcon aria-hidden="true" />
+    Comment
+    {count === 0 ? null : (
+      <span className="text-muted-foreground tabular-nums">{count}</span>
+    )}
+    <ShortcutKbd
+      className="max-sm:hidden"
+      platform={platform}
+      scope={browserFocused ? "chord" : "bare"}
+      shortcut="compose"
+    />
+  </Button>
+);
 
 /**
  * The state's next-step sentence, behind its own button. Inline, the sentence
@@ -206,26 +197,29 @@ const StateDetails = ({
 );
 
 /**
- * The Teaching dock: the Flow Skill name, one state badge, the inspect toggle,
+ * The Teaching dock: the Flow Skill name, one state badge, the comment trigger,
  * the state's details, the secondary actions, and at most one primary action,
  * on one row and driven entirely by the pushed capture state (ADR 0039).
  */
 export const TeachingRecordingDock = ({
+  browserFocused,
   captureState,
   cleanup,
   controller,
   flowSkillName,
   instructions,
-  inspecting,
+  onComment,
   onGesture,
   onSecondary,
   onSelectSession,
-  onToggleInspect,
   pending,
   phase,
+  platform,
   selectedSessionId,
   sessions,
 }: {
+  /** Whether the live browser holds focus, which changes the shortcut hint. */
+  readonly browserFocused: boolean;
   readonly captureState: TeachingCaptureState;
   readonly cleanup: TeachingRecordingCleanupState | undefined;
   /** Who holds the browser. Start waits for the agent's setup handoff. */
@@ -236,17 +230,17 @@ export const TeachingRecordingDock = ({
    * whether attached through inspect or relayed over MCP.
    */
   readonly instructions: readonly TeachingInstruction[];
-  readonly inspecting: boolean;
+  readonly onComment: () => void;
   readonly onGesture: (gesture: TeachingRecordingGesture) => void;
   readonly onSecondary: (
     action: TeachingSecondaryAction,
     detail?: string
   ) => void;
   readonly onSelectSession: (sessionId: string) => void;
-  readonly onToggleInspect: () => void;
   readonly pending: boolean;
   /** Whether the session is still live. An ended one offers no setup actions. */
   readonly phase: AgentSessionPhase;
+  readonly platform: ShortcutPlatform;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
@@ -301,18 +295,13 @@ export const TeachingRecordingDock = ({
         {presentation.badge}. {presentation.nextStep}
       </output>
       {presentation.showsInspect ? (
-        <Button
-          aria-label="Inspect an element and comment"
-          aria-pressed={inspecting}
-          onClick={onToggleInspect}
-          size="icon-sm"
-          type="button"
-          variant={inspecting ? "secondary" : "ghost"}
-        >
-          <MousePointerClickIcon />
-        </Button>
+        <CommentTrigger
+          browserFocused={browserFocused}
+          count={instructions.length}
+          onComment={onComment}
+          platform={platform}
+        />
       ) : null}
-      <RecordingComments instructions={instructions} />
       <StateDetails
         badge={presentation.badge}
         nextStep={presentation.nextStep}

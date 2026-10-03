@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import { MousePointerClickIcon } from "lucide-react";
+import { useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 import type { OverlayRectangle } from "@/components/agent/teaching-inspect-geometry";
 import {
@@ -13,6 +14,7 @@ import type {
 } from "@/components/agent/teaching-inspect-state";
 import { useCanvasBox } from "@/components/agent/use-canvas-box";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 
 const Pin = ({
   at,
@@ -22,35 +24,58 @@ const Pin = ({
   readonly index: number;
 }) => (
   <span
-    className="bg-primary text-primary-foreground absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-xs font-semibold"
+    className="bg-primary text-primary-foreground absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-xs font-semibold shadow-sm"
     style={{ left: at.left + at.width / 2, top: at.top }}
   >
     {index}
   </span>
 );
 
+const Outline = ({
+  at,
+  label,
+}: {
+  readonly at: OverlayRectangle;
+  readonly label?: string | undefined;
+}) => (
+  <span
+    className="pointer-events-none absolute block rounded-sm border-2 border-blue-500 bg-blue-500/20"
+    style={{
+      height: at.height,
+      left: at.left,
+      top: at.top,
+      width: at.width,
+    }}
+  >
+    {label === undefined ? null : (
+      <span className="absolute bottom-full left-0 mb-1 max-w-64 truncate rounded bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white">
+        {label}
+      </span>
+    )}
+  </span>
+);
+
 /**
- * Inspect mode over the live browser frame. Hovering highlights the element
- * the Page actually has under the pointer — the box comes from a Browser
- * Snapshot, not from hit-testing the bitmap the canvas is drawing — clicking
- * freezes it, and attaching records a Teaching instruction on the recording.
+ * Comments over the live browser frame while recording: a numbered pin on
+ * every element a comment was attached to, the outline of the one the
+ * composer's list is pointing at, and inspect's element picker.
+ *
+ * Outside a pick the layer takes no pointer input, so the Page stays usable
+ * underneath its pins. While picking, hovering outlines the element the Page
+ * actually has under the pointer — the box comes from a Browser Snapshot, not
+ * from hit-testing the bitmap the canvas is drawing — and a click attaches it
+ * to the composer.
  */
 export const InspectOverlay = ({
   canvas,
-  onAttach,
   onCancel,
-  onDraftChange,
-  onExit,
-  onHover,
   onFreeze,
+  onHover,
   projection,
   state,
 }: {
   readonly canvas: HTMLCanvasElement | null;
-  readonly onAttach: () => void;
   readonly onCancel: () => void;
-  readonly onDraftChange: (draft: string) => void;
-  readonly onExit: () => void;
   readonly onFreeze: (x: number, y: number) => void;
   readonly onHover: (x: number, y: number) => void;
   /** How the frame on the canvas maps onto the Page viewport it came from. */
@@ -59,18 +84,6 @@ export const InspectOverlay = ({
 }) => {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const box = useCanvasBox(canvas, container);
-
-  useEffect(() => {
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onExit();
-      }
-    };
-    globalThis.addEventListener("keydown", handleKey);
-    return () => {
-      globalThis.removeEventListener("keydown", handleKey);
-    };
-  }, [onExit]);
 
   const pagePoint = (event: ReactPointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -81,41 +94,48 @@ export const InspectOverlay = ({
     );
   };
 
-  const highlighted = state.frozen ?? state.hovered;
-  const highlight =
-    highlighted === undefined
-      ? undefined
-      : projectPageRectangle(highlighted, projection, box);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onAttach();
-  };
+  const hovered =
+    state.open && state.hovered !== undefined
+      ? projectPageRectangle(state.hovered, projection, box)
+      : undefined;
+  const highlightedComment = state.comments.find(
+    (comment) => comment.index === state.highlighted
+  );
 
   return (
     <div
-      className="absolute inset-0 cursor-crosshair"
-      onPointerDown={(event) => {
-        const point = pagePoint(event);
-        onFreeze(point.x, point.y);
-      }}
-      onPointerMove={(event) => {
-        if (state.frozen !== undefined) {
-          return;
-        }
-        const point = pagePoint(event);
-        onHover(point.x, point.y);
-      }}
+      className={
+        state.open
+          ? "absolute inset-0 cursor-crosshair"
+          : "pointer-events-none absolute inset-0"
+      }
+      data-picking={state.open ? "" : undefined}
+      onPointerDown={
+        state.open
+          ? (event) => {
+              const point = pagePoint(event);
+              onFreeze(point.x, point.y);
+            }
+          : undefined
+      }
+      onPointerMove={
+        state.open
+          ? (event) => {
+              const point = pagePoint(event);
+              onHover(point.x, point.y);
+            }
+          : undefined
+      }
       ref={setContainer}
     >
-      {state.error !== undefined && state.frozen === undefined ? (
-        <p
-          className="bg-background text-destructive pointer-events-none absolute top-3 left-1/2 z-10 max-w-sm -translate-x-1/2 rounded-md border p-3 text-sm shadow-lg"
-          role="alert"
-        >
-          Could not select this element. Try another visible element or retry
-          after the page finishes updating.
-        </p>
-      ) : null}
+      {highlightedComment === undefined ? null : (
+        <Outline
+          at={projectDocumentRectangle(highlightedComment, projection, box)}
+        />
+      )}
+      {hovered === undefined || state.hovered === undefined ? null : (
+        <Outline at={hovered} label={state.hovered.description} />
+      )}
       {state.comments.map((comment) => (
         <Pin
           at={projectDocumentRectangle(comment, projection, box)}
@@ -123,57 +143,32 @@ export const InspectOverlay = ({
           key={comment.index}
         />
       ))}
-      {highlight === undefined ? null : (
-        <span
-          className="pointer-events-none absolute block rounded-sm border-2 border-blue-500 bg-blue-500/20"
-          style={{
-            height: highlight.height,
-            left: highlight.left,
-            top: highlight.top,
-            width: highlight.width,
-          }}
-        />
-      )}
-      {highlight === undefined || state.frozen === undefined ? null : (
-        <form
-          className="bg-background absolute z-10 w-72 space-y-2 rounded-lg border p-3 shadow-lg"
+      {state.open ? (
+        <div
+          className="bg-popover text-popover-foreground ring-foreground/10 absolute top-3 left-1/2 z-10 flex -translate-x-1/2 cursor-default items-center gap-2 rounded-full py-1 pr-1 pl-3 text-sm shadow-lg ring-1"
           onPointerDown={(event) => event.stopPropagation()}
-          onSubmit={submit}
-          style={{
-            left: Math.max(0, highlight.left),
-            top: highlight.top + highlight.height + 8,
-          }}
+          onPointerMove={(event) => event.stopPropagation()}
         >
-          <p className="text-muted-foreground text-xs wrap-anywhere">
-            {state.frozen.description}
-          </p>
-          <label className="block space-y-1 text-xs font-medium">
-            Describe the change
-            {/* oxlint-disable-next-line jsx-a11y/no-autofocus */}
-            <textarea
-              autoFocus
-              className="focus-visible:ring-ring h-20 w-full rounded-md border p-2 text-sm outline-none focus-visible:ring-2"
-              onChange={(event) => onDraftChange(event.target.value)}
-              value={state.draft}
-            />
-          </label>
-          {state.error === undefined ? null : (
-            <p className="text-destructive text-xs">{state.error}</p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button onClick={onCancel} size="sm" type="button" variant="ghost">
-              Cancel
-            </Button>
-            <Button
-              disabled={state.pending || state.draft.trim() === ""}
-              size="sm"
-              type="submit"
-            >
-              Attach
-            </Button>
-          </div>
-        </form>
-      )}
+          <MousePointerClickIcon
+            aria-hidden="true"
+            className="size-4 text-blue-500"
+          />
+          <span>Click an element to attach it</span>
+          <Button onClick={onCancel} size="sm" type="button" variant="ghost">
+            Cancel
+            <Kbd>Esc</Kbd>
+          </Button>
+        </div>
+      ) : null}
+      {state.open && state.error !== undefined ? (
+        <p
+          className="bg-background text-destructive pointer-events-none absolute top-16 left-1/2 z-10 max-w-sm -translate-x-1/2 rounded-md border p-3 text-sm shadow-lg"
+          role="alert"
+        >
+          Could not select this element. Try another visible element or retry
+          after the page finishes updating.
+        </p>
+      ) : null}
     </div>
   );
 };
