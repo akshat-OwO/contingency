@@ -35,6 +35,8 @@ const rpc = vi.hoisted(() => ({
   } satisfies unknown,
   instructionCalls: [] satisfies unknown[],
   instructionFailure: undefined satisfies unknown,
+  /* A failing save settles only once the test opens this gate. */
+  instructionGate: Promise.resolve(true),
   navigateCalls: [] satisfies unknown[],
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
@@ -111,7 +113,9 @@ const rpcOverrides = {
               },
             };
           })
-        : Effect.fail(rpc.instructionFailure).pipe(Effect.delay("100 millis"))
+        : Effect.promise(() => rpc.instructionGate).pipe(
+            Effect.andThen(Effect.fail(rpc.instructionFailure))
+          )
   ),
   agentTeachingRecordingDiscardMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -296,6 +300,7 @@ afterEach(() => {
   rpc.takeoverCalls = [];
   rpc.verifyFailure = undefined;
   rpc.instructionFailure = undefined;
+  rpc.instructionGate = Promise.resolve(true);
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -967,6 +972,8 @@ test("adds a page comment without inspecting an element", async () => {
 test("reopens the composer on the unsent draft when a save fails after it was closed", async () => {
   const user = userEvent.setup();
   rpc.instructionFailure = new Error("The recording refused the instruction.");
+  const gate = Promise.withResolvers<boolean>();
+  rpc.instructionGate = gate.promise;
   renderWorkspace(resultFor([teachingRecording]), session.id);
   await user.click(await screen.findByRole("button", { name: "Comment" }));
   const field = await screen.findByRole("textbox", { name: "Comment" });
@@ -975,6 +982,7 @@ test("reopens the composer on the unsent draft when a save fails after it was cl
   await waitFor(() => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+  gate.resolve(true);
   const reopened = await screen.findByRole("dialog", { name: "Comment" });
   expect(await within(reopened).findByRole("alert")).toHaveTextContent(
     "The recording refused the instruction."
