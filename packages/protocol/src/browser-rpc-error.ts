@@ -49,6 +49,14 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     "agent_session_invalid",
     "agent_session_not_found",
     "agent_session_unavailable",
+    // Teaching Recording lifecycle moved on, or another process owns the claim.
+    "agent_teaching_conflict",
+    // The Teaching Recording or its retained manifest no longer exists.
+    "agent_teaching_not_found",
+    // The Teaching request or learning claim is invalid.
+    "agent_teaching_invalid",
+    // Teaching storage could not complete an I/O operation or is unavailable.
+    "agent_teaching_unavailable",
     // The element reference came from a Browser Snapshot the Page has since
     // navigated away from or mutated, so acting on it would act on nothing.
     "agent_element_stale",

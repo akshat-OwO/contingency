@@ -123,45 +123,44 @@ export const WorkspaceBrowserSetup = ({
   readonly userHoldsBrowser: boolean;
 }) => {
   const {
-    agentBrowserEmulationMutation,
-    agentBrowserEmulationQuery,
-    agentBrowserNetworkRequestsMutation,
-    agentBrowserTabsMutation,
+    agentBrowserEmulationSetMutation,
+    agentBrowserEmulationGetMutation,
+    agentBrowserNetworkRequestsGetMutation,
+    agentBrowserTabsGetMutation,
   } = useRpcDependencies();
   const tooling = useAgentBrowserTooling(sessionId);
   const [state, setState] = useAtom(setupStateAtom);
-  const readEmulation = useAtomSet(agentBrowserEmulationQuery, {
+  const readEmulation = useAtomSet(agentBrowserEmulationGetMutation, {
     mode: "promise",
   });
-  const applyEmulation = useAtomSet(agentBrowserEmulationMutation, {
+  const applyEmulation = useAtomSet(agentBrowserEmulationSetMutation, {
     mode: "promise",
   });
-  const readTabs = useAtomSet(agentBrowserTabsMutation, { mode: "promise" });
-  const readNetworkRequests = useAtomSet(agentBrowserNetworkRequestsMutation, {
-    mode: "promise",
-  });
+  const readTabs = useAtomSet(agentBrowserTabsGetMutation, { mode: "promise" });
+  const readNetworkRequests = useAtomSet(
+    agentBrowserNetworkRequestsGetMutation,
+    {
+      mode: "promise",
+    }
+  );
 
   const refresh = Effect.gen(function* readBrowserSetup() {
     const emulation = yield* Effect.tryPromise({
       catch: (cause) => cause,
       try: () =>
         readEmulation({
-          payload: {
-            data: { sessionId },
-            type: "agent.browser.emulation.get",
-          },
+          payload: { sessionId },
         }),
     });
     const tabs = yield* Effect.tryPromise({
       catch: (cause) => cause,
       try: () =>
         readTabs({
-          payload: { data: { sessionId }, type: "agent.browser.tabs.get" },
+          payload: { sessionId },
         }),
     });
     const activeTab =
-      (tabs.data.tabs ?? EMPTY_TABS).find(({ active }) => active) ??
-      tabs.data.tabs[0];
+      (tabs.tabs ?? EMPTY_TABS).find(({ active }) => active) ?? tabs.tabs[0];
     const requests: readonly BrowserNetworkRequest[] =
       activeTab === undefined
         ? EMPTY_REQUESTS
@@ -169,18 +168,15 @@ export const WorkspaceBrowserSetup = ({
             catch: (cause) => cause,
             try: () =>
               readNetworkRequests({
-                payload: {
-                  data: { sessionId, tabId: activeTab.tabId },
-                  type: "agent.browser.network.requests.get",
-                },
+                payload: { sessionId, tabId: activeTab.tabId },
               }),
-          })).data.requests;
+          })).requests;
     setState((current) => ({
       ...current,
       activeTab,
-      emulation: { emulation: emulation.data.emulation, status: "known" },
+      emulation: { emulation: emulation.emulation, status: "known" },
       error: undefined,
-      identity: emulation.data.userAgentProfile,
+      identity: emulation.userAgentProfile,
       networkRequests: requests,
     }));
   }).pipe(
@@ -218,10 +214,7 @@ export const WorkspaceBrowserSetup = ({
           catch: (cause) => cause,
           try: () =>
             applyEmulation({
-              payload: {
-                data: { ...change, sessionId },
-                type: "agent.browser.emulation.set",
-              },
+              payload: { ...change, sessionId },
             }),
         })
       ).pipe(
@@ -237,11 +230,11 @@ export const WorkspaceBrowserSetup = ({
                 : {
                     ...current,
                     emulation: {
-                      emulation: outcome.success.data.emulation,
+                      emulation: outcome.success.emulation,
                       status: "known",
                     },
                     error: undefined,
-                    identity: outcome.success.data.userAgentProfile,
+                    identity: outcome.success.userAgentProfile,
                     pending: false,
                   }
             );

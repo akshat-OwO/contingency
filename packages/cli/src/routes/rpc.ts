@@ -33,21 +33,21 @@ const agentError = (cause: AgentSessionError): BrowserRpcErrorType =>
     ? cause
     : makeBrowserRpcError(cause.code, cause.message);
 
-const teachingRecordingError = (
+const teachingRecordingErrorCodes = {
+  teaching_recording_conflict: "agent_teaching_conflict",
+  teaching_recording_invalid: "agent_teaching_invalid",
+  teaching_recording_io: "agent_teaching_unavailable",
+  teaching_recording_not_found: "agent_teaching_not_found",
+  teaching_recording_unclaimed: "agent_teaching_conflict",
+} as const satisfies Record<
+  TeachingRecordingStoreError["code"],
+  BrowserRpcErrorType["code"]
+>;
+
+export const teachingRecordingError = (
   cause: TeachingRecordingStoreError
-): BrowserRpcErrorType => {
-  let code: BrowserRpcErrorType["code"] = "agent_session_invalid";
-  if (cause.code === "teaching_recording_not_found") {
-    code = "agent_session_not_found";
-  }
-  if (
-    cause.code === "teaching_recording_conflict" ||
-    cause.code === "teaching_recording_unclaimed"
-  ) {
-    code = "agent_session_conflict";
-  }
-  return makeBrowserRpcError(code, cause.message);
-};
+): BrowserRpcErrorType =>
+  makeBrowserRpcError(teachingRecordingErrorCodes[cause.code], cause.message);
 
 /**
  * Persisted Run evidence, read by the Workspace in summary mode and by the
@@ -113,7 +113,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               )
             : Effect.fail(
                 makeBrowserRpcError(
-                  "agent_session_unavailable",
+                  "agent_teaching_unavailable",
                   "Teaching Recording storage is unavailable in this server process."
                 )
               )
@@ -136,63 +136,32 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "agent.sessions.get": () =>
         agentUnavailable((service) =>
           service.list().pipe(Effect.map((sessions) => ({ sessions })))
-        ).pipe(
-          Effect.map((data) => ({
-            data,
-            type: "agent.sessions.result" as const,
-          }))
         ),
-      "agent.session.start": ({ data }) =>
+      "agent.session.start": (data) =>
         agentUnavailable((service) => service.start(data)).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.started" as const,
-          }))
+          Effect.map((session) => ({ session }))
         ),
-      "agent.session.get": ({ data }) =>
+      "agent.session.get": (data) =>
         agentUnavailable((service) => service.get(data.sessionId)).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.result" as const,
-          }))
+          Effect.map((session) => ({ session }))
         ),
-      "agent.session.close": ({ data }) =>
+      "agent.session.close": (data) =>
         agentUnavailable((service) =>
           service.close(data.sessionId, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.closed" as const,
-          }))
-        ),
-      "agent.teaching.recording.start": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.teaching.recording.start": (data) =>
         agentUnavailable((service) =>
           service.startTeachingRecording(data.sessionId, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.teaching.recording.started" as const,
-          }))
-        ),
-      "agent.teaching.recording.stop": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.teaching.recording.stop": (data) =>
         agentUnavailable((service) =>
           service.stopTeachingRecording(data.sessionId, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.teaching.recording.stopped" as const,
-          }))
-        ),
-      "agent.teaching.recording.discard": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.teaching.recording.discard": (data) =>
         agentUnavailable((service) =>
           service.discardTeachingRecording(data.sessionId, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.teaching.recording.discarded" as const,
-          }))
-        ),
-      "agent.teaching.dry-run.stop": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.teaching.dry-run.stop": (data) =>
         teachingRecordingUnavailable((store) =>
           Effect.gen(function* stopDryRun() {
             // Persist the stop before touching the browser. The store mutation
@@ -214,45 +183,33 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               ).pipe(Effect.ignore);
             }
             return {
-              data: {
-                captureState: manifest.lifecycle,
-                cleanup: manifest.cleanup,
-              },
-              type: "agent.teaching.dry-run.stopped" as const,
+              captureState: manifest.lifecycle,
+              cleanup: manifest.cleanup,
             };
           })
         ),
-      "agent.teaching.flow.reject": ({ data }) =>
+      "agent.teaching.flow.reject": (data) =>
         teachingRecordingUnavailable((store) => store.reject(data)).pipe(
           Effect.map((manifest) => ({
-            data: {
-              captureState: manifest.lifecycle,
-              cleanup: manifest.cleanup,
-            },
-            type: "agent.teaching.flow.rejected" as const,
+            captureState: manifest.lifecycle,
+            cleanup: manifest.cleanup,
           }))
         ),
-      "agent.teaching.flow.verify": ({ data }) =>
+      "agent.teaching.flow.verify": (data) =>
         teachingRecordingUnavailable((store) =>
           store.verify(data).pipe(
             Effect.andThen(store.cleanup(data)),
             Effect.map((manifest) => ({
-              data: {
-                captureState: manifest.lifecycle,
-                cleanup: manifest.cleanup,
-              },
-              type: "agent.teaching.flow.verified" as const,
+              captureState: manifest.lifecycle,
+              cleanup: manifest.cleanup,
             }))
           )
         ),
-      "agent.teaching.cleanup.retry": ({ data }) =>
+      "agent.teaching.cleanup.retry": (data) =>
         teachingRecordingUnavailable((store) => store.cleanup(data)).pipe(
           Effect.map((manifest) => ({
-            data: {
-              captureState: manifest.lifecycle,
-              cleanup: manifest.cleanup,
-            },
-            type: "agent.teaching.cleanup.retried" as const,
+            captureState: manifest.lifecycle,
+            cleanup: manifest.cleanup,
           }))
         ),
       /*
@@ -260,7 +217,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         instruction the agent relays over MCP, so an inspect comment joins the
         one Demonstration rather than opening a second instruction surface.
       */
-      "agent.teaching.instruction.record": ({ data }) =>
+      "agent.teaching.instruction.record": (data) =>
         agentUnavailable((service) =>
           service.recordInstruction(
             data.sessionId,
@@ -268,41 +225,24 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             data.operationId,
             data.target
           )
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.teaching.instruction.recorded" as const,
-          }))
-        ),
-      "agent.teaching.flow.rename": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.teaching.flow.rename": (data) =>
         agentUnavailable((service) =>
           service.renameFlowSkill(data.sessionId, data.name, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.teaching.flow.renamed" as const,
-          }))
-        ),
-      "agent.browser.element.inspect": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.browser.element.inspect": (data) =>
         agentUnavailable((service) =>
           service.inspectPoint(data.sessionId, data.x, data.y)
-        ).pipe(
-          Effect.map((element) => ({
-            data: { element },
-            type: "agent.browser.element.inspected" as const,
-          }))
-        ),
-      "agent.session.stream.subscribe": ({ data }) =>
+        ).pipe(Effect.map((element) => ({ element }))),
+      "agent.session.stream.subscribe": (data) =>
         agentStream((service) => service.changes(data.sessionId)),
-      "agent.browser.frame.ack": ({ data }) =>
+      "agent.browser.frame.ack": (data) =>
         agentUnavailable((service) =>
           service.acknowledgeFrame(data.sessionId, data.frameId, data.streamId)
-        ).pipe(
-          Effect.as({ data: {}, type: "agent.browser.frame.acked" as const })
-        ),
-      "agent.browser.stream.subscribe": ({ data }) =>
+        ).pipe(Effect.as({})),
+      "agent.browser.stream.subscribe": (data) =>
         agentStream((service) => service.browserStream(data.sessionId)),
-      "agent.browser.input.send": ({ data }) =>
+      "agent.browser.input.send": (data) =>
         // One at a time, in the order the user made them: the first input
         // the browser refuses ends the batch.
         agentUnavailable((service) =>
@@ -311,20 +251,10 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             (input) => service.sendInput(data.sessionId, input),
             { discard: true }
           )
-        ).pipe(
-          Effect.as({
-            data: {},
-            type: "agent.browser.input.sent" as const,
-          })
-        ),
-      "agent.browser.emulation.get": ({ data }) =>
-        agentUnavailable((service) => service.emulation(data.sessionId)).pipe(
-          Effect.map((applied) => ({
-            data: applied,
-            type: "agent.browser.emulation.updated" as const,
-          }))
-        ),
-      "agent.browser.emulation.set": ({ data }) =>
+        ).pipe(Effect.as({})),
+      "agent.browser.emulation.get": (data) =>
+        agentUnavailable((service) => service.emulation(data.sessionId)),
+      "agent.browser.emulation.set": (data) =>
         agentUnavailable((service) =>
           service.setEmulation(data.sessionId, {
             colorScheme: data.colorScheme,
@@ -335,74 +265,36 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             userAgentProfile: data.userAgentProfile,
             viewport: data.viewport,
           })
-        ).pipe(
-          Effect.map((applied) => ({
-            data: applied,
-            type: "agent.browser.emulation.updated" as const,
-          }))
         ),
-      "agent.browser.tabs.get": ({ data }) =>
+      "agent.browser.tabs.get": (data) =>
         agentUnavailable((service) => service.tabs(data.sessionId)).pipe(
-          Effect.map((tabs) => ({
-            data: { tabs },
-            type: "agent.browser.tabs.result" as const,
-          }))
+          Effect.map((tabs) => ({ tabs }))
         ),
-      "agent.browser.network.requests.get": ({ data }) =>
+      "agent.browser.network.requests.get": (data) =>
         agentUnavailable((service) =>
           service.networkRequests(data.sessionId, data.tabId)
-        ).pipe(
-          Effect.map((requests) => ({
-            data: { requests },
-            type: "agent.browser.network.requests.result" as const,
-          }))
-        ),
-      "agent.browser.network.request.get": ({ data }) =>
+        ).pipe(Effect.map((requests) => ({ requests }))),
+      "agent.browser.network.request.get": (data) =>
         agentUnavailable((service) =>
           service.networkRequest(data.sessionId, data.tabId, data.requestId)
-        ).pipe(
-          Effect.map((request) => ({
-            data: { request },
-            type: "agent.browser.network.request.result" as const,
-          }))
-        ),
-      "agent.browser.storage.get": ({ data }) =>
+        ).pipe(Effect.map((request) => ({ request }))),
+      "agent.browser.storage.get": (data) =>
         agentUnavailable((service) =>
           service.storage(data.sessionId, data.tabId, data.kind)
-        ).pipe(
-          Effect.map((snapshot) => ({
-            data: { snapshot },
-            type: "agent.browser.storage.result" as const,
-          }))
-        ),
-      "agent.browser.storage.set": ({ data }) =>
+        ).pipe(Effect.map((snapshot) => ({ snapshot }))),
+      "agent.browser.storage.set": (data) =>
         agentUnavailable((service) =>
           service.setStorage(data.sessionId, data.tabId, data)
-        ).pipe(
-          Effect.as({
-            data: {},
-            type: "agent.browser.storage.updated" as const,
-          })
-        ),
-      "agent.browser.storage.delete": ({ data }) =>
+        ).pipe(Effect.as({})),
+      "agent.browser.storage.delete": (data) =>
         agentUnavailable((service) =>
           service.deleteStorage(data.sessionId, data.tabId, data)
-        ).pipe(
-          Effect.as({
-            data: {},
-            type: "agent.browser.storage.updated" as const,
-          })
-        ),
-      "agent.browser.storage.clear": ({ data }) =>
+        ).pipe(Effect.as({})),
+      "agent.browser.storage.clear": (data) =>
         agentUnavailable((service) =>
           service.clearStorage(data.sessionId, data.tabId, data.kind)
-        ).pipe(
-          Effect.as({
-            data: {},
-            type: "agent.browser.storage.updated" as const,
-          })
-        ),
-      "agent.teaching.variable.input": ({ data }) =>
+        ).pipe(Effect.as({})),
+      "agent.teaching.variable.input": (data) =>
         agentUnavailable((service) =>
           service.enterUserVariable(
             data.sessionId,
@@ -415,65 +307,32 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                 },
             data.operationId
           )
-        ).pipe(
-          Effect.map((action) => ({
-            data: { action },
-            type: "agent.teaching.variable.input.result" as const,
-          }))
-        ),
-      "agent.dry-run.variable.supply": ({ data }) =>
+        ).pipe(Effect.map((action) => ({ action }))),
+      "agent.dry-run.variable.supply": (data) =>
         agentUnavailable((service) =>
           service.supplyDryRunVariable(data.sessionId, data.name, data.value)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.dry-run.variable.supplied" as const,
-          }))
-        ),
-      "agent.setup.variable.answer": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.setup.variable.answer": (data) =>
         agentUnavailable((service) => service.answerSetupVariable(data)).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.setup.variable.answered" as const,
-          }))
+          Effect.map((session) => ({ session }))
         ),
-      "agent.dry-run.variable.answer": ({ data: { sessionId, ...input } }) =>
+      "agent.dry-run.variable.answer": ({ sessionId, ...input }) =>
         agentUnavailable((service) =>
           service.answerDryRunVariable(sessionId, input)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.dry-run.variable.answered" as const,
-          }))
-        ),
-      "agent.browser.navigate": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.browser.navigate": (data) =>
         agentUnavailable((service) =>
           service.userNavigate(data.sessionId, data.action)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.browser.navigated" as const,
-          }))
-        ),
-      "agent.session.takeover": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.session.takeover": (data) =>
         agentUnavailable((service) =>
           service.takeover(data.sessionId, data.reason, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.takeover.started" as const,
-          }))
-        ),
-      "agent.session.control.return": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.session.control.return": (data) =>
         agentUnavailable((service) =>
           service.returnControl(data.sessionId, data.operationId)
-        ).pipe(
-          Effect.map((session) => ({
-            data: { session },
-            type: "agent.session.control.returned" as const,
-          }))
-        ),
-      "agent.run.summary.get": ({ data }) =>
+        ).pipe(Effect.map((session) => ({ session }))),
+      "agent.run.summary.get": (data) =>
         Effect.gen(function* readRunSummary() {
           const summary = yield* runStoreUnavailable((store) =>
             store.read(data.runId)
@@ -481,10 +340,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           const viewUrl = yield* agentUnavailable((service) =>
             service.runViewUrl(data.runId)
           );
-          return {
-            data: { summary, viewUrl },
-            type: "agent.run.summary.result" as const,
-          };
+          return { summary, viewUrl };
         }),
     };
   })

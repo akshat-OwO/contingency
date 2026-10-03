@@ -49,17 +49,14 @@ const callTool = makeCall(AgentSessionTools);
 
 const startSession = (agent: AgentClient, url: string, operationId: string) =>
   agent("agent.session.start", {
-    data: {
-      activity: "run",
-      clientName: "integration-agent",
-      clientVersion: "1.0.0",
-      name: "snapshot-format",
-      operationId: OperationId.make(operationId),
-      url,
-      viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
-    },
-    type: "agent.session.start",
-  }).pipe(Effect.map(({ data }) => data.session));
+    activity: "run",
+    clientName: "integration-agent",
+    clientVersion: "1.0.0",
+    name: "snapshot-format",
+    operationId: OperationId.make(operationId),
+    url,
+    viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
+  }).pipe(Effect.map(({ session }) => session));
 
 /** The reference a text Snapshot gives the control on a line, or a failure. */
 const refOn = (text: string, line: RegExp): AgentElementRef => {

@@ -79,10 +79,7 @@ const sessionAt = <Overrides extends object>(
 const renderWorkspace = () => {
   rpc.sessionsResult = {
     _tag: "Success",
-    value: {
-      data: { sessions: [sessionAt(at)] },
-      type: "agent.sessions.result",
-    },
+    value: { sessions: [sessionAt(at)] },
     waiting: false,
   };
   return render(

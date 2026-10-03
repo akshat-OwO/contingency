@@ -37,10 +37,7 @@ const SecretVariable = ({
         setSupplyError(null);
         try {
           await supply({
-            payload: {
-              data: { name: variable.name, sessionId, value },
-              type: "agent.dry-run.variable.supply",
-            },
+            payload: { name: variable.name, sessionId, value },
           });
           setValue("");
         } catch (error) {

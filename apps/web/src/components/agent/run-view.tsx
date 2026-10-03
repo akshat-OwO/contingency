@@ -242,7 +242,7 @@ export const RunViewer = ({ runId }: { readonly runId: AgentRunId }) => {
       <p className="text-muted-foreground mb-5 text-xs">
         A read-only view of persisted evidence. No browser was reopened.
       </p>
-      <RunSummaryView summary={result.value.data.summary} />
+      <RunSummaryView summary={result.value.summary} />
     </main>
   );
 };

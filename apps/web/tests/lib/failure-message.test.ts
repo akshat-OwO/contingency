@@ -49,3 +49,23 @@ test("tells a lifecycle refusal apart from a transport failure", () => {
   ).toBe(false);
   expect(isLifecycleRefusal(new Error("offline"))).toBe(false);
 });
+
+test("keeps Teaching lifecycle refusals and their messages distinct from storage failures", () => {
+  const message = "Teaching Recording r-1 cannot be verified from verified.";
+  for (const code of [
+    "agent_teaching_conflict",
+    "agent_teaching_not_found",
+  ] as const) {
+    const failure = makeBrowserRpcError(code, message);
+    expect(isLifecycleRefusal(failure)).toBe(true);
+    expect(failureMessage(failure, FALLBACK)).toBe(message);
+  }
+  for (const code of [
+    "agent_teaching_invalid",
+    "agent_teaching_unavailable",
+  ] as const) {
+    expect(isLifecycleRefusal(makeBrowserRpcError(code, "failure"))).toBe(
+      false
+    );
+  }
+});

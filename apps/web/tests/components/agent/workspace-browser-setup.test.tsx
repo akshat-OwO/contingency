@@ -12,18 +12,15 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 /** What the Workspace sent, as the loopback RPC boundary received it. */
 interface RecordedCall {
   readonly payload: {
-    readonly data: {
-      readonly kind?: string;
-      readonly sessionId?: string;
-      readonly tabId?: string;
-      readonly userAgentProfile?: string;
-      readonly viewport?: {
-        readonly deviceScaleFactor: number;
-        readonly height: number;
-        readonly width: number;
-      };
+    readonly kind?: string;
+    readonly sessionId?: string;
+    readonly tabId?: string;
+    readonly userAgentProfile?: string;
+    readonly viewport?: {
+      readonly deviceScaleFactor: number;
+      readonly height: number;
+      readonly width: number;
     };
-    readonly type: string;
   };
 }
 
@@ -41,56 +38,46 @@ const sessionId = "agent-one";
 const tabId = "tab-1";
 
 const emulationResult = {
-  data: {
-    emulation: {
-      permissions: [],
-      viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
-    },
-    userAgentProfile: "default",
+  emulation: {
+    permissions: [],
+    viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
   },
-  type: "agent.browser.emulation.updated" as const,
+  userAgentProfile: "default",
 };
 
 const rpcOverrides = {
-  agentBrowserEmulationMutation: Atom.fn((payload: RecordedCall) =>
+  agentBrowserEmulationGetMutation: Atom.fn(() =>
+    Effect.succeed(emulationResult)
+  ),
+  agentBrowserEmulationSetMutation: Atom.fn((payload: RecordedCall) =>
     Effect.sync(() => {
       rpc.emulationPatches.push(payload);
       return emulationResult;
     })
   ),
-  agentBrowserEmulationQuery: Atom.fn(() => Effect.succeed(emulationResult)),
-  agentBrowserNetworkRequestMutation: Atom.fn(() => Effect.never),
-  agentBrowserNetworkRequestsMutation: Atom.fn(() =>
-    Effect.succeed({
-      data: { requests: [] },
-      type: "agent.browser.network.requests.result" as const,
-    })
+  agentBrowserNetworkRequestGetMutation: Atom.fn(() => Effect.never),
+  agentBrowserNetworkRequestsGetMutation: Atom.fn(() =>
+    Effect.succeed({ requests: [] })
   ),
   agentBrowserStorageClearMutation: Atom.fn(() => Effect.never),
   agentBrowserStorageDeleteMutation: Atom.fn(() => Effect.never),
   agentBrowserStorageGetMutation: Atom.fn((payload: RecordedCall) =>
     Effect.sync(() => {
       rpc.storageReads.push(payload);
-      return {
-        data: { snapshot: { cookies: [], kind: "cookies" as const, tabId } },
-        type: "agent.browser.storage.result" as const,
-      };
+      return { snapshot: { cookies: [], kind: "cookies" as const, tabId } };
     })
   ),
   agentBrowserStorageSetMutation: Atom.fn(() => Effect.never),
-  agentBrowserTabsMutation: Atom.fn(() =>
+  agentBrowserTabsGetMutation: Atom.fn(() =>
     Effect.succeed({
-      data: {
-        tabs: [
-          {
-            active: true,
-            tabId,
-            title: "Shop",
-            url: "https://shop.example.com/cart",
-          },
-        ],
-      },
-      type: "agent.browser.tabs.result" as const,
+      tabs: [
+        {
+          active: true,
+          tabId,
+          title: "Shop",
+          url: "https://shop.example.com/cart",
+        },
+      ],
     })
   ),
 };
@@ -138,11 +125,8 @@ test("applies a device preset to the browser the Agent Session owns", async () =
   });
   expect(rpc.emulationPatches.at(0)).toMatchObject({
     payload: {
-      data: {
-        sessionId,
-        viewport: { deviceScaleFactor: 1, height: 667, width: 375 },
-      },
-      type: "agent.browser.emulation.set",
+      sessionId,
+      viewport: { deviceScaleFactor: 1, height: 667, width: 375 },
     },
   });
 });
@@ -161,11 +145,11 @@ test("sends an identity alone so the session applies its own device metrics", as
   });
   const [patch] = rpc.emulationPatches;
   expect(patch?.payload).toEqual({
-    data: { sessionId, userAgentProfile: "chrome-android-mobile" },
-    type: "agent.browser.emulation.set",
+    sessionId,
+    userAgentProfile: "chrome-android-mobile",
   });
   // A viewport here would overwrite the metrics the identity brings with it.
-  expect(patch?.payload.data.viewport).toBeUndefined();
+  expect(patch?.payload.viewport).toBeUndefined();
 });
 
 test("refuses browser setup while the agent holds the browser", async () => {
@@ -186,9 +170,6 @@ test("inspects the storage of the tab the Agent Session is showing", async () =>
     expect(rpc.storageReads.length).toBeGreaterThan(0);
   });
   expect(rpc.storageReads.at(0)).toMatchObject({
-    payload: {
-      data: { kind: "cookies", sessionId, tabId },
-      type: "agent.browser.storage.get",
-    },
+    payload: { kind: "cookies", sessionId, tabId },
   });
 });

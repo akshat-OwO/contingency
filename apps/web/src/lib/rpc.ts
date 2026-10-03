@@ -57,7 +57,7 @@ export class ContingencyRpcClient extends AtomRpc.Service<ContingencyRpcClient>(
 /** The Workspace only sees the sessions owned by the current MCP process. */
 export const agentSessionsAtom = ContingencyRpcClient.query(
   "agent.sessions.get",
-  { data: {}, type: "agent.sessions.get" }
+  {}
 );
 export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
   "agent.browser.frame.ack"
@@ -84,20 +84,19 @@ export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
  * Session id: the Agent Session owns the browser, and its lower-level session
  * id never leaves the server process (ADR 0038).
  */
-export const agentBrowserEmulationQuery = ContingencyRpcClient.mutation(
+export const agentBrowserEmulationGetMutation = ContingencyRpcClient.mutation(
   "agent.browser.emulation.get"
 );
-export const agentBrowserEmulationMutation = ContingencyRpcClient.mutation(
+export const agentBrowserEmulationSetMutation = ContingencyRpcClient.mutation(
   "agent.browser.emulation.set"
 );
-export const agentBrowserTabsMutation = ContingencyRpcClient.mutation(
+export const agentBrowserTabsGetMutation = ContingencyRpcClient.mutation(
   "agent.browser.tabs.get"
 );
-export const agentBrowserNetworkRequestsMutation =
+export const agentBrowserNetworkRequestsGetMutation =
   ContingencyRpcClient.mutation("agent.browser.network.requests.get");
-export const agentBrowserNetworkRequestMutation = ContingencyRpcClient.mutation(
-  "agent.browser.network.request.get"
-);
+export const agentBrowserNetworkRequestGetMutation =
+  ContingencyRpcClient.mutation("agent.browser.network.request.get");
 export const agentBrowserStorageGetMutation = ContingencyRpcClient.mutation(
   "agent.browser.storage.get"
 );
@@ -164,10 +163,7 @@ export const agentBrowserElementInspectMutation = ContingencyRpcClient.mutation(
  * read-only viewer. One atom per Run, so a viewer reads its own Run.
  */
 export const agentRunSummaryAtom = Atom.family((runId: AgentRunId) =>
-  ContingencyRpcClient.query("agent.run.summary.get", {
-    data: { runId },
-    type: "agent.run.summary.get",
-  })
+  ContingencyRpcClient.query("agent.run.summary.get", { runId })
 );
 
 const decodeRunVideoStatus = Schema.decodeUnknownEffect(RunVideoStatus);
@@ -228,10 +224,7 @@ export const runAgentSessionStream = (
   Effect.scoped(
     Effect.gen(function* streamAgentSession() {
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
-      const events = client("agent.session.stream.subscribe", {
-        data: { sessionId },
-        type: "agent.session.stream.subscribe",
-      });
+      const events = client("agent.session.stream.subscribe", { sessionId });
 
       yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
     })
@@ -251,10 +244,7 @@ export const runAgentBrowserStream = (
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
       const events = client(
         "agent.browser.stream.subscribe",
-        {
-          data: { sessionId },
-          type: "agent.browser.stream.subscribe",
-        },
+        { sessionId },
         { streamBufferSize: 1 }
       );
 

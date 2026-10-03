@@ -38,22 +38,19 @@ const cookies = [
 ];
 
 const rpcOverrides = (() => {
-  const updated = { data: {}, type: "agent.browser.storage.updated" as const };
+  const updated = {};
   return {
-    agentBrowserNetworkRequestMutation: Atom.fn(() =>
+    agentBrowserNetworkRequestGetMutation: Atom.fn(() =>
       Effect.succeed({
-        data: {
-          request: {
-            headers: {},
-            method: "GET",
-            requestId: "r1",
-            resourceType: "Document",
-            tabId,
-            timestamp: 1,
-            url: "https://app.example.com",
-          },
+        request: {
+          headers: {},
+          method: "GET",
+          requestId: "r1",
+          resourceType: "Document",
+          tabId,
+          timestamp: 1,
+          url: "https://app.example.com",
         },
-        type: "agent.browser.network.request.result" as const,
       })
     ),
     agentBrowserStorageClearMutation: Atom.fn((request) => {
@@ -65,29 +62,23 @@ const rpcOverrides = (() => {
       return Effect.succeed(updated);
     }),
     agentBrowserStorageGetMutation: Atom.fn(
-      (request: {
-        readonly payload: { readonly data: { readonly kind: string } };
-      }) => {
+      (request: { readonly payload: { readonly kind: string } }) => {
         rpc.get(request);
-        const { kind } = request.payload.data;
+        const { kind } = request.payload;
         if (kind === "cookies") {
           return Effect.succeed({
-            data: { snapshot: { cookies, kind: "cookies" as const, tabId } },
-            type: "agent.browser.storage.result" as const,
+            snapshot: { cookies, kind: "cookies" as const, tabId },
           });
         }
         return Effect.succeed({
-          data: {
-            snapshot: {
-              entries:
-                kind === "local"
-                  ? { featureFlag: '{"on":true}' }
-                  : { nonce: "1" },
-              kind,
-              tabId,
-            },
+          snapshot: {
+            entries:
+              kind === "local"
+                ? { featureFlag: '{"on":true}' }
+                : { nonce: "1" },
+            kind,
+            tabId,
           },
-          type: "agent.browser.storage.result" as const,
         });
       }
     ),

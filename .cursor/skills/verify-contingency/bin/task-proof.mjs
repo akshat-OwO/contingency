@@ -221,7 +221,7 @@ const rpc = (url, tag, data) =>
     );
     socket.addEventListener("open", () =>
       socket.send(
-        `${JSON.stringify({ _tag: "Request", headers: [], id: "1", payload: { data, type: tag }, tag })}\n`
+        `${JSON.stringify({ _tag: "Request", headers: [], id: "1", payload: data, tag })}\n`
       )
     );
     socket.addEventListener("message", (event) => {
@@ -257,7 +257,7 @@ const browserState = (session) =>
         yield* rpc(session.viewUrl, "agent.browser.storage.get", {
           kind,
           sessionId: session.id,
-          tabId: tabs.data.tabs[0].tabId,
+          tabId: tabs.tabs[0].tabId,
         })
       );
     }
@@ -784,7 +784,7 @@ const main = Effect.gen(function* main() {
   );
   const after = yield* browserState(session);
   assert.deepEqual(after, before);
-  assert.equal(before.tabs.data.tabs.length, 2);
+  assert.equal(before.tabs.tabs.length, 2);
   yield* record("continuity-after.json", after);
   yield* capture("composed", session.viewUrl);
   yield* click("Task details");

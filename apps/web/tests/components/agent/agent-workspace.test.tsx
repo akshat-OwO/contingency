@@ -65,7 +65,7 @@ const rpc = vi.hoisted(() => ({
 
 const rpcOverrides = {
   agentBrowserElementInspectMutation: Atom.fn(() =>
-    Effect.sync(() => ({ data: { element: rpc.inspectedElement } }))
+    Effect.sync(() => ({ element: rpc.inspectedElement }))
   ),
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn(<Payload,>(payload: Payload) =>
@@ -89,7 +89,7 @@ const rpcOverrides = {
   agentSessionStartMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.startSessionCalls.push(payload);
-      return { data: { session: rpc.startedSession } };
+      return { session: rpc.startedSession };
     })
   ),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
@@ -134,11 +134,9 @@ const rpcOverrides = {
         ? Effect.sync(() => {
             rpc.instructionCalls.push(payload);
             return {
-              data: {
-                session: {
-                  activity: "teaching",
-                  teaching: { instructionCount: rpc.instructionCalls.length },
-                },
+              session: {
+                activity: "teaching",
+                teaching: { instructionCount: rpc.instructionCalls.length },
               },
             };
           })
@@ -290,10 +288,7 @@ rpc.startedSession = { ...session, id: "agent-started" };
 
 const resultFor = (sessions: readonly Session[]) => ({
   _tag: "Success",
-  value: {
-    data: { sessions },
-    type: "agent.sessions.result",
-  },
+  value: { sessions },
   waiting: false,
 });
 
@@ -361,10 +356,7 @@ test("invites the user to open a session from the empty canvas", async () => {
     expect(rpc.startSessionCalls).toHaveLength(1);
   });
   expect(rpc.startSessionCalls[0]).toMatchObject({
-    payload: {
-      data: { activity: "teaching" },
-      type: "agent.session.start",
-    },
+    payload: { activity: "teaching" },
   });
 });
 
@@ -750,10 +742,7 @@ test("starts and stops Teaching recording from the privacy dock", async () => {
     expect(rpc.startRecordingCalls).toHaveLength(1);
   });
   expect(rpc.startRecordingCalls[0]).toMatchObject({
-    payload: {
-      data: { sessionId: session.id },
-      type: "agent.teaching.recording.start",
-    },
+    payload: { sessionId: session.id },
   });
 
   cleanup();
@@ -776,10 +765,7 @@ test("starts and stops Teaching recording from the privacy dock", async () => {
     expect(rpc.stopRecordingCalls).toHaveLength(1);
   });
   expect(rpc.stopRecordingCalls[0]).toMatchObject({
-    payload: {
-      data: { sessionId: session.id },
-      type: "agent.teaching.recording.stop",
-    },
+    payload: { sessionId: session.id },
   });
 });
 
@@ -870,11 +856,8 @@ test("offers browser navigation only while the user holds the browser", async ()
   });
   expect(rpc.navigateCalls.at(0)).toMatchObject({
     payload: {
-      data: {
-        action: { action: "back", type: "history" },
-        sessionId: session.id,
-      },
-      type: "agent.browser.navigate",
+      action: { action: "back", type: "history" },
+      sessionId: session.id,
     },
   });
 });
@@ -892,9 +875,7 @@ test("navigates to a typed address during Takeover", async () => {
   });
   expect(rpc.navigateCalls.at(0)).toMatchObject({
     payload: {
-      data: {
-        action: { type: "navigate", url: "https://example.org/pricing" },
-      },
+      action: { type: "navigate", url: "https://example.org/pricing" },
     },
   });
 });
@@ -919,9 +900,7 @@ test("scrolls the browser with the wheel only during Takeover", async () => {
   });
   expect(rpc.inputCalls.at(0)).toMatchObject({
     payload: {
-      data: {
-        inputs: [{ deltaY: 240, eventType: "mouseWheel", type: "input_mouse" }],
-      },
+      inputs: [{ deltaY: 240, eventType: "mouseWheel", type: "input_mouse" }],
     },
   });
 });
@@ -1013,12 +992,9 @@ test("attaches an inspected element to a comment", async () => {
   });
   expect(rpc.instructionCalls[0]).toMatchObject({
     payload: {
-      data: {
-        sessionId: session.id,
-        target: "button: Place order",
-        text: "Use the express checkout here.",
-      },
-      type: "agent.teaching.instruction.record",
+      sessionId: session.id,
+      target: "button: Place order",
+      text: "Use the express checkout here.",
     },
   });
   await waitFor(() => {
@@ -1039,10 +1015,10 @@ test("adds a page comment without inspecting an element", async () => {
     expect(rpc.instructionCalls).toHaveLength(1);
   });
   expect(rpc.instructionCalls[0]).toMatchObject({
-    payload: { data: { text: "Dismiss the cookie banner if it shows." } },
+    payload: { text: "Dismiss the cookie banner if it shows." },
   });
   expect(rpc.instructionCalls[0]).not.toMatchObject({
-    payload: { data: { target: expect.any(String) } },
+    payload: { target: expect.any(String) },
   });
 });
 
@@ -1181,10 +1157,7 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
     expect(rpc.renameCalls).toHaveLength(1);
   });
   expect(rpc.renameCalls[0]).toMatchObject({
-    payload: {
-      data: { name: "place-order", sessionId: session.id },
-      type: "agent.teaching.flow.rename",
-    },
+    payload: { name: "place-order", sessionId: session.id },
   });
 
   cleanup();
@@ -1211,10 +1184,7 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
     expect(rpc.discardCalls).toHaveLength(1);
   });
   expect(rpc.discardCalls[0]).toMatchObject({
-    payload: {
-      data: { sessionId: session.id },
-      type: "agent.teaching.recording.discard",
-    },
+    payload: { sessionId: session.id },
   });
 });
 
@@ -1570,15 +1540,12 @@ test("applies a verification only to the Teaching session it was asked for", asy
   const gate = Promise.withResolvers<boolean>();
   rpc.verifyGate = gate.promise;
   rpc.verifyResponse = {
-    data: {
-      captureState: {
-        ...dryRunFailedSession.captureState,
-        _tag: "verified",
-        verifiedAt: "2026-08-31T00:00:09.000Z",
-      },
-      cleanup: null,
+    captureState: {
+      ...dryRunFailedSession.captureState,
+      _tag: "verified",
+      verifiedAt: "2026-08-31T00:00:09.000Z",
     },
-    type: "agent.teaching.flow.verified",
+    cleanup: null,
   };
   renderWorkspace(
     resultFor([dryRunPassedSession, otherDryRunPassed]),
