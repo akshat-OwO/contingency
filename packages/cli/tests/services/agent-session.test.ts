@@ -27,6 +27,7 @@ import {
   Schema,
   Stream,
 } from "effect";
+import { vi } from "vitest";
 
 import {
   AgentSession,
@@ -37,6 +38,7 @@ import {
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
+import * as RunScans from "../../src/services/run-scans.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 import {
   makeTeachingRecordingStoreLayer,
@@ -209,6 +211,49 @@ const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
     baseUrl,
     processId: "test-owner",
   });
+
+it.effect("guards new takeovers and skips scan interruption on replay", () =>
+  Effect.gen(function* guardTakeoverWiring() {
+    const makeScans = RunScans.makeRunScans;
+    let guarded = 0;
+    const factory = vi
+      .spyOn(RunScans, "makeRunScans")
+      .mockImplementation((...args) => {
+        const scans = makeScans(...args);
+        const { withInterruption } = scans;
+        scans.withInterruption = (...input) => {
+          guarded += 1;
+          return withInterruption(...input);
+        };
+        return scans;
+      });
+    yield* Effect.addFinalizer(() => Effect.sync(() => factory.mockRestore()));
+    const service = yield* serviceFor(makeFakeBrowser());
+    const teaching = yield* service.start({
+      ...startInput("guard-teaching"),
+      activity: "teaching",
+      name: "guard-teaching",
+    });
+    const failure = yield* Effect.flip(
+      service.takeover(
+        teaching.id,
+        "Unavailable",
+        OperationId.make("guard-failed")
+      )
+    );
+    expect(failure.code).toBe("agent_control_unavailable");
+    expect(guarded).toBe(1);
+
+    const run = yield* service.start(startInput("guard-run"));
+    const operationId = OperationId.make("guard-takeover");
+    yield* service.takeover(run.id, "Check the page", operationId);
+    expect(guarded).toBe(2);
+    yield* service.returnControl(run.id, OperationId.make("guard-return"));
+    yield* service.takeover(run.id, "Check the page", operationId);
+    expect(guarded).toBe(2);
+    expect((yield* service.get(run.id)).controller).toBe("agent");
+  }).pipe(Effect.scoped)
+);
 
 it("bounds relayed Teaching instructions without retaining the oldest text", () => {
   const capture = makeDemonstrationCapture("about:blank");
