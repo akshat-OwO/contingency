@@ -33,13 +33,10 @@ const SetupVariable = ({
     try {
       await answer({
         payload: {
-          data: {
-            operationId: OperationId.make(crypto.randomUUID()),
-            requestId: variable.requestId,
-            sessionId,
-            value,
-          },
-          type: "agent.setup.variable.answer",
+          operationId: OperationId.make(crypto.randomUUID()),
+          requestId: variable.requestId,
+          sessionId,
+          value,
         },
       });
       setState({ error: "", pending: false, value: "" });

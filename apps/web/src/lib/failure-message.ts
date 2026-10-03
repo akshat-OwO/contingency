@@ -49,6 +49,8 @@ const LIFECYCLE_REFUSALS: ReadonlySet<BrowserRpcError["code"]> = new Set([
   "agent_flow_not_found",
   "agent_session_conflict",
   "agent_session_not_found",
+  "agent_teaching_conflict",
+  "agent_teaching_not_found",
   "recording_conflict",
   "recording_unavailable",
 ]);

@@ -34,14 +34,11 @@ const PrerequisiteVariable = ({
     try {
       await answer({
         payload: {
-          data: {
-            decision: value === null ? "refuse" : "supply",
-            operationId: OperationId.make(crypto.randomUUID()),
-            pendingDecisionId: decision.pendingDecisionId,
-            sessionId,
-            value: value ?? undefined,
-          },
-          type: "agent.dry-run.variable.answer",
+          decision: value === null ? "refuse" : "supply",
+          operationId: OperationId.make(crypto.randomUUID()),
+          pendingDecisionId: decision.pendingDecisionId,
+          sessionId,
+          value: value ?? undefined,
         },
       });
       setState({ error: "", pending: false, value: "" });

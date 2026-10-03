@@ -324,55 +324,6 @@ export const BrowserStreamEvent = Schema.Union([
 ]);
 export type BrowserStreamEvent = typeof BrowserStreamEvent.Type;
 
-const request = <const Type extends string, Data extends Schema.Struct.Fields>(
-  type: Type,
-  data: Data
-) => Schema.Struct({ data: Schema.Struct(data), type: Schema.Literal(type) });
-
-const response = <const Type extends string, Data extends Schema.Struct.Fields>(
-  type: Type,
-  data: Data
-) => Schema.Struct({ data: Schema.Struct(data), type: Schema.Literal(type) });
-
-export const BrandId = Schema.Literals([
-  "agent.sessions.get",
-  "agent.session.start",
-  "agent.session.get",
-  "agent.session.close",
-  "agent.session.stream.subscribe",
-  "agent.browser.stream.subscribe",
-  "agent.browser.frame.ack",
-  "agent.session.takeover",
-  "agent.session.takeover.started",
-  "agent.session.control.return",
-  "agent.session.control.returned",
-  "agent.browser.input.send",
-  "agent.browser.input.sent",
-  "agent.teaching.variable.input",
-  "agent.teaching.variable.input.result",
-  "agent.dry-run.variable.supply",
-  "agent.dry-run.variable.supplied",
-  "agent.setup.variable.answer",
-  "agent.setup.variable.answered",
-  "agent.browser.navigate",
-  "agent.browser.navigated",
-  "agent.run.summary.get",
-  "agent.run.summary.result",
-  "agent.teaching.recording.start",
-  "agent.teaching.recording.started",
-  "agent.teaching.recording.stop",
-  "agent.teaching.recording.stopped",
-  "agent.teaching.recording.discard",
-  "agent.teaching.recording.discarded",
-  "agent.teaching.instruction.record",
-  "agent.teaching.instruction.recorded",
-  "agent.teaching.flow.rename",
-  "agent.teaching.flow.renamed",
-  "agent.browser.element.inspect",
-  "agent.browser.element.inspected",
-]);
-export type BrandId = typeof BrandId.Type;
-
 const nonEmptyProtocolString = Schema.String.check(Schema.isMinLength(1));
 
 /**
@@ -396,39 +347,19 @@ export const SessionEmulation = Schema.Struct({
 export type SessionEmulation = typeof SessionEmulation.Type;
 
 /** Agent View's process-owned session boundary. */
-export const AgentSessionsGet = request("agent.sessions.get", {});
-export const AgentSessionsResult = response("agent.sessions.result", {
+export const AgentSessionsGet = Schema.Struct({});
+export const AgentSessionsResult = Schema.Struct({
   sessions: Schema.Array(AgentSessionSnapshot),
 });
 
-export const AgentSessionStartRequest = request("agent.session.start", {
-  activity: AgentSessionStart.fields.activity,
-  clientName: AgentSessionStart.fields.clientName,
-  clientVersion: AgentSessionStart.fields.clientVersion,
-  emulation: AgentSessionStart.fields.emulation,
-  name: AgentSessionStart.fields.name,
-  operationId: AgentSessionStart.fields.operationId,
-  url: AgentSessionStart.fields.url,
-  viewport: AgentSessionStart.fields.viewport,
-});
-export const AgentSessionStarted = response("agent.session.started", {
-  session: AgentSessionStartResult.fields.session,
-});
+export const AgentSessionStartRequest = AgentSessionStart;
+export const AgentSessionStarted = AgentSessionStartResult;
 
-export const AgentSessionGetRequest = request("agent.session.get", {
-  sessionId: AgentSessionGet.fields.sessionId,
-});
-export const AgentSessionResult = response("agent.session.result", {
-  session: AgentSessionGetResult.fields.session,
-});
+export const AgentSessionGetRequest = AgentSessionGet;
+export const AgentSessionResult = AgentSessionGetResult;
 
-export const AgentSessionCloseRequest = request("agent.session.close", {
-  operationId: AgentSessionClose.fields.operationId,
-  sessionId: AgentSessionClose.fields.sessionId,
-});
-export const AgentSessionClosed = response("agent.session.closed", {
-  session: AgentSessionCloseResult.fields.session,
-});
+export const AgentSessionCloseRequest = AgentSessionClose;
+export const AgentSessionClosed = AgentSessionCloseResult;
 
 /**
  * Start and Stop are the Teaching privacy boundary ([ADR
@@ -438,46 +369,34 @@ export const AgentSessionClosed = response("agent.session.closed", {
  * safe to retry: a repeated id returns the same recording rather than opening
  * a second one.
  */
-export const AgentTeachingRecordingStartRequest = request(
-  "agent.teaching.recording.start",
-  {
-    operationId: AgentSessionClose.fields.operationId,
-    sessionId: AgentSessionClose.fields.sessionId,
-  }
-);
-export const AgentTeachingRecordingStarted = response(
-  "agent.teaching.recording.started",
-  { session: AgentSessionSnapshot }
-);
+export const AgentTeachingRecordingStartRequest = Schema.Struct({
+  operationId: AgentSessionClose.fields.operationId,
+  sessionId: AgentSessionClose.fields.sessionId,
+});
+export const AgentTeachingRecordingStarted = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
-export const AgentTeachingRecordingStopRequest = request(
-  "agent.teaching.recording.stop",
-  {
-    operationId: AgentSessionClose.fields.operationId,
-    sessionId: AgentSessionClose.fields.sessionId,
-  }
-);
-export const AgentTeachingRecordingStopped = response(
-  "agent.teaching.recording.stopped",
-  { session: AgentSessionSnapshot }
-);
+export const AgentTeachingRecordingStopRequest = Schema.Struct({
+  operationId: AgentSessionClose.fields.operationId,
+  sessionId: AgentSessionClose.fields.sessionId,
+});
+export const AgentTeachingRecordingStopped = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
 /**
  * Discarding a recording the user does not want to keep. It removes the
  * captured artifacts and returns the session to `setup`, so the next Start
  * records into a clean bundle in the same browser setup.
  */
-export const AgentTeachingRecordingDiscardRequest = request(
-  "agent.teaching.recording.discard",
-  {
-    operationId: AgentSessionClose.fields.operationId,
-    sessionId: AgentSessionClose.fields.sessionId,
-  }
-);
-export const AgentTeachingRecordingDiscarded = response(
-  "agent.teaching.recording.discarded",
-  { session: AgentSessionSnapshot }
-);
+export const AgentTeachingRecordingDiscardRequest = Schema.Struct({
+  operationId: AgentSessionClose.fields.operationId,
+  sessionId: AgentSessionClose.fields.sessionId,
+});
+export const AgentTeachingRecordingDiscarded = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
 const teachingFlowLifecycleRequest = {
   operationId: AgentSessionClose.fields.operationId,
@@ -488,36 +407,28 @@ const teachingFlowLifecycleResponse = {
   cleanup: TeachingRecordingCleanupState,
 };
 
-export const AgentTeachingDryRunStopRequest = request(
-  "agent.teaching.dry-run.stop",
+export const AgentTeachingDryRunStopRequest = Schema.Struct(
   teachingFlowLifecycleRequest
 );
-export const AgentTeachingDryRunStopped = response(
-  "agent.teaching.dry-run.stopped",
+export const AgentTeachingDryRunStopped = Schema.Struct(
   teachingFlowLifecycleResponse
 );
-export const AgentTeachingFlowRejectRequest = request(
-  "agent.teaching.flow.reject",
+export const AgentTeachingFlowRejectRequest = Schema.Struct(
   teachingFlowLifecycleRequest
 );
-export const AgentTeachingFlowRejected = response(
-  "agent.teaching.flow.rejected",
+export const AgentTeachingFlowRejected = Schema.Struct(
   teachingFlowLifecycleResponse
 );
-export const AgentTeachingFlowVerifyRequest = request(
-  "agent.teaching.flow.verify",
+export const AgentTeachingFlowVerifyRequest = Schema.Struct(
   teachingFlowLifecycleRequest
 );
-export const AgentTeachingFlowVerified = response(
-  "agent.teaching.flow.verified",
+export const AgentTeachingFlowVerified = Schema.Struct(
   teachingFlowLifecycleResponse
 );
-export const AgentTeachingCleanupRetryRequest = request(
-  "agent.teaching.cleanup.retry",
+export const AgentTeachingCleanupRetryRequest = Schema.Struct(
   teachingFlowLifecycleRequest
 );
-export const AgentTeachingCleanupRetried = response(
-  "agent.teaching.cleanup.retried",
+export const AgentTeachingCleanupRetried = Schema.Struct(
   teachingFlowLifecycleResponse
 );
 
@@ -526,51 +437,40 @@ export const AgentTeachingCleanupRetried = response(
  * the same Teaching instruction the agent relays over MCP, so an inspect
  * comment and a relayed instruction land in one Demonstration rather than two.
  */
-export const AgentTeachingInstructionRecordRequest = request(
-  "agent.teaching.instruction.record",
-  {
-    operationId: AgentSessionClose.fields.operationId,
-    sessionId: AgentSessionClose.fields.sessionId,
-    /**
-     * The element the comment was attached to, by role and accessible name.
-     * Absent when the instruction names no element, as a relayed one does.
-     */
-    target: optionalNullable(Schema.String.check(Schema.isMinLength(1))),
-    text: Schema.String.check(Schema.isMinLength(1)),
-  }
-);
-export const AgentTeachingInstructionRecorded = response(
-  "agent.teaching.instruction.recorded",
-  { session: AgentSessionSnapshot }
-);
+export const AgentTeachingInstructionRecordRequest = Schema.Struct({
+  operationId: AgentSessionClose.fields.operationId,
+  sessionId: AgentSessionClose.fields.sessionId,
+  /**
+   * The element the comment was attached to, by role and accessible name.
+   * Absent when the instruction names no element, as a relayed one does.
+   */
+  target: optionalNullable(Schema.String.check(Schema.isMinLength(1))),
+  text: Schema.String.check(Schema.isMinLength(1)),
+});
+export const AgentTeachingInstructionRecorded = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
 /** Renaming the Flow Skill a Teaching session is about to demonstrate. */
-export const AgentTeachingFlowRenameRequest = request(
-  "agent.teaching.flow.rename",
-  {
-    name: FlowSkillName,
-    operationId: AgentSessionClose.fields.operationId,
-    sessionId: AgentSessionClose.fields.sessionId,
-  }
-);
-export const AgentTeachingFlowRenamed = response(
-  "agent.teaching.flow.renamed",
-  { session: AgentSessionSnapshot }
-);
+export const AgentTeachingFlowRenameRequest = Schema.Struct({
+  name: FlowSkillName,
+  operationId: AgentSessionClose.fields.operationId,
+  sessionId: AgentSessionClose.fields.sessionId,
+});
+export const AgentTeachingFlowRenamed = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
 /**
  * The element under a point of the live Page, read through the Browser
  * Snapshot rather than the screencast bitmap the Workspace draws. Inspect
  * needs the real element to outline and to name in an instruction.
  */
-export const AgentBrowserElementInspectRequest = request(
-  "agent.browser.element.inspect",
-  {
-    sessionId: AgentSessionClose.fields.sessionId,
-    x: Schema.Finite,
-    y: Schema.Finite,
-  }
-);
+export const AgentBrowserElementInspectRequest = Schema.Struct({
+  sessionId: AgentSessionClose.fields.sessionId,
+  x: Schema.Finite,
+  y: Schema.Finite,
+});
 export const AgentInspectedElement = Schema.Struct({
   /** The role and accessible name, as the Browser Snapshot read them. */
   description: Schema.String,
@@ -583,31 +483,24 @@ export const AgentInspectedElement = Schema.Struct({
 });
 export type AgentInspectedElement = typeof AgentInspectedElement.Type;
 
-export const AgentBrowserElementInspected = response(
-  "agent.browser.element.inspected",
-  { element: AgentInspectedElement }
-);
+export const AgentBrowserElementInspected = Schema.Struct({
+  element: AgentInspectedElement,
+});
 
-export const AgentSessionStreamSubscribeRequest = request(
-  "agent.session.stream.subscribe",
-  { sessionId: AgentSessionStreamSubscribe.fields.sessionId }
-);
+export const AgentSessionStreamSubscribeRequest = AgentSessionStreamSubscribe;
 
 /**
  * Agent View receives browser events through the Agent Session boundary. The
  * lower-level Create Browser SessionId is intentionally not part of this
  * contract, so an MCP caller can only stream the session it owns.
  */
-export const AgentBrowserStreamSubscribe = request(
-  "agent.browser.stream.subscribe",
-  { sessionId: AgentSessionStreamSubscribe.fields.sessionId }
-);
-export const AgentBrowserFrameAck = request("agent.browser.frame.ack", {
+export const AgentBrowserStreamSubscribe = AgentSessionStreamSubscribe;
+export const AgentBrowserFrameAck = Schema.Struct({
   frameId: FrameSequence,
   sessionId: AgentSessionStreamSubscribe.fields.sessionId,
   streamId: BrowserStreamId,
 });
-export const AgentBrowserFrameAcked = response("agent.browser.frame.acked", {});
+export const AgentBrowserFrameAcked = Schema.Struct({});
 
 /**
  * Takeover is exclusive and the user has priority. Agent View initiates it
@@ -615,27 +508,15 @@ export const AgentBrowserFrameAcked = response("agent.browser.frame.acked", {});
  * the Agent View link immediately rather than holding a call open while the
  * user acts ([ADR 0027](../../../docs/adr/0027-agent-authority-has-a-user-approved-execution-boundary.md)).
  */
-export const AgentSessionTakeoverRequest = request("agent.session.takeover", {
-  operationId: AgentSessionTakeover.fields.operationId,
-  reason: AgentSessionTakeover.fields.reason,
-  sessionId: AgentSessionTakeover.fields.sessionId,
+export const AgentSessionTakeoverRequest = AgentSessionTakeover;
+export const AgentSessionTakeoverStarted = Schema.Struct({
+  session: AgentSessionSnapshot,
 });
-export const AgentSessionTakeoverStarted = response(
-  "agent.session.takeover.started",
-  { session: AgentSessionSnapshot }
-);
 
-export const AgentSessionControlReturnRequest = request(
-  "agent.session.control.return",
-  {
-    operationId: AgentSessionReturnControl.fields.operationId,
-    sessionId: AgentSessionReturnControl.fields.sessionId,
-  }
-);
-export const AgentSessionControlReturned = response(
-  "agent.session.control.returned",
-  { session: AgentSessionSnapshot }
-);
+export const AgentSessionControlReturnRequest = AgentSessionReturnControl;
+export const AgentSessionControlReturned = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
 /**
  * What the user does with the browser during Takeover. It is deliberately not
@@ -646,73 +527,53 @@ export const AgentSessionControlReturned = response(
  * queued while its previous request was in flight as one batch, so a key never
  * waits a round trip behind the key before it (#298).
  */
-export const AgentBrowserInputSend = request("agent.browser.input.send", {
+export const AgentBrowserInputSend = Schema.Struct({
   inputs: Schema.NonEmptyArray(BrowserInput).check(Schema.isMaxLength(256)),
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
-export const AgentBrowserInputSent = response("agent.browser.input.sent", {});
+export const AgentBrowserInputSent = Schema.Struct({});
 
 /** Agent View enters one private Variable into the currently focused field. */
-export const AgentTeachingVariableInput = request(
-  "agent.teaching.variable.input",
-  {
-    operationId: TeachingVariableInput.fields.operationId,
-    ref: TeachingVariableInput.fields.ref,
-    sessionId: TeachingVariableInput.fields.sessionId,
-    value: TeachingVariableInput.fields.value,
-    variable: TeachingVariableInput.fields.variable,
-  }
-);
-export const AgentTeachingVariableInputResult = response(
-  "agent.teaching.variable.input.result",
-  { action: AgentActionResult }
-);
+export const AgentTeachingVariableInput = TeachingVariableInput;
+export const AgentTeachingVariableInputResult = Schema.Struct({
+  action: AgentActionResult,
+});
 
 /** The user supplies a Dry Run secret in the Workspace, never through MCP. */
-export const AgentDryRunVariableSupply = request(
-  "agent.dry-run.variable.supply",
-  {
-    name: Schema.String.check(Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u)),
-    sessionId: AgentBrowserObserve.fields.sessionId,
-    value: Schema.String.check(Schema.isMinLength(1)),
-  }
-);
-export const AgentDryRunVariableSupplied = response(
-  "agent.dry-run.variable.supplied",
-  { session: AgentSessionSnapshot }
-);
+export const AgentDryRunVariableSupply = Schema.Struct({
+  name: Schema.String.check(Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u)),
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  value: Schema.String.check(Schema.isMinLength(1)),
+});
+export const AgentDryRunVariableSupplied = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 /** Workspace answers a scoped prerequisite request without passing private values to MCP. */
-export const AgentDryRunVariableAnswer = request(
-  "agent.dry-run.variable.answer",
-  {
-    sessionId: AgentBrowserObserve.fields.sessionId,
-    ...AgentPendingDecisionResolve.fields,
-  }
-);
-export const AgentDryRunVariableAnswered = response(
-  "agent.dry-run.variable.answered",
-  { session: AgentSessionSnapshot }
-);
+export const AgentDryRunVariableAnswer = Schema.Struct({
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  ...AgentPendingDecisionResolve.fields,
+});
+export const AgentDryRunVariableAnswered = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
-export const AgentSetupVariableAnswerRequest = request(
-  "agent.setup.variable.answer",
+export const AgentSetupVariableAnswerRequest = Schema.Struct(
   AgentSetupVariableAnswer.fields
 );
-export const AgentSetupVariableAnswered = response(
-  "agent.setup.variable.answered",
-  { session: AgentSessionSnapshot }
-);
+export const AgentSetupVariableAnswered = Schema.Struct({
+  session: AgentSessionSnapshot,
+});
 
 /**
  * Address-bar and history navigation while the user holds the browser. It
  * carries the same actions the agent may take, so a Takeover is a real
  * browser, not a viewport: only the actor changes.
  */
-export const AgentBrowserNavigate = request("agent.browser.navigate", {
+export const AgentBrowserNavigate = Schema.Struct({
   action: Schema.Union([AgentNavigateAction, AgentHistoryAction]),
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
-export const AgentBrowserNavigated = response("agent.browser.navigated", {
+export const AgentBrowserNavigated = Schema.Struct({
   session: AgentSessionSnapshot,
 });
 
@@ -722,7 +583,7 @@ export const AgentBrowserNavigated = response("agent.browser.navigated", {
  * addressed by Agent Session id and delegated inside the boundary
  * ([ADR 0038](../../../docs/adr/0038-contingency-is-an-agent-sanity-monitor.md)).
  */
-export const AgentBrowserEmulationGet = request("agent.browser.emulation.get", {
+export const AgentBrowserEmulationGet = Schema.Struct({
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
 /**
@@ -731,7 +592,7 @@ export const AgentBrowserEmulationGet = request("agent.browser.emulation.get", {
  * viewport travel with the same request, so a phone identity is never applied
  * over a desktop viewport.
  */
-export const AgentBrowserEmulationSet = request("agent.browser.emulation.set", {
+export const AgentBrowserEmulationSet = Schema.Struct({
   colorScheme: Schema.optional(
     Schema.NullOr(Schema.Literals(["light", "dark"]))
   ),
@@ -743,56 +604,47 @@ export const AgentBrowserEmulationSet = request("agent.browser.emulation.set", {
   userAgentProfile: Schema.optional(UserAgentProfileId),
   viewport: Schema.optional(Viewport),
 });
-export const AgentBrowserEmulationUpdated = response(
-  "agent.browser.emulation.updated",
-  {
-    emulation: SessionEmulation,
-    /**
-     * The identity the session was asked for. A session reports the concrete
-     * identity it resolved to, so the profile behind it is named separately
-     * rather than guessed back out of a user agent string.
-     */
-    userAgentProfile: UserAgentProfileId,
-  }
-);
+export const AgentBrowserEmulationUpdated = Schema.Struct({
+  emulation: SessionEmulation,
+  /**
+   * The identity the session was asked for. A session reports the concrete
+   * identity it resolved to, so the profile behind it is named separately
+   * rather than guessed back out of a user agent string.
+   */
+  userAgentProfile: UserAgentProfileId,
+});
 
-export const AgentBrowserTabsGet = request("agent.browser.tabs.get", {
+export const AgentBrowserTabsGet = Schema.Struct({
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
-export const AgentBrowserTabsResult = response("agent.browser.tabs.result", {
+export const AgentBrowserTabsResult = Schema.Struct({
   tabs: Schema.Array(BrowserTab),
 });
 
-export const AgentBrowserNetworkRequestsGet = request(
-  "agent.browser.network.requests.get",
-  { sessionId: AgentBrowserObserve.fields.sessionId, tabId: BrowserTabId }
-);
-export const AgentBrowserNetworkRequestsResult = response(
-  "agent.browser.network.requests.result",
-  { requests: Schema.Array(BrowserNetworkRequest) }
-);
-export const AgentBrowserNetworkRequestGet = request(
-  "agent.browser.network.request.get",
-  {
-    requestId: BrowserRequestId,
-    sessionId: AgentBrowserObserve.fields.sessionId,
-    tabId: BrowserTabId,
-  }
-);
-export const AgentBrowserNetworkRequestResult = response(
-  "agent.browser.network.request.result",
-  { request: BrowserNetworkRequestDetail }
-);
+export const AgentBrowserNetworkRequestsGet = Schema.Struct({
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  tabId: BrowserTabId,
+});
+export const AgentBrowserNetworkRequestsResult = Schema.Struct({
+  requests: Schema.Array(BrowserNetworkRequest),
+});
+export const AgentBrowserNetworkRequestGet = Schema.Struct({
+  requestId: BrowserRequestId,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+  tabId: BrowserTabId,
+});
+export const AgentBrowserNetworkRequestResult = Schema.Struct({
+  request: BrowserNetworkRequestDetail,
+});
 
-export const AgentBrowserStorageGet = request("agent.browser.storage.get", {
+export const AgentBrowserStorageGet = Schema.Struct({
   kind: StorageKind,
   sessionId: AgentBrowserObserve.fields.sessionId,
   tabId: BrowserTabId,
 });
-export const AgentBrowserStorageResult = response(
-  "agent.browser.storage.result",
-  { snapshot: BrowserStorageSnapshot }
-);
+export const AgentBrowserStorageResult = Schema.Struct({
+  snapshot: BrowserStorageSnapshot,
+});
 export const AgentBrowserStorageSetPayload = Schema.Union([
   Schema.Struct({
     cookie: BrowserCookieWrite,
@@ -808,10 +660,7 @@ export const AgentBrowserStorageSetPayload = Schema.Union([
     value: Schema.String,
   }),
 ]);
-export const AgentBrowserStorageSet = Schema.Struct({
-  data: AgentBrowserStorageSetPayload,
-  type: Schema.Literal("agent.browser.storage.set"),
-});
+export const AgentBrowserStorageSet = AgentBrowserStorageSetPayload;
 export const AgentBrowserStorageDeletePayload = Schema.Union([
   Schema.Struct({
     domain: nonEmptyProtocolString,
@@ -828,29 +677,23 @@ export const AgentBrowserStorageDeletePayload = Schema.Union([
     tabId: BrowserTabId,
   }),
 ]);
-export const AgentBrowserStorageDelete = Schema.Struct({
-  data: AgentBrowserStorageDeletePayload,
-  type: Schema.Literal("agent.browser.storage.delete"),
-});
-export const AgentBrowserStorageClear = request("agent.browser.storage.clear", {
+export const AgentBrowserStorageDelete = AgentBrowserStorageDeletePayload;
+export const AgentBrowserStorageClear = Schema.Struct({
   kind: StorageKind,
   sessionId: AgentBrowserObserve.fields.sessionId,
   tabId: BrowserTabId,
 });
-export const AgentBrowserStorageUpdated = response(
-  "agent.browser.storage.updated",
-  {}
-);
+export const AgentBrowserStorageUpdated = Schema.Struct({});
 
 /**
  * Reading a persisted Run Summary. Agent View uses it in summary mode, and a
  * read-only viewer opened by `open_run` uses nothing else: no browser state is
  * restored ([ADR 0030](../../../docs/adr/0030-agent-view-is-separate-from-audit-view.md)).
  */
-export const AgentRunSummaryGet = request("agent.run.summary.get", {
+export const AgentRunSummaryGet = Schema.Struct({
   runId: AgentRunOpen.fields.runId,
 });
-export const AgentRunSummaryResult = response("agent.run.summary.result", {
+export const AgentRunSummaryResult = Schema.Struct({
   summary: AgentRunSummary,
   viewUrl: AgentRunViewer.fields.viewUrl,
 });

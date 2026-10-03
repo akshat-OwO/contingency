@@ -124,7 +124,8 @@ const summary = {
 const successfulSummary = {
   _tag: "Success",
   value: {
-    data: { summary, viewUrl: "http://127.0.0.1:7777/?run=agentrun-one" },
+    summary,
+    viewUrl: "http://127.0.0.1:7777/?run=agentrun-one",
   },
   waiting: false,
 };

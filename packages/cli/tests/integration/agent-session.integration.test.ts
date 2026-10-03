@@ -64,48 +64,38 @@ it.live(
         flatten: true,
       });
       const first = yield* client("agent.session.start", {
-        data: {
-          activity: "run",
-          clientName: "integration-agent",
-          clientVersion: "1.0.0",
-          name: "first",
-          operationId: OperationId.make("start-first"),
-          url: "data:text/html,<title>first</title><main>first</main>",
-          viewport,
-        },
-        type: "agent.session.start",
+        activity: "run",
+        clientName: "integration-agent",
+        clientVersion: "1.0.0",
+        name: "first",
+        operationId: OperationId.make("start-first"),
+        url: "data:text/html,<title>first</title><main>first</main>",
+        viewport,
       });
       const second = yield* client("agent.session.start", {
-        data: {
-          activity: "run",
-          clientName: "integration-agent",
-          clientVersion: "1.0.0",
-          name: "second",
-          operationId: OperationId.make("start-second"),
-          url: "data:text/html,<title>second</title><main>second</main>",
-          viewport,
-        },
-        type: "agent.session.start",
+        activity: "run",
+        clientName: "integration-agent",
+        clientVersion: "1.0.0",
+        name: "second",
+        operationId: OperationId.make("start-second"),
+        url: "data:text/html,<title>second</title><main>second</main>",
+        viewport,
       });
-      const firstSession = first.data.session;
-      const secondSession = second.data.session;
+      const firstSession = first.session;
+      const secondSession = second.session;
       expect(firstSession.id).not.toBe(secondSession.id);
       expect(firstSession.viewUrl).toContain(
         `/?session=${encodeURIComponent(firstSession.id)}`
       );
 
-      const listed = yield* client("agent.sessions.get", {
-        data: {},
-        type: "agent.sessions.get",
-      });
-      expect(listed.data.sessions.map(({ id }) => id)).toEqual([
+      const listed = yield* client("agent.sessions.get", {});
+      expect(listed.sessions.map(({ id }) => id)).toEqual([
         firstSession.id,
         secondSession.id,
       ]);
 
       const frame = yield* client("agent.browser.stream.subscribe", {
-        data: { sessionId: firstSession.id },
-        type: "agent.browser.stream.subscribe",
+        sessionId: firstSession.id,
       }).pipe(
         Stream.filter((event) => event.type === "frame"),
         Stream.runHead,
@@ -119,12 +109,9 @@ it.live(
       expect(frame.data.length).toBeGreaterThan(0);
 
       yield* client("agent.browser.frame.ack", {
-        data: {
-          frameId: frame.seq,
-          sessionId: firstSession.id,
-          streamId: frame.streamId,
-        },
-        type: "agent.browser.frame.ack",
+        frameId: frame.seq,
+        sessionId: firstSession.id,
+        streamId: frame.streamId,
       });
 
       // The URL is a selector, not a credential: a caller must use the
@@ -132,34 +119,24 @@ it.live(
       // not reveal another process's browser.
       const unknown = yield* Effect.flip(
         client("agent.session.get", {
-          data: { sessionId: AgentSessionId.make("agent-unknown") },
-          type: "agent.session.get",
+          sessionId: AgentSessionId.make("agent-unknown"),
         })
       );
       expect(unknown.code).toBe("agent_session_not_found");
 
       const closed = yield* client("agent.session.close", {
-        data: {
-          operationId: OperationId.make("close-first"),
-          sessionId: firstSession.id,
-        },
-        type: "agent.session.close",
+        operationId: OperationId.make("close-first"),
+        sessionId: firstSession.id,
       });
-      expect(closed.data.session.phase).toBe("closed");
+      expect(closed.session.phase).toBe("closed");
       const replay = yield* client("agent.session.close", {
-        data: {
-          operationId: OperationId.make("close-first"),
-          sessionId: firstSession.id,
-        },
-        type: "agent.session.close",
+        operationId: OperationId.make("close-first"),
+        sessionId: firstSession.id,
       });
-      expect(replay.data.session).toEqual(closed.data.session);
+      expect(replay.session).toEqual(closed.session);
 
-      const remaining = yield* client("agent.sessions.get", {
-        data: {},
-        type: "agent.sessions.get",
-      });
-      expect(remaining.data.sessions.map(({ id }) => id)).toEqual([
+      const remaining = yield* client("agent.sessions.get", {});
+      expect(remaining.sessions.map(({ id }) => id)).toEqual([
         secondSession.id,
       ]);
     }).pipe(Effect.scoped, Effect.provide(AgentSessionIntegrationLive))
@@ -176,18 +153,15 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
         flatten: true,
       });
       const opened = yield* client("agent.session.start", {
-        data: {
-          activity: "teaching",
-          clientName: "integration-agent",
-          clientVersion: "1.0.0",
-          name: "capture-boundary",
-          operationId: OperationId.make("open-teaching-boundary"),
-          url: "about:blank",
-          viewport,
-        },
-        type: "agent.session.start",
+        activity: "teaching",
+        clientName: "integration-agent",
+        clientVersion: "1.0.0",
+        name: "capture-boundary",
+        operationId: OperationId.make("open-teaching-boundary"),
+        url: "about:blank",
+        viewport,
       });
-      const setup = opened.data.session;
+      const setup = opened.session;
       expect(setup.captureState?._tag).toBe("setup");
       const recordingDirectory = `${root}/.recordings/${setup.recordingId}`;
       expect(yield* fileSystem.readDirectory(recordingDirectory)).toEqual([
@@ -195,32 +169,23 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
       ]);
 
       const started = yield* client("agent.teaching.recording.start", {
-        data: {
-          operationId: OperationId.make("start-teaching-boundary"),
-          sessionId: setup.id,
-        },
-        type: "agent.teaching.recording.start",
+        operationId: OperationId.make("start-teaching-boundary"),
+        sessionId: setup.id,
       });
-      expect(started.data.session.captureState?._tag).toBe("recording");
+      expect(started.session.captureState?._tag).toBe("recording");
       yield* client("agent.browser.navigate", {
-        data: {
-          action: {
-            type: "navigate",
-            url: "data:text/html,<title>recorded</title><main>recorded</main>",
-          },
-          sessionId: setup.id,
+        action: {
+          type: "navigate",
+          url: "data:text/html,<title>recorded</title><main>recorded</main>",
         },
-        type: "agent.browser.navigate",
+        sessionId: setup.id,
       });
       const stopped = yield* client("agent.teaching.recording.stop", {
-        data: {
-          operationId: OperationId.make("stop-teaching-boundary"),
-          sessionId: setup.id,
-        },
-        type: "agent.teaching.recording.stop",
+        operationId: OperationId.make("stop-teaching-boundary"),
+        sessionId: setup.id,
       });
-      expect(stopped.data.session.captureState?._tag).toBe("ready");
-      expect(stopped.data.session.phase).toBe("running");
+      expect(stopped.session.captureState?._tag).toBe("ready");
+      expect(stopped.session.phase).toBe("running");
       const events = yield* fileSystem.readFileString(
         `${recordingDirectory}/events.jsonl`
       );
@@ -235,26 +200,17 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
       );
 
       const second = yield* client("agent.teaching.recording.start", {
-        data: {
-          operationId: OperationId.make("start-second-teaching-boundary"),
-          sessionId: setup.id,
-        },
-        type: "agent.teaching.recording.start",
+        operationId: OperationId.make("start-second-teaching-boundary"),
+        sessionId: setup.id,
       });
-      expect(second.data.session.recordingId).not.toBe(setup.recordingId);
+      expect(second.session.recordingId).not.toBe(setup.recordingId);
       yield* client("agent.teaching.recording.stop", {
-        data: {
-          operationId: OperationId.make("stop-second-teaching-boundary"),
-          sessionId: setup.id,
-        },
-        type: "agent.teaching.recording.stop",
+        operationId: OperationId.make("stop-second-teaching-boundary"),
+        sessionId: setup.id,
       });
       yield* client("agent.session.close", {
-        data: {
-          operationId: OperationId.make("close-teaching-boundary"),
-          sessionId: setup.id,
-        },
-        type: "agent.session.close",
+        operationId: OperationId.make("close-teaching-boundary"),
+        sessionId: setup.id,
       });
     }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
@@ -271,49 +227,39 @@ it.live("ends the recording itself when a capture ceiling is reached", () =>
         flatten: true,
       });
       const opened = yield* client("agent.session.start", {
-        data: {
-          activity: "teaching",
-          clientName: "integration-agent",
-          clientVersion: "1.0.0",
-          name: "capture-ceiling",
-          operationId: OperationId.make("open-teaching-ceiling"),
-          url: "about:blank",
-          viewport,
-        },
-        type: "agent.session.start",
+        activity: "teaching",
+        clientName: "integration-agent",
+        clientVersion: "1.0.0",
+        name: "capture-ceiling",
+        operationId: OperationId.make("open-teaching-ceiling"),
+        url: "about:blank",
+        viewport,
       });
-      const setup = opened.data.session;
+      const setup = opened.session;
       const recordingDirectory = `${root}/.recordings/${setup.recordingId}`;
       const started = yield* client("agent.teaching.recording.start", {
-        data: {
-          operationId: OperationId.make("start-teaching-ceiling"),
-          sessionId: setup.id,
-        },
-        type: "agent.teaching.recording.start",
+        operationId: OperationId.make("start-teaching-ceiling"),
+        sessionId: setup.id,
       });
-      expect(started.data.session.captureState?._tag).toBe("recording");
+      expect(started.session.captureState?._tag).toBe("recording");
 
       // Two navigations clear the three-event ceiling on their own; the user
       // never presses Stop in this journey.
       for (const title of ["one", "two"]) {
         yield* client("agent.browser.navigate", {
-          data: {
-            action: {
-              type: "navigate",
-              url: `data:text/html,<title>${title}</title><main>${title}</main>`,
-            },
-            sessionId: setup.id,
+          action: {
+            type: "navigate",
+            url: `data:text/html,<title>${title}</title><main>${title}</main>`,
           },
-          type: "agent.browser.navigate",
+          sessionId: setup.id,
         });
       }
 
       const settled = yield* Effect.gen(function* awaitCeiling() {
         const current = yield* client("agent.session.get", {
-          data: { sessionId: setup.id },
-          type: "agent.session.get",
+          sessionId: setup.id,
         });
-        return current.data.session;
+        return current.session;
       }).pipe(
         Effect.repeat({
           schedule: Schedule.spaced("250 millis"),
@@ -329,11 +275,8 @@ it.live("ends the recording itself when a capture ceiling is reached", () =>
       expect(events).toContain('"reason":"limit-reached"');
 
       yield* client("agent.session.close", {
-        data: {
-          operationId: OperationId.make("close-teaching-ceiling"),
-          sessionId: setup.id,
-        },
-        type: "agent.session.close",
+        operationId: OperationId.make("close-teaching-ceiling"),
+        sessionId: setup.id,
       });
     }).pipe(
       Effect.scoped,

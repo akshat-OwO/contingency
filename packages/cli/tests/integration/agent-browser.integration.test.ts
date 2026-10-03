@@ -79,17 +79,14 @@ const callTool = makeCall(AgentSessionTools);
 
 const startSession = (agent: AgentClient, url: string, operationId: string) =>
   agent("agent.session.start", {
-    data: {
-      activity: "run",
-      clientName: "integration-agent",
-      clientVersion: "1.0.0",
-      name: "agent-browser",
-      operationId: OperationId.make(operationId),
-      url,
-      viewport,
-    },
-    type: "agent.session.start",
-  }).pipe(Effect.map(({ data }) => data.session));
+    activity: "run",
+    clientName: "integration-agent",
+    clientVersion: "1.0.0",
+    name: "agent-browser",
+    operationId: OperationId.make(operationId),
+    url,
+    viewport,
+  }).pipe(Effect.map(({ session }) => session));
 
 const findNode = (
   nodes: readonly AgentSnapshotNode[],
@@ -175,22 +172,21 @@ it.live(
       ).toHaveLength(1);
 
       const current = yield* agent("agent.session.get", {
-        data: { sessionId: session.id },
-        type: "agent.session.get",
+        sessionId: session.id,
       });
       // Agent View may be closed at any time; the link is available again for
       // as long as the Agent Session lives.
-      expect(current.data.session.viewUrl).toBe(session.viewUrl);
+      expect(current.session.viewUrl).toBe(session.viewUrl);
       // The timeline outlives the Browser Snapshot that minted these
       // references, so it says which control was acted on rather than naming
       // a reference that resolves to nothing by the time anyone reads it.
       expect(
-        current.data.session.timeline.map(({ description }) => description)
+        current.session.timeline.map(({ description }) => description)
       ).toEqual([
         `Fill ${search.role} "${search.name}" with "anvil"`,
         `Click ${viewCart.role} "${viewCart.name}"`,
       ]);
-      expect(current.data.session.controller).toBe("agent");
+      expect(current.session.controller).toBe("agent");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
@@ -695,15 +691,12 @@ it.live(
       expect(refused.code).toBe("agent_control_unavailable");
 
       const returned = yield* agent("agent.session.control.return", {
-        data: {
-          operationId: OperationId.make("control-return"),
-          sessionId: session.id,
-        },
-        type: "agent.session.control.return",
+        operationId: OperationId.make("control-return"),
+        sessionId: session.id,
       });
-      expect(returned.data.session.controller).toBe("agent");
-      expect(returned.data.session.phase).toBe("running");
-      expect(returned.data.session.takeover).toBeNull();
+      expect(returned.session.controller).toBe("agent");
+      expect(returned.session.phase).toBe("running");
+      expect(returned.session.takeover).toBeNull();
 
       const observed = yield* callTool("agent_browser_snapshot", {
         sessionId: session.id,
@@ -745,24 +738,19 @@ it.live("gives a user Takeover priority over the in-flight agent action", () =>
     yield* Effect.sleep("500 millis");
 
     const takeover = yield* agent("agent.session.takeover", {
-      data: {
-        operationId: OperationId.make("takeover-user"),
-        reason: "I will finish this myself.",
-        sessionId: session.id,
-      },
-      type: "agent.session.takeover",
+      operationId: OperationId.make("takeover-user"),
+      reason: "I will finish this myself.",
+      sessionId: session.id,
     });
-    expect(takeover.data.session.controller).toBe("user");
-    expect(takeover.data.session.takeover?.requestedBy).toBe("user");
+    expect(takeover.session.controller).toBe("user");
+    expect(takeover.session.takeover?.requestedBy).toBe("user");
     // Takeover cannot undo an effect the browser was already asked for, so the
     // attempt is disclosed rather than erased.
-    expect(takeover.data.session.interruptedAction?.dispatched).toBe(true);
-    expect(takeover.data.session.interruptedAction?.outcome).toBe(
+    expect(takeover.session.interruptedAction?.dispatched).toBe(true);
+    expect(takeover.session.interruptedAction?.outcome).toBe("interrupted");
+    expect(takeover.session.timeline.map(({ outcome }) => outcome)).toContain(
       "interrupted"
     );
-    expect(
-      takeover.data.session.timeline.map(({ outcome }) => outcome)
-    ).toContain("interrupted");
 
     const outcome = yield* Fiber.join(inFlight);
     expect(outcome._tag).toBe("Failure");
@@ -811,36 +799,6 @@ it.live(
       // cannot drive it.
       const refused = yield* Effect.flip(
         agent("agent.browser.input.send", {
-          data: {
-            inputs: [
-              {
-                button: "left",
-                clickCount: 1,
-                eventType: "mousePressed",
-                type: "input_mouse",
-                x: 40,
-                y: 40,
-              },
-            ],
-            sessionId: session.id,
-          },
-          type: "agent.browser.input.send",
-        })
-      );
-      expect(refused.code).toBe("agent_control_unavailable");
-      expect(userInput()).toHaveLength(0);
-
-      yield* agent("agent.session.takeover", {
-        data: {
-          operationId: OperationId.make("takeover-to-drive"),
-          reason: "I will enter this myself.",
-          sessionId: session.id,
-        },
-        type: "agent.session.takeover",
-      });
-
-      yield* agent("agent.browser.input.send", {
-        data: {
           inputs: [
             {
               button: "left",
@@ -852,8 +810,29 @@ it.live(
             },
           ],
           sessionId: session.id,
-        },
-        type: "agent.browser.input.send",
+        })
+      );
+      expect(refused.code).toBe("agent_control_unavailable");
+      expect(userInput()).toHaveLength(0);
+
+      yield* agent("agent.session.takeover", {
+        operationId: OperationId.make("takeover-to-drive"),
+        reason: "I will enter this myself.",
+        sessionId: session.id,
+      });
+
+      yield* agent("agent.browser.input.send", {
+        inputs: [
+          {
+            button: "left",
+            clickCount: 1,
+            eventType: "mousePressed",
+            type: "input_mouse",
+            x: 40,
+            y: 40,
+          },
+        ],
+        sessionId: session.id,
       });
       yield* Effect.sleep("500 millis");
       expect(userInput().length).toBeGreaterThan(0);
@@ -869,28 +848,22 @@ it.live(
       expect(paused.code).toBe("agent_control_unavailable");
 
       yield* agent("agent.session.control.return", {
-        data: {
-          operationId: OperationId.make("return-after-driving"),
-          sessionId: session.id,
-        },
-        type: "agent.session.control.return",
+        operationId: OperationId.make("return-after-driving"),
+        sessionId: session.id,
       });
       const afterReturn = yield* Effect.flip(
         agent("agent.browser.input.send", {
-          data: {
-            inputs: [
-              {
-                button: "left",
-                clickCount: 1,
-                eventType: "mousePressed",
-                type: "input_mouse",
-                x: 40,
-                y: 40,
-              },
-            ],
-            sessionId: session.id,
-          },
-          type: "agent.browser.input.send",
+          inputs: [
+            {
+              button: "left",
+              clickCount: 1,
+              eventType: "mousePressed",
+              type: "input_mouse",
+              x: 40,
+              y: 40,
+            },
+          ],
+          sessionId: session.id,
         })
       );
       expect(afterReturn.code).toBe("agent_control_unavailable");
@@ -907,52 +880,46 @@ it.live("types a batch of the user's keys in the order they were made", () =>
       "start-batched-input"
     );
     yield* agent("agent.session.takeover", {
-      data: {
-        operationId: OperationId.make("takeover-to-type"),
-        reason: "I will type this myself.",
-        sessionId: session.id,
-      },
-      type: "agent.session.takeover",
+      operationId: OperationId.make("takeover-to-type"),
+      reason: "I will type this myself.",
+      sessionId: session.id,
     });
     const text = "ada@example.org";
     // One request, as the Workspace sends what queued while its previous
     // request was in flight: a click into Email, then every key down and up.
     yield* agent("agent.browser.input.send", {
-      data: {
-        inputs: [
+      inputs: [
+        {
+          button: "left",
+          clickCount: 1,
+          eventType: "mousePressed",
+          type: "input_mouse",
+          x: 120,
+          y: 116,
+        },
+        {
+          button: "left",
+          clickCount: 1,
+          eventType: "mouseReleased",
+          type: "input_mouse",
+          x: 120,
+          y: 116,
+        },
+        ...[...text].flatMap((character) => [
           {
-            button: "left",
-            clickCount: 1,
-            eventType: "mousePressed",
-            type: "input_mouse",
-            x: 120,
-            y: 116,
+            eventType: "keyDown" as const,
+            key: character,
+            text: character,
+            type: "input_keyboard" as const,
           },
           {
-            button: "left",
-            clickCount: 1,
-            eventType: "mouseReleased",
-            type: "input_mouse",
-            x: 120,
-            y: 116,
+            eventType: "keyUp" as const,
+            key: character,
+            type: "input_keyboard" as const,
           },
-          ...[...text].flatMap((character) => [
-            {
-              eventType: "keyDown" as const,
-              key: character,
-              text: character,
-              type: "input_keyboard" as const,
-            },
-            {
-              eventType: "keyUp" as const,
-              key: character,
-              type: "input_keyboard" as const,
-            },
-          ]),
-        ],
-        sessionId: session.id,
-      },
-      type: "agent.browser.input.send",
+        ]),
+      ],
+      sessionId: session.id,
     });
 
     const observed = yield* callTool("agent_browser_snapshot", {
@@ -993,10 +960,9 @@ it.live("completes an action that navigates the Page it was read from", () =>
     expect(submitted.snapshot.url).toBe(submitted.url);
 
     const current = yield* agent("agent.session.get", {
-      data: { sessionId: session.id },
-      type: "agent.session.get",
+      sessionId: session.id,
     });
-    expect(current.data.session.currentUrl).toBe(submitted.url);
+    expect(current.session.currentUrl).toBe(submitted.url);
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
@@ -1373,31 +1339,31 @@ it.live(
         false
       );
       const inspected = yield* agent("agent.browser.element.inspect", {
-        data: { sessionId: session.id, x: 80, y: 280 },
-        type: "agent.browser.element.inspect",
+        sessionId: session.id,
+        x: 80,
+        y: 280,
       });
-      expect(inspected.data.element.description).toBe(
-        "button: Change quantity"
-      );
-      expect(inspected.data.element.width).toBeGreaterThan(0);
+      expect(inspected.element.description).toBe("button: Change quantity");
+      expect(inspected.element.width).toBeGreaterThan(0);
       const total = yield* agent("agent.browser.element.inspect", {
-        data: { sessionId: session.id, x: 80, y: 369 },
-        type: "agent.browser.element.inspect",
+        sessionId: session.id,
+        x: 80,
+        y: 369,
       });
-      expect(total.data.element.description).toBe(
-        "paragraph: Total amount: 24.00"
-      );
+      expect(total.element.description).toBe("paragraph: Total amount: 24.00");
       const miss = yield* Effect.flip(
         agent("agent.browser.element.inspect", {
-          data: { sessionId: session.id, x: 620, y: 40 },
-          type: "agent.browser.element.inspect",
+          sessionId: session.id,
+          x: 620,
+          y: 40,
         })
       );
       expect(miss.message).toContain("contains that point");
       const retry = yield* agent("agent.browser.element.inspect", {
-        data: { sessionId: session.id, x: 80, y: 280 },
-        type: "agent.browser.element.inspect",
+        sessionId: session.id,
+        x: 80,
+        y: 280,
       });
-      expect(retry.data.element.description).toBe("button: Change quantity");
+      expect(retry.element.description).toBe("button: Change quantity");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );

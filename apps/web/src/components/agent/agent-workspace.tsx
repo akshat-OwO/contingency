@@ -825,10 +825,7 @@ const useAgentView = (
     makeBrowserInputQueue((sessionId: AgentSessionId, inputs) =>
       Effect.tryPromise(() =>
         sendBrowserInputRef.current({
-          payload: {
-            data: { inputs, sessionId },
-            type: "agent.browser.input.send",
-          },
+          payload: { inputs, sessionId },
         })
       )
     )
@@ -856,7 +853,7 @@ const useAgentView = (
 
   const sessions =
     sessionsResult._tag === "Success"
-      ? sessionsResult.value.data.sessions
+      ? sessionsResult.value.sessions
       : EMPTY_AGENT_SESSIONS;
   const queryLoading =
     sessionsResult._tag === "Initial" || sessionsResult.waiting;
@@ -1258,19 +1255,13 @@ const useAgentView = (
         try: async () => {
           await (current.controller === "user"
             ? requestReturnControl({
-                payload: {
-                  data: { operationId, sessionId: current.id },
-                  type: "agent.session.control.return",
-                },
+                payload: { operationId, sessionId: current.id },
               })
             : requestTakeover({
                 payload: {
-                  data: {
-                    operationId,
-                    reason: "The user took control from Workspace.",
-                    sessionId: current.id,
-                  },
-                  type: "agent.session.takeover",
+                  operationId,
+                  reason: "The user took control from Workspace.",
+                  sessionId: current.id,
                 },
               }));
         },
@@ -1286,10 +1277,8 @@ const useAgentView = (
   const adoptRecordingResponse = (
     sessionId: AgentSessionId,
     response: {
-      readonly data: {
-        readonly captureState: TeachingSessionSnapshot["captureState"];
-        readonly cleanup: TeachingSessionSnapshot["recordingCleanup"];
-      };
+      readonly captureState: TeachingSessionSnapshot["captureState"];
+      readonly cleanup: TeachingSessionSnapshot["recordingCleanup"];
     }
   ) => {
     setState((previous) =>
@@ -1299,8 +1288,8 @@ const useAgentView = (
             ...previous,
             session: {
               ...previous.session,
-              captureState: response.data.captureState,
-              recordingCleanup: response.data.cleanup,
+              captureState: response.captureState,
+              recordingCleanup: response.cleanup,
             },
           }
         : previous
@@ -1337,16 +1326,10 @@ const useAgentView = (
           const payload = { operationId, sessionId: current.id };
           await (gesture === "start"
             ? startTeachingRecording({
-                payload: {
-                  data: payload,
-                  type: "agent.teaching.recording.start",
-                },
+                payload,
               })
             : stopTeachingRecording({
-                payload: {
-                  data: payload,
-                  type: "agent.teaching.recording.stop",
-                },
+                payload,
               }));
           return;
         }
@@ -1361,19 +1344,19 @@ const useAgentView = (
         switch (gesture) {
           case "stop-dry-run": {
             response = await stopDryRun({
-              payload: { data, type: "agent.teaching.dry-run.stop" },
+              payload: data,
             });
             break;
           }
           case "verify-flow": {
             response = await verifyFlowSkill({
-              payload: { data, type: "agent.teaching.flow.verify" },
+              payload: data,
             });
             break;
           }
           case "retry-cleanup": {
             response = await retryTeachingCleanup({
-              payload: { data, type: "agent.teaching.cleanup.retry" },
+              payload: data,
             });
             break;
           }
@@ -1402,25 +1385,22 @@ const useAgentView = (
         try: () =>
           startSession({
             payload: {
-              data: {
-                activity: "teaching",
-                clientName: "Workspace",
-                clientVersion: "web",
-                name: name.trim() === "" ? undefined : name.trim(),
-                operationId,
-                viewport: {
-                  deviceScaleFactor: 1,
-                  height: WORKSPACE_SESSION_VIEWPORT.height,
-                  width: WORKSPACE_SESSION_VIEWPORT.width,
-                },
+              activity: "teaching",
+              clientName: "Workspace",
+              clientVersion: "web",
+              name: name.trim() === "" ? undefined : name.trim(),
+              operationId,
+              viewport: {
+                deviceScaleFactor: 1,
+                height: WORKSPACE_SESSION_VIEWPORT.height,
+                width: WORKSPACE_SESSION_VIEWPORT.width,
               },
-              type: "agent.session.start",
             },
           }),
       }).pipe(
         Effect.flatMap((response) =>
           Effect.sync(() => {
-            const started = response.data.session;
+            const started = response.session;
             onSelectSession?.(started.id);
             setState((current) => ({
               ...current,
@@ -1448,12 +1428,9 @@ const useAgentView = (
       catch: (cause) => cause,
       try: () =>
         inspectElement({
-          payload: {
-            data: { sessionId, x, y },
-            type: "agent.browser.element.inspect",
-          },
+          payload: { sessionId, x, y },
         }),
-    }).pipe(Effect.map((answer) => answer.data.element));
+    }).pipe(Effect.map((answer) => answer.element));
   };
 
   const updateInspect = (update: (inspect: InspectState) => InspectState) => {
@@ -1645,7 +1622,7 @@ const useAgentView = (
             },
           };
         }
-        const recorded = outcome.success.data.session;
+        const recorded = outcome.success.session;
         if (recorded.activity !== "teaching") {
           return current;
         }
@@ -1666,18 +1643,15 @@ const useAgentView = (
           try: () =>
             recordInstruction({
               payload: {
-                data: {
-                  operationId,
-                  sessionId,
-                  /*
+                operationId,
+                sessionId,
+                /*
                     The element travels beside the text rather than inside it,
                     so the dock's comment list can name what each instruction
                     landed on without parsing a prefix back out (#213).
                   */
-                  target: frozen?.description,
-                  text,
-                },
-                type: "agent.teaching.instruction.record",
+                target: frozen?.description,
+                text,
               },
             }),
         })
@@ -1706,11 +1680,8 @@ const useAgentView = (
         runTeachingMutation(async () => {
           const response = await rejectFlowSkill({
             payload: {
-              data: {
-                operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                recordingId: current.recordingId,
-              },
-              type: "agent.teaching.flow.reject",
+              operationId: OperationId.make(globalThis.crypto.randomUUID()),
+              recordingId: current.recordingId,
             },
           });
           adoptRecordingResponse(current.id, response);
@@ -1730,12 +1701,9 @@ const useAgentView = (
         runTeachingMutation(async () => {
           await renameFlowSkill({
             payload: {
-              data: {
-                name,
-                operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                sessionId: current.id,
-              },
-              type: "agent.teaching.flow.rename",
+              name,
+              operationId: OperationId.make(globalThis.crypto.randomUUID()),
+              sessionId: current.id,
             },
           });
         });
@@ -1745,11 +1713,8 @@ const useAgentView = (
         runTeachingMutation(async () => {
           await discardTeachingRecording({
             payload: {
-              data: {
-                operationId: OperationId.make(globalThis.crypto.randomUUID()),
-                sessionId: current.id,
-              },
-              type: "agent.teaching.recording.discard",
+              operationId: OperationId.make(globalThis.crypto.randomUUID()),
+              sessionId: current.id,
             },
           });
         });
@@ -1794,10 +1759,7 @@ const useAgentView = (
         catch: errorMessage,
         try: () =>
           navigateBrowser({
-            payload: {
-              data: { action, sessionId },
-              type: "agent.browser.navigate",
-            },
+            payload: { action, sessionId },
           }),
       }).pipe(Effect.asVoid)
     );

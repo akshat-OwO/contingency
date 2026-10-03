@@ -64,13 +64,13 @@ export const useAgentBrowserTooling = (
   sessionId: AgentSessionId
 ): BrowserTooling => {
   const {
-    agentBrowserNetworkRequestMutation,
+    agentBrowserNetworkRequestGetMutation,
     agentBrowserStorageClearMutation,
     agentBrowserStorageDeleteMutation,
     agentBrowserStorageGetMutation,
     agentBrowserStorageSetMutation,
   } = useRpcDependencies();
-  const getNetworkRequest = useAtomSet(agentBrowserNetworkRequestMutation, {
+  const getNetworkRequest = useAtomSet(agentBrowserNetworkRequestGetMutation, {
     mode: "promise",
   });
   const clearStorage = useAtomSet(agentBrowserStorageClearMutation, {
@@ -88,44 +88,29 @@ export const useAgentBrowserTooling = (
   return {
     clearStorage: async (tabId, kind) => {
       await clearStorage({
-        payload: {
-          data: { kind, sessionId, tabId },
-          type: "agent.browser.storage.clear",
-        },
+        payload: { kind, sessionId, tabId },
       });
     },
     deleteStorage: async (tabId, input) => {
       await deleteStorage({
-        payload: {
-          data: { ...input, sessionId, tabId },
-          type: "agent.browser.storage.delete",
-        },
+        payload: { ...input, sessionId, tabId },
       });
     },
     getNetworkRequest: async (tabId, requestId) => {
       const result = await getNetworkRequest({
-        payload: {
-          data: { requestId, sessionId, tabId },
-          type: "agent.browser.network.request.get",
-        },
+        payload: { requestId, sessionId, tabId },
       });
-      return result.data.request;
+      return result.request;
     },
     getStorage: async (tabId, kind) => {
       const result = await getStorage({
-        payload: {
-          data: { kind, sessionId, tabId },
-          type: "agent.browser.storage.get",
-        },
+        payload: { kind, sessionId, tabId },
       });
-      return result.data.snapshot;
+      return result.snapshot;
     },
     setStorage: async (tabId, input) => {
       await setStorage({
-        payload: {
-          data: { ...input, sessionId, tabId },
-          type: "agent.browser.storage.set",
-        },
+        payload: { ...input, sessionId, tabId },
       });
     },
   };

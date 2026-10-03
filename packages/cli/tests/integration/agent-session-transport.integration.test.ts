@@ -96,31 +96,25 @@ it.live.each([false, true])(
 
       const start = (name: string, operationId: string) =>
         client("agent.session.start", {
-          data: {
-            activity: "run",
-            clientName: "transport-test",
-            clientVersion: "1",
-            name,
-            operationId: OperationId.make(operationId),
-            url: `data:text/html,<title>${name}</title><main>${name}</main>`,
-            viewport,
-          },
-          type: "agent.session.start",
+          activity: "run",
+          clientName: "transport-test",
+          clientVersion: "1",
+          name,
+          operationId: OperationId.make(operationId),
+          url: `data:text/html,<title>${name}</title><main>${name}</main>`,
+          viewport,
         }).pipe(Effect.timeout("10 seconds"));
       const first = yield* start("first", "transport-start-first");
       const second = yield* start("second", "transport-start-second");
-      const firstSession = first.data.session;
-      const secondSession = second.data.session;
+      const firstSession = first.session;
+      const secondSession = second.session;
       expect(firstSession.id).not.toBe(secondSession.id);
 
       const firstFrame = (sessionId: AgentSessionId) =>
         Effect.scoped(
           client(
             "agent.browser.stream.subscribe",
-            {
-              data: { sessionId },
-              type: "agent.browser.stream.subscribe",
-            },
+            { sessionId },
             { headers: { origin } }
           ).pipe(
             Stream.filter((event) => event.type === "frame"),
@@ -140,33 +134,27 @@ it.live.each([false, true])(
       yield* client(
         "agent.browser.frame.ack",
         {
-          data: {
-            frameId: firstEvent.seq,
-            sessionId: firstSession.id,
-            streamId: firstEvent.streamId,
-          },
-          type: "agent.browser.frame.ack",
+          frameId: firstEvent.seq,
+          sessionId: firstSession.id,
+          streamId: firstEvent.streamId,
         },
         { headers: { origin } }
       );
       const closed = yield* client(
         "agent.session.close",
         {
-          data: {
-            operationId: OperationId.make("transport-close-first"),
-            sessionId: firstSession.id,
-          },
-          type: "agent.session.close",
+          operationId: OperationId.make("transport-close-first"),
+          sessionId: firstSession.id,
         },
         { headers: { origin } }
       );
-      expect(closed.data.session.phase).toBe("closed");
+      expect(closed.session.phase).toBe("closed");
       const remaining = yield* client(
         "agent.sessions.get",
-        { data: {}, type: "agent.sessions.get" },
+        {},
         { headers: { origin } }
       );
-      expect(remaining.data.sessions.map(({ id }) => id)).toEqual([
+      expect(remaining.sessions.map(({ id }) => id)).toEqual([
         secondSession.id,
       ]);
 
@@ -525,10 +513,10 @@ it.live("serves the real MCP stdio child-process boundary", () =>
         const client = yield* makeLoopbackRpcClient(origin);
         const listed = yield* client(
           "agent.sessions.get",
-          { data: {}, type: "agent.sessions.get" },
+          {},
           { headers: { origin } }
         );
-        expect(listed.data.sessions.map(({ id }) => id)).toEqual([
+        expect(listed.sessions.map(({ id }) => id)).toEqual([
           firstSessionId,
           secondSessionId,
         ]);
@@ -536,10 +524,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
           Effect.scoped(
             client(
               "agent.browser.stream.subscribe",
-              {
-                data: { sessionId },
-                type: "agent.browser.stream.subscribe",
-              },
+              { sessionId },
               { headers: { origin } }
             ).pipe(
               Stream.filter((event) => event.type === "frame"),
@@ -559,24 +544,18 @@ it.live("serves the real MCP stdio child-process boundary", () =>
         yield* client(
           "agent.browser.frame.ack",
           {
-            data: {
-              frameId: firstFrame.seq,
-              sessionId: firstSessionId,
-              streamId: firstFrame.streamId,
-            },
-            type: "agent.browser.frame.ack",
+            frameId: firstFrame.seq,
+            sessionId: firstSessionId,
+            streamId: firstFrame.streamId,
           },
           { headers: { origin } }
         );
         yield* client(
           "agent.browser.frame.ack",
           {
-            data: {
-              frameId: secondFrame.seq,
-              sessionId: secondSessionId,
-              streamId: secondFrame.streamId,
-            },
-            type: "agent.browser.frame.ack",
+            frameId: secondFrame.seq,
+            sessionId: secondSessionId,
+            streamId: secondFrame.streamId,
           },
           { headers: { origin } }
         );
