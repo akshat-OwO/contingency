@@ -86,6 +86,16 @@ import { gestureFailureMessage } from "@/components/agent/teaching-recording-sta
 import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
 import { DockNotices } from "@/components/agent/workspace-dock";
 import {
+  commentGestureAtom,
+  controlGestureAtom,
+  navigationGestureAtom,
+  recordingGestureAtom,
+  sessionGesture,
+  sessionStartGestureAtom,
+  useWorkspaceGesture,
+} from "@/components/agent/workspace-gesture";
+import type { WorkspaceGesture } from "@/components/agent/workspace-gesture";
+import {
   keyboardModifiers,
   makeBrowserInputHandlers,
   makeBrowserInputQueue,
@@ -109,6 +119,11 @@ import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { ExecutionBoundary } from "./execution-boundary";
+
+type TeachingSessionSnapshot = Extract<
+  AgentSessionSnapshot,
+  { readonly activity: "teaching" }
+>;
 
 const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
   session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
@@ -563,6 +578,7 @@ const AgentLiveView = ({
   dock,
   input,
   inspect,
+  navigation,
   onAddressChange,
   onAddressSubmit,
   onClearConsole,
@@ -583,6 +599,8 @@ const AgentLiveView = ({
   readonly inspect:
     | ((canvas: HTMLCanvasElement | null) => React.ReactNode)
     | undefined;
+  /** The address bar and history buttons' gesture on this session. */
+  readonly navigation: WorkspaceGesture;
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onClearConsole: () => void;
@@ -609,8 +627,8 @@ const AgentLiveView = ({
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AgentBrowserToolbar
         address={state.address}
-        navigationError={state.navigationError}
-        navigationPending={state.navigationPending}
+        navigationError={navigation.error}
+        navigationPending={navigation.pending}
         onAddressChange={onAddressChange}
         onAddressSubmit={onAddressSubmit}
         onNavigate={onNavigate}
@@ -815,8 +833,19 @@ const useAgentView = (
       )
     )
   );
-  const controlFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
-  const recordingFiberRef = useRef<Fiber.Fiber<void, never> | null>(null);
+  const controlGesture = useWorkspaceGesture(
+    sessionGesture(controlGestureAtom, selectedSessionId)
+  );
+  const recordingGesture = useWorkspaceGesture(
+    sessionGesture(recordingGestureAtom, selectedSessionId)
+  );
+  const navigationGesture = useWorkspaceGesture(
+    sessionGesture(navigationGestureAtom, selectedSessionId)
+  );
+  const commentGesture = useWorkspaceGesture(
+    sessionGesture(commentGestureAtom, selectedSessionId)
+  );
+  const startGesture = useWorkspaceGesture(sessionStartGestureAtom);
   // The address bar belongs to whoever is typing in it: a URL event never
   // overwrites what the user has not submitted yet.
   const addressEditingRef = useRef(false);
@@ -1219,35 +1248,22 @@ const useAgentView = (
    */
   const changeControl = () => {
     const current = state.session;
-    if (
-      current === undefined ||
-      state.controlPending ||
-      current.activity === "teaching"
-    ) {
+    if (current === undefined || current.activity === "teaching") {
       return;
     }
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
-    setState((previous) => ({
-      ...previous,
-      controlError: undefined,
-      controlPending: true,
-    }));
-    const change =
-      current.controller === "user"
-        ? Effect.tryPromise({
-            catch: (cause) => cause,
-            try: () =>
-              requestReturnControl({
+    controlGesture.dispatch(
+      Effect.tryPromise({
+        catch: errorMessage,
+        try: async () => {
+          await (current.controller === "user"
+            ? requestReturnControl({
                 payload: {
                   data: { operationId, sessionId: current.id },
                   type: "agent.session.control.return",
                 },
-              }),
-          }).pipe(Effect.asVoid)
-        : Effect.tryPromise({
-            catch: (cause) => cause,
-            try: () =>
-              requestTakeover({
+              })
+            : requestTakeover({
                 payload: {
                   data: {
                     operationId,
@@ -1256,107 +1272,66 @@ const useAgentView = (
                   },
                   type: "agent.session.takeover",
                 },
-              }),
-          }).pipe(Effect.asVoid);
-    controlFiberRef.current = Effect.runFork(
-      Effect.result(change).pipe(
-        Effect.flatMap((outcome) =>
-          Effect.sync(() => {
-            setState((previous) => ({
-              ...previous,
-              controlError: Result.isFailure(outcome)
-                ? errorMessage(outcome.failure)
-                : undefined,
-              controlPending: false,
-            }));
-          })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            controlFiberRef.current = null;
-          })
-        )
-      )
+              }));
+        },
+      })
     );
   };
 
-  // A control change outlives no View: an unmount mid-request interrupts it
-  // rather than leaving a fiber to write to a component that is gone.
-  useEffect(
-    () => () => {
-      const fiber = controlFiberRef.current;
-      controlFiberRef.current = null;
-      if (fiber !== null) {
-        Effect.runFork(Fiber.interrupt(fiber));
-      }
-      const recordingFiber = recordingFiberRef.current;
-      recordingFiberRef.current = null;
-      if (recordingFiber !== null) {
-        Effect.runFork(Fiber.interrupt(recordingFiber));
-      }
-    },
-    []
-  );
+  /**
+   * What a Teaching lifecycle response says about its recording, applied only
+   * while the session it answers for is still the one on screen. Otherwise the
+   * session's own snapshot catches up through the poll and the stream.
+   */
+  const adoptRecordingResponse = (
+    sessionId: AgentSessionId,
+    response: {
+      readonly data: {
+        readonly captureState: TeachingSessionSnapshot["captureState"];
+        readonly cleanup: TeachingSessionSnapshot["recordingCleanup"];
+      };
+    }
+  ) => {
+    setState((previous) =>
+      previous.session?.id === sessionId &&
+      previous.session.activity === "teaching"
+        ? {
+            ...previous,
+            session: {
+              ...previous.session,
+              captureState: response.data.captureState,
+              recordingCleanup: response.data.cleanup,
+            },
+          }
+        : previous
+    );
+  };
 
   /**
    * One Teaching mutation dispatched from the dock, reported where the other
    * gesture failures are: the dock is the one place a Teaching refusal is
    * readable, so a rename or a deletion does not invent a second error slot.
    */
-  const runTeachingMutation = <Success,>(
-    mutation: Effect.Effect<Success, unknown>
-  ) => {
-    setState((previous) => ({
-      ...previous,
-      recordingError: undefined,
-      recordingPending: true,
-    }));
-    recordingFiberRef.current = Effect.runFork(
-      Effect.result(mutation).pipe(
-        Effect.tap((outcome) =>
-          Effect.sync(() => {
-            setState((previous) => ({
-              ...previous,
-              recordingError: Result.isFailure(outcome)
-                ? errorMessage(outcome.failure)
-                : undefined,
-              recordingPending: false,
-            }));
-          })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            recordingFiberRef.current = null;
-          })
-        ),
-        Effect.asVoid
-      )
+  const runTeachingMutation = (mutation: () => Promise<void>) => {
+    recordingGesture.dispatch(
+      Effect.tryPromise({ catch: errorMessage, try: mutation })
     );
   };
 
   const changeRecording = (gesture: TeachingRecordingGesture) => {
     const current = state.session;
-    if (
-      current === undefined ||
-      current.activity !== "teaching" ||
-      state.recordingPending
-    ) {
+    if (current === undefined || current.activity !== "teaching") {
       return;
     }
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
-    setState((previous) => ({
-      ...previous,
-      recordingError: undefined,
-      recordingPending: true,
-    }));
     /*
-      The failure is carried through untouched. Stringifying a refused RPC
-      here is what rendered `[object Object]` in the dock: the refusal is a
+      The failure is formatted from the refusal itself. Stringifying a refused
+      RPC is what rendered `[object Object]` in the dock: the refusal is a
       `BrowserRpcError`, not an `Error`, and its message is the only sentence
       that names the lifecycle the gesture lost to (#211).
     */
     const mutation = Effect.tryPromise({
-      catch: (cause: unknown) => cause,
+      catch: (cause: unknown) => gestureFailureMessage(gesture, cause),
       try: async () => {
         if (gesture === "start" || gesture === "stop") {
           const payload = { operationId, sessionId: current.id };
@@ -1408,40 +1383,10 @@ const useAgentView = (
             );
           }
         }
-        setState((previous) => ({
-          ...previous,
-          session:
-            previous.session?.activity === "teaching"
-              ? {
-                  ...previous.session,
-                  captureState: response.data.captureState,
-                  recordingCleanup: response.data.cleanup,
-                }
-              : previous.session,
-        }));
+        adoptRecordingResponse(current.id, response);
       },
     });
-    recordingFiberRef.current = Effect.runFork(
-      Effect.result(mutation).pipe(
-        Effect.tap((outcome) =>
-          Effect.sync(() => {
-            setState((previous) => ({
-              ...previous,
-              recordingError: Result.isFailure(outcome)
-                ? gestureFailureMessage(gesture, outcome.failure)
-                : undefined,
-              recordingPending: false,
-            }));
-          })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            recordingFiberRef.current = null;
-          })
-        ),
-        Effect.asVoid
-      )
-    );
+    recordingGesture.dispatch(mutation);
   };
 
   /**
@@ -1450,58 +1395,38 @@ const useAgentView = (
    * the default: the Workspace never opens an Interactive Run (ADR 0039).
    */
   const openSession = (name: string) => {
-    if (state.startPending) {
-      return;
-    }
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
-    setState((current) => ({
-      ...current,
-      startError: undefined,
-      startPending: true,
-    }));
-    Effect.runFork(
-      Effect.result(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            startSession({
-              payload: {
-                data: {
-                  activity: "teaching",
-                  clientName: "Workspace",
-                  clientVersion: "web",
-                  name: name.trim() === "" ? undefined : name.trim(),
-                  operationId,
-                  viewport: {
-                    deviceScaleFactor: 1,
-                    height: WORKSPACE_SESSION_VIEWPORT.height,
-                    width: WORKSPACE_SESSION_VIEWPORT.width,
-                  },
+    startGesture.dispatch(
+      Effect.tryPromise({
+        catch: errorMessage,
+        try: () =>
+          startSession({
+            payload: {
+              data: {
+                activity: "teaching",
+                clientName: "Workspace",
+                clientVersion: "web",
+                name: name.trim() === "" ? undefined : name.trim(),
+                operationId,
+                viewport: {
+                  deviceScaleFactor: 1,
+                  height: WORKSPACE_SESSION_VIEWPORT.height,
+                  width: WORKSPACE_SESSION_VIEWPORT.width,
                 },
-                type: "agent.session.start",
               },
-            }),
-        })
-      ).pipe(
-        Effect.flatMap((outcome) =>
+              type: "agent.session.start",
+            },
+          }),
+      }).pipe(
+        Effect.flatMap((response) =>
           Effect.sync(() => {
-            if (Result.isFailure(outcome)) {
-              setState((current) => ({
-                ...current,
-                startError: errorMessage(outcome.failure),
-                startPending: false,
-              }));
-              return;
-            }
-            const started = outcome.success.data.session;
+            const started = response.data.session;
             onSelectSession?.(started.id);
             setState((current) => ({
               ...current,
               phase: "switching",
               selectedSessionId: started.id,
               session: started,
-              startError: undefined,
-              startPending: false,
             }));
             refreshSessions();
           })
@@ -1555,10 +1480,11 @@ const useAgentView = (
   };
 
   const detachElement = () => {
+    if (commentGesture.pending) {
+      return;
+    }
     updateInspect((inspect) =>
-      inspect.frozen === undefined || inspect.pending
-        ? inspect
-        : { ...inspect, frozen: undefined }
+      inspect.frozen === undefined ? inspect : { ...inspect, frozen: undefined }
     );
   };
 
@@ -1616,7 +1542,8 @@ const useAgentView = (
   };
 
   const freezeInspect = (x: number, y: number) => {
-    if (state.inspect.pending) {
+    // The attached element is part of a save in flight, so it holds still.
+    if (commentGesture.pending) {
       return;
     }
     const pageVersion = inspectPageVersionRef.current;
@@ -1628,7 +1555,7 @@ const useAgentView = (
               return;
             }
             setState((current) => {
-              if (!current.inspect.open || current.inspect.pending) {
+              if (!current.inspect.open) {
                 return current;
               }
               if (Result.isFailure(outcome)) {
@@ -1673,17 +1600,66 @@ const useAgentView = (
     const sessionId = activeSessionRef.current;
     const { frozen } = state.inspect;
     const text = state.inspect.draft.trim();
-    if (sessionId === null || text === "" || state.inspect.pending) {
+    if (sessionId === null || text === "") {
       return;
     }
     const pageVersion = inspectPageVersionRef.current;
     const recordingId = state.session?.recordingId;
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
-    setState((current) => ({
-      ...current,
-      inspect: { ...current.inspect, error: undefined, pending: true },
-    }));
-    Effect.runFork(
+    /*
+      A comment applies its own outcome: a refusal is shown in the composer
+      beside the draft it refused rather than in the dock, and it is guarded by
+      the recording it was written on, so a save that lands after a switch
+      touches nothing on the session now on screen.
+    */
+    const settle = (
+      outcome: Result.Result<
+        Awaited<ReturnType<typeof recordInstruction>>,
+        unknown
+      >
+    ) =>
+      setState((current) => {
+        if (
+          current.session?.id !== sessionId ||
+          current.session.recordingId !== recordingId ||
+          current.session.captureState?._tag !== "recording"
+        ) {
+          return current;
+        }
+        const samePage = pageVersion === inspectPageVersionRef.current;
+        if (Result.isFailure(outcome)) {
+          /*
+            The composer can be closed while the save is in flight, so a
+            failure reopens it on the unsent draft: an error on a closed
+            composer would be read by no one.
+          */
+          const unsent = current.inspect.draft.trim() === text;
+          return {
+            ...current,
+            inspect: {
+              ...current.inspect,
+              composing: current.inspect.composing || unsent,
+              error: unsent
+                ? errorMessage(outcome.failure)
+                : current.inspect.error,
+            },
+          };
+        }
+        const recorded = outcome.success.data.session;
+        if (recorded.activity !== "teaching") {
+          return current;
+        }
+        return {
+          ...current,
+          inspect: completeInspectComment(
+            current.inspect,
+            { frozen, text },
+            recorded.teaching.instructionCount,
+            samePage
+          ),
+        };
+      });
+    const started = commentGesture.dispatch(
       Effect.result(
         Effect.tryPromise({
           catch: (cause) => cause,
@@ -1705,55 +1681,14 @@ const useAgentView = (
               },
             }),
         })
-      ).pipe(
-        Effect.flatMap((outcome) =>
-          Effect.sync(() => {
-            setState((current) => {
-              if (
-                current.session?.id !== sessionId ||
-                current.session.recordingId !== recordingId ||
-                current.session.captureState?._tag !== "recording"
-              ) {
-                return current;
-              }
-              const samePage = pageVersion === inspectPageVersionRef.current;
-              if (Result.isFailure(outcome)) {
-                /*
-                  The composer can be closed while the save is in flight, so a
-                  failure reopens it on the unsent draft: an error on a closed
-                  composer would be read by no one.
-                */
-                const unsent = current.inspect.draft.trim() === text;
-                return {
-                  ...current,
-                  inspect: {
-                    ...current.inspect,
-                    composing: current.inspect.composing || unsent,
-                    error: unsent
-                      ? errorMessage(outcome.failure)
-                      : current.inspect.error,
-                    pending: false,
-                  },
-                };
-              }
-              const recorded = outcome.success.data.session;
-              if (recorded.activity !== "teaching") {
-                return current;
-              }
-              return {
-                ...current,
-                inspect: completeInspectComment(
-                  current.inspect,
-                  { frozen, text },
-                  recorded.teaching.instructionCount,
-                  samePage
-                ),
-              };
-            });
-          })
-        )
-      )
+      ).pipe(Effect.map(settle))
     );
+    if (started) {
+      setState((current) => ({
+        ...current,
+        inspect: { ...current.inspect, error: undefined },
+      }));
+    }
   };
 
   /**
@@ -1768,84 +1703,56 @@ const useAgentView = (
     }
     switch (action) {
       case "reject-flow": {
-        runTeachingMutation(
-          Effect.tryPromise({
-            catch: (cause) => cause,
-            try: async () => {
-              const response = await rejectFlowSkill({
-                payload: {
-                  data: {
-                    operationId: OperationId.make(
-                      globalThis.crypto.randomUUID()
-                    ),
-                    recordingId: current.recordingId,
-                  },
-                  type: "agent.teaching.flow.reject",
-                },
-              });
-              setState((previous) => ({
-                ...previous,
-                session:
-                  previous.session?.activity === "teaching"
-                    ? {
-                        ...previous.session,
-                        captureState: response.data.captureState,
-                        recordingCleanup: response.data.cleanup,
-                      }
-                    : previous.session,
-              }));
+        runTeachingMutation(async () => {
+          const response = await rejectFlowSkill({
+            payload: {
+              data: {
+                operationId: OperationId.make(globalThis.crypto.randomUUID()),
+                recordingId: current.recordingId,
+              },
+              type: "agent.teaching.flow.reject",
             },
-          })
-        );
+          });
+          adoptRecordingResponse(current.id, response);
+        });
         return;
       }
       case "rename-flow": {
         const name = (detail ?? "").trim();
+        // A name the catalog would refuse is refused here, in the slot a
+        // refused rename would use, without a request.
         if (!isFlowSkillName(name)) {
-          setState((previous) => ({
-            ...previous,
-            recordingError: describeFlowSkillName(name) ?? flowSkillNameRule,
-          }));
+          recordingGesture.dispatch(
+            Effect.fail(describeFlowSkillName(name) ?? flowSkillNameRule)
+          );
           return;
         }
-        runTeachingMutation(
-          Effect.tryPromise({
-            catch: (cause) => cause,
-            try: () =>
-              renameFlowSkill({
-                payload: {
-                  data: {
-                    name,
-                    operationId: OperationId.make(
-                      globalThis.crypto.randomUUID()
-                    ),
-                    sessionId: current.id,
-                  },
-                  type: "agent.teaching.flow.rename",
-                },
-              }),
-          })
-        );
+        runTeachingMutation(async () => {
+          await renameFlowSkill({
+            payload: {
+              data: {
+                name,
+                operationId: OperationId.make(globalThis.crypto.randomUUID()),
+                sessionId: current.id,
+              },
+              type: "agent.teaching.flow.rename",
+            },
+          });
+        });
         return;
       }
       case "delete-recording": {
-        runTeachingMutation(
-          Effect.tryPromise({
-            catch: (cause) => cause,
-            try: () =>
-              discardTeachingRecording({
-                payload: {
-                  data: {
-                    operationId: OperationId.make(
-                      globalThis.crypto.randomUUID()
-                    ),
-                    sessionId: current.id,
-                  },
-                  type: "agent.teaching.recording.discard",
-                },
-              }),
-          })
-        );
+        runTeachingMutation(async () => {
+          await discardTeachingRecording({
+            payload: {
+              data: {
+                operationId: OperationId.make(globalThis.crypto.randomUUID()),
+                sessionId: current.id,
+              },
+              type: "agent.teaching.recording.discard",
+            },
+          });
+        });
         return;
       }
       default: {
@@ -1882,36 +1789,17 @@ const useAgentView = (
     if (sessionId === null) {
       return;
     }
-    setState((current) => ({
-      ...current,
-      navigationError: undefined,
-      navigationPending: true,
-    }));
-    Effect.runFork(
-      Effect.result(
-        Effect.tryPromise({
-          catch: (cause) => cause,
-          try: () =>
-            navigateBrowser({
-              payload: {
-                data: { action, sessionId },
-                type: "agent.browser.navigate",
-              },
-            }),
-        })
-      ).pipe(
-        Effect.flatMap((outcome) =>
-          Effect.sync(() => {
-            setState((current) => ({
-              ...current,
-              navigationError: Result.isFailure(outcome)
-                ? errorMessage(outcome.failure)
-                : undefined,
-              navigationPending: false,
-            }));
-          })
-        )
-      )
+    navigationGesture.dispatch(
+      Effect.tryPromise({
+        catch: errorMessage,
+        try: () =>
+          navigateBrowser({
+            payload: {
+              data: { action, sessionId },
+              type: "agent.browser.navigate",
+            },
+          }),
+      }).pipe(Effect.asVoid)
     );
   };
 
@@ -1980,9 +1868,7 @@ const useAgentView = (
         nextSession.currentUrl === "about:blank" ? "" : nextSession.currentUrl,
       botProtectionBlock: undefined,
       browserStreamError: undefined,
-      controlError: undefined,
       frameReady: false,
-      navigationError: undefined,
       phase: "switching",
       selectedSessionId: nextSession.id,
       session: nextSession,
@@ -2047,6 +1933,13 @@ const useAgentView = (
     dismissBotProtectionBlock,
     exitInspect,
     freezeInspect,
+    gestures: {
+      comment: commentGesture,
+      control: controlGesture,
+      navigation: navigationGesture,
+      recording: recordingGesture,
+      start: startGesture,
+    },
     highlightComment,
     hoverInspect,
     input,
@@ -2116,9 +2009,9 @@ export const AgentWorkspace = ({
   if (state.phase === "empty") {
     return (
       <EmptyState
-        error={state.startError}
+        error={view.gestures.start.error}
         onOpenSession={view.openSession}
-        pending={state.startPending}
+        pending={view.gestures.start.pending}
         unresolvedSessionId={state.unresolvedSessionId}
       />
     );
@@ -2150,7 +2043,7 @@ export const AgentWorkspace = ({
                 onGesture={view.changeRecording}
                 onSecondary={view.runSecondary}
                 onSelectSession={view.selectSession}
-                pending={state.recordingPending}
+                pending={view.gestures.recording.pending}
                 phase={session.phase}
                 platform={platform}
                 selectedSessionId={state.selectedSessionId}
@@ -2158,8 +2051,8 @@ export const AgentWorkspace = ({
               />
             ) : (
               <RunDock
-                controlError={state.controlError}
-                controlPending={state.controlPending}
+                controlError={view.gestures.control.error}
+                controlPending={view.gestures.control.pending}
                 onControl={view.changeControl}
                 onSelectSession={view.selectSession}
                 selectedSessionId={state.selectedSessionId}
@@ -2170,6 +2063,7 @@ export const AgentWorkspace = ({
             )
           }
           input={view.input}
+          navigation={view.gestures.navigation}
           inspect={
             recording
               ? (canvas) => (
@@ -2188,7 +2082,7 @@ export const AgentWorkspace = ({
             session.activity === "teaching" ? (
               <TeachingRecordingNotices
                 captureState={session.captureState}
-                error={state.recordingError}
+                error={view.gestures.recording.error}
                 recordingId={session.recordingId}
               />
             ) : null
@@ -2214,6 +2108,7 @@ export const AgentWorkspace = ({
           onOpenChange={view.changeComposerOpen}
           onPick={view.pickElement}
           onSubmit={view.submitComment}
+          pending={view.gestures.comment.pending}
           platform={platform}
           startedAt={session.captureState.startedAt}
           state={state.inspect}

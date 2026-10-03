@@ -58,7 +58,6 @@ export interface InspectState {
   readonly highlighted: number | undefined;
   /** Whether inspect is picking an element. */
   readonly open: boolean;
-  readonly pending: boolean;
   /** Whether cancelling a pick goes back to the composer it was started from. */
   readonly returnsToComposer: boolean;
 }
@@ -73,7 +72,6 @@ export const emptyInspectState: InspectState = {
   hovered: undefined,
   nextCommentIndex: 1,
   open: false,
-  pending: false,
   returnsToComposer: false,
 };
 
@@ -138,7 +136,6 @@ export const leavePage = (state: InspectState): InspectState => ({
   composing: state.composing,
   draft: state.draft,
   nextCommentIndex: state.nextCommentIndex,
-  pending: state.pending,
 });
 
 /**
@@ -159,7 +156,7 @@ export const completeInspectComment = (
   const nextCommentIndex = Math.max(state.nextCommentIndex, index + 1);
   const { frozen, text } = sent;
   if (state.draft.trim() !== text) {
-    return { ...state, nextCommentIndex, pending: false };
+    return { ...state, nextCommentIndex };
   }
   return {
     ...state,
@@ -183,6 +180,5 @@ export const completeInspectComment = (
     frozen: undefined,
     highlighted: undefined,
     nextCommentIndex,
-    pending: false,
   };
 };

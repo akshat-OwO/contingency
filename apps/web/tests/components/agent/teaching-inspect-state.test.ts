@@ -26,7 +26,7 @@ const frozen = {
 const text = "Use the express checkout here.";
 
 test("a save completed after navigation consumes its number and clears the sent draft without a pin", () => {
-  const sent = { ...emptyInspectState, draft: text, frozen, pending: true };
+  const sent = { ...emptyInspectState, draft: text, frozen };
   const navigated = leavePage(sent);
   expect(navigated.frozen).toBeUndefined();
   expect(navigated.draft).toBe(text);
@@ -46,7 +46,6 @@ test("a save completed on the same Page pins the element and closes the composer
       composing: true,
       draft: text,
       frozen,
-      pending: true,
     },
     { frozen, text },
     5,
@@ -57,13 +56,12 @@ test("a save completed on the same Page pins the element and closes the composer
     composing: false,
     draft: "",
     frozen: undefined,
-    pending: false,
   });
 });
 
 test("a page comment clears the composer without a pin", () => {
   const completed = completeInspectComment(
-    { ...emptyInspectState, composing: true, draft: text, pending: true },
+    { ...emptyInspectState, composing: true, draft: text },
     { frozen: undefined, text },
     1,
     true
@@ -73,22 +71,20 @@ test("a page comment clears the composer without a pin", () => {
   expect(completed.nextCommentIndex).toBe(2);
 });
 
-test("a save whose draft was replaced clears pending and keeps the current editor", () => {
+test("a save whose draft was replaced keeps the current editor", () => {
   const current = {
     ...emptyInspectState,
     composing: true,
     draft: "A different comment",
-    pending: true,
   };
   expect(completeInspectComment(current, { frozen, text }, 2, true)).toEqual({
     ...current,
     nextCommentIndex: 3,
-    pending: false,
   });
 });
 
 test("an older save response cannot roll marker numbering backward", () => {
-  const current = { ...emptyInspectState, nextCommentIndex: 8, pending: true };
+  const current = { ...emptyInspectState, nextCommentIndex: 8 };
   expect(
     completeInspectComment(current, { frozen, text }, 3, false).nextCommentIndex
   ).toBe(8);
@@ -97,7 +93,7 @@ test("an older save response cannot roll marker numbering backward", () => {
 test("the pin keeps the document position from selection even if scrolling continues before save", () => {
   const selection = { ...frozen, scrollOffsetX: 50, scrollOffsetY: 200 };
   const completed = completeInspectComment(
-    { ...emptyInspectState, draft: text, frozen: selection, pending: true },
+    { ...emptyInspectState, draft: text, frozen: selection },
     { frozen: selection, text },
     1,
     true

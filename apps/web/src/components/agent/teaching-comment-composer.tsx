@@ -150,6 +150,7 @@ export const CommentComposer = ({
   onOpenChange,
   onPick,
   onSubmit,
+  pending,
   platform,
   startedAt,
   state,
@@ -162,13 +163,15 @@ export const CommentComposer = ({
   readonly onOpenChange: (open: boolean) => void;
   readonly onPick: () => void;
   readonly onSubmit: () => void;
+  /** A save is in flight, so the composer is read-only until it answers. */
+  readonly pending: boolean;
   readonly platform: ShortcutPlatform;
   readonly startedAt: string;
   readonly state: InspectState;
 }) => {
   const field = useRef<HTMLTextAreaElement>(null);
   const attached = state.frozen;
-  const canSubmit = !state.pending && state.draft.trim() !== "";
+  const canSubmit = !pending && state.draft.trim() !== "";
   const pinned = new Set(state.comments.map((comment) => comment.index));
   return (
     <Dialog onOpenChange={onOpenChange} open={state.composing}>
@@ -197,7 +200,7 @@ export const CommentComposer = ({
                 <Button
                   aria-label="Remove attached element"
                   className="hover:bg-blue-500/15"
-                  disabled={state.pending}
+                  disabled={pending}
                   onClick={onDetach}
                   size="icon-xs"
                   type="button"
@@ -234,7 +237,7 @@ export const CommentComposer = ({
                   ? "What should the agent know about this moment?"
                   : "What should change here?"
               }
-              readOnly={state.pending}
+              readOnly={pending}
               ref={field}
               rows={1}
               value={state.draft}
@@ -242,7 +245,7 @@ export const CommentComposer = ({
           </div>
           <div className="flex items-center gap-2 px-3 pb-3">
             <Button
-              disabled={state.pending}
+              disabled={pending}
               onClick={onPick}
               size="sm"
               type="button"

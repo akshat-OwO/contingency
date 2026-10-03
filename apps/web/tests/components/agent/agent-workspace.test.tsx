@@ -49,7 +49,16 @@ const rpc = vi.hoisted(() => ({
   startedSession: {} satisfies unknown,
   stopRecordingCalls: [] satisfies unknown[],
   takeoverCalls: [] satisfies unknown[],
+  takeoverFailure: undefined satisfies unknown,
+  /* A Takeover settles only once the test opens this gate. */
+  takeoverGate: Promise.resolve(true),
+  /* How many Takeovers have answered, so a test can wait for one to land. */
+  takeoverSettled: 0,
   verifyFailure: undefined satisfies unknown,
+  /* A verification settles only once the test opens this gate. */
+  verifyGate: Promise.resolve(true),
+  verifyResponse: {} satisfies unknown,
+  verifySettled: 0,
 }));
 
 /** The draft review is not what this test reads, so its revision never lands. */
@@ -87,8 +96,19 @@ const rpcOverrides = {
   agentTakeoverMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
-      return {};
-    })
+    }).pipe(
+      Effect.andThen(Effect.promise(() => rpc.takeoverGate)),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          rpc.takeoverSettled += 1;
+        })
+      ),
+      Effect.andThen(
+        rpc.takeoverFailure === undefined
+          ? Effect.succeed({})
+          : Effect.fail(rpc.takeoverFailure)
+      )
+    )
   ),
   agentTeachingFlowRenameMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -97,7 +117,16 @@ const rpcOverrides = {
     })
   ),
   agentTeachingFlowVerifyMutation: Atom.fn(() =>
-    Effect.fail(rpc.verifyFailure)
+    rpc.verifyFailure === undefined
+      ? Effect.promise(() => rpc.verifyGate).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              rpc.verifySettled += 1;
+              return rpc.verifyResponse;
+            })
+          )
+        )
+      : Effect.fail(rpc.verifyFailure)
   ),
   agentTeachingInstructionRecordMutation: Atom.fn(
     <Payload,>(payload: Payload) =>
@@ -298,7 +327,13 @@ afterEach(() => {
   rpc.startRecordingCalls = [];
   rpc.stopRecordingCalls = [];
   rpc.takeoverCalls = [];
+  rpc.takeoverFailure = undefined;
+  rpc.takeoverGate = Promise.resolve(true);
+  rpc.takeoverSettled = 0;
   rpc.verifyFailure = undefined;
+  rpc.verifyGate = Promise.resolve(true);
+  rpc.verifyResponse = {};
+  rpc.verifySettled = 0;
   rpc.instructionFailure = undefined;
   rpc.instructionGate = Promise.resolve(true);
 });
@@ -1412,4 +1447,163 @@ test("names the gesture when a refusal carries no readable message", async () =>
     )
   ).toBeVisible();
   expect(screen.queryByText("[object Object]")).toBeNull();
+});
+
+const otherRunSession = {
+  ...session,
+  id: "agent-two",
+  viewUrl: "http://127.0.0.1:7777/?session=agent-two",
+} satisfies unknown;
+
+test("keeps a Takeover's pending state and failure with the session it was asked for", async () => {
+  const user = userEvent.setup();
+  rpc.takeoverFailure = new Error("The agent session refused the Takeover.");
+  const gate = Promise.withResolvers<boolean>();
+  rpc.takeoverGate = gate.promise;
+  renderWorkspace(resultFor([session, otherRunSession]), session.id);
+  const takeControl = await screen.findByRole("button", {
+    name: "Take control",
+  });
+  await user.click(takeControl);
+  await waitFor(() => {
+    expect(takeControl).toBeDisabled();
+  });
+
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Agent Session" }),
+    otherRunSession.id
+  );
+  const otherControl = await screen.findByRole("button", {
+    name: "Take control",
+  });
+  await waitFor(() => {
+    expect(otherControl).toBeEnabled();
+  });
+
+  gate.resolve(true);
+  // The failure belongs to the first session, so the second never shows it.
+  await waitFor(() => {
+    expect(rpc.takeoverSettled).toBe(1);
+  });
+  expect(
+    screen.queryByText("The agent session refused the Takeover.")
+  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Take control" })).toBeEnabled();
+
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Agent Session" }),
+    session.id
+  );
+  expect(
+    await screen.findByText("The agent session refused the Takeover.")
+  ).toBeVisible();
+});
+
+test("ignores a repeated Takeover while one is in flight, and clears its failure on retry", async () => {
+  const user = userEvent.setup();
+  rpc.takeoverFailure = new Error("The agent session refused the Takeover.");
+  const gate = Promise.withResolvers<boolean>();
+  rpc.takeoverGate = gate.promise;
+  renderWorkspace(resultFor([session]), session.id);
+  const takeControl = await screen.findByRole("button", {
+    name: "Take control",
+  });
+  // Two clicks before the first render can disable the button.
+  takeControl.click();
+  takeControl.click();
+  gate.resolve(true);
+  expect(
+    await screen.findByText("The agent session refused the Takeover.")
+  ).toBeVisible();
+  expect(rpc.takeoverCalls).toHaveLength(1);
+
+  const retry = Promise.withResolvers<boolean>();
+  rpc.takeoverGate = retry.promise;
+  await user.click(screen.getByRole("button", { name: "Take control" }));
+  await waitFor(() => {
+    expect(
+      screen.queryByText("The agent session refused the Takeover.")
+    ).toBeNull();
+  });
+  retry.resolve(true);
+});
+
+test("shows a Takeover's outcome after the Workspace remounts mid-request", async () => {
+  const user = userEvent.setup();
+  const consoleError = vi.spyOn(console, "error");
+  rpc.takeoverFailure = new Error("The agent session refused the Takeover.");
+  const gate = Promise.withResolvers<boolean>();
+  rpc.takeoverGate = gate.promise;
+  rpc.sessionsResult = resultFor([session]);
+  const workspace = (mounted: boolean) => (
+    <TestRegistry>
+      {mounted ? <AgentWorkspace requestedSessionId={session.id} /> : null}
+    </TestRegistry>
+  );
+  const { rerender } = render(workspace(true));
+  await user.click(await screen.findByRole("button", { name: "Take control" }));
+  await waitFor(() => {
+    expect(rpc.takeoverCalls).toHaveLength(1);
+  });
+
+  rerender(workspace(false));
+  gate.resolve(true);
+  await waitFor(() => {
+    expect(rpc.takeoverSettled).toBe(1);
+  });
+  rerender(workspace(true));
+
+  expect(
+    await screen.findByText("The agent session refused the Takeover.")
+  ).toBeVisible();
+  expect(consoleError).not.toHaveBeenCalled();
+});
+
+test("applies a verification only to the Teaching session it was asked for", async () => {
+  const user = userEvent.setup();
+  const otherDryRunPassed = {
+    ...dryRunPassedSession,
+    flowSkillName: "remove-anvil",
+    id: "agent-two",
+    recordingId: "recording-remove-anvil",
+  } satisfies unknown;
+  const gate = Promise.withResolvers<boolean>();
+  rpc.verifyGate = gate.promise;
+  rpc.verifyResponse = {
+    data: {
+      captureState: {
+        ...dryRunFailedSession.captureState,
+        _tag: "verified",
+        verifiedAt: "2026-08-31T00:00:09.000Z",
+      },
+      cleanup: null,
+    },
+    type: "agent.teaching.flow.verified",
+  };
+  renderWorkspace(
+    resultFor([dryRunPassedSession, otherDryRunPassed]),
+    session.id
+  );
+  await user.click(await screen.findByRole("button", { name: "Verify flow" }));
+
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Agent Session" }),
+    otherDryRunPassed.id
+  );
+  const otherVerify = await screen.findByRole("button", {
+    name: "Verify flow",
+  });
+  // The first session's verification is in flight, not this session's.
+  await waitFor(() => {
+    expect(otherVerify).toBeEnabled();
+  });
+
+  gate.resolve(true);
+  await waitFor(() => {
+    expect(rpc.verifySettled).toBe(1);
+  });
+  expect(screen.getByRole("button", { name: "Verify flow" })).toBeEnabled();
+  expect(screen.getByRole("combobox", { name: "Agent Session" })).toHaveValue(
+    otherDryRunPassed.id
+  );
 });
