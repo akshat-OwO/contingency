@@ -5,10 +5,12 @@ import type {
 } from "@contingency/protocol";
 import { make as makeScopedAtom, useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { MapPinIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
+import { SegmentedControl } from "@/components/browser/segmented-control";
+import type { SegmentedOption } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,11 +21,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -78,6 +75,20 @@ const decisionLabels = (
 };
 
 type LocationScope = "context" | "origin";
+
+type ColorSchemeChoice = "dark" | "light" | "none";
+
+const colorSchemeOptions: readonly SegmentedOption<ColorSchemeChoice>[] = [
+  { label: "No preference", value: "none" },
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" },
+];
+
+const SectionLabel = ({ children }: { readonly children: string }) => (
+  <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+    {children}
+  </h2>
+);
 
 interface PendingLocation {
   readonly geolocation: {
@@ -291,7 +302,7 @@ export type SessionEmulationState =
   | { readonly status: "unknown" }
   | { readonly status: "known"; readonly emulation: SessionEmulation };
 
-interface EmulationPickerProps {
+interface EmulationPanelProps {
   /** The Emulation the session applies, once the interface has read it. */
   readonly applied: SessionEmulationState;
   /** The active Page's HTTP origin, when the Workspace has one. */
@@ -356,7 +367,7 @@ const PermissionControls = ({
 
   return (
     <section className="space-y-1.5">
-      <h2 className="text-sm font-medium">Permissions</h2>
+      <SectionLabel>Permissions</SectionLabel>
       {unknown ? (
         <p className="text-muted-foreground text-xs">
           Permission decisions are unavailable for this session.
@@ -462,13 +473,17 @@ const PermissionControls = ({
   );
 };
 
-const EmulationPickerContent = ({
+const EmulationPanelContent = ({
   applied,
   currentOrigin,
   disabled,
   onPatch,
-}: EmulationPickerProps) => {
-  const [colorScheme, setColorScheme] = useState("");
+}: EmulationPanelProps) => {
+  const [colorScheme, setColorScheme] = useState<ColorSchemeChoice>(
+    applied.status === "known"
+      ? (applied.emulation.colorScheme ?? "none")
+      : "none"
+  );
   const [latitude, setLatitude] = useState("");
   const [locale, setLocale] = useState("");
   const [longitude, setLongitude] = useState("");
@@ -570,168 +585,130 @@ const EmulationPickerContent = ({
     onPatch({ timezoneId: trimmed.length === 0 ? null : trimmed });
   };
 
-  const applyColorScheme = (value: string) => {
+  const applyColorScheme = (value: ColorSchemeChoice) => {
     setColorScheme(value);
-    if (value === "light" || value === "dark") {
-      onPatch({ colorScheme: value });
-    } else {
-      onPatch({ colorScheme: null });
-    }
+    onPatch({ colorScheme: value === "none" ? null : value });
   };
 
   return (
     <>
-      <Popover>
-        <PopoverTrigger
-          render={(props) => (
-            <Button
-              {...props}
-              aria-label="Emulation"
-              disabled={disabled}
-              size="sm"
-              variant="outline"
-            >
-              <MapPinIcon />
-              <span className="hidden xl:inline">Emulation</span>
-            </Button>
+      <div className="space-y-5">
+        <section className="space-y-1.5">
+          <SectionLabel>Location</SectionLabel>
+          {appliedLocation === undefined ? null : (
+            <p className="text-muted-foreground text-xs tabular-nums">
+              Applied: {appliedLocation.latitude}, {appliedLocation.longitude}
+            </p>
           )}
-        />
-        <PopoverContent align="start" className="w-80 gap-3">
-          <section className="space-y-1.5">
-            <h2 className="text-sm font-medium">Location</h2>
+          <div className="flex items-center gap-1.5">
+            <Input
+              aria-label="Latitude"
+              className="h-7 flex-1 text-center tabular-nums"
+              disabled={disabled}
+              inputMode="decimal"
+              onChange={(event) => setLatitude(event.target.value)}
+              placeholder="Latitude"
+              value={latitude}
+            />
+            <span aria-hidden="true" className="text-muted-foreground text-sm">
+              ,
+            </span>
+            <Input
+              aria-label="Longitude"
+              className="h-7 flex-1 text-center tabular-nums"
+              disabled={disabled}
+              inputMode="decimal"
+              onChange={(event) => setLongitude(event.target.value)}
+              placeholder="Longitude"
+              value={longitude}
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              disabled={disabled}
+              onClick={applyLocation}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Apply
+            </Button>
+            <Button
+              disabled={disabled}
+              onClick={useCurrentLocation}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Use my location
+            </Button>
             {appliedLocation === undefined ? null : (
-              <p className="text-muted-foreground text-xs tabular-nums">
-                Applied: {appliedLocation.latitude}, {appliedLocation.longitude}
-              </p>
-            )}
-            <div className="flex items-center gap-1.5">
-              <Input
-                aria-label="Latitude"
-                className="h-7 flex-1 text-center tabular-nums"
-                disabled={disabled}
-                inputMode="decimal"
-                onChange={(event) => setLatitude(event.target.value)}
-                placeholder="Latitude"
-                value={latitude}
-              />
-              <span
-                aria-hidden="true"
-                className="text-muted-foreground text-sm"
-              >
-                ,
-              </span>
-              <Input
-                aria-label="Longitude"
-                className="h-7 flex-1 text-center tabular-nums"
-                disabled={disabled}
-                inputMode="decimal"
-                onChange={(event) => setLongitude(event.target.value)}
-                placeholder="Longitude"
-                value={longitude}
-              />
-            </div>
-            <div className="flex items-center gap-1.5">
               <Button
                 disabled={disabled}
-                onClick={applyLocation}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                Apply
-              </Button>
-              <Button
-                disabled={disabled}
-                onClick={useCurrentLocation}
+                onClick={clearLocation}
                 size="sm"
                 type="button"
                 variant="ghost"
               >
-                Use my location
+                Clear
               </Button>
-              {appliedLocation === undefined ? null : (
-                <Button
-                  disabled={disabled}
-                  onClick={clearLocation}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Clear
-                </Button>
-              )}
-            </div>
-          </section>
+            )}
+          </div>
+        </section>
 
-          <PermissionControls
-            applied={appliedEmulation?.permissions}
-            disabled={disabled}
-            onPatch={onPatch}
-          />
+        <PermissionControls
+          applied={appliedEmulation?.permissions}
+          disabled={disabled}
+          onPatch={onPatch}
+        />
 
-          <section className="space-y-1.5">
-            <h2 className="text-sm font-medium">Environment</h2>
-            <div className="flex items-center gap-1.5">
-              <Input
-                aria-label="Locale"
-                className="h-7 flex-1"
-                disabled={disabled}
-                onBlur={applyLocale}
-                onChange={(event) => setLocale(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
-                placeholder="Locale (de-DE)"
-                value={locale}
-              />
-              <Input
-                aria-label="Time zone"
-                className="h-7 flex-1"
-                disabled={disabled}
-                onBlur={applyTimezone}
-                onChange={(event) => setTimezoneId(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
-                placeholder="Time zone (Europe/Berlin)"
-                value={timezoneId}
-              />
-            </div>
-            <Select
+        <section className="space-y-1.5">
+          <SectionLabel>Environment</SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <Input
+              aria-label="Locale"
+              className="h-7 flex-1"
               disabled={disabled}
-              onValueChange={(value) => {
-                if (value !== null) {
-                  applyColorScheme(value);
+              onBlur={applyLocale}
+              onChange={(event) => setLocale(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
                 }
               }}
-              value={colorScheme}
-            >
-              <SelectTrigger
-                aria-label="Colour scheme"
-                className="w-full"
-                size="sm"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                <SelectItem value="">No preference</SelectItem>
-                <SelectItem value="light">Light</SelectItem>
-                <SelectItem value="dark">Dark</SelectItem>
-              </SelectContent>
-            </Select>
-          </section>
+              placeholder="Locale (de-DE)"
+              value={locale}
+            />
+            <Input
+              aria-label="Time zone"
+              className="h-7 flex-1"
+              disabled={disabled}
+              onBlur={applyTimezone}
+              onChange={(event) => setTimezoneId(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              placeholder="Time zone (Europe/Berlin)"
+              value={timezoneId}
+            />
+          </div>
+          <SegmentedControl
+            disabled={disabled}
+            label="Colour scheme"
+            onChange={applyColorScheme}
+            options={colorSchemeOptions}
+            value={colorScheme}
+          />
+        </section>
 
-          {validationError === undefined ? null : (
-            <p className="text-destructive text-xs" role="alert">
-              {validationError}
-            </p>
-          )}
-        </PopoverContent>
-      </Popover>
+        {validationError === undefined ? null : (
+          <p className="text-destructive text-xs" role="alert">
+            {validationError}
+          </p>
+        )}
+      </div>
       {pendingLocation === null ? null : (
         <LocationPermissionDialog
           key={`${pendingLocation.origin ?? "context"}-${pendingLocation.geolocation.latitude}-${pendingLocation.geolocation.longitude}`}
@@ -744,10 +721,15 @@ const EmulationPickerContent = ({
   );
 };
 
-const EmulationPicker = (props: EmulationPickerProps) => (
+/**
+ * Every Emulation control the author decides by hand: location, website
+ * permissions, and the environment a page reads. It renders as a surface of
+ * its own, so the inspector rail can open it beside the live browser.
+ */
+const EmulationPanel = (props: EmulationPanelProps) => (
   <PendingLocationAtom.Provider>
-    <EmulationPickerContent {...props} />
+    <EmulationPanelContent {...props} />
   </PendingLocationAtom.Provider>
 );
 
-export { EmulationPicker };
+export { EmulationPanel };

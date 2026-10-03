@@ -28,7 +28,6 @@ import {
   LoaderCircleIcon,
   LockKeyholeIcon,
   RotateCwIcon,
-  SlidersHorizontalIcon,
 } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -83,7 +82,8 @@ import type {
   TeachingSecondaryAction,
 } from "@/components/agent/teaching-recording-state";
 import { gestureFailureMessage } from "@/components/agent/teaching-recording-state";
-import { WorkspaceBrowserSetup } from "@/components/agent/workspace-browser-setup";
+import { useCanvasBox } from "@/components/agent/use-canvas-box";
+import { WorkspaceBrowserStage } from "@/components/agent/workspace-browser-stage";
 import { DockNotices } from "@/components/agent/workspace-dock";
 import {
   commentGestureAtom,
@@ -359,6 +359,31 @@ const SwitchingState = () => (
   </div>
 );
 
+/**
+ * How large the frame is drawn against the viewport the Page lays out at. The
+ * stage scales the frame to fit rather than resizing the Page, so this is the
+ * one number that changes when the inspector takes room.
+ */
+const StageZoom = ({
+  canvas,
+}: {
+  readonly canvas: HTMLCanvasElement | null;
+}) => {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const { scale } = useCanvasBox(canvas, container);
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0"
+      ref={setContainer}
+    >
+      <span className="bg-background/80 text-muted-foreground absolute top-0 right-0 rounded-full border px-2 py-0.5 text-xs tabular-nums shadow-xs backdrop-blur transition-opacity">
+        {Math.round(scale * 100)}%
+      </span>
+    </div>
+  );
+};
+
 const AgentBrowserCanvas = ({
   agentCursor,
   canvasRef,
@@ -392,7 +417,7 @@ const AgentBrowserCanvas = ({
         wide enough that no part of the browser, and nothing inspect opens over
         it, ends up underneath the dock.
       */
-      className={`bg-muted/20 relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2${
+      className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3${
         dockedBelow ? " pb-24" : ""
       }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
     >
@@ -445,6 +470,7 @@ const AgentBrowserCanvas = ({
           style={{ display: frameReady ? "block" : "none" }}
           tabIndex={readOnly ? undefined : 0}
         />
+        {frameReady ? <StageZoom canvas={canvas} /> : null}
         {inspect?.(canvas)}
         {agentCursor(canvas)}
       </div>
@@ -459,9 +485,7 @@ const AgentBrowserToolbar = ({
   onAddressChange,
   onAddressSubmit,
   onNavigate,
-  onToggleSetup,
   readOnly,
-  setupOpen,
 }: {
   readonly address: string;
   readonly navigationError: string | undefined;
@@ -469,9 +493,7 @@ const AgentBrowserToolbar = ({
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
-  readonly onToggleSetup: () => void;
   readonly readOnly: boolean;
-  readonly setupOpen: boolean;
 }) => (
   <>
     <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
@@ -538,21 +560,6 @@ const AgentBrowserToolbar = ({
         </InputGroup>
       </form>
       {/*
-        Browser setup belongs beside the browser it configures: Emulation,
-        storage, and network inspection for the MCP-owned browser this session
-        holds (ADR 0038).
-      */}
-      <Button
-        aria-label="Browser setup"
-        aria-pressed={setupOpen}
-        onClick={onToggleSetup}
-        size="icon-sm"
-        type="button"
-        variant={setupOpen ? "secondary" : "ghost"}
-      >
-        <SlidersHorizontalIcon />
-      </Button>
-      {/*
         The theme control lives on the browser chrome rather than in a second
         header band: a live Workspace has no app header to hold it (#209).
       */}
@@ -585,7 +592,6 @@ const AgentLiveView = ({
   notices,
   onDismissBotProtectionBlock,
   onNavigate,
-  onToggleSetup,
   recording,
   session,
   state,
@@ -606,7 +612,6 @@ const AgentLiveView = ({
   readonly onClearConsole: () => void;
   readonly onDismissBotProtectionBlock: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
-  readonly onToggleSetup: () => void;
   readonly recording: boolean;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
@@ -632,44 +637,42 @@ const AgentLiveView = ({
         onAddressChange={onAddressChange}
         onAddressSubmit={onAddressSubmit}
         onNavigate={onNavigate}
-        onToggleSetup={onToggleSetup}
         readOnly={readOnly}
-        setupOpen={state.setupOpen}
       />
       {/*
         Browser setup stays available in every state, recording included: the
         device, the Emulation, and the storage a journey needs are part of the
-        setup the recording runs under (ADR 0038).
+        setup the recording runs under (ADR 0038). The stage owns the column,
+        so the dock and its notices float over the frame rather than over the
+        docked inspector.
       */}
-      <WorkspaceBrowserSetup
-        chromeOnly={!state.setupOpen}
+      <WorkspaceBrowserStage
         consoleEntries={state.consoleEntries}
         onClearConsole={onClearConsole}
-        onClose={onToggleSetup}
         sessionId={session.id}
         teaching={session.activity === "teaching"}
         userHoldsBrowser={!readOnly}
-      />
-      <AgentBrowserCanvas
-        agentCursor={(canvas) => (
-          <AgentCursor
-            canvas={canvas}
-            // A session's cursor starts where its own agent last pointed.
-            key={session.id}
-            pointer={state.agentPointer}
-            projection={state.frameProjection}
-            visible={session.controller === "agent"}
-          />
-        )}
-        canvasRef={canvasRef}
-        dockedBelow
-        frameReady={state.frameReady}
-        input={input}
-        inspect={inspect}
-        readOnly={readOnly}
-        recording={recording}
-      />
-      {/*
+      >
+        <AgentBrowserCanvas
+          agentCursor={(canvas) => (
+            <AgentCursor
+              canvas={canvas}
+              // A session's cursor starts where its own agent last pointed.
+              key={session.id}
+              pointer={state.agentPointer}
+              projection={state.frameProjection}
+              visible={session.controller === "agent"}
+            />
+          )}
+          canvasRef={canvasRef}
+          dockedBelow
+          frameReady={state.frameReady}
+          input={input}
+          inspect={inspect}
+          readOnly={readOnly}
+          recording={recording}
+        />
+        {/*
         What the dock cannot hold floats over the browser instead: a stream
         failure, the action Takeover interrupted, and a paused Execution
         Boundary. The Boundary is answered in the agent conversation, so it is
@@ -677,48 +680,52 @@ const AgentLiveView = ({
         than presented as a rollback: Contingency cannot undo a dispatched
         effect.
       */}
-      {showsNotices ? (
-        <DockNotices>
-          <>
-            {notices}
-            {state.browserStreamError === undefined ? null : (
-              <Alert variant="destructive">
-                <CircleAlertIcon aria-hidden="true" />
-                <AlertTitle>Browser stream unavailable</AlertTitle>
-                <AlertDescription>{state.browserStreamError}</AlertDescription>
-              </Alert>
-            )}
-            {state.botProtectionBlock === undefined ? null : (
-              <BotProtectionNotice
-                block={state.botProtectionBlock}
-                onDismiss={onDismissBotProtectionBlock}
-              />
-            )}
-            {session.interruptedAction === null ? null : (
-              <Alert variant="destructive">
-                <CircleAlertIcon aria-hidden="true" />
-                <AlertTitle>
-                  {session.interruptedAction.description} was already dispatched
-                </AlertTitle>
-                <AlertDescription>
-                  {session.interruptedAction.detail ??
-                    "Takeover interrupted this action. The browser may already have performed it."}
-                </AlertDescription>
-              </Alert>
-            )}
-            <ExecutionBoundary session={session} />
-            <RuntimeVariables session={session} />
-            <SetupVariables session={session} />
-            {secretVariables.length > 0 ? (
-              <DryRunVariables
-                sessionId={session.id}
-                variables={secretVariables}
-              />
-            ) : null}
-          </>
-        </DockNotices>
-      ) : null}
-      {dock}
+        {showsNotices ? (
+          <DockNotices>
+            <>
+              {notices}
+              {state.browserStreamError === undefined ? null : (
+                <Alert variant="destructive">
+                  <CircleAlertIcon aria-hidden="true" />
+                  <AlertTitle>Browser stream unavailable</AlertTitle>
+                  <AlertDescription>
+                    {state.browserStreamError}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {state.botProtectionBlock === undefined ? null : (
+                <BotProtectionNotice
+                  block={state.botProtectionBlock}
+                  onDismiss={onDismissBotProtectionBlock}
+                />
+              )}
+              {session.interruptedAction === null ? null : (
+                <Alert variant="destructive">
+                  <CircleAlertIcon aria-hidden="true" />
+                  <AlertTitle>
+                    {session.interruptedAction.description} was already
+                    dispatched
+                  </AlertTitle>
+                  <AlertDescription>
+                    {session.interruptedAction.detail ??
+                      "Takeover interrupted this action. The browser may already have performed it."}
+                  </AlertDescription>
+                </Alert>
+              )}
+              <ExecutionBoundary session={session} />
+              <RuntimeVariables session={session} />
+              <SetupVariables session={session} />
+              {secretVariables.length > 0 ? (
+                <DryRunVariables
+                  sessionId={session.id}
+                  variables={secretVariables}
+                />
+              ) : null}
+            </>
+          </DockNotices>
+        ) : null}
+        {dock}
+      </WorkspaceBrowserStage>
       {state.phase === "switching" ? <SwitchingState /> : null}
     </main>
   );
@@ -1881,10 +1888,6 @@ const useAgentView = (
     setState((current) => ({ ...current, botProtectionBlock: undefined }));
   };
 
-  const toggleSetup = () => {
-    setState((current) => ({ ...current, setupOpen: !current.setupOpen }));
-  };
-
   return {
     canvasRef,
     changeComposerOpen,
@@ -1919,7 +1922,6 @@ const useAgentView = (
     state,
     submitAddress,
     submitComment,
-    toggleSetup,
   };
 };
 
@@ -2054,7 +2056,6 @@ export const AgentWorkspace = ({
           onClearConsole={view.clearConsole}
           onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
           onNavigate={view.navigate}
-          onToggleSetup={view.toggleSetup}
           recording={recording}
           session={session}
           state={state}

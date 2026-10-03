@@ -16,9 +16,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import {
+  ArrowLeftIcon,
   CircleAlertIcon,
   CircleXIcon,
   LoaderCircleIcon,
+  PanelBottomIcon,
+  PanelRightIcon,
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
@@ -26,6 +29,16 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  consoleErrorCount,
+  devtoolsPanelTitles,
+  isConsoleError,
+  isConsoleWarning,
+} from "@/components/browser/browser-devtools-panels";
+import type {
+  DevtoolsDockSide,
+  DevtoolsPanel,
+} from "@/components/browser/browser-devtools-panels";
 import { BrowserStoragePanel } from "@/components/browser/browser-storage-panel";
 import type { StoragePanelUiState } from "@/components/browser/browser-storage-panel";
 import {
@@ -39,12 +52,12 @@ import type {
 } from "@/components/browser/browser-storage-state";
 import type { BrowserTooling } from "@/components/browser/browser-tooling";
 import { HighlightedCode } from "@/components/browser/highlighted-code";
+import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type DevtoolsTab = "console" | "network" | "storage";
+type ConsoleFilter = "all" | "error" | "log" | "warning";
 type NetworkDetailTab = "headers" | "payload" | "response";
 type NetworkFilter =
   | "all"
@@ -60,6 +73,7 @@ type NetworkFilter =
 
 export interface BrowserDevtoolsProps {
   readonly consoleEntries: readonly BrowserConsoleEntry[];
+  readonly dockSide: DevtoolsDockSide;
   readonly mutationsLocked: boolean;
   readonly networkRequests: readonly BrowserNetworkRequest[];
   readonly onClearConsole: () => void;
@@ -67,6 +81,8 @@ export interface BrowserDevtoolsProps {
   readonly onClose: () => void;
   readonly onError: (message: string) => void;
   readonly onRefreshNetwork: () => void;
+  readonly onToggleDockSide: () => void;
+  readonly panel: DevtoolsPanel;
   readonly refreshingNetwork: boolean;
   readonly tooling: BrowserTooling;
   readonly tabId: BrowserTabId;
@@ -74,10 +90,13 @@ export interface BrowserDevtoolsProps {
   readonly tabUrl: string;
 }
 
-const detailTabs: readonly NetworkDetailTab[] = [
-  "headers",
-  "payload",
-  "response",
+const detailTabs: readonly {
+  readonly label: string;
+  readonly value: NetworkDetailTab;
+}[] = [
+  { label: "Headers", value: "headers" },
+  { label: "Payload", value: "payload" },
+  { label: "Response", value: "response" },
 ];
 
 const networkFilters: readonly {
@@ -97,6 +116,8 @@ const networkFilters: readonly {
 ];
 
 interface DevtoolsUiState {
+  readonly consoleFilter: ConsoleFilter;
+  readonly consoleQuery: string;
   readonly detail: BrowserNetworkRequestDetail | undefined;
   readonly detailLoading: boolean;
   readonly detailTab: NetworkDetailTab;
@@ -111,11 +132,12 @@ interface DevtoolsUiState {
   readonly storageSearch: string;
   readonly storageSelection: StorageSelection | undefined;
   readonly storageSnapshots: StorageSnapshots;
-  readonly tab: DevtoolsTab;
 }
 
 const devtoolsUiStateAtoms = Atom.family(() =>
   Atom.make<DevtoolsUiState>({
+    consoleFilter: "all",
+    consoleQuery: "",
     detail: undefined,
     detailLoading: false,
     detailTab: "headers",
@@ -123,7 +145,6 @@ const devtoolsUiStateAtoms = Atom.family(() =>
     networkQuery: "",
     selectedRequestId: undefined,
     storageRefreshNonce: 0,
-    tab: "console",
     ...initialStoragePanelUiState,
   })
 );
@@ -152,29 +173,64 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 const formatTime = (timestamp: number): string =>
   timeFormatter.format(timestamp);
 
-const statusClassName = (status: number | undefined): string => {
-  if (status === undefined) {
-    return "text-muted-foreground";
+const consoleMatchesFilter = (
+  entry: BrowserConsoleEntry,
+  filter: ConsoleFilter
+): boolean => {
+  if (filter === "error") {
+    return isConsoleError(entry);
   }
-  if (status >= 400) {
-    return "text-destructive";
+  if (filter === "warning") {
+    return isConsoleWarning(entry);
   }
-  if (status >= 300) {
-    return "text-amber-600 dark:text-amber-400";
+  if (filter === "log") {
+    return !isConsoleError(entry) && !isConsoleWarning(entry);
   }
-  return "text-emerald-600 dark:text-emerald-400";
+  return true;
 };
 
+const statusTone = (status: number | undefined): string => {
+  if (status === undefined) {
+    return "bg-muted text-muted-foreground";
+  }
+  if (status >= 400) {
+    return "bg-destructive/10 text-destructive";
+  }
+  if (status >= 300) {
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+  return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+};
+
+const StatusPill = ({ status }: { readonly status: number | undefined }) => (
+  <span
+    className={cn(
+      "inline-block rounded px-1.5 py-px font-mono text-xs font-medium tabular-nums",
+      statusTone(status)
+    )}
+  >
+    {status ?? "…"}
+  </span>
+);
+
 const renderConsoleIcon = (entry: BrowserConsoleEntry) => {
-  if (entry.type === "page_error" || entry.level === "error") {
+  if (isConsoleError(entry)) {
     return <CircleXIcon className="text-destructive mt-0.5 size-3.5" />;
   }
-  if (entry.level === "warning" || entry.level === "warn") {
-    return (
-      <CircleAlertIcon className="mt-0.5 size-3.5 text-amber-600 dark:text-amber-400" />
-    );
+  if (isConsoleWarning(entry)) {
+    return <CircleAlertIcon className="mt-0.5 size-3.5 text-amber-500" />;
   }
-  return <span className="text-muted-foreground mt-0.5 w-3.5">›</span>;
+  return <span className="text-muted-foreground/60 mt-px w-3.5">›</span>;
+};
+
+const consoleRowTone = (entry: BrowserConsoleEntry): string | undefined => {
+  if (isConsoleError(entry)) {
+    return "bg-destructive/[0.06] text-destructive dark:bg-destructive/10";
+  }
+  if (isConsoleWarning(entry)) {
+    return "bg-amber-500/[0.07] text-amber-800 dark:text-amber-300";
+  }
+  return undefined;
 };
 
 const requestName = (url: string): string => {
@@ -255,15 +311,44 @@ const renderHighlightedText = (
   return <HighlightedCode tokens={tokens} />;
 };
 
+const SectionLabel = ({ children }: { readonly children: string }) => (
+  <h3 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+    {children}
+  </h3>
+);
+
+const SearchField = ({
+  label,
+  onChange,
+  placeholder,
+  value,
+}: {
+  readonly label: string;
+  readonly onChange: (value: string) => void;
+  readonly placeholder: string;
+  readonly value: string;
+}) => (
+  <div className="relative min-w-0 flex-1">
+    <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
+    <Input
+      aria-label={label}
+      className="bg-muted/40 h-7 border-transparent pl-7 text-xs shadow-none"
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      value={value}
+    />
+  </div>
+);
+
 const renderHeaderSection = (label: string, value: NetworkHeaders) => {
   const entries = recordEntries(value);
   return (
-    <section className="border-b p-3">
-      <h3 className="mb-2 text-xs font-semibold">{label}</h3>
+    <section>
+      <SectionLabel>{label}</SectionLabel>
       {entries.length === 0 ? (
         <p className="text-muted-foreground text-xs">No headers recorded.</p>
       ) : (
-        <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-3 gap-y-1 font-mono text-xs">
+        <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-1 font-mono text-xs">
           {entries.map(([key, entry]) => (
             <div className="contents" key={key}>
               <dt className="text-muted-foreground break-all">{key}</dt>
@@ -285,8 +370,10 @@ const renderRequestDetails = (
   if (loading) {
     return (
       <div className="text-muted-foreground grid size-full place-items-center text-xs">
-        <LoaderCircleIcon className="mr-2 size-4 animate-spin" />
-        Loading request details…
+        <span className="flex items-center gap-2">
+          <LoaderCircleIcon className="size-4 animate-spin" />
+          Loading request details…
+        </span>
       </div>
     );
   }
@@ -294,18 +381,16 @@ const renderRequestDetails = (
   const resolved = detail ?? request;
   if (detailTab === "headers") {
     return (
-      <div className="size-full overflow-auto">
-        <section className="border-b p-3">
-          <h3 className="mb-2 text-xs font-semibold">General</h3>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-xs">
+      <div className="size-full space-y-4 overflow-auto p-3">
+        <section>
+          <SectionLabel>General</SectionLabel>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
             <dt className="text-muted-foreground">Request URL</dt>
             <dd className="break-all">{resolved.url}</dd>
             <dt className="text-muted-foreground">Request Method</dt>
             <dd>{resolved.method}</dd>
             <dt className="text-muted-foreground">Status Code</dt>
-            <dd className={statusClassName(resolved.status)}>
-              {resolved.status ?? "Pending"}
-            </dd>
+            <dd>{resolved.status ?? "Pending"}</dd>
           </dl>
         </section>
         {renderHeaderSection("Response Headers", resolved.responseHeaders)}
@@ -328,43 +413,41 @@ const renderRequestDetails = (
     );
   }
 
-  if (detailTab === "response") {
-    const body = prettyText(detail?.responseBody);
-    return body.length === 0 ? (
-      <div className="text-muted-foreground grid size-full place-items-center px-4 text-center text-xs">
-        The response body is unavailable. It may have been evicted by Chromium
-        or belong to a previous tab target.
-      </div>
-    ) : (
-      renderHighlightedText(responseLanguage(resolved.mimeType, body), body)
-    );
-  }
-
-  return null;
+  const body = prettyText(detail?.responseBody);
+  return body.length === 0 ? (
+    <div className="text-muted-foreground grid size-full place-items-center px-4 text-center text-xs">
+      The response body is unavailable. It may have been evicted by Chromium or
+      belong to a previous tab target.
+    </div>
+  ) : (
+    renderHighlightedText(responseLanguage(resolved.mimeType, body), body)
+  );
 };
-
-interface DevtoolsHeaderOptions {
-  readonly consoleCount: number;
-  readonly networkCount: number;
-  readonly onClear: (() => void) | undefined;
-  readonly onClose: () => void;
-  readonly onRefresh: () => void;
-  readonly refreshDisabled: boolean;
-  readonly refreshing: boolean;
-  readonly showRefresh: boolean;
-  readonly tab: DevtoolsTab;
-  readonly tabTitle: string;
-}
 
 const DevtoolsConsolePanel = ({
   consoleEntries,
+  filter,
+  onUpdateUiState,
+  query,
 }: {
   readonly consoleEntries: readonly BrowserConsoleEntry[];
+  readonly filter: ConsoleFilter;
+  readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
+  readonly query: string;
 }) => {
   const consoleScrollRef = useRef<HTMLDivElement>(null);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleEntries = consoleEntries.filter(
+    (entry) =>
+      consoleMatchesFilter(entry, filter) &&
+      (normalizedQuery.length === 0 ||
+        entry.text.toLocaleLowerCase().includes(normalizedQuery))
+  );
+  const errors = consoleErrorCount(consoleEntries);
+  const warnings = consoleEntries.filter(isConsoleWarning).length;
   const consoleVirtualizer = useVirtualizer({
-    count: consoleEntries.length,
-    estimateSize: () => 34,
+    count: visibleEntries.length,
+    estimateSize: () => 30,
     getScrollElement: () => consoleScrollRef.current,
     overscan: 12,
   });
@@ -377,11 +460,35 @@ const DevtoolsConsolePanel = ({
   }, [consoleVirtualizer]);
 
   return (
-    <TabsContent className="min-h-0" value="console">
-      <div className="size-full overflow-auto" ref={consoleScrollRef}>
-        {consoleEntries.length === 0 ? (
+    <div className="flex size-full min-h-0 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
+        <SegmentedControl
+          label="Console level"
+          onChange={(consoleFilter) => onUpdateUiState({ consoleFilter })}
+          options={[
+            { count: consoleEntries.length, label: "All", value: "all" },
+            { count: errors, label: "Errors", value: "error" },
+            { count: warnings, label: "Warnings", value: "warning" },
+            { label: "Logs", value: "log" },
+          ]}
+          value={filter}
+        />
+        <SearchField
+          label="Filter console messages"
+          onChange={(consoleQuery) => onUpdateUiState({ consoleQuery })}
+          placeholder="Filter messages"
+          value={query}
+        />
+      </div>
+      <div
+        className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5"
+        ref={consoleScrollRef}
+      >
+        {visibleEntries.length === 0 ? (
           <div className="text-muted-foreground grid h-28 place-items-center text-xs">
-            Console messages for this tab will appear here.
+            {consoleEntries.length === 0
+              ? "Console messages for this tab will appear here."
+              : "No messages match this filter."}
           </div>
         ) : (
           <div
@@ -389,34 +496,82 @@ const DevtoolsConsolePanel = ({
             style={{ height: consoleVirtualizer.getTotalSize() }}
           >
             {consoleVirtualizer.getVirtualItems().map((virtualRow) => {
-              const entry = consoleEntries[virtualRow.index];
+              const entry = visibleEntries[virtualRow.index];
               if (entry === undefined) {
                 return null;
               }
               return (
                 <div
-                  className="absolute top-0 left-0 grid w-full grid-cols-[auto_1fr_auto] gap-2 border-b px-2 py-1.5"
+                  className="absolute top-0 left-0 w-full pb-px"
                   data-index={virtualRow.index}
                   key={virtualRow.key}
                   ref={consoleVirtualizer.measureElement}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  {renderConsoleIcon(entry)}
-                  <pre className="font-inherit min-w-0 overflow-x-auto break-words whitespace-pre-wrap">
-                    {entry.text}
-                  </pre>
-                  <time className="text-muted-foreground tabular-nums">
-                    {formatTime(entry.timestamp)}
-                  </time>
+                  <div
+                    className={cn(
+                      "grid grid-cols-[auto_1fr_auto] gap-2 rounded-md px-2 py-1.5",
+                      consoleRowTone(entry)
+                    )}
+                  >
+                    {renderConsoleIcon(entry)}
+                    <pre className="min-w-0 font-[inherit] break-words whitespace-pre-wrap">
+                      {entry.text}
+                    </pre>
+                    <time className="text-muted-foreground tabular-nums">
+                      {formatTime(entry.timestamp)}
+                    </time>
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
       </div>
-    </TabsContent>
+    </div>
   );
 };
+
+const RequestDetailView = ({
+  detail,
+  detailLoading,
+  detailTab,
+  onUpdateUiState,
+  request,
+}: {
+  readonly detail: BrowserNetworkRequestDetail | undefined;
+  readonly detailLoading: boolean;
+  readonly detailTab: NetworkDetailTab;
+  readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
+  readonly request: BrowserNetworkRequest;
+}) => (
+  <div className="animate-in fade-in-0 slide-in-from-right-2 flex size-full min-h-0 flex-col duration-150">
+    <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
+      <Button
+        aria-label="Close request details"
+        onClick={() => onUpdateUiState({ selectedRequestId: undefined })}
+        size="icon-xs"
+        variant="ghost"
+      >
+        <ArrowLeftIcon />
+      </Button>
+      <StatusPill status={request.status} />
+      <span className="min-w-0 flex-1 truncate font-mono text-xs">
+        {request.method} {requestName(request.url)}
+      </span>
+      <SegmentedControl
+        label="Request detail"
+        onChange={(value) => onUpdateUiState({ detailTab: value })}
+        options={detailTabs}
+        size="xs"
+        value={detailTab}
+      />
+    </div>
+    <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      {renderRequestDetails(detail, detailTab, detailLoading, request)}
+    </div>
+  </div>
+);
 
 const DevtoolsNetworkPanel = ({
   detail,
@@ -466,175 +621,153 @@ const DevtoolsNetworkPanel = ({
     return () => globalThis.cancelAnimationFrame(frame);
   }, [networkVirtualizer]);
 
+  if (selectedRequest !== undefined) {
+    return (
+      <RequestDetailView
+        detail={detail}
+        detailLoading={detailLoading}
+        detailTab={detailTab}
+        onUpdateUiState={onUpdateUiState}
+        request={selectedRequest}
+      />
+    );
+  }
+
+  const failed = networkRequests.filter(
+    ({ status }) => status !== undefined && status >= 400
+  ).length;
+
   return (
-    <TabsContent className="flex min-h-0 flex-col" value="network">
-      <div className="shrink-0 border-b p-1.5">
-        <div className="relative">
-          <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-          <Input
-            aria-label="Filter network requests"
-            className="h-7 pl-7 text-xs"
-            onChange={(event) =>
-              onUpdateUiState({ networkQuery: event.target.value })
-            }
-            placeholder="Filter by URL, method, or type"
-            value={networkQuery}
+    <div className="flex size-full min-h-0 flex-col">
+      <div className="shrink-0 space-y-2 px-3 py-2">
+        <SearchField
+          label="Filter network requests"
+          onChange={(value) => onUpdateUiState({ networkQuery: value })}
+          placeholder="Filter by URL, method, or type"
+          value={networkQuery}
+        />
+        <div className="overflow-x-auto">
+          <SegmentedControl
+            label="Request type"
+            onChange={(value) => onUpdateUiState({ networkFilter: value })}
+            options={networkFilters}
+            size="xs"
+            value={networkFilter}
           />
         </div>
-        <div className="mt-1.5 flex gap-1 overflow-x-auto" role="group">
-          {networkFilters.map((filter) => (
-            <Button
-              aria-pressed={networkFilter === filter.value}
-              className="h-6 rounded-full px-2 text-xs"
-              key={filter.value}
-              onClick={() => onUpdateUiState({ networkFilter: filter.value })}
-              size="sm"
-              variant={networkFilter === filter.value ? "secondary" : "ghost"}
-            >
-              {filter.label}
-            </Button>
-          ))}
-        </div>
       </div>
-      <div className="flex min-h-0 flex-1">
-        <div
-          className={cn(
-            "flex min-w-0 flex-col",
-            selectedRequest === undefined ? "flex-1" : "w-1/2 border-r"
-          )}
-        >
-          <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] border-b px-2 py-1 text-xs font-medium">
-            <span>Status</span>
-            <span>Method</span>
-            <span>Name</span>
-            <span>Type</span>
+      <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem_4.5rem] gap-2 px-4 py-1 text-xs font-medium">
+        <span>Status</span>
+        <span>Name</span>
+        <span>Type</span>
+        <span className="text-right">Time</span>
+      </div>
+      <div
+        className="min-h-0 flex-1 overflow-auto px-1.5"
+        ref={networkScrollRef}
+      >
+        {visibleRequests.length === 0 ? (
+          <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
+            {networkRequests.length === 0
+              ? "Network requests for this tab will appear here."
+              : "No requests match this filter."}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto" ref={networkScrollRef}>
-            {visibleRequests.length === 0 ? (
-              <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
-                {networkRequests.length === 0
-                  ? "Network requests for this tab will appear here."
-                  : "No requests match this filter."}
-              </div>
-            ) : (
-              <div
-                className="relative w-full font-mono text-xs"
-                style={{ height: networkVirtualizer.getTotalSize() }}
-              >
-                {networkVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const request = visibleRequests[virtualRow.index];
-                  if (request === undefined) {
-                    return null;
-                  }
-                  return (
-                    <button
-                      className={cn(
-                        "hover:bg-muted/50 absolute top-0 left-0 grid h-[30px] w-full grid-cols-[3.5rem_3.5rem_minmax(10rem,1fr)_5rem] items-center px-2 text-left",
-                        selectedRequestId === request.requestId && "bg-muted"
-                      )}
-                      key={virtualRow.key}
-                      onClick={() => {
-                        onSelectRequest(request);
-                      }}
-                      style={{
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                      title={request.url}
-                      type="button"
-                    >
-                      <span className={statusClassName(request.status)}>
-                        {request.status ?? "—"}
-                      </span>
-                      <span>{request.method}</span>
-                      <span className="truncate">
-                        {requestName(request.url)}
-                      </span>
-                      <span className="text-muted-foreground truncate">
-                        {request.resourceType}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-        {selectedRequest === undefined ? null : (
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex h-8 shrink-0 items-center overflow-x-auto border-b px-1">
-              {detailTabs.map((detailTabValue) => (
-                <Button
-                  className="h-7 rounded-none px-2 text-xs capitalize"
-                  key={detailTabValue}
-                  onClick={() => onUpdateUiState({ detailTab: detailTabValue })}
-                  size="sm"
-                  variant={detailTab === detailTabValue ? "secondary" : "ghost"}
+        ) : (
+          <div
+            className="relative w-full text-xs"
+            style={{ height: networkVirtualizer.getTotalSize() }}
+          >
+            {networkVirtualizer.getVirtualItems().map((virtualRow) => {
+              const request = visibleRequests[virtualRow.index];
+              if (request === undefined) {
+                return null;
+              }
+              const failedRequest =
+                request.status !== undefined && request.status >= 400;
+              return (
+                <button
+                  className="hover:bg-muted/60 focus-visible:bg-muted absolute top-0 left-0 grid h-[30px] w-full grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem_4.5rem] items-center gap-2 rounded-md px-2.5 text-left outline-none"
+                  key={virtualRow.key}
+                  onClick={() => {
+                    onSelectRequest(request);
+                  }}
+                  style={{
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                  title={request.url}
+                  type="button"
                 >
-                  {detailTabValue}
-                </Button>
-              ))}
-              <Button
-                aria-label="Close request details"
-                className="ml-auto"
-                onClick={() =>
-                  onUpdateUiState({ selectedRequestId: undefined })
-                }
-                size="icon-sm"
-                variant="ghost"
-              >
-                <XIcon />
-              </Button>
-            </div>
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              {renderRequestDetails(
-                detail,
-                detailTab,
-                detailLoading,
-                selectedRequest
-              )}
-            </div>
+                  <span>
+                    <StatusPill status={request.status} />
+                  </span>
+                  <span className="truncate">
+                    <span className="text-muted-foreground mr-1.5 font-mono">
+                      {request.method}
+                    </span>
+                    <span className={cn(failedRequest && "text-destructive")}>
+                      {requestName(request.url)}
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground truncate">
+                    {request.resourceType}
+                  </span>
+                  <time className="text-muted-foreground text-right tabular-nums">
+                    {formatTime(request.timestamp)}
+                  </time>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
-    </TabsContent>
+      <footer className="text-muted-foreground flex shrink-0 gap-3 border-t px-3 py-1.5 text-xs tabular-nums">
+        <span>
+          {visibleRequests.length === networkRequests.length
+            ? `${networkRequests.length} requests`
+            : `${visibleRequests.length} of ${networkRequests.length} requests`}
+        </span>
+        {failed === 0 ? null : (
+          <span className="text-destructive">{failed} failed</span>
+        )}
+      </footer>
+    </div>
   );
 };
 
+interface DevtoolsHeaderOptions {
+  readonly dockSide: DevtoolsDockSide;
+  readonly onClear: (() => void) | undefined;
+  readonly onClose: () => void;
+  readonly onRefresh: (() => void) | undefined;
+  readonly onToggleDockSide: () => void;
+  readonly panel: DevtoolsPanel;
+  readonly refreshDisabled: boolean;
+  readonly refreshing: boolean;
+  readonly tabTitle: string;
+}
+
 const renderDevtoolsHeader = ({
-  consoleCount,
-  networkCount,
+  dockSide,
   onClear,
   onClose,
   onRefresh,
+  onToggleDockSide,
+  panel,
   refreshDisabled,
   refreshing,
-  showRefresh,
-  tab,
   tabTitle,
 }: DevtoolsHeaderOptions) => (
-  <div className="flex h-9 shrink-0 items-center border-b px-2">
-    <TabsList className="h-8 p-0" variant="line">
-      <TabsTrigger value="console">
-        Console
-        <span className="text-muted-foreground tabular-nums">
-          {consoleCount}
-        </span>
-      </TabsTrigger>
-      <TabsTrigger value="network">
-        Network
-        <span className="text-muted-foreground tabular-nums">
-          {networkCount}
-        </span>
-      </TabsTrigger>
-      <TabsTrigger value="storage">Storage</TabsTrigger>
-    </TabsList>
-    <span className="text-muted-foreground ml-2 min-w-0 truncate text-xs">
+  <header className="flex h-10 shrink-0 items-center gap-1 border-b pr-1.5 pl-3">
+    <h2 className="shrink-0 text-sm font-medium">
+      {devtoolsPanelTitles[panel]}
+    </h2>
+    <span className="text-muted-foreground ml-1 min-w-0 truncate text-xs">
       {tabTitle}
     </span>
-    <div className="ml-auto flex items-center gap-0.5">
+    <div className="ml-auto flex shrink-0 items-center gap-0.5">
       {onClear === undefined ? null : (
         <Button
-          aria-label={`Clear ${tab} for ${tabTitle}`}
+          aria-label={`Clear ${panel} for ${tabTitle}`}
           onClick={onClear}
           size="icon-sm"
           variant="ghost"
@@ -642,10 +775,10 @@ const renderDevtoolsHeader = ({
           <Trash2Icon />
         </Button>
       )}
-      {showRefresh ? (
+      {onRefresh === undefined ? null : (
         <Button
           aria-label={
-            tab === "storage" ? "Refresh storage" : "Refresh network requests"
+            panel === "storage" ? "Refresh storage" : "Refresh network requests"
           }
           disabled={refreshDisabled}
           onClick={onRefresh}
@@ -654,7 +787,15 @@ const renderDevtoolsHeader = ({
         >
           <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
         </Button>
-      ) : null}
+      )}
+      <Button
+        aria-label={dockSide === "right" ? "Dock to bottom" : "Dock to right"}
+        onClick={onToggleDockSide}
+        size="icon-sm"
+        variant="ghost"
+      >
+        {dockSide === "right" ? <PanelBottomIcon /> : <PanelRightIcon />}
+      </Button>
       <Button
         aria-label="Close DevTools"
         onClick={onClose}
@@ -664,11 +805,12 @@ const renderDevtoolsHeader = ({
         <XIcon />
       </Button>
     </div>
-  </div>
+  </header>
 );
 
 export const BrowserDevtools = ({
   consoleEntries,
+  dockSide,
   mutationsLocked,
   networkRequests,
   onClearConsole,
@@ -676,6 +818,8 @@ export const BrowserDevtools = ({
   onClose,
   onError,
   onRefreshNetwork,
+  onToggleDockSide,
+  panel,
   refreshingNetwork,
   tooling,
   tabId,
@@ -685,6 +829,8 @@ export const BrowserDevtools = ({
   const [refreshingStorage, setRefreshingStorage] = useState(false);
   const [uiState, setUiState] = useAtom(devtoolsUiStateAtoms(tabId));
   const {
+    consoleFilter,
+    consoleQuery,
     detail,
     detailLoading,
     detailTab,
@@ -693,7 +839,6 @@ export const BrowserDevtools = ({
     selectedRequestId,
     storageDraft,
     storageSnapshots,
-    tab,
   } = uiState;
   const storageDirty = isStorageDraftDirty(storageDraft, storageSnapshots);
   const updateUiState = (update: Partial<DevtoolsUiState>) => {
@@ -737,60 +882,69 @@ export const BrowserDevtools = ({
   };
 
   const clearAction = () => {
-    if (tab === "console") {
+    if (panel === "console") {
       return onClearConsole;
     }
-    if (tab === "network") {
+    if (panel === "network") {
       return onClearNetwork;
     }
   };
 
+  const refreshAction = () => {
+    if (panel === "storage") {
+      return () =>
+        updateUiState({
+          storageRefreshNonce: uiState.storageRefreshNonce + 1,
+        });
+    }
+    if (panel === "network") {
+      return onRefreshNetwork;
+    }
+  };
+
   return (
-    <Tabs
-      className="bg-background size-full min-h-0 gap-0"
-      onValueChange={(value) => updateUiState({ tab: value })}
-      value={tab}
+    <section
+      aria-label={devtoolsPanelTitles[panel]}
+      className="bg-background flex size-full min-h-0 flex-col"
     >
       {renderDevtoolsHeader({
-        consoleCount: consoleEntries.length,
-        networkCount: networkRequests.length,
+        dockSide,
         onClear: clearAction(),
         onClose,
-        onRefresh: () => {
-          if (tab === "storage") {
-            updateUiState({
-              storageRefreshNonce: uiState.storageRefreshNonce + 1,
-            });
-            return;
-          }
-          onRefreshNetwork();
-        },
+        onRefresh: refreshAction(),
+        onToggleDockSide,
+        panel,
         refreshDisabled:
-          tab === "storage"
+          panel === "storage"
             ? refreshingStorage || storageDirty
             : refreshingNetwork,
-        refreshing: tab === "storage" ? refreshingStorage : refreshingNetwork,
-        showRefresh: tab === "network" || tab === "storage",
-        tab,
+        refreshing: panel === "storage" ? refreshingStorage : refreshingNetwork,
         tabTitle,
       })}
 
-      <DevtoolsConsolePanel consoleEntries={consoleEntries} />
-
-      <DevtoolsNetworkPanel
-        detail={detail}
-        detailLoading={detailLoading}
-        detailTab={detailTab}
-        networkFilter={networkFilter}
-        networkQuery={networkQuery}
-        networkRequests={networkRequests}
-        onSelectRequest={selectRequest}
-        onUpdateUiState={updateUiState}
-        selectedRequestId={selectedRequestId}
-      />
-
-      <TabsContent className="flex min-h-0 flex-col" value="storage">
-        {tab === "storage" ? (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {panel === "console" ? (
+          <DevtoolsConsolePanel
+            consoleEntries={consoleEntries}
+            filter={consoleFilter}
+            onUpdateUiState={updateUiState}
+            query={consoleQuery}
+          />
+        ) : null}
+        {panel === "network" ? (
+          <DevtoolsNetworkPanel
+            detail={detail}
+            detailLoading={detailLoading}
+            detailTab={detailTab}
+            networkFilter={networkFilter}
+            networkQuery={networkQuery}
+            networkRequests={networkRequests}
+            onSelectRequest={selectRequest}
+            onUpdateUiState={updateUiState}
+            selectedRequestId={selectedRequestId}
+          />
+        ) : null}
+        {panel === "storage" ? (
           <BrowserStoragePanel
             mutationsLocked={mutationsLocked}
             onError={onError}
@@ -803,7 +957,7 @@ export const BrowserDevtools = ({
             uiState={storageSlice(uiState)}
           />
         ) : null}
-      </TabsContent>
-    </Tabs>
+      </div>
+    </section>
   );
 };

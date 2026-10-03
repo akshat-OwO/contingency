@@ -2,24 +2,23 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { EmulationPicker } from "@/components/browser/emulation-picker";
+import { EmulationPanel } from "@/components/browser/emulation-panel";
 
 afterEach(cleanup);
 
-const openPicker = async (
-  applied: Parameters<typeof EmulationPicker>[0]["applied"],
+const renderPanel = (
+  applied: Parameters<typeof EmulationPanel>[0]["applied"],
   onPatch = vi.fn(),
   currentOrigin?: string
 ) => {
   render(
-    <EmulationPicker
+    <EmulationPanel
       applied={applied}
       currentOrigin={currentOrigin}
       disabled={false}
       onPatch={onPatch}
     />
   );
-  await userEvent.click(screen.getByRole("button", { name: "Emulation" }));
   return onPatch;
 };
 
@@ -37,8 +36,8 @@ const enterLocation = async (latitude = "52.52", longitude = "13.405") => {
   await userEvent.click(screen.getByRole("button", { name: "Apply" }));
 };
 
-test("withholds a decision until the session's own permissions are read", async () => {
-  await openPicker({ status: "unknown" });
+test("withholds a decision until the session's own permissions are read", () => {
+  renderPanel({ status: "unknown" });
 
   expect(screen.getByLabelText("Permission")).toBeDisabled();
   expect(
@@ -47,7 +46,7 @@ test("withholds a decision until the session's own permissions are read", async 
 });
 
 test("records a decision on top of the ones the session already has", async () => {
-  const onPatch = await openPicker({
+  const onPatch = renderPanel({
     emulation: {
       permissions: [{ permission: "geolocation", state: "granted" }],
       viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
@@ -84,7 +83,7 @@ test("records a decision on top of the ones the session already has", async () =
  * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
  */
 test("denying replaces an earlier decision about the same permission", async () => {
-  const onPatch = await openPicker({
+  const onPatch = renderPanel({
     emulation: {
       permissions: [
         { permission: "geolocation", state: "granted" },
@@ -105,8 +104,8 @@ test("denying replaces an earlier decision about the same permission", async () 
   });
 });
 
-test("reads back both granted and denied decisions", async () => {
-  await openPicker({
+test("reads back both granted and denied decisions", () => {
+  renderPanel({
     emulation: {
       permissions: [
         { permission: "geolocation", state: "denied" },
@@ -132,7 +131,7 @@ test("reads back both granted and denied decisions", async () => {
  * refuse to save.
  */
 test("granting to every site drops that permission's origin denials", async () => {
-  const onPatch = await openPicker({
+  const onPatch = renderPanel({
     emulation: {
       permissions: [
         { permission: "geolocation", state: "denied" },
@@ -167,11 +166,7 @@ test("granting to every site drops that permission's origin denials", async () =
 });
 
 test("asks for a location permission decision before applying new coordinates", async () => {
-  const onPatch = await openPicker(
-    locationPicker,
-    vi.fn(),
-    "https://shop.example"
-  );
+  const onPatch = renderPanel(locationPicker, vi.fn(), "https://shop.example");
 
   await enterLocation();
 
@@ -188,7 +183,7 @@ test("asks for a location permission decision before applying new coordinates", 
 
 test("grants location to the current website by default", async () => {
   const onPatch = vi.fn();
-  await openPicker(locationPicker, onPatch, "https://shop.example");
+  renderPanel(locationPicker, onPatch, "https://shop.example");
 
   await enterLocation();
   await userEvent.click(
@@ -209,7 +204,7 @@ test("grants location to the current website by default", async () => {
 
 test("denies location context-wide when the author selects every website", async () => {
   const onPatch = vi.fn();
-  await openPicker(
+  renderPanel(
     {
       emulation: {
         permissions: [
@@ -252,7 +247,7 @@ test("denies location context-wide when the author selects every website", async
 
 test("uses the only context-wide scope when no website is open", async () => {
   const onPatch = vi.fn();
-  await openPicker(locationPicker, onPatch);
+  renderPanel(locationPicker, onPatch);
 
   await enterLocation("0", "0");
 
@@ -276,7 +271,7 @@ test("uses the only context-wide scope when no website is open", async () => {
 
 test("cancelling a location decision leaves the emulation unchanged", async () => {
   const onPatch = vi.fn();
-  await openPicker(locationPicker, onPatch, "https://shop.example");
+  renderPanel(locationPicker, onPatch, "https://shop.example");
 
   await enterLocation();
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -289,7 +284,7 @@ test("cancelling a location decision leaves the emulation unchanged", async () =
 
 test("dismisses a location decision with Escape without applying it", async () => {
   const onPatch = vi.fn();
-  await openPicker(locationPicker, onPatch, "https://shop.example");
+  renderPanel(locationPicker, onPatch, "https://shop.example");
 
   await enterLocation();
   await userEvent.keyboard("{Escape}");
@@ -321,7 +316,7 @@ test.each([
   "does not prompt when a %s decision matches",
   async (_scope, permissions, origin) => {
     const onPatch = vi.fn();
-    await openPicker(
+    renderPanel(
       {
         emulation: {
           permissions,
@@ -346,7 +341,7 @@ test.each([
 
 test("prompts for an origin that does not match an existing origin decision", async () => {
   const onPatch = vi.fn();
-  await openPicker(
+  renderPanel(
     {
       emulation: {
         permissions: [
@@ -374,7 +369,7 @@ test("prompts for an origin that does not match an existing origin decision", as
 
 test("removes one saved permission decision without changing unrelated decisions", async () => {
   const onPatch = vi.fn();
-  await openPicker(
+  renderPanel(
     {
       emulation: {
         permissions: [
@@ -401,7 +396,7 @@ test("removes one saved permission decision without changing unrelated decisions
 
 test("keeps a saved decision when coordinates are changed or cleared", async () => {
   const onPatch = vi.fn();
-  await openPicker(
+  renderPanel(
     {
       emulation: {
         geolocation: { latitude: 52.52, longitude: 13.405 },

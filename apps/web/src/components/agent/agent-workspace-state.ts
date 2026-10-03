@@ -42,8 +42,6 @@ export interface AgentViewState {
   readonly phase: AgentViewPhase;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
-  /** Whether the browser setup panel is showing beside the live canvas. */
-  readonly setupOpen: boolean;
   readonly streamConnected: boolean;
   /**
    * The `?session=` id that did not resolve when this process owns no session.
@@ -65,7 +63,6 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   phase: "loading",
   selectedSessionId: undefined,
   session: undefined,
-  setupOpen: false,
   streamConnected: false,
   unresolvedSessionId: undefined,
   viewportHeight: 0,

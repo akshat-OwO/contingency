@@ -9,6 +9,13 @@ import {
   updateStreamMetrics,
 } from "@/components/browser/browser-stream-metrics";
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
+import { SegmentedControl } from "@/components/browser/segmented-control";
+import type { SegmentedOption } from "@/components/browser/segmented-control";
+
+const transportOptions: readonly SegmentedOption<"binary" | "json">[] = [
+  { label: "Local performance", value: "json" },
+  { label: "Lower bandwidth", value: "binary" },
+];
 
 const milliseconds = (value: number | undefined) =>
   value === undefined ? "Waiting for frames" : `${value.toFixed(1)} ms`;
@@ -39,23 +46,18 @@ export const BrowserStreamDiagnostics = ({
     };
   }, [setMetrics]);
   return (
-    <details className="border-t p-3 text-xs">
-      <summary className="cursor-pointer">Stream diagnostics</summary>
-      <label className="mt-2 flex items-center justify-between gap-2">
-        Streaming preference
-        <select
-          aria-label="Streaming preference"
+    <div className="space-y-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span>Streaming preference</span>
+        <SegmentedControl
+          label="Streaming preference"
+          onChange={setTransport}
+          options={transportOptions}
           value={transport}
-          onChange={(event) =>
-            setTransport(event.target.value === "binary" ? "binary" : "json")
-          }
-        >
-          <option value="json">Local performance</option>
-          <option value="binary">Lower bandwidth</option>
-        </select>
-      </label>
+        />
+      </div>
       <dl
-        className="mt-2 grid grid-cols-2 gap-2"
+        className="[&_dt]:text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 [&_dd]:text-right [&_dd]:tabular-nums"
         aria-label="Stream diagnostics"
       >
         <dt>Capture receipt to canvas, p95 (local clock)</dt>
@@ -86,11 +88,11 @@ export const BrowserStreamDiagnostics = ({
           {metrics.stale} / {metrics.failed}
         </dd>
       </dl>
-      <p className="text-muted-foreground mt-2">
+      <p className="text-muted-foreground">
         Last 120 rendered frames. Replay is excluded from latency. Remote clock
         differences affect capture age. The canvas updates before the next
         screen paint.
       </p>
-    </details>
+    </div>
   );
 };
