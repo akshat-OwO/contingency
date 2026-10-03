@@ -68,7 +68,7 @@ The canvas retains the decoded bitmap's physical dimensions. Pointer coordinates
 
 ## Streaming preference and diagnostics
 
-Browser setup exposes **Stream diagnostics** and a session-specific **Streaming preference**. **Local performance** uses JSON by default. **Lower bandwidth** reconnects the viewer using Schema Binary without changing the recording subscription. The recorder continues to use the same capture quality.
+The Workspace's browser tools rail exposes **Stream diagnostics** and a session-specific **Streaming preference**. **Local performance** uses JSON by default. **Lower bandwidth** reconnects the viewer using Schema Binary without changing the recording subscription. The recorder continues to use the same capture quality.
 
 The local benchmark compared actual screencast images against a PNG reference:
 

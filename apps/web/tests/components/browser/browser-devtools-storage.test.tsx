@@ -106,6 +106,7 @@ const renderDevtools = (mutationsLocked = false) =>
         null,
         createElement(SessionDevtools, {
           consoleEntries: [],
+          dockSide: "right",
           mutationsLocked,
           networkRequests: [],
           onClearConsole: () => {},
@@ -113,6 +114,8 @@ const renderDevtools = (mutationsLocked = false) =>
           onClose: () => {},
           onError: () => {},
           onRefreshNetwork: () => {},
+          onToggleDockSide: () => {},
+          panel: "storage",
           refreshingNetwork: false,
           tabId,
           tabTitle: "App",
@@ -124,7 +127,6 @@ const renderDevtools = (mutationsLocked = false) =>
 
 const openStorage = async () => {
   const user = userEvent.setup();
-  await user.click(screen.getByRole("tab", { name: "Storage" }));
   await waitFor(() => {
     expect(screen.getByText("sid")).toBeInTheDocument();
   });
@@ -142,11 +144,9 @@ afterEach(() => {
   cleanup();
 });
 
-test("opens Storage beside Console and Network with Cookies as the default inner tab", async () => {
+test("opens Storage with Cookies as the default inner tab", async () => {
   renderDevtools();
-  expect(screen.getByRole("tab", { name: "Storage" })).toHaveTextContent(
-    /^Storage$/u
-  );
+  expect(screen.getByRole("heading", { name: "Storage" })).toBeVisible();
   const user = await openStorage();
   expect(screen.getByRole("tab", { name: /Cookies/u })).toHaveAttribute(
     "aria-selected",
