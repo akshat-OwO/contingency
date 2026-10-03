@@ -7,6 +7,7 @@ import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { RunVideoTimeMap } from "./run-video.ts";
+import { scanRequirementsField, scanReportsField } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -372,6 +373,8 @@ const taskRunFields = {
   referencedSkills: Schema.Array(AgentRunSkillReference),
   requestedTask: nonEmptyString,
   runId: AgentRunId,
+  scanReports: scanReportsField,
+  scanRequirements: scanRequirementsField,
   schemaVersion: Schema.Literal(3),
   startedAt: nonEmptyString,
   startingEmulation: DraftEmulation,

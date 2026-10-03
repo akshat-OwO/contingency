@@ -283,6 +283,14 @@ it.effect.each([
     assessed: true,
     complete: true,
     ending: "completed" as const,
+    missingScan: true,
+    passes: false,
+    takeover: false,
+  },
+  {
+    assessed: true,
+    complete: true,
+    ending: "completed" as const,
     passes: true,
     takeover: false,
   },
@@ -330,7 +338,14 @@ it.effect.each([
   },
 ])(
   "qualifies a Dry Run only from its completed report: %j",
-  ({ assessed: hasAssessment, complete, takeover, ending, passes }) =>
+  ({
+    assessed: hasAssessment,
+    complete,
+    takeover,
+    ending,
+    passes,
+    ...scenario
+  }) =>
     Effect.gen(function* qualifyDryRun() {
       const files = yield* FileSystem.FileSystem;
       const root = yield* files.makeTempDirectoryScoped({
@@ -338,7 +353,22 @@ it.effect.each([
       });
       yield* Effect.gen(function* exerciseQualification() {
         const store = yield* TeachingRecordingStore;
-        const run = dryTask();
+        const baseRun = dryTask();
+        const run =
+          "missingScan" in scenario
+            ? {
+                ...baseRun,
+                scanReports: [],
+                scanRequirements: [
+                  {
+                    flowSkillName: baseRun.purpose.flowSkillName,
+                    id: "required-load",
+                    mode: "reload" as const,
+                    when: "The catalog opens",
+                  },
+                ],
+              }
+            : baseRun;
         const { recordingId } = run.purpose;
         yield* store.begin({
           emulation: run.startingEmulation,

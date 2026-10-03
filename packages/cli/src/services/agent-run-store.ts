@@ -28,6 +28,10 @@ const ioError = (context: string) => (cause: PlatformError) =>
   storeError("agent_run_io", `${context}: ${cause.message}`);
 
 export interface AgentRunStoreService {
+  readonly scanFile: (
+    runId: AgentRunId,
+    reportId: string
+  ) => Effect.Effect<string | null, AgentRunStoreError>;
   /**
    * The Run's own directory, created if absent. Artifacts are written straight
    * into it so a finished Run is one self-contained package.
@@ -150,7 +154,22 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
       })
     );
 
-  return AgentRunStore.of({ prepare, read, videoFile, write });
+  const scanFile = (runId: AgentRunId, reportId: string) =>
+    read(runId).pipe(
+      Effect.map((summary) => {
+        if (summary.schemaVersion !== 3) {
+          return null;
+        }
+        const report = summary.scanReports?.find(
+          (scan) => scan.id === reportId
+        );
+        return report?.reportPath === `scans/${reportId}.json` &&
+          /^scan-[a-f0-9-]+$/u.test(reportId)
+          ? path.join(runDirectory(runId), report.reportPath)
+          : null;
+      })
+    );
+  return AgentRunStore.of({ prepare, read, scanFile, videoFile, write });
 });
 
 export const makeAgentRunStoreLayer = (

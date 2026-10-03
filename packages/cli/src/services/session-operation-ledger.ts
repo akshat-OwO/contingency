@@ -17,6 +17,8 @@ export type AgentOperationKind =
   | "act"
   | "boundary"
   | "assess"
+  | "scan"
+  | "scan-scope"
   | "task-update"
   | "task-assess"
   | "task-finding"

@@ -1,4 +1,5 @@
 import type {
+  TeachingScan,
   AgentHistoryAction,
   AgentInspectedElement,
   AgentNavigateAction,
@@ -1560,10 +1561,28 @@ const useAgentView = (
     );
   };
 
+  const setScan = (scan?: TeachingScan) => {
+    setState((current) => ({
+      ...current,
+      inspect: { ...current.inspect, scan, scanMenu: false },
+    }));
+  };
+  const setScanMenu = (scanMenu: boolean) => {
+    setState((current) => ({
+      ...current,
+      inspect: { ...current.inspect, scanMenu },
+    }));
+  };
+
   const setInspectDraft = (draft: string) => {
     setState((current) => ({
       ...current,
-      inspect: { ...current.inspect, draft },
+      inspect: {
+        ...current.inspect,
+        draft,
+        scanMenu:
+          /@(?:performance|a11y)\b$/u.test(draft) || current.inspect.scanMenu,
+      },
     }));
   };
 
@@ -1644,6 +1663,7 @@ const useAgentView = (
             recordInstruction({
               payload: {
                 operationId,
+                scan: state.inspect.scan,
                 sessionId,
                 /*
                     The element travels beside the text rather than inside it,
@@ -1916,6 +1936,8 @@ const useAgentView = (
     sessionsResult,
     setAddress,
     setInspectDraft,
+    setScan,
+    setScanMenu,
     state,
     submitAddress,
     submitComment,
@@ -2070,6 +2092,8 @@ export const AgentWorkspace = ({
           onOpenChange={view.changeComposerOpen}
           onPick={view.pickElement}
           onSubmit={view.submitComment}
+          onScanChange={view.setScan}
+          onScanMenuChange={view.setScanMenu}
           pending={view.gestures.comment.pending}
           platform={platform}
           startedAt={session.captureState.startedAt}

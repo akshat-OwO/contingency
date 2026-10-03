@@ -5,7 +5,6 @@ import {
   AgentRunComplete,
   AgentRunId,
   AgentRunOpen,
-  AgentRunStepAssess,
   AgentRunSummary,
   FlowSkillRunStart,
   AgentTaskRunStart,
@@ -40,6 +39,7 @@ import {
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
+import { requestedScans } from "./scan-requirements.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
@@ -92,7 +92,7 @@ const demonstratedEmulation = (emulation: FlowSkillEmulation | undefined) =>
 const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start a task Run using one user-requested verified Flow Skill. This compatibility adapter uses the skill name as the requested task. Prefer agent_run_start for explicit tasks or multiple skills. Inputs are supplied only when needed; private inputs use on-demand Variable decisions. Assessments leave the browser open until explicit completion.",
+    "Start one user-requested verified Flow Skill. Prefer agent_run_start for explicit tasks or multiple skills. Private inputs use Variables.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     clientName: FlowSkillRunStart.fields.clientName,
@@ -111,7 +111,7 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession],
   description:
-    "Explicitly complete an Interactive Run or seal a Dry Run outcome report, and optionally record your closing account. Call it as soon as your final assessment is recorded: the browser stays open until you do. Completion seals local evidence and disposes resources once; assessments alone do not end the browser. A Dry Run can pass only after this call seals a working, complete outcome report without user Takeover. A partial or unassessed attempt fails. Completing an ended session returns its persisted Run Summary. Nothing leaves the machine.",
+    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,
@@ -139,7 +139,7 @@ const AgentRunOpenTool = readOnly(
 const AgentTaskRunStartTool = Tool.make("agent_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start an Interactive Run for the user's requested task, with zero or more user-requested verified Flow Skills. Inputs are optional until needed. The agent interprets the procedures and stopping points. One browser context and its starting Emulation persist across referenced skills, changed instructions, findings, and recovery. Use agent_run_update to record later user instructions or requested skills, agent_run_variable_request when a private input is needed, agent_run_assess or agent_run_finding to report evidence, and agent_run_complete to seal evidence and close the browser. No wall-clock ceiling applies; per-action timeouts and exclusive Takeover remain.",
+    "Start the user's task in one browser context with optional user-requested verified skills and ordinary inputs. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request private Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     ...AgentTaskRunStart.fields,
@@ -150,7 +150,7 @@ const AgentTaskRunStartTool = Tool.make("agent_run_start", {
 const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   dependencies: [AgentSession, FlowSkillCatalog],
   description:
-    "Record a changed user instruction, additional user-requested verified skills, or newly supplied ordinary inputs in the same Run. Reference only skills the user requested. This preserves pages, tabs, authentication, storage, and starting Emulation. Values belong to their flowSkillName and name. Secret inputs must use agent_run_variable_request and agent_variable_enter instead.",
+    "Update the user instruction, requested verified skills, or ordinary inputs in the same Run. Browser state and starting Emulation persist. Inputs are skill-scoped; private inputs use agent_run_variable_request.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(AgentRunTaskInput),
@@ -163,7 +163,15 @@ const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   success: SessionResult,
 });
 const taskReportParameters = Schema.Struct({
-  evidence: AgentRunStepAssess.fields.evidence,
+  evidence: Schema.Array(
+    Schema.Struct({
+      id: Schema.String.check(Schema.isMinLength(1)),
+      kind: Schema.Literals(["snapshot", "attempt", "artifact"]),
+    }).annotate({
+      message:
+        'Evidence item needs {kind,id}: kind must be "snapshot", "attempt", or "artifact" and id must be a non-empty string',
+    })
+  ).check(Schema.isMinLength(1)),
   explanation: AgentTaskAssessment.fields.explanation,
   operationId: OperationId,
   outcome: AgentTaskAssessment.fields.outcome,
@@ -204,7 +212,7 @@ const AgentTaskFindingTool = Tool.make("agent_run_finding", {
 const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
   dependencies: [AgentSession],
   description:
-    "Request a declared private/runtime input only when needed. The flowSkillName and name together identify the value. Present the returned Pending Decision to the user, relay supply/refusal with agent_pending_decision_resolve, then enter it with agent_variable_enter using the same flowSkillName. For a Dry Run prerequisite, the user supplies or refuses the value in Workspace. Set replace:true to invalidate a supplied value and request a fresh one. Unused declared inputs do not pause startup or browser actions.",
+    "Request a skill-scoped private Variable when needed. Relay its Pending Decision, then enter it with agent_variable_enter. Dry Run prerequisites use Workspace supply/refusal. replace:true invalidates a supplied value. Unused inputs never pause startup.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     flowSkillName: FlowSkillName,
@@ -217,9 +225,43 @@ const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
   success: SessionResult,
 });
 
+const AgentRunScanTool = Tool.make("agent_run_scan", {
+  dependencies: [AgentSession],
+  description:
+    "Start at the taught condition. Accessibility/reload return reports; navigation/timespan need stop. One scan per Run/tab, one automatic retry. Further retries must cite a newer user instruction's receivedAt. Cite reports as artifact evidence.",
+  failure: AgentRunFailure,
+  parameters: Schema.Struct({
+    action: Schema.Literals(["start", "stop"]),
+    flowSkillName: FlowSkillName,
+    operationId: OperationId,
+    requirementId: Schema.String.check(Schema.isMinLength(1)),
+    retryInstructionAt: optionalNullable(Schema.String),
+    sessionId: AgentSessionId,
+    view: sessionViewParameter,
+  }),
+  success: SessionResult,
+});
+const AgentRunScanScopeTool = Tool.make("agent_run_scan_scope", {
+  dependencies: [AgentSession],
+  description:
+    "Mark a scan outside an explicitly partial user-requested journey, with a reason. Interactive Runs only; Dry Runs require all scans.",
+  failure: AgentRunFailure,
+  parameters: Schema.Struct({
+    flowSkillName: FlowSkillName,
+    operationId: OperationId,
+    reason: Schema.String.check(Schema.isMinLength(1)),
+    requirementId: Schema.String.check(Schema.isMinLength(1)),
+    sessionId: AgentSessionId,
+    view: sessionViewParameter,
+  }),
+  success: SessionResult,
+});
+
 /** The Interactive Run surface. */
 export const AgentRunTools = withStrictParameters(
   Toolkit.make(
+    AgentRunScanTool,
+    AgentRunScanScopeTool,
     FlowSkillRunStartTool,
     AgentRunCompleteTool,
     AgentRunOpenTool,
@@ -318,6 +360,8 @@ const startTaskRun = (params: AgentTaskRunStart) =>
             })),
             requestedTask: params.requestedTask,
             runId,
+            scanReports: [],
+            scanRequirements: yield* requestedScans(skills),
             schemaVersion: 3,
             startedAt,
             startingEmulation: emulation,
@@ -389,6 +433,33 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         )
         .pipe(Effect.mapError(failure), inView(params.view));
     }),
+  agent_run_scan: (params) =>
+    Effect.gen(function* scanRun() {
+      const session = yield* AgentSession;
+      return yield* session
+        .scan(
+          params.sessionId,
+          params.flowSkillName,
+          params.requirementId,
+          params.action,
+          params.operationId,
+          params.retryInstructionAt ?? undefined
+        )
+        .pipe(Effect.mapError(failure), inView(params.view));
+    }),
+  agent_run_scan_scope: (params) =>
+    Effect.gen(function* scopeScan() {
+      const session = yield* AgentSession;
+      return yield* session
+        .scanScope(
+          params.sessionId,
+          params.flowSkillName,
+          params.requirementId,
+          params.reason,
+          params.operationId
+        )
+        .pipe(Effect.mapError(failure), inView(params.view));
+    }),
   agent_run_start: ({ view, ...params }) =>
     startTaskRun(params).pipe(inView(view)),
   agent_run_update: ({ view, ...params }) =>
@@ -426,6 +497,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           ...params.inputs.map((input) => input.flowSkillName),
         ]).pipe(Effect.provideService(FlowSkillCatalog, catalog));
         yield* validateTaskInputs(skills, params.inputs);
+        const scans = yield* requestedScans(skills);
         const requested = new Set(params.referencedSkills);
         return {
           inputs: params.inputs,
@@ -436,6 +508,9 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
                   {
                     flowSkillName: skill.name,
                     hosts: skill.hosts,
+                    scans: scans.filter(
+                      (scan) => scan.flowSkillName === skill.name
+                    ),
                     variables: taskVariables(skill),
                   },
                 ]

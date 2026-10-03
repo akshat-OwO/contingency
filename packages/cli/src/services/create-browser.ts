@@ -833,7 +833,14 @@ const makeService = (
  * off. `launchChromium` removes the third. No window opens either way.
  */
 const LAUNCH_OPTIONS: LaunchOptions = {
-  args: ["--disable-blink-features=AutomationControlled"],
+  args: [
+    "--disable-blink-features=AutomationControlled",
+    // Expose this owned process's DevTools endpoint to Lighthouse. Blink's
+    // automation marker remains disabled by the option above.
+    "--enable-automation",
+    "--remote-debugging-port=0",
+    "--remote-debugging-address=127.0.0.1",
+  ],
   channel: "chromium",
   handleSIGHUP: false,
   handleSIGINT: false,

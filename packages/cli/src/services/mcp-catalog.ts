@@ -4,6 +4,8 @@ import {
   AgentPendingDecisionResolve,
   FlowSkillList,
   TeachingInstructionRecord,
+  TeachingScan,
+  optionalNullable,
 } from "@contingency/protocol";
 import { Effect, Layer, Option, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
@@ -95,6 +97,7 @@ const TeachingInstructionRecordTool = Tool.make(
     failure: AgentCatalogFailure,
     parameters: Schema.Struct({
       operationId: TeachingInstructionRecord.fields.operationId,
+      scan: optionalNullable(TeachingScan),
       sessionId: TeachingInstructionRecord.fields.sessionId,
       text: TeachingInstructionRecord.fields.text,
       view: sessionViewParameter,
@@ -170,7 +173,13 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const session = yield* AgentSession;
       yield* session.noteAgentActivity(params.sessionId);
       return yield* session
-        .recordInstruction(params.sessionId, params.text, params.operationId)
+        .recordInstruction(
+          params.sessionId,
+          params.text,
+          params.operationId,
+          undefined,
+          params.scan
+        )
         .pipe(Effect.mapError(failure), inView(params.view));
     }),
 });

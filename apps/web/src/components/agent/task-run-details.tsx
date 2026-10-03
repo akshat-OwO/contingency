@@ -7,6 +7,8 @@ import type {
 
 import { Badge } from "@/components/ui/badge";
 
+import { ScanResults } from "./scan-results.tsx";
+
 const EvidenceReferences = ({
   evidence,
 }: {
@@ -79,6 +81,7 @@ export const TaskRunDetails = ({
         </ul>
       )}
     </section>
+    <ScanResults run={run} />
     <section aria-label="Task assessment" className="space-y-2">
       <h3 className="font-semibold">Agent Assessment</h3>
       {run.assessment === null ? (

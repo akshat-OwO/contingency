@@ -1,6 +1,8 @@
 import type { FlowSkillDiagnostic, FlowSkillFile } from "@contingency/protocol";
 import { Result } from "effect";
 
+import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
+
 /**
  * The mechanical contract a proposed Flow Skill package must meet before it
  * replaces the live directory.
@@ -760,6 +762,14 @@ export const validateFlowSkillPackage = (
   const report = (entry: FlowSkillDiagnostic) => {
     diagnostics.push(entry);
   };
+  const scans = parseScanRequirements(files);
+  if (Result.isFailure(scans)) {
+    report(
+      diagnostic("flow_skill_invalid_scans", scans.failure.message, [
+        SCANS_FILE,
+      ])
+    );
+  }
   const known = new Set(files.map((file) => file.path));
   const skill = files.find((file) => file.path === SKILL_FILE);
   if (skill === undefined) {

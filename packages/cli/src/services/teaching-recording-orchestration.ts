@@ -24,6 +24,7 @@ import {
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
+import { requestedScans } from "./scan-requirements.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingMutation } from "./teaching-recording-store.ts";
 
@@ -402,6 +403,10 @@ export const startDryRun = (input: DryRunStartInput) =>
       ],
       requestedTask: skill.title,
       runId: dryRunId(input.recordingId, input.operationId),
+      scanReports: [],
+      scanRequirements: yield* requestedScans([skill, ...prerequisites]).pipe(
+        Effect.mapError((cause) => invalid(cause.message))
+      ),
       schemaVersion: 3,
       startedAt,
       startingEmulation: manifest.emulation,

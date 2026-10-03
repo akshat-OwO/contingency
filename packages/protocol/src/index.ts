@@ -28,6 +28,7 @@ import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
 import { Geolocation, PermissionDecisions } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { TeachingScan } from "./scans.ts";
 import {
   BrowserCookieWrite,
   BrowserStorageSnapshot,
@@ -43,6 +44,8 @@ import {
 import { Viewport } from "./viewport.ts";
 
 // The protocol package intentionally exposes one public contract surface.
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./scans.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./emulation.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
@@ -439,6 +442,7 @@ export const AgentTeachingCleanupRetried = Schema.Struct(
  */
 export const AgentTeachingInstructionRecordRequest = Schema.Struct({
   operationId: AgentSessionClose.fields.operationId,
+  scan: Schema.optional(TeachingScan),
   sessionId: AgentSessionClose.fields.sessionId,
   /**
    * The element the comment was attached to, by role and accessible name.

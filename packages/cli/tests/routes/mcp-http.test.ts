@@ -267,7 +267,10 @@ it.live(
                 required: ["id", "kind"],
                 properties: expect.objectContaining({
                   id: expect.objectContaining({ type: "string" }),
-                  kind: { type: "string", enum: ["snapshot", "attempt"] },
+                  kind: {
+                    type: "string",
+                    enum: ["snapshot", "attempt", "artifact"],
+                  },
                 }),
               }),
             }),
@@ -280,9 +283,9 @@ it.live(
           (tool) => tool.name === name
         );
         const schema = JSON.stringify(taskTool?.inputSchema);
-        expect(schema).toContain('"enum":["snapshot","attempt"]');
+        expect(schema).toContain('"enum":["snapshot","attempt","artifact"]');
         expect(schema).not.toContain('"screenshot"');
-        expect(schema).not.toContain('"artifact"');
+        expect(schema).toContain('"artifact"');
       }
 
       const invalid = yield* postMcp(
@@ -311,7 +314,7 @@ it.live(
           error: expect.objectContaining({
             code: -32_602,
             message: expect.stringContaining(
-              'Evidence item needs {kind,id}: kind must be "snapshot" or "attempt"'
+              'Evidence item needs {kind,id}: kind must be "snapshot", "attempt", or "artifact"'
             ),
           }),
         })

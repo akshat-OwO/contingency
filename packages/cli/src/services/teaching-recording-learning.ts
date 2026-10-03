@@ -36,6 +36,7 @@ import {
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
+import { validateTaughtScans } from "./scan-requirements.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { teachingRecordingSummary } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
@@ -405,6 +406,7 @@ const makeTeachingRecordingLearning = Effect.fn(
         .readClaimed(input.recordingId, input.claimOperationId)
         .pipe(Effect.mapError(fromStoreError));
       const events = yield* readEvents(manifest);
+
       if (input.cursor > events.length) {
         return yield* Effect.fail(
           learningError(
@@ -586,6 +588,14 @@ const makeTeachingRecordingLearning = Effect.fn(
       // ceiling and device are stamped into the package now, while the event
       // stream is still on disk to prove them.
       const events = yield* readEvents(manifest);
+      yield* validateTaughtScans(
+        files,
+        events.filter((event) => event._tag === "instruction")
+      ).pipe(
+        Effect.mapError((cause) =>
+          learningError("teaching_recording_invalid", cause.message)
+        )
+      );
       const visited = new Set<string>();
       for (const event of events) {
         if (event._tag !== "started" && event._tag !== "url") {
