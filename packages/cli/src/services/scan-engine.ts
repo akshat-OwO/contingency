@@ -1,6 +1,3 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
 import type { ScanMode } from "@contingency/protocol";
 import axe from "axe-core";
 import { Effect, Schema } from "effect";
@@ -31,42 +28,16 @@ export interface ScanCollection {
 }
 
 /** Attach to the exact Run target, never navigate a new browser or copy its storage. */
-const connectTarget = async (page: Page) => {
+const connectTarget = async (page: Page, browserWSEndpoint: string) => {
   const owner = page.context().browser();
   if (owner === null) {
     throw new Error("Performance scans require the owned Chromium browser.");
   }
-  const [browserSession, pageSession] = await Promise.all([
-    owner.newBrowserCDPSession(),
-    page.context().newCDPSession(page),
-  ]);
+  const pageSession = await page.context().newCDPSession(page);
   try {
-    const { arguments: arguments_ } = await browserSession.send(
-      "Browser.getBrowserCommandLine"
-    );
-    const directoryArgument = arguments_.find((argument) =>
-      argument.startsWith("--user-data-dir=")
-    );
-    if (directoryArgument === undefined) {
-      throw new Error("Chromium did not publish its debugging directory.");
-    }
-    const endpoint = await readFile(
-      path.join(
-        directoryArgument.slice("--user-data-dir=".length),
-        "DevToolsActivePort"
-      ),
-      "utf-8"
-    );
-    const [port, route] = endpoint.trim().split("\n");
-    if (
-      !/^\d+$/u.test(port ?? "") ||
-      !route?.startsWith("/devtools/browser/")
-    ) {
-      throw new Error("Chromium published an invalid debugging endpoint.");
-    }
     const { targetInfo } = await pageSession.send("Target.getTargetInfo");
     const browser = await connect({
-      browserWSEndpoint: `ws://127.0.0.1:${port}${route}`,
+      browserWSEndpoint,
       defaultViewport: null,
     });
     try {
@@ -95,14 +66,14 @@ const connectTarget = async (page: Page) => {
     }
   } finally {
     await pageSession.detach();
-    await browserSession.detach();
   }
 };
 
 export const beginScanCollection = async (
   page: Page,
   mode: ScanMode,
-  signal: AbortSignal
+  signal: AbortSignal,
+  performanceEndpoint?: string
 ): Promise<ScanCollection> => {
   if (mode === "accessibility") {
     // Evaluate in an isolated CDP world so page scripts cannot replace axe or its result.
@@ -168,7 +139,10 @@ export const beginScanCollection = async (
       throw error;
     }
   }
-  const target = await connectTarget(page);
+  if (performanceEndpoint === undefined) {
+    throw new Error("Performance scans require the owned Chromium endpoint.");
+  }
+  const target = await connectTarget(page, performanceEndpoint);
   const disconnect = () => {
     void target.browser.disconnect();
   };

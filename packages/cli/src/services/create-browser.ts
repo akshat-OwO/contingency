@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import {
   AGENT_POINTER_ENTRY_OFFSET,
@@ -19,7 +21,17 @@ import type {
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import { Effect, Exit, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
+import { NodeFileSystem } from "@effect/platform-node";
+import {
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  PubSub,
+  Ref,
+  Semaphore,
+  Stream,
+} from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { chromium } from "playwright-core";
 import type {
@@ -241,6 +253,7 @@ const inputSessionFor = (session: CreateSession, page: Page) =>
 /** The one shared Chromium, and the user agent every context presents. */
 interface LaunchedBrowser {
   readonly browser: Browser;
+  readonly performanceEndpoint?: string | undefined;
   readonly userAgent: string;
 }
 
@@ -289,7 +302,8 @@ const makeService = (
       blockServiceWorkers = false,
       performanceScans = false
     ) {
-      const { browser, userAgent } = yield* getBrowser(performanceScans);
+      const { browser, performanceEndpoint, userAgent } =
+        yield* getBrowser(performanceScans);
       const decoded = yield* Effect.try({
         catch: () =>
           makeBrowserRpcError(
@@ -363,6 +377,7 @@ const makeService = (
           readonly page: Page;
           readonly touchActive: boolean;
         } | null>(null),
+        performanceEndpoint,
         pointers,
         screencastLock: yield* Semaphore.make(1),
         state,
@@ -589,7 +604,12 @@ const makeService = (
         const session = yield* requireSession(sessionId);
         if (requestedTabId !== undefined) {
           const page = yield* requirePage(session, requestedTabId);
-          return { context: session.context, page, tabId: requestedTabId };
+          return {
+            context: session.context,
+            page,
+            performanceEndpoint: session.performanceEndpoint,
+            tabId: requestedTabId,
+          };
         }
         const state = readSessionState(session);
         const tabId = state.pageIds.get(state.activePage);
@@ -601,7 +621,12 @@ const makeService = (
             )
           );
         }
-        return { context: session.context, page: state.activePage, tabId };
+        return {
+          context: session.context,
+          page: state.activePage,
+          performanceEndpoint: session.performanceEndpoint,
+          tabId,
+        };
       }),
     clearStorage: storage.clear,
     close: closeSession,
@@ -875,28 +900,53 @@ const LAUNCH_OPTIONS: LaunchOptions = {
  * than per Page, so workers and a popup's first request carry it too.
  */
 const launchChromium = async (
-  performanceScans: boolean
+  performanceDirectory?: string
 ): Promise<LaunchedBrowser> => {
   // Runs keep scan capability when skills are added later. Teaching and video
   // composition use a separate process without a debugging port.
-  const browser = await chromium.launch(
-    performanceScans
-      ? {
+  const persistent =
+    performanceDirectory === undefined
+      ? undefined
+      : await chromium.launchPersistentContext(performanceDirectory, {
           ...LAUNCH_OPTIONS,
           args: [
             ...(LAUNCH_OPTIONS.args ?? []),
-            "--enable-automation",
             "--remote-debugging-port=0",
             "--remote-debugging-address=127.0.0.1",
           ],
-        }
-      : LAUNCH_OPTIONS
-  );
+        });
+  const browser =
+    persistent === undefined
+      ? await chromium.launch(LAUNCH_OPTIONS)
+      : persistent.browser();
+  if (browser === null) {
+    await persistent?.close();
+    throw new Error("The scan browser did not publish its owner.");
+  }
   try {
+    let performanceEndpoint: string | undefined;
+    if (performanceDirectory !== undefined) {
+      const endpoint = await readFile(
+        path.join(performanceDirectory, "DevToolsActivePort"),
+        "utf-8"
+      );
+      const [port, route] = endpoint.trim().split("\n");
+      if (
+        !/^\d+$/u.test(port ?? "") ||
+        !route?.startsWith("/devtools/browser/")
+      ) {
+        throw new Error("Chromium published an invalid debugging endpoint.");
+      }
+      performanceEndpoint = `ws://127.0.0.1:${port}${route}`;
+    }
     const cdp = await browser.newBrowserCDPSession();
     const version = await cdp.send("Browser.getVersion");
     await cdp.detach();
-    return { browser, userAgent: headedUserAgent(version.userAgent) };
+    return {
+      browser,
+      performanceEndpoint,
+      userAgent: headedUserAgent(version.userAgent),
+    };
   } catch (error) {
     await browser.close();
     throw error;
@@ -906,6 +956,10 @@ const launchChromium = async (
 export const CreateBrowserLive = Layer.effect(
   CreateBrowser,
   Effect.gen(function* launchCreateBrowser() {
+    const fs = yield* FileSystem.FileSystem;
+    const performanceDirectory = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-scan-browser-",
+    });
     const registry = AtomRegistry.make();
     const launched = Atom.make<ReadonlyMap<boolean, LaunchedBrowser>>(
       new Map()
@@ -928,7 +982,10 @@ export const CreateBrowserLive = Layer.effect(
             Effect.tryPromise({
               catch: (cause) =>
                 browserFailure("Could not start Chromium", cause),
-              try: () => launchChromium(performanceScans),
+              try: () =>
+                launchChromium(
+                  performanceScans ? performanceDirectory : undefined
+                ),
             }).pipe(
               Effect.tap((browser) =>
                 Effect.sync(() => {
@@ -953,4 +1010,4 @@ export const CreateBrowserLive = Layer.effect(
     );
     return makeService(getBrowser);
   })
-);
+).pipe(Layer.provide(NodeFileSystem.layer));

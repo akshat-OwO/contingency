@@ -64,4 +64,14 @@ The first version scans the whole current Page with axe's WCAG A and AA rules th
 
 Scan Reports follow their owning Run's evidence lifecycle, including Cleanup for Dry Run evidence. This design does not change evidence retention or disclosure policy.
 
+## Browser debugging limitation
+
+Lighthouse attaches through Puppeteer to the Chromium process that Playwright owns. Run browsers expose a random debugging port bound to `127.0.0.1` for that connection. Teaching and video composition use a separate process without this port. Runs retain the connection capability when a user adds Flow Skills later, without replacing their browser state.
+
+The launcher owns a temporary profile directory and reads its `DevToolsActivePort` file. Endpoint discovery does not require `--enable-automation`, and the launcher does not add that flag. A real-browser test checks Chromium's refusal to expose its command line without the flag, verifies `navigator.webdriver` remains false, and completes a Lighthouse scan. These checks do not establish that every automation signal is absent.
+
+The debugging endpoint has no authentication. Another local process can discover it and control all Run contexts in that Chromium process, including authenticated pages. Raw CDP access bypasses Contingency's domain scopes and Execution Boundaries. Loopback binding limits network exposure but does not protect against local processes. The endpoint closes with its owning browser; the temporary profile is removed when the browser service closes.
+
+Removing this exposure requires a different transport between the two browser clients. It remains a security limitation of this implementation, not a guarantee provided by the webdriver check.
+
 The user selected the scan-button prototype and authorized implementation. It introduces a new contract rather than restoring the superseded deterministic Audit Steps in ADR 0005 or navigation toggles in ADR 0008.

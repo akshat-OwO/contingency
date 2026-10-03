@@ -810,14 +810,29 @@ it.live(
         throw new Error("Run browser missing");
       }
       const session = yield* Effect.promise(() => owner.newBrowserCDPSession());
-      const command = yield* Effect.promise(() =>
-        session.send("Browser.getBrowserCommandLine")
+      const commandFailure = yield* Effect.flip(
+        Effect.tryPromise({
+          catch: (cause) => new Error(String(cause)),
+          try: () => session.send("Browser.getBrowserCommandLine"),
+        })
       );
-      expect(command.arguments).toContain("--remote-debugging-port=0");
+      expect(commandFailure.message).toContain("--enable-automation not set");
+      const target = yield* browser.activeTarget(runId);
+      expect(target.performanceEndpoint).toMatch(
+        /^ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\//u
+      );
+      expect(
+        (yield* browser.activeTarget(teachingId)).performanceEndpoint
+      ).toBeUndefined();
       yield* Effect.promise(() => session.detach());
       const measured = yield* Effect.acquireUseRelease(
         Effect.promise(() =>
-          beginScanCollection(runPage, "timespan", new AbortController().signal)
+          beginScanCollection(
+            runPage,
+            "timespan",
+            new AbortController().signal,
+            target.performanceEndpoint
+          )
         ),
         (collection) => Effect.promise(collection.finish),
         (collection) => Effect.promise(collection.cancel)

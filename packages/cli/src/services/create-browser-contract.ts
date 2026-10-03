@@ -31,6 +31,8 @@ import type { BrowserContext, Page } from "playwright-core";
  */
 export interface BrowserTarget {
   readonly context: BrowserContext;
+  /** Owned Chromium endpoint, supplied only to internal performance collectors. */
+  readonly performanceEndpoint?: string | undefined;
   readonly page: Page;
   readonly tabId: BrowserTabId;
 }
