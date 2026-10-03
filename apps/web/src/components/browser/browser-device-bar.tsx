@@ -79,7 +79,20 @@ for (const preset of devicePresets) {
     ?.presets.push(preset);
 }
 
-const DEVICE_SCALE_FACTORS = ["1", "2", "3"] as const;
+const DEVICE_SCALE_FACTORS: readonly string[] = ["1", "2", "3"];
+
+/**
+ * The ratios offered, plus the applied one when an identity brought a
+ * fractional ratio of its own (2.625, 3.5), so the control never reads as
+ * having no ratio at all.
+ */
+const scaleFactorOptions = (applied: string | undefined) =>
+  (applied === undefined || DEVICE_SCALE_FACTORS.includes(applied)
+    ? DEVICE_SCALE_FACTORS
+    : [...DEVICE_SCALE_FACTORS, applied].toSorted(
+        (left, right) => Number(left) - Number(right)
+      )
+  ).map((value) => ({ label: `${value}×`, value }));
 
 /**
  * The viewport controls of the device stage: the device preset, the applied
@@ -187,10 +200,7 @@ export const BrowserDeviceBar = ({
                 width: applied.width,
               })
             }
-            options={DEVICE_SCALE_FACTORS.map((value) => ({
-              label: `${value}×`,
-              value,
-            }))}
+            options={scaleFactorOptions(scaleFactor)}
             size="xs"
             value={scaleFactor}
           />

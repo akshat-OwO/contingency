@@ -160,7 +160,7 @@ test("sends an identity alone so the session applies its own device metrics", as
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "User agent" }));
   await user.click(
-    await screen.findByRole("radio", { name: "Chrome — Android Mobile" })
+    await screen.findByRole("option", { name: "Chrome — Android Mobile" })
   );
   await waitFor(() => {
     expect(rpc.emulationPatches).toHaveLength(1);
@@ -188,6 +188,35 @@ test("refuses browser setup while the agent holds the browser", async () => {
   expect(screen.getByLabelText("Latitude")).toBeDisabled();
 });
 
+test("shows a fractional pixel ratio an identity applied", async () => {
+  emulationResult.emulation.viewport.deviceScaleFactor = 2.625;
+  try {
+    renderSetup();
+    expect(
+      await screen.findByRole("radio", { name: "2.625×" })
+    ).toHaveAttribute("aria-checked", "true");
+  } finally {
+    emulationResult.emulation.viewport.deviceScaleFactor = 1;
+  }
+});
+
+test("keeps the Emulation card open when Escape dismisses its own dialog", async () => {
+  renderSetup();
+  expect(await screen.findByText("1280 × 720")).toBeVisible();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Emulation" }));
+  await user.type(screen.getByLabelText("Latitude"), "52.52");
+  await user.type(screen.getByLabelText("Longitude"), "13.405");
+  await user.click(screen.getByRole("button", { name: "Apply" }));
+  expect(await screen.findByRole("dialog")).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  expect(screen.getByRole("region", { name: "Emulation" })).toBeVisible();
+  expect(screen.getByLabelText("Latitude")).toHaveValue("52.52");
+});
+
 test("opens a configuration card over the stage and closes it with Escape", async () => {
   renderSetup();
   const user = userEvent.setup();
@@ -213,6 +242,7 @@ test("inspects the storage of the tab the Agent Session is showing", async () =>
 
 test("docks an inspection panel beside the stage and moves it below", async () => {
   renderSetup();
+  const canvas = screen.getByLabelText("Live browser viewport");
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Console" }));
   expect(await screen.findByRole("region", { name: "Console" })).toBeVisible();
@@ -220,10 +250,11 @@ test("docks an inspection panel beside the stage and moves it below", async () =
   expect(separator).toHaveAttribute("aria-orientation", "vertical");
   await user.click(screen.getByRole("button", { name: "Dock to bottom" }));
   expect(separator).toHaveAttribute("aria-orientation", "horizontal");
-  // Moving the inspector keeps the same live frame rather than remounting it.
-  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Close DevTools" }));
   expect(
     screen.queryByRole("region", { name: "Console" })
   ).not.toBeInTheDocument();
+  // Docking, moving, and closing the inspector keep the same live frame
+  // rather than remounting it.
+  expect(screen.getByLabelText("Live browser viewport")).toBe(canvas);
 });

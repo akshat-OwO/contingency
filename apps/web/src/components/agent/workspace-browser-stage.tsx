@@ -123,6 +123,10 @@ const inspectorStateAtom = Atom.make<InspectorState>({
   rightWidth: DEFAULT_RIGHT_WIDTH,
 });
 
+/** Surfaces that own their own Escape, so it never also closes the card. */
+const ESCAPE_OWNERS =
+  '[role="dialog"], [data-slot="select-content"], [role="menu"]';
+
 const cardTitles: Readonly<Record<InspectorCard, string>> = {
   emulation: "Emulation",
   identity: "User agent",
@@ -635,9 +639,18 @@ export const WorkspaceBrowserStage = ({
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeCard();
+      // Escape meant for something the card opened — the location
+      // permission dialog, a Select's list — dismisses that alone. Closing
+      // the card too would discard what the author had typed into it.
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        (event.target instanceof Element &&
+          event.target.closest(ESCAPE_OWNERS) !== null)
+      ) {
+        return;
       }
+      closeCard();
     };
     globalThis.addEventListener("keydown", onKeyDown);
     return () => globalThis.removeEventListener("keydown", onKeyDown);

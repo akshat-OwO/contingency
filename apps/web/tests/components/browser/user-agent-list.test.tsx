@@ -7,7 +7,7 @@ import { UserAgentList } from "@/components/browser/user-agent-list";
 afterEach(cleanup);
 
 const offeredLabels = () =>
-  screen.getAllByRole("radio").map((option) => option.textContent);
+  screen.getAllByRole("option").map((option) => option.textContent);
 
 const renderList = () => {
   const onValueChange = vi.fn();
@@ -50,7 +50,7 @@ test("reports the identity an author chose", async () => {
   const onValueChange = renderList();
 
   await userEvent.click(
-    screen.getByRole("radio", { name: "Chrome — Android Mobile" })
+    screen.getByRole("option", { name: "Chrome — Android Mobile" })
   );
 
   expect(onValueChange).toHaveBeenCalledWith("chrome-android-mobile");
@@ -60,6 +60,20 @@ test("marks the identity the browser presents", () => {
   renderList();
 
   expect(
-    screen.getByRole("radio", { name: "Browser default" })
-  ).toHaveAttribute("aria-checked", "true");
+    screen.getByRole("option", { name: "Browser default" })
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("moves focus with the arrows and applies an identity only on Enter", async () => {
+  const onValueChange = renderList();
+  const user = userEvent.setup();
+
+  await user.tab();
+  expect(screen.getByRole("option", { name: "Browser default" })).toHaveFocus();
+  await user.keyboard("{ArrowDown}");
+  expect(onValueChange).not.toHaveBeenCalled();
+  const focused = globalThis.document.activeElement;
+  expect(focused).toHaveAttribute("role", "option");
+  await user.keyboard("{Enter}");
+  expect(onValueChange).toHaveBeenCalledTimes(1);
 });
