@@ -34,6 +34,7 @@ const rpc = vi.hoisted(() => ({
     y: 60,
   } satisfies unknown,
   instructionCalls: [] satisfies unknown[],
+  instructionFailure: undefined satisfies unknown,
   navigateCalls: [] satisfies unknown[],
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
@@ -98,17 +99,19 @@ const rpcOverrides = {
   ),
   agentTeachingInstructionRecordMutation: Atom.fn(
     <Payload,>(payload: Payload) =>
-      Effect.sync(() => {
-        rpc.instructionCalls.push(payload);
-        return {
-          data: {
-            session: {
-              activity: "teaching",
-              teaching: { instructionCount: rpc.instructionCalls.length },
-            },
-          },
-        };
-      })
+      rpc.instructionFailure === undefined
+        ? Effect.sync(() => {
+            rpc.instructionCalls.push(payload);
+            return {
+              data: {
+                session: {
+                  activity: "teaching",
+                  teaching: { instructionCount: rpc.instructionCalls.length },
+                },
+              },
+            };
+          })
+        : Effect.fail(rpc.instructionFailure).pipe(Effect.delay("100 millis"))
   ),
   agentTeachingRecordingDiscardMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -292,6 +295,7 @@ afterEach(() => {
   rpc.stopRecordingCalls = [];
   rpc.takeoverCalls = [];
   rpc.verifyFailure = undefined;
+  rpc.instructionFailure = undefined;
 });
 
 test("announces that Agent Sessions are loading", () => {
@@ -958,6 +962,26 @@ test("adds a page comment without inspecting an element", async () => {
   expect(rpc.instructionCalls[0]).not.toMatchObject({
     payload: { data: { target: expect.any(String) } },
   });
+});
+
+test("reopens the composer on the unsent draft when a save fails after it was closed", async () => {
+  const user = userEvent.setup();
+  rpc.instructionFailure = new Error("The recording refused the instruction.");
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const field = await screen.findByRole("textbox", { name: "Comment" });
+  await user.type(field, "Dismiss the cookie banner.{Enter}");
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  const reopened = await screen.findByRole("dialog", { name: "Comment" });
+  expect(await within(reopened).findByRole("alert")).toHaveTextContent(
+    "The recording refused the instruction."
+  );
+  expect(
+    within(reopened).getByRole("textbox", { name: "Comment" })
+  ).toHaveValue("Dismiss the cookie banner.");
 });
 
 test("keeps single-key shortcuts for the Page while the browser holds focus", async () => {

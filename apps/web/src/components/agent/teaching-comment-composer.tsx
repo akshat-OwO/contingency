@@ -72,7 +72,7 @@ const CommentHistory = ({
   startedAt,
 }: {
   readonly instructions: readonly TeachingInstruction[];
-  readonly onHighlight: (index: number | undefined) => void;
+  readonly onHighlight: (index?: number) => void;
   readonly pinned: ReadonlySet<number>;
   readonly startedAt: string;
 }) => {
@@ -158,7 +158,7 @@ export const CommentComposer = ({
   readonly instructions: readonly TeachingInstruction[];
   readonly onDetach: () => void;
   readonly onDraftChange: (draft: string) => void;
-  readonly onHighlight: (index: number | undefined) => void;
+  readonly onHighlight: (index?: number) => void;
   readonly onOpenChange: (open: boolean) => void;
   readonly onPick: () => void;
   readonly onSubmit: () => void;

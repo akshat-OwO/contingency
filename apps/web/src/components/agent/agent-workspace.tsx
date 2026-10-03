@@ -1563,7 +1563,7 @@ const useAgentView = (
     );
   };
 
-  const highlightComment = (index: number | undefined) => {
+  const highlightComment = (index?: number) => {
     updateInspect((inspect) =>
       inspect.highlighted === index
         ? inspect
@@ -1719,14 +1719,20 @@ const useAgentView = (
               }
               const samePage = pageVersion === inspectPageVersionRef.current;
               if (Result.isFailure(outcome)) {
+                /*
+                  The composer can be closed while the save is in flight, so a
+                  failure reopens it on the unsent draft: an error on a closed
+                  composer would be read by no one.
+                */
+                const unsent = current.inspect.draft.trim() === text;
                 return {
                   ...current,
                   inspect: {
                     ...current.inspect,
-                    error:
-                      current.inspect.draft.trim() === text
-                        ? errorMessage(outcome.failure)
-                        : current.inspect.error,
+                    composing: current.inspect.composing || unsent,
+                    error: unsent
+                      ? errorMessage(outcome.failure)
+                      : current.inspect.error,
                     pending: false,
                   },
                 };
