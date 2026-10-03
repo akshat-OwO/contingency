@@ -93,10 +93,10 @@ const markRemainingUnexecuted = (
       : step
   );
 
-/** Recompute the derived tallies after any change to the ordered Steps. */
 export type LiveRun = AgentRunState | TaskAgentRunState;
 export const isTaskRun = (run: LiveRun): run is TaskAgentRunState =>
   "schemaVersion" in run;
+/** Recompute the derived tallies after any change to the ordered Steps. */
 const withDerivedRunTotals = (run: LiveRun): LiveRun =>
   isTaskRun(run)
     ? run
@@ -685,27 +685,15 @@ export const makeRunLifecycle = (dependencies: {
                     : "completed",
               })
             : {
+                ...commonSummary,
                 assessmentCounts: finished.assessmentCounts,
-                attribution: finished.attribution,
                 coverage: finished.coverage,
                 endedAt: finished.endedAt ?? at,
                 flowSkillName: finished.flowSkillName,
                 inputs: finished.inputs,
                 outcome: finished.outcome ?? "ended-early",
-                runId: finished.runId,
                 schemaVersion: 2,
-                sessionId,
-                startedAt: finished.startedAt,
                 steps: finished.steps,
-                timeline: [
-                  ...new Map(
-                    [...record.runTimeline, ...completed.timeline].map(
-                      (entry) => [entry.id, entry]
-                    )
-                  ).values(),
-                ].toSorted((left, right) => left.at.localeCompare(right.at)),
-                title: finished.title,
-                tracePath: yield* finalArtifactPath(record, record.traceFile),
                 videoPath: yield* finalArtifactPath(record, record.videoFile),
               };
           yield* mutate((snapshot) => ({
