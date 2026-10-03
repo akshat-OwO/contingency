@@ -25,6 +25,11 @@ import { Effect, Option, Result, Schema, Semaphore } from "effect";
 import { errors } from "playwright-core";
 import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
 
+import type {
+  AgentElementBounds,
+  AgentPointerSink,
+  PrivateInputTarget,
+} from "./agent-browser-contract.ts";
 import { networkQuietFor } from "./page-activity.ts";
 import {
   SENSITIVE_AUTOCOMPLETE,
@@ -1205,29 +1210,6 @@ const matchesContinuation = (
  * Nothing is written into the page, so a Snapshot never changes the website
  * under test.
  */
-/**
- * Where one private Variable is entered. `selector` names the controls the
- * value is typed into: one field, or every box of a split input such as six
- * OTP boxes. `spread` names associated controls in the same widget, which
- * the page may distribute the value across. It is read as evidence that the
- * page accepted the value and is never typed into.
- */
-export interface PrivateInputTarget {
-  readonly selector: string;
-  readonly spread: string | undefined;
-}
-
-/** One element the Snapshot located, with the box it occupied in the viewport. */
-export interface AgentElementBounds {
-  readonly rectangle: {
-    readonly height: number;
-    readonly width: number;
-    readonly x: number;
-    readonly y: number;
-  };
-  readonly ref: AgentElementRef;
-}
-
 export interface AgentElementRegistry {
   /** Drop every reference, releasing the handles the browser still holds. */
   readonly clear: () => Effect.Effect<void>;
@@ -2556,11 +2538,6 @@ const attempt = <A>(
     catch: (cause) => browserFailure(description, cause),
     try: operation,
   });
-
-/** Where the agent's cursor lands, reported before the action it precedes. */
-export type AgentPointerSink = (
-  pointer: Pick<BrowserAgentPointer, "action" | "x" | "y">
-) => Effect.Effect<void, BrowserRpcErrorType>;
 
 /**
  * How an action brings its element into view, so pointing at it first moves

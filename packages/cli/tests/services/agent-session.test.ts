@@ -42,6 +42,11 @@ import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
 } from "../../src/services/teaching-recording-store.ts";
+import {
+  CONTRACT_URL,
+  CONTRACT_NEXT_URL,
+} from "../helpers/agent-browser-contract.ts";
+import { makeInMemoryAgentBrowser } from "../helpers/in-memory-agent-browser.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -1150,3 +1155,113 @@ it("redacts a private literal carried in a navigated URL", () => {
   );
   expect(described).not.toContain(secret);
 });
+
+it.live(
+  "observes and acts successfully through the in-memory Agent Browser",
+  () =>
+    Effect.gen(function* successfulSessionBrowser() {
+      const fake = makeFakeBrowser();
+      const agentBrowser = yield* makeInMemoryAgentBrowser({
+        onNavigate: fake.visit,
+        url: CONTRACT_URL,
+      });
+      const service = yield* makeAgentSessionService(fake.browser, {
+        agentBrowserFactory: () => Effect.succeed(agentBrowser),
+        allowedActivity: "any",
+        baseUrl: "http://127.0.0.1:7777",
+      });
+      const started = yield* service.start({
+        ...startInput("successful-start"),
+        url: CONTRACT_URL,
+      });
+      const snapshot = yield* service.snapshot(started.id);
+      const message = snapshot.nodes.find((node) => node.name === "Message");
+      expect(message).toBeDefined();
+      if (message === undefined) {
+        return;
+      }
+      const action = { ref: message.ref, text: "hello", type: "fill" as const };
+      const operationId = OperationId.make("successful-fill");
+      const result = yield* service.act(started.id, action, operationId);
+      expect(result.entry.outcome).toBe("completed");
+      expect(
+        result.snapshot.nodes.find((node) => node.name === "Message")?.value
+      ).toBe("hello");
+      expect(result.entry.effect?.kind).toBe("observed");
+      expect(yield* service.act(started.id, action, operationId)).toEqual(
+        result
+      );
+      expect(
+        (yield* service.get(started.id)).timeline.filter(
+          (entry) => entry.id === result.entry.id
+        )
+      ).toHaveLength(1);
+      const inspected = yield* service.inspectPoint(started.id, 50, 20);
+      expect(inspected.description).toContain("Message");
+      yield* service.act(
+        started.id,
+        { type: "navigate", url: CONTRACT_NEXT_URL },
+        OperationId.make("successful-navigate")
+      );
+      const stale = yield* Effect.flip(
+        service.act(started.id, action, OperationId.make("stale-fill"))
+      );
+      expect(stale.code).toBe("agent_element_stale");
+      expect((yield* service.snapshot(started.id)).url).toBe(CONTRACT_NEXT_URL);
+      expect(fake.activePageCalls()).toBe(0);
+      yield* service.closeAll();
+    })
+);
+
+it.live(
+  "keeps successful observations available during Takeover and resumes actions",
+  () =>
+    Effect.gen(function* successfulTakeover() {
+      const fake = makeFakeBrowser();
+      const agentBrowser = yield* makeInMemoryAgentBrowser({
+        onNavigate: fake.visit,
+        url: CONTRACT_URL,
+      });
+      const service = yield* makeAgentSessionService(fake.browser, {
+        agentBrowserFactory: () => Effect.succeed(agentBrowser),
+        allowedActivity: "any",
+        baseUrl: "http://127.0.0.1:7777",
+      });
+      const started = yield* service.start({
+        ...startInput("successful-takeover-start"),
+        url: CONTRACT_URL,
+      });
+      yield* service.takeover(
+        started.id,
+        "Inspect the browser",
+        OperationId.make("successful-takeover")
+      );
+      const snapshot = yield* service.snapshot(started.id);
+      const save = snapshot.nodes.find((node) => node.name === "Save");
+      expect(save).toBeDefined();
+      if (save === undefined) {
+        return;
+      }
+      const action = { ref: save.ref, type: "click" as const };
+      expect(
+        (yield* Effect.flip(
+          service.act(started.id, action, OperationId.make("paused-action"))
+        )).code
+      ).toBe("agent_control_unavailable");
+      yield* service.returnControl(
+        started.id,
+        OperationId.make("successful-return")
+      );
+      const result = yield* service.act(
+        started.id,
+        action,
+        OperationId.make("resumed-action")
+      );
+      expect(result.entry.outcome).toBe("completed");
+      expect(result.snapshot.nodes.some((node) => node.name === "Saved")).toBe(
+        true
+      );
+      expect(fake.activePageCalls()).toBe(0);
+      yield* service.closeAll();
+    })
+);
