@@ -130,10 +130,7 @@ import { installAgentNavigationBoundary } from "./agent-navigation-boundary.ts";
 import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
-import type {
-  AgentSessionDomainError,
-  AgentSessionError,
-} from "./agent-session-error.ts";
+import type { AgentSessionError } from "./agent-session-error.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
   BrowserStorageDeleteInput,
@@ -162,6 +159,8 @@ import type { RunEvidence } from "./run-lifecycle.ts";
 import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import type { AgentOperationKind } from "./session-operation-ledger.ts";
+import { makeSessionOperationLedger } from "./session-operation-ledger.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
 import { makeTeachingRecorder } from "./teaching-recorder.ts";
@@ -1528,49 +1527,6 @@ interface TeachingArtifacts {
   readonly traceFile: string | undefined;
 }
 
-type AgentOperationKind =
-  | "act"
-  | "boundary"
-  | "assess"
-  | "task-update"
-  | "task-assess"
-  | "task-finding"
-  | "variable-request"
-  | "setup-variable-request"
-  | "setup-variable-answer"
-  | "close"
-  | "complete"
-  | "control"
-  | "handoff"
-  | "instruction"
-  | "private-input"
-  | "recording-discard"
-  | "recording-rename"
-  | "recording-start"
-  | "recording-stop"
-  | "start"
-  | "takeover"
-  | "variable-supply";
-
-/** What a replayed operation answers with, discriminated so no cast is needed. */
-type AgentOperationResult =
-  | { readonly kind: "act"; readonly result: AgentActionResult }
-  /**
-   * A dispatched action whose outcome Contingency does not know. The browser
-   * may already have performed it, so the id answers with the same refusal
-   * rather than performing it a second time.
-   */
-  | { readonly error: AgentSessionError; readonly kind: "act-failure" }
-  | { readonly kind: "run-summary"; readonly result: AgentRunSummary }
-  | { readonly kind: "session"; readonly result: AgentSessionSnapshot };
-
-interface ReplayRecord {
-  readonly input: string;
-  readonly kind: AgentOperationKind;
-  readonly result: AgentOperationResult;
-  readonly target: string;
-}
-
 const makeAgentSession = (
   browser: CreateBrowserService,
   options: AgentSessionServiceOptions,
@@ -1585,10 +1541,7 @@ const makeAgentSession = (
     const sessions = Ref.makeUnsafe<ReadonlyMap<AgentSessionId, SessionRecord>>(
       new Map()
     );
-    const operations = Ref.makeUnsafe<ReadonlyMap<string, ReplayRecord>>(
-      new Map()
-    );
-    const lock = Semaphore.makeUnsafe(1);
+    const ledger = makeSessionOperationLedger();
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
 
@@ -2005,137 +1958,6 @@ const makeAgentSession = (
       );
     };
 
-    const remember = (
-      operationId: OperationId | string | undefined,
-      kind: AgentOperationKind,
-      target: string,
-      input: string,
-      result: AgentOperationResult
-    ): Effect.Effect<void> =>
-      operationId === undefined
-        ? Effect.void
-        : Ref.update(operations, (current) =>
-            new Map(current).set(String(operationId), {
-              input,
-              kind,
-              result,
-              target,
-            })
-          );
-
-    const rememberSession = (
-      operationId: OperationId | string | undefined,
-      kind: AgentOperationKind,
-      target: string,
-      input: string,
-      snapshot: AgentSessionSnapshot
-    ): Effect.Effect<void> =>
-      remember(operationId, kind, target, input, {
-        kind: "session",
-        result: snapshot,
-      });
-
-    const rememberRunSummary = (
-      operationId: OperationId | string | undefined,
-      target: string,
-      input: string,
-      summary: AgentRunSummary
-    ): Effect.Effect<void> =>
-      remember(operationId, "complete", target, input, {
-        kind: "run-summary",
-        result: summary,
-      });
-
-    /**
-     * What a repeated operation id means. An identical request answers with
-     * the recorded result and performs no effect; a different request under a
-     * used id is a conflict rather than a second effect.
-     */
-    const replay = (
-      operationId: OperationId | string | undefined,
-      kind: AgentOperationKind,
-      target: string,
-      input: string
-    ):
-      | { readonly _tag: "conflict"; readonly error: AgentSessionDomainError }
-      | { readonly _tag: "replay"; readonly result: AgentOperationResult }
-      | undefined => {
-      if (operationId === undefined) {
-        return undefined;
-      }
-      const prior = Ref.getUnsafe(operations).get(String(operationId));
-      if (prior === undefined) {
-        return undefined;
-      }
-      if (
-        prior.kind === kind &&
-        prior.target === target &&
-        prior.input === input
-      ) {
-        return { _tag: "replay", result: prior.result };
-      }
-      return {
-        _tag: "conflict",
-        error: error(
-          "agent_session_conflict",
-          `Operation ${String(operationId)} was already used for a different ${prior.kind} request.`
-        ),
-      };
-    };
-
-    /** The replayed snapshot of a session mutation, if this id replays one. */
-    const replaySession = (
-      operationId: OperationId | string | undefined,
-      kind: AgentOperationKind,
-      target: string,
-      input: string
-    ):
-      | { readonly _tag: "conflict"; readonly error: AgentSessionDomainError }
-      | { readonly _tag: "replay"; readonly snapshot: AgentSessionSnapshot }
-      | undefined => {
-      const replayed = replay(operationId, kind, target, input);
-      if (replayed === undefined || replayed._tag === "conflict") {
-        return replayed;
-      }
-      return replayed.result.kind === "session"
-        ? { _tag: "replay", snapshot: replayed.result.result }
-        : {
-            _tag: "conflict",
-            error: error(
-              "agent_session_conflict",
-              `Operation ${String(operationId)} was already used for a browser action.`
-            ),
-          };
-    };
-
-    /**
-     * Completing a Run is a mutation like any other: a transport retry answers
-     * with the Run Summary the first call produced rather than finalizing a
-     * second time over an already-closed browser.
-     */
-    const replayRunSummary = (
-      operationId: OperationId | string | undefined,
-      target: string,
-      input: string
-    ):
-      | { readonly _tag: "conflict"; readonly error: AgentSessionDomainError }
-      | { readonly _tag: "replay"; readonly summary: AgentRunSummary }
-      | undefined => {
-      const replayed = replay(operationId, "complete", target, input);
-      if (replayed === undefined || replayed._tag === "conflict") {
-        return replayed;
-      }
-      return replayed.result.kind === "run-summary"
-        ? { _tag: "replay", summary: replayed.result.result }
-        : {
-            _tag: "conflict",
-            error: error(
-              "agent_session_conflict",
-              `Operation ${String(operationId)} was already used for a session mutation.`
-            ),
-          };
-    };
-
     const sessionResource = (
       sessionScope: Scope.Closeable,
       sessionId: AgentSessionId
@@ -2333,151 +2155,147 @@ const makeAgentSession = (
       reason: TeachingStopReason = "user"
     ) {
       const requestInput = "";
-      const replayed = replaySession(
-        operationId,
-        "recording-stop",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "replay") {
-        return replayed.snapshot;
-      }
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      const record = yield* read(sessionId);
-      if (
-        record.snapshot.activity !== "teaching" ||
-        record.snapshot.captureState._tag !== "recording" ||
-        record.capture === undefined ||
-        record.teachingRecorder === undefined ||
-        teachingRecordingStore === undefined ||
-        record.artifactDirectory === undefined
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Agent Session ${sessionId} has no active Teaching recording.`
-          )
-        );
-      }
-      // A gesture the user was still making when they stopped has no action
-      // after it to observe the Page it left behind, so it is closed here.
-      // Best effort: a browser already gone must not fail the Stop.
-      const { capture } = record;
-      // Closing the gesture forgets it, so its identity is read first: the
-      // same reasoning covers its keyframe, which still holds a state the user
-      // was moving through rather than the one they left on the screen.
-      const openActionId = capture.openActionId();
-      yield* browser.activePage(record.browserSessionId).pipe(
-        Effect.flatMap((page) =>
-          snapshotAfterAction(page, record.registry, page.url()).pipe(
-            Effect.tap((snapshot) =>
-              Effect.sync(() =>
-                capture.closeCoalescedAction(
-                  redactCapturedSnapshot(record, snapshot)
-                )
-              )
-            ),
-            Effect.flatMap(() =>
-              openActionId === undefined
-                ? Effect.void
-                : captureTeachingKeyframe(
-                    record,
-                    page,
-                    openActionId,
-                    now().toISOString(),
-                    true
-                  )
-            )
-          )
-        ),
-        Effect.ignore
-      );
-      // Read only once the open gesture is photographed, and on the capture's
-      // own clock, so no event the recording holds reads later than its Stop.
-      const stoppedAt = capture.stopTime(now().toISOString());
-      const { startedAt } = record.snapshot.captureState;
-      const finalizing: AgentSessionSnapshot = {
-        ...record.snapshot,
-        captureState: {
-          _tag: "finalizing",
-          startedAt,
-          stoppedAt,
-        },
-        updatedAt: stoppedAt,
-      };
-      // Publish `finalizing` first: `recordingCapture` gates on `recording`, so
-      // this is what actually ends semantic capture on the same timestamp as the
-      // video and the trace, instead of letting it run through encoder drain.
-      yield* save(sessionId, record, finalizing);
-      const recorderResult = yield* record.teachingRecorder.stop(
-        record.capture.current(),
-        reason,
-        stoppedAt
-      );
-      const { failure } = recorderResult;
-      // Hashing comes first so the retention manifest names the keyframes that
-      // actually reached the directory rather than the ones capture held.
-      const artifacts = yield* collectTeachingArtifacts(
-        record.artifactDirectory
-      );
-      const retentionFile = yield* writeTeachingRetentionManifest(
-        record.artifactDirectory,
-        sessionId,
-        recorderResult.traceFile,
-        [recorderResult.videoFile],
-        artifacts.flatMap((artifact) =>
-          artifact.kind === "keyframe" ? [artifact.path] : []
-        )
-      );
-      const manifest = yield* teachingRecordingStore
-        .stop({
-          artifacts,
-          failure,
-          operationId: OperationId.make(operationId),
-          recordingId: record.snapshot.recordingId,
-        })
-        .pipe(
-          Effect.mapError((cause) =>
-            error("agent_session_invalid", cause.message)
-          )
-        );
-      const captureState =
-        manifest.lifecycle._tag === "failed"
-          ? manifest.lifecycle
-          : {
-              _tag: "ready" as const,
-              readyAt:
-                manifest.lifecycle._tag === "ready"
-                  ? manifest.lifecycle.readyAt
-                  : now().toISOString(),
-              startedAt,
-              stoppedAt,
-            };
-      const finished: AgentSessionSnapshot = {
-        ...finalizing,
-        captureState,
-        teaching: record.capture.progress(),
-        updatedAt:
-          captureState._tag === "failed"
-            ? captureState.failedAt
-            : captureState.readyAt,
-      };
-      yield* saveRecord(sessionId, {
-        ...record,
-        retentionFile,
-        snapshot: finished,
-        teachingRecorder: undefined,
-      });
-      yield* rememberSession(
+      return yield* ledger.session(
         operationId,
         "recording-stop",
         sessionId,
         requestInput,
-        finished
+        Effect.gen(function* applySessionOperation() {
+          const record = yield* read(sessionId);
+          if (
+            record.snapshot.activity !== "teaching" ||
+            record.snapshot.captureState._tag !== "recording" ||
+            record.capture === undefined ||
+            record.teachingRecorder === undefined ||
+            teachingRecordingStore === undefined ||
+            record.artifactDirectory === undefined
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Agent Session ${sessionId} has no active Teaching recording.`
+              )
+            );
+          }
+          // A gesture the user was still making when they stopped has no action
+          // after it to observe the Page it left behind, so it is closed here.
+          // Best effort: a browser already gone must not fail the Stop.
+          const { capture } = record;
+          // Closing the gesture forgets it, so its identity is read first: the
+          // same reasoning covers its keyframe, which still holds a state the user
+          // was moving through rather than the one they left on the screen.
+          const openActionId = capture.openActionId();
+          yield* browser.activePage(record.browserSessionId).pipe(
+            Effect.flatMap((page) =>
+              snapshotAfterAction(page, record.registry, page.url()).pipe(
+                Effect.tap((snapshot) =>
+                  Effect.sync(() =>
+                    capture.closeCoalescedAction(
+                      redactCapturedSnapshot(record, snapshot)
+                    )
+                  )
+                ),
+                Effect.flatMap(() =>
+                  openActionId === undefined
+                    ? Effect.void
+                    : captureTeachingKeyframe(
+                        record,
+                        page,
+                        openActionId,
+                        now().toISOString(),
+                        true
+                      )
+                )
+              )
+            ),
+            Effect.ignore
+          );
+          // Read only once the open gesture is photographed, and on the capture's
+          // own clock, so no event the recording holds reads later than its Stop.
+          const stoppedAt = capture.stopTime(now().toISOString());
+          const { startedAt } = record.snapshot.captureState;
+          const finalizing: AgentSessionSnapshot = {
+            ...record.snapshot,
+            captureState: {
+              _tag: "finalizing",
+              startedAt,
+              stoppedAt,
+            },
+            updatedAt: stoppedAt,
+          };
+          // Publish `finalizing` first: `recordingCapture` gates on `recording`, so
+          // this is what actually ends semantic capture on the same timestamp as the
+          // video and the trace, instead of letting it run through encoder drain.
+          yield* save(sessionId, record, finalizing);
+          const recorderResult = yield* record.teachingRecorder.stop(
+            record.capture.current(),
+            reason,
+            stoppedAt
+          );
+          const { failure } = recorderResult;
+          // Hashing comes first so the retention manifest names the keyframes that
+          // actually reached the directory rather than the ones capture held.
+          const artifacts = yield* collectTeachingArtifacts(
+            record.artifactDirectory
+          );
+          const retentionFile = yield* writeTeachingRetentionManifest(
+            record.artifactDirectory,
+            sessionId,
+            recorderResult.traceFile,
+            [recorderResult.videoFile],
+            artifacts.flatMap((artifact) =>
+              artifact.kind === "keyframe" ? [artifact.path] : []
+            )
+          );
+          const manifest = yield* teachingRecordingStore
+            .stop({
+              artifacts,
+              failure,
+              operationId: OperationId.make(operationId),
+              recordingId: record.snapshot.recordingId,
+            })
+            .pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
+          const captureState =
+            manifest.lifecycle._tag === "failed"
+              ? manifest.lifecycle
+              : {
+                  _tag: "ready" as const,
+                  readyAt:
+                    manifest.lifecycle._tag === "ready"
+                      ? manifest.lifecycle.readyAt
+                      : now().toISOString(),
+                  startedAt,
+                  stoppedAt,
+                };
+          const finished: AgentSessionSnapshot = {
+            ...finalizing,
+            captureState,
+            teaching: record.capture.progress(),
+            updatedAt:
+              captureState._tag === "failed"
+                ? captureState.failedAt
+                : captureState.readyAt,
+          };
+          yield* saveRecord(sessionId, {
+            ...record,
+            retentionFile,
+            snapshot: finished,
+            teachingRecorder: undefined,
+          });
+          yield* ledger.rememberSession(
+            operationId,
+            "recording-stop",
+            sessionId,
+            requestInput,
+            finished
+          );
+          return finished;
+        })
       );
-      return finished;
     });
 
     /**
@@ -2493,103 +2311,99 @@ const makeAgentSession = (
       operationId: OperationId | string
     ) {
       const requestInput = "";
-      const replayed = replaySession(
-        operationId,
-        "recording-discard",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "replay") {
-        return replayed.snapshot;
-      }
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      const record = yield* read(sessionId);
-      if (
-        record.snapshot.activity !== "teaching" ||
-        !isLive(record.snapshot.phase)
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Agent Session ${sessionId} is not a live Teaching session.`
-          )
-        );
-      }
-      if (
-        record.snapshot.captureState._tag !== "ready" &&
-        record.snapshot.captureState._tag !== "failed"
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `A Teaching Recording cannot be discarded from ${record.snapshot.captureState._tag}.`
-          )
-        );
-      }
-      if (teachingRecordingStore === undefined) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_unavailable",
-            "Teaching recording storage is unavailable in this process."
-          )
-        );
-      }
-      // The retention manifest names the Trace and the video this recording
-      // wrote. Discarding removes those files, so the note that points at them
-      // goes with them rather than outliving what it describes.
-      if (record.retentionFile !== undefined && fileSystem !== undefined) {
-        yield* fileSystem
-          .remove(record.retentionFile, { force: true })
-          .pipe(Effect.ignore);
-      }
-      const manifest = yield* teachingRecordingStore
-        .discard({
-          operationId: OperationId.make(operationId),
-          recordingId: record.snapshot.recordingId,
-        })
-        .pipe(
-          Effect.mapError((cause) =>
-            error("agent_session_invalid", cause.message)
-          )
-        );
-      if (manifest.lifecycle._tag !== "setup") {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Teaching Recording ${record.snapshot.recordingId} did not return to setup.`
-          )
-        );
-      }
-      // The timeline describes the discarded Demonstration, so it goes with
-      // it: `setup` after a deletion is a clean bundle, not one that still
-      // lists actions whose evidence is gone.
-      const discarded: AgentSessionSnapshot = {
-        ...record.snapshot,
-        captureState: manifest.lifecycle,
-        teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
-        timeline: [],
-        updatedAt: manifest.lifecycle.requestedAt,
-      };
-      yield* saveRecord(sessionId, {
-        ...record,
-        artifactDirectory: undefined,
-        capture: undefined,
-        footage: undefined,
-        retentionFile: undefined,
-        snapshot: discarded,
-        traceFile: undefined,
-        videoFile: undefined,
-      });
-      yield* rememberSession(
+      return yield* ledger.session(
         operationId,
         "recording-discard",
         sessionId,
         requestInput,
-        discarded
+        Effect.gen(function* applySessionOperation() {
+          const record = yield* read(sessionId);
+          if (
+            record.snapshot.activity !== "teaching" ||
+            !isLive(record.snapshot.phase)
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Agent Session ${sessionId} is not a live Teaching session.`
+              )
+            );
+          }
+          if (
+            record.snapshot.captureState._tag !== "ready" &&
+            record.snapshot.captureState._tag !== "failed"
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `A Teaching Recording cannot be discarded from ${record.snapshot.captureState._tag}.`
+              )
+            );
+          }
+          if (teachingRecordingStore === undefined) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_unavailable",
+                "Teaching recording storage is unavailable in this process."
+              )
+            );
+          }
+          // The retention manifest names the Trace and the video this recording
+          // wrote. Discarding removes those files, so the note that points at them
+          // goes with them rather than outliving what it describes.
+          if (record.retentionFile !== undefined && fileSystem !== undefined) {
+            yield* fileSystem
+              .remove(record.retentionFile, { force: true })
+              .pipe(Effect.ignore);
+          }
+          const manifest = yield* teachingRecordingStore
+            .discard({
+              operationId: OperationId.make(operationId),
+              recordingId: record.snapshot.recordingId,
+            })
+            .pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
+          if (manifest.lifecycle._tag !== "setup") {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Teaching Recording ${record.snapshot.recordingId} did not return to setup.`
+              )
+            );
+          }
+          // The timeline describes the discarded Demonstration, so it goes with
+          // it: `setup` after a deletion is a clean bundle, not one that still
+          // lists actions whose evidence is gone.
+          const discarded: AgentSessionSnapshot = {
+            ...record.snapshot,
+            captureState: manifest.lifecycle,
+            teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
+            timeline: [],
+            updatedAt: manifest.lifecycle.requestedAt,
+          };
+          yield* saveRecord(sessionId, {
+            ...record,
+            artifactDirectory: undefined,
+            capture: undefined,
+            footage: undefined,
+            retentionFile: undefined,
+            snapshot: discarded,
+            traceFile: undefined,
+            videoFile: undefined,
+          });
+          yield* ledger.rememberSession(
+            operationId,
+            "recording-discard",
+            sessionId,
+            requestInput,
+            discarded
+          );
+          return discarded;
+        })
       );
-      return discarded;
     });
 
     /**
@@ -2604,65 +2418,61 @@ const makeAgentSession = (
         operationId: OperationId | string
       ) {
         const requestInput = JSON.stringify({ name });
-        const replayed = replaySession(
-          operationId,
-          "recording-rename",
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        const record = yield* read(sessionId);
-        if (
-          record.snapshot.activity !== "teaching" ||
-          !isLive(record.snapshot.phase)
-        ) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `Agent Session ${sessionId} is not a live Teaching session.`
-            )
-          );
-        }
-        if (record.snapshot.captureState._tag !== "setup") {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `A Flow Skill cannot be renamed from ${record.snapshot.captureState._tag}.`
-            )
-          );
-        }
-        if (teachingRecordingStore !== undefined) {
-          yield* teachingRecordingStore
-            .rename({
-              flowSkillName: name,
-              operationId: OperationId.make(operationId),
-              recordingId: record.snapshot.recordingId,
-            })
-            .pipe(
-              Effect.mapError((cause) =>
-                error("agent_session_invalid", cause.message)
-              )
-            );
-        }
-        const renamed: AgentSessionSnapshot = {
-          ...record.snapshot,
-          flowSkillName: name,
-          updatedAt: now().toISOString(),
-        };
-        yield* save(sessionId, record, renamed);
-        yield* rememberSession(
+        return yield* ledger.session(
           operationId,
           "recording-rename",
           sessionId,
           requestInput,
-          renamed
+          Effect.gen(function* applySessionOperation() {
+            const record = yield* read(sessionId);
+            if (
+              record.snapshot.activity !== "teaching" ||
+              !isLive(record.snapshot.phase)
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Agent Session ${sessionId} is not a live Teaching session.`
+                )
+              );
+            }
+            if (record.snapshot.captureState._tag !== "setup") {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `A Flow Skill cannot be renamed from ${record.snapshot.captureState._tag}.`
+                )
+              );
+            }
+            if (teachingRecordingStore !== undefined) {
+              yield* teachingRecordingStore
+                .rename({
+                  flowSkillName: name,
+                  operationId: OperationId.make(operationId),
+                  recordingId: record.snapshot.recordingId,
+                })
+                .pipe(
+                  Effect.mapError((cause) =>
+                    error("agent_session_invalid", cause.message)
+                  )
+                );
+            }
+            const renamed: AgentSessionSnapshot = {
+              ...record.snapshot,
+              flowSkillName: name,
+              updatedAt: now().toISOString(),
+            };
+            yield* save(sessionId, record, renamed);
+            yield* ledger.rememberSession(
+              operationId,
+              "recording-rename",
+              sessionId,
+              requestInput,
+              renamed
+            );
+            return renamed;
+          })
         );
-        return renamed;
       }
     );
 
@@ -2673,220 +2483,219 @@ const makeAgentSession = (
       operationId: OperationId | string
     ) {
       const requestInput = "";
-      const replayed = replaySession(
-        operationId,
-        "recording-start",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "replay") {
-        return replayed.snapshot;
-      }
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      const record = yield* read(sessionId);
-      if (
-        record.snapshot.activity !== "teaching" ||
-        !isLive(record.snapshot.phase)
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Agent Session ${sessionId} is not a live Teaching session.`
-          )
-        );
-      }
-      if (
-        record.snapshot.captureState._tag !== "setup" &&
-        record.snapshot.captureState._tag !== "ready" &&
-        record.snapshot.captureState._tag !== "failed"
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Teaching cannot start from ${record.snapshot.captureState._tag}.`
-          )
-        );
-      }
-      // Recording is user-led: the user takes responsibility for the
-      // demonstrated journey at the handoff, so Start waits for it.
-      if (record.snapshot.controller !== "user") {
-        return yield* Effect.fail(
-          makeBrowserRpcError(
-            "agent_control_unavailable",
-            "The agent is preparing the browser. Start recording becomes available once it hands you control."
-          )
-        );
-      }
-      if (teachingRecordingStore === undefined || fileSystem === undefined) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_unavailable",
-            "Teaching recording storage is unavailable in this process."
-          )
-        );
-      }
-      const operation = OperationId.make(operationId);
-      const recordingId =
-        record.snapshot.captureState._tag === "setup"
-          ? record.snapshot.recordingId
-          : TeachingRecordingId.make(
-              `recording-${createHash("sha256")
-                .update(`${sessionId}:${String(operationId)}`)
-                .digest("hex")
-                .slice(0, 32)}`
-            );
-      if (record.snapshot.captureState._tag !== "setup") {
-        yield* teachingRecordingStore
-          .begin({
-            emulation: record.emulation,
-            flowSkillName: record.snapshot.flowSkillName,
-            operationId: operation,
-            recordingId,
-            sessionId,
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              error("agent_session_invalid", cause.message)
-            )
-          );
-      }
-      const directory = teachingRecordingStore.directory(recordingId);
-      yield* fileSystem
-        .makeDirectory(directory, { recursive: true })
-        .pipe(
-          Effect.mapError((cause) =>
-            error(
-              "agent_session_invalid",
-              `Could not create the Teaching recording directory: ${cause.message}`
-            )
-          )
-        );
-      const manifest = yield* teachingRecordingStore
-        .start({ operationId: operation, recordingId })
-        .pipe(
-          Effect.mapError((cause) =>
-            error("agent_session_invalid", cause.message)
-          )
-        );
-      if (manifest.lifecycle._tag !== "recording") {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Teaching Recording ${recordingId} did not enter recording.`
-          )
-        );
-      }
-      const capture = makeDemonstrationCapture(
-        record.snapshot.currentUrl,
-        () => [...record.setupSensitiveValues]
-      );
-      const recorderScope = yield* Scope.make("sequential");
-      yield* Scope.addFinalizer(
-        record.scope,
-        Scope.close(recorderScope, Exit.interrupt()).pipe(Effect.ignore)
-      );
-      const recorderResult = yield* Effect.result(
-        Scope.provide(recorderScope)(
-          makeTeachingRecorder({
-            browser,
-            browserSessionId: record.browserSessionId,
-            counts: capture.counts,
-            demonstration: capture.current,
-            directory,
-            emulation: record.emulation,
-            fileSystem,
-            limits: options.captureLimits,
-            startedAt: manifest.lifecycle.startedAt,
-          })
-        )
-      );
-      if (Result.isFailure(recorderResult)) {
-        const { message } = recorderResult.failure;
-        yield* Scope.close(recorderScope, Exit.void);
-        yield* teachingRecordingStore
-          .stop({
-            artifacts: [],
-            failure: message,
-            operationId: operation,
-            recordingId,
-          })
-          .pipe(Effect.ignore);
-        const failedAt = now().toISOString();
-        const failed: AgentSessionSnapshot = {
-          ...record.snapshot,
-          captureState: { _tag: "failed", error: message, failedAt },
-          recordingId,
-          updatedAt: failedAt,
-        };
-        yield* saveRecord(sessionId, {
-          ...record,
-          artifactDirectory: directory,
-          capture,
-          snapshot: failed,
-        });
-        yield* rememberSession(
-          operationId,
-          "recording-start",
-          sessionId,
-          requestInput,
-          failed
-        );
-        return failed;
-      }
-      const recorder = recorderResult.success;
-      // A capture ceiling ends the recording on its own. The recorder only
-      // detects the breach; driving `captureState` out of `recording` belongs
-      // to the session, so this fiber waits on the signal and takes the lock
-      // the same way the user's Stop does. It lives in the session scope, not
-      // the recorder scope, because `stop` closes the recorder scope and would
-      // otherwise interrupt the very fiber running it; a Stop that lands first
-      // simply leaves this fiber parked on a signal that never comes.
-      yield* recorder.limitReached.pipe(
-        Effect.flatMap(() =>
-          lock.withPermit(
-            afterUserInput(
-              sessionId,
-              stopTeachingRecordingUnlocked(
-                sessionId,
-                `limit-recording-${recordingId}`,
-                "limit-reached"
-              )
-            )
-          )
-        ),
-        Effect.ignore,
-        Effect.forkIn(record.scope)
-      );
-      const recording: AgentSessionSnapshot = {
-        ...record.snapshot,
-        captureState: {
-          _tag: "recording",
-          startedAt: manifest.lifecycle.startedAt,
-        },
-        recordingId,
-        teaching: capture.progress(),
-        updatedAt: manifest.lifecycle.startedAt,
-      };
-      yield* saveRecord(sessionId, {
-        ...record,
-        artifactDirectory: directory,
-        capture,
-        retentionFile: undefined,
-        snapshot: recording,
-        teachingRecorder: recorder,
-        traceFile: recorder.traceFile,
-        videoFile: recorder.videoFile,
-      });
-      yield* rememberSession(
+      return yield* ledger.session(
         operationId,
         "recording-start",
         sessionId,
         requestInput,
-        recording
+        Effect.gen(function* applySessionOperation() {
+          const record = yield* read(sessionId);
+          if (
+            record.snapshot.activity !== "teaching" ||
+            !isLive(record.snapshot.phase)
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Agent Session ${sessionId} is not a live Teaching session.`
+              )
+            );
+          }
+          if (
+            record.snapshot.captureState._tag !== "setup" &&
+            record.snapshot.captureState._tag !== "ready" &&
+            record.snapshot.captureState._tag !== "failed"
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Teaching cannot start from ${record.snapshot.captureState._tag}.`
+              )
+            );
+          }
+          // Recording is user-led: the user takes responsibility for the
+          // demonstrated journey at the handoff, so Start waits for it.
+          if (record.snapshot.controller !== "user") {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_control_unavailable",
+                "The agent is preparing the browser. Start recording becomes available once it hands you control."
+              )
+            );
+          }
+          if (
+            teachingRecordingStore === undefined ||
+            fileSystem === undefined
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_unavailable",
+                "Teaching recording storage is unavailable in this process."
+              )
+            );
+          }
+          const operation = OperationId.make(operationId);
+          const recordingId =
+            record.snapshot.captureState._tag === "setup"
+              ? record.snapshot.recordingId
+              : TeachingRecordingId.make(
+                  `recording-${createHash("sha256")
+                    .update(`${sessionId}:${String(operationId)}`)
+                    .digest("hex")
+                    .slice(0, 32)}`
+                );
+          if (record.snapshot.captureState._tag !== "setup") {
+            yield* teachingRecordingStore
+              .begin({
+                emulation: record.emulation,
+                flowSkillName: record.snapshot.flowSkillName,
+                operationId: operation,
+                recordingId,
+                sessionId,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  error("agent_session_invalid", cause.message)
+                )
+              );
+          }
+          const directory = teachingRecordingStore.directory(recordingId);
+          yield* fileSystem
+            .makeDirectory(directory, { recursive: true })
+            .pipe(
+              Effect.mapError((cause) =>
+                error(
+                  "agent_session_invalid",
+                  `Could not create the Teaching recording directory: ${cause.message}`
+                )
+              )
+            );
+          const manifest = yield* teachingRecordingStore
+            .start({ operationId: operation, recordingId })
+            .pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
+          if (manifest.lifecycle._tag !== "recording") {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Teaching Recording ${recordingId} did not enter recording.`
+              )
+            );
+          }
+          const capture = makeDemonstrationCapture(
+            record.snapshot.currentUrl,
+            () => [...record.setupSensitiveValues]
+          );
+          const recorderScope = yield* Scope.make("sequential");
+          yield* Scope.addFinalizer(
+            record.scope,
+            Scope.close(recorderScope, Exit.interrupt()).pipe(Effect.ignore)
+          );
+          const recorderResult = yield* Effect.result(
+            Scope.provide(recorderScope)(
+              makeTeachingRecorder({
+                browser,
+                browserSessionId: record.browserSessionId,
+                counts: capture.counts,
+                demonstration: capture.current,
+                directory,
+                emulation: record.emulation,
+                fileSystem,
+                limits: options.captureLimits,
+                startedAt: manifest.lifecycle.startedAt,
+              })
+            )
+          );
+          if (Result.isFailure(recorderResult)) {
+            const { message } = recorderResult.failure;
+            yield* Scope.close(recorderScope, Exit.void);
+            yield* teachingRecordingStore
+              .stop({
+                artifacts: [],
+                failure: message,
+                operationId: operation,
+                recordingId,
+              })
+              .pipe(Effect.ignore);
+            const failedAt = now().toISOString();
+            const failed: AgentSessionSnapshot = {
+              ...record.snapshot,
+              captureState: { _tag: "failed", error: message, failedAt },
+              recordingId,
+              updatedAt: failedAt,
+            };
+            yield* saveRecord(sessionId, {
+              ...record,
+              artifactDirectory: directory,
+              capture,
+              snapshot: failed,
+            });
+            yield* ledger.rememberSession(
+              operationId,
+              "recording-start",
+              sessionId,
+              requestInput,
+              failed
+            );
+            return failed;
+          }
+          const recorder = recorderResult.success;
+          // A capture ceiling ends the recording on its own. The recorder only
+          // detects the breach; driving `captureState` out of `recording` belongs
+          // to the session, so this fiber waits on the signal and takes the lock
+          // the same way the user's Stop does. It lives in the session scope, not
+          // the recorder scope, because `stop` closes the recorder scope and would
+          // otherwise interrupt the very fiber running it; a Stop that lands first
+          // simply leaves this fiber parked on a signal that never comes.
+          yield* recorder.limitReached.pipe(
+            Effect.flatMap(() =>
+              ledger.serializeMutation(
+                afterUserInput(
+                  sessionId,
+                  stopTeachingRecordingUnlocked(
+                    sessionId,
+                    `limit-recording-${recordingId}`,
+                    "limit-reached"
+                  )
+                )
+              )
+            ),
+            Effect.ignore,
+            Effect.forkIn(record.scope)
+          );
+          const recording: AgentSessionSnapshot = {
+            ...record.snapshot,
+            captureState: {
+              _tag: "recording",
+              startedAt: manifest.lifecycle.startedAt,
+            },
+            recordingId,
+            teaching: capture.progress(),
+            updatedAt: manifest.lifecycle.startedAt,
+          };
+          yield* saveRecord(sessionId, {
+            ...record,
+            artifactDirectory: directory,
+            capture,
+            retentionFile: undefined,
+            snapshot: recording,
+            teachingRecorder: recorder,
+            traceFile: recorder.traceFile,
+            videoFile: recorder.videoFile,
+          });
+          yield* ledger.rememberSession(
+            operationId,
+            "recording-start",
+            sessionId,
+            requestInput,
+            recording
+          );
+          return recording;
+        })
       );
-      return recording;
     });
 
     /**
@@ -3382,7 +3191,7 @@ const makeAgentSession = (
           owner,
           options.baseUrl
         );
-        yield* rememberSession(
+        yield* ledger.rememberSession(
           startOperationId,
           "start",
           "start",
@@ -3522,311 +3331,312 @@ const makeAgentSession = (
         publicRequest?: string
       ) {
         const requestInput = publicRequest ?? normalizedStartInput(input);
-        const replayed = replaySession(
+        return yield* ledger.session(
           input.operationId,
           "start",
           "start",
-          requestInput
-        );
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (!isAllowedAgentSessionBaseUrl(options.baseUrl)) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_invalid",
-              "Workspace must be served from a loopback URL."
-            )
-          );
-        }
-        const activity = input.activity ?? "run";
-        if (
-          options.allowedActivity !== "any" &&
-          activity !== options.allowedActivity
-        ) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_invalid",
-              `This process only owns ${options.allowedActivity} Agent Sessions.`
-            )
-          );
-        }
-        const sessionId = AgentSessionId.make(`agent-${randomUUID()}`);
-        const browserName = `create-agent-${randomUUID()}`;
-        return yield* Effect.uninterruptibleMask((restore) =>
-          Effect.gen(function* startWithChildScope() {
-            const sessionScope = yield* Scope.make("sequential");
-            // Register the child scope before the first acquisition. If this
-            // operation is interrupted between Create Browser acquisition and
-            // registry registration, the parent process scope still closes it.
-            if (parentScope !== undefined) {
-              yield* Scope.addFinalizer(
-                parentScope,
-                Scope.close(sessionScope, Exit.interrupt()).pipe(Effect.ignore)
+          requestInput,
+          Effect.gen(function* applySessionOperation() {
+            if (!isAllowedAgentSessionBaseUrl(options.baseUrl)) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  "Workspace must be served from a loopback URL."
+                )
               );
             }
-            const cleanupStart = Effect.gen(function* cleanupFailedStart() {
-              yield* Scope.close(sessionScope, Exit.void);
-              yield* Ref.update(sessions, (current) => {
-                const next = new Map(current);
-                next.delete(sessionId);
-                return next;
-              });
-            });
-            const acquisitionAndSetup = Effect.gen(
-              function* acquireAndSetupAgentSession() {
-                yield* sessionResource(sessionScope, sessionId);
-                // One Emulation for the session: the browser is created at the
-                // viewport it will navigate under, so the first document is
-                // laid out for the device rather than resized into it.
-                const emulation = sessionEmulation(input);
-                const teachingStart = yield* resolveTeachingStart(
-                  activity,
-                  emulation,
-                  input,
-                  sessionId,
-                  requestInput
-                );
-                if (teachingStart._tag === "durable") {
-                  return teachingStart.snapshot;
+            const activity = input.activity ?? "run";
+            if (
+              options.allowedActivity !== "any" &&
+              activity !== options.allowedActivity
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  `This process only owns ${options.allowedActivity} Agent Sessions.`
+                )
+              );
+            }
+            const sessionId = AgentSessionId.make(`agent-${randomUUID()}`);
+            const browserName = `create-agent-${randomUUID()}`;
+            return yield* Effect.uninterruptibleMask((restore) =>
+              Effect.gen(function* startWithChildScope() {
+                const sessionScope = yield* Scope.make("sequential");
+                // Register the child scope before the first acquisition. If this
+                // operation is interrupted between Create Browser acquisition and
+                // registry registration, the parent process scope still closes it.
+                if (parentScope !== undefined) {
+                  yield* Scope.addFinalizer(
+                    parentScope,
+                    Scope.close(sessionScope, Exit.interrupt()).pipe(
+                      Effect.ignore
+                    )
+                  );
                 }
-                const teachingIdentity =
-                  teachingStart._tag === "fresh"
-                    ? teachingStart.identity
-                    : null;
-                const artifactDirectory =
-                  teachingRecordingStore !== undefined &&
-                  teachingIdentity !== null
-                    ? teachingRecordingStore.directory(
-                        teachingIdentity.recordingId
-                      )
-                    : yield* prepareArtifactDirectory(
-                        activity,
-                        input.artifactDirectory
-                      );
-                if (
-                  teachingRecordingStore !== undefined &&
-                  teachingIdentity !== null &&
-                  artifactDirectory !== undefined &&
-                  fileSystem !== undefined
-                ) {
-                  yield* fileSystem
-                    .makeDirectory(artifactDirectory, { recursive: true })
-                    .pipe(
-                      Effect.mapError((cause) =>
-                        error(
-                          "agent_session_invalid",
-                          `Could not create the artifact directory: ${cause.message}`
-                        )
+                const cleanupStart = Effect.gen(function* cleanupFailedStart() {
+                  yield* Scope.close(sessionScope, Exit.void);
+                  yield* Ref.update(sessions, (current) => {
+                    const next = new Map(current);
+                    next.delete(sessionId);
+                    return next;
+                  });
+                });
+                const acquisitionAndSetup = Effect.gen(
+                  function* acquireAndSetupAgentSession() {
+                    yield* sessionResource(sessionScope, sessionId);
+                    // One Emulation for the session: the browser is created at the
+                    // viewport it will navigate under, so the first document is
+                    // laid out for the device rather than resized into it.
+                    const emulation = sessionEmulation(input);
+                    const teachingStart = yield* resolveTeachingStart(
+                      activity,
+                      emulation,
+                      input,
+                      sessionId,
+                      requestInput
+                    );
+                    if (teachingStart._tag === "durable") {
+                      return teachingStart.snapshot;
+                    }
+                    const teachingIdentity =
+                      teachingStart._tag === "fresh"
+                        ? teachingStart.identity
+                        : null;
+                    const artifactDirectory =
+                      teachingRecordingStore !== undefined &&
+                      teachingIdentity !== null
+                        ? teachingRecordingStore.directory(
+                            teachingIdentity.recordingId
+                          )
+                        : yield* prepareArtifactDirectory(
+                            activity,
+                            input.artifactDirectory
+                          );
+                    if (
+                      teachingRecordingStore !== undefined &&
+                      teachingIdentity !== null &&
+                      artifactDirectory !== undefined &&
+                      fileSystem !== undefined
+                    ) {
+                      yield* fileSystem
+                        .makeDirectory(artifactDirectory, { recursive: true })
+                        .pipe(
+                          Effect.mapError((cause) =>
+                            error(
+                              "agent_session_invalid",
+                              `Could not create the artifact directory: ${cause.message}`
+                            )
+                          )
+                        );
+                    }
+                    const acquired = yield* Scope.provide(sessionScope)(
+                      Effect.acquireRelease(
+                        browser.create(
+                          browserName,
+                          emulation.viewport,
+                          input.domainScope !== undefined
+                        ),
+                        (browserSessionId) =>
+                          browser.close(browserSessionId).pipe(Effect.ignore)
                       )
                     );
-                }
-                const acquired = yield* Scope.provide(sessionScope)(
-                  Effect.acquireRelease(
-                    browser.create(
-                      browserName,
+                    const { retentionFile, traceFile } =
+                      yield* startTeachingArtifacts(
+                        activity === "teaching" ? undefined : artifactDirectory,
+                        acquired,
+                        sessionId,
+                        sessionScope,
+                        activity === "teaching"
+                      );
+                    // Registered after the Trace, so closing the session seals
+                    // the footage first and the Trace after it.
+                    const footage = yield* startRunFootage(
+                      activity === "teaching" ? undefined : artifactDirectory,
+                      acquired,
                       emulation.viewport,
-                      input.domainScope !== undefined
-                    ),
-                    (browserSessionId) =>
-                      browser.close(browserSessionId).pipe(Effect.ignore)
+                      sessionScope
+                    );
+                    const at = now().toISOString();
+                    const common = {
+                      boundary: null,
+                      clientName: input.clientName?.trim() || "unknown",
+                      clientVersion: input.clientVersion?.trim() || "unknown",
+                      createdAt: at,
+                      currentUrl: "about:blank",
+                      decisionHistory: [],
+                      id: sessionId,
+                      interruptedAction: null,
+                      ownerProcessId: owner,
+                      pendingDecisions: [],
+                      phase: "starting" as const,
+                      takeover: null,
+                      timeline: [],
+                      updatedAt: at,
+                      viewUrl: viewUrl(options.baseUrl, sessionId),
+                    };
+                    const opening: AgentSessionSnapshot =
+                      teachingIdentity === null
+                        ? {
+                            ...common,
+                            activity: "run" as const,
+                            captureState: null,
+                            controller: "agent" as const,
+                            ...dryRunIdentity(input.dryRun, at),
+                            run: input.run ?? null,
+                            teaching: null,
+                          }
+                        : {
+                            ...common,
+                            activity: "teaching" as const,
+                            captureState: {
+                              _tag: "setup",
+                              requestedAt: teachingIdentity.requestedAt,
+                            },
+                            controller: input.openedBy ?? "user",
+                            dryRun: null,
+                            flowSkillName: teachingIdentity.flowSkillName,
+                            recordingCleanup: { _tag: "pending" as const },
+                            recordingId: teachingIdentity.recordingId,
+                            run: null,
+                            teaching: {
+                              actionCount: 0,
+                              instructionCount: 0,
+                              instructions: [],
+                            },
+                          };
+                    // A Run asks for each runtime Variable it still needs as its
+                    // own Pending Decision, so the user answers them by name in
+                    // the agent conversation (ADR 0037).
+                    const base: AgentSessionSnapshot = {
+                      ...opening,
+                      pendingDecisions: variablePendingDecisions(opening, at),
+                    };
+                    const registry = makeAgentElementRegistry(now);
+                    yield* Scope.addFinalizer(sessionScope, registry.clear());
+                    const record: SessionRecord = {
+                      artifactDirectory,
+                      browserSessionId: acquired,
+                      capture:
+                        activity === "teaching"
+                          ? makeDemonstrationCapture(base.currentUrl)
+                          : undefined,
+                      control: {
+                        inFlight: undefined,
+                        lock: Semaphore.makeUnsafe(1),
+                      },
+                      dryRunControl: { hadTakeover: false },
+                      emulation,
+                      executionBoundary:
+                        input.domainScope === undefined
+                          ? undefined
+                          : makeExecutionBoundary({
+                              hosts: input.domainScope.hosts,
+                              now,
+                              scope: boundaryScopeKind(input),
+                              sessionId,
+                            }),
+                      finalized: makeRunFinalizationState(),
+                      footage,
+                      registry,
+                      retentionFile,
+                      runEvidence: {
+                        attempts: new Set(),
+                        snapshots: new Set(),
+                      },
+                      runTimeline: [],
+                      scope: sessionScope,
+                      screenshots: { directory: undefined },
+                      scroll: { burst: undefined },
+                      setupSensitiveValues: new Set<string>(),
+                      snapshot: base,
+                      supplied: new Map<string, string>(),
+                      teachingRecorder: undefined,
+                      textEdit: { burst: undefined, open: undefined },
+                      traceFile,
+                      videoFile: undefined,
+                    };
+                    yield* Scope.addFinalizer(
+                      sessionScope,
+                      Effect.sync(() => {
+                        if (record.snapshot.activity === "teaching") {
+                          record.supplied.clear();
+                        }
+                        record.setupSensitiveValues.clear();
+                      })
+                    );
+                    yield* Ref.update(sessions, (current) =>
+                      new Map(current).set(sessionId, record)
+                    );
+                    yield* publish(base);
+                    const setup = Effect.gen(function* finishStartingSession() {
+                      // An Emulation reaches a document at its navigation, so the
+                      // session always opens one — `about:blank` when the caller
+                      // named no URL. Otherwise an identity asked for here would
+                      // never apply to the pages the agent later visits.
+                      if (record.executionBoundary !== undefined) {
+                        const target = yield* browser.activeTarget(acquired);
+                        target.context.once(
+                          "close",
+                          record.executionBoundary.dispose
+                        );
+                        yield* installAgentNavigationBoundary(
+                          target.context,
+                          target.page,
+                          {
+                            allows: record.executionBoundary.allows,
+                            refuse: (url) =>
+                              pauseNavigation(sessionId, record, url),
+                          }
+                        );
+                      }
+                      yield* browser.open(
+                        acquired,
+                        input.url ?? "about:blank",
+                        emulation
+                      );
+                      const currentUrl = sanitizeTeachingUrl(
+                        yield* browser.currentUrl(acquired)
+                      );
+                      const startedNow = now();
+                      const startedAt = startedNow.toISOString();
+                      // The Run starts when the browser is actually ready, not
+                      // when the request arrived, so browser acquisition never
+                      // reads as the agent being idle.
+                      const run = activateRun(base.run, startedAt, emulation);
+                      const running: AgentSessionSnapshot =
+                        base.activity === "teaching"
+                          ? {
+                              ...base,
+                              currentUrl,
+                              phase: "running",
+                              updatedAt: startedAt,
+                            }
+                          : {
+                              ...base,
+                              currentUrl,
+                              phase: "running",
+                              run,
+                              updatedAt: startedAt,
+                            };
+                      yield* save(sessionId, record, running);
+                      yield* ledger.rememberSession(
+                        input.operationId,
+                        "start",
+                        "start",
+                        requestInput,
+                        running
+                      );
+                      return running;
+                    });
+                    return yield* setup;
+                  }
+                );
+                return yield* restore(acquisitionAndSetup).pipe(
+                  Effect.onExit((exit) =>
+                    Exit.isSuccess(exit) ? Effect.void : cleanupStart
                   )
                 );
-                const { retentionFile, traceFile } =
-                  yield* startTeachingArtifacts(
-                    activity === "teaching" ? undefined : artifactDirectory,
-                    acquired,
-                    sessionId,
-                    sessionScope,
-                    activity === "teaching"
-                  );
-                // Registered after the Trace, so closing the session seals
-                // the footage first and the Trace after it.
-                const footage = yield* startRunFootage(
-                  activity === "teaching" ? undefined : artifactDirectory,
-                  acquired,
-                  emulation.viewport,
-                  sessionScope
-                );
-                const at = now().toISOString();
-                const common = {
-                  boundary: null,
-                  clientName: input.clientName?.trim() || "unknown",
-                  clientVersion: input.clientVersion?.trim() || "unknown",
-                  createdAt: at,
-                  currentUrl: "about:blank",
-                  decisionHistory: [],
-                  id: sessionId,
-                  interruptedAction: null,
-                  ownerProcessId: owner,
-                  pendingDecisions: [],
-                  phase: "starting" as const,
-                  takeover: null,
-                  timeline: [],
-                  updatedAt: at,
-                  viewUrl: viewUrl(options.baseUrl, sessionId),
-                };
-                const opening: AgentSessionSnapshot =
-                  teachingIdentity === null
-                    ? {
-                        ...common,
-                        activity: "run" as const,
-                        captureState: null,
-                        controller: "agent" as const,
-                        ...dryRunIdentity(input.dryRun, at),
-                        run: input.run ?? null,
-                        teaching: null,
-                      }
-                    : {
-                        ...common,
-                        activity: "teaching" as const,
-                        captureState: {
-                          _tag: "setup",
-                          requestedAt: teachingIdentity.requestedAt,
-                        },
-                        controller: input.openedBy ?? "user",
-                        dryRun: null,
-                        flowSkillName: teachingIdentity.flowSkillName,
-                        recordingCleanup: { _tag: "pending" as const },
-                        recordingId: teachingIdentity.recordingId,
-                        run: null,
-                        teaching: {
-                          actionCount: 0,
-                          instructionCount: 0,
-                          instructions: [],
-                        },
-                      };
-                // A Run asks for each runtime Variable it still needs as its
-                // own Pending Decision, so the user answers them by name in
-                // the agent conversation (ADR 0037).
-                const base: AgentSessionSnapshot = {
-                  ...opening,
-                  pendingDecisions: variablePendingDecisions(opening, at),
-                };
-                const registry = makeAgentElementRegistry(now);
-                yield* Scope.addFinalizer(sessionScope, registry.clear());
-                const record: SessionRecord = {
-                  artifactDirectory,
-                  browserSessionId: acquired,
-                  capture:
-                    activity === "teaching"
-                      ? makeDemonstrationCapture(base.currentUrl)
-                      : undefined,
-                  control: {
-                    inFlight: undefined,
-                    lock: Semaphore.makeUnsafe(1),
-                  },
-                  dryRunControl: { hadTakeover: false },
-                  emulation,
-                  executionBoundary:
-                    input.domainScope === undefined
-                      ? undefined
-                      : makeExecutionBoundary({
-                          hosts: input.domainScope.hosts,
-                          now,
-                          scope: boundaryScopeKind(input),
-                          sessionId,
-                        }),
-                  finalized: makeRunFinalizationState(),
-                  footage,
-                  registry,
-                  retentionFile,
-                  runEvidence: { attempts: new Set(), snapshots: new Set() },
-                  runTimeline: [],
-                  scope: sessionScope,
-                  screenshots: { directory: undefined },
-                  scroll: { burst: undefined },
-                  setupSensitiveValues: new Set<string>(),
-                  snapshot: base,
-                  supplied: new Map<string, string>(),
-                  teachingRecorder: undefined,
-                  textEdit: { burst: undefined, open: undefined },
-                  traceFile,
-                  videoFile: undefined,
-                };
-                yield* Scope.addFinalizer(
-                  sessionScope,
-                  Effect.sync(() => {
-                    if (record.snapshot.activity === "teaching") {
-                      record.supplied.clear();
-                    }
-                    record.setupSensitiveValues.clear();
-                  })
-                );
-                yield* Ref.update(sessions, (current) =>
-                  new Map(current).set(sessionId, record)
-                );
-                yield* publish(base);
-                const setup = Effect.gen(function* finishStartingSession() {
-                  // An Emulation reaches a document at its navigation, so the
-                  // session always opens one — `about:blank` when the caller
-                  // named no URL. Otherwise an identity asked for here would
-                  // never apply to the pages the agent later visits.
-                  if (record.executionBoundary !== undefined) {
-                    const target = yield* browser.activeTarget(acquired);
-                    target.context.once(
-                      "close",
-                      record.executionBoundary.dispose
-                    );
-                    yield* installAgentNavigationBoundary(
-                      target.context,
-                      target.page,
-                      {
-                        allows: record.executionBoundary.allows,
-                        refuse: (url) =>
-                          pauseNavigation(sessionId, record, url),
-                      }
-                    );
-                  }
-                  yield* browser.open(
-                    acquired,
-                    input.url ?? "about:blank",
-                    emulation
-                  );
-                  const currentUrl = sanitizeTeachingUrl(
-                    yield* browser.currentUrl(acquired)
-                  );
-                  const startedNow = now();
-                  const startedAt = startedNow.toISOString();
-                  // The Run starts when the browser is actually ready, not
-                  // when the request arrived, so browser acquisition never
-                  // reads as the agent being idle.
-                  const run = activateRun(base.run, startedAt, emulation);
-                  const running: AgentSessionSnapshot =
-                    base.activity === "teaching"
-                      ? {
-                          ...base,
-                          currentUrl,
-                          phase: "running",
-                          updatedAt: startedAt,
-                        }
-                      : {
-                          ...base,
-                          currentUrl,
-                          phase: "running",
-                          run,
-                          updatedAt: startedAt,
-                        };
-                  yield* save(sessionId, record, running);
-                  yield* rememberSession(
-                    input.operationId,
-                    "start",
-                    "start",
-                    requestInput,
-                    running
-                  );
-                  return running;
-                });
-                return yield* setup;
-              }
-            );
-            return yield* restore(acquisitionAndSetup).pipe(
-              Effect.onExit((exit) =>
-                Exit.isSuccess(exit) ? Effect.void : cleanupStart
-              )
+              })
             );
           })
         );
@@ -4768,29 +4578,6 @@ const makeAgentSession = (
           privateCapture === undefined ? "act" : "private-input";
         const requestInput =
           privateCapture?.requestInput ?? JSON.stringify({ action, intent });
-        const replayed = replay(
-          operationId,
-          operationKind,
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (replayed?._tag === "replay") {
-          if (replayed.result.kind === "act") {
-            return replayed.result.result;
-          }
-          if (replayed.result.kind === "act-failure") {
-            return yield* Effect.fail(replayed.result.error);
-          }
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `Operation ${String(operationId)} was already used for a session mutation.`
-            )
-          );
-        }
         const outcome = yield* Effect.result(
           Effect.gen(function* attemptBrowserAction() {
             const record = yield* requireLiveRecord(sessionId);
@@ -4907,10 +4694,16 @@ const makeAgentSession = (
           ) {
             return outcome.success;
           }
-          yield* remember(operationId, operationKind, sessionId, requestInput, {
-            kind: "act",
-            result: outcome.success,
-          });
+          yield* ledger.remember(
+            operationId,
+            operationKind,
+            sessionId,
+            requestInput,
+            {
+              kind: "act",
+              result: outcome.success,
+            }
+          );
           return outcome.success;
         }
         const current = Ref.getUnsafe(sessions).get(sessionId);
@@ -4926,44 +4719,30 @@ const makeAgentSession = (
                 outcome.failure.reason
               )
             : error(outcome.failure.code, message);
-        yield* remember(operationId, operationKind, sessionId, requestInput, {
-          error: failure,
-          kind: "act-failure",
-        });
+        yield* ledger.remember(
+          operationId,
+          operationKind,
+          sessionId,
+          requestInput,
+          {
+            error: failure,
+            kind: "act-failure",
+          }
+        );
         return yield* Effect.fail(failure);
       }
     );
 
-    const operationLocks = new Map<
-      string,
-      { readonly gate: Semaphore.Semaphore; readonly input: string }
-    >();
     const actUnlocked = (...args: Parameters<typeof executeAction>) => {
       const [sessionId, action, operationId, privateCapture, intent] = args;
-      if (operationId === undefined) {
-        return executeAction(...args);
-      }
-      const key = String(operationId);
-      const input = JSON.stringify({
-        request:
-          privateCapture?.requestInput ??
-          JSON.stringify({ action, intent: intent ?? {} }),
+      return ledger.action(
+        operationId,
+        privateCapture === undefined ? "act" : "private-input",
         sessionId,
-      });
-      let entry = operationLocks.get(key);
-      if (entry !== undefined && entry.input !== input) {
-        return Effect.fail(
-          error(
-            "agent_session_conflict",
-            "This operation id is already bound to a different action attempt."
-          )
-        );
-      }
-      if (entry === undefined) {
-        entry = { gate: Semaphore.makeUnsafe(1), input };
-        operationLocks.set(key, entry);
-      }
-      return entry.gate.withPermit(executeAction(...args));
+        privateCapture?.requestInput ??
+          JSON.stringify({ action, intent: intent ?? {} }),
+        executeAction(...args)
+      );
     };
 
     const answerSetupRequest = Effect.fn("AgentSession.answerSetupRequest")(
@@ -5007,7 +4786,7 @@ const makeAgentSession = (
     const setupVariableMutation = (
       input: AgentSetupVariableRequest | AgentSetupVariableAnswer
     ) =>
-      lock.withPermit(
+      ledger.serializeMutation(
         afterUserInput(
           input.sessionId,
           Effect.gen(function* mutateSetupVariable() {
@@ -5028,88 +4807,84 @@ const makeAgentSession = (
                       ? null
                       : createHash("sha256").update(input.value).digest("hex"),
                 });
-            const replayed = replaySession(
-              input.operationId,
-              kind,
-              input.sessionId,
-              fingerprint
-            );
-            if (replayed?._tag === "conflict") {
-              return yield* Effect.fail(replayed.error);
-            }
-            if (replayed?._tag === "replay") {
-              return replayed.snapshot;
-            }
-            const record = yield* requireLiveRecord(input.sessionId);
-            if (!agentPreparesTeaching(record.snapshot)) {
-              return yield* Effect.fail(
-                teachingIsUserLed(
-                  "Setup Variables require agent-held Teaching setup."
-                )
-              );
-            }
-            const variables = [...(record.snapshot.setupVariables ?? [])];
-            if (requesting) {
-              const existing = variables.find(
-                (variable) => variable.name === input.name
-              );
-              if (
-                existing !== undefined &&
-                existing.purpose !== input.purpose
-              ) {
-                return yield* Effect.fail(
-                  error(
-                    "agent_session_conflict",
-                    "This Setup Variable already has a different purpose."
-                  )
-                );
-              }
-              if (
-                input.replace ||
-                existing === undefined ||
-                existing.status === "refused"
-              ) {
-                if (
-                  existing === undefined &&
-                  variables.length >= SETUP_VARIABLE_LIMIT
-                ) {
-                  return yield* Effect.fail(
-                    error(
-                      "agent_session_invalid",
-                      "A setup supports at most 64 Variables."
-                    )
-                  );
-                }
-                record.supplied.delete(variableKey(input.name));
-                const declaration = {
-                  name: input.name,
-                  purpose: input.purpose,
-                  requestId: `setup-${randomUUID()}`,
-                  status: "requested" as const,
-                };
-                if (existing === undefined) {
-                  variables.push(declaration);
-                } else {
-                  variables[variables.indexOf(existing)] = declaration;
-                }
-              }
-            } else {
-              yield* answerSetupRequest(record, variables, input);
-            }
-            const next = {
-              ...record.snapshot,
-              setupVariables: variables,
-              updatedAt: now().toISOString(),
-            };
-            yield* save(input.sessionId, record, next);
-            yield* rememberSession(
+            return yield* ledger.session(
               input.operationId,
               kind,
               input.sessionId,
               fingerprint,
-              next
+              Effect.gen(function* applySessionOperation() {
+                const record = yield* requireLiveRecord(input.sessionId);
+                if (!agentPreparesTeaching(record.snapshot)) {
+                  return yield* Effect.fail(
+                    teachingIsUserLed(
+                      "Setup Variables require agent-held Teaching setup."
+                    )
+                  );
+                }
+                const variables = [...(record.snapshot.setupVariables ?? [])];
+                if (requesting) {
+                  const existing = variables.find(
+                    (variable) => variable.name === input.name
+                  );
+                  if (
+                    existing !== undefined &&
+                    existing.purpose !== input.purpose
+                  ) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "This Setup Variable already has a different purpose."
+                      )
+                    );
+                  }
+                  if (
+                    input.replace ||
+                    existing === undefined ||
+                    existing.status === "refused"
+                  ) {
+                    if (
+                      existing === undefined &&
+                      variables.length >= SETUP_VARIABLE_LIMIT
+                    ) {
+                      return yield* Effect.fail(
+                        error(
+                          "agent_session_invalid",
+                          "A setup supports at most 64 Variables."
+                        )
+                      );
+                    }
+                    record.supplied.delete(variableKey(input.name));
+                    const declaration = {
+                      name: input.name,
+                      purpose: input.purpose,
+                      requestId: `setup-${randomUUID()}`,
+                      status: "requested" as const,
+                    };
+                    if (existing === undefined) {
+                      variables.push(declaration);
+                    } else {
+                      variables[variables.indexOf(existing)] = declaration;
+                    }
+                  }
+                } else {
+                  yield* answerSetupRequest(record, variables, input);
+                }
+                const next = {
+                  ...record.snapshot,
+                  setupVariables: variables,
+                  updatedAt: now().toISOString(),
+                };
+                yield* save(input.sessionId, record, next);
+                yield* ledger.rememberSession(
+                  input.operationId,
+                  kind,
+                  input.sessionId,
+                  fingerprint,
+                  next
+                );
+                return next;
+              })
             );
-            return next;
           }).pipe(Effect.uninterruptible)
         )
       );
@@ -5127,133 +4902,132 @@ const makeAgentSession = (
       ) {
         const { requestInput, userMessage, value } =
           variableResolveRequest(input);
-        const replayed = replaySession(
-          input.operationId,
-          "variable-supply",
-          input.pendingDecisionId,
-          requestInput
-        );
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        const record = yield* requireLiveRecord(sessionId);
-        const pending = record.snapshot.pendingDecisions.find(
-          (decision) =>
-            decision.kind === "supply_variable" &&
-            decision.pendingDecisionId === input.pendingDecisionId
-        );
-        if (pending === undefined || pending.variable === null) {
-          return yield* Effect.fail(
-            error(
-              "agent_session_conflict",
-              `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
-            )
-          );
-        }
-        const refusal = variableAnswerRefusal(pending, input, value);
-        if (refusal !== undefined) {
-          return yield* Effect.fail(refusal);
-        }
-        const supply = input.decision === "supply";
-        const declared = requireDeclaredVariable(
-          record,
-          pending.variable.name,
-          pending.variable.flowSkillName
-        );
-        if (declared._tag === "error") {
-          return yield* Effect.fail(declared.error);
-        }
-        const { name } = pending.variable;
-        if (supply && value !== null) {
-          record.supplied.set(
-            variableKey(name, pending.variable.flowSkillName),
-            value
-          );
-        }
-        const markSupplied = <
-          T extends {
-            readonly variables: readonly AgentSessionVariableState[];
-          },
-        >(
-          state: T
-        ): T =>
-          supply
-            ? {
-                ...state,
-                variables: state.variables.map((variable) =>
-                  variable.name === name &&
-                  (pending.variable?.flowSkillName === undefined ||
-                    pending.variable.flowSkillName === null ||
-                    ("flowSkillName" in variable &&
-                      variable.flowSkillName ===
-                        pending.variable.flowSkillName))
-                    ? { ...variable, supplied: true }
-                    : variable
-                ),
-              }
-            : state;
-        const answeredRun = () => {
-          const { run } = record.snapshot;
-          if (run === null) {
-            return null;
-          }
-          if (record.snapshot.dryRun !== null && isTaskRun(run)) {
-            const lastAnswer: "supplied" | "refused" = supply
-              ? "supplied"
-              : "refused";
-            return {
-              ...run,
-              variables: run.variables.map((variable) =>
-                variable.flowSkillName === pending.variable?.flowSkillName &&
-                variable.name === name
-                  ? { ...variable, lastAnswer, supplied: supply }
-                  : variable
-              ),
-            };
-          }
-          return markSupplied(run);
-        };
-        const decidedAt = now().toISOString();
-        const resolution = variableResolution(
-          pending,
-          input,
-          decidedAt,
-          userMessage
-        );
-        const snapshot = yield* recordEntry(
-          sessionId,
-          {
-            actor: "user",
-            at: decidedAt,
-            // The Variable is named; its value never is.
-            description: supply
-              ? `Supplied Variable ${name}`
-              : `Refused to supply Variable ${name}`,
-            detail: pending.variable.secret ? "secret Variable" : name,
-            dispatched: false,
-            id: randomUUID(),
-            outcome: supply ? "completed" : "refused",
-          },
-          {
-            decisionHistory: [...record.snapshot.decisionHistory, resolution],
-            pendingDecisions: record.snapshot.pendingDecisions.filter(
-              (decision) =>
-                decision.pendingDecisionId !== input.pendingDecisionId
-            ),
-            run: answeredRun(),
-          }
-        );
-        yield* rememberSession(
+        return yield* ledger.session(
           input.operationId,
           "variable-supply",
           input.pendingDecisionId,
           requestInput,
-          snapshot
+          Effect.gen(function* applySessionOperation() {
+            const record = yield* requireLiveRecord(sessionId);
+            const pending = record.snapshot.pendingDecisions.find(
+              (decision) =>
+                decision.kind === "supply_variable" &&
+                decision.pendingDecisionId === input.pendingDecisionId
+            );
+            if (pending === undefined || pending.variable === null) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+                )
+              );
+            }
+            const refusal = variableAnswerRefusal(pending, input, value);
+            if (refusal !== undefined) {
+              return yield* Effect.fail(refusal);
+            }
+            const supply = input.decision === "supply";
+            const declared = requireDeclaredVariable(
+              record,
+              pending.variable.name,
+              pending.variable.flowSkillName
+            );
+            if (declared._tag === "error") {
+              return yield* Effect.fail(declared.error);
+            }
+            const { name } = pending.variable;
+            if (supply && value !== null) {
+              record.supplied.set(
+                variableKey(name, pending.variable.flowSkillName),
+                value
+              );
+            }
+            const markSupplied = <
+              T extends {
+                readonly variables: readonly AgentSessionVariableState[];
+              },
+            >(
+              state: T
+            ): T =>
+              supply
+                ? {
+                    ...state,
+                    variables: state.variables.map((variable) =>
+                      variable.name === name &&
+                      (pending.variable?.flowSkillName === undefined ||
+                        pending.variable.flowSkillName === null ||
+                        ("flowSkillName" in variable &&
+                          variable.flowSkillName ===
+                            pending.variable.flowSkillName))
+                        ? { ...variable, supplied: true }
+                        : variable
+                    ),
+                  }
+                : state;
+            const answeredRun = () => {
+              const { run } = record.snapshot;
+              if (run === null) {
+                return null;
+              }
+              if (record.snapshot.dryRun !== null && isTaskRun(run)) {
+                const lastAnswer: "supplied" | "refused" = supply
+                  ? "supplied"
+                  : "refused";
+                return {
+                  ...run,
+                  variables: run.variables.map((variable) =>
+                    variable.flowSkillName ===
+                      pending.variable?.flowSkillName && variable.name === name
+                      ? { ...variable, lastAnswer, supplied: supply }
+                      : variable
+                  ),
+                };
+              }
+              return markSupplied(run);
+            };
+            const decidedAt = now().toISOString();
+            const resolution = variableResolution(
+              pending,
+              input,
+              decidedAt,
+              userMessage
+            );
+            const snapshot = yield* recordEntry(
+              sessionId,
+              {
+                actor: "user",
+                at: decidedAt,
+                // The Variable is named; its value never is.
+                description: supply
+                  ? `Supplied Variable ${name}`
+                  : `Refused to supply Variable ${name}`,
+                detail: pending.variable.secret ? "secret Variable" : name,
+                dispatched: false,
+                id: randomUUID(),
+                outcome: supply ? "completed" : "refused",
+              },
+              {
+                decisionHistory: [
+                  ...record.snapshot.decisionHistory,
+                  resolution,
+                ],
+                pendingDecisions: record.snapshot.pendingDecisions.filter(
+                  (decision) =>
+                    decision.pendingDecisionId !== input.pendingDecisionId
+                ),
+                run: answeredRun(),
+              }
+            );
+            yield* ledger.rememberSession(
+              input.operationId,
+              "variable-supply",
+              input.pendingDecisionId,
+              requestInput,
+              snapshot
+            );
+            return snapshot;
+          })
         );
-        return snapshot;
       }
     );
 
@@ -5263,7 +5037,7 @@ const makeAgentSession = (
     )(function* resolveVariableDecision(input: AgentPendingDecisionResolve) {
       // A replay must be recognized after its first supply cleared the
       // decision. Keep only a digest of the literal in the replay key.
-      const replayed = replaySession(
+      const replayed = ledger.replaySession(
         input.operationId,
         "variable-supply",
         input.pendingDecisionId,
@@ -5305,29 +5079,6 @@ const makeAgentSession = (
       operationId?: OperationId | string
     ) {
       const requestInput = privateInputFingerprint(input);
-      const replayed = replay(
-        operationId,
-        "private-input",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      if (replayed?._tag === "replay") {
-        if (replayed.result.kind === "act") {
-          return replayed.result.result;
-        }
-        if (replayed.result.kind === "act-failure") {
-          return yield* Effect.fail(replayed.result.error);
-        }
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Operation ${String(operationId)} was already used for a session mutation.`
-          )
-        );
-      }
       const outcome = yield* Effect.result(
         Effect.gen(function* enterFocusedPrivateValue() {
           const { capture, record } = yield* requireTeaching(sessionId);
@@ -5459,10 +5210,16 @@ const makeAgentSession = (
         })
       );
       if (Result.isSuccess(outcome)) {
-        yield* remember(operationId, "private-input", sessionId, requestInput, {
-          kind: "act",
-          result: outcome.success,
-        });
+        yield* ledger.remember(
+          operationId,
+          "private-input",
+          sessionId,
+          requestInput,
+          {
+            kind: "act",
+            result: outcome.success,
+          }
+        );
         return outcome.success;
       }
       const safeFailure =
@@ -5472,10 +5229,16 @@ const makeAgentSession = (
               "Could not enter the private Variable"
             )
           : outcome.failure;
-      yield* remember(operationId, "private-input", sessionId, requestInput, {
-        error: safeFailure,
-        kind: "act-failure",
-      });
+      yield* ledger.remember(
+        operationId,
+        "private-input",
+        sessionId,
+        requestInput,
+        {
+          error: safeFailure,
+          kind: "act-failure",
+        }
+      );
       return yield* Effect.fail(safeFailure);
     });
 
@@ -5496,127 +5259,124 @@ const makeAgentSession = (
       ) {
         const kind = by === "user" ? "takeover" : "control";
         const requestInput = JSON.stringify({ by, reason });
-        const replayed = replaySession(
-          operationId,
-          kind,
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        const record = yield* requireLiveRecord(sessionId);
-        if (record.snapshot.activity === "teaching") {
-          return yield* Effect.fail(
-            makeBrowserRpcError(
-              "agent_control_unavailable",
-              "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
-            )
-          );
-        }
-        if (by === "user" && record.snapshot.dryRun !== null) {
-          record.dryRunControl.hadTakeover = true;
-        }
-        record.executionBoundary?.invalidateAttempts();
-        const inFlight = by === "user" ? record.control.inFlight : undefined;
-        let interruptedAction: AgentTimelineEntry | null = null;
-        if (inFlight !== undefined) {
-          // Interruption waits for the action fiber's finalizers, but the
-          // browser may already have performed the effect, so the attempt is
-          // recorded as dispatched rather than as never having happened.
-          yield* Fiber.interrupt(inFlight.fiber);
-          record.control.inFlight = undefined;
-          const interruptedAt = now().toISOString();
-          const detail =
-            "Takeover interrupted this action. The browser may already have performed it.";
-          interruptedAction = {
-            actor: "agent",
-            at: interruptedAt,
-            description: inFlight.description,
-            detail,
-            dispatched: true,
-            id: inFlight.id,
-            outcome: "interrupted",
-          };
-          // The Demonstration keeps the attempt too: a compiler that never
-          // learns of it could place a Step boundary over an effect nobody
-          // can account for.
-          recordingCapture(record)?.recordAction({
-            action: inFlight.action,
-            actor: "agent",
-            at: interruptedAt,
-            description: inFlight.description,
-            detail,
-            id: inFlight.id,
-            outcome: "interrupted",
-            snapshotAfter: null,
-            snapshotBefore: inFlight.snapshotBefore,
-            urlAfter: record.snapshot.currentUrl,
-            urlBefore: inFlight.urlBefore,
-          });
-        }
-        const at = now().toISOString();
-        const entry: AgentTimelineEntry = {
-          actor: by,
-          at,
-          description:
-            by === "user"
-              ? "The user took control"
-              : "The agent asked the user to take control",
-          detail: reason,
-          dispatched: false,
-          id: `takeover-${randomUUID()}`,
-          outcome: "completed",
-        };
-        const current = yield* read(sessionId);
-        const takeoverRun = current.snapshot.run;
-        const timeline = [
-          ...current.snapshot.timeline,
-          ...(interruptedAction === null ? [] : [interruptedAction]),
-          entry,
-        ].slice(-TIMELINE_LIMIT);
-        const next: AgentSessionSnapshot =
-          current.snapshot.activity === "teaching"
-            ? {
-                ...current.snapshot,
-                controller:
-                  by === "user" ? "user" : current.snapshot.controller,
-                interruptedAction,
-                phase: "takeover",
-                takeover: { reason, requestedAt: at, requestedBy: by },
-                teaching:
-                  current.capture === undefined
-                    ? current.snapshot.teaching
-                    : current.capture.progress(),
-                timeline,
-                updatedAt: at,
-              }
-            : {
-                ...current.snapshot,
-                controller:
-                  by === "user" ? "user" : current.snapshot.controller,
-                interruptedAction,
-                phase: "takeover",
-                run: withDryRunTakeover(
-                  takeoverRun,
-                  record.dryRunControl.hadTakeover
-                ),
-                takeover: { reason, requestedAt: at, requestedBy: by },
-                timeline,
-                updatedAt: at,
-              };
-        yield* save(sessionId, current, next);
-        yield* rememberSession(
+        return yield* ledger.session(
           operationId,
           kind,
           sessionId,
           requestInput,
-          next
+          Effect.gen(function* applySessionOperation() {
+            const record = yield* requireLiveRecord(sessionId);
+            if (record.snapshot.activity === "teaching") {
+              return yield* Effect.fail(
+                makeBrowserRpcError(
+                  "agent_control_unavailable",
+                  "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
+                )
+              );
+            }
+            if (by === "user" && record.snapshot.dryRun !== null) {
+              record.dryRunControl.hadTakeover = true;
+            }
+            record.executionBoundary?.invalidateAttempts();
+            const inFlight =
+              by === "user" ? record.control.inFlight : undefined;
+            let interruptedAction: AgentTimelineEntry | null = null;
+            if (inFlight !== undefined) {
+              // Interruption waits for the action fiber's finalizers, but the
+              // browser may already have performed the effect, so the attempt is
+              // recorded as dispatched rather than as never having happened.
+              yield* Fiber.interrupt(inFlight.fiber);
+              record.control.inFlight = undefined;
+              const interruptedAt = now().toISOString();
+              const detail =
+                "Takeover interrupted this action. The browser may already have performed it.";
+              interruptedAction = {
+                actor: "agent",
+                at: interruptedAt,
+                description: inFlight.description,
+                detail,
+                dispatched: true,
+                id: inFlight.id,
+                outcome: "interrupted",
+              };
+              // The Demonstration keeps the attempt too: a compiler that never
+              // learns of it could place a Step boundary over an effect nobody
+              // can account for.
+              recordingCapture(record)?.recordAction({
+                action: inFlight.action,
+                actor: "agent",
+                at: interruptedAt,
+                description: inFlight.description,
+                detail,
+                id: inFlight.id,
+                outcome: "interrupted",
+                snapshotAfter: null,
+                snapshotBefore: inFlight.snapshotBefore,
+                urlAfter: record.snapshot.currentUrl,
+                urlBefore: inFlight.urlBefore,
+              });
+            }
+            const at = now().toISOString();
+            const entry: AgentTimelineEntry = {
+              actor: by,
+              at,
+              description:
+                by === "user"
+                  ? "The user took control"
+                  : "The agent asked the user to take control",
+              detail: reason,
+              dispatched: false,
+              id: `takeover-${randomUUID()}`,
+              outcome: "completed",
+            };
+            const current = yield* read(sessionId);
+            const takeoverRun = current.snapshot.run;
+            const timeline = [
+              ...current.snapshot.timeline,
+              ...(interruptedAction === null ? [] : [interruptedAction]),
+              entry,
+            ].slice(-TIMELINE_LIMIT);
+            const next: AgentSessionSnapshot =
+              current.snapshot.activity === "teaching"
+                ? {
+                    ...current.snapshot,
+                    controller:
+                      by === "user" ? "user" : current.snapshot.controller,
+                    interruptedAction,
+                    phase: "takeover",
+                    takeover: { reason, requestedAt: at, requestedBy: by },
+                    teaching:
+                      current.capture === undefined
+                        ? current.snapshot.teaching
+                        : current.capture.progress(),
+                    timeline,
+                    updatedAt: at,
+                  }
+                : {
+                    ...current.snapshot,
+                    controller:
+                      by === "user" ? "user" : current.snapshot.controller,
+                    interruptedAction,
+                    phase: "takeover",
+                    run: withDryRunTakeover(
+                      takeoverRun,
+                      record.dryRunControl.hadTakeover
+                    ),
+                    takeover: { reason, requestedAt: at, requestedBy: by },
+                    timeline,
+                    updatedAt: at,
+                  };
+            yield* save(sessionId, current, next);
+            yield* ledger.rememberSession(
+              operationId,
+              kind,
+              sessionId,
+              requestInput,
+              next
+            );
+            return next;
+          })
         );
-        return next;
       }
     );
 
@@ -5626,72 +5386,70 @@ const makeAgentSession = (
         operationId?: OperationId | string
       ) {
         const requestInput = "";
-        const replayed = replaySession(
-          operationId,
-          "control",
-          sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        const record = yield* requireLiveRecord(sessionId);
-        if (record.snapshot.activity === "teaching") {
-          return yield* Effect.fail(
-            makeBrowserRpcError(
-              "agent_control_unavailable",
-              "Teaching control stays with the user: there is nothing to return. Stop recording to hand the agent a Teaching Recording to learn from."
-            )
-          );
-        }
-        // There must be something to hand back: the user holds the browser, or
-        // the agent asked for help and is waiting. Without this the loopback
-        // RPC would record a handover that never happened while the agent was
-        // already running.
-        if (!agentIsPaused(record.snapshot)) {
-          return yield* Effect.fail(
-            makeBrowserRpcError(
-              "agent_control_unavailable",
-              "The agent already holds the browser."
-            )
-          );
-        }
-        const at = now().toISOString();
-        const entry: AgentTimelineEntry = {
-          actor: "user",
-          at,
-          description: "The user returned control to the agent",
-          dispatched: false,
-          id: `control-${randomUUID()}`,
-          outcome: "completed",
-        };
-        const next: AgentSessionSnapshot = {
-          ...record.snapshot,
-          controller: "agent",
-          interruptedAction: null,
-          phase: "running",
-          // The agent was waiting on the user, not idle: its idle time starts
-          // again from the moment it has the browser back.
-          run:
-            record.snapshot.run === null || runEnded(record.snapshot.run)
-              ? record.snapshot.run
-              : { ...record.snapshot.run, lastAgentActivityAt: at },
-          takeover: null,
-          timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
-          updatedAt: at,
-        };
-        yield* save(sessionId, record, next);
-        yield* rememberSession(
+        return yield* ledger.session(
           operationId,
           "control",
           sessionId,
           requestInput,
-          next
+          Effect.gen(function* applySessionOperation() {
+            const record = yield* requireLiveRecord(sessionId);
+            if (record.snapshot.activity === "teaching") {
+              return yield* Effect.fail(
+                makeBrowserRpcError(
+                  "agent_control_unavailable",
+                  "Teaching control stays with the user: there is nothing to return. Stop recording to hand the agent a Teaching Recording to learn from."
+                )
+              );
+            }
+            // There must be something to hand back: the user holds the browser, or
+            // the agent asked for help and is waiting. Without this the loopback
+            // RPC would record a handover that never happened while the agent was
+            // already running.
+            if (!agentIsPaused(record.snapshot)) {
+              return yield* Effect.fail(
+                makeBrowserRpcError(
+                  "agent_control_unavailable",
+                  "The agent already holds the browser."
+                )
+              );
+            }
+            const at = now().toISOString();
+            const entry: AgentTimelineEntry = {
+              actor: "user",
+              at,
+              description: "The user returned control to the agent",
+              dispatched: false,
+              id: `control-${randomUUID()}`,
+              outcome: "completed",
+            };
+            const next: AgentSessionSnapshot = {
+              ...record.snapshot,
+              controller: "agent",
+              interruptedAction: null,
+              phase: "running",
+              // The agent was waiting on the user, not idle: its idle time starts
+              // again from the moment it has the browser back.
+              run:
+                record.snapshot.run === null || runEnded(record.snapshot.run)
+                  ? record.snapshot.run
+                  : { ...record.snapshot.run, lastAgentActivityAt: at },
+              takeover: null,
+              timeline: [...record.snapshot.timeline, entry].slice(
+                -TIMELINE_LIMIT
+              ),
+              updatedAt: at,
+            };
+            yield* save(sessionId, record, next);
+            yield* ledger.rememberSession(
+              operationId,
+              "control",
+              sessionId,
+              requestInput,
+              next
+            );
+            return next;
+          })
         );
-        return next;
       }
     );
 
@@ -5709,74 +5467,72 @@ const makeAgentSession = (
       operationId?: OperationId | string
     ) {
       const requestInput = "";
-      const replayed = replaySession(
-        operationId,
-        "handoff",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      if (replayed?._tag === "replay") {
-        return replayed.snapshot;
-      }
-      const record = yield* requireLiveRecord(sessionId);
-      if (record.snapshot.activity !== "teaching") {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Agent Session ${sessionId} is not a Teaching session. Use agent_session_takeover_request to ask for help during a Run.`
-          )
-        );
-      }
-      if (record.snapshot.controller === "user") {
-        yield* rememberSession(
-          operationId,
-          "handoff",
-          sessionId,
-          requestInput,
-          record.snapshot
-        );
-        return record.snapshot;
-      }
-      if (!agentPreparesTeaching(record.snapshot)) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Teaching setup cannot be handed off from ${record.snapshot.captureState._tag}.`
-          )
-        );
-      }
-      const at = now().toISOString();
-      const entry: AgentTimelineEntry = {
-        actor: "agent",
-        at,
-        description: "The agent handed control to the user",
-        detail: "Setup is prepared. The user can start recording.",
-        dispatched: false,
-        id: `handoff-${randomUUID()}`,
-        outcome: "completed",
-      };
-      const next: AgentSessionSnapshot = {
-        ...record.snapshot,
-        controller: "user",
-        setupVariables: (record.snapshot.setupVariables ?? []).map(
-          (variable) => ({ ...variable, status: "cancelled" as const })
-        ),
-        timeline: [...record.snapshot.timeline, entry].slice(-TIMELINE_LIMIT),
-        updatedAt: at,
-      };
-      record.supplied.clear();
-      yield* save(sessionId, record, next);
-      yield* rememberSession(
+      return yield* ledger.session(
         operationId,
         "handoff",
         sessionId,
         requestInput,
-        next
+        Effect.gen(function* applySessionOperation() {
+          const record = yield* requireLiveRecord(sessionId);
+          if (record.snapshot.activity !== "teaching") {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Agent Session ${sessionId} is not a Teaching session. Use agent_session_takeover_request to ask for help during a Run.`
+              )
+            );
+          }
+          if (record.snapshot.controller === "user") {
+            yield* ledger.rememberSession(
+              operationId,
+              "handoff",
+              sessionId,
+              requestInput,
+              record.snapshot
+            );
+            return record.snapshot;
+          }
+          if (!agentPreparesTeaching(record.snapshot)) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Teaching setup cannot be handed off from ${record.snapshot.captureState._tag}.`
+              )
+            );
+          }
+          const at = now().toISOString();
+          const entry: AgentTimelineEntry = {
+            actor: "agent",
+            at,
+            description: "The agent handed control to the user",
+            detail: "Setup is prepared. The user can start recording.",
+            dispatched: false,
+            id: `handoff-${randomUUID()}`,
+            outcome: "completed",
+          };
+          const next: AgentSessionSnapshot = {
+            ...record.snapshot,
+            controller: "user",
+            setupVariables: (record.snapshot.setupVariables ?? []).map(
+              (variable) => ({ ...variable, status: "cancelled" as const })
+            ),
+            timeline: [...record.snapshot.timeline, entry].slice(
+              -TIMELINE_LIMIT
+            ),
+            updatedAt: at,
+          };
+          record.supplied.clear();
+          yield* save(sessionId, record, next);
+          yield* ledger.rememberSession(
+            operationId,
+            "handoff",
+            sessionId,
+            requestInput,
+            next
+          );
+          return next;
+        })
       );
-      return next;
     });
 
     const recordInstructionUnlocked = Effect.fn(
@@ -5788,68 +5544,64 @@ const makeAgentSession = (
       target?: string | undefined
     ) {
       const requestInput = JSON.stringify({ target: target ?? null, text });
-      const replayed = replaySession(
-        operationId,
-        "instruction",
-        sessionId,
-        requestInput
-      );
-      if (replayed?._tag === "conflict") {
-        return yield* Effect.fail(replayed.error);
-      }
-      if (replayed?._tag === "replay") {
-        return replayed.snapshot;
-      }
-      const { capture, record } = yield* requireTeaching(sessionId);
-      if (!isLive(record.snapshot.phase)) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            `Agent Session ${sessionId} is no longer running.`
-          )
-        );
-      }
-      if (
-        record.snapshot.activity !== "teaching" ||
-        record.snapshot.captureState._tag !== "recording"
-      ) {
-        return yield* Effect.fail(
-          error(
-            "agent_session_conflict",
-            "Start recording before adding a Teaching instruction."
-          )
-        );
-      }
-      const at = now().toISOString();
-      const instruction: TeachingInstruction = capture.recordInstruction(
-        text,
-        at,
-        target
-      );
-      const next = yield* recordEntry(sessionId, {
-        actor: "user",
-        at,
-        description: "The user gave an instruction",
-        /*
-          The timeline entry still reads as one sentence, so an instruction
-          attached to an element names it where a reader sees it (#213).
-        */
-        detail:
-          instruction.target === null
-            ? instruction.text
-            : `${instruction.target}: ${instruction.text}`,
-        dispatched: false,
-        id: instruction.id,
-        outcome: "completed",
-      });
-      yield* rememberSession(
+      return yield* ledger.session(
         operationId,
         "instruction",
         sessionId,
         requestInput,
-        next
+        Effect.gen(function* applySessionOperation() {
+          const { capture, record } = yield* requireTeaching(sessionId);
+          if (!isLive(record.snapshot.phase)) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Agent Session ${sessionId} is no longer running.`
+              )
+            );
+          }
+          if (
+            record.snapshot.activity !== "teaching" ||
+            record.snapshot.captureState._tag !== "recording"
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                "Start recording before adding a Teaching instruction."
+              )
+            );
+          }
+          const at = now().toISOString();
+          const instruction: TeachingInstruction = capture.recordInstruction(
+            text,
+            at,
+            target
+          );
+          const next = yield* recordEntry(sessionId, {
+            actor: "user",
+            at,
+            description: "The user gave an instruction",
+            /*
+          The timeline entry still reads as one sentence, so an instruction
+          attached to an element names it where a reader sees it (#213).
+        */
+            detail:
+              instruction.target === null
+                ? instruction.text
+                : `${instruction.target}: ${instruction.text}`,
+            dispatched: false,
+            id: instruction.id,
+            outcome: "completed",
+          });
+          yield* ledger.rememberSession(
+            operationId,
+            "instruction",
+            sessionId,
+            requestInput,
+            next
+          );
+          return next;
+        })
       );
-      return next;
     });
 
     // -----------------------------------------------------------------------
@@ -5883,25 +5635,21 @@ const makeAgentSession = (
         const requestInput = JSON.stringify({
           agentAccount: summaryText ?? null,
         });
-        const replayedSummary = replayRunSummary(
-          operationId,
-          sessionId,
-          requestInput
-        );
-        if (replayedSummary?._tag === "conflict") {
-          return yield* Effect.fail(replayedSummary.error);
-        }
-        if (replayedSummary?._tag === "replay") {
-          return replayedSummary.summary;
-        }
-        const summary = yield* finalizeRunUnlocked(sessionId, summaryText);
-        yield* rememberRunSummary(
+        return yield* ledger.summary(
           operationId,
           sessionId,
           requestInput,
-          summary
+          Effect.gen(function* completeOperation() {
+            const summary = yield* finalizeRunUnlocked(sessionId, summaryText);
+            yield* ledger.rememberRunSummary(
+              operationId,
+              sessionId,
+              requestInput,
+              summary
+            );
+            return summary;
+          })
         );
-        return summary;
       }
     );
 
@@ -5911,125 +5659,121 @@ const makeAgentSession = (
         operationId?: OperationId | string
       ) {
         const requestInput = "";
-        const replayed = replaySession(
+        return yield* ledger.session(
           operationId,
           "close",
           sessionId,
-          requestInput
-        );
-        if (replayed?._tag === "replay") {
-          return replayed.snapshot;
-        }
-        if (replayed?._tag === "conflict") {
-          return yield* Effect.fail(replayed.error);
-        }
-        const existing = Ref.getUnsafe(sessions).get(sessionId);
-        if (existing === undefined) {
-          const durable = yield* readyTeachingSnapshot(sessionId);
-          if (durable !== null) {
-            yield* rememberSession(
-              operationId,
-              "close",
-              sessionId,
-              requestInput,
-              durable
-            );
-            return durable;
-          }
-        }
-        let record = yield* read(sessionId);
-        if (
-          isLive(record.snapshot.phase) &&
-          record.snapshot.activity === "teaching" &&
-          record.snapshot.captureState._tag === "recording" &&
-          record.teachingRecorder !== undefined
-        ) {
-          yield* stopTeachingRecordingUnlocked(
-            sessionId,
-            `close-recording-${String(operationId ?? sessionId)}`,
-            "session-closed"
-          );
-          record = yield* read(sessionId);
-        }
-        if (!isLive(record.snapshot.phase)) {
-          let { snapshot } = record;
-          if (snapshot.run !== null && !record.finalized.persisted) {
-            yield* finalizeRunUnlocked(sessionId);
-            ({ snapshot } = yield* read(sessionId));
-          }
-          if (
-            snapshot.activity === "teaching" &&
-            (snapshot.captureState._tag === "recording" ||
-              snapshot.captureState._tag === "finalizing")
-          ) {
-            const stoppedAt =
-              snapshot.captureState._tag === "finalizing"
-                ? snapshot.captureState.stoppedAt
-                : now().toISOString();
-            const { startedAt } = snapshot.captureState;
-            const finalizing = {
-              ...snapshot,
-              boundary: null,
-              captureState: {
-                _tag: "finalizing" as const,
-                startedAt,
-                stoppedAt,
-              },
-              phase: "closed" as const,
-              takeover: null,
-              updatedAt: stoppedAt,
-            };
-            yield* save(sessionId, record, finalizing);
-            snapshot = yield* finishTeachingClose(
-              sessionId,
-              record,
-              finalizing,
-              operationId
-            );
-          }
-          yield* rememberSession(
-            operationId,
-            "close",
-            sessionId,
-            requestInput,
-            snapshot
-          );
-          return snapshot;
-        }
-        return yield* Effect.uninterruptibleMask(() =>
-          Effect.gen(function* closeAtomically() {
-            const at = now().toISOString();
-            const closed =
-              record.snapshot.activity === "teaching"
-                ? {
-                    ...record.snapshot,
-                    boundary: null,
-                    phase: "closed" as const,
-                    takeover: null,
-                    updatedAt: at,
-                  }
-                : {
-                    ...record.snapshot,
-                    boundary: null,
-                    phase: "closed" as const,
-                    run: endClosedRun(record.snapshot.run, at),
-                    takeover: null,
-                    updatedAt: at,
-                  };
-            yield* save(sessionId, record, closed);
-            yield* Scope.close(record.scope, Exit.void);
-            if (closed.run !== null) {
-              yield* finalizeRunUnlocked(sessionId);
+          requestInput,
+          Effect.gen(function* applySessionOperation() {
+            const existing = Ref.getUnsafe(sessions).get(sessionId);
+            if (existing === undefined) {
+              const durable = yield* readyTeachingSnapshot(sessionId);
+              if (durable !== null) {
+                yield* ledger.rememberSession(
+                  operationId,
+                  "close",
+                  sessionId,
+                  requestInput,
+                  durable
+                );
+                return durable;
+              }
             }
-            const finished = (yield* read(sessionId)).snapshot;
-            yield* rememberSession(
-              operationId,
-              "close",
-              sessionId,
-              requestInput,
-              finished
+            let record = yield* read(sessionId);
+            if (
+              isLive(record.snapshot.phase) &&
+              record.snapshot.activity === "teaching" &&
+              record.snapshot.captureState._tag === "recording" &&
+              record.teachingRecorder !== undefined
+            ) {
+              yield* stopTeachingRecordingUnlocked(
+                sessionId,
+                `close-recording-${String(operationId ?? sessionId)}`,
+                "session-closed"
+              );
+              record = yield* read(sessionId);
+            }
+            if (!isLive(record.snapshot.phase)) {
+              let { snapshot } = record;
+              if (snapshot.run !== null && !record.finalized.persisted) {
+                yield* finalizeRunUnlocked(sessionId);
+                ({ snapshot } = yield* read(sessionId));
+              }
+              if (
+                snapshot.activity === "teaching" &&
+                (snapshot.captureState._tag === "recording" ||
+                  snapshot.captureState._tag === "finalizing")
+              ) {
+                const stoppedAt =
+                  snapshot.captureState._tag === "finalizing"
+                    ? snapshot.captureState.stoppedAt
+                    : now().toISOString();
+                const { startedAt } = snapshot.captureState;
+                const finalizing = {
+                  ...snapshot,
+                  boundary: null,
+                  captureState: {
+                    _tag: "finalizing" as const,
+                    startedAt,
+                    stoppedAt,
+                  },
+                  phase: "closed" as const,
+                  takeover: null,
+                  updatedAt: stoppedAt,
+                };
+                yield* save(sessionId, record, finalizing);
+                snapshot = yield* finishTeachingClose(
+                  sessionId,
+                  record,
+                  finalizing,
+                  operationId
+                );
+              }
+              yield* ledger.rememberSession(
+                operationId,
+                "close",
+                sessionId,
+                requestInput,
+                snapshot
+              );
+              return snapshot;
+            }
+            return yield* Effect.uninterruptibleMask(() =>
+              Effect.gen(function* closeAtomically() {
+                const at = now().toISOString();
+                const closed =
+                  record.snapshot.activity === "teaching"
+                    ? {
+                        ...record.snapshot,
+                        boundary: null,
+                        phase: "closed" as const,
+                        takeover: null,
+                        updatedAt: at,
+                      }
+                    : {
+                        ...record.snapshot,
+                        boundary: null,
+                        phase: "closed" as const,
+                        run: endClosedRun(record.snapshot.run, at),
+                        takeover: null,
+                        updatedAt: at,
+                      };
+                yield* save(sessionId, record, closed);
+                yield* Scope.close(record.scope, Exit.void);
+                if (closed.run !== null) {
+                  yield* finalizeRunUnlocked(sessionId);
+                }
+                const finished = (yield* read(sessionId)).snapshot;
+                yield* ledger.rememberSession(
+                  operationId,
+                  "close",
+                  sessionId,
+                  requestInput,
+                  finished
+                );
+                return finished;
+              })
             );
-            return finished;
           })
         );
       }
@@ -6076,39 +5820,35 @@ const makeAgentSession = (
         run: TaskAgentRunState
       ) => Effect.Effect<AgentSessionSnapshot, E>
     ) =>
-      lock.withPermit(
+      ledger.serializeMutation(
         Effect.gen(function* mutateTask() {
-          const replayed = replaySession(
-            operationId,
-            kind,
-            sessionId,
-            requestInput
-          );
-          if (replayed?._tag === "conflict") {
-            return yield* Effect.fail(replayed.error);
-          }
-          if (replayed?._tag === "replay") {
-            return replayed.snapshot;
-          }
-          const record = yield* requireLiveRecord(sessionId);
-          const { run } = record.snapshot;
-          if (run === null || !isTaskRun(run) || runEnded(run)) {
-            return yield* Effect.fail(
-              error(
-                "agent_session_conflict",
-                "This session has no live task Run."
-              )
-            );
-          }
-          const next = yield* change(record, run);
-          yield* rememberSession(
+          return yield* ledger.session(
             operationId,
             kind,
             sessionId,
             requestInput,
-            next
+            Effect.gen(function* applySessionOperation() {
+              const record = yield* requireLiveRecord(sessionId);
+              const { run } = record.snapshot;
+              if (run === null || !isTaskRun(run) || runEnded(run)) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_conflict",
+                    "This session has no live task Run."
+                  )
+                );
+              }
+              const next = yield* change(record, run);
+              yield* ledger.rememberSession(
+                operationId,
+                kind,
+                sessionId,
+                requestInput,
+                next
+              );
+              return next;
+            })
           );
-          return next;
         })
       );
 
@@ -6133,7 +5873,7 @@ const makeAgentSession = (
       act: (sessionId, action, operationId, intent) =>
         actUnlocked(sessionId, action, operationId, undefined, intent),
       answerDryRunVariable: (sessionId, input) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           Effect.gen(function* answerPrerequisiteVariable() {
             const record = yield* read(sessionId);
             if (record.snapshot.dryRun === null) {
@@ -6218,7 +5958,7 @@ const makeAgentSession = (
         ),
       changes: (sessionId) =>
         Stream.unwrap(
-          lock.withPermit(
+          ledger.serializeMutation(
             Effect.gen(function* subscribeToSessionChanges() {
               const subscription = yield* PubSub.subscribe(events);
               const record = yield* read(sessionId);
@@ -6255,7 +5995,7 @@ const makeAgentSession = (
           )
         ),
       close: (sessionId, operationId) =>
-        lock.withPermit(closeUnlocked(sessionId, operationId)),
+        ledger.serializeMutation(closeUnlocked(sessionId, operationId)),
       closeAll: () => {
         const liveSessionIds: AgentSessionId[] = [];
         for (const [sessionId, record] of Ref.getUnsafe(sessions)) {
@@ -6263,7 +6003,7 @@ const makeAgentSession = (
             liveSessionIds.push(sessionId);
           }
         }
-        return lock.withPermit(
+        return ledger.serializeMutation(
           Effect.forEach(
             liveSessionIds,
             (sessionId) => interruptUnlocked(sessionId).pipe(Effect.ignore),
@@ -6272,7 +6012,7 @@ const makeAgentSession = (
         );
       },
       completeRun: (sessionId, agentAccount, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           completeRunUnlocked(sessionId, agentAccount, operationId)
         ),
       deleteStorage: (sessionId, tabId, input) =>
@@ -6282,7 +6022,7 @@ const makeAgentSession = (
           )
         ),
       discardTeachingRecording: (sessionId, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           discardTeachingRecordingUnlocked(
             sessionId,
             operationId ?? OperationId.make(`discard-${randomUUID()}`)
@@ -6309,7 +6049,7 @@ const makeAgentSession = (
         Effect.gen(function* enterSuppliedVerificationVariable() {
           const record = yield* requireLiveRecord(sessionId);
           if (record.snapshot.activity === "teaching") {
-            return yield* lock.withPermit(
+            return yield* ledger.serializeMutation(
               Effect.gen(function* enterSetupVariable() {
                 const requestInput = JSON.stringify({
                   flowSkillName: flowSkillName ?? null,
@@ -6317,22 +6057,14 @@ const makeAgentSession = (
                   name,
                   ref,
                 });
-                const replayed = replay(
+                const replayed = ledger.replayAction(
                   operationId,
                   "private-input",
                   sessionId,
                   requestInput
                 );
-                if (replayed?._tag === "conflict") {
-                  return yield* Effect.fail(replayed.error);
-                }
-                if (replayed?._tag === "replay") {
-                  if (replayed.result.kind === "act") {
-                    return replayed.result.result;
-                  }
-                  if (replayed.result.kind === "act-failure") {
-                    return yield* Effect.fail(replayed.result.error);
-                  }
+                if (replayed !== undefined) {
+                  return yield* replayed;
                 }
                 const current = yield* requireLiveRecord(sessionId);
                 if (
@@ -6410,7 +6142,12 @@ const makeAgentSession = (
           });
         }),
       enterUserVariable: (sessionId, input, operationId) =>
-        enterUserVariableUnlocked(sessionId, input, operationId),
+        ledger.userAction(
+          operationId,
+          sessionId,
+          privateInputFingerprint(input),
+          enterUserVariableUnlocked(sessionId, input, operationId)
+        ),
       get: (sessionId) =>
         read(sessionId).pipe(
           Effect.flatMap((record) => refreshedSnapshot(sessionId, record)),
@@ -6432,7 +6169,7 @@ const makeAgentSession = (
           )
         ),
       handOffTeachingSetup: (sessionId, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           afterUserInput(
             sessionId,
             handOffTeachingSetupUnlocked(sessionId, operationId).pipe(
@@ -6496,7 +6233,7 @@ const makeAgentSession = (
           );
         }),
       recordInstruction: (sessionId, text, operationId, target) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           afterUserInput(
             sessionId,
             recordInstructionUnlocked(sessionId, text, operationId, target)
@@ -6527,7 +6264,7 @@ const makeAgentSession = (
           return next ?? record.snapshot;
         }),
       renameFlowSkill: (sessionId, name, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           renameFlowSkillUnlocked(
             sessionId,
             name,
@@ -6536,7 +6273,7 @@ const makeAgentSession = (
         ),
       requestSetupVariable: setupVariableMutation,
       requestTakeover: (sessionId, reason, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           beginTakeoverUnlocked(sessionId, reason, "agent", operationId)
         ),
       requestTaskVariable: (
@@ -6640,7 +6377,7 @@ const makeAgentSession = (
             })
         ),
       resolvePendingDecision: (input) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           Effect.gen(function* resolveSessionDecision() {
             // A runtime Variable decision and a paused Execution Boundary both
             // live on the session; the id the agent relays says which.
@@ -6653,92 +6390,92 @@ const makeAgentSession = (
               pendingDecisionId: input.pendingDecisionId,
               userMessage: input.userMessage ?? null,
             });
-            const replayed = replaySession(
-              input.operationId,
-              "boundary",
-              input.pendingDecisionId,
-              requestInput
-            );
-            if (replayed?._tag === "conflict") {
-              return yield* Effect.fail(replayed.error);
-            }
-            if (replayed?._tag === "replay") {
-              return replayed.snapshot;
-            }
-            // A pause names its session, so the id the agent relays is enough
-            // to find it; a resolved or replaced pause names none and is a
-            // conflict the agent answers by rereading pendingDecisions.
-            const located = [...Ref.getUnsafe(sessions).values()].find(
-              (candidate) =>
-                candidate.executionBoundary?.pending()?.decision
-                  .pendingDecisionId === input.pendingDecisionId
-            );
-            if (located === undefined) {
-              return yield* Effect.fail(
-                error(
-                  "agent_session_conflict",
-                  `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
-                )
-              );
-            }
-            const record = yield* requireLiveRecord(located.snapshot.id);
-            const control = record.executionBoundary;
-            const pending = control?.pending();
-            if (
-              control === undefined ||
-              pending === undefined ||
-              pending.decision.pendingDecisionId !== input.pendingDecisionId
-            ) {
-              return yield* Effect.fail(
-                error(
-                  "agent_session_conflict",
-                  "This boundary request is no longer pending."
-                )
-              );
-            }
-            const resolved = yield* control.resolve(
-              input,
-              agentIsPaused(record.snapshot)
-            );
-            const allowed = input.decision === "allow";
-            const decidedAt = now().toISOString();
-            const resolution = boundaryResolution(resolved, input, decidedAt);
-            const snapshot = yield* recordEntry(
-              record.snapshot.id,
-              {
-                actor: "user",
-                at: decidedAt,
-                description: allowed
-                  ? "Confirmed boundary request"
-                  : "Refused boundary request",
-                detail: `${pending.boundary.description}: ${pending.boundary.requested}`,
-                dispatched: false,
-                id: randomUUID(),
-                outcome: allowed ? "completed" : "refused",
-              },
-              {
-                boundary: null,
-                decisionHistory: [
-                  ...record.snapshot.decisionHistory,
-                  resolution,
-                ],
-                pendingDecisions: withoutBoundaryDecision(
-                  record.snapshot.pendingDecisions
-                ),
-              }
-            );
-            yield* rememberSession(
+            return yield* ledger.session(
               input.operationId,
               "boundary",
               input.pendingDecisionId,
               requestInput,
-              snapshot
+              Effect.gen(function* applySessionOperation() {
+                // A pause names its session, so the id the agent relays is enough
+                // to find it; a resolved or replaced pause names none and is a
+                // conflict the agent answers by rereading pendingDecisions.
+                const located = [...Ref.getUnsafe(sessions).values()].find(
+                  (candidate) =>
+                    candidate.executionBoundary?.pending()?.decision
+                      .pendingDecisionId === input.pendingDecisionId
+                );
+                if (located === undefined) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      `Pending decision ${input.pendingDecisionId} is stale or unknown. Reread pendingDecisions before asking the user again.`
+                    )
+                  );
+                }
+                const record = yield* requireLiveRecord(located.snapshot.id);
+                const control = record.executionBoundary;
+                const pending = control?.pending();
+                if (
+                  control === undefined ||
+                  pending === undefined ||
+                  pending.decision.pendingDecisionId !== input.pendingDecisionId
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "This boundary request is no longer pending."
+                    )
+                  );
+                }
+                const resolved = yield* control.resolve(
+                  input,
+                  agentIsPaused(record.snapshot)
+                );
+                const allowed = input.decision === "allow";
+                const decidedAt = now().toISOString();
+                const resolution = boundaryResolution(
+                  resolved,
+                  input,
+                  decidedAt
+                );
+                const snapshot = yield* recordEntry(
+                  record.snapshot.id,
+                  {
+                    actor: "user",
+                    at: decidedAt,
+                    description: allowed
+                      ? "Confirmed boundary request"
+                      : "Refused boundary request",
+                    detail: `${pending.boundary.description}: ${pending.boundary.requested}`,
+                    dispatched: false,
+                    id: randomUUID(),
+                    outcome: allowed ? "completed" : "refused",
+                  },
+                  {
+                    boundary: null,
+                    decisionHistory: [
+                      ...record.snapshot.decisionHistory,
+                      resolution,
+                    ],
+                    pendingDecisions: withoutBoundaryDecision(
+                      record.snapshot.pendingDecisions
+                    ),
+                  }
+                );
+                yield* ledger.rememberSession(
+                  input.operationId,
+                  "boundary",
+                  input.pendingDecisionId,
+                  requestInput,
+                  snapshot
+                );
+                return snapshot;
+              })
             );
-            return snapshot;
           })
         ),
       returnControl: (sessionId, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           afterUserInput(
             sessionId,
             returnControlUnlocked(sessionId, operationId)
@@ -6967,11 +6704,11 @@ const makeAgentSession = (
             )
           )
         ),
-      start: (input) => lock.withPermit(startUnlocked(input)),
+      start: (input) => ledger.serializeMutation(startUnlocked(input)),
       startPrepared: (request, prepare) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           Effect.gen(function* startPreparedSession() {
-            const replayed = replaySession(
+            const replayed = ledger.replaySession(
               request.operationId,
               "start",
               "start",
@@ -6996,9 +6733,11 @@ const makeAgentSession = (
           })
         ),
       startTeachingRecording: (sessionId, operationId) =>
-        lock.withPermit(startTeachingRecordingUnlocked(sessionId, operationId)),
+        ledger.serializeMutation(
+          startTeachingRecordingUnlocked(sessionId, operationId)
+        ),
       stopTeachingRecording: (sessionId, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           afterUserInput(
             sessionId,
             stopTeachingRecordingUnlocked(sessionId, operationId)
@@ -7077,7 +6816,7 @@ const makeAgentSession = (
           Effect.flatMap((record) => browser.getTabs(record.browserSessionId))
         ),
       takeover: (sessionId, reason, operationId) =>
-        lock.withPermit(
+        ledger.serializeMutation(
           beginTakeoverUnlocked(sessionId, reason, "user", operationId)
         ),
       updateTask: (sessionId, prepare, operationId, requestInput) =>
