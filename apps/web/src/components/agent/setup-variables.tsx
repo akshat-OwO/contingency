@@ -6,10 +6,17 @@ import type {
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
+import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  AnsweredVariable,
+  RequestHeader,
+  VariableField,
+  requestIconClassName,
+} from "@/components/agent/dock-request-parts";
+import { splitWaiting } from "@/components/agent/dock-requests-state";
+import { Badge } from "@/components/ui/badge";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -49,57 +56,32 @@ const SetupVariable = ({
     }
   };
   return (
-    <form
-      className="space-y-2"
-      onSubmit={async (event) => {
-        event.preventDefault();
+    <VariableField
+      error={state.error === "" ? undefined : state.error}
+      id={variable.requestId}
+      label={variable.name}
+      onRefuse={async () => {
+        await submit(null);
+      }}
+      onSubmit={async () => {
         await submit(state.value);
       }}
-    >
-      <label className="grid gap-1" htmlFor={variable.requestId}>
-        <span>{variable.name}</span>
-        <Input
-          aria-describedby={`${variable.requestId}-purpose`}
-          id={variable.requestId}
-          type="password"
-          autoComplete="off"
-          required
-          value={state.value}
-          disabled={state.pending}
-          onChange={(event) =>
-            setState((current) => ({ ...current, value: event.target.value }))
-          }
-        />
-      </label>
-      <p className="text-muted-foreground" id={`${variable.requestId}-purpose`}>
-        {variable.purpose}
-      </p>
-      <div className="flex gap-2">
-        <Button
-          type="submit"
-          disabled={state.pending || state.value.length === 0}
-        >
-          Supply {variable.name}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={state.pending}
-          onClick={async () => {
-            await submit(null);
-          }}
-        >
-          Refuse {variable.name}
-        </Button>
-      </div>
-      {state.error === "" ? null : <p role="alert">{state.error}</p>}
-    </form>
+      onValueChange={(value) => setState((current) => ({ ...current, value }))}
+      pending={state.pending}
+      purpose={variable.purpose}
+      refuseLabel={`Refuse ${variable.name}`}
+      supplyLabel={`Supply ${variable.name}`}
+      value={state.value}
+    />
   );
 };
 
 export const SetupVariables = ({
+  collapse,
   session,
 }: {
+  /** The tier's collapse control, when this is its first request. */
+  readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {
   if (
@@ -113,28 +95,54 @@ export const SetupVariables = ({
   if (variables.length === 0) {
     return null;
   }
+  const [waiting, answered] = splitWaiting(
+    variables,
+    ({ status }) => status === "requested"
+  );
   return (
-    <section
-      aria-label="Setup Variables"
-      className="bg-background space-y-3 rounded-lg border p-3 text-sm shadow-lg"
-    >
-      <h2 className="font-semibold">Setup Variables</h2>
-      <p>
+    <section aria-label="Setup Variables" className="space-y-2">
+      <RequestHeader
+        action={
+          <>
+            <span className="text-muted-foreground hidden text-xs @xl:inline">
+              The agent sees status, never values
+            </span>
+            {collapse}
+          </>
+        }
+        badge={
+          <Badge variant="secondary">
+            {waiting.length} of {variables.length} needed
+          </Badge>
+        }
+        icon={
+          <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
+        }
+        title="Setup Variables"
+      />
+      <p className="text-muted-foreground text-xs @xl:hidden">
         Supply private setup inputs here. The agent sees their status, never
         their values.
       </p>
-      {variables.map((variable) =>
-        variable.status === "requested" ? (
+      <div className="space-y-2.5">
+        {waiting.map((variable) => (
           <SetupVariable
             key={`${session.id}/${variable.requestId}`}
             sessionId={session.id}
             variable={variable}
           />
-        ) : (
-          <p key={variable.requestId}>
-            {variable.name} {variable.status}
-          </p>
-        )
+        ))}
+      </div>
+      {answered.length === 0 ? null : (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {answered.map((variable) => (
+            <AnsweredVariable
+              key={variable.requestId}
+              label={variable.name}
+              status={variable.status}
+            />
+          ))}
+        </div>
       )}
     </section>
   );

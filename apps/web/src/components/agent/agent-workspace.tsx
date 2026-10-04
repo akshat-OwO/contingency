@@ -38,22 +38,18 @@ import {
   adoptSessionSnapshot,
   agentViewStateAtom,
   appendConsoleEntry,
-  hasExecutionBoundaryNotice,
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DemoTeachingPassword } from "@/components/agent/demo-teaching-password";
+import { DockRequests } from "@/components/agent/dock-requests";
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
-import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
 import { hasDemoTeachingPassword } from "@/components/agent/run-provenance";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
-import { hasRuntimeVariableNotice } from "@/components/agent/runtime-variable-state";
-import { RuntimeVariables } from "@/components/agent/runtime-variables";
-import { SetupVariables } from "@/components/agent/setup-variables";
 import { CommentComposer } from "@/components/agent/teaching-comment-composer";
 import type { CommentShortcut } from "@/components/agent/teaching-comment-shortcuts";
 import {
@@ -122,15 +118,10 @@ import {
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
-import { ExecutionBoundary } from "./execution-boundary";
-
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
   { readonly activity: "teaching" }
 >;
-
-const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
-  session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
 
 /**
  * The summary docked beside a finished Dry Run, or `null` while there is none.
@@ -422,7 +413,7 @@ const AgentBrowserCanvas = ({
         it, ends up underneath the dock.
       */
       className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3${
-        dockedBelow ? " pb-24" : ""
+        dockedBelow ? " pb-28" : ""
       }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
     >
       {frameReady ? null : (
@@ -621,18 +612,17 @@ const AgentLiveView = ({
   readonly state: AgentViewState;
 }) => {
   const readOnly = session.controller !== "user";
-  const secretVariables = dryRunSecretVariables(session);
+  /*
+    What the agent is waiting on (an Execution Boundary, input requests) is
+    the dock's own first tier, not a notice: it sits above the status line it
+    explains and collapses out of the browser's way.
+  */
   const showsNotices =
     hasDemoTeachingPassword(session) ||
     notices !== null ||
-    secretVariables.length > 0 ||
-    (session.controller === "agent" &&
-      (session.setupVariables?.length ?? 0) > 0) ||
-    hasRuntimeVariableNotice(session) ||
     state.botProtectionBlock !== undefined ||
     state.browserStreamError !== undefined ||
-    session.interruptedAction !== null ||
-    hasExecutionBoundaryNotice(session);
+    session.interruptedAction !== null;
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AgentBrowserToolbar
@@ -679,11 +669,9 @@ const AgentLiveView = ({
         />
         {/*
         What the dock cannot hold floats over the browser instead: a stream
-        failure, the action Takeover interrupted, and a paused Execution
-        Boundary. The Boundary is answered in the agent conversation, so it is
-        read-only here (ADR 0037). An interrupted action is disclosed rather
-        than presented as a rollback: Contingency cannot undo a dispatched
-        effect.
+        failure, a bot protection block, and the action Takeover interrupted.
+        An interrupted action is disclosed rather than presented as a
+        rollback: Contingency cannot undo a dispatched effect.
       */}
         {showsNotices ? (
           <DockNotices>
@@ -717,16 +705,7 @@ const AgentLiveView = ({
                   </AlertDescription>
                 </Alert>
               )}
-              <ExecutionBoundary session={session} />
-              <RuntimeVariables session={session} />
-              <SetupVariables session={session} />
               <DemoTeachingPassword key={session.id} session={session} />
-              {secretVariables.length > 0 ? (
-                <DryRunVariables
-                  sessionId={session.id}
-                  variables={secretVariables}
-                />
-              ) : null}
             </>
           </DockNotices>
         ) : null}
@@ -2037,6 +2016,7 @@ export const AgentWorkspace = ({
                 pending={view.gestures.recording.pending}
                 phase={session.phase}
                 platform={platform}
+                requests={<DockRequests session={session} />}
                 selectedSessionId={state.selectedSessionId}
                 sessions={view.sessions}
               />
@@ -2046,6 +2026,7 @@ export const AgentWorkspace = ({
                 controlPending={view.gestures.control.pending}
                 onControl={view.changeControl}
                 onSelectSession={view.selectSession}
+                requests={<DockRequests session={session} />}
                 selectedSessionId={state.selectedSessionId}
                 session={session}
                 sessions={view.sessions}
