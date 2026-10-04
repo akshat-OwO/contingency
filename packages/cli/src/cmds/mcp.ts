@@ -80,21 +80,27 @@ const isListenAddressInUse = (error: McpHttpFailure): boolean => {
  * agent that is killed without stopping its children. Ending then runs every
  * finalizer, so browsers close and Teaching Recordings and Runs persist under
  * their lifecycle contracts instead of an orphan holding ports. A process a
- * human started in a terminal serves URL clients until it is interrupted.
+ * human started directly serves URL clients until it is interrupted, including
+ * a headless process whose stdin is closed.
  */
-const untilClientLeaves: Effect.Effect<void> = process.stdin.isTTY
-  ? Effect.never
-  : Effect.callback((resume) => {
-      const leave = (): void => {
-        resume(Effect.void);
-      };
-      process.stdin.once("end", leave);
-      process.stdin.once("close", leave);
-      return Effect.sync(() => {
-        process.stdin.off("end", leave);
-        process.stdin.off("close", leave);
+const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
+  !agentOwned || process.stdin.isTTY
+    ? Effect.never
+    : Effect.callback((resume) => {
+        if (process.stdin.readableEnded || process.stdin.destroyed) {
+          resume(Effect.void);
+          return;
+        }
+        const leave = (): void => {
+          resume(Effect.void);
+        };
+        process.stdin.once("end", leave);
+        process.stdin.once("close", leave);
+        return Effect.sync(() => {
+          process.stdin.off("end", leave);
+          process.stdin.off("close", leave);
+        });
       });
-    });
 
 /**
  * Start one local MCP process. Its Agent Session layer is passed to both the
@@ -256,7 +262,7 @@ export const mcpCommand = Command.make(
             yield* Console.error(
               `Contingency MCP Workspace could not bind ${host}:${port}; tools still run on stdio.`
             );
-            return yield* untilClientLeaves;
+            return yield* untilClientLeaves(Option.isSome(agent));
           }
           return yield* Effect.fail(bound.failure);
         }
@@ -299,7 +305,7 @@ export const mcpCommand = Command.make(
             `Contingency Catalog Root falls back to ${catalogDirectory.root}. ${catalogDirectory.fallback.reason}`
           );
         }
-        return yield* untilClientLeaves;
+        return yield* untilClientLeaves(Option.isSome(agent));
       })
     ).pipe(Effect.provideService(Logger.LogToStderr, true));
   })

@@ -13,11 +13,12 @@ import { findTomlTable, replaceTomlTable, tomlString } from "./toml-table.ts";
  * kept, a different one is reported and replaced only on an explicit request,
  * and unrelated configuration is never rewritten. Claude Code is changed with
  * its own `claude mcp` commands. Codex user configuration is changed with
- * `codex mcp add`, and Codex project configuration, which that command cannot
- * write, is edited as text around one table.
+ * `codex mcp add`. Both Codex scopes then get their startup timeout through a
+ * text edit of one table, preserving unrelated configuration.
  */
 
 export const SERVER_NAME = "contingency";
+export const CODEX_STARTUP_TIMEOUT_SECONDS = 60;
 
 export type RegistrationScope = "project" | "user";
 
@@ -26,6 +27,7 @@ export interface ServerSpec {
   readonly args: readonly string[];
   readonly command: string;
   readonly env: Readonly<Record<string, string>>;
+  readonly startupTimeoutSeconds?: number | undefined;
 }
 
 export class RegistrationError extends Data.TaggedError("RegistrationError")<{
@@ -45,18 +47,23 @@ export const registrationServerSpec = (input: {
     readonly args: readonly string[];
     readonly command: string;
   };
-}): ServerSpec => ({
-  args: [
-    ...input.invocation.args,
-    "mcp",
-    "--agent",
-    input.agent,
-    "--fallback-directory",
-    input.fallbackDirectory,
-  ],
-  command: input.invocation.command,
-  env: { CONTINGENCY_MCP_PORT: "0" },
-});
+}): ServerSpec => {
+  const spec: ServerSpec = {
+    args: [
+      ...input.invocation.args,
+      "mcp",
+      "--agent",
+      input.agent,
+      "--fallback-directory",
+      input.fallbackDirectory,
+    ],
+    command: input.invocation.command,
+    env: { CONTINGENCY_MCP_PORT: "0" },
+  };
+  return input.agent === "codex"
+    ? { ...spec, startupTimeoutSeconds: CODEX_STARTUP_TIMEOUT_SECONDS }
+    : spec;
+};
 
 /** What differs between an existing entry and the wanted one, in words. */
 export const describeDifferences = (
@@ -65,6 +72,11 @@ export const describeDifferences = (
   extras: readonly string[] = []
 ): string[] => {
   const differences: string[] = [];
+  if (existing.startupTimeoutSeconds !== wanted.startupTimeoutSeconds) {
+    differences.push(
+      `startup_timeout_sec is ${existing.startupTimeoutSeconds ?? "unset"}; Contingency would use ${wanted.startupTimeoutSeconds ?? "the default"}`
+    );
+  }
   if (existing.command !== wanted.command) {
     differences.push(
       `command is ${JSON.stringify(existing.command)}; Contingency would use ${JSON.stringify(wanted.command)}`
@@ -102,6 +114,7 @@ const ServerEntry = Schema.Struct({
   args: Schema.optional(Schema.Array(Schema.String)),
   command: Schema.optional(Schema.String),
   env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  startup_timeout_sec: Schema.optional(Schema.Number),
   type: Schema.optional(Schema.String),
 });
 type ServerEntryValue = typeof ServerEntry.Type;
@@ -323,6 +336,7 @@ export const codexEntryFromToml = (text: string, location: string) =>
         args: entry.args ?? [],
         command: entry.command ?? "",
         env: entry.env ?? {},
+        startupTimeoutSeconds: entry.startup_timeout_sec,
       },
     } satisfies ExistingEntry);
   });
@@ -333,6 +347,9 @@ export const codexTable = (spec: ServerSpec): string => {
     `command = ${tomlString(spec.command)}`,
     `args = [${spec.args.map(tomlString).join(", ")}]`,
   ];
+  if (spec.startupTimeoutSeconds !== undefined) {
+    lines.push(`startup_timeout_sec = ${spec.startupTimeoutSeconds}`);
+  }
   const env = Object.entries(spec.env);
   if (env.length > 0) {
     lines.push("", `[mcp_servers.${SERVER_NAME}.env]`);
@@ -429,7 +446,7 @@ const commandOutcome = (
     if (exitCode !== 0) {
       return yield* Effect.fail(
         new RegistrationError({
-          message: `${command} ${args.join(" ")} exited with ${exitCode}. No other configuration was changed.`,
+          message: `${command} ${args.join(" ")} exited with ${exitCode}.`,
         })
       );
     }
@@ -520,6 +537,16 @@ const registerClaude = (request: RegistrationRequest) =>
         }),
       ],
       commandOptions
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RegistrationError({
+            message:
+              existing === undefined
+                ? cause.message
+                : `${cause.message} The previous ${location} registration was removed. Retry registration to reconnect Contingency.`,
+          })
+      )
     );
     const written = yield* readClaudeEntries({
       configPath,
@@ -622,38 +649,39 @@ const registerCodex = (request: RegistrationRequest) =>
         ],
         { cwd: request.projectDirectory, env: request.env }
       );
-    } else {
-      const current = Option.getOrElse(
-        yield* readOptionalText(projectPath),
-        () => ""
-      );
-      const next = yield* Effect.try({
-        catch: (cause) =>
-          new RegistrationError({
-            message: `Could not update ${projectPath}: ${cause instanceof Error ? cause.message : String(cause)}`,
-          }),
-        try: () =>
-          replaceTomlTable(current, TABLE_PATH, codexTable(request.spec)),
-      });
-      yield* fileSystem
-        .makeDirectory(path.dirname(projectPath), { recursive: true })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new RegistrationError({
-                message: `Could not create ${path.dirname(projectPath)}: ${cause.message}`,
-              })
-          )
-        );
-      yield* fileSystem.writeFileString(projectPath, next).pipe(
+    }
+    // The CLI has no persistent startup-timeout option. Add it to the entry
+    // it just wrote, using the same text-preserving edit as project scope.
+    const current = Option.getOrElse(
+      yield* readOptionalText(location),
+      () => ""
+    );
+    const next = yield* Effect.try({
+      catch: (cause) =>
+        new RegistrationError({
+          message: `Could not update ${location}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        }),
+      try: () =>
+        replaceTomlTable(current, TABLE_PATH, codexTable(request.spec)),
+    });
+    yield* fileSystem
+      .makeDirectory(path.dirname(location), { recursive: true })
+      .pipe(
         Effect.mapError(
           (cause) =>
             new RegistrationError({
-              message: `Could not write ${projectPath}: ${cause.message}`,
+              message: `Could not create ${path.dirname(location)}: ${cause.message}`,
             })
         )
       );
-    }
+    yield* fileSystem.writeFileString(location, next).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RegistrationError({
+            message: `Could not write ${location}: ${cause.message}`,
+          })
+      )
+    );
     const written = Option.getOrUndefined(yield* readCodexEntry(location));
     if (
       written === undefined ||

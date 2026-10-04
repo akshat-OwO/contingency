@@ -2,7 +2,8 @@ import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Option } from "effect";
+import { Effect, FileSystem, Option, Result } from "effect";
+import { ChildProcessSpawner } from "effect/process";
 
 import {
   codexEntryFromToml,
@@ -47,6 +48,7 @@ it("starts every registration on an available port with its agent and fallback",
     ],
     command: "/usr/bin/node",
     env: { CONTINGENCY_MCP_PORT: "0" },
+    startupTimeoutSeconds: 60,
   });
 });
 
@@ -65,6 +67,7 @@ it("reads and replaces one TOML table without touching the rest", () => {
         args: SPEC.args,
         command: SPEC.command,
         env: { CONTINGENCY_MCP_PORT: "0" },
+        startup_timeout_sec: 60,
       },
     },
   });
@@ -78,6 +81,69 @@ it("reads and replaces one TOML table without touching the rest", () => {
   expect(replaced).toContain('[mcp_servers.other]\ncommand = "other-server"');
   expect(replaced).toContain('trust_level = "trusted"');
 });
+
+it.effect(
+  "requires replacement when a Codex registration lacks its cold-start timeout",
+  () =>
+    Effect.gen(function* timeoutDiffers() {
+      const text = codexTable(SPEC).replace("startup_timeout_sec = 60\n", "");
+      const entry = yield* codexEntryFromToml(text, "config.toml");
+      expect(Option.isSome(entry)).toBe(true);
+      if (Option.isSome(entry)) {
+        expect(describeDifferences(entry.value.spec, SPEC)).toEqual([
+          "startup_timeout_sec is unset; Contingency would use 60",
+        ]);
+      }
+    })
+);
+
+it.effect("reports the removed Claude entry when replacement fails", () =>
+  Effect.gen(function* replacementFailure() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const home = yield* fileSystem.makeTempDirectoryScoped();
+    yield* fileSystem.writeFileString(
+      path.join(home, ".claude.json"),
+      JSON.stringify({
+        mcpServers: { contingency: { command: "old-server" } },
+      })
+    );
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    let calls = 0;
+    const result = yield* register({
+      agent: "claude",
+      env: { CLAUDE_CONFIG_DIR: home },
+      home,
+      projectDirectory: home,
+      replace: true,
+      scope: "user",
+      spec: registrationServerSpec({
+        agent: "claude",
+        fallbackDirectory: home,
+        invocation: { args: [], command: "new-server" },
+      }),
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, {
+        ...spawner,
+        exitCode: () =>
+          Effect.sync(() => {
+            calls += 1;
+            return ChildProcessSpawner.ExitCode(calls === 1 ? 0 : 1);
+          }),
+      }),
+      Effect.result
+    );
+    expect(calls).toBe(2);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toContain(
+        "The previous Claude Code user scope registration was removed."
+      );
+      expect(result.failure.message).not.toContain(
+        "No other configuration was changed"
+      );
+    }
+  }).pipe(Effect.provide(NodeServices.layer))
+);
 
 it("refuses a server defined in a form it does not edit", () => {
   expect(
@@ -178,6 +244,7 @@ it("names every difference a user must decide on", () => {
       SPEC
     )
   ).toEqual([
+    "startup_timeout_sec is unset; Contingency would use 60",
     `args are ["old.js","mcp"]; Contingency would use ${JSON.stringify(SPEC.args)}`,
     'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
   ]);

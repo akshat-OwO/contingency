@@ -40,6 +40,8 @@ contingency register --agent codex --scope user
 
 Project registration applies to the current project. User registration applies across projects, with a separate `.contingency` catalog in each project. Equivalent entries stay unchanged. A different entry is reported without changes; use `--replace` only after choosing replacement. If an agent cannot report a usable project directory, Contingency names and uses the original onboarding directory as its fallback.
 
+Registrations created through `npx` pin the installed Contingency version. To upgrade one, run `npx -y @contingencyhq/cli@latest register --agent codex --scope user --replace`, choosing the agent and scope of your existing registration.
+
 ## Chromium
 
 The browser is not bundled. The first Agent Session downloads Contingency's pinned Chromium build once and prints progress while it works. To fetch it ahead of time:

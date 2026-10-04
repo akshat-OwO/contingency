@@ -6,7 +6,10 @@ import { Data, Effect, FileSystem, Option, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import type { ServerSpec } from "./agent-registration.ts";
-import { SERVER_NAME } from "./agent-registration.ts";
+import {
+  CODEX_STARTUP_TIMEOUT_SECONDS,
+  SERVER_NAME,
+} from "./agent-registration.ts";
 import type { RegisteredAgent } from "./catalog-directory.ts";
 import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
 import { STARTER_PROMPT_URI, starterPromptPath } from "./mcp-onboarding.ts";
@@ -300,7 +303,7 @@ export const codexMcpOverrides = (spec: ServerSpec): string[] => {
     `${key}.command=${JSON.stringify(spec.command)}`,
     `${key}.args=[${spec.args.map((arg) => JSON.stringify(arg)).join(", ")}]`,
     `${key}.env=${tomlInlineTable(spec.env)}`,
-    `${key}.startup_timeout_sec=60`,
+    `${key}.startup_timeout_sec=${CODEX_STARTUP_TIMEOUT_SECONDS}`,
   ].flatMap((override) => ["-c", override]);
 };
 
