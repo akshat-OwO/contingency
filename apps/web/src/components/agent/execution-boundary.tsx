@@ -1,5 +1,7 @@
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 
+import { hasExecutionBoundaryNotice } from "./agent-workspace-state";
+
 /**
  * The paused Execution Boundary, as a read-only mirror. The user allows or
  * refuses it by answering the pending decision in the agent conversation
@@ -11,7 +13,11 @@ export const ExecutionBoundary = ({
   readonly session: AgentSessionSnapshot;
 }) => {
   const { boundary } = session;
-  if (boundary === undefined || boundary === null) {
+  if (
+    !hasExecutionBoundaryNotice(session) ||
+    boundary === undefined ||
+    boundary === null
+  ) {
     return null;
   }
   const pending = (session.pendingDecisions ?? []).find(
@@ -37,7 +43,8 @@ export const ExecutionBoundary = ({
           : "Allowing permits this exact action attempt once. A retry with a new operation id needs another decision."}
       </p>
       <p>
-        Allow or refuse this request in your agent conversation.
+        Reply "allow" or "refuse" in your agent conversation. The agent will
+        relay your choice to Contingency.
         {pending === undefined ? null : (
           <code className="ml-1 wrap-anywhere">
             {pending.pendingDecisionId}

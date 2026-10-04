@@ -38,6 +38,7 @@ import {
   adoptSessionSnapshot,
   agentViewStateAtom,
   appendConsoleEntry,
+  hasExecutionBoundaryNotice,
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
@@ -631,7 +632,7 @@ const AgentLiveView = ({
     state.botProtectionBlock !== undefined ||
     state.browserStreamError !== undefined ||
     session.interruptedAction !== null ||
-    (session.boundary !== null && session.boundary !== undefined);
+    hasExecutionBoundaryNotice(session);
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AgentBrowserToolbar
