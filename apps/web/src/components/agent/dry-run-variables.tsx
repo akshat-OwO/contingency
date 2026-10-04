@@ -69,13 +69,13 @@ export const DryRunVariables = ({
   readonly sessionId: AgentSessionId;
   readonly variables: readonly AgentSessionVariableState[];
 }) => {
-  if (variables.length === 0) {
-    return null;
-  }
   const [waiting, supplied] = splitWaiting(
     variables,
     (variable) => !variable.supplied
   );
+  if (waiting.length === 0) {
+    return null;
+  }
   return (
     <section aria-label="Dry Run secrets" className="space-y-2">
       <RequestHeader

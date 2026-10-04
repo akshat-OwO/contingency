@@ -147,3 +147,21 @@ test("splits inputs into waiting and answered in their original order", () => {
     [1, 3],
   ]);
 });
+
+test("drops Dry Run secrets from the dock once every one is supplied", () => {
+  expect(
+    dockRequests(
+      snapshot({
+        dryRun: {
+          flowSkillName: "checkout",
+          inputs: [],
+          recordingId: "recording-checkout",
+          startedAt: at,
+          variables: [
+            { name: "CARD", runtime: false, secret: true, supplied: true },
+          ],
+        },
+      })
+    )
+  ).toEqual([]);
+});

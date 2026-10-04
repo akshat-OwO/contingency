@@ -133,10 +133,15 @@ const dryRunSecretsRequest = (
 ): DockRequest | undefined => {
   const variables =
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
-  if (variables.length === 0) {
+  const [waiting] = splitWaiting(variables, ({ supplied }) => !supplied);
+  /*
+    A supplied secret needs nothing more from the user, so once every one is
+    supplied the request leaves the dock instead of lingering for the rest of
+    the Run.
+  */
+  if (waiting.length === 0) {
     return undefined;
   }
-  const [waiting] = splitWaiting(variables, ({ supplied }) => !supplied);
   return {
     key: `secrets:${waiting.map(({ name }) => name).join(",")}`,
     kind: "dry-run-secrets",
