@@ -151,6 +151,30 @@ input {
   background: #fff;
 }
 
+/* Keep select popups in the page so Workspace's browser stream captures them. */
+select,
+::picker(select) {
+  appearance: base-select;
+}
+
+::picker(select) {
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid #8c968f;
+  border-radius: 0.35rem;
+}
+
+option {
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+}
+
+option:hover,
+option:focus-visible {
+  background: #e5ebe7;
+}
+
 button {
   padding: 0.55rem 1rem;
   font: inherit;

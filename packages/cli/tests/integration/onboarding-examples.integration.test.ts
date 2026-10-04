@@ -11,7 +11,12 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import {
+  CreateBrowser,
+  CreateBrowserLive,
+} from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
+import { DemoSite } from "../../src/services/demo-site.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
@@ -24,6 +29,63 @@ import {
   runTool,
   sessionTool,
 } from "./agent-harness.ts";
+import { draftEmulation } from "./harness.ts";
+
+it.live("renders clickable demo location options in the browser page", () =>
+  Effect.gen(function* demoLocationMenus() {
+    const browser = yield* CreateBrowser;
+    const demo = yield* DemoSite;
+    const viewport = { deviceScaleFactor: 1, height: 800, width: 1280 };
+    const sessionId = yield* browser.create("create-demo-select", viewport);
+    yield* browser.open(
+      sessionId,
+      demo.origin,
+      draftEmulation("default", viewport)
+    );
+    const { page } = yield* browser.activeTarget(sessionId);
+    yield* Effect.promise(async () => {
+      await page.getByRole("combobox", { exact: true, name: "City" }).click();
+      const city = page.getByRole("option", { exact: true, name: "Golden" });
+      // Native OS popups have no option bounds in the captured document.
+      expect(await city.boundingBox()).not.toBeNull();
+      await city.click();
+      await page.getByRole("combobox", { exact: true, name: "Area" }).click();
+      const area = page.getByRole("option", {
+        exact: true,
+        name: "Pleasant View",
+      });
+      expect(await area.boundingBox()).not.toBeNull();
+      await area.click();
+      await page
+        .getByRole("button", { exact: true, name: "Save location" })
+        .click();
+      expect(
+        await page
+          .getByRole("region", { name: "Delivery location" })
+          .getByRole("status")
+          .textContent()
+      ).toBe("Delivering to: Pleasant View, Golden");
+      await page.reload();
+      expect(
+        await page
+          .getByRole("combobox", { exact: true, name: "City" })
+          .inputValue()
+      ).toBe("Golden");
+      expect(
+        await page
+          .getByRole("combobox", { exact: true, name: "Area" })
+          .inputValue()
+      ).toBe("Pleasant View");
+    });
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(
+      Layer.mergeAll(CreateBrowserLive, makeDemoSiteLayer()).pipe(
+        Layer.provide(NodeServices.layer)
+      )
+    )
+  )
+);
 
 const operation = OperationId.make;
 const exampleTool = makeCall(OnboardingTools);
