@@ -31,6 +31,15 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import type { DockModel } from "./fixtures";
@@ -65,8 +74,13 @@ export const ProvenanceBadge = ({ model }: { readonly model: DockModel }) =>
     <Badge variant="outline">{model.provenance}</Badge>
   );
 
-/** The same native select and classes as `DockSessionSelect`. */
-export const SessionSelect = ({
+const orderedSessions = (model: DockModel) => [
+  model.sessionLabel,
+  ...model.sessions.filter((session) => session !== model.sessionLabel),
+];
+
+/** The shipped `DockSessionSelect`: a native select, kept for the baseline. */
+export const NativeSessionSelect = ({
   className,
   model,
 }: {
@@ -81,15 +95,71 @@ export const SessionSelect = ({
     )}
     defaultValue={model.sessionLabel}
   >
-    {[
-      model.sessionLabel,
-      ...model.sessions.filter((session) => session !== model.sessionLabel),
-    ].map((session) => (
+    {orderedSessions(model).map((session) => (
       <option key={session} value={session}>
         {session}
       </option>
     ))}
   </select>
+);
+
+/**
+ * A session label reads `Flow Skill · Activity`, or the bare Flow Skill name
+ * while teaching. The name is what a person picks by; the activity is a quiet
+ * second column so two sessions of one Flow Skill still tell apart.
+ */
+const SessionName = ({ label }: { readonly label: string }) => {
+  const [name, activity] = label.split(" · ");
+  return (
+    <span className="flex w-full min-w-0 items-center justify-between gap-3">
+      <span className="truncate">{name}</span>
+      <span className="text-muted-foreground shrink-0 text-xs">
+        {activity ?? "Teaching"}
+      </span>
+    </span>
+  );
+};
+
+/** The session picker on the shadcn `Select`, as the device bar uses it. */
+export const SessionSelect = ({
+  className,
+  model,
+}: {
+  readonly className?: string;
+  readonly model: DockModel;
+}) => (
+  <Select defaultValue={model.sessionLabel}>
+    <SelectTrigger
+      aria-label="Agent Session"
+      className={cn("max-w-[14rem] min-w-0", className)}
+      size="default"
+    >
+      <SelectValue>
+        {(value: string | null) => (
+          <span className="truncate">{(value ?? "").split(" · ")[0]}</span>
+        )}
+      </SelectValue>
+    </SelectTrigger>
+    <SelectContent
+      align="start"
+      alignItemWithTrigger={false}
+      className="w-96 max-w-[calc(100vw-2rem)]"
+      side="top"
+    >
+      <SelectGroup>
+        <SelectLabel>Agent Sessions</SelectLabel>
+        {orderedSessions(model).map((session) => (
+          <SelectItem
+            className="*:first:min-w-0 *:first:shrink"
+            key={session}
+            value={session}
+          >
+            <SessionName label={session} />
+          </SelectItem>
+        ))}
+      </SelectGroup>
+    </SelectContent>
+  </Select>
 );
 
 export const Elapsed = ({ model }: { readonly model: DockModel }) =>

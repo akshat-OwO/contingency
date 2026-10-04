@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 import type { DockModel } from "./fixtures";
+import { LegacyNotices } from "./legacy-notices";
 import {
   CommentButton,
   ControlError,
@@ -36,12 +37,14 @@ import {
   PrimaryAction,
   ProvenanceBadge,
   Secondaries,
+  NativeSessionSelect,
   SessionSelect,
   StateBadge,
   StepDetails,
   TaskDetails,
   TaskDetailsBody,
 } from "./parts";
+import { DockRequests } from "./requests";
 
 export interface DockVariant {
   readonly blurb: string;
@@ -105,12 +108,12 @@ const FloatingDock = ({
 /* Current: the shipped RunDock and TeachingRecordingDock, for comparison.     */
 /* -------------------------------------------------------------------------- */
 
-const CurrentDock = ({ model }: { readonly model: DockModel }) => {
+const CurrentDockShell = ({ model }: { readonly model: DockModel }) => {
   if (model.activity === "teaching") {
     return (
       <DockShell fit>
         <Wordmark />
-        <SessionSelect model={model} />
+        <NativeSessionSelect model={model} />
         <StateBadge model={model} />
         <Elapsed model={model} />
         <CommentButton model={model} />
@@ -142,7 +145,7 @@ const CurrentDock = ({ model }: { readonly model: DockModel }) => {
   return (
     <DockShell>
       <Wordmark />
-      <SessionSelect model={model} />
+      <NativeSessionSelect model={model} />
       <StateBadge model={model} />
       <ProvenanceBadge model={model} />
       <DockStatus>
@@ -159,6 +162,14 @@ const CurrentDock = ({ model }: { readonly model: DockModel }) => {
   );
 };
 
+/** Today's dock, with today's request cards floating at the top. */
+const CurrentDock = ({ model }: { readonly model: DockModel }) => (
+  <>
+    <LegacyNotices model={model} />
+    <CurrentDockShell model={model} />
+  </>
+);
+
 /* -------------------------------------------------------------------------- */
 /* A. Two-tier card: a status line above one toolbar row that never wraps.     */
 /* -------------------------------------------------------------------------- */
@@ -173,6 +184,7 @@ const StackedDock = ({ model }: { readonly model: DockModel }) => {
         aria-label="Workspace dock"
         className="bg-background pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl border shadow-lg"
       >
+        <DockRequests model={model} />
         <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
           {/*
             The sentence keeps a floor on its width, like \`DockStatus\`: when

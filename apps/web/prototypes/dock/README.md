@@ -35,10 +35,22 @@ All four size themselves with container queries on the stage instead of viewport
 | C · Agent bubble | Bubble above a controls-only dock | Two-line bubble with **More** and minimise | Select folds into **More** below 28 rem |
 | D · Edge bar | Bar fixed to the stage's bottom edge | Truncated; expands as a drawer above the bar | Splits into a status row and a controls row |
 
+## Revision 2: the two-tier card with requests
+
+The two-tier card (A) was picked. Revision 2 changes it in three ways:
+
+- The session picker is the shadcn `Select`, as the device bar uses it, instead of a native select. The baseline keeps the native one.
+- A paused Execution Boundary becomes the dock's first tier: a title naming what is confirmed, the requested action, and a one-line pointer to the agent conversation with a copyable decision id. The action attempt, its JSON, and the policy sentence sit behind **Details**. A description identical to the request is not repeated.
+- Input requests join the same tier. Inputs supplied in the Workspace get one row each (name, purpose, password field with reveal and **Supply**, quiet **Refuse**); inputs answered in the agent conversation show the variable, its scope, and the decision id.
+
+The baseline renders today's request cards through the real `DockNotices`, so the before and after compare in the same Workspace.
+
 ## Files
 
 - `fixtures.ts` holds the five dock states, with strings shaped like `runDockPresentation` and `teachingRecordingPresentation` output.
 - `parts.tsx` holds the shared dock pieces, built from `ui/` with the shipped docks' classes.
 - `variants.tsx` holds the current dock and the four prototypes.
+- `requests.tsx` holds the request tier: the Execution Boundary and input requests.
+- `legacy-notices.tsx` copies today's request cards for the baseline.
 - `frame.tsx` is a stand-in Workspace: the toolbar, the dotted stage, a devtools panel at its real default sizes, the inspector rail, and the real `WorkspaceWithRunSummary`.
 - `capture.mjs` takes the screenshots.

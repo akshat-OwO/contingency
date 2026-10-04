@@ -146,6 +146,40 @@ for (const variant of variants) {
   }
 }
 
+// Two-tier card interactions: the boundary's details and the session picker.
+const extras = [
+  {
+    name: "boundary-details",
+    opener: 'button:has-text("Details")',
+    scenario: "boundary",
+  },
+  {
+    name: "session-select",
+    opener: '[aria-label="Agent Session"]',
+    scenario: "dry-run",
+  },
+];
+for (const { name, opener, scenario } of extras) {
+  for (const theme of themes) {
+    const query = new URLSearchParams({
+      capture: "1",
+      layout: "devtools-right",
+      scenario,
+      theme,
+      variant: "stacked",
+    });
+    await detailPage.goto(`${BASE}?${query}`);
+    await detailPage.waitForSelector('[aria-label="Workspace dock"]');
+    await detailPage.locator(opener).first().click();
+    await detailPage.waitForTimeout(300);
+    await detailPage.screenshot({
+      path: `${OUT}/open--stacked-${name}--${theme}.jpg`,
+      quality: 80,
+      type: "jpeg",
+    });
+  }
+}
+
 await browser.close();
 if (failures.length > 0) {
   console.error(failures.join("\n"));
