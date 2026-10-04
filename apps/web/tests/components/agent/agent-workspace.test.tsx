@@ -191,6 +191,7 @@ const session = {
   id: "agent-one",
   interruptedAction: null,
   ownerProcessId: "mcp-test",
+  pendingDecisions: [],
   phase: "running",
   run: null,
   takeover: null,
