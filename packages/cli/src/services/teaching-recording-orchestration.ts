@@ -111,7 +111,12 @@ const refreshSession = (manifest: TeachingRecordingManifest) =>
   Effect.serviceOption(AgentSession).pipe(
     Effect.flatMap((sessions) =>
       Option.isSome(sessions)
-        ? sessions.value.get(manifest.sessionId).pipe(Effect.ignore)
+        ? sessions.value
+            .observeSessionManifest(manifest)
+            .pipe(
+              Effect.andThen(sessions.value.get(manifest.sessionId)),
+              Effect.ignore
+            )
         : Effect.void
     )
   );
@@ -143,7 +148,8 @@ export const decideFlowSkill = (input: FlowSkillDecisionInput) =>
       return rejected;
     }
     if (input.decision === "verify") {
-      yield* store.verify(mutation);
+      const verified = yield* store.verify(mutation);
+      yield* refreshSession(verified);
     }
     const cleaned = yield* store.cleanup(mutation);
     yield* refreshSession(cleaned);
@@ -165,6 +171,7 @@ export const stopDryRun = (input: TeachingRecordingMutation) =>
       ...input,
       observableOutcome: "The user stopped the Dry Run before it completed.",
     });
+    yield* refreshSession(manifest);
     const { lifecycle } = manifest;
     if (lifecycle._tag === "dry-run-failed") {
       // Only the process that started the Dry Run owns its session. Closing

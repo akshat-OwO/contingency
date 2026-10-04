@@ -154,7 +154,7 @@ it.live(
           expect(signedIn.currentUrl).toMatch(
             /^http:\/\/ridgeline\.localhost:\d+\/signin\.html$/u
           );
-          const requested = yield* runTool("agent_run_variable_request", {
+          const requested = yield* sessionTool("agent_variable_request", {
             flowSkillName: FlowSkillName.make("example-signed-in-return"),
             name: "DEMO_PASSWORD",
             operationId: operation("example-password"),

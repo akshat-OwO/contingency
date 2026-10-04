@@ -2,28 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import {
-  openTeachingTimespan,
-  AgentProcessId,
-  AgentElementRef,
-  AgentPendingDecisionId,
-  AgentSessionId,
-  describeActionSubject,
-  describeAgentAction,
-  makeBrowserRpcError,
-  UserAgentProfileId,
-  TeachingCaptureState,
-  TeachingRecordingCleanupState,
-  TeachingRecordingId,
-  describeFlowSkillName,
-  FlowSkillName,
-  isLiveAgentSessionPhase,
-  flowSkillNameRule,
-  ContentHash,
-  OperationId,
-  viewportForIdentity,
-} from "@contingency/protocol";
 import type {
+  SessionEvent,
   TeachingScan,
   AgentSetupVariable,
   AgentSetupVariableRequest,
@@ -87,6 +67,27 @@ import type {
   TeachingRecordingManifest,
   TeachingStopReason,
   AgentRunSummary,
+} from "@contingency/protocol";
+import {
+  openTeachingTimespan,
+  AgentProcessId,
+  AgentElementRef,
+  AgentPendingDecisionId,
+  AgentSessionId,
+  describeActionSubject,
+  describeAgentAction,
+  makeBrowserRpcError,
+  UserAgentProfileId,
+  TeachingCaptureState,
+  TeachingRecordingCleanupState,
+  TeachingRecordingId,
+  describeFlowSkillName,
+  FlowSkillName,
+  isLiveAgentSessionPhase,
+  flowSkillNameRule,
+  ContentHash,
+  OperationId,
+  viewportForIdentity,
 } from "@contingency/protocol";
 import {
   Cause,
@@ -155,6 +156,7 @@ import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import { beginScanCollection } from "./scan-engine.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import { makeSessionEvents, SessionEventOrigin } from "./session-events.ts";
 import type { AgentOperationKind } from "./session-operation-ledger.ts";
 import { makeSessionOperationLedger } from "./session-operation-ledger.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
@@ -279,6 +281,21 @@ export interface AgentEmulationPatch {
 }
 
 export interface AgentSessionService {
+  readonly sessionEvents: ReturnType<typeof makeSessionEvents>["read"];
+  readonly observeSessionManifest: (
+    manifest: TeachingRecordingManifest
+  ) => Effect.Effect<void>;
+  readonly waitForEvents: (
+    sessionId: AgentSessionId,
+    afterCursor: string,
+    waitMs?: number
+  ) => Effect.Effect<
+    AgentSessionSnapshot & {
+      readonly events: readonly SessionEvent[];
+      readonly eventsTruncated: boolean;
+    },
+    AgentSessionError
+  >;
   readonly scan: (
     sessionId: AgentSessionId,
     flowSkillName: string,
@@ -1397,6 +1414,7 @@ const recordingCapture = (
     : undefined;
 
 interface AgentSessionPatch {
+  readonly dryRun?: AgentSessionSnapshot["dryRun"];
   readonly boundary?: AgentSessionSnapshot["boundary"];
   readonly currentUrl?: string;
   readonly decisionHistory?: AgentSessionSnapshot["decisionHistory"];
@@ -1567,6 +1585,7 @@ const makeAgentSession = (
       new Map()
     );
     const ledger = makeSessionOperationLedger();
+    const sessionEvents = makeSessionEvents();
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
     const runScans = makeRunScans(fileSystem, now);
@@ -1806,7 +1825,9 @@ const makeAgentSession = (
       );
 
     const publish = (snapshot: AgentSessionSnapshot): Effect.Effect<void> =>
-      Effect.sync(() => {
+      Effect.gen(function* publishSessionChange() {
+        const origin = yield* SessionEventOrigin;
+        sessionEvents.observe(snapshot, origin);
         // Every control change is published, so this is where a Run's video
         // learns when a person held the browser.
         Ref.getUnsafe(sessions)
@@ -1904,7 +1925,21 @@ const makeAgentSession = (
         record.snapshot.activity !== "teaching" ||
         teachingRecordingStore === undefined
       ) {
-        return browserRefresh;
+        if (
+          record.snapshot.recordingId === null ||
+          teachingRecordingStore === undefined
+        ) {
+          return browserRefresh;
+        }
+        return teachingRecordingStore.read(record.snapshot.recordingId).pipe(
+          Effect.tap((manifest) =>
+            Effect.sync(() =>
+              sessionEvents.observeManifest(sessionId, manifest)
+            )
+          ),
+          Effect.ignore,
+          Effect.andThen(browserRefresh)
+        );
       }
       return browserRefresh.pipe(
         Effect.flatMap((snapshot) =>
@@ -1915,6 +1950,7 @@ const makeAgentSession = (
                 Effect.flatMap((readResult) => {
                   if (Result.isSuccess(readResult)) {
                     const manifest = readResult.success;
+                    sessionEvents.observeManifest(sessionId, manifest);
                     // `updatedAt` only moves forward: a manifest written
                     // before the snapshot's last change keeps its lifecycle
                     // but not its older timestamp.
@@ -1935,6 +1971,8 @@ const makeAgentSession = (
                   }
                   if (
                     fileSystem === undefined ||
+                    readResult.failure.code !==
+                      "teaching_recording_not_found" ||
                     snapshot.captureState._tag !== "dry-run-passed"
                   ) {
                     return Effect.succeed(snapshot);
@@ -1958,6 +1996,13 @@ const makeAgentSession = (
                       if (verifiedAt === undefined) {
                         return Effect.succeed(snapshot);
                       }
+                      sessionEvents.observeVerification(
+                        sessionId,
+                        verifiedAt,
+                        contents.includes("- Verification origin: agent")
+                          ? "agent"
+                          : "workspace"
+                      );
                       return mutate(sessionId, (current) =>
                         current.activity === "teaching" &&
                         current.captureState._tag === "dry-run-passed"
@@ -3023,6 +3068,7 @@ const makeAgentSession = (
             ...snapshot,
             ...common,
             activity: "run" as const,
+            dryRun: safePatch.dryRun ?? snapshot.dryRun,
             recordingId: snapshot.recordingId,
             run: (() => {
               const patched = safePatch.run ?? snapshot.run;
@@ -5028,6 +5074,10 @@ const makeAgentSession = (
                   ...record.snapshot.decisionHistory,
                   resolution,
                 ],
+                dryRun:
+                  record.snapshot.dryRun === null
+                    ? null
+                    : markSupplied(record.snapshot.dryRun),
                 pendingDecisions: record.snapshot.pendingDecisions.filter(
                   (decision) =>
                     decision.pendingDecisionId !== input.pendingDecisionId
@@ -5952,28 +6002,14 @@ const makeAgentSession = (
         ledger.serializeMutation(
           Effect.gen(function* answerPrerequisiteVariable() {
             const record = yield* read(sessionId);
-            // A Dry Run takes its prerequisite Variables in Workspace. An
-            // Example Run does too, for its bundled skill's private inputs, so
-            // onboarding demonstrates private values that never enter the
-            // agent conversation (ADR 0050).
-            const { run } = record.snapshot;
-            const decision = record.snapshot.pendingDecisions.find(
-              (candidate) =>
-                candidate.pendingDecisionId === input.pendingDecisionId
-            );
-            const exampleVariable =
-              run !== null &&
-              "schemaVersion" in run &&
-              run.referencedSkills.some(
-                (skill) =>
-                  skill.origin === "example" &&
-                  skill.flowSkillName === decision?.variable?.flowSkillName
-              );
-            if (record.snapshot.dryRun === null && !exampleVariable) {
+            if (
+              record.snapshot.activity !== "run" ||
+              record.snapshot.run === null
+            ) {
               return yield* Effect.fail(
                 error(
                   "agent_session_invalid",
-                  "Only a Dry Run or an Example Run accepts a Variable in Workspace."
+                  "Only a Run accepts a scoped Variable in Workspace."
                 )
               );
             }
@@ -6302,6 +6338,24 @@ const makeAgentSession = (
                 },
               }
         ).pipe(Effect.asVoid),
+      observeSessionManifest: (manifest) =>
+        Effect.sync(() => {
+          for (const [id, record] of Ref.getUnsafe(sessions)) {
+            if (record.snapshot.recordingId === manifest.recordingId) {
+              sessionEvents.observeManifest(id, manifest);
+            }
+          }
+        }).pipe(
+          Effect.andThen(
+            Effect.forEach(
+              [...Ref.getUnsafe(sessions).values()].filter(
+                (record) => record.snapshot.recordingId === manifest.recordingId
+              ),
+              (record) => publish(record.snapshot)
+            )
+          ),
+          Effect.asVoid
+        ),
       pendingDecision: (pendingDecisionId) =>
         Effect.gen(function* findSessionDecision() {
           for (const record of Ref.getUnsafe(sessions).values()) {
@@ -6397,17 +6451,6 @@ const makeAgentSession = (
                   )
                 );
               }
-              if (
-                run.purpose.kind === "dry-run" &&
-                flowSkillName === run.purpose.flowSkillName
-              ) {
-                return yield* Effect.fail(
-                  error(
-                    "agent_session_invalid",
-                    "Supply Dry Run secrets in the Workspace before agent_variable_enter."
-                  )
-                );
-              }
               const declared = requireDeclaredVariable(
                 record,
                 name,
@@ -6433,6 +6476,9 @@ const makeAgentSession = (
               }
               if (replace) {
                 record.supplied.delete(variableKey(name, flowSkillName));
+                if (record.snapshot.dryRun?.flowSkillName === flowSkillName) {
+                  record.supplied.delete(name);
+                }
               }
               const at = now().toISOString();
               const decision: AgentPendingDecision = {
@@ -6452,6 +6498,18 @@ const makeAgentSession = (
               };
               const next = {
                 ...record.snapshot,
+                dryRun:
+                  record.snapshot.dryRun?.flowSkillName === flowSkillName
+                    ? {
+                        ...record.snapshot.dryRun,
+                        variables: record.snapshot.dryRun.variables.map(
+                          (item) =>
+                            item.name === name
+                              ? { ...item, supplied: false }
+                              : item
+                        ),
+                      }
+                    : record.snapshot.dryRun,
                 pendingDecisions: [
                   ...record.snapshot.pendingDecisions,
                   decision,
@@ -6909,6 +6967,7 @@ const makeAgentSession = (
             })
           );
         }),
+      sessionEvents: sessionEvents.read,
       setEmulation: (sessionId, patch) =>
         Effect.gen(function* configureSessionEmulation() {
           const record = yield* requireUserHeldRecord(sessionId);
@@ -7258,6 +7317,49 @@ const makeAgentSession = (
             },
             { currentUrl: url }
           );
+        }),
+      waitForEvents: (sessionId, afterCursor, waitMs = 45_000) =>
+        Effect.gen(function* waitForSessionEvents() {
+          yield* read(sessionId);
+          yield* sessionEvents.read(sessionId, afterCursor);
+          yield* Stream.unwrap(
+            Effect.gen(function* subscribeBeforeReading() {
+              const subscription = yield* PubSub.subscribe(events);
+              const record = yield* read(sessionId);
+              const refresh = refreshedSnapshot(sessionId, record);
+              return Stream.merge(
+                Stream.concat(
+                  Stream.fromEffect(refresh),
+                  Stream.fromEffect(PubSub.take(subscription)).pipe(
+                    Stream.repeat(Schedule.forever),
+                    Stream.filter((snapshot) => snapshot.id === sessionId)
+                  )
+                ),
+                Stream.fromEffect(refresh).pipe(
+                  Stream.repeat(Schedule.spaced("500 millis"))
+                )
+              ).pipe(
+                Stream.mapEffect((snapshot) =>
+                  sessionEvents
+                    .read(sessionId, afterCursor)
+                    .pipe(Effect.map((state) => ({ snapshot, state })))
+                ),
+                Stream.filter(
+                  ({ state }) =>
+                    state.events.length > 0 || state.eventsTruncated
+                )
+              );
+            })
+          ).pipe(
+            Stream.runHead,
+            Effect.timeoutOption(Math.min(waitMs, 50_000)),
+            Effect.scoped
+          );
+          const snapshot = yield* read(sessionId).pipe(
+            Effect.flatMap((record) => refreshedSnapshot(sessionId, record))
+          );
+          const state = yield* sessionEvents.read(sessionId, afterCursor);
+          return { ...snapshot, ...state };
         }),
       workspaceUrl: Effect.gen(function* workspaceUrl() {
         if (!isAllowedAgentSessionBaseUrl(options.baseUrl)) {

@@ -820,7 +820,7 @@ const main = Effect.gen(function* main() {
     true
   );
   for (const [index, flowSkillName] of ["flow1", "flow2"].entries()) {
-    state = yield* call("agent_run_variable_request", {
+    state = yield* call("agent_variable_request", {
       flowSkillName,
       name: "PASSWORD",
       operationId: operation(),
@@ -834,7 +834,7 @@ const main = Effect.gen(function* main() {
         pendingDecisionId: state.pendingDecisions[0].pendingDecisionId,
       });
       yield* capture("flow1-refused");
-      state = yield* call("agent_run_variable_request", {
+      state = yield* call("agent_variable_request", {
         flowSkillName,
         name: "PASSWORD",
         operationId: operation(),

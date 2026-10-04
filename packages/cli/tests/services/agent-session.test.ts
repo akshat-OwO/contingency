@@ -39,6 +39,10 @@ import type { AgentSessionStartInput } from "../../src/services/agent-session.ts
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
 import * as RunScans from "../../src/services/run-scans.ts";
+import {
+  fromAgent,
+  makeSessionEvents,
+} from "../../src/services/session-events.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 import {
   makeTeachingRecordingStoreLayer,
@@ -596,12 +600,19 @@ it.effect("refuses to return control that was never taken", () =>
       "The catalogue needs a signed-in account.",
       OperationId.make("request-return-guard")
     );
+    const beforeReturn = yield* service.sessionEvents(started.id);
     const resumed = yield* service.returnControl(
       started.id,
       OperationId.make("return-guard-resume")
     );
     expect(resumed.controller).toBe("agent");
     expect(resumed.phase).toBe("running");
+    expect(
+      (yield* service.sessionEvents(
+        started.id,
+        beforeReturn.eventCursor
+      )).events.map((event) => event.kind)
+    ).toEqual(["takeover-returned"]);
   })
 );
 
@@ -1309,4 +1320,91 @@ it.live(
       expect(fake.activePageCalls()).toBe(0);
       yield* service.closeAll();
     })
+);
+
+it.live(
+  "wakes session waits, replays cursors, and suppresses agent-originated closure",
+  () =>
+    Effect.gen(function* sessionEventWait() {
+      const service = yield* serviceFor(makeFakeBrowser());
+      const started = yield* service.start(startInput("event-wait"));
+      const initial = yield* service.sessionEvents(started.id);
+      const wait = yield* service
+        .waitForEvents(started.id, initial.eventCursor, 2000)
+        .pipe(Effect.forkChild);
+      yield* service.takeover(
+        started.id,
+        "Inspect",
+        OperationId.make("event-takeover")
+      );
+      const first = yield* Fiber.join(wait);
+      expect(Schema.is(Schema.Json)(first.events)).toBe(true);
+      expect(first.events.map((event) => event.kind)).toEqual([
+        "takeover-started",
+      ]);
+      expect(
+        (yield* service.waitForEvents(started.id, initial.eventCursor, 0))
+          .events
+      ).toEqual(first.events);
+      yield* service.returnControl(
+        started.id,
+        OperationId.make("event-return")
+      );
+      const returned = yield* service.waitForEvents(
+        started.id,
+        first.eventCursor ?? "missing",
+        0
+      );
+      expect(returned.events.map((event) => event.kind)).toEqual([
+        "takeover-returned",
+      ]);
+      const timed = yield* service.waitForEvents(
+        started.id,
+        returned.eventCursor ?? "missing",
+        25
+      );
+      expect(timed.events).toEqual([]);
+      expect(timed.eventCursor).toBe(returned.eventCursor);
+      yield* service
+        .close(started.id, OperationId.make("event-agent-close"))
+        .pipe(fromAgent);
+      expect(
+        (yield* service.sessionEvents(started.id, timed.eventCursor)).events
+      ).toEqual([]);
+      expect(
+        (yield* Effect.flip(
+          service.waitForEvents(started.id, "other-process:0", 0)
+        )).code
+      ).toBe("agent_session_conflict");
+    }).pipe(Effect.scoped)
+);
+
+it.effect("bounds the event log and rejects cursors from another session", () =>
+  Effect.gen(function* boundedSessionEvents() {
+    const service = yield* serviceFor(makeFakeBrowser());
+    const started = yield* service.start(startInput("event-bound"));
+    const log = makeSessionEvents();
+    log.observe(started, "agent");
+    const first = yield* log.read(started.id);
+    for (let index = 0; index < 300; index += 1) {
+      log.observe(
+        {
+          ...started,
+          controller: index % 2 === 0 ? "user" : "agent",
+          updatedAt: String(index),
+        },
+        "workspace"
+      );
+    }
+    const truncated = yield* log.read(started.id, first.eventCursor);
+    expect(truncated.eventsTruncated).toBe(true);
+    expect(truncated.events).toEqual([]);
+    expect((yield* log.read(started.id, truncated.eventCursor)).events).toEqual(
+      []
+    );
+    const other = yield* service.start(startInput("event-other"));
+    expect(
+      (yield* Effect.flip(log.read(other.id, first.eventCursor))).code
+    ).toBe("agent_session_conflict");
+  }).pipe(Effect.scoped)
 );

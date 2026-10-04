@@ -19,7 +19,7 @@ emulation:
 
 This is a bundled Example Flow Skill for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [references/accessibility.md](references/accessibility.md).
 
-DEMO_PASSWORD is private. Request it with agent_run_variable_request, ask the user to supply it in Workspace, then type it with agent_variable_enter. Never ask for its value in the conversation.
+DEMO_PASSWORD is private. Request it with agent_variable_request, ask the user to supply it in Workspace, then type it with agent_variable_enter. Never ask for its value in the conversation.
 
 1. Open the store's Sign in page, where the Run starts.
 
