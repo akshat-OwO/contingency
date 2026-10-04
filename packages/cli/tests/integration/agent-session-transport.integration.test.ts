@@ -445,9 +445,28 @@ it.live("keeps a direct HTTP server running after stdin closes", () =>
     );
     yield* Effect.sleep("100 millis");
     const response = yield* Effect.promise(() =>
-      fetch(`http://127.0.0.1:${port}/`)
+      fetch(`http://127.0.0.1:${port}/mcp`, {
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "initialize",
+          params: {
+            capabilities: {},
+            clientInfo: { name: "headless-http-test", version: "1" },
+            protocolVersion: "2025-11-25",
+          },
+        }),
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
     );
     expect(response.status).toBe(200);
+    const initialized = yield* Effect.promise(() => response.text());
+    expect(initialized).toContain('"protocolVersion":"2025-11-25"');
+    expect(initialized).toContain('"name":"Contingency"');
     expect(mcp.child.exitCode).toBeNull();
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
