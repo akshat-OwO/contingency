@@ -10,9 +10,11 @@ The agreed direction is a richer session-scoped browser API behind a small numbe
 
 During Teaching recording, the agent observes while the user controls the browser. New observation capabilities do not authorize agent clicks, navigation, or storage mutations during recording. A requirement that the application creates a cookie checks application behavior; an agent-created cookie cannot fulfill that requirement.
 
-Authoring extends the Teaching comment composer. Users select an observed network call or a storage key and describe the intended behavior, or provide the instruction in free text. The Attach prototype is the preferred direction for further refinement.
+Authoring extends the Teaching comment composer. Users select an observed network call or a storage key and describe the intended behavior, or provide the instruction in free text. The selected authoring direction is **A · Drag from DevTools** in `apps/web/src/prototypes/composer-attachments/`. It supersedes **1 · Attach** in the earlier `teaching-conditions` gallery. The composer stays non-modal so DevTools remains usable while a comment is drafted.
 
-Plain comments remain the default. Attaching evidence adds context and does not automatically create a requirement. The user explicitly chooses **Add check** to make an attachment a durable check. Typing a comment alone does not expose action-timing controls.
+Plain comments remain the default. Dragging a request or cookie row from DevTools onto the composer adds a context chip. Each row also has a paperclip action. Dropping a response field, or choosing its **Require this value** action, explicitly starts a check for that field. Opening a chip lets the user choose **Context for the agent** or **Must happen** and edit the expectation. Typing a comment alone does not expose action-timing controls.
+
+The composer toolbar keeps element attachment, performance scans, and accessibility scans together. Scan Requirements retain the behavior in [ADR 0048](./0048-teaching-captures-required-scans-for-later-runs.md). The prototype includes mocked scan chips; selecting this authoring direction does not redefine scan execution.
 
 Users can name a cookie that has not appeared in the recording and teach an expectation about that name. Naming a cookie does not mutate browser storage. The application remains responsible for creating it.
 
@@ -47,7 +49,7 @@ The agent associates saved check IDs with a triggering browser action. Contingen
 - Define and validate the persisted Browser Check contracts, including typed predicates, nested paths, request identity, and same-item array matching.
 - Extend bounded observations with explicit field and payload budgets and sensitive-value withholding. The selected-data policy does not authorize unrestricted payload export.
 - Extend action dispatch and observation with check IDs, watch lifetimes, result evidence, timeouts, and retry-safe operation handling.
-- Refine the Attach composer and learned skill review for typed expectations, multiple predicates, order-independent arrays, request patterns, and timeouts.
+- Refine the Drag from DevTools composer and learned skill review for typed expectations, multiple predicates, order-independent arrays, request patterns, and timeouts.
 - Preserve Browser Check requirements during learning and enforce their results during assessments, Run completion, and Dry Run verification.
 - Show evidence-backed check results in Run Summaries and prove the connected behavior through the live verification workflow.
 
