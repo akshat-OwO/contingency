@@ -2,8 +2,22 @@ import type {
   AgentSessionId,
   AgentSessionSnapshot,
 } from "@contingency/protocol";
+import { useAtom } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,72 +34,150 @@ export const Wordmark = () => (
 );
 
 /**
+ * A session label reads `Flow Skill · Activity`, or the bare Flow Skill name
+ * while teaching. The name is what a person picks by, so it leads; the
+ * activity is a quiet second column that still tells two sessions of one Flow
+ * Skill apart. The option's accessible name is the whole label.
+ */
+const SessionOption = ({ label }: { readonly label: string }) => {
+  const separator = label.lastIndexOf(" · ");
+  if (separator === -1) {
+    return <span className="truncate">{label}</span>;
+  }
+  return (
+    <span className="flex w-full min-w-0 items-center justify-between gap-3">
+      <span className="truncate">{label.slice(0, separator)}</span>
+      <span className="text-muted-foreground shrink-0 text-xs">
+        {label.slice(separator + 3)}
+      </span>
+    </span>
+  );
+};
+
+/**
  * The session picker inside the dock. Every option is the Flow Skill name and
  * what the session is doing with it; a raw session id is never a label a
- * person can act on (#191).
+ * person can act on (#191). It is the same `Select` the device bar uses, and
+ * it opens upward because the dock sits at the bottom of the stage.
  */
 export const DockSessionSelect = ({
+  className,
   onSelect,
   selectedSessionId,
   sessions,
 }: {
+  readonly className?: string;
   readonly onSelect: (sessionId: string) => void;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
-}) => (
-  <select
-    aria-label="Agent Session"
-    className="bg-background focus-visible:ring-ring h-8 max-w-[12rem] min-w-0 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
-    onChange={(event) => onSelect(event.target.value)}
-    value={selectedSessionId ?? ""}
-  >
-    {sessions.map((session) => (
-      <option key={session.id} value={session.id}>
-        {agentSessionLabel(session)}
-      </option>
-    ))}
-  </select>
-);
+}) => {
+  const labels = new Map<string, string>(
+    sessions.map((session) => [session.id, agentSessionLabel(session)])
+  );
+  return (
+    <Select
+      onValueChange={(value) => {
+        if (value !== null) {
+          onSelect(value);
+        }
+      }}
+      value={selectedSessionId ?? null}
+    >
+      <SelectTrigger
+        aria-label="Agent Session"
+        className={cn("max-w-56 min-w-0", className)}
+      >
+        <SelectValue placeholder="Agent Session">
+          {(value: string | null) => {
+            const label = value === null ? undefined : labels.get(value);
+            return label === undefined ? null : (
+              <span className="truncate">
+                {label.split(" · ").at(0) ?? label}
+              </span>
+            );
+          }}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        className="w-96 max-w-[calc(100vw-2rem)]"
+        side="top"
+      >
+        <SelectGroup>
+          <SelectLabel>Agent Sessions</SelectLabel>
+          {sessions.map((session) => (
+            <SelectItem
+              aria-label={labels.get(session.id)}
+              className="*:first:min-w-0 *:first:shrink"
+              key={session.id}
+              label={labels.get(session.id)}
+              value={session.id}
+            >
+              <SessionOption label={labels.get(session.id) ?? session.id} />
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+};
 
 /**
- * The dock shell: one floating card over a full-bleed browser, with no header
- * band and no footer. Every Workspace state that owns the whole viewport
- * renders through this, so `no session`, a live Teaching session, and a live
- * Run share one layout instead of three (#185 prototype, #209).
+ * The dock shell: one floating card over a full-bleed browser, in up to three
+ * tiers. What the agent is waiting on comes first, then where the session is,
+ * then the controls. The controls are one row that never wraps; anything long
+ * lives in the tiers above it, which clamp and expand on their own.
  *
- * It wraps rather than scrolls, so a narrow viewport stacks the sentence under
- * the controls and the primary action stays on screen at 390px.
+ * The dock sits inside the browser stage, which the devtools inspector and the
+ * Dry Run Summary narrow independently of the window. So it sizes itself with
+ * container queries on the stage rather than viewport breakpoints: at 1440px
+ * with devtools docked right the stage is about 800px, and with the summary
+ * open too it is about 360px.
  */
 export const DockShell = ({
   children,
-  fit = false,
+  footer,
+  requests,
+  status,
 }: {
+  /** The controls row: wordmark, session picker, and the actions. */
   readonly children: React.ReactNode;
-  /**
-   * Size the card to its controls instead of the full dock width. A dock with
-   * no inline sentence has nothing to fill the width with, so a full-width
-   * card leaves a band of empty space beside its controls (#297).
-   */
-  readonly fit?: boolean;
+  /** A refusal under the controls, on its own line. */
+  readonly footer?: React.ReactNode;
+  /** What the agent is waiting on, or nothing. */
+  readonly requests?: React.ReactNode;
+  readonly status: React.ReactNode;
 }) => (
-  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
+  <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
     <section
       aria-label="Workspace dock"
-      className={cn(
-        "bg-background pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2 shadow-lg",
-        fit ? "w-fit max-w-full" : "w-full max-w-5xl"
-      )}
+      className="bg-background pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl border shadow-lg"
     >
-      {children}
+      {requests}
+      {status}
+      <div className="flex min-w-0 items-center gap-1.5 border-t px-2 py-1.5">
+        {children}
+      </div>
+      {footer}
     </section>
   </div>
 );
 
+/** A spacer that pushes the actions to the end of the controls row. */
+export const DockSpacer = () => <div className="min-w-2 flex-1" />;
+
+/** The wordmark gives way first when the stage narrows. */
+export const DockWordmark = () => (
+  <span className="hidden pl-1 @2xl:inline">
+    <Wordmark />
+  </span>
+);
+
 /**
  * What the dock has to say above the browser rather than inside the card: a
- * refused gesture, a capture failure, a paused Execution Boundary. The dock is
- * one line of controls, and none of these fit in it without pushing the
- * primary action off a narrow screen.
+ * refused gesture, a capture failure, a stream failure. What the agent is
+ * waiting on is not here; it is the dock's own first tier.
  */
 export const DockNotices = ({
   children,
@@ -100,27 +192,90 @@ export const DockNotices = ({
 );
 
 /**
- * The dock's own status sentence. One polite region, changed only when the
- * state changes. Below `lg` it takes its own line, and below `sm` it is
- * hidden: the badge and the buttons already carry the state and the next step,
- * so it is never ellipsized.
+ * Whether a clamped line hides text. The expand control only shows when
+ * there is something to expand, and the observer follows the stage as the
+ * devtools or the summary change its width.
+ */
+const useClamped = <Element extends HTMLElement>() => {
+  const ref = useRef<Element>(null);
+  const [clamped, setClamped] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    const measure = () => {
+      setClamped(element.scrollHeight > element.clientHeight + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+  return [ref, clamped] as const;
+};
+
+/**
+ * The dock's status tier: the state badges and one line saying where the
+ * session is and what happens next. The line is clamped to one row and
+ * expands in place, with `details` (the Agent Step, the task) under it.
  *
- * The floor on its width is what keeps it prose. `flex-1` alone resolves
- * against whatever the controls left on the line, which in a wrapping dock is
- * routinely a few pixels — the sentence then sets one word per line and the
- * dock grows to several hundred pixels tall. With a minimum, a line that
- * cannot seat the sentence wraps it onto its own full-width line instead
- * (#238).
+ * The badges keep a floor under the sentence: when they leave it less than
+ * about 12rem, the sentence drops onto its own line rather than ellipsizing
+ * after two words (#238).
+ *
+ * One polite region, changed only when the state changes.
  */
 export const DockStatus = ({
+  badges,
   children,
+  details,
 }: {
+  readonly badges: React.ReactNode;
   readonly children: React.ReactNode;
-}) => (
-  <output
-    aria-live="polite"
-    className="text-muted-foreground order-last hidden w-full text-xs text-pretty sm:block lg:order-none lg:w-auto lg:min-w-64 lg:flex-1"
-  >
-    {children}
-  </output>
-);
+  readonly details?: React.ReactNode;
+}) => {
+  const [expandedAtom] = useState(() => Atom.make(false));
+  const [expanded, setExpanded] = useAtom(expandedAtom);
+  const [sentenceRef, clamped] = useClamped<HTMLOutputElement>();
+  const expandable = clamped || expanded || details !== undefined;
+  return (
+    <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1">
+        <div className="flex shrink-0 items-center gap-1.5 pt-px">{badges}</div>
+        <div className="min-w-48 flex-1">
+          <output
+            aria-live="polite"
+            className={cn(
+              "text-muted-foreground block text-xs leading-5 text-pretty wrap-anywhere",
+              expanded ? "max-h-40 overflow-y-auto" : "line-clamp-1"
+            )}
+            ref={sentenceRef}
+          >
+            {children}
+          </output>
+          {expanded && details !== undefined ? (
+            <div className="mt-2 max-h-56 space-y-3 overflow-y-auto border-t pt-2">
+              {details}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {expandable ? (
+        <Button
+          aria-expanded={expanded}
+          aria-label={expanded ? "Hide details" : "Show details"}
+          className="-mt-0.5 -mr-1"
+          onClick={() => setExpanded((current) => !current)}
+          size="icon-xs"
+          type="button"
+          variant="ghost"
+        >
+          {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
+        </Button>
+      ) : null}
+    </div>
+  );
+};

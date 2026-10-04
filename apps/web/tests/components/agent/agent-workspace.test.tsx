@@ -44,6 +44,7 @@ const rpc = vi.hoisted(() => ({
     _tag: "Initial",
     waiting: true,
   } satisfies unknown,
+  setupAnswerCalls: [] satisfies unknown[],
   startRecordingCalls: [] satisfies unknown[],
   startSessionCalls: [] satisfies unknown[],
   startedSession: {} satisfies unknown,
@@ -93,6 +94,12 @@ const rpcOverrides = {
     })
   ),
   agentSessionsAtom: Atom.make(() => rpc.sessionsResult),
+  agentSetupVariableAnswerMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.setupAnswerCalls.push(payload);
+      return {};
+    })
+  ),
   agentTakeoverMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.takeoverCalls.push(payload);
@@ -307,6 +314,28 @@ const renderWorkspace = (result: SessionsResult, requestedSessionId?: string) =>
     );
   })();
 
+/** The dock's session picker: a `Select` trigger, not a native select. */
+const sessionPicker = () =>
+  screen.getByRole("combobox", { name: "Agent Session" });
+
+/** Opens the session picker and returns its options, in session order. */
+const openSessionPicker = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(sessionPicker());
+  return screen.findAllByRole("option");
+};
+
+const chooseSessionAt = async (
+  user: ReturnType<typeof userEvent.setup>,
+  index: number
+) => {
+  const options = await openSessionPicker(user);
+  const option = options.at(index);
+  if (option === undefined) {
+    throw new Error(`The session picker has no option ${index}.`);
+  }
+  await user.click(option);
+};
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -378,7 +407,7 @@ test("opens an owned session and shows the live browser view", async () => {
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
-  ).toHaveValue(session.id);
+  ).toHaveTextContent("Test agent");
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(
     within(dock).getByRole("button", { name: "Take control" })
@@ -425,18 +454,25 @@ test("holds the Agent Step's detail behind the step counter", async () => {
 });
 
 test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", async () => {
+  const user = userEvent.setup();
   renderWorkspace(resultFor([dryRunSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Rehearsing the flow skill add-anvil.");
   expect(dock).toHaveTextContent("Changed inputs: product");
+  // The picker shows the Flow Skill; its option names the activity too.
+  expect(sessionPicker()).toHaveTextContent("add-anvil");
+  await openSessionPicker(user);
   expect(
-    within(dock).getByRole("option", { name: "add-anvil · Dry Run" })
+    screen.getByRole("option", { name: "add-anvil · Dry Run" })
   ).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Session status" })).toBeNull();
 });
 
 test("labels an Interactive Run without exposing a raw session id", async () => {
+  const user = userEvent.setup();
   renderWorkspace(resultFor([runningSession]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+  await openSessionPicker(user);
   const option = await screen.findByRole("option", {
     name: "browse-catalogue · Interactive Run",
   });
@@ -518,7 +554,7 @@ test("does not use a foreign URL session id, and still offers the dock", async (
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
-  ).toHaveValue(session.id);
+  ).toHaveTextContent("Test agent");
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
 });
@@ -544,10 +580,11 @@ test("shows the Agent Session stream failure reason", async () => {
 });
 
 test("marks a selected session as switching before its stream resumes", async () => {
+  const user = userEvent.setup();
   const secondSession = { ...session, id: "agent-two" };
   renderWorkspace(resultFor([session, secondSession]), session.id);
-  const select = await screen.findByRole("combobox", { name: "Agent Session" });
-  await userEvent.selectOptions(select, secondSession.id);
+  await screen.findByRole("combobox", { name: "Agent Session" });
+  await chooseSessionAt(user, 1);
   await waitFor(() => {
     expect(screen.getByText("Switching Agent Session…")).toBeVisible();
   });
@@ -572,16 +609,14 @@ test("keeps a selected Agent Session in the route query", async () => {
     </TestRegistry>
   );
 
-  const select = await screen.findByRole("combobox", {
-    name: "Agent Session",
-  });
-  await userEvent.selectOptions(select, secondSession.id);
+  const user = userEvent.setup();
+  await screen.findByRole("combobox", { name: "Agent Session" });
+  await chooseSessionAt(user, 1);
 
   await waitFor(() => {
     expect(testRouter.state.location.search).toEqual({
       session: secondSession.id,
     });
-    expect(select).toHaveValue(secondSession.id);
   });
 });
 
@@ -602,7 +637,7 @@ test("replaces a missing session id with the session shown in Workspace", async 
     name: "Agent Session",
   });
   await waitFor(() => {
-    expect(select).toHaveValue(session.id);
+    expect(select).toHaveTextContent("Test agent");
     expect(testRouter.state.location.search).toEqual({ session: session.id });
     expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
   });
@@ -638,10 +673,8 @@ test("names the drafted Flow Skill in the Teaching dock", async () => {
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Flow skill drafted");
   expect(
-    within(dock).getByRole("option", {
-      name: "browse-catalogue",
-    })
-  ).toBeVisible();
+    within(dock).getByRole("combobox", { name: "Agent Session" })
+  ).toHaveTextContent("browse-catalogue");
 });
 
 test("takes control from Workspace and returns it explicitly", async () => {
@@ -925,10 +958,10 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Contingency");
   expect(dock).toHaveTextContent("Recording");
-  // A Teaching option is the Flow Skill name; the state lives in the badge.
+  // A Teaching session is the Flow Skill name; the state lives in the badge.
   expect(
-    within(dock).getByRole("option", { name: "browse-catalogue" })
-  ).toBeVisible();
+    within(dock).getByRole("combobox", { name: "Agent Session" })
+  ).toHaveTextContent("browse-catalogue");
   expect(
     within(dock).getByRole("button", { name: "Stop recording" })
   ).toBeVisible();
@@ -1296,25 +1329,16 @@ const dryRunFailedSession = {
   },
 } satisfies unknown;
 
-test("keeps a failed Dry Run's explanation behind the details button", async () => {
-  const user = userEvent.setup();
+test("reads a failed Dry Run's explanation in the dock's status line", async () => {
   renderWorkspace(resultFor([dryRunFailedSession]), session.id);
   const explanation =
     "The Add to cart step never saw the anvil in the cart, so its Done when line did not hold.";
 
-  // The dock shows the state, not the explanation, so it stays one row (#297).
+  // The status line is clamped to one row and expands in place, so the
+  // explanation sits beside the state instead of behind a button (#297).
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(await within(dock).findByText("Dry run failed")).toBeVisible();
-  expect(within(dock).queryByText(explanation)).toBeNull();
-
-  // With no Dry Run Summary to read it from, the popover is where it lives.
-  await user.click(within(dock).getByRole("button", { name: "Show details" }));
-  expect(await screen.findByText(explanation)).toBeVisible();
-
-  await user.keyboard("{Escape}");
-  await waitFor(() => {
-    expect(screen.queryByText(explanation)).toBeNull();
-  });
+  expect(within(dock).getByRole("status")).toHaveTextContent(explanation);
 });
 
 test("shows a Dry Run's assessments and video beside verification", async () => {
@@ -1439,10 +1463,7 @@ test("keeps a Takeover's pending state and failure with the session it was asked
     expect(takeControl).toBeDisabled();
   });
 
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "Agent Session" }),
-    otherRunSession.id
-  );
+  await chooseSessionAt(user, 1);
   const otherControl = await screen.findByRole("button", {
     name: "Take control",
   });
@@ -1460,10 +1481,7 @@ test("keeps a Takeover's pending state and failure with the session it was asked
   ).toBeNull();
   expect(screen.getByRole("button", { name: "Take control" })).toBeEnabled();
 
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "Agent Session" }),
-    session.id
-  );
+  await chooseSessionAt(user, 0);
   expect(
     await screen.findByText("The agent session refused the Takeover.")
   ).toBeVisible();
@@ -1553,10 +1571,7 @@ test("applies a verification only to the Teaching session it was asked for", asy
   );
   await user.click(await screen.findByRole("button", { name: "Verify flow" }));
 
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "Agent Session" }),
-    otherDryRunPassed.id
-  );
+  await chooseSessionAt(user, 1);
   const otherVerify = await screen.findByRole("button", {
     name: "Verify flow",
   });
@@ -1570,7 +1585,66 @@ test("applies a verification only to the Teaching session it was asked for", asy
     expect(rpc.verifySettled).toBe(1);
   });
   expect(screen.getByRole("button", { name: "Verify flow" })).toBeEnabled();
-  expect(screen.getByRole("combobox", { name: "Agent Session" })).toHaveValue(
-    otherDryRunPassed.id
+  expect(sessionPicker()).toHaveTextContent("remove-anvil");
+});
+
+test("asks for setup Variables in the dock and folds them out of the browser's way", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingSetup,
+        controller: "agent",
+        setupVariables: [
+          {
+            name: "STORE_PASSWORD",
+            purpose: "Signs in to the demo store before the journey starts.",
+            requestId: "setup-request-1",
+            status: "requested",
+          },
+          {
+            name: "STORE_EMAIL",
+            purpose: "The demo store account.",
+            requestId: "setup-request-0",
+            status: "supplied",
+          },
+        ],
+      } satisfies unknown,
+    ]),
+    session.id
   );
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  // The request is the dock's first tier, not a card floating over the page.
+  const request = within(dock).getByRole("region", { name: "Setup Variables" });
+  expect(request).toHaveTextContent("1 of 2 needed");
+  expect(request).toHaveTextContent("STORE_EMAIL supplied");
+
+  const supply = within(request).getByRole("button", {
+    name: "Supply STORE_PASSWORD",
+  });
+  expect(supply).toBeDisabled();
+  await user.type(within(request).getByLabelText("STORE_PASSWORD"), "hunter22");
+  await user.click(supply);
+  await waitFor(() => {
+    expect(rpc.setupAnswerCalls).toHaveLength(1);
+  });
+  expect(rpc.setupAnswerCalls[0]).toMatchObject({
+    payload: { requestId: "setup-request-1", value: "hunter22" },
+  });
+
+  // Folded, the request keeps one line that says what is still asked.
+  await user.click(
+    within(dock).getByRole("button", { name: "Collapse requests" })
+  );
+  expect(
+    within(dock).queryByRole("region", { name: "Setup Variables" })
+  ).toBeNull();
+  await user.click(
+    within(dock).getByRole("button", {
+      name: "Show request: Setup Variables. 1 of 2 needed",
+    })
+  );
+  expect(
+    within(dock).getByRole("region", { name: "Setup Variables" })
+  ).toBeVisible();
 });

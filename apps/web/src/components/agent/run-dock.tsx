@@ -1,8 +1,14 @@
 import type {
   AgentSessionId,
   AgentSessionSnapshot,
+  TaskAgentRunState,
 } from "@contingency/protocol";
-import { CircleAlertIcon, TimerIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  ListChecksIcon,
+  ScrollTextIcon,
+  TimerIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { agentControlPresentation } from "@/components/agent/agent-workspace-state";
@@ -23,8 +29,9 @@ import { TaskRunDetails } from "@/components/agent/task-run-details";
 import {
   DockSessionSelect,
   DockShell,
+  DockSpacer,
   DockStatus,
-  Wordmark,
+  DockWordmark,
 } from "@/components/agent/workspace-dock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,10 +69,30 @@ const AgentIdle = ({ session }: { readonly session: RunSessionSnapshot }) => {
     return null;
   }
   return (
-    <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-xs tabular-nums">
+    <span
+      className="text-muted-foreground hidden shrink-0 items-center gap-1 text-xs tabular-nums @lg:inline-flex"
+      title={notice}
+    >
       <TimerIcon aria-hidden="true" className="size-3.5" />
       {notice}
     </span>
+  );
+};
+
+/**
+ * `3 of 6 Agent Steps executed` on a wide stage, `3 of 6` on a narrow one, so
+ * the controls row keeps its one line beside the devtools.
+ */
+const CoverageLabel = ({ coverage }: { readonly coverage: string }) => {
+  const short = coverage.replace(/ Agent Steps executed$/u, "");
+  if (short === coverage) {
+    return coverage;
+  }
+  return (
+    <>
+      {short}
+      <span className="hidden @2xl:inline"> Agent Steps executed</span>
+    </>
   );
 };
 
@@ -86,10 +113,11 @@ const RunCoverage = ({
   readonly coverage: string;
   readonly step: RunDockStep | undefined;
 }) => {
+  const label = <CoverageLabel coverage={coverage} />;
   if (step === undefined) {
     return (
       <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-        {coverage}
+        {label}
       </span>
     );
   }
@@ -103,11 +131,12 @@ const RunCoverage = ({
             size="sm"
             variant="ghost"
           >
-            <span className="tabular-nums">{coverage}</span>
+            <ListChecksIcon aria-hidden="true" className="@2xl:hidden" />
+            <span className="tabular-nums">{label}</span>
           </Button>
         )}
       />
-      <PopoverContent align="end">
+      <PopoverContent align="end" side="top">
         <PopoverTitle>{step.label}</PopoverTitle>
         <p>{step.name}</p>
         <p className="text-muted-foreground max-h-64 overflow-y-auto text-xs">
@@ -154,18 +183,48 @@ const ProvenanceBadge = ({
   );
 };
 
+/** The task behind a Task Run: its original task, instructions, and evidence. */
+const TaskDetails = ({
+  run,
+  title,
+}: {
+  readonly run: TaskAgentRunState;
+  readonly title: string;
+}) => (
+  <Popover>
+    <PopoverTrigger
+      render={(props) => (
+        <Button {...props} aria-label="Task details" size="sm" variant="ghost">
+          <ScrollTextIcon aria-hidden="true" />
+          <span className="hidden @xl:inline">Task details</span>
+        </Button>
+      )}
+    />
+    <PopoverContent
+      align="end"
+      side="top"
+      className="max-h-[60svh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
+    >
+      <PopoverTitle>{title}</PopoverTitle>
+      <TaskRunDetails run={run} />
+    </PopoverContent>
+  </Popover>
+);
+
 /**
- * The Workspace dock for a Dry Run and an Interactive Run. It is the same
- * floating card Teaching gets: the wordmark, the session selector, one state
- * badge, one next-step sentence, how long an idle agent has been quiet, and
- * at most one primary action — here always the single control that reads `Take control`
- * or `Return control` (#209).
+ * The Workspace dock for a Dry Run and an Interactive Run, on the same
+ * two-tier card Teaching gets. Above the card's status line sits whatever the
+ * agent is waiting on (`requests`); the status line holds the state badge and
+ * the next-step sentence; the controls row holds the session picker, how long
+ * an idle agent has been quiet, coverage, the task, and the one control that
+ * reads `Take control` or `Return control` (#209).
  */
 export const RunDock = ({
   controlError,
   controlPending,
   onControl,
   onSelectSession,
+  requests,
   selectedSessionId,
   session,
   sessions,
@@ -176,6 +235,8 @@ export const RunDock = ({
   readonly controlPending: boolean;
   readonly onControl: () => void;
   readonly onSelectSession: (sessionId: string) => void;
+  /** The Execution Boundary and input requests, as the dock's first tier. */
+  readonly requests?: React.ReactNode;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: RunSessionSnapshot;
   readonly sessions: readonly AgentSessionSnapshot[];
@@ -186,62 +247,62 @@ export const RunDock = ({
   const taskRun = sessionTaskRun(session);
   const provenance = taskRun === undefined ? undefined : runProvenance(taskRun);
   return (
-    <DockShell>
-      <Wordmark />
+    <DockShell
+      footer={
+        /*
+          A refusal takes its own line under the controls rather than a
+          floating alert: the status line already says where the user is, and
+          the primary action has to stay on screen at 390px.
+        */
+        controlError === undefined ? null : (
+          <p className="text-destructive border-t px-3 py-1.5 text-xs">
+            {controlError}
+          </p>
+        )
+      }
+      requests={requests}
+      status={
+        <DockStatus
+          badges={
+            <>
+              <Badge
+                variant={
+                  presentation.tone === "failed" ? "destructive" : "secondary"
+                }
+              >
+                {presentation.tone === "failed" ? (
+                  <CircleAlertIcon aria-hidden="true" />
+                ) : null}
+                {presentation.badge}
+              </Badge>
+              <ProvenanceBadge provenance={provenance} />
+            </>
+          }
+        >
+          {presentation.nextStep}
+        </DockStatus>
+      }
+    >
+      <DockWordmark />
       <DockSessionSelect
         onSelect={onSelectSession}
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
-      <Badge
-        variant={presentation.tone === "failed" ? "destructive" : "secondary"}
-      >
-        {presentation.tone === "failed" ? (
-          <CircleAlertIcon aria-hidden="true" />
-        ) : null}
-        {presentation.badge}
-      </Badge>
-      <ProvenanceBadge provenance={provenance} />
-      <DockStatus>
-        {presentation.badge}. {presentation.nextStep}
-      </DockStatus>
-      {session.run !== null && "schemaVersion" in session.run ? (
-        <>
-          <p
-            aria-live="polite"
-            className="text-muted-foreground order-last w-full text-xs wrap-anywhere sm:hidden"
-          >
-            {session.run.instructions.at(-1)?.instruction ??
-              session.run.requestedTask}
-          </p>
-          <Popover>
-            <PopoverTrigger
-              render={(props) => (
-                <Button {...props} size="sm" variant="ghost">
-                  Task details
-                </Button>
-              )}
-            />
-            <PopoverContent
-              align="end"
-              side="top"
-              className="max-h-[60svh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
-            >
-              <PopoverTitle>
-                {session.dryRun ? "Dry Run" : "Interactive Run"}
-              </PopoverTitle>
-              <TaskRunDetails run={session.run} />
-            </PopoverContent>
-          </Popover>
-        </>
-      ) : null}
+      <DockSpacer />
+      <AgentIdle session={session} />
       {presentation.coverage === undefined ? null : (
         <RunCoverage
           coverage={presentation.coverage}
           step={presentation.step}
         />
       )}
-      <AgentIdle session={session} />
+      {taskRun === undefined ? null : (
+        <TaskDetails
+          run={taskRun}
+          title={session.dryRun ? "Dry Run" : "Interactive Run"}
+        />
+      )}
       {control.action === null ? null : (
         <Button
           disabled={controlPending}
@@ -251,14 +312,6 @@ export const RunDock = ({
         >
           {control.action}
         </Button>
-      )}
-      {/*
-        A refusal takes its own line under the controls rather than a floating
-        alert: the sentence above it already says where the user is, and the
-        primary action has to stay on screen at 390px.
-      */}
-      {controlError === undefined ? null : (
-        <p className="text-destructive w-full text-xs">{controlError}</p>
       )}
     </DockShell>
   );
