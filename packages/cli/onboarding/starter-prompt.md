@@ -26,7 +26,7 @@ If the user chooses a saved Flow Skill, use its declared inputs and Contingency'
 3. Explain the example's intended result and invite the user to watch in Workspace. Start it with `agent_example_run_start`, using the example's sample inputs. Share the returned Workspace link. Identify the Run as a bundled Example whose authority is limited to the demo store.
    - For a private input, call `agent_run_variable_request`. Tell the user to supply the value in the Workspace, not in this conversation. Then type it with `agent_variable_enter`.
    - For a required scan, start it with `agent_run_scan` when the taught condition is reached, and cite its Scan Report.
-   - Before an irreversible action, mark the action irreversible and relay the Pending Decision for the user's Confirmation.
+   - Before an irreversible action, mark the action irreversible. When it returns a boundary Pending Decision, follow the confirmation procedure below.
    - For the broken-cart example, name the fault as a demo condition. Prove the failure from the cart, not the banner, then restore the healthy store.
 
    Report the result with browser evidence through `agent_run_assess`, then call `agent_run_complete`. Explain what the result shows and help the user choose a variation to teach. The prepared Run is a demonstration, not the user's Teaching Recording. Done when the demonstration has a persisted result and the user has chosen a variation.
@@ -54,6 +54,8 @@ After onboarding, offer an applicable failure rerun, another example, or a simil
 For a failure rerun, use the user's newly verified skill in an Interactive Run against the store's deliberate cart fault, as `contingency://onboarding/examples` describes. Offer it only when the fault affects the learned journey. Report the observed failure with evidence, restore the healthy store, and call `agent_run_complete`. Explain that detecting the deliberate fault shows the skill working as a check; it does not undo verification or the completed onboarding.
 
 ## Conversation
+
+For a boundary Pending Decision, describe the exact attempted action and ask the user to reply "allow" or "refuse" in this conversation. Share the current Workspace link so they can inspect the page or take control. Workspace mirrors the request; the conversation is where they answer. After an explicit reply, call `agent_pending_decision_resolve` with that `pendingDecisionId`, the chosen `decision`, and a fresh `operationId`. After allowing, retry the original browser action with its original operation id. If the user holds control, ask them to choose **Return control** before allowing; refusal is available during Takeover. Done when the decision is resolved and the allowed attempt has run or the refusal is recorded.
 
 Speak in plain language. Explain the next action and the result the user can check. Name the Workspace controls the user needs. Report a failed operation with its cause and a concrete next step.
 
