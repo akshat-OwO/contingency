@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Session Events](./workspace.md#session-events) proves cursor waits and replay through Teaching, private Variable supply, Dry Run verification, Cleanup, and Takeover return, with per-tool byte measurements.
+
 - [Agent onboarding](./workspace.md#agent-onboarding) proves session-only agent launch, bundled Examples, private demo Variables, fresh Dry Runs, verification, project-local reuse, registration, and shutdown.
 
 - [Dry Run prerequisites](./workspace.md#dry-run-prerequisites) proves startup-fixed verified setup skills, private Workspace supply and refusal, skill-scoped replacement, and a complete cart outcome in one fresh context using the gated prerequisite shop.

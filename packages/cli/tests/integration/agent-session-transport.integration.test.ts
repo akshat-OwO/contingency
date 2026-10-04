@@ -3,14 +3,26 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
 
-import { AgentSessionId, OperationId } from "@contingency/protocol";
+import {
+  AgentSessionId,
+  OperationId,
+  SessionEvent,
+} from "@contingency/protocol";
 import {
   NodeHttpServer,
   NodeServices,
   NodeSocket,
 } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Schema, Stream } from "effect";
+import {
+  Context,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Schema,
+  Stream,
+} from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { makeRpcRoutes } from "../../src/routes/rpc.ts";
@@ -190,7 +202,13 @@ const McpToolResultSchema = Schema.Struct({
   structuredContent: Schema.optional(Schema.Unknown),
 });
 
+const EventWaitSchema = Schema.Struct({
+  eventCursor: Schema.String,
+  events: Schema.Array(SessionEvent),
+});
+
 const SessionSnapshotSchema = Schema.Struct({
+  eventCursor: Schema.String,
   id: Schema.String,
   phase: Schema.String,
 });
@@ -581,6 +599,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
 
     const firstSessionId = AgentSessionId.make(String(firstSnapshot.id));
     const secondSessionId = AgentSessionId.make(String(secondSnapshot.id));
+    let firstCursor = firstSnapshot.eventCursor;
     yield* Effect.scoped(
       Effect.gen(function* streamChildSessions() {
         const client = yield* makeLoopbackRpcClient(origin);
@@ -632,6 +651,41 @@ it.live("serves the real MCP stdio child-process boundary", () =>
           },
           { headers: { origin } }
         );
+        yield* Effect.promise(() =>
+          mcp.send({
+            id: 6,
+            jsonrpc: "2.0",
+            method: "tools/call",
+            params: {
+              arguments: {
+                afterCursor: firstCursor,
+                sessionId: firstSessionId,
+                waitMs: 2000,
+              },
+              name: "agent_session_get",
+            },
+          })
+        );
+        const waiting = yield* Effect.promise(() => mcp.receive(6)).pipe(
+          Effect.forkChild
+        );
+        yield* client(
+          "agent.session.close",
+          {
+            operationId: OperationId.make("transport-user-close"),
+            sessionId: firstSessionId,
+          },
+          { headers: { origin } }
+        );
+        const answered = toolResult(yield* Fiber.join(waiting));
+        expect(answered.isError).toBe(false);
+        const eventState = Schema.decodeUnknownSync(EventWaitSchema)(
+          answered.structuredContent
+        );
+        expect(eventState.events.map((event) => event.kind)).toEqual([
+          "session-closed",
+        ]);
+        firstCursor = eventState.eventCursor;
       })
     );
 
@@ -648,6 +702,21 @@ it.live("serves the real MCP stdio child-process boundary", () =>
         firstClosed.structuredContent
       ).phase
     ).toBe("closed");
+
+    const noEvents = toolResult(
+      yield* sendAndReceive(7, "tools/call", {
+        arguments: {
+          afterCursor: firstCursor,
+          sessionId: firstSessionId,
+          waitMs: 0,
+        },
+        name: "agent_session_get",
+      })
+    );
+    expect(
+      Schema.decodeUnknownSync(EventWaitSchema)(noEvents.structuredContent)
+        .events
+    ).toEqual([]);
 
     // Keep the second browser live until owner shutdown. The MCP boundary
     // still sees it as running after the first explicit close.

@@ -134,7 +134,7 @@ it.live(
           ).toContain(recordingId);
           const waited = yield* teachingRecordingTool(
             "agent_teaching_recordings_list",
-            { recordingId, timeoutMs: 1000 }
+            { recordingId }
           );
           expect(waited.recordings).toHaveLength(1);
           expect(waited.recordings[0]?.lifecycle).toBe("ready");

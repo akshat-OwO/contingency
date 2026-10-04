@@ -65,6 +65,7 @@ const sessionAt = <Overrides extends object>(
   id: "agent-one",
   interruptedAction: null,
   ownerProcessId: "mcp-test",
+  pendingDecisions: [],
   phase: "running",
   recordingId: "recording-shop-sign-in",
   run: null,

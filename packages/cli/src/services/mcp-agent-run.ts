@@ -19,7 +19,7 @@ import type {
   AgentRunSkillReference,
   TaskAgentRunState,
 } from "@contingency/protocol";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 import type { Mutable } from "effect/Types";
 
@@ -41,14 +41,16 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { makeVerificationElicitation } from "./mcp-verification-elicitation.ts";
 import { readExampleSkills } from "./onboarding-examples.ts";
 import {
-  PRIVATE_INPUT_NAME,
   readRequestedSkills,
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
 import { requestedScans } from "./scan-requirements.ts";
+import { fromAgent } from "./session-events.ts";
+import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
@@ -120,7 +122,7 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
 });
 
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
-  dependencies: [AgentSession],
+  dependencies: [AgentSession, TeachingRecordingStore],
   description:
     "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local.",
   failure: AgentRunFailure,
@@ -161,7 +163,7 @@ const AgentTaskRunStartTool = Tool.make("agent_run_start", {
 const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   dependencies: [AgentSession, FlowSkillCatalog],
   description:
-    "Update the user instruction, requested verified skills, or ordinary inputs in the same Run. Browser state and starting Emulation persist. Inputs are skill-scoped; private inputs use agent_run_variable_request.",
+    "Update the user instruction, requested verified skills, or ordinary inputs in the same Run. Browser state and starting Emulation persist. Inputs are skill-scoped; private inputs use agent_variable_request.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(AgentRunTaskInput),
@@ -220,22 +222,6 @@ const AgentTaskFindingTool = Tool.make("agent_run_finding", {
   parameters: taskReportParameters,
   success: SessionResult,
 });
-const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
-  dependencies: [AgentSession],
-  description:
-    "Request a skill-scoped private Variable when needed. Relay its Pending Decision, then enter it with agent_variable_enter. Dry Run prerequisites use Workspace supply/refusal. replace:true invalidates a supplied value. Unused inputs never pause startup.",
-  failure: AgentRunFailure,
-  parameters: Schema.Struct({
-    flowSkillName: FlowSkillName,
-    name: Schema.String.check(Schema.isPattern(PRIVATE_INPUT_NAME)),
-    operationId: OperationId,
-    replace: optionalNullable(Schema.Boolean),
-    sessionId: AgentSessionId,
-    view: sessionViewParameter,
-  }),
-  success: SessionResult,
-});
-
 const AgentRunScanTool = Tool.make("agent_run_scan", {
   dependencies: [AgentSession],
   description:
@@ -279,8 +265,7 @@ export const AgentRunTools = withStrictParameters(
     AgentTaskRunStartTool,
     AgentTaskRunUpdateTool,
     AgentTaskAssessTool,
-    AgentTaskFindingTool,
-    AgentTaskVariableRequestTool
+    AgentTaskFindingTool
   )
 );
 
@@ -437,6 +422,8 @@ export const startTaskRun = (
       );
   });
 
+const offerVerification = makeVerificationElicitation();
+
 export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
   agent_flow_skill_run_start: ({ view, ...params }) =>
     startTaskRun(
@@ -469,9 +456,25 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       yield* session.noteAgentActivity(params.sessionId);
       // The Run persisted its own Summary when it ended. Completing an already
       // ended Run answers with that same Summary rather than writing a second.
-      return yield* session
+      const summary = yield* session
         .completeRun(params.sessionId, params.agentAccount, params.operationId)
+        .pipe(fromAgent, Effect.mapError(failure));
+      const snapshot = yield* session
+        .get(params.sessionId)
         .pipe(Effect.mapError(failure));
+      if (snapshot.dryRun !== null) {
+        const store = yield* TeachingRecordingStore;
+        const recording = yield* store
+          .read(snapshot.dryRun.recordingId)
+          .pipe(Effect.option);
+        if (
+          Option.isSome(recording) &&
+          recording.value.lifecycle._tag === "dry-run-passed"
+        ) {
+          yield* offerVerification(params.sessionId, snapshot.viewUrl);
+        }
+      }
+      return summary;
     }),
   agent_run_finding: (params) =>
     Effect.gen(function* recordTaskFinding() {
@@ -598,19 +601,6 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           ),
           inView(view)
         );
-    }),
-  agent_run_variable_request: (params) =>
-    Effect.gen(function* requestTaskInput() {
-      const session = yield* AgentSession;
-      return yield* session
-        .requestTaskVariable(
-          params.sessionId,
-          params.flowSkillName,
-          params.name,
-          params.operationId,
-          params.replace ?? false
-        )
-        .pipe(Effect.mapError(failure), inView(params.view));
     }),
   open_run: (params) =>
     Effect.gen(function* openPersistedRun() {

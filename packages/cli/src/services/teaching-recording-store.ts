@@ -30,6 +30,8 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { SessionEventOrigin } from "./session-events.ts";
+
 export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
@@ -213,9 +215,11 @@ const withReceipt = (
   operation: TeachingRecordingOperation,
   operationId: OperationId,
   completedAt: string,
-  files?: readonly string[]
+  files?: readonly string[],
+  origin?: "agent" | "workspace",
+  eventKind?: "dry-run-stopped"
 ): TeachingRecordingManifest => {
-  const receipt = { completedAt, operation, operationId };
+  const receipt = { completedAt, eventKind, operation, operationId, origin };
   return {
     ...manifest,
     receipts: [
@@ -636,9 +640,23 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
           }
           const at = now().toISOString();
+          const origin = yield* SessionEventOrigin;
           const transitioned = yield* transition(current, at);
           return yield* persist(
-            withReceipt(transitioned, operation, operationId, at, receiptFiles)
+            withReceipt(
+              { ...transitioned, eventOrigin: origin },
+              operation,
+              operationId,
+              at,
+              receiptFiles,
+              origin,
+              operation === "fail-dry-run" &&
+                transitioned.lifecycle._tag === "dry-run-failed" &&
+                transitioned.lifecycle.dryRunResult.observableOutcome ===
+                  "The user stopped the Dry Run before it completed."
+                ? "dry-run-stopped"
+                : undefined
+            )
           );
         })
       );
@@ -1202,18 +1220,23 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         ),
         VERIFICATION_FILE
       );
-      return fileSystem.readFileString(verificationPath).pipe(
-        Effect.flatMap((contents) =>
-          fileSystem.writeFileString(
-            verificationPath,
-            `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n`,
-            { mode: 0o600 }
+      return Effect.gen(function* writeVerificationReference() {
+        const origin = yield* SessionEventOrigin;
+        return yield* fileSystem.readFileString(verificationPath).pipe(
+          Effect.flatMap((contents) =>
+            fileSystem.writeFileString(
+              verificationPath,
+              `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n- Verification origin: ${origin}\n`,
+              { mode: 0o600 }
+            )
+          ),
+          Effect.mapError(
+            ioError(
+              `Could not persist verification for ${manifest.recordingId}`
+            )
           )
-        ),
-        Effect.mapError(
-          ioError(`Could not persist verification for ${manifest.recordingId}`)
-        )
-      );
+        );
+      });
     };
 
     const reject = (input: TeachingRecordingMutation) =>
@@ -1251,6 +1274,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       return withRecordingLock(
         input.recordingId,
         Effect.gen(function* cleanRecording() {
+          const origin = yield* SessionEventOrigin;
           const manifest = yield* readAt(
             input.recordingId,
             rootFor(input.recordingId)
@@ -1306,6 +1330,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   failure: `Could not delete ${name}: ${removed.failure.message}`,
                   retainedFiles,
                 },
+                eventOrigin: origin,
                 lifecycle,
                 updatedAt: now().toISOString(),
               });
@@ -1320,7 +1345,9 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             },
             "cleanup",
             input.operationId,
-            at
+            at,
+            undefined,
+            origin
           );
           yield* persist(completed);
           yield* fileSystem
@@ -1509,7 +1536,14 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                         `verification-recovery-${manifest.recordingId}`
                       ),
                       recordingId: manifest.recordingId,
-                    })
+                    }).pipe(
+                      Effect.provideService(
+                        SessionEventOrigin,
+                        /^- Verification origin: agent$/mu.test(contents)
+                          ? "agent"
+                          : "workspace"
+                      )
+                    )
                   : Effect.void
               ),
               Effect.ignore
@@ -1536,7 +1570,13 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 `cleanup-recovery-${manifest.recordingId}`
               ),
               recordingId: manifest.recordingId,
-            }).pipe(Effect.ignore),
+            }).pipe(
+              Effect.provideService(
+                SessionEventOrigin,
+                manifest.eventOrigin ?? "workspace"
+              ),
+              Effect.ignore
+            ),
           { discard: true }
         )
       ),
