@@ -6,6 +6,8 @@ The execution terms below reflect the accepted design in [ADR 0044](./docs/adr/0
 
 Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-controlled-teaching-setup.md).
 
+Browser Checks follow the accepted design in [ADR 0051](./docs/adr/0051-taught-browser-conditions-use-session-scoped-capabilities.md). They are not implemented in the runtime; the composer prototypes use mock data.
+
 ## Language
 
 **Suite**: A named, ordered manifest of Flow Skills that defines the required sanity coverage for one business area. The first version runs members sequentially; after a member fails, the agent pauses and asks the user whether to retry it, continue, or stop. An agent may suggest changes to a Suite, but it may not infer that an unlisted Flow Skill is required or claim complete coverage without running every listed Flow Skill. Suites are not built yet; see `docs/future/agent-flow.md`. _Avoid_: vertical (as the persisted artifact), inferred coverage, test bucket
@@ -15,6 +17,8 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 **Teaching Recording**: The temporary, process-independent bundle one recording produces under `.contingency/.recordings/<recording-id>/`: a manifest, video, Trace, and a bounded semantic event stream of actions, accessibility targets, URL transitions, and user Instructions. It is sensitive learning evidence, not reusable automation, and it outlives its creating process only until the user verifies the Flow Skill learned from it. _Avoid_: Demonstration (superseded), Flow Skill, screen recording (as the product artifact)
 
 **Instruction**: Free text the user relays while recording — for example why an optional popup should be skipped. Instructions join the Teaching Recording's event stream in order, so a learning agent reads each one beside the actions it explains. _Avoid_: side-comment (as the domain term), annotation, prompt
+
+**Browser Check**: An explicit requirement taught about application behavior visible through a network response, cookie, or browser storage. It survives in the learned Flow Skill and Contingency evaluates it on later Runs. Attaching evidence to a comment does not create a Browser Check until the user explicitly adds one. Required checks constrain whether a Run can be working; the Agent Assessment supplies the overall explanation. _Avoid_: ordinary comment, context attachment, Agent Assessment, browser storage mutation
 
 **Scan Requirement**: A requirement taught during Teaching for a later Run to perform a performance or accessibility scan at a named journey outcome. The agent identifies when that outcome is reached, and Contingency tracks whether the required scan occurred. See [ADR 0048](./docs/adr/0048-teaching-captures-required-scans-for-later-runs.md). _Avoid_: immediate Teaching scan, Audit Step, keyword toggle
 
