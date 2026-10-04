@@ -1,6 +1,6 @@
 # Browser streaming
 
-The Workspace drives Chromium through Playwright in the CLI process. Domain language lives in [`CONTEXT.md`](../../CONTEXT.md). [ADR 0012](../adr/0012-playwright-is-the-in-process-browser-runtime.md) records why Playwright replaced the bundled browser binary, and [ADR 0038](../adr/0038-contingency-is-an-agent-sanity-monitor.md) records why one MCP-owned browser is the sole runtime.
+The Workspace drives Chromium through Playwright in the CLI process. Domain language lives in [`GLOSSARY.md`](../../GLOSSARY.md). [ADR 0012](../adr/0012-playwright-is-the-in-process-browser-runtime.md) records why Playwright replaced the bundled browser binary, and [ADR 0038](../adr/0038-contingency-is-an-agent-sanity-monitor.md) records why one MCP-owned browser is the sole runtime.
 
 ## Status
 

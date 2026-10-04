@@ -47,7 +47,7 @@ nub exec --cwd packages/cli playwright-core install chromium
 
 | Doc | Role |
 | --- | --- |
-| [`CONTEXT.md`](./CONTEXT.md) | The glossary. Read this first; the terms are precise and load-bearing |
+| [`GLOSSARY.md`](./GLOSSARY.md) | The glossary. Read this first; the terms are precise and load-bearing |
 | [`docs/adr/`](./docs/adr/) | Decisions that would be expensive to reverse |
 | [`docs/releases.md`](./docs/releases.md) | Cutting and publishing a release |
 | [`docs/`](./docs/) | Everything else |

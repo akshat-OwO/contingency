@@ -8,7 +8,7 @@ Contingency needs a command that detects installed coding agents, lets the user 
 
 The first version requires an installed, signed-in coding agent. Agent installation and sign-in are outside onboarding. Missing prerequisites need actionable recovery instructions.
 
-Onboarding ends when the user teaches a variation of a bundled example, the agent learns a Flow Skill, a fresh Dry Run passes, and the user explicitly verifies the Flow Skill. An MCP connection alone does not complete onboarding. The agent then invites the user to apply the same kind of task to their own website; that journey is optional. Teaching, Dry Run, and verification retain their existing meanings in [CONTEXT.md](../../CONTEXT.md).
+Onboarding ends when the user teaches a variation of a bundled example, the agent learns a Flow Skill, a fresh Dry Run passes, and the user explicitly verifies the Flow Skill. An MCP connection alone does not complete onboarding. The agent then invites the user to apply the same kind of task to their own website; that journey is optional. Teaching, Dry Run, and verification retain their existing meanings in [GLOSSARY.md](../../GLOSSARY.md).
 
 The initial launch supplies session-only MCP configuration. After the first Flow Skill is verified, the agent asks whether the user wants permanent registration for ordinary agent sessions. Users may choose the current project or all projects.
 
