@@ -14,6 +14,7 @@ export default defineConfig({
     "apps/web/src/components/ui/**",
     // Throwaway design prototypes are not production source.
     "docs/prototypes/**",
+    "apps/web/prototypes/**",
     "apps/web/src/routeTree.gen.ts",
   ],
   jsPlugins: jsPlugins.jsPlugins,
