@@ -43,6 +43,8 @@ The two-tier card (A) was picked. Revision 2 changes it in three ways:
 - A paused Execution Boundary becomes the dock's first tier: a title naming what is confirmed, the requested action, and a one-line pointer to the agent conversation with a copyable decision id. The action attempt, its JSON, and the policy sentence sit behind **Details**. A description identical to the request is not repeated.
 - Input requests join the same tier. Inputs supplied in the Workspace get one row each (name, purpose, password field with reveal and **Supply**, quiet **Refuse**); inputs answered in the agent conversation show the variable, its scope, and the decision id.
 
+Each request collapses to one line (its title and the requested action, or the count still needed) from a chevron beside its title, and the line reopens it. The collapse is keyed to the request, so a new boundary or input reopens the tier. Add `collapsed=1` to the harness URL, or `COLLAPSED=1` to the capture script, to start folded.
+
 The baseline renders today's request cards through the real `DockNotices`, so the before and after compare in the same Workspace.
 
 ## Files

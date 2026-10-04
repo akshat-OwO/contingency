@@ -36,6 +36,8 @@ const layouts = only("LAYOUTS", [
   "summary-devtools-right",
 ]);
 const themes = only("THEMES", ["light", "dark"]);
+/** `COLLAPSED=1` captures every request tier folded to its one line. */
+const collapsed = process.env.COLLAPSED === "1";
 const viewports = {
   desktop: { height: 900, width: 1440 },
   mobile: { height: 844, width: 390 },
@@ -60,10 +62,13 @@ for (const [device, viewport] of Object.entries(viewports)) {
             theme,
             variant,
           });
+          if (collapsed) {
+            query.set("collapsed", "1");
+          }
           await page.goto(`${BASE}?${query}`);
           await page.waitForSelector('[aria-label="Workspace dock"]');
           await page.waitForTimeout(250);
-          const name = `${device}--${variant}--${scenario}--${layout}--${theme}`;
+          const name = `${device}--${variant}${collapsed ? "-collapsed" : ""}--${scenario}--${layout}--${theme}`;
           // A control row is wrapped when two of its buttons sit on different lines.
           const report = await page.evaluate(() => {
             const dock = document.querySelector(

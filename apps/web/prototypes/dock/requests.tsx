@@ -143,21 +143,29 @@ const RequestHeader = ({
   </div>
 );
 
-const BoundaryRequest = ({ boundary }: { readonly boundary: DockBoundary }) => {
+const BoundaryRequest = ({
+  boundary,
+  collapse,
+}: {
+  readonly boundary: DockBoundary;
+  readonly collapse: React.ReactNode;
+}) => {
   const [open, setOpen] = useState(false);
   return (
     <section aria-label="Execution Boundary" className="space-y-1.5">
       <RequestHeader
         action={
-          <Button
-            aria-expanded={open}
-            onClick={() => setOpen((current) => !current)}
-            size="xs"
-            variant="ghost"
-          >
-            Details
-            {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
-          </Button>
+          <>
+            <Button
+              aria-expanded={open}
+              onClick={() => setOpen((current) => !current)}
+              size="xs"
+              variant="ghost"
+            >
+              {open ? "Hide details" : "Details"}
+            </Button>
+            {collapse}
+          </>
         }
         icon={
           <ShieldAlertIcon
@@ -296,7 +304,13 @@ const AnsweredVariable = ({
   </p>
 );
 
-const InputsRequest = ({ inputs }: { readonly inputs: DockInputs }) => {
+const InputsRequest = ({
+  collapse,
+  inputs,
+}: {
+  readonly collapse: React.ReactNode;
+  readonly inputs: DockInputs;
+}) => {
   const waiting = inputs.variables.filter(
     (variable) => variable.status === "requested"
   );
@@ -307,11 +321,14 @@ const InputsRequest = ({ inputs }: { readonly inputs: DockInputs }) => {
     <section aria-label={inputs.title} className="space-y-2">
       <RequestHeader
         action={
-          inputs.mode === "form" ? (
-            <span className="text-muted-foreground hidden text-xs @xl:inline">
-              The agent sees status, never values
-            </span>
-          ) : null
+          <>
+            {inputs.mode === "form" ? (
+              <span className="text-muted-foreground hidden text-xs @xl:inline">
+                The agent sees status, never values
+              </span>
+            ) : null}
+            {collapse}
+          </>
         }
         badge={
           <Badge variant="secondary">
@@ -364,14 +381,122 @@ export const hasRequest = (model: DockModel) =>
   model.boundary !== undefined || model.inputs !== undefined;
 
 /** The dock's request tier, or nothing when the agent is not waiting. */
+/** Prototype harness only: `?collapsed` opens every request tier folded. */
+const startsCollapsed = new URLSearchParams(globalThis.location.search).has(
+  "collapsed"
+);
+
+/**
+ * Which request the tier was collapsed on. Collapsing is per request: a new
+ * Execution Boundary or a new input reopens the tier, because a person who
+ * hid the last request has not seen this one.
+ */
+const requestKey = (model: DockModel) =>
+  JSON.stringify([
+    model.boundary?.operationId,
+    model.inputs?.variables
+      .filter((variable) => variable.status === "requested")
+      .map((variable) => variable.name),
+  ]);
+
+/** The one line a collapsed tier keeps: what is asked, and how to reopen it. */
+const CollapsedRequests = ({
+  model,
+  onExpand,
+}: {
+  readonly model: DockModel;
+  readonly onExpand: () => void;
+}) => {
+  const { boundary, inputs } = model;
+  const waiting =
+    inputs?.variables.filter((variable) => variable.status === "requested")
+      .length ?? 0;
+  const title =
+    boundary === undefined
+      ? (inputs?.title ?? "")
+      : REASON_TITLE[boundary.reason];
+  const summary =
+    boundary === undefined
+      ? `${waiting} of ${inputs?.variables.length ?? 0} needed`
+      : boundary.requested;
+  return (
+    <button
+      aria-expanded={false}
+      aria-label={`Show request: ${title}. ${summary}`}
+      className="hover:bg-muted/70 focus-visible:ring-ring/50 flex h-9 w-full min-w-0 items-center gap-2 px-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
+      onClick={onExpand}
+      type="button"
+    >
+      {boundary === undefined ? (
+        <KeyRoundIcon
+          aria-hidden="true"
+          className="size-4 shrink-0 text-amber-600 dark:text-amber-400"
+        />
+      ) : (
+        <ShieldAlertIcon
+          aria-hidden="true"
+          className="size-4 shrink-0 text-amber-600 dark:text-amber-400"
+        />
+      )}
+      <span className="shrink-0 text-sm font-medium">{title}</span>
+      <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+        {summary}
+      </span>
+      {boundary !== undefined && inputs !== undefined ? (
+        <Badge variant="secondary">+{waiting} inputs</Badge>
+      ) : null}
+      <ChevronUpIcon
+        aria-hidden="true"
+        className="text-muted-foreground size-4 shrink-0"
+      />
+    </button>
+  );
+};
+
+/**
+ * The dock's request tier, or nothing when the agent is not waiting. It
+ * collapses to one line so a long request never has to cover the page the
+ * person is reading to answer it.
+ */
 export const DockRequests = ({
   className,
+  defaultCollapsed = startsCollapsed,
   model,
 }: {
   readonly className?: string;
+  /** Starts collapsed; the capture script uses it to show the folded line. */
+  readonly defaultCollapsed?: boolean;
   readonly model: DockModel;
-}) =>
-  hasRequest(model) ? (
+}) => {
+  const key = requestKey(model);
+  const [collapsedKey, setCollapsedKey] = useState<string | undefined>(
+    defaultCollapsed ? key : undefined
+  );
+  if (!hasRequest(model)) {
+    return null;
+  }
+  if (collapsedKey === key) {
+    return (
+      <div className={cn("bg-muted/50 border-b", className)}>
+        <CollapsedRequests
+          model={model}
+          onExpand={() => setCollapsedKey(undefined)}
+        />
+      </div>
+    );
+  }
+  const collapse = (
+    <Button
+      aria-expanded
+      aria-label="Collapse request"
+      onClick={() => setCollapsedKey(key)}
+      size="icon-xs"
+      variant="ghost"
+    >
+      <ChevronDownIcon />
+    </Button>
+  );
+  return (
     <div
       className={cn(
         "bg-muted/50 max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 py-2.5",
@@ -379,10 +504,14 @@ export const DockRequests = ({
       )}
     >
       {model.boundary === undefined ? null : (
-        <BoundaryRequest boundary={model.boundary} />
+        <BoundaryRequest boundary={model.boundary} collapse={collapse} />
       )}
       {model.inputs === undefined ? null : (
-        <InputsRequest inputs={model.inputs} />
+        <InputsRequest
+          collapse={model.boundary === undefined ? collapse : null}
+          inputs={model.inputs}
+        />
       )}
     </div>
-  ) : null;
+  );
+};
