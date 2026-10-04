@@ -15,14 +15,20 @@ import {
   AgentSessionId,
   optionalNullable,
 } from "@contingency/protocol";
-import type { TaskAgentRunState } from "@contingency/protocol";
+import type {
+  AgentRunSkillReference,
+  TaskAgentRunState,
+} from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
+import type { Mutable } from "effect/Types";
 
 import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
+import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
 import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import {
   SessionResult,
@@ -33,6 +39,7 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { readExampleSkills } from "./onboarding-examples.ts";
 import {
   PRIVATE_INPUT_NAME,
   readRequestedSkills,
@@ -45,7 +52,9 @@ import { requestedScans } from "./scan-requirements.ts";
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
 // would turn this extends clause into `new Schema.Error(...)`.
 // oxlint-disable-next-line unicorn/throw-new-error
-class AgentRunFailure extends Schema.Error<AgentRunFailure>("AgentRunFailure")({
+export class AgentRunFailure extends Schema.Error<AgentRunFailure>(
+  "AgentRunFailure"
+)({
   code: Schema.String,
   message: Schema.String,
 }) {}
@@ -273,7 +282,39 @@ export const AgentRunTools = withStrictParameters(
   )
 );
 
-const startTaskRun = (params: AgentTaskRunStart) =>
+/**
+ * How a Run resolves the skills it starts with. A catalog Run reads only
+ * user-verified packages from the selected Catalog Root. An Example Run is
+ * handed bundled Example Flow Skills explicitly and records their origin, so
+ * neither path can pass for the other (ADR 0050).
+ */
+export type TaskRunSkills =
+  | { readonly origin: "catalog" }
+  | {
+      readonly origin: "example";
+      readonly skills: readonly FlowSkillPackage[];
+    };
+
+/** A skill reference that records a bundled Example's origin. */
+const skillReference = (
+  flowSkillName: FlowSkillName,
+  referencedAt: string,
+  origin: TaskRunSkills["origin"]
+): AgentRunSkillReference => {
+  const reference: Mutable<AgentRunSkillReference> = {
+    flowSkillName,
+    referencedAt,
+  };
+  if (origin === "example") {
+    reference.origin = "example";
+  }
+  return reference;
+};
+
+export const startTaskRun = (
+  params: AgentTaskRunStart,
+  resolution: TaskRunSkills
+) =>
   Effect.gen(function* openTaskRun() {
     const session = yield* AgentSession;
     const store = yield* AgentRunStore;
@@ -282,12 +323,19 @@ const startTaskRun = (params: AgentTaskRunStart) =>
       .startPrepared(
         {
           operationId: params.operationId,
-          request: JSON.stringify({ activity: "task-run", ...params }),
+          request: JSON.stringify({
+            activity: "task-run",
+            ...params,
+            origin: resolution.origin,
+          }),
         },
         Effect.gen(function* prepareTaskRun() {
-          const skills = yield* readRequestedSkills(
-            params.referencedSkills
-          ).pipe(Effect.provideService(FlowSkillCatalog, catalog));
+          const skills =
+            resolution.origin === "example"
+              ? resolution.skills
+              : yield* readRequestedSkills(params.referencedSkills).pipe(
+                  Effect.provideService(FlowSkillCatalog, catalog)
+                );
           yield* validateTaskInputs(skills, params.inputs);
           const host = webHost(params.url);
           if (host === undefined) {
@@ -339,7 +387,7 @@ const startTaskRun = (params: AgentTaskRunStart) =>
           if (emulation.timezoneId === undefined) {
             delete emulation.timezoneId;
           }
-          const run: TaskAgentRunState = {
+          const run: TaskAgentRunState = markDemoWork(hosts, {
             assessment: null,
             attribution: {
               clientName: params.clientName ?? "unknown",
@@ -354,10 +402,9 @@ const startTaskRun = (params: AgentTaskRunStart) =>
             lastAgentActivityAt: startedAt,
             lifecycle: { phase: "running" },
             purpose: { kind: "interactive" },
-            referencedSkills: skills.map((skill) => ({
-              flowSkillName: skill.name,
-              referencedAt: startedAt,
-            })),
+            referencedSkills: skills.map((skill) =>
+              skillReference(skill.name, startedAt, resolution.origin)
+            ),
             requestedTask: params.requestedTask,
             runId,
             scanReports: [],
@@ -367,7 +414,7 @@ const startTaskRun = (params: AgentTaskRunStart) =>
             startingEmulation: emulation,
             title: params.requestedTask,
             variables: skills.flatMap(taskVariables),
-          };
+          });
           return {
             activity: "run" as const,
             artifactDirectory,
@@ -390,15 +437,18 @@ const startTaskRun = (params: AgentTaskRunStart) =>
 
 export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
   agent_flow_skill_run_start: ({ view, ...params }) =>
-    startTaskRun({
-      ...params,
-      inputs: params.inputs.map((input) => ({
-        ...input,
-        flowSkillName: params.flowSkillName,
-      })),
-      referencedSkills: [params.flowSkillName],
-      requestedTask: `Run Flow Skill ${params.flowSkillName}`,
-    }).pipe(inView(view)),
+    startTaskRun(
+      {
+        ...params,
+        inputs: params.inputs.map((input) => ({
+          ...input,
+          flowSkillName: params.flowSkillName,
+        })),
+        referencedSkills: [params.flowSkillName],
+        requestedTask: `Run Flow Skill ${params.flowSkillName}`,
+      },
+      { origin: "catalog" }
+    ).pipe(inView(view)),
   agent_run_assess: (params) =>
     Effect.gen(function* assessTaskRun() {
       const session = yield* AgentSession;
@@ -461,7 +511,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         .pipe(Effect.mapError(failure), inView(params.view));
     }),
   agent_run_start: ({ view, ...params }) =>
-    startTaskRun(params).pipe(inView(view)),
+    startTaskRun(params, { origin: "catalog" }).pipe(inView(view)),
   agent_run_update: ({ view, ...params }) =>
     Effect.gen(function* updateTaskRun() {
       const session = yield* AgentSession;
@@ -492,10 +542,25 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
             })
           );
         }
-        const skills = yield* readRequestedSkills([
+        // An Example Run keeps resolving its bundled skills from the bundle;
+        // every other name is a user-verified catalog skill.
+        const examples = new Set(
+          run.referencedSkills.flatMap((skill) =>
+            skill.origin === "example" ? [skill.flowSkillName] : []
+          )
+        );
+        const names = [
           ...params.referencedSkills,
           ...params.inputs.map((input) => input.flowSkillName),
-        ]).pipe(Effect.provideService(FlowSkillCatalog, catalog));
+        ];
+        const skills = [
+          ...(yield* readExampleSkills(
+            names.filter((name) => examples.has(name))
+          ).pipe(Effect.provideService(FlowSkillCatalog, catalog))),
+          ...(yield* readRequestedSkills(
+            names.filter((name) => !examples.has(name))
+          ).pipe(Effect.provideService(FlowSkillCatalog, catalog))),
+        ];
         yield* validateTaskInputs(skills, params.inputs);
         const scans = yield* requestedScans(skills);
         const requested = new Set(params.referencedSkills);

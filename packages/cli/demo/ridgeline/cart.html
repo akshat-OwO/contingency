@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cart · Ridgeline Hardware demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body data-page="cart">
+    <aside class="demo-notice" aria-label="Demo notice">
+      <p>
+        Ridgeline Hardware is a Contingency demo store. Nothing here is real: no
+        payments, deliveries, or accounts.
+      </p>
+    </aside>
+    <section id="fault-banner" class="fault" aria-label="Demo fault" hidden>
+      <p>
+        Demo fault on: Add to cart leaves the cart unchanged in this browser.
+      </p>
+      <button type="button" class="secondary">Restore healthy store</button>
+    </section>
+    <header class="site">
+      <p class="wordmark"><a href="/">Ridgeline Hardware</a></p>
+      <nav class="site-nav" aria-label="Store">
+        <ul>
+          <li><a href="/">Shop</a></li>
+          <li><a id="cart-link" href="/cart.html">Cart</a></li>
+          <li><a id="account-link" href="/signin.html">Sign in</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main>
+      <h1>Your cart</h1>
+      <section class="panel" aria-labelledby="cart-delivery-heading">
+        <h2 id="cart-delivery-heading">Delivery</h2>
+        <dl class="summary">
+          <dt>Delivery location</dt>
+          <dd id="cart-location"></dd>
+        </dl>
+        <p><a href="/#delivery">Change delivery location</a></p>
+      </section>
+      <section class="panel" aria-labelledby="cart-items-heading">
+        <h2 id="cart-items-heading">Items</h2>
+        <p id="cart-empty">Your cart is empty.</p>
+        <table id="cart-table" hidden>
+          <thead>
+            <tr>
+              <th scope="col">Product</th>
+              <th scope="col">Quantity</th>
+              <th scope="col">Price</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="cart-rows"></tbody>
+        </table>
+        <dl class="summary">
+          <dt>Total</dt>
+          <dd id="cart-total">$0.00</dd>
+        </dl>
+        <p class="fine-print">Free returns within 30 days of delivery.</p>
+      </section>
+      <p><a href="/">Continue shopping</a></p>
+    </main>
+  </body>
+</html>

@@ -84,8 +84,25 @@ export interface HttpServerOptions {
     HttpRouter.HttpRouter
   >;
   readonly port: number;
+  /**
+   * An already listening server. A process that binds an available port reads
+   * the acquired port before it builds routes, so allowed origins and every
+   * advertised link name the real port.
+   */
+  readonly server?: Layer.Layer<NodeHttpServerServices>;
   readonly serveWebUi: boolean;
 }
+
+/** What `NodeHttpServer.layer` provides: the listening server and its platform. */
+export type NodeHttpServerServices = Layer.Success<
+  ReturnType<typeof NodeHttpServer.layer>
+>;
+
+/** Bind the tracked Node server on `host:port`; port 0 acquires an available one. */
+export const makeNodeServerLayer = (options: {
+  readonly host: string;
+  readonly port: number;
+}) => NodeHttpServer.layer(createTrackedServer, options);
 
 export const makeHttpServerLayer = ({
   agentRunStore,
@@ -95,6 +112,7 @@ export const makeHttpServerLayer = ({
   mcp = Layer.empty,
   port,
   runVideoRenderer,
+  server,
   serveWebUi,
   teachingRecordingStore,
 }: HttpServerOptions) => {
@@ -114,7 +132,7 @@ export const makeHttpServerLayer = ({
   // to the served router rather than to the route layers.
   const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>
     HttpRouter.serve(Layer.mergeAll(routes, mcp, webRoutes)).pipe(
-      Layer.provide(NodeHttpServer.layer(createTrackedServer, { host, port }))
+      Layer.provide(server ?? makeNodeServerLayer({ host, port }))
     );
   // The Agent Run video route exists only where a Run store does: a process
   // that owns no Agent Sessions has no persisted Interactive Runs to serve.

@@ -42,10 +42,12 @@ import {
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
+import { DemoTeachingPassword } from "@/components/agent/demo-teaching-password";
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { DryRunVariables } from "@/components/agent/dry-run-variables";
 import { RunDock } from "@/components/agent/run-dock";
+import { hasDemoTeachingPassword } from "@/components/agent/run-provenance";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { hasRuntimeVariableNotice } from "@/components/agent/runtime-variable-state";
@@ -620,6 +622,7 @@ const AgentLiveView = ({
   const readOnly = session.controller !== "user";
   const secretVariables = dryRunSecretVariables(session);
   const showsNotices =
+    hasDemoTeachingPassword(session) ||
     notices !== null ||
     secretVariables.length > 0 ||
     (session.controller === "agent" &&
@@ -716,6 +719,7 @@ const AgentLiveView = ({
               <ExecutionBoundary session={session} />
               <RuntimeVariables session={session} />
               <SetupVariables session={session} />
+              <DemoTeachingPassword key={session.id} session={session} />
               {secretVariables.length > 0 ? (
                 <DryRunVariables
                   sessionId={session.id}

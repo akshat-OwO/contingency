@@ -2,6 +2,8 @@ import { Effect } from "effect";
 import { CliError, Command } from "effect/cli";
 
 import { mcpCommand } from "./mcp.ts";
+import { registerCommand } from "./register.ts";
+import { startCommand } from "./start.ts";
 import { webCommand } from "./web.ts";
 
 const ROOT_COMMAND_NAME = "contingency";
@@ -15,5 +17,10 @@ const rootCommand = Command.make(ROOT_COMMAND_NAME, {}, () =>
 );
 
 export const commands = rootCommand.pipe(
-  Command.withSubcommands([mcpCommand, webCommand])
+  Command.withSubcommands([
+    startCommand,
+    mcpCommand,
+    registerCommand,
+    webCommand,
+  ])
 );

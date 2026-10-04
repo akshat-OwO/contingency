@@ -44,10 +44,7 @@ const PrerequisiteVariable = ({
       setState({ error: "", pending: false, value: "" });
     } catch (error) {
       setState({
-        error: failureMessage(
-          error,
-          "Could not answer the prerequisite request."
-        ),
+        error: failureMessage(error, "Could not answer the input request."),
         pending: false,
         value: "",
       });
@@ -98,9 +95,18 @@ const PrerequisiteVariable = ({
   );
 };
 
-export const DryRunPrerequisiteVariables = ({
+/**
+ * Private inputs the user supplies or refuses in Workspace. The agent sees
+ * each one's status, never its value. A Dry Run takes its prerequisite
+ * Variables here, and an Example Run takes its bundled skill's private inputs.
+ */
+export const WorkspaceVariables = ({
+  description,
+  heading,
   session,
 }: {
+  readonly description: string;
+  readonly heading: string;
   readonly session: AgentSessionSnapshot;
 }) => {
   const pending = session.pendingDecisions.filter(
@@ -129,14 +135,11 @@ export const DryRunPrerequisiteVariables = ({
   }
   return (
     <section
-      aria-label="Prerequisite Variables"
+      aria-label={heading}
       className="bg-background space-y-3 rounded-lg border p-3 text-sm shadow-lg"
     >
-      <h2 className="font-semibold">Prerequisite Variables</h2>
-      <p>
-        Supply or refuse private prerequisite inputs here. The agent sees their
-        status, never their values.
-      </p>
+      <h2 className="font-semibold">{heading}</h2>
+      <p>{description}</p>
       {pending.map((decision) => (
         <PrerequisiteVariable
           key={decision.pendingDecisionId}
@@ -152,3 +155,27 @@ export const DryRunPrerequisiteVariables = ({
     </section>
   );
 };
+
+export const DryRunPrerequisiteVariables = ({
+  session,
+}: {
+  readonly session: AgentSessionSnapshot;
+}) => (
+  <WorkspaceVariables
+    description="Supply or refuse private prerequisite inputs here. The agent sees their status, never their values."
+    heading="Prerequisite Variables"
+    session={session}
+  />
+);
+
+export const ExampleVariables = ({
+  session,
+}: {
+  readonly session: AgentSessionSnapshot;
+}) => (
+  <WorkspaceVariables
+    description="Supply or refuse this Example's private inputs here. The demo account accepts any password of at least 8 characters. The agent sees their status, never their values."
+    heading="Example private inputs"
+    session={session}
+  />
+);

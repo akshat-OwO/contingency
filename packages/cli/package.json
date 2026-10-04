@@ -17,7 +17,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsdown && node -e \"require('node:fs').cpSync('skills','dist/skills',{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
+    "build": "tsdown && node -e \"const fs=require('node:fs');for(const [from,to] of [['skills','dist/skills'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding']])fs.cpSync(from,to,{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
     "check-types": "tsc --noEmit",
     "dev": "nub watch src/index.ts web --no-browser",
     "prepack": "nub run build",
@@ -33,7 +33,8 @@
     "open": "^11.0.0",
     "playwright-core": "^1.62.1",
     "puppeteer-core": "^25.12.0",
-    "quickjs-emscripten-core": "0.32.0"
+    "quickjs-emscripten-core": "0.32.0",
+    "smol-toml": "^1.9.0"
   },
   "devDependencies": {
     "@contingency/protocol": "workspace:*",

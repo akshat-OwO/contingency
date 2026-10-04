@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Agent onboarding](./workspace.md#agent-onboarding) proves session-only agent launch, bundled Examples, private demo Variables, fresh Dry Runs, verification, project-local reuse, registration, and shutdown.
+
 - [Dry Run prerequisites](./workspace.md#dry-run-prerequisites) proves startup-fixed verified setup skills, private Workspace supply and refusal, skill-scoped replacement, and a complete cart outcome in one fresh context using the gated prerequisite shop.
 
 - [Teaching setup Variables](./workspace.md#teaching-setup-variables) proves private Workspace supply and refusal before recording, replacement and replay, masking across handoff, and setup-free learned inputs with the isolated sign-in fixture.

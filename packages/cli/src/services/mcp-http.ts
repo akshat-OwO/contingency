@@ -7,6 +7,7 @@ import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
 import { McpCodeModeLayer } from "./mcp-code-mode.ts";
+import { McpOnboardingLayer } from "./mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
 
 /** Streamable HTTP path Cursor and other URL MCP clients POST to. */
@@ -54,5 +55,6 @@ export const makeMcpHttpLayer = (
     McpAgentRunLayer,
     McpTeachingRecordingLayer,
     McpAuthoringSkillsLayer,
+    McpOnboardingLayer,
     options.codeMode === true ? McpCodeModeLayer : Layer.empty
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));

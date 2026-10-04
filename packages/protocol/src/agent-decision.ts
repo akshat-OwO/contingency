@@ -169,6 +169,17 @@ export type AgentVariableEnter = typeof AgentVariableEnter.Type;
  * storage for one MCP process. Contingency never scans a user-global catalog.
  */
 export const AgentCatalogInfo = Schema.Struct({
+  /**
+   * Present when no usable current project directory was available, so this
+   * process uses the directory where onboarding registered Contingency
+   * (ADR 0049). The agent names it to the user before using the catalog.
+   */
+  fallback: Schema.optional(
+    Schema.Struct({
+      directory: nonEmptyString,
+      reason: nonEmptyString,
+    })
+  ),
   flowSkillCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   root: nonEmptyString,
 });
@@ -180,8 +191,17 @@ export const AgentCatalogSelect = Schema.Struct({
 });
 export type AgentCatalogSelect = typeof AgentCatalogSelect.Type;
 
+/**
+ * The bundled demo site a piece of work belongs to. Demo work stays in the
+ * user's catalog but is labeled so it never reads as a real website's journey.
+ */
+export const DemoSiteId = Schema.Literal("ridgeline");
+export type DemoSiteId = typeof DemoSiteId.Type;
+
 /** One Flow Skill package the selected Catalog Root holds. */
 export const FlowSkillListEntry = Schema.Struct({
+  /** Present when every taught host belongs to a bundled demo site. */
+  demo: Schema.optional(DemoSiteId),
   /** Declared in SKILL.md frontmatter; the task and when to run it. */
   description: Schema.String,
   /**

@@ -8,6 +8,7 @@ import { HttpRouter, HttpServer } from "effect/http";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
 import {
   MCP_HTTP_PATH,
@@ -49,7 +50,8 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
           }),
           makeFlowSkillCatalogLayer({ root: catalogRoot }),
           makeAgentRunStoreLayer({ root: () => catalogRoot }),
-          makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
+          makeTeachingRecordingStoreLayer({ root: () => catalogRoot }),
+          makeDemoSiteLayer()
         ).pipe(
           Layer.provideMerge(CreateBrowserLive),
           Layer.provideMerge(NodeServices.layer)

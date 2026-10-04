@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in · Ridgeline Hardware demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body data-page="signin">
+    <aside class="demo-notice" aria-label="Demo notice">
+      <p>
+        Ridgeline Hardware is a Contingency demo store. Nothing here is real: no
+        payments, deliveries, or accounts.
+      </p>
+    </aside>
+    <section id="fault-banner" class="fault" aria-label="Demo fault" hidden>
+      <p>
+        Demo fault on: Add to cart leaves the cart unchanged in this browser.
+      </p>
+      <button type="button" class="secondary">Restore healthy store</button>
+    </section>
+    <header class="site">
+      <p class="wordmark"><a href="/">Ridgeline Hardware</a></p>
+      <nav class="site-nav" aria-label="Store">
+        <ul>
+          <li><a href="/">Shop</a></li>
+          <li><a id="cart-link" href="/cart.html">Cart</a></li>
+          <li><a id="account-link" href="/signin.html">Sign in</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main>
+      <h1>Sign in</h1>
+      <p class="lede">
+        Use the demo account demo@ridgeline.test with any password of at least 8
+        characters.
+      </p>
+      <form id="signin-form" class="panel" novalidate>
+        <p>
+          <label for="email"
+            >Email
+            <input id="email" name="email" type="email" autocomplete="username"
+          /></label>
+        </p>
+        <p>
+          <label for="password"
+            >Password
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+          /></label>
+        </p>
+        <button type="submit">Sign in</button>
+        <p id="signin-error" class="status" role="alert"></p>
+      </form>
+    </main>
+  </body>
+</html>

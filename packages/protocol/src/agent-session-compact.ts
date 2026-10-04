@@ -1,10 +1,12 @@
 import { Schema } from "effect";
+import type { Mutable } from "effect/Types";
 
 import { AgentExecutionBoundary, AgentTimelineEntry } from "./agent-browser.ts";
 import {
   AgentPendingDecision,
   AgentPendingDecisionResolution,
   AgentSessionVariableState,
+  DemoSiteId,
 } from "./agent-decision.ts";
 import { AgentSessionController, AgentSessionId } from "./agent-identifiers.ts";
 import {
@@ -47,6 +49,9 @@ const latestOf = <S extends Schema.Top>(item: S) =>
 
 const CompactTaskRun = Schema.Struct({
   assessment: Schema.NullOr(AgentTaskAssessment),
+  demoSite: Schema.optional(DemoSiteId),
+  /** Bundled Example Flow Skills among the referenced skills (ADR 0050). */
+  exampleSkills: Schema.optional(Schema.Array(FlowSkillName)),
   findings: latestOf(AgentTaskFinding),
   /** Identities only: the agent already holds the values it supplied. */
   inputs: Schema.Array(AgentRunInputIdentity),
@@ -140,7 +145,7 @@ const compactRun = (
     return null;
   }
   if ("schemaVersion" in run) {
-    return {
+    const compact: Mutable<typeof CompactTaskRun.Type> = {
       assessment: run.assessment,
       findings: latest(run.findings),
       inputs: run.inputs.map(({ flowSkillName, name }) => ({
@@ -163,6 +168,16 @@ const compactRun = (
       scanRequirements: run.scanRequirements ?? [],
       variables: run.variables,
     };
+    if (run.demoSite !== undefined) {
+      compact.demoSite = run.demoSite;
+    }
+    const exampleSkills = run.referencedSkills.flatMap((skill) =>
+      skill.origin === "example" ? [skill.flowSkillName] : []
+    );
+    if (exampleSkills.length > 0) {
+      compact.exampleSkills = exampleSkills;
+    }
+    return compact;
   }
   return {
     activeStepIndex: run.activeStepIndex,

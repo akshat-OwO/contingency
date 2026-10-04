@@ -16,6 +16,7 @@ import type {
 import { Effect, FileSystem, Option } from "effect";
 
 import { AgentSession } from "./agent-session.ts";
+import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
@@ -367,7 +368,7 @@ export const startDryRun = (input: DryRunStartInput) =>
       );
     }
     const startedAt = new Date().toISOString();
-    const run: TaskAgentRunState = {
+    const run: TaskAgentRunState = markDemoWork(hosts, {
       assessment: null,
       attribution: {
         clientName: "flow-skill-dry-run",
@@ -421,7 +422,7 @@ export const startDryRun = (input: DryRunStartInput) =>
           supplied: false,
         })),
       ],
-    };
+    });
     const evidenceDirectory = path.join(
       store.directory(manifest.recordingId),
       "dry-run"

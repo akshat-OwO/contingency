@@ -7,6 +7,7 @@ import type {
 
 import { Badge } from "@/components/ui/badge";
 
+import { runProvenance } from "./run-provenance.ts";
 import { ScanResults } from "./scan-results.tsx";
 
 const EvidenceReferences = ({
@@ -49,70 +50,86 @@ export const TaskRunDetails = ({
   run,
 }: {
   readonly run: TaskAgentRunState | TaskAgentRunSummary;
-}) => (
-  <div className="space-y-4 text-sm">
-    <section aria-label="Requested task" className="space-y-2">
-      <h3 className="font-semibold">Requested task</h3>
-      <p className="wrap-anywhere">{run.requestedTask}</p>
-      {run.instructions.length === 0 ? null : (
-        <ol aria-label="Changed instructions" className="space-y-2">
-          {run.instructions.map((instruction) => (
-            <li
-              className="wrap-anywhere"
-              key={`${instruction.receivedAt}:${instruction.instruction}`}
-            >
-              {instruction.instruction}
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-    <section aria-label="Referenced skills" className="space-y-2">
-      <h3 className="font-semibold">Referenced skills</h3>
-      {run.referencedSkills.length === 0 ? (
-        <p>No Flow Skills referenced.</p>
-      ) : (
-        <ul className="space-y-1">
-          {run.referencedSkills.map((skill) => (
-            <li className="wrap-anywhere" key={skill.flowSkillName}>
-              {skill.flowSkillName}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-    <ScanResults run={run} />
-    <section aria-label="Task assessment" className="space-y-2">
-      <h3 className="font-semibold">Agent Assessment</h3>
-      {run.assessment === null ? (
-        <p>No Agent Assessment submitted.</p>
-      ) : (
-        <Assessment assessment={run.assessment} />
-      )}
-      {run.purpose.kind === "dry-run" ? (
-        <p className="text-muted-foreground text-xs">
-          {run.assessment?.outcomeComplete === true
-            ? "The agent reports a complete skill outcome attempt."
-            : "The agent did not report a complete skill outcome attempt."}
-          {run.purpose.takeoverOccurred
-            ? " User Takeover prevents this Dry Run from passing."
-            : ""}
-        </p>
-      ) : null}
-    </section>
-    <section aria-label="Findings" className="space-y-2">
-      <h3 className="font-semibold">Findings</h3>
-      {run.findings.length === 0 ? (
-        <p>No findings recorded.</p>
-      ) : (
-        <ul className="space-y-2">
-          {run.findings.map((finding) => (
-            <li key={finding.id}>
-              <Assessment assessment={finding} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  </div>
-);
+}) => {
+  const provenance = runProvenance(run);
+  return (
+    <div className="space-y-4 text-sm">
+      <section aria-label="Requested task" className="space-y-2">
+        <h3 className="font-semibold">Requested task</h3>
+        <p className="wrap-anywhere">{run.requestedTask}</p>
+        {provenance.demoSiteName === undefined ? null : (
+          <p className="text-muted-foreground text-xs">
+            {provenance.example
+              ? `A bundled Example on the ${provenance.demoSiteName} demo store. It demonstrates Contingency and is not your verified work.`
+              : `Demo work on the ${provenance.demoSiteName} demo store, not a real website.`}
+          </p>
+        )}
+        {run.instructions.length === 0 ? null : (
+          <ol aria-label="Changed instructions" className="space-y-2">
+            {run.instructions.map((instruction) => (
+              <li
+                className="wrap-anywhere"
+                key={`${instruction.receivedAt}:${instruction.instruction}`}
+              >
+                {instruction.instruction}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+      <section aria-label="Referenced skills" className="space-y-2">
+        <h3 className="font-semibold">Referenced skills</h3>
+        {run.referencedSkills.length === 0 ? (
+          <p>No Flow Skills referenced.</p>
+        ) : (
+          <ul className="space-y-1">
+            {run.referencedSkills.map((skill) => (
+              <li
+                className="flex flex-wrap items-center gap-2 wrap-anywhere"
+                key={skill.flowSkillName}
+              >
+                {skill.flowSkillName}
+                {skill.origin === "example" ? (
+                  <Badge variant="outline">Example</Badge>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <ScanResults run={run} />
+      <section aria-label="Task assessment" className="space-y-2">
+        <h3 className="font-semibold">Agent Assessment</h3>
+        {run.assessment === null ? (
+          <p>No Agent Assessment submitted.</p>
+        ) : (
+          <Assessment assessment={run.assessment} />
+        )}
+        {run.purpose.kind === "dry-run" ? (
+          <p className="text-muted-foreground text-xs">
+            {run.assessment?.outcomeComplete === true
+              ? "The agent reports a complete skill outcome attempt."
+              : "The agent did not report a complete skill outcome attempt."}
+            {run.purpose.takeoverOccurred
+              ? " User Takeover prevents this Dry Run from passing."
+              : ""}
+          </p>
+        ) : null}
+      </section>
+      <section aria-label="Findings" className="space-y-2">
+        <h3 className="font-semibold">Findings</h3>
+        {run.findings.length === 0 ? (
+          <p>No findings recorded.</p>
+        ) : (
+          <ul className="space-y-2">
+            {run.findings.map((finding) => (
+              <li key={finding.id}>
+                <Assessment assessment={finding} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+};
