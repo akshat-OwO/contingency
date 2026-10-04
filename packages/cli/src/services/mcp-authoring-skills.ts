@@ -89,6 +89,13 @@ export const readAuthoringSkill = (
 const LEARN_PROMPT_NAME = "learn-flow-skill";
 
 /**
+ * The same procedure as a resource. Some clients never surface MCP prompts to
+ * the model, and a user should not have to invoke one by hand, so both access
+ * methods serve this one text.
+ */
+export const LEARN_FLOW_SKILL_URI = "contingency://prompt/learn-flow-skill";
+
+/**
  * The reading order a learning agent follows. It is a prompt rather than a
  * sentence in a tool description because the host must be able to hand the
  * whole procedure to the agent in one call.
@@ -130,6 +137,15 @@ export const McpAuthoringSkillsLayer: Layer.Layer<
   never,
   FileSystem.FileSystem
 > = Layer.mergeAll(
+  McpServer.resource({
+    audience: ["assistant"],
+    content: Effect.succeed(learnFlowSkillPrompt),
+    description:
+      "The learn-flow-skill procedure: how to learn a Teaching Recording into a Flow Skill, Dry Run it, and record the user's verification. The same text as the learn-flow-skill prompt.",
+    mimeType: "text/markdown",
+    name: LEARN_PROMPT_NAME,
+    uri: LEARN_FLOW_SKILL_URI,
+  }),
   McpServer.prompt({
     content: () => Effect.succeed(learnFlowSkillPrompt),
     description:

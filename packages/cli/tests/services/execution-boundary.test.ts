@@ -1,4 +1,8 @@
-import { AgentSessionId, OperationId } from "@contingency/protocol";
+import {
+  AgentElementRef,
+  AgentSessionId,
+  OperationId,
+} from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
@@ -59,6 +63,52 @@ const answer = (
     },
     paused
   );
+
+it.effect(
+  "keeps Example authority fixed while retaining action confirmation",
+  () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() =>
+        makeExecutionBoundary({
+          fixedHosts: true,
+          hosts: ["ridgeline.localhost"],
+          now: () => new Date(),
+          scope: "interactive",
+          sessionId: AgentSessionId.make("agent-example-boundary"),
+        })
+      ),
+      (boundary) =>
+        Effect.gen(function* fixedExampleAuthority() {
+          const outside = requirePause(
+            yield* boundary.checkNavigation("https://other.example", "outside")
+          );
+          const denied = yield* answer(boundary, outside).pipe(Effect.flip);
+          expect(denied.message).toContain("cannot approve another domain");
+          expect(boundary.allows("https://other.example")).toBe(false);
+          yield* answer(boundary, outside, "refuse");
+          const added = yield* boundary
+            .admitRequestedHosts(["other.example"])
+            .pipe(Effect.flip);
+          expect(added.message).toContain("limited to the bundled demo");
+          const confirmation = requirePause(
+            yield* boundary.checkAttempt(
+              attempt({
+                action: { ref: AgentElementRef.make("e1"), type: "click" },
+                capturedAction: {
+                  ref: AgentElementRef.make("e1"),
+                  type: "click",
+                },
+                intent: { irreversible: true },
+              })
+            )
+          );
+          expect(confirmation.pending.boundary.reason).toBe("confirmation");
+          yield* answer(boundary, confirmation);
+          expect(boundary.pending()).toBeUndefined();
+        }),
+      (boundary) => Effect.sync(boundary.dispose)
+    )
+);
 
 it.effect(
   "releases policy state without breaking pending-decision scans of ended sessions",

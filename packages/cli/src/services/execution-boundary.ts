@@ -100,12 +100,15 @@ const hostAllowed = (hosts: ReadonlySet<string>, url: string): boolean => {
 
 /** Synchronous atom transitions keep interception and action dispatch on one policy state. */
 export const makeExecutionBoundary = (options: {
+  /** Bundled Examples retain their demo-only authority throughout the Run. */
+  readonly fixedHosts?: boolean;
   readonly hosts: readonly string[];
   readonly sessionId: AgentSessionId;
   readonly now: () => Date;
   readonly scope: "interactive" | "dry-run";
 }): ExecutionBoundary => {
   const registry = AtomRegistry.make();
+  const fixedHosts = new Set(options.hosts.map((host) => host.toLowerCase()));
   let disposed = false;
   const state = Atom.make<BoundaryState>({
     grants: new Set<string>(),
@@ -140,23 +143,36 @@ export const makeExecutionBoundary = (options: {
   };
 
   return {
-    admitRequestedHosts: (hosts) =>
-      options.scope === "dry-run" && hosts.length > 0
-        ? Effect.fail(
-            makeBrowserRpcError(
-              "agent_session_invalid",
-              "A Dry Run retains its Teaching hosts. Start a fresh Dry Run to change prerequisites."
-            )
+    admitRequestedHosts: (hosts) => {
+      if (
+        options.fixedHosts &&
+        hosts.some((host) => !fixedHosts.has(host.toLowerCase()))
+      ) {
+        return Effect.fail(
+          makeBrowserRpcError(
+            "agent_session_invalid",
+            "An Example Run is limited to the bundled demo. Start a separate Run for another website."
           )
-        : Effect.sync(() =>
-            registry.update(state, (current) => ({
-              ...current,
-              hosts: new Set([
-                ...current.hosts,
-                ...hosts.map((host) => host.toLowerCase()),
-              ]),
-            }))
-          ),
+        );
+      }
+      if (options.scope === "dry-run" && hosts.length > 0) {
+        return Effect.fail(
+          makeBrowserRpcError(
+            "agent_session_invalid",
+            "A Dry Run retains its Teaching hosts. Start a fresh Dry Run to change prerequisites."
+          )
+        );
+      }
+      return Effect.sync(() =>
+        registry.update(state, (current) => ({
+          ...current,
+          hosts: new Set([
+            ...current.hosts,
+            ...hosts.map((host) => host.toLowerCase()),
+          ]),
+        }))
+      );
+    },
     allows: (url) => !disposed && hostAllowed(registry.get(state).hosts, url),
     checkAttempt: (attempt) =>
       Effect.sync(() =>
@@ -279,6 +295,18 @@ export const makeExecutionBoundary = (options: {
           );
         }
         const allowed = input.decision === "allow";
+        if (
+          allowed &&
+          options.fixedHosts &&
+          pending.boundary.reason === "domain"
+        ) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_session_invalid",
+              "An Example Run cannot approve another domain. Refuse this navigation and start a separate Run for another website."
+            )
+          );
+        }
         if (!(allowed || input.decision === "refuse")) {
           return yield* Effect.fail(
             makeBrowserRpcError(

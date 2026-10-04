@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Start a return · Ridgeline Hardware demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body data-page="return">
+    <aside class="demo-notice" aria-label="Demo notice">
+      <p>
+        Ridgeline Hardware is a Contingency demo store. Nothing here is real: no
+        payments, deliveries, or accounts.
+      </p>
+    </aside>
+    <section id="fault-banner" class="fault" aria-label="Demo fault" hidden>
+      <p>
+        Demo fault on: Add to cart leaves the cart unchanged in this browser.
+      </p>
+      <button type="button" class="secondary">Restore healthy store</button>
+    </section>
+    <header class="site">
+      <p class="wordmark"><a href="/">Ridgeline Hardware</a></p>
+      <nav class="site-nav" aria-label="Store">
+        <ul>
+          <li><a href="/">Shop</a></li>
+          <li><a id="cart-link" href="/cart.html">Cart</a></li>
+          <li><a id="account-link" href="/signin.html">Sign in</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main>
+      <h1 id="return-heading">Start a return</h1>
+      <form id="return-form" class="panel">
+        <dl class="summary">
+          <dt>Product</dt>
+          <dd id="return-product"></dd>
+        </dl>
+        <p>
+          <label for="reason"
+            >Return reason
+            <select id="reason" name="reason"></select
+          ></label>
+        </p>
+        <button type="submit">Submit return</button>
+      </form>
+      <section id="return-confirmation" class="panel confirmation" hidden>
+        <h2 tabindex="-1">Return started</h2>
+        <p id="confirmation-text"></p>
+        <p><a href="/orders.html">Back to your orders</a></p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "requirements": [
+    {
+      "id": "cart-accessibility",
+      "mode": "accessibility",
+      "when": "The Your cart page lists the chosen product in Items."
+    }
+  ]
+}

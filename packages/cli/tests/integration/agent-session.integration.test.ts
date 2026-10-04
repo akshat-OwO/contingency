@@ -10,7 +10,10 @@ import { Effect, FileSystem, Layer, Schedule, Stream } from "effect";
 import { RpcTest } from "effect/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
-import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
+import {
+  AgentSession,
+  makeAgentSessionLayer,
+} from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
@@ -42,7 +45,7 @@ const teachingIntegrationLive = (
   captureLimits?: TeachingCaptureLimits
 ) =>
   RpcHandlersLive.pipe(
-    Layer.provide(
+    Layer.provideMerge(
       makeAgentSessionLayer({
         allowedActivity: "teaching",
         baseUrl: "http://127.0.0.1:7777",
@@ -204,14 +207,29 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
         sessionId: setup.id,
       });
       expect(second.session.recordingId).not.toBe(setup.recordingId);
-      yield* client("agent.teaching.recording.stop", {
-        operationId: OperationId.make("stop-second-teaching-boundary"),
+      yield* client("agent.browser.navigate", {
+        action: {
+          type: "navigate",
+          url: "data:text/html,<title>shutdown recording</title><main>Retain this recording after shutdown</main>",
+        },
         sessionId: setup.id,
       });
-      yield* client("agent.session.close", {
-        operationId: OperationId.make("close-teaching-boundary"),
-        sessionId: setup.id,
-      });
+      const sessions = yield* AgentSession;
+      yield* sessions.closeAll();
+      const interrupted = yield* sessions.get(setup.id);
+      expect(interrupted.phase).toBe("interrupted");
+      expect(interrupted.captureState?._tag).toBe("ready");
+      const secondDirectory = `${root}/.recordings/${second.session.recordingId}`;
+      const interruptedEvents = yield* fileSystem.readFileString(
+        `${secondDirectory}/events.jsonl`
+      );
+      expect(interruptedEvents.trimEnd().split("\n").at(-1)).toContain(
+        '"reason":"session-closed"'
+      );
+      const manifest: unknown = JSON.parse(
+        yield* fileSystem.readFileString(`${secondDirectory}/manifest.json`)
+      );
+      expect(manifest).toMatchObject({ lifecycle: { _tag: "ready" } });
     }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

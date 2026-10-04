@@ -42,6 +42,8 @@ Commands:
   browser url
   browser resize --width <px> [--height <px>]
   browser mouse --x <px> --y <px> [--click]
+  browser canvas-click --x <site-px> --y <site-px>
+  browser canvas-type --text <text> [--enter]
   browser input-check --session-id <id>
   browser scroll-check --session-id <id> [--record] [--path <directory>] [--events <n>] [--delta <px>]
   browser click --role <role> --name <name> [--partial]
@@ -304,6 +306,42 @@ const runPageAction = async (page, appUrl, action, flags) => {
         await page.mouse.up();
       }
       return `${x},${y}`;
+    }
+    case "canvas-click": {
+      // A user's click on the nested site, given in that site's own CSS
+      // pixels and mapped through the live canvas's current scale.
+      const x = Number(flags.x);
+      const y = Number(flags.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("browser canvas-click needs --x and --y.");
+      }
+      const canvas = page.locator('canvas[aria-label="Live browser viewport"]');
+      await canvas.waitFor({ state: "visible" });
+      const box = await canvas.boundingBox();
+      if (box === null) {
+        throw new Error("The live browser canvas has no bounds.");
+      }
+      const dimensions = await canvas.evaluate((element) => ({
+        height: element.height,
+        width: element.width,
+      }));
+      if (dimensions.width === 0 || dimensions.height === 0) {
+        throw new Error("The live browser canvas has no frame yet.");
+      }
+      await page.mouse.click(
+        box.x + (x * box.width) / dimensions.width,
+        box.y + (y * box.height) / dimensions.height
+      );
+      return `clicked site point ${x},${y}`;
+    }
+    case "canvas-type": {
+      // Keys reach the nested Page while the canvas holds focus.
+      const text = String(flags.text ?? "");
+      await page.keyboard.type(text);
+      if (flags.enter === true || flags.enter === "true") {
+        await page.keyboard.press("Enter");
+      }
+      return `typed ${text.length} characters`;
     }
     case "input-check": {
       const canvas = page.locator('canvas[aria-label="Live browser viewport"]');

@@ -14,6 +14,11 @@ import {
   agentIdleNotice,
   runDockPresentation,
 } from "@/components/agent/run-dock-state";
+import {
+  runProvenance,
+  sessionTaskRun,
+} from "@/components/agent/run-provenance";
+import type { RunProvenance } from "@/components/agent/run-provenance";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
 import {
   DockSessionSelect,
@@ -114,6 +119,42 @@ const RunCoverage = ({
 };
 
 /**
+ * Marks bundled Example Runs and demo-store work, so a demonstration never
+ * reads as a check of the user's own website. An Example is always demo work,
+ * so it needs only the one label.
+ */
+const ProvenanceBadge = ({
+  provenance,
+}: {
+  readonly provenance: RunProvenance | undefined;
+}) => {
+  if (provenance === undefined) {
+    return null;
+  }
+  if (provenance.example) {
+    return (
+      <Badge
+        title={`Bundled Example Flow Skill on ${provenance.demoSiteName ?? "the demo store"}. It is not your verified work.`}
+        variant="outline"
+      >
+        Example
+      </Badge>
+    );
+  }
+  if (provenance.demoSiteName === undefined) {
+    return null;
+  }
+  return (
+    <Badge
+      title={`Demo work on ${provenance.demoSiteName}, not a real website.`}
+      variant="outline"
+    >
+      Demo store
+    </Badge>
+  );
+};
+
+/**
  * The Workspace dock for a Dry Run and an Interactive Run. It is the same
  * floating card Teaching gets: the wordmark, the session selector, one state
  * badge, one next-step sentence, how long an idle agent has been quiet, and
@@ -142,6 +183,8 @@ export const RunDock = ({
 }) => {
   const presentation = runDockPresentation(session, streamConnected);
   const control = agentControlPresentation(session);
+  const taskRun = sessionTaskRun(session);
+  const provenance = taskRun === undefined ? undefined : runProvenance(taskRun);
   return (
     <DockShell>
       <Wordmark />
@@ -158,6 +201,7 @@ export const RunDock = ({
         ) : null}
         {presentation.badge}
       </Badge>
+      <ProvenanceBadge provenance={provenance} />
       <DockStatus>
         {presentation.badge}. {presentation.nextStep}
       </DockStatus>

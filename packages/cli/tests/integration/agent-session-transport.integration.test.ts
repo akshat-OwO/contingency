@@ -223,10 +223,14 @@ interface McpChild {
   readonly waitForText: (text: string) => Promise<void>;
 }
 
-const spawnMcpChild = (port: number): McpChild => {
+const spawnMcpChild = (port: number, agentOwned = false): McpChild => {
   const child = spawn(
     process.execPath,
-    [path.resolve(import.meta.dirname, "../../src/index.ts"), "mcp"],
+    [
+      path.resolve(import.meta.dirname, "../../src/index.ts"),
+      "mcp",
+      ...(agentOwned ? ["--agent", "codex"] : []),
+    ],
     {
       env: {
         ...process.env,
@@ -425,6 +429,75 @@ const spawnMcpChild = (port: number): McpChild => {
     },
   };
 };
+
+it.live("keeps a direct HTTP server running after stdin closes", () =>
+  Effect.gen(function* headlessHttpServer() {
+    const port = yield* reservePort;
+    const mcp = spawnMcpChild(port);
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(() => mcp.stop()).pipe(Effect.ignore)
+    );
+    mcp.child.stdin.end();
+    yield* Effect.promise(() =>
+      mcp.waitForText(
+        `Contingency MCP Workspace available at http://127.0.0.1:${port}/`
+      )
+    );
+    yield* Effect.sleep("100 millis");
+    const response = yield* Effect.promise(() =>
+      fetch(`http://127.0.0.1:${port}/mcp`, {
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "initialize",
+          params: {
+            capabilities: {},
+            clientInfo: { name: "headless-http-test", version: "1" },
+            protocolVersion: "2025-11-25",
+          },
+        }),
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
+    );
+    expect(response.status).toBe(200);
+    const initialized = yield* Effect.promise(() => response.text());
+    expect(initialized).toContain('"protocolVersion":"2025-11-25"');
+    expect(initialized).toContain('"name":"Contingency"');
+    expect(mcp.child.exitCode).toBeNull();
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("finalizes an agent-owned server when its stdin closes", () =>
+  Effect.gen(function* agentStdinClosed() {
+    const port = yield* reservePort;
+    const mcp = spawnMcpChild(port, true);
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(() => mcp.stop()).pipe(Effect.ignore)
+    );
+    yield* Effect.promise(() =>
+      mcp.waitForText(
+        `Contingency MCP Workspace available at http://127.0.0.1:${port}/`
+      )
+    );
+    mcp.child.stdin.end();
+    yield* Effect.callback((resume) => {
+      if (mcp.child.exitCode !== null) {
+        resume(Effect.void);
+        return;
+      }
+      const closed = () => resume(Effect.void);
+      mcp.child.once("close", closed);
+      return Effect.sync(() => {
+        mcp.child.off("close", closed);
+      });
+    }).pipe(Effect.timeout("15 seconds"));
+    expect(mcp.child.exitCode).toBe(0);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
 const toolResult = (response: JsonRpcResponse) => {
   if (response.error !== undefined) {

@@ -589,6 +589,8 @@ export interface AgentSessionService {
   readonly noteAgentActivity: (
     sessionId: AgentSessionId
   ) => Effect.Effect<void>;
+  /** The base Workspace link, available before a browser session starts. */
+  readonly workspaceUrl: Effect.Effect<string, AgentSessionError>;
   /** The read-only Workspace link for one persisted Run. */
   readonly runViewUrl: (
     runId: AgentRunId
@@ -614,6 +616,11 @@ export interface PrivateVariableInput {
 export const AgentSession = Context.Service<AgentSessionService>(
   "@contingency/AgentSession"
 );
+
+const exampleRun = (run: AgentSessionSnapshot["run"]): boolean =>
+  run !== null &&
+  isTaskRun(run) &&
+  run.referencedSkills.some((skill) => skill.origin === "example");
 
 const notDeclaringVariables = (sessionId: AgentSessionId) =>
   error(
@@ -3556,6 +3563,7 @@ const makeAgentSession = (
                         input.domainScope === undefined
                           ? undefined
                           : makeExecutionBoundary({
+                              fixedHosts: exampleRun(base.run),
                               hosts: input.domainScope.hosts,
                               now,
                               scope: boundaryScopeKind(input),
@@ -5836,9 +5844,21 @@ const makeAgentSession = (
 
     const interruptUnlocked = Effect.fn("AgentSession.interrupt")(
       function* interruptSession(sessionId: AgentSessionId) {
-        const record = yield* read(sessionId);
+        let record = yield* read(sessionId);
         if (!isLive(record.snapshot.phase)) {
           return record.snapshot;
+        }
+        if (
+          record.snapshot.activity === "teaching" &&
+          record.snapshot.captureState._tag === "recording" &&
+          record.teachingRecorder !== undefined
+        ) {
+          yield* stopTeachingRecordingUnlocked(
+            sessionId,
+            `interrupt-recording-${sessionId}`,
+            "session-closed"
+          );
+          record = yield* read(sessionId);
         }
         const at = now().toISOString();
         const interrupted: AgentSessionSnapshot = {
@@ -5932,11 +5952,28 @@ const makeAgentSession = (
         ledger.serializeMutation(
           Effect.gen(function* answerPrerequisiteVariable() {
             const record = yield* read(sessionId);
-            if (record.snapshot.dryRun === null) {
+            // A Dry Run takes its prerequisite Variables in Workspace. An
+            // Example Run does too, for its bundled skill's private inputs, so
+            // onboarding demonstrates private values that never enter the
+            // agent conversation (ADR 0050).
+            const { run } = record.snapshot;
+            const decision = record.snapshot.pendingDecisions.find(
+              (candidate) =>
+                candidate.pendingDecisionId === input.pendingDecisionId
+            );
+            const exampleVariable =
+              run !== null &&
+              "schemaVersion" in run &&
+              run.referencedSkills.some(
+                (skill) =>
+                  skill.origin === "example" &&
+                  skill.flowSkillName === decision?.variable?.flowSkillName
+              );
+            if (record.snapshot.dryRun === null && !exampleVariable) {
               return yield* Effect.fail(
                 error(
                   "agent_session_invalid",
-                  "Only a Dry Run accepts a prerequisite Variable in Workspace."
+                  "Only a Dry Run or an Example Run accepts a Variable in Workspace."
                 )
               );
             }
@@ -7222,6 +7259,17 @@ const makeAgentSession = (
             { currentUrl: url }
           );
         }),
+      workspaceUrl: Effect.gen(function* workspaceUrl() {
+        if (!isAllowedAgentSessionBaseUrl(options.baseUrl)) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_invalid",
+              "Workspace must be served from a loopback URL."
+            )
+          );
+        }
+        return new URL("/", options.baseUrl).href;
+      }),
     };
 
     return service;

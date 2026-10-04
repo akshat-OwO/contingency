@@ -4,6 +4,7 @@ import { NodeServices } from "@effect/platform-node";
 import {
   Config,
   Console,
+  Context,
   Effect,
   FileSystem,
   Layer,
@@ -14,8 +15,8 @@ import {
 } from "effect";
 import { McpProtocol, McpServer } from "effect/ai";
 import type { IllegalArgumentError } from "effect/Cause";
-import { Command } from "effect/cli";
-import { HttpServerError } from "effect/http";
+import { Command, Flag } from "effect/cli";
+import { HttpServer, HttpServerError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
 
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
@@ -25,16 +26,23 @@ import {
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import {
-  defaultCatalogRoot,
-  makeFlowSkillCatalogLayer,
-} from "../services/flow-skill-catalog.ts";
-import { makeHttpServerLayer } from "../services/http-server.ts";
+  REGISTERED_AGENTS,
+  defaultHomeDirectory,
+  resolveCatalogDirectory,
+} from "../services/catalog-directory.ts";
+import { makeDemoSiteLayer } from "../services/demo-site-server.ts";
+import { makeFlowSkillCatalogLayer } from "../services/flow-skill-catalog.ts";
+import {
+  makeHttpServerLayer,
+  makeNodeServerLayer,
+} from "../services/http-server.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import { MCP_INSTRUCTIONS, makeMcpHttpLayer } from "../services/mcp-http.ts";
+import { McpOnboardingLayer } from "../services/mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
@@ -48,7 +56,8 @@ const mcpTools = Layer.mergeAll(
   McpAgentCatalogLayer,
   McpAgentRunLayer,
   McpTeachingRecordingLayer,
-  McpAuthoringSkillsLayer
+  McpAuthoringSkillsLayer,
+  McpOnboardingLayer
 );
 
 const ListenError = Schema.Struct({ code: Schema.String });
@@ -67,15 +76,61 @@ const isListenAddressInUse = (error: McpHttpFailure): boolean => {
 };
 
 /**
+ * Stdin closes when the agent that spawned this process exits, including an
+ * agent that is killed without stopping its children. Ending then runs every
+ * finalizer, so browsers close and Teaching Recordings and Runs persist under
+ * their lifecycle contracts instead of an orphan holding ports. A process a
+ * human started directly serves URL clients until it is interrupted, including
+ * a headless process whose stdin is closed.
+ */
+const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
+  !agentOwned || process.stdin.isTTY
+    ? Effect.never
+    : Effect.callback((resume) => {
+        if (process.stdin.readableEnded || process.stdin.destroyed) {
+          resume(Effect.void);
+          return;
+        }
+        const leave = (): void => {
+          resume(Effect.void);
+        };
+        process.stdin.once("end", leave);
+        process.stdin.once("close", leave);
+        return Effect.sync(() => {
+          process.stdin.off("end", leave);
+          process.stdin.off("close", leave);
+        });
+      });
+
+/**
  * Start one local MCP process. Its Agent Session layer is passed to both the
  * stdio adapter (Claude, Codex) and the Streamable HTTP `/mcp` route plus
  * Workspace, so all browser handles and shutdown finalizers remain owned by
  * this one process.
+ *
+ * `CONTINGENCY_MCP_PORT=0` binds an available port. The port is acquired by
+ * the bind itself and read back before any route or link is built, so two
+ * spawned clients never race for one port and each advertises its own
+ * Workspace. The default 7777 and its occupied-port behavior are unchanged
+ * for direct use.
  */
 export const mcpCommand = Command.make(
   "mcp",
-  {},
-  Effect.fnUntraced(function* runMcp() {
+  {
+    agent: Flag.Literals("agent", REGISTERED_AGENTS).pipe(
+      Flag.withDescription(
+        "The agent that spawns this server, which says how its current project directory is found."
+      ),
+      Flag.optional
+    ),
+    fallbackDirectory: Flag.String("fallback-directory").pipe(
+      Flag.withDescription(
+        "The original onboarding directory, used only when no usable current project directory is available."
+      ),
+      Flag.optional
+    ),
+  },
+  Effect.fnUntraced(function* runMcp({ agent, fallbackDirectory }) {
     const config = yield* Config.all({
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
@@ -95,15 +150,21 @@ export const mcpCommand = Command.make(
       );
     }
     const { codeMode, host, port, videoFastForward } = config;
-    const browserUrl = new URL(`http://${host}:${port}`);
-    const boundOrigin = { url: browserUrl.origin };
+    const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
         const fileSystem = yield* FileSystem.FileSystem;
+        const catalogDirectory = yield* resolveCatalogDirectory({
+          agent: Option.getOrUndefined(agent),
+          cwd: process.cwd(),
+          env: process.env,
+          fallbackDirectory: Option.getOrUndefined(fallbackDirectory),
+          home: defaultHomeDirectory(),
+        });
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
-        let selectedCatalogRoot = defaultCatalogRoot();
+        let selectedCatalogRoot = catalogDirectory.root;
         const teachingRecordingStore = Layer.succeedContext(
           yield* Layer.build(
             makeTeachingRecordingStoreLayer({
@@ -116,6 +177,7 @@ export const mcpCommand = Command.make(
         const catalog = Layer.succeedContext(
           yield* Layer.build(
             makeFlowSkillCatalogLayer({
+              fallback: catalogDirectory.fallback,
               onSelect: (root: string) => {
                 selectedCatalogRoot = root;
               },
@@ -132,6 +194,9 @@ export const mcpCommand = Command.make(
         );
         const runVideoRenderer = Layer.succeedContext(
           yield* Layer.build(RunVideoRendererLive)
+        );
+        const demoSite = Layer.succeedContext(
+          yield* Layer.build(makeDemoSiteLayer())
         );
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
@@ -158,6 +223,7 @@ export const mcpCommand = Command.make(
         const shared = Layer.mergeAll(
           agentSession,
           catalog,
+          demoSite,
           runStore,
           teachingRecordingStore,
           NodeServices.layer
@@ -170,22 +236,46 @@ export const mcpCommand = Command.make(
         // A TTY means a human started this process for URL clients. Stdio
         // would then consume the terminal. Claude and Codex spawn us with a
         // pipe and still get NDJSON on stdin.
-        if (!process.stdin.isTTY) {
-          yield* Layer.build(
-            Layer.mergeAll(
-              McpServer.layerStdio({
-                instructions: MCP_INSTRUCTIONS,
-                name: "Contingency",
-                protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
-                version: "0.0.1",
-              }),
-              mcpTools,
-              codeMode ? McpCodeModeLayer : Layer.empty
-            ).pipe(Layer.provide(shared))
+        const serveStdio = process.stdin.isTTY
+          ? Effect.void
+          : Layer.build(
+              Layer.mergeAll(
+                McpServer.layerStdio({
+                  instructions: MCP_INSTRUCTIONS,
+                  name: "Contingency",
+                  protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
+                  version: "0.0.1",
+                }),
+                mcpTools,
+                codeMode ? McpCodeModeLayer : Layer.empty
+              ).pipe(Layer.provide(shared))
+            );
+        const bound = yield* Layer.build(
+          makeNodeServerLayer({ host, port })
+        ).pipe(Effect.result);
+        if (Result.isFailure(bound)) {
+          // URL clients need this exact port. Spawned stdio clients (Claude,
+          // Codex) must keep tools up when the bind is taken, the same
+          // contract the occupied-port integration test pins.
+          if (isListenAddressInUse(bound.failure) && !process.stdin.isTTY) {
+            yield* serveStdio;
+            yield* Console.error(
+              `Contingency MCP Workspace could not bind ${host}:${port}; tools still run on stdio.`
+            );
+            return yield* untilClientLeaves(Option.isSome(agent));
+          }
+          return yield* Effect.fail(bound.failure);
+        }
+        const { address } = Context.get(bound.success, HttpServer.HttpServer);
+        if (address._tag === "UnixPathAddress") {
+          return yield* Effect.die(
+            new Error("The MCP Workspace must listen on a TCP port.")
           );
         }
+        const browserUrl = new URL(`http://${host}:${address.port}`);
+        boundOrigin.url = browserUrl.origin;
         const allowedOrigins = resolveAllowedOrigins(browserUrl);
-        const httpOutcome = yield* Layer.build(
+        yield* Layer.build(
           makeHttpServerLayer({
             agentRunStore: runStore,
             agentSession,
@@ -194,31 +284,28 @@ export const mcpCommand = Command.make(
             mcp: makeMcpHttpLayer(allowedOrigins, { codeMode }).pipe(
               Layer.provide(shared)
             ),
-            port,
+            port: address.port,
             runVideoRenderer,
             serveWebUi: true,
+            server: Layer.succeedContext(bound.success),
             teachingRecordingStore,
           }).pipe(Layer.provide(agentSession))
-        ).pipe(Effect.result);
-        if (Result.isSuccess(httpOutcome)) {
+        );
+        // Tools start only after the Workspace is listening, so a client never
+        // reaches a tool whose Workspace link is not served yet.
+        yield* serveStdio;
+        yield* Console.error(
+          `Contingency MCP available at ${browserUrl.origin}/mcp`
+        );
+        yield* Console.error(
+          `Contingency MCP Workspace available at ${browserUrl.origin}/`
+        );
+        if (catalogDirectory.fallback !== undefined) {
           yield* Console.error(
-            `Contingency MCP available at ${browserUrl.origin}/mcp`
+            `Contingency Catalog Root falls back to ${catalogDirectory.root}. ${catalogDirectory.fallback.reason}`
           );
-          yield* Console.error(
-            `Contingency MCP Workspace available at ${browserUrl.origin}/`
-          );
-          return yield* Effect.never;
         }
-        // URL clients need this exact port. Spawned stdio clients (Claude,
-        // Codex) must keep tools up when the bind is taken, the same contract
-        // the occupied-port integration test pins.
-        if (isListenAddressInUse(httpOutcome.failure) && !process.stdin.isTTY) {
-          yield* Console.error(
-            `Contingency MCP Workspace could not bind ${host}:${port}; tools still run on stdio.`
-          );
-          return yield* Effect.never;
-        }
-        return yield* Effect.fail(httpOutcome.failure);
+        return yield* untilClientLeaves(Option.isSome(agent));
       })
     ).pipe(Effect.provideService(Logger.LogToStderr, true));
   })

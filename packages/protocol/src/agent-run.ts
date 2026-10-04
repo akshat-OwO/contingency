@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
 import { AgentTimelineEntry } from "./agent-browser.ts";
-import { AgentSessionVariableState } from "./agent-decision.ts";
+import { AgentSessionVariableState, DemoSiteId } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
@@ -287,6 +287,11 @@ export type LegacyAgentFlowRunSummary = typeof LegacyAgentFlowRunSummary.Type;
 /** A skill requested by the user, including requests made after startup. */
 export const AgentRunSkillReference = Schema.Struct({
   flowSkillName: FlowSkillName,
+  /**
+   * `example` marks a read-only Example Flow Skill bundled with Contingency
+   * rather than a user-verified catalog skill (ADR 0050).
+   */
+  origin: Schema.optional(Schema.Literal("example")),
   referencedAt: nonEmptyString,
 });
 export type AgentRunSkillReference = typeof AgentRunSkillReference.Type;
@@ -366,6 +371,11 @@ export type AgentTaskRunPurpose = typeof AgentTaskRunPurpose.Type;
 const taskRunFields = {
   assessment: Schema.NullOr(AgentTaskAssessment),
   attribution: AgentRunAttribution,
+  /**
+   * Present when the Run's Domain Scope is a bundled demo site, so demo
+   * evidence in the user's catalog is never mistaken for a real website's.
+   */
+  demoSite: Schema.optional(DemoSiteId),
   findings: Schema.Array(AgentTaskFinding),
   inputs: Schema.Array(AgentRunTaskInput),
   instructions: Schema.Array(AgentRunInstruction),

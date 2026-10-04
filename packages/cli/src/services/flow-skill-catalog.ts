@@ -10,7 +10,9 @@ import type {
 } from "@contingency/protocol";
 import { Context, Effect, FileSystem, Layer } from "effect";
 import type { PlatformError } from "effect/PlatformError";
+import type { Mutable } from "effect/Types";
 
+import { DEMO_SITE_ID, isDemoHosts } from "./demo-site.ts";
 import {
   flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
@@ -35,10 +37,15 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
  * path that may produce one.
  */
 
+/** The directory a project's Catalog Root lives in. */
+export const CATALOG_DIRECTORY = ".contingency";
+
 /** The workspace's `.contingency` directory unless the environment names one. */
 export const defaultCatalogRoot = (cwd: string = process.cwd()): string => {
   const configured = process.env.CONTINGENCY_CATALOG_ROOT?.trim();
-  return configured ? path.resolve(configured) : path.join(cwd, ".contingency");
+  return configured
+    ? path.resolve(configured)
+    : path.join(cwd, CATALOG_DIRECTORY);
 };
 
 export interface FlowSkillCatalogError {
@@ -96,6 +103,12 @@ export const FlowSkillCatalog = Context.Service<FlowSkillCatalogService>(
 );
 
 export interface FlowSkillCatalogOptions {
+  /**
+   * Set when `root` is the original onboarding directory's catalog because no
+   * usable current project directory was available (ADR 0049). It is
+   * reported until another root is selected.
+   */
+  readonly fallback?: AgentCatalogInfo["fallback"];
   /** Notify process-owned companions when this catalog changes roots. */
   readonly onSelect?: (root: string) => void;
   readonly root: string;
@@ -233,7 +246,7 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         continue;
       }
       const frontmatter = readFlowSkillFrontmatter(read.success.content);
-      found.push({
+      const entry: Mutable<FlowSkillListEntry> = {
         description: frontmatter?.description ?? name,
         inputs: (frontmatter?.inputs ?? []).map(
           ({ description, name: inputName }) =>
@@ -243,7 +256,11 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         ),
         name,
         stepCount: flowSkillProcedureSteps(read.success.content).length,
-      });
+      };
+      if (isDemoHosts(frontmatter?.hosts ?? [])) {
+        entry.demo = DEMO_SITE_ID;
+      }
+      found.push(entry);
     }
     return found;
   });
@@ -255,10 +272,21 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   const service: FlowSkillCatalogService = {
     info: () =>
       entries(selected).pipe(
-        Effect.map((flowSkills) => ({
-          flowSkillCount: flowSkills.length,
-          root: selected,
-        }))
+        Effect.map((flowSkills) => {
+          const info: Mutable<AgentCatalogInfo> = {
+            flowSkillCount: flowSkills.length,
+            root: selected,
+          };
+          // The fallback describes the root this process started with; a
+          // root the agent selects since is the agent's own choice.
+          if (
+            options.fallback !== undefined &&
+            selected === path.resolve(options.root)
+          ) {
+            info.fallback = options.fallback;
+          }
+          return info;
+        })
       ),
     list,
     read: Effect.fnUntraced(function* readFlowSkill(

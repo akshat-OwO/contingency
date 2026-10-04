@@ -56,12 +56,15 @@ const NoParameters = Schema.Record(Schema.String, Schema.Unknown);
 
 const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
-    dependencies: [FlowSkillCatalog],
+    dependencies: [AgentSession, FlowSkillCatalog],
     description:
-      "Read the selected Catalog Root and how many Flow Skills it holds. It defaults to the workspace's .contingency directory; Contingency never scans a user-global catalog.",
+      "Read the Workspace URL, Catalog Root, and Flow Skill count. It defaults to the workspace's .contingency directory; Contingency never scans a user-global catalog.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
-    success: AgentCatalogInfo,
+    success: Schema.Struct({
+      ...AgentCatalogInfo.fields,
+      workspaceUrl: Schema.String,
+    }),
   })
 );
 
@@ -139,7 +142,14 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
   agent_catalog_get: () =>
     Effect.gen(function* readCatalog() {
       const catalog = yield* FlowSkillCatalog;
-      return yield* catalog.info().pipe(Effect.mapError(failure));
+      const session = yield* AgentSession;
+      const workspaceUrl = yield* session.workspaceUrl.pipe(
+        Effect.mapError(failure)
+      );
+      return {
+        ...(yield* catalog.info().pipe(Effect.mapError(failure))),
+        workspaceUrl,
+      };
     }),
   agent_catalog_select: (params) =>
     Effect.gen(function* selectCatalog() {

@@ -12,10 +12,35 @@ contingency --help
 The binary is `contingency`, whatever the package name says. To try it without installing:
 
 ```sh
-npx @contingencyhq/cli mcp
+npx @contingencyhq/cli start
 ```
 
 Node 24 or newer is required.
+
+## Start with your coding agent
+
+```sh
+npx @contingencyhq/cli start
+npx @contingencyhq/cli start --agent claude
+npx @contingencyhq/cli start --agent codex
+```
+
+Install and sign in to Claude Code or Codex first. `start` launches the one installed agent or offers a picker when both are installed. It connects Contingency for that session and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports.
+
+The agent offers bundled Examples on Ridgeline Hardware, a local demo store. Watch an Example, teach your own variation, and let the agent learn it and automatically start a fresh Dry Run. After a passing result, choose **Verify flow** in Workspace. Examples are read-only and remain separate from your saved Flow Skills. Demo skills retain their demo label when you return to the project.
+
+Supply private demo passwords in Workspace. During a return Teaching recording, click the store's Password field, then use **Demo password** and **Enter demo password**. The recording retains `DEMO_PASSWORD` in place of its value.
+
+After verification, you can keep the session-only connection or register Contingency for ordinary agent sessions:
+
+```sh
+contingency register --agent claude --scope project
+contingency register --agent codex --scope user
+```
+
+Project registration applies to the current project. User registration applies across projects, with a separate `.contingency` catalog in each project. Equivalent entries stay unchanged. A different entry is reported without changes; use `--replace` only after choosing replacement. If an agent cannot report a usable project directory, Contingency names and uses the original onboarding directory as its fallback.
+
+Registrations created through `npx` pin the installed Contingency version. To upgrade one, run `npx -y @contingencyhq/cli@latest register --agent codex --scope user --replace`, choosing the agent and scope of your existing registration.
 
 ## Chromium
 

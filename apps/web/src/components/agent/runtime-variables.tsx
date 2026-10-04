@@ -1,6 +1,10 @@
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 
-import { DryRunPrerequisiteVariables } from "./dry-run-prerequisite-variables";
+import {
+  DryRunPrerequisiteVariables,
+  ExampleVariables,
+} from "./dry-run-prerequisite-variables";
+import { takesExampleVariables } from "./run-provenance";
 
 /** Read-only requests; private values are supplied in the MCP conversation. */
 export const RuntimeVariables = ({
@@ -10,6 +14,9 @@ export const RuntimeVariables = ({
 }) => {
   if (session.dryRun?.flowSkillName !== undefined) {
     return <DryRunPrerequisiteVariables session={session} />;
+  }
+  if (takesExampleVariables(session)) {
+    return <ExampleVariables session={session} />;
   }
   const pending = (session.pendingDecisions ?? []).filter(
     (decision) => decision.kind === "supply_variable"

@@ -1,0 +1,288 @@
+:root {
+  color-scheme: light;
+  --ink: #1f2421;
+  --muted: #55605a;
+  --line: #d6dbd7;
+  --paper: #f7f6f2;
+  --card: #ffffff;
+  --brand: #2f5d46;
+  --brand-ink: #ffffff;
+  --warn: #8a3b12;
+  --warn-paper: #fff1e6;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+a {
+  color: var(--brand);
+}
+
+.demo-notice p {
+  margin: 0;
+}
+
+.demo-notice {
+  margin: 0;
+  padding: 0.4rem 1rem;
+  background: var(--ink);
+  color: #f1f3f1;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.fault {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1rem;
+  background: var(--warn-paper);
+  border-bottom: 2px solid var(--warn);
+  color: var(--warn);
+}
+
+.fault[hidden] {
+  display: none;
+}
+
+.fault p {
+  margin: 0;
+  font-weight: 600;
+}
+
+header.site {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.wordmark a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+nav.site-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+main {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.6rem;
+}
+
+.lede {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+}
+
+.panel {
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.location-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+}
+
+label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+select,
+input {
+  min-width: 12rem;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  border: 1px solid #8c968f;
+  border-radius: 0.35rem;
+  background: #fff;
+}
+
+/* Keep select popups in the page so Workspace's browser stream captures them. */
+select,
+::picker(select) {
+  appearance: base-select;
+}
+
+::picker(select) {
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid #8c968f;
+  border-radius: 0.35rem;
+}
+
+option {
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+}
+
+option:hover,
+option:focus-visible {
+  background: #e5ebe7;
+}
+
+button {
+  padding: 0.55rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--brand-ink);
+  background: var(--brand);
+  border: 0;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+button.secondary {
+  color: var(--brand);
+  background: transparent;
+  border: 1px solid var(--brand);
+}
+
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 3px solid #e0a526;
+  outline-offset: 2px;
+}
+
+.products {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.product h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.product p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.price {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.status {
+  min-height: 1.5rem;
+  margin: 0.5rem 0 0;
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+dl.summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+
+dl.summary dt {
+  font-weight: 600;
+}
+
+dl.summary dd {
+  margin: 0;
+}
+
+/* Documented demo finding: this note's contrast is deliberately too low so a
+   required accessibility scan has something real to report. */
+.fine-print {
+  color: #b8bcb9;
+  font-size: 0.85rem;
+}
+
+.confirmation {
+  border-color: var(--brand);
+  border-width: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

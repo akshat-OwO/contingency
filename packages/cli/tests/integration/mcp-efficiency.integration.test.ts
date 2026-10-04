@@ -45,6 +45,11 @@ const callOver =
       const body = yield* request("tools/call", { arguments: args, name });
       const { result } = Schema.decodeUnknownSync(CallResult)(body);
       expect(result.isError, JSON.stringify(body)).toBe(false);
+      if (name.endsWith("_start")) {
+        expect(JSON.stringify(result.structuredContent)).toMatch(
+          /^\{"nextAction":/u
+        );
+      }
       return {
         bytes: JSON.stringify(result.structuredContent).length,
         value: Schema.decodeUnknownSync(schema)(result.structuredContent),
@@ -55,6 +60,69 @@ const CompactSessionList = Schema.Struct({
   sessions: Schema.Array(AgentSessionCompact),
 });
 
+const SessionStartGuidance = Schema.Struct({
+  nextAction: Schema.String,
+  viewUrl: Schema.String,
+});
+
+it.live(
+  "returns an immediate Workspace link reminder for full and compact starts",
+  () =>
+    Effect.gen(function* startGuidance() {
+      const fixture = yield* fixtureServer;
+      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const call = callOver(request);
+      const catalog = yield* call(
+        Schema.Struct({ workspaceUrl: Schema.String }),
+        "agent_catalog_get",
+        {}
+      );
+      const workspaceUrl = new URL(catalog.value.workspaceUrl);
+      expect(workspaceUrl.pathname).toBe("/");
+      expect(workspaceUrl.search).toBe("");
+      const sessions = yield* call(CompactSessionList, "agent_sessions_get", {
+        view: "compact",
+      });
+      expect(sessions.value.sessions).toHaveLength(0);
+      for (const view of ["full", "compact"]) {
+        for (const name of ["agent_session_start", "agent_example_run_start"]) {
+          const args =
+            name === "agent_session_start"
+              ? {
+                  activity: "teaching",
+                  clientName: "link-proof",
+                  clientVersion: "1",
+                  name: `link-${view}`,
+                  url: fixture.url("checkout.html"),
+                  viewport: { deviceScaleFactor: 1, height: 480, width: 640 },
+                }
+              : {
+                  example: "example-delivery-cart",
+                  inputs: [
+                    { name: "city", value: "Boulder" },
+                    { name: "area", value: "Pearl Street" },
+                    { name: "product", value: "Trail Hammer" },
+                  ],
+                };
+          const started = yield* call(SessionStartGuidance, name, {
+            ...args,
+            operationId: `link-${name}-${view}`,
+            view,
+          });
+          expect(new URL(started.value.viewUrl).origin).toBe(
+            workspaceUrl.origin
+          );
+          expect(started.value.nextAction).toContain(
+            `[Open Workspace](${started.value.viewUrl})`
+          );
+          expect(started.value.nextAction).toContain(
+            "before calling another tool"
+          );
+        }
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
 it.live("answers compact sessions and pages the history they omit", () =>
   Effect.gen(function* compactSessions() {
     const fixture = yield* fixtureServer;
@@ -62,14 +130,24 @@ it.live("answers compact sessions and pages the history they omit", () =>
     const { request } = yield* connectMcp(origin);
     const call = callOver(request);
 
-    const started = yield* call(AgentSessionCompact, "agent_run_start", {
-      inputs: [],
-      operationId: "compact-start",
-      referencedSkills: [],
-      requestedTask: "Fill in the checkout details",
-      url: fixture.url("checkout.html"),
-      view: "compact",
-    });
+    const started = yield* call(
+      Schema.Struct({
+        nextAction: Schema.String,
+        ...AgentSessionCompact.fields,
+      }),
+      "agent_run_start",
+      {
+        inputs: [],
+        operationId: "compact-start",
+        referencedSkills: [],
+        requestedTask: "Fill in the checkout details",
+        url: fixture.url("checkout.html"),
+        view: "compact",
+      }
+    );
+    expect(started.value.nextAction).toContain(
+      `[Open Workspace](${started.value.viewUrl})`
+    );
     expect(started.value.view).toBe("compact");
     expect(started.value.run).toEqual(
       expect.objectContaining({

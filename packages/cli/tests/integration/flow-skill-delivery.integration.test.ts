@@ -403,6 +403,10 @@ it.live(
               url: fixtures.url("delivery.html"),
             }
           );
+          expect(failedRun.nextAction).toContain(
+            `[Open Workspace](${failedRun.session.viewUrl})`
+          );
+
           // A Dry Run proves the Flow Skill in a context the demonstration
           // never touched, so it must not reuse the Teaching session.
           expect(failedRun.session.id).not.toBe(teachingSessionId);
