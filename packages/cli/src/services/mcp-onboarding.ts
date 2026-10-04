@@ -10,8 +10,8 @@ import { DemoSite } from "./demo-site.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import { AgentRunFailure, startTaskRun } from "./mcp-agent-run.ts";
 import {
-  SessionResult,
-  inView,
+  SessionStartResult,
+  inStartView,
   sessionViewParameter,
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
@@ -43,7 +43,7 @@ export const starterPromptPath = resolveStarterPromptPath(import.meta.dirname);
 const ExampleRunStartTool = Tool.make("agent_example_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore, DemoSite],
   description:
-    "Start a read-only demo Example in a clean context. Share viewUrl before browser actions. Scope: demo host only. Not Teaching or verification. Inputs: contingency://onboarding/examples. Then use the ordinary Run tools.",
+    "Start a read-only demo Example in a clean context. Follow nextAction. Scope: demo host only. Not Teaching or verification. Inputs: contingency://onboarding/examples. Then use the ordinary Run tools.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     example: Schema.Literals(EXAMPLE_FLOW_SKILL_NAMES),
@@ -56,7 +56,7 @@ const ExampleRunStartTool = Tool.make("agent_example_run_start", {
     operationId: OperationId,
     view: sessionViewParameter,
   }),
-  success: SessionResult,
+  success: SessionStartResult,
 });
 
 export const OnboardingTools = withStrictParameters(
@@ -101,7 +101,7 @@ export const OnboardingToolHandlersLive = OnboardingTools.toLayer({
           url: `${demo.origin}${entry.startPath}`,
         },
         { origin: "example", skills }
-      ).pipe(inView(view));
+      ).pipe(inStartView(view));
     }),
 });
 

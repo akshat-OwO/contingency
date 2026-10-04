@@ -589,6 +589,8 @@ export interface AgentSessionService {
   readonly noteAgentActivity: (
     sessionId: AgentSessionId
   ) => Effect.Effect<void>;
+  /** The base Workspace link, available before a browser session starts. */
+  readonly workspaceUrl: Effect.Effect<string, AgentSessionError>;
   /** The read-only Workspace link for one persisted Run. */
   readonly runViewUrl: (
     runId: AgentRunId
@@ -7257,6 +7259,17 @@ const makeAgentSession = (
             { currentUrl: url }
           );
         }),
+      workspaceUrl: Effect.gen(function* workspaceUrl() {
+        if (!isAllowedAgentSessionBaseUrl(options.baseUrl)) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_invalid",
+              "Workspace must be served from a loopback URL."
+            )
+          );
+        }
+        return new URL("/", options.baseUrl).href;
+      }),
     };
 
     return service;

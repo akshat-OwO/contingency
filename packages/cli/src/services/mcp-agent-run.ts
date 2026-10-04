@@ -32,8 +32,10 @@ import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
 import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import {
   SessionResult,
+  SessionStartResult,
   UnpublishedRunSummary,
   encodeUnpublishedRunSummary,
+  inStartView,
   inView,
   sessionViewParameter,
 } from "./mcp-session-output.ts";
@@ -114,7 +116,7 @@ const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
     url: FlowSkillRunStart.fields.url,
     view: sessionViewParameter,
   }),
-  success: SessionResult,
+  success: SessionStartResult,
 });
 
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
@@ -148,13 +150,13 @@ const AgentRunOpenTool = readOnly(
 const AgentTaskRunStartTool = Tool.make("agent_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start a task in one browser context with user-requested verified skills and ordinary inputs. Share viewUrl before browser actions. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request private Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
+    "Start a task in one browser context with user-requested verified skills and ordinary inputs. Follow nextAction. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request private Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     ...AgentTaskRunStart.fields,
     view: sessionViewParameter,
   }),
-  success: SessionResult,
+  success: SessionStartResult,
 });
 const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   dependencies: [AgentSession, FlowSkillCatalog],
@@ -448,7 +450,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         requestedTask: `Run Flow Skill ${params.flowSkillName}`,
       },
       { origin: "catalog" }
-    ).pipe(inView(view)),
+    ).pipe(inStartView(view)),
   agent_run_assess: (params) =>
     Effect.gen(function* assessTaskRun() {
       const session = yield* AgentSession;
@@ -511,7 +513,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         .pipe(Effect.mapError(failure), inView(params.view));
     }),
   agent_run_start: ({ view, ...params }) =>
-    startTaskRun(params, { origin: "catalog" }).pipe(inView(view)),
+    startTaskRun(params, { origin: "catalog" }).pipe(inStartView(view)),
   agent_run_update: ({ view, ...params }) =>
     Effect.gen(function* updateTaskRun() {
       const session = yield* AgentSession;

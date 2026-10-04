@@ -264,6 +264,7 @@ export const registrationCommand = (input: {
 export const initialMessage = (context: LaunchContext): string =>
   [
     "Start Contingency onboarding.",
+    "Call agent_catalog_get, then include its workspaceUrl as a clickable Open Workspace link in your introduction before asking the user to choose a task. This base link works before a session starts; invite the user to keep it open to watch the Example and Teaching.",
     "After starting or switching a session, send its returned viewUrl as a clickable Workspace link in a user-visible message before your next browser action. Share the new link for each Example, Teaching session, Dry Run, and Run.",
     `Read the MCP resource ${STARTER_PROMPT_URI} from the ${SERVER_NAME} server and follow it. The same prompt is in ${starterPromptPath}.`,
     "",

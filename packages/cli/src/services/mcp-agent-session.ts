@@ -39,8 +39,10 @@ import {
 } from "./agent-snapshot-text.ts";
 import {
   SessionResult,
+  SessionStartResult,
   UnpublishedSession,
   encodeUnpublishedSession,
+  inStartView,
   inView,
   sessionViewParameter,
 } from "./mcp-session-output.ts";
@@ -202,10 +204,10 @@ const AgentSessionsGetTool = readOnly(
 const AgentSessionStartTool = Tool.make("agent_session_start", {
   dependencies: [AgentSession],
   description:
-    "Start a session. Share its viewUrl before browser actions. Teaching begins in agent-held setup. Prepare prerequisites with agent_browser_act, then hand off with agent_teaching_setup_handoff; setup is unrecorded. emulation overrides the default identity and viewport. Teaching name becomes the Flow Skill name: 1-128 letters, numbers, spaces, dots, dashes, or underscores, starting with a letter or number.",
+    "Start a session. Follow nextAction. Teaching begins in agent-held setup. Prepare prerequisites with agent_browser_act, then hand off with agent_teaching_setup_handoff; setup is unrecorded. emulation overrides the default identity and viewport. Teaching name becomes the Flow Skill name: 1-128 letters, numbers, spaces, dots, dashes, or underscores, starting with a letter or number.",
   failure: AgentSessionFailure,
   parameters: AgentSessionStartParameters,
-  success: SessionResult,
+  success: SessionStartResult,
 });
 
 const AgentSessionGetTool = readOnly(
@@ -587,7 +589,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           const service = yield* AgentSession;
           return yield* service
             .start({ ...params, openedBy: "agent" })
-            .pipe(Effect.mapError(failure), inView(view));
+            .pipe(Effect.mapError(failure), inStartView(view));
         }),
       agent_session_takeover_request: (params) =>
         Effect.gen(function* requestAgentTakeover() {

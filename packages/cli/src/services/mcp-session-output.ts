@@ -3,6 +3,8 @@ import {
   AgentSessionCompact,
   AgentSessionSnapshot,
   AgentSessionView,
+  RunSessionSnapshot,
+  TeachingSessionSnapshot,
   compactAgentSession,
   optionalNullable,
 } from "@contingency/protocol";
@@ -26,6 +28,31 @@ export const SessionResult = Schema.Union([
   AgentSessionCompact,
 ]);
 
+/** The immediate user-visible action after any successful session start. */
+export const WorkspaceLinkGuidance = Schema.Struct({
+  nextAction: Schema.String,
+});
+
+export const workspaceLinkGuidance = (viewUrl: string) => ({
+  nextAction: `Your next response must be a visible assistant text message containing this exact link: [Open Workspace](${viewUrl}). Send that message before calling another tool so the user can watch the journey. A link in internal thinking or tool output does not count. After sending the message, continue the session.`,
+});
+
+/** Start-only guidance stays outside the persisted session protocol. */
+export const SessionStartResult = Schema.Union([
+  Schema.Struct({
+    ...WorkspaceLinkGuidance.fields,
+    ...TeachingSessionSnapshot.fields,
+  }),
+  Schema.Struct({
+    ...WorkspaceLinkGuidance.fields,
+    ...RunSessionSnapshot.fields,
+  }),
+  Schema.Struct({
+    ...WorkspaceLinkGuidance.fields,
+    ...AgentSessionCompact.fields,
+  }),
+]);
+
 /** Applies the caller's chosen view to a session-returning effect. */
 export const inView =
   (view: SessionView | undefined) =>
@@ -36,6 +63,17 @@ export const inView =
       ? // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.map` is not an array method.
         Effect.map(effect, compactAgentSession)
       : effect;
+
+/** Preserve the chosen view and put the link-sharing reminder first. */
+export const inStartView =
+  (view: SessionView | undefined) =>
+  <E, R>(effect: Effect.Effect<AgentSessionSnapshot, E, R>) =>
+    inView(view)(effect).pipe(
+      Effect.map((session) => ({
+        ...workspaceLinkGuidance(session.viewUrl),
+        ...session,
+      }))
+    );
 
 /**
  * A field whose value is the JSON encoding of `schema` but whose shape is not
