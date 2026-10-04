@@ -313,7 +313,7 @@ const retry = Effect.gen(function* retryDryRunProof() {
 const phases = { finish, handoff, learn, pass, retry, start, takeover, wait };
 assert.ok(
   phases[phase],
-  "Choose start, handoff, learn, pass, takeover, wait, or finish."
+  "Choose start, handoff, learn, pass, retry, takeover, wait, or finish."
 );
 await Effect.runPromise(
   io(() => mkdir(artifacts, { recursive: true })).pipe(

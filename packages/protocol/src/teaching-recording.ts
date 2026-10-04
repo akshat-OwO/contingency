@@ -431,7 +431,6 @@ export type TeachingEvent = typeof TeachingEvent.Type;
  */
 export const TEACHING_TIMELINE_BUDGET_CHARACTERS = 64 * 1024;
 export const TEACHING_TIMELINE_MAX_EVENTS = 100;
-export const TEACHING_RECORDING_WAIT_MAX_MS = 60_000;
 
 export const TeachingRecordingSummary = Schema.Struct({
   cleanup: TeachingRecordingCleanupState,

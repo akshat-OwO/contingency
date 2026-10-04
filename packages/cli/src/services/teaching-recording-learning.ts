@@ -45,7 +45,6 @@ import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts"
 const EVENTS_FILE_KIND = "events";
 const SKILL_FILE = "SKILL.md";
 const SKILL_LOCK_FILE = ".flow-skill.lock";
-const WAIT_POLL_INTERVAL_MS = 100;
 
 interface TeachingRecordingLearningDomainError {
   readonly _tag: "TeachingRecordingLearningError";
@@ -298,10 +297,6 @@ export interface TeachingRecordingLearningService {
   readonly timeline: (
     input: TeachingTimelineInput
   ) => Effect.Effect<TeachingTimeline, TeachingRecordingLearningError>;
-  readonly wait: (
-    recordingId: TeachingRecordingId,
-    timeoutMs: number
-  ) => Effect.Effect<TeachingRecordingSummary, TeachingRecordingLearningError>;
 }
 
 export const TeachingRecordingLearning =
@@ -376,29 +371,6 @@ const makeTeachingRecordingLearning = Effect.fn(
       ),
       Effect.mapError(fromStoreError)
     );
-
-  const wait = (recordingId: TeachingRecordingId, timeoutMs: number) =>
-    Effect.gen(function* waitForRecording() {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() <= deadline) {
-        const result = yield* Effect.result(store.read(recordingId));
-        if (Result.isSuccess(result)) {
-          const summary = teachingRecordingSummary(result.success);
-          if (summary !== undefined) {
-            return summary;
-          }
-        } else if (result.failure.code !== "teaching_recording_not_found") {
-          return yield* Effect.fail(fromStoreError(result.failure));
-        }
-        yield* Effect.sleep(WAIT_POLL_INTERVAL_MS);
-      }
-      return yield* Effect.fail(
-        learningError(
-          "teaching_recording_timeout",
-          `Teaching Recording ${recordingId} did not start or finish within ${timeoutMs} ms.`
-        )
-      );
-    });
 
   const timeline = (input: TeachingTimelineInput) =>
     Effect.gen(function* readTimelinePage() {
@@ -766,7 +738,7 @@ const makeTeachingRecordingLearning = Effect.fn(
       );
     });
 
-  return TeachingRecordingLearning.of({ keyframe, list, save, timeline, wait });
+  return TeachingRecordingLearning.of({ keyframe, list, save, timeline });
 });
 
 export const TeachingRecordingLearningLive = Layer.effect(

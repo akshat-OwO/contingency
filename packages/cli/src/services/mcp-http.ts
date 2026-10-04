@@ -20,12 +20,13 @@ export const MCP_HTTP_PATH = "/mcp";
  */
 export const MCP_INSTRUCTIONS = [
   "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
-  "On starting or switching sessions, send the returned viewUrl as a clickable Workspace link before browser actions. Link for user input.",
+  "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
   'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
-  "Reason from the Snapshot each browser action returns. Read again after effect none, unsettled state, a stale reference, or a user change.",
-  "Use agent_browser_act_sequence for a few known steps on the current Page; it stops where you must look again.",
+  "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
+  "Use agent_browser_act_sequence for known steps; it stops where you must look again.",
   "After asking the user to act in the Workspace, call agent_session_get with afterCursor and waitMs instead of asking them to report back.",
   "After your final agent_run_assess, call agent_run_complete.",
+  "Read-only tools can run concurrently.",
 ].join(" ");
 
 /**

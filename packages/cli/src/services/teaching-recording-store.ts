@@ -1539,7 +1539,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                     }).pipe(
                       Effect.provideService(
                         SessionEventOrigin,
-                        contents.includes("- Verification origin: agent")
+                        /^- Verification origin: agent$/mu.test(contents)
                           ? "agent"
                           : "workspace"
                       )

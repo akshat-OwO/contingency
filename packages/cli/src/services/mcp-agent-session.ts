@@ -620,7 +620,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               params.reason,
               params.operationId
             )
-            .pipe(Effect.mapError(failure), inView(params.view));
+            .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
         }),
       agent_sessions_get: (params) =>
         Effect.gen(function* listAgentSessions() {

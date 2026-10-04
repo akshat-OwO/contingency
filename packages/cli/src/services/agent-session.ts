@@ -1999,7 +1999,7 @@ const makeAgentSession = (
                       sessionEvents.observeVerification(
                         sessionId,
                         verifiedAt,
-                        contents.includes("- Verification origin: agent")
+                        /^- Verification origin: agent$/mu.test(contents)
                           ? "agent"
                           : "workspace"
                       );
