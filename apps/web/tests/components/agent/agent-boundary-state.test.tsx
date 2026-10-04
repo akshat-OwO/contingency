@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
@@ -133,4 +133,52 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
   await captureAction(5);
 
   expect(screen.getByText("Reason: confirmation")).toBe(shown);
+});
+
+test("clears the paused Boundary from the browser during Takeover and restores it on return", async () => {
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Workspace dock" });
+  const boundary = {
+    action: { type: "click" },
+    description: "Submit return",
+    id: "boundary-return",
+    operationId: "submit-return",
+    reason: "confirmation",
+    requested: "Submit the return for RH-1042",
+  };
+  const run = { activity: "run", captureState: null, teaching: null };
+  rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { ...run, boundary }));
+  await screen.findByRole("region", { name: "Execution Boundary" });
+
+  rpc.emit?.(
+    sessionAt("2026-09-02T00:00:02.000Z", {
+      ...run,
+      boundary,
+      controller: "user",
+      phase: "takeover",
+    })
+  );
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("region", { name: "Execution Boundary" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Browser address" })
+    ).toBeEnabled();
+  });
+
+  await screen.findByRole("button", { name: "Return control" });
+  rpc.emit?.(sessionAt("2026-09-02T00:00:03.000Z", { ...run, boundary }));
+  await screen.findByRole("region", { name: "Execution Boundary" });
+  expect(screen.getByText(/Reply "allow" or "refuse"/u)).toBeInTheDocument();
+  expect(
+    screen.getByRole("textbox", { name: "Browser address" })
+  ).toBeDisabled();
+
+  rpc.emit?.(sessionAt("2026-09-02T00:00:04.000Z", run));
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("region", { name: "Execution Boundary" })
+    ).not.toBeInTheDocument();
+  });
 });
