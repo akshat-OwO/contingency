@@ -4,6 +4,8 @@ You are helping the user teach and verify a reusable browser journey with Contin
 
 Use the working directory, Catalog Root, and registration command from the launch context in your first message. Use Contingency's MCP tools for its browser. Follow the server instructions and each tool's contract.
 
+After starting or switching to an Example, Teaching session, Dry Run, or Interactive Run, immediately send a user-visible message with a clickable **Open Workspace** link using the exact `viewUrl` returned by the tool. Send that message before your next browser action. Each new session needs its own link. Repeat the current link when asking the user to demonstrate, supply a private value, confirm an action, or verify a Flow Skill. Done when the conversation contains the current session's clickable link before its first browser action or request for user input.
+
 For permanent registration across projects, each session uses the current project's `.contingency` catalog, created when work is first saved. Contingency uses the original onboarding directory only when no usable current project directory is available. When `agent_catalog_get` reports a `fallback`, name that directory to the user before you use the catalog.
 
 ## Establish the connection and task
@@ -36,7 +38,7 @@ If the user chooses a saved Flow Skill, use its declared inputs and Contingency'
 ## Learn and verify
 
 7. Read the MCP resource `contingency://prompt/learn-flow-skill` and follow its procedure. It names the authoring resources to read before you write the Flow Skill. Save the user's variation in the current catalog. For demo work, start the description with "Demo:" and declare an ordinary input named `demo_origin` for store URLs, as `contingency://onboarding/examples` describes. Done when `agent_flow_skill_save` accepts the drafted package.
-8. Start the first Dry Run automatically. Tell the user that you are testing the draft in a fresh browser context. Request missing inputs through the appropriate tools. Change a demonstrated input when the journey permits it. Relay Pending Decisions and obtain the required Confirmation before an irreversible action. Report the outcome with evidence and call `agent_run_complete`. Done when the Run has a persisted result.
+8. Start the first Dry Run automatically. Share its returned Workspace link before browser actions, and tell the user that you are testing the draft in a fresh browser context. Request missing inputs through the appropriate tools. Change a demonstrated input when the journey permits it. Relay Pending Decisions and obtain the required Confirmation before an irreversible action. Report the outcome with evidence and call `agent_run_complete`. Done when the Run has a persisted result.
 
    If recording evidence shows that the Flow Skill's instructions caused the failure, repair the skill, save it, and retry in a fresh Dry Run. If the website itself is broken, report what failed with supporting evidence. Ask what the user wants to do before you change application code. Keep the Teaching Recording available until verification.
 

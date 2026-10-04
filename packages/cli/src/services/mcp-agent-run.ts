@@ -148,7 +148,7 @@ const AgentRunOpenTool = readOnly(
 const AgentTaskRunStartTool = Tool.make("agent_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start the user's task in one browser context with optional user-requested verified skills and ordinary inputs. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request private Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
+    "Start a task in one browser context with user-requested verified skills and ordinary inputs. Share viewUrl before browser actions. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request private Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     ...AgentTaskRunStart.fields,

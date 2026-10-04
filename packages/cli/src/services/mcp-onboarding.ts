@@ -43,7 +43,7 @@ export const starterPromptPath = resolveStarterPromptPath(import.meta.dirname);
 const ExampleRunStartTool = Tool.make("agent_example_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore, DemoSite],
   description:
-    "Run a bundled read-only Example Flow Skill on the demo store in a clean context. Scope: demo host only. Not Teaching or verification. Inputs: contingency://onboarding/examples. Then use the ordinary Run tools.",
+    "Start a read-only demo Example in a clean context. Share viewUrl before browser actions. Scope: demo host only. Not Teaching or verification. Inputs: contingency://onboarding/examples. Then use the ordinary Run tools.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     example: Schema.Literals(EXAMPLE_FLOW_SKILL_NAMES),

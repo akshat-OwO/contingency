@@ -20,6 +20,7 @@ export const MCP_HTTP_PATH = "/mcp";
  */
 export const MCP_INSTRUCTIONS = [
   "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
+  "On starting or switching sessions, send the returned viewUrl as a clickable Workspace link before browser actions. Repeat the link for user input.",
   'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
   "Reason from the Snapshot each browser action returns. Read the Page again only after effect none, an unsettled Snapshot, a stale reference, or a change you did not cause.",
   "Use agent_browser_act_sequence for a few known steps on the current Page; it stops where you must look again.",

@@ -202,7 +202,7 @@ const AgentSessionsGetTool = readOnly(
 const AgentSessionStartTool = Tool.make("agent_session_start", {
   dependencies: [AgentSession],
   description:
-    "Start a session and return its Workspace URL. Teaching begins in agent-held setup. Prepare prerequisites with agent_browser_act, then hand off with agent_teaching_setup_handoff; setup is unrecorded. emulation overrides the default identity and viewport. Teaching name becomes the Flow Skill name: 1-128 letters, numbers, spaces, dots, dashes, or underscores, starting with a letter or number.",
+    "Start a session. Share its viewUrl before browser actions. Teaching begins in agent-held setup. Prepare prerequisites with agent_browser_act, then hand off with agent_teaching_setup_handoff; setup is unrecorded. emulation overrides the default identity and viewport. Teaching name becomes the Flow Skill name: 1-128 letters, numbers, spaces, dots, dashes, or underscores, starting with a letter or number.",
   failure: AgentSessionFailure,
   parameters: AgentSessionStartParameters,
   success: SessionResult,

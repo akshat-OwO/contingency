@@ -264,6 +264,7 @@ export const registrationCommand = (input: {
 export const initialMessage = (context: LaunchContext): string =>
   [
     "Start Contingency onboarding.",
+    "After starting or switching a session, send its returned viewUrl as a clickable Workspace link in a user-visible message before your next browser action. Share the new link for each Example, Teaching session, Dry Run, and Run.",
     `Read the MCP resource ${STARTER_PROMPT_URI} from the ${SERVER_NAME} server and follow it. The same prompt is in ${starterPromptPath}.`,
     "",
     "Launch context:",
