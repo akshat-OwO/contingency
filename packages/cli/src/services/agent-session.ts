@@ -3592,6 +3592,7 @@ const makeAgentSession = (
                             }),
                       finalized: makeRunFinalizationState(),
                       footage,
+                      replacedSensitiveValues: new Set<string>(),
                       retentionFile,
                       runEvidence: {
                         attempts: new Set(),
@@ -3601,7 +3602,6 @@ const makeAgentSession = (
                       scope: sessionScope,
                       screenshots: { directory: undefined },
                       scroll: { burst: undefined },
-                      replacedSensitiveValues: new Set<string>(),
                       setupSensitiveValues: new Set<string>(),
                       snapshot: base,
                       supplied: new Map<string, string>(),
