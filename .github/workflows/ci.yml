@@ -36,6 +36,23 @@ jobs:
       # the CLI's dist — the same artifact a release ships.
       - run: nub exec turbo run quality check-types test
 
+  # Integration runs alongside quality rather than after it, so a green PR
+  # waits for the slower job only once. When quality fails, the PR cannot
+  # merge anyway, so this cancels the run instead of letting integration
+  # spend another twenty minutes. It is its own job so quality still reports
+  # as failed, not cancelled.
+  cancel-on-quality-failure:
+    name: Cancel run after quality failure
+    needs: [quality]
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
+
   integration:
     name: Integration (real browser)
     runs-on: ubuntu-latest
