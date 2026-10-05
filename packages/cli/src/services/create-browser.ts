@@ -914,12 +914,9 @@ const readDebuggingEndpoint = async (
   file: string,
   deadline: number
 ): Promise<string> => {
-  const contents = await readFile(file, "utf-8").catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return "";
-    }
-    throw error;
-  });
+  // Until Chromium writes it, the file is missing; any read failure is
+  // retried, and the deadline reports one that never clears.
+  const contents = await readFile(file, "utf-8").catch(() => "");
   const endpoint = parseDebuggingEndpoint(contents);
   if (endpoint !== undefined) {
     return endpoint;
