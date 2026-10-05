@@ -6913,74 +6913,81 @@ const makeAgentSession = (
             })
           );
         }),
+      // Start must wait for both the browser change and rememberEmulation,
+      // so its manifest and recorder capture the same completed setup.
       setEmulation: (sessionId, patch) =>
-        Effect.gen(function* configureSessionEmulation() {
-          const record = yield* requireUserHeldRecord(sessionId);
-          if (record.snapshot.activity !== "teaching") {
-            return yield* Effect.fail(
-              error(
-                "agent_session_conflict",
-                "An Interactive Run reproduces the Emulation the Flow Skill was demonstrated under. Configure the browser while Teaching instead."
-              )
-            );
-          }
-          // A Teaching Recording declares one Emulation, fixed at Start, so
-          // the controls lock once capture begins rather than letting an
-          // unrecorded change land inside the journey (ADR 0013).
-          if (
-            record.snapshot.captureState !== null &&
-            record.snapshot.captureState._tag !== "setup"
-          ) {
-            return yield* Effect.fail(
-              error(
-                "agent_session_conflict",
-                "Emulation is fixed once recording starts: the Teaching Recording declares the Emulation it was demonstrated under."
-              )
-            );
-          }
-          const userAgentProfile =
-            patch.userAgentProfile ?? record.emulation.userAgentProfile;
-          // An identity moves every signal it implies together, so an
-          // identity-only change is applied at that identity's own device
-          // metrics rather than over the viewport the session already had
-          // (ADR 0013). An explicit viewport in the same patch outranks it.
-          const viewport =
-            patch.viewport ??
-            (patch.userAgentProfile === undefined
-              ? record.emulation.viewport
-              : viewportForIdentity(
-                  patch.userAgentProfile,
-                  record.emulation.viewport
-                ));
-          if (patch.userAgentProfile === undefined) {
-            if (patch.viewport !== undefined) {
-              yield* browser.setViewport(record.browserSessionId, viewport);
+        ledger.serializeMutation(
+          Effect.gen(function* configureSessionEmulation() {
+            const record = yield* requireUserHeldRecord(sessionId);
+            if (record.snapshot.activity !== "teaching") {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  "An Interactive Run reproduces the Emulation the Flow Skill was demonstrated under. Configure the browser while Teaching instead."
+                )
+              );
             }
-          } else {
-            // An identity only reaches a document at its navigation, so the
-            // page the user is on is re-opened under it rather than left
-            // claiming an identity it never sent (ADR 0013).
-            const url = yield* browser.currentUrl(record.browserSessionId);
-            yield* browser.setUserAgent(
+            // A Teaching Recording declares one Emulation, fixed at Start, so
+            // the controls lock once capture begins rather than letting an
+            // unrecorded change land inside the journey (ADR 0013).
+            if (
+              record.snapshot.captureState !== null &&
+              record.snapshot.captureState._tag !== "setup"
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  "Emulation is fixed once recording starts: the Teaching Recording declares the Emulation it was demonstrated under."
+                )
+              );
+            }
+            const userAgentProfile =
+              patch.userAgentProfile ?? record.emulation.userAgentProfile;
+            // An identity moves every signal it implies together, so an
+            // identity-only change is applied at that identity's own device
+            // metrics rather than over the viewport the session already had
+            // (ADR 0013). An explicit viewport in the same patch outranks it.
+            const viewport =
+              patch.viewport ??
+              (patch.userAgentProfile === undefined
+                ? record.emulation.viewport
+                : viewportForIdentity(
+                    patch.userAgentProfile,
+                    record.emulation.viewport
+                  ));
+            if (patch.userAgentProfile === undefined) {
+              if (patch.viewport !== undefined) {
+                yield* browser.setViewport(record.browserSessionId, viewport);
+              }
+            } else {
+              // An identity only reaches a document at its navigation, so the
+              // page the user is on is re-opened under it rather than left
+              // claiming an identity it never sent (ADR 0013).
+              const url = yield* browser.currentUrl(record.browserSessionId);
+              yield* browser.setUserAgent(
+                record.browserSessionId,
+                url,
+                viewport,
+                userAgentProfile
+              );
+            }
+            const applied = yield* browser.setEmulation(
               record.browserSessionId,
-              url,
-              viewport,
-              userAgentProfile
+              {
+                colorScheme: patch.colorScheme,
+                geolocation: patch.geolocation,
+                locale: patch.locale,
+                permissions: patch.permissions,
+                timezoneId: patch.timezoneId,
+              }
             );
-          }
-          const applied = yield* browser.setEmulation(record.browserSessionId, {
-            colorScheme: patch.colorScheme,
-            geolocation: patch.geolocation,
-            locale: patch.locale,
-            permissions: patch.permissions,
-            timezoneId: patch.timezoneId,
-          });
-          yield* rememberEmulation(
-            sessionId,
-            draftFromApplied(userAgentProfile, applied)
-          );
-          return { emulation: applied, userAgentProfile };
-        }),
+            yield* rememberEmulation(
+              sessionId,
+              draftFromApplied(userAgentProfile, applied)
+            );
+            return { emulation: applied, userAgentProfile };
+          })
+        ),
       setStorage: (sessionId, tabId, input) =>
         requireUserHeldRecord(sessionId).pipe(
           Effect.flatMap((record) =>

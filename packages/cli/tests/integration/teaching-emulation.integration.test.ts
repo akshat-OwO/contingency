@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
   agentProcessLayer,
   agentViewport,
@@ -12,6 +13,66 @@ import {
 import { fixtureServer } from "./harness.ts";
 
 const phoneIdentity = UserAgentProfileId.make("chrome-android-mobile");
+
+it.live(
+  "finishes an in-flight Emulation change before starting a Teaching Recording",
+  () =>
+    Effect.gen(function* configureWhileStarting() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-emulation-race-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* Effect.scoped(
+        Effect.gen(function* recordDuringSetupChange() {
+          const service = yield* AgentSession;
+          const store = yield* TeachingRecordingStore;
+          const opened = yield* service.start({
+            activity: "teaching",
+            clientName: "contingency-web",
+            clientVersion: "1.0.0",
+            name: "concurrent-emulation",
+            operationId: OperationId.make("concurrent-emulation-open"),
+            url: fixtures.url("shop.html"),
+            viewport: agentViewport,
+          });
+          // Identity changes reopen the page. Start can arrive while that
+          // setup request is still applying the new browser environment.
+          const [configured, started] = yield* Effect.all(
+            [
+              service.setEmulation(opened.id, {
+                colorScheme: "dark",
+                locale: "de-DE",
+                timezoneId: "Europe/Berlin",
+                userAgentProfile: phoneIdentity,
+              }),
+              service.startTeachingRecording(
+                opened.id,
+                OperationId.make("concurrent-emulation-start")
+              ),
+            ],
+            { concurrency: "unbounded" }
+          );
+          if (started.activity !== "teaching") {
+            return yield* Effect.die("Expected a Teaching Recording.");
+          }
+          expect(yield* service.emulation(opened.id)).toEqual(configured);
+          yield* service.stopTeachingRecording(
+            opened.id,
+            OperationId.make("concurrent-emulation-stop")
+          );
+          const manifest = yield* store.read(started.recordingId);
+          expect(manifest.emulation).toMatchObject({
+            colorScheme: "dark",
+            locale: "de-DE",
+            timezoneId: "Europe/Berlin",
+            userAgentProfile: phoneIdentity,
+            viewport: configured.emulation.viewport,
+          });
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
 it.live(
   "declares the Emulation a Workspace-only recording was demonstrated under",
