@@ -6446,7 +6446,10 @@ const makeAgentSession = (
                 }
                 // The tested skill uses the existing Workspace secret fields.
                 // Both lookup forms must lose the previous value on replacement.
-                retireSupplied(record, [name, variableKey(name, flowSkillName)]);
+                retireSupplied(record, [
+                  name,
+                  variableKey(name, flowSkillName),
+                ]);
                 const next = {
                   ...record.snapshot,
                   dryRun: {

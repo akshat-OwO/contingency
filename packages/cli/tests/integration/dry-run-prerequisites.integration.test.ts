@@ -57,10 +57,10 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
           "flowSkillName" in variable && variable.flowSkillName === "cart"
       )?.supplied
     ).toBe(false);
-    const unsuppliedReplacement = yield* runTool(
-      "agent_run_variable_request",
-      { ...targetReplacement, operationId: operation("target-replace-again") }
-    );
+    const unsuppliedReplacement = yield* runTool("agent_run_variable_request", {
+      ...targetReplacement,
+      operationId: operation("target-replace-again"),
+    });
     expect(unsuppliedReplacement.updatedAt).toBe(targetWaiting.updatedAt);
     for (const scope of [null, FlowSkillName.make("cart")]) {
       expect(
@@ -475,7 +475,7 @@ it.live(
           expect(JSON.stringify(replacedVisible)).not.toContain(
             "private-target"
           );
-          const offscope =yield* sessionTool("agent_browser_act", {
+          const offscope = yield* sessionTool("agent_browser_act", {
             action: {
               type: "navigate",
               url: fixture
