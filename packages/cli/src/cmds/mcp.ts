@@ -16,7 +16,8 @@ import {
 import { McpProtocol, McpServer } from "effect/ai";
 import type { IllegalArgumentError } from "effect/Cause";
 import { Command, Flag } from "effect/cli";
-import { HttpServer, HttpServerError } from "effect/http";
+import { HttpServer } from "effect/http";
+import type { HttpServerError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
 
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
@@ -65,8 +66,10 @@ type McpHttpFailure =
   | IllegalArgumentError
   | PlatformError;
 
-const isListenAddressInUse = (error: McpHttpFailure): boolean => {
-  if (!(error instanceof HttpServerError.ServeError)) {
+export const isListenAddressInUse = (error: McpHttpFailure): boolean => {
+  // npm may install separate Effect copies for the CLI and platform-node.
+  // Tagged errors retain their identity across those copies; prototypes do not.
+  if (error._tag !== "ServeError") {
     return false;
   }
   return Schema.decodeUnknownOption(ListenError)(error.cause).pipe(
@@ -107,11 +110,12 @@ const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
  * Workspace, so all browser handles and shutdown finalizers remain owned by
  * this one process.
  *
- * `CONTINGENCY_MCP_PORT=0` binds an available port. The port is acquired by
- * the bind itself and read back before any route or link is built, so two
- * spawned clients never race for one port and each advertises its own
- * Workspace. The default 7777 and its occupied-port behavior are unchanged
- * for direct use.
+ * Non-terminal stdin defaults to port 0, which binds an available port. This
+ * includes stdio clients and headless HTTP launches. The bind acquires the
+ * port before any route or link is built, so spawned clients never race for
+ * one port and each advertises its own Workspace. Terminal stdin defaults to
+ * 7777. Headless HTTP callers needing a fixed endpoint must explicitly set
+ * `CONTINGENCY_MCP_PORT`, which overrides either default.
  */
 export const mcpCommand = Command.make(
   "mcp",
@@ -140,7 +144,9 @@ export const mcpCommand = Command.make(
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
-      port: Config.Number("PORT").pipe(Config.withDefault(7777)),
+      port: Config.Number("PORT").pipe(
+        Config.withDefault(process.stdin.isTTY ? 7777 : 0)
+      ),
       // How Run videos fast-forward Idle Gaps (ADR 0046).
       videoFastForward: Config.Literals(
         ["capped", "fixed"],

@@ -54,7 +54,7 @@ Claude rejects an existing server name in the same scope. Codex 0.160.0 replaces
 
 ## Existing Contingency contracts
 
-The [MCP command](../../packages/cli/src/cmds/mcp.ts) already owns the Workspace and serves stdio and HTTP from one process. Its default Workspace port is 7777. If that port is occupied, a spawned stdio process keeps its tools available but cannot serve its Workspace. Onboarding needs a deliberate session and port policy.
+The [MCP command](../../packages/cli/src/cmds/mcp.ts) owns the Workspace and serves stdio and HTTP from one process. Non-terminal stdin automatically receives an available Workspace port, including headless HTTP launches; terminal stdin defaults to 7777. Headless HTTP callers needing a fixed endpoint must explicitly set `CONTINGENCY_MCP_PORT`, which overrides either default. If an explicitly selected port is occupied, a spawned stdio process keeps its tools available but cannot serve its Workspace.
 
 The [Catalog Root](../../packages/cli/src/services/flow-skill-catalog.ts) defaults to `.contingency` under the process's current directory. The launch directory determines where Flow Skills and local evidence live.
 
