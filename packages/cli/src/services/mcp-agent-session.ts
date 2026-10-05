@@ -304,7 +304,7 @@ const AgentTeachingSetupHandoffTool = Tool.make(
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a supplied private Variable into one element from the latest Browser Snapshot. The literal stays inside Contingency. During agent-held Teaching setup, request it with agent_teaching_setup_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_run_variable_request and relay its decision. Dry Run secrets are supplied in Workspace. Setup access ends at handoff.",
+    "Enter a supplied private Variable into one element from the latest Browser Snapshot. The literal stays inside Contingency. During agent-held Teaching setup, request it with agent_teaching_setup_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_run_variable_request and follow its Workspace instructions or relay its decision. Dry Run secrets are supplied in Workspace. Setup access ends at handoff.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     flowSkillName: AgentVariableEnter.fields.flowSkillName,

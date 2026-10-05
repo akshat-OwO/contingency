@@ -223,7 +223,7 @@ const AgentTaskFindingTool = Tool.make("agent_run_finding", {
 const AgentTaskVariableRequestTool = Tool.make("agent_run_variable_request", {
   dependencies: [AgentSession],
   description:
-    "Request a skill-scoped private Variable when needed. Relay its Pending Decision, then enter it with agent_variable_enter. Dry Run prerequisites use Workspace supply/refusal. replace:true invalidates a supplied value. Unused inputs never pause startup.",
+    "Request a declared skill-scoped private Variable when needed, using its uppercase Variable name. During a Dry Run, the tested skill uses its existing Workspace Dry Run secrets field and returns no Pending Decision; prerequisites use Workspace supply/refusal. Interactive Runs return a Pending Decision to relay. Enter supplied values with agent_variable_enter. replace:true invalidates a supplied value and requests a fresh one in the same browser context. Ordinary Dry Run inputs remain fixed at startup. Unused inputs never pause startup.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     flowSkillName: FlowSkillName,
