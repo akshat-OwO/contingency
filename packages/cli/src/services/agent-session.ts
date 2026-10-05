@@ -6401,17 +6401,6 @@ const makeAgentSession = (
                   )
                 );
               }
-              if (
-                run.purpose.kind === "dry-run" &&
-                flowSkillName === run.purpose.flowSkillName
-              ) {
-                return yield* Effect.fail(
-                  error(
-                    "agent_session_invalid",
-                    "Supply Dry Run secrets in the Workspace before agent_variable_enter."
-                  )
-                );
-              }
               const declared = requireDeclaredVariable(
                 record,
                 name,
@@ -6419,6 +6408,47 @@ const makeAgentSession = (
               );
               if (declared._tag === "error") {
                 return yield* Effect.fail(declared.error);
+              }
+              const { dryRun } = record.snapshot;
+              if (dryRun !== null && flowSkillName === dryRun.flowSkillName) {
+                if (!declared.variable.secret) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "Ordinary Dry Run inputs are fixed at startup."
+                    )
+                  );
+                }
+                if (!replace) {
+                  return record.snapshot;
+                }
+                // The tested skill uses the existing Workspace secret fields.
+                // Both lookup forms must lose the previous value on replacement.
+                record.supplied.delete(name);
+                record.supplied.delete(variableKey(name, flowSkillName));
+                const next = {
+                  ...record.snapshot,
+                  dryRun: {
+                    ...dryRun,
+                    variables: dryRun.variables.map((variable) =>
+                      variable.name === name
+                        ? { ...variable, supplied: false }
+                        : variable
+                    ),
+                  },
+                  run: {
+                    ...run,
+                    variables: run.variables.map((variable) =>
+                      variable.flowSkillName === flowSkillName &&
+                      variable.name === name
+                        ? { ...variable, supplied: false }
+                        : variable
+                    ),
+                  },
+                  updatedAt: now().toISOString(),
+                };
+                yield* save(sessionId, record, next);
+                return next;
               }
               const variable = run.variables.find(
                 (candidate) =>
