@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   AGENT_POINTER_ENTRY_OFFSET,
@@ -893,6 +894,47 @@ const LAUNCH_OPTIONS: LaunchOptions = {
   headless: true,
 };
 
+/** How long Chromium may take to publish its debugging endpoint. */
+const DEBUGGING_ENDPOINT_TIMEOUT_MS = 10_000;
+const DEBUGGING_ENDPOINT_POLL_MS = 25;
+
+const parseDebuggingEndpoint = (contents: string): string | undefined => {
+  const [port, route] = contents.trim().split("\n");
+  return /^\d+$/u.test(port ?? "") && route?.startsWith("/devtools/browser/")
+    ? `ws://127.0.0.1:${port}${route}`
+    : undefined;
+};
+
+/**
+ * Chromium writes `DevToolsActivePort` once its debugging server listens,
+ * which can land after Playwright's launch resolves on a loaded machine. The
+ * file is read until it holds a complete endpoint or the deadline passes.
+ */
+const readDebuggingEndpoint = async (
+  file: string,
+  deadline: number
+): Promise<string> => {
+  const contents = await readFile(file, "utf-8").catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return "";
+    }
+    throw error;
+  });
+  const endpoint = parseDebuggingEndpoint(contents);
+  if (endpoint !== undefined) {
+    return endpoint;
+  }
+  if (Date.now() >= deadline) {
+    throw new Error(
+      contents === ""
+        ? "Chromium did not publish its debugging endpoint."
+        : "Chromium published an invalid debugging endpoint."
+    );
+  }
+  await delay(DEBUGGING_ENDPOINT_POLL_MS);
+  return readDebuggingEndpoint(file, deadline);
+};
+
 /**
  * Launch Chromium and read the user agent it would send, once, before any
  * session exists. Headless Chromium still names itself `HeadlessChrome`, so
@@ -924,21 +966,13 @@ const launchChromium = async (
     throw new Error("The scan browser did not publish its owner.");
   }
   try {
-    let performanceEndpoint: string | undefined;
-    if (performanceDirectory !== undefined) {
-      const endpoint = await readFile(
-        path.join(performanceDirectory, "DevToolsActivePort"),
-        "utf-8"
-      );
-      const [port, route] = endpoint.trim().split("\n");
-      if (
-        !/^\d+$/u.test(port ?? "") ||
-        !route?.startsWith("/devtools/browser/")
-      ) {
-        throw new Error("Chromium published an invalid debugging endpoint.");
-      }
-      performanceEndpoint = `ws://127.0.0.1:${port}${route}`;
-    }
+    const performanceEndpoint =
+      performanceDirectory === undefined
+        ? undefined
+        : await readDebuggingEndpoint(
+            path.join(performanceDirectory, "DevToolsActivePort"),
+            Date.now() + DEBUGGING_ENDPOINT_TIMEOUT_MS
+          );
     const cdp = await browser.newBrowserCDPSession();
     const version = await cdp.send("Browser.getVersion");
     await cdp.detach();
