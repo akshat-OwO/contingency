@@ -20,7 +20,9 @@ The user first watches the agent run a prepared example, then teaches a variatio
 
 The agent prepares the browser before recording. It may navigate and request private inputs through Workspace Variables, then hands control to the user. The user starts and stops recording; the agent learns from the resulting Teaching Recording.
 
-Users launch with `npx @contingencyhq/cli start`. The first version supports Claude Code and Codex. The existing `mcp` command remains available for direct server use.
+Users launch onboarding with `npx @contingencyhq/cli start --demo`. The first version supports Claude Code and Codex. The existing `mcp` command remains available for direct server use.
+
+Without `--demo`, `start` is the everyday session-only entry point. The agent follows the bundled work prompt (`contingency://start/work-prompt`) on the user's own website, and the server runs with `mcp --no-demo`, so neither the demo store nor its Example tools exist in that session. The agent does not offer permanent registration; it tells the user that running `start` again reconnects Contingency.
 
 When only one supported agent is installed, the command launches it directly. When both are installed, it shows a picker. An explicit `--agent` option selects the agent without a picker.
 

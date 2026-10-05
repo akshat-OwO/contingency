@@ -10,11 +10,13 @@ import {
   AgentLaunchError,
   agentArguments,
   currentInvocation,
+  demoInitialMessage,
   detectAgent,
-  initialMessage,
   olderThan,
+  reconnectCommand,
   registrationCommand,
   sessionServerSpec,
+  workInitialMessage,
 } from "../services/agent-launch.ts";
 import type { DetectedAgent } from "../services/agent-launch.ts";
 import { REGISTERED_AGENTS } from "../services/catalog-directory.ts";
@@ -151,8 +153,14 @@ export const startCommand = Command.make(
       ),
       Argument.variadic()
     ),
+    demo: Flag.Boolean("demo").pipe(
+      Flag.withDescription(
+        "Run guided onboarding on the bundled Ridgeline Hardware demo store. Without it, the agent works on your own website with no demo store."
+      ),
+      Flag.withDefault(false)
+    ),
   },
-  Effect.fnUntraced(function* runStart({ agent, agentArgs }) {
+  Effect.fnUntraced(function* runStart({ agent, agentArgs, demo }) {
     const directory = path.resolve(process.cwd());
     const catalogRoot = path.join(directory, CATALOG_DIRECTORY);
     const chosen = yield* chooseAgent(agent);
@@ -164,12 +172,13 @@ export const startCommand = Command.make(
     });
     const spec = sessionServerSpec({
       agent: chosen.profile.id,
+      demo,
       directory,
       invocation,
     });
     yield* Console.error(
       [
-        `Starting ${chosen.profile.label}${chosen.version === undefined ? "" : ` ${chosen.version}`} with Contingency connected for this session.`,
+        `Starting ${chosen.profile.label}${chosen.version === undefined ? "" : ` ${chosen.version}`} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
         `Catalog Root: ${catalogRoot}`,
       ].join("\n")
     );
@@ -181,16 +190,26 @@ export const startCommand = Command.make(
         `This release was verified with ${chosen.profile.label} ${chosen.profile.verifiedVersion}. If onboarding fails, update ${chosen.profile.label} and try again.`
       );
     }
-    const message = initialMessage({
-      agent: chosen.profile,
-      catalogRoot,
-      directory,
-      registrationCommand: registrationCommand({
-        agent: chosen.profile.id,
-        directory,
-        invocation,
-      }),
-    });
+    const message = demo
+      ? demoInitialMessage({
+          agent: chosen.profile,
+          catalogRoot,
+          directory,
+          registrationCommand: registrationCommand({
+            agent: chosen.profile.id,
+            directory,
+            invocation,
+          }),
+        })
+      : workInitialMessage({
+          agent: chosen.profile,
+          catalogRoot,
+          directory,
+          reconnectCommand: reconnectCommand({
+            agent: chosen.profile.id,
+            invocation,
+          }),
+        });
     const args = agentArguments({
       agent: chosen.profile.id,
       extra: agentArgs,
@@ -231,6 +250,6 @@ export const startCommand = Command.make(
   })
 ).pipe(
   Command.withDescription(
-    "Launch Claude Code or Codex with Contingency connected for this session and start onboarding."
+    "Launch Claude Code or Codex with Contingency connected for this session only. Add --demo for guided onboarding on the bundled demo store."
   )
 );

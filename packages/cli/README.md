@@ -12,7 +12,7 @@ contingency --help
 The binary is `contingency`, whatever the package name says. To try it without installing:
 
 ```sh
-npx @contingencyhq/cli start
+npx @contingencyhq/cli start --demo
 ```
 
 Node 24 or newer is required.
@@ -22,16 +22,20 @@ Node 24 or newer is required.
 ```sh
 npx @contingencyhq/cli start
 npx @contingencyhq/cli start --agent claude
-npx @contingencyhq/cli start --agent codex
+npx @contingencyhq/cli start --demo
 ```
 
-Install and sign in to Claude Code or Codex first. `start` launches the one installed agent or offers a picker when both are installed. It connects Contingency for that session and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports.
+Install and sign in to Claude Code or Codex first. `start` launches the one installed agent or offers a picker when both are installed. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports.
 
-The agent offers bundled Examples on Ridgeline Hardware, a local demo store. Watch an Example, teach your own variation, and let the agent learn it and automatically start a fresh Dry Run. After a passing result, choose **Verify flow** in Workspace. Examples are read-only and remain separate from your saved Flow Skills. Demo skills retain their demo label when you return to the project.
+Without `--demo`, the agent follows a bundled work prompt on your own website: it lists your saved Flow Skills and unfinished Teaching, runs verified Flow Skills to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
+
+### Guided demo
+
+With `--demo`, the agent offers bundled Examples on Ridgeline Hardware, a local demo store. Watch an Example, teach your own variation, and let the agent learn it and automatically start a fresh Dry Run. After a passing result, choose **Verify flow** in Workspace. Examples are read-only and remain separate from your saved Flow Skills. Demo skills retain their demo label when you return to the project.
 
 Supply private demo passwords in Workspace. During a return Teaching recording, click the store's Password field, then use **Demo password** and **Enter demo password**. The recording retains `DEMO_PASSWORD` in place of its value.
 
-After verification, you can keep the session-only connection or register Contingency for ordinary agent sessions:
+After verification in a `--demo` session, you can keep the session-only connection or register Contingency for ordinary agent sessions:
 
 ```sh
 contingency register --agent claude --scope project

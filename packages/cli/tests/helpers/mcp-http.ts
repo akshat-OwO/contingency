@@ -17,14 +17,24 @@ import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-rec
 
 const BASE_URL = "http://127.0.0.1:7783";
 
-/** Serves the production MCP HTTP layer on an ephemeral loopback port. */
+/**
+ * Serves the production MCP HTTP layer on an ephemeral loopback port, with
+ * the demo store unless `demo` is false.
+ */
 export const servingMcpHttp = Effect.fn("servingMcpHttp")(
-  function* servingMcpHttp(options: { readonly codeMode?: boolean } = {}) {
+  function* servingMcpHttp(
+    options: { readonly codeMode?: boolean; readonly demo?: boolean } = {}
+  ) {
     const fileSystem = yield* FileSystem.FileSystem;
     const catalogRoot = yield* fileSystem.makeTempDirectoryScoped();
     const allowedOrigins = new Set([BASE_URL]);
     const context = yield* Layer.build(
-      HttpRouter.serve(makeMcpHttpLayer(allowedOrigins, options)).pipe(
+      HttpRouter.serve(
+        makeMcpHttpLayer(allowedOrigins, {
+          codeMode: options.codeMode,
+          demoSite: options.demo === false ? undefined : makeDemoSiteLayer(),
+        })
+      ).pipe(
         Layer.provide(
           Layer.mergeAll(
             makeAgentSessionLayer({
@@ -33,8 +43,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
             }),
             makeFlowSkillCatalogLayer({ root: catalogRoot }),
             makeAgentRunStoreLayer({ root: () => catalogRoot }),
-            makeTeachingRecordingStoreLayer({ root: () => catalogRoot }),
-            makeDemoSiteLayer()
+            makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
           ).pipe(
             Layer.provideMerge(CreateBrowserLive),
             Layer.provideMerge(NodeServices.layer)
