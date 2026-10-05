@@ -144,8 +144,17 @@ const isStoppedDryRun = (manifest: TeachingRecordingManifest) =>
   manifest.lifecycle.dryRunResult.observableOutcome ===
     "The user stopped the Dry Run before it completed.";
 
+export interface SessionEventBatch {
+  readonly sessionId: AgentSessionId;
+  /** Cursor preceding this batch, for agent_session_get's afterCursor. */
+  readonly eventCursor: string;
+  readonly events: readonly SessionEvent[];
+}
+
 /** Each session keeps 256 replayable events. Reads never consume them. */
-export const makeSessionEvents = () => {
+export const makeSessionEvents = (
+  onEvents?: (batch: SessionEventBatch) => void
+) => {
   const registry = AtomRegistry.make();
   const logs = new Map<AgentSessionId, Atom.Writable<Log>>();
   const atomFor = (id: AgentSessionId) => {
@@ -165,6 +174,17 @@ export const makeSessionEvents = () => {
     }).pipe(Atom.keepAlive);
     logs.set(id, atom);
     return atom;
+  };
+  const commit = (id: AgentSessionId, atom: Atom.Writable<Log>, log: Log) => {
+    const previous = registry.get(atom);
+    registry.set(atom, log);
+    if (log.sequence > previous.sequence) {
+      onEvents?.({
+        eventCursor: cursor(previous),
+        events: log.events.slice(-(log.sequence - previous.sequence)),
+        sessionId: id,
+      });
+    }
   };
   const observe = (
     snapshot: AgentSessionSnapshot,
@@ -195,7 +215,7 @@ export const makeSessionEvents = () => {
         emit("session-closed");
       }
     }
-    registry.set(atom, { ...log, snapshot });
+    commit(snapshot.id, atom, { ...log, snapshot });
   };
   const observeManifest = (
     id: AgentSessionId,
@@ -263,7 +283,7 @@ export const makeSessionEvents = () => {
     ) {
       log = append(log, "cleanup-failed", manifest.updatedAt);
     }
-    registry.set(atom, {
+    commit(id, atom, {
       ...log,
       cleanupFailure: failure === undefined ? undefined : manifest.updatedAt,
       receipts,
@@ -323,7 +343,7 @@ export const makeSessionEvents = () => {
     if (origin === "workspace" && !log.cleanupCompleted) {
       log = { ...append(log, "cleanup-completed", at), cleanupCompleted: true };
     }
-    registry.set(atom, { ...log, receipts });
+    commit(id, atom, { ...log, receipts });
   };
   return { observe, observeManifest, observeVerification, read };
 };

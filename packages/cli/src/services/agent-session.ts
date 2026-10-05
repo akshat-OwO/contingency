@@ -156,6 +156,7 @@ import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import { beginScanCollection } from "./scan-engine.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
+import type { SessionEventBatch } from "./session-events.ts";
 import { makeSessionEvents, SessionEventOrigin } from "./session-events.ts";
 import type { AgentOperationKind } from "./session-operation-ledger.ts";
 import { makeSessionOperationLedger } from "./session-operation-ledger.ts";
@@ -281,6 +282,7 @@ export interface AgentEmulationPatch {
 }
 
 export interface AgentSessionService {
+  readonly sessionEventChanges: Stream.Stream<SessionEventBatch>;
   readonly sessionEvents: ReturnType<typeof makeSessionEvents>["read"];
   readonly observeSessionManifest: (
     manifest: TeachingRecordingManifest
@@ -1580,12 +1582,15 @@ const makeAgentSession = (
   runStore?: AgentRunStoreService,
   runVideoRenderer?: RunVideoRendererService
 ): Effect.Effect<AgentSessionService> =>
-  Effect.sync(() => {
+  Effect.gen(function* makeSessionRegistry() {
+    const eventBatches = yield* PubSub.unbounded<SessionEventBatch>();
     const sessions = Ref.makeUnsafe<ReadonlyMap<AgentSessionId, SessionRecord>>(
       new Map()
     );
     const ledger = makeSessionOperationLedger();
-    const sessionEvents = makeSessionEvents();
+    const sessionEvents = makeSessionEvents((batch) => {
+      PubSub.publishUnsafe(eventBatches, batch);
+    });
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
     const runScans = makeRunScans(fileSystem, now);
@@ -6971,6 +6976,7 @@ const makeAgentSession = (
             })
           );
         }),
+      sessionEventChanges: Stream.fromPubSub(eventBatches),
       sessionEvents: sessionEvents.read,
       // Start must wait for both the browser change and rememberEmulation,
       // so its manifest and recorder capture the same completed setup.

@@ -7,6 +7,7 @@ import type { TeachingRecordingOperation } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
+import type { SessionEventBatch } from "../../src/services/session-events.ts";
 import { makeSessionEvents } from "../../src/services/session-events.ts";
 
 const at = "2026-10-04T12:00:00.000Z";
@@ -294,5 +295,37 @@ it.effect(
       expect((yield* log.read(teaching.id, before.eventCursor)).events).toEqual(
         []
       );
+    })
+);
+
+it.effect(
+  "pushes committed log batches once with their preceding replay cursor",
+  () =>
+    Effect.gen(function* pushLogBatches() {
+      const batches: SessionEventBatch[] = [];
+      const log = makeSessionEvents((batch) => {
+        batches.push(batch);
+      });
+      log.observe(teaching, "workspace");
+      const initial = yield* log.read(teaching.id);
+      log.observeManifest(
+        teaching.id,
+        manifest("agent", "verification", { _tag: "pending" })
+      );
+      expect(batches).toEqual([]);
+      const cleanup = manifest("workspace", "cleanup", {
+        _tag: "purged",
+        completedAt: at,
+      });
+      log.observeManifest(teaching.id, cleanup);
+      log.observeManifest(teaching.id, cleanup);
+      expect(batches).toHaveLength(1);
+      expect(batches[0]?.eventCursor).toBe(initial.eventCursor);
+      expect(batches[0]?.events).toEqual(
+        (yield* log.read(teaching.id, initial.eventCursor)).events
+      );
+      expect(batches[0]?.events.map((event) => event.kind)).toEqual([
+        "cleanup-completed",
+      ]);
     })
 );
