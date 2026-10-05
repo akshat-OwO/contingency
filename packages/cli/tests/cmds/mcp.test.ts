@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { HttpServerError } from "effect/http";
+import { PlatformError, SystemError } from "effect/PlatformError";
 
 import { isListenAddressInUse } from "../../src/cmds/mcp.ts";
 
@@ -23,3 +24,16 @@ it.each([undefined, new Error("bind failed"), { code: "EACCES" }])(
     ).toBe(false);
   }
 );
+
+it("does not classify another error tag by its EADDRINUSE cause", () => {
+  const error = new PlatformError(
+    new SystemError({
+      _tag: "Unknown",
+      cause: { code: "EADDRINUSE" },
+      method: "listen",
+      module: "HttpServer",
+    })
+  );
+
+  expect(isListenAddressInUse(error)).toBe(false);
+});

@@ -110,11 +110,12 @@ const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
  * Workspace, so all browser handles and shutdown finalizers remain owned by
  * this one process.
  *
- * Stdio clients default to port 0, which binds an available port. The port is acquired by
- * the bind itself and read back before any route or link is built, so two
- * spawned clients never race for one port and each advertises its own
- * Workspace. A terminal launch defaults to 7777. An explicit
- * `CONTINGENCY_MCP_PORT` overrides either default.
+ * Non-terminal stdin defaults to port 0, which binds an available port. This
+ * includes stdio clients and headless HTTP launches. The bind acquires the
+ * port before any route or link is built, so spawned clients never race for
+ * one port and each advertises its own Workspace. Terminal stdin defaults to
+ * 7777. Headless HTTP callers needing a fixed endpoint must explicitly set
+ * `CONTINGENCY_MCP_PORT`, which overrides either default.
  */
 export const mcpCommand = Command.make(
   "mcp",
