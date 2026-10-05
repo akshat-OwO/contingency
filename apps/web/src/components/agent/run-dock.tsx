@@ -223,6 +223,7 @@ export const RunDock = ({
   controlError,
   controlPending,
   onControl,
+  onDismiss,
   onSelectSession,
   requests,
   selectedSessionId,
@@ -234,6 +235,11 @@ export const RunDock = ({
   readonly controlError: string | undefined;
   readonly controlPending: boolean;
   readonly onControl: () => void;
+  /**
+   * Leaves an ended Interactive Run and its Run Summary, or `undefined` while
+   * there is nothing to leave.
+   */
+  readonly onDismiss?: (() => void) | undefined;
   readonly onSelectSession: (sessionId: string) => void;
   /** The Execution Boundary and input requests, as the dock's first tier. */
   readonly requests?: React.ReactNode;
@@ -302,6 +308,11 @@ export const RunDock = ({
           run={taskRun}
           title={session.dryRun ? "Dry Run" : "Interactive Run"}
         />
+      )}
+      {onDismiss === undefined ? null : (
+        <Button onClick={onDismiss} type="button" variant="outline">
+          Done
+        </Button>
       )}
       {control.action === null ? null : (
         <Button

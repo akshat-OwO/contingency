@@ -169,6 +169,27 @@ export const agentRunSummaryAtom = Atom.family((runId: AgentRunId) =>
   ContingencyRpcClient.query("agent.run.summary.get", { runId })
 );
 
+/**
+ * The Run Summary of an Interactive Run the Workspace just watched end. The
+ * Runner closes the session before its Summary lands on disk, so a missing
+ * Summary is asked for again for a bounded while rather than reported as gone.
+ * Any other refusal is the answer. One atom per Run.
+ */
+export const endedRunSummaryAtom = Atom.family((runId: AgentRunId) =>
+  ContingencyRpcClient.runtime.atom(
+    ContingencyRpcClient.use((client) =>
+      client("agent.run.summary.get", { runId })
+    ).pipe(
+      Effect.retry({
+        schedule: Schedule.spaced("500 millis"),
+        times: 120,
+        while: (cause) =>
+          isBrowserRpcError(cause) && cause.code === "agent_run_not_found",
+      })
+    )
+  )
+);
+
 const decodeRunVideoStatus = Schema.decodeUnknownEffect(RunVideoStatus);
 
 /**

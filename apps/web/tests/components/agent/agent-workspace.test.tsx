@@ -12,7 +12,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Cause, Deferred, Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -24,6 +24,10 @@ import { routeTree } from "@/routeTree.gen";
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
   discardCalls: [] satisfies unknown[],
+  endedRunSummary: {} satisfies unknown,
+  endedRunSummaryCalls: [] satisfies unknown[],
+  /* Replaces the persisted Summary with another result, such as a refusal. */
+  endedRunSummaryResult: undefined satisfies unknown,
   inputCalls: [] satisfies unknown[],
   inspectedElement: {
     description: "button: Place order",
@@ -169,6 +173,17 @@ const rpcOverrides = {
       return {};
     })
   ),
+  endedRunSummaryAtom: (runId: string) =>
+    Atom.make(() => {
+      rpc.endedRunSummaryCalls.push(runId);
+      return (
+        rpc.endedRunSummaryResult ?? {
+          _tag: "Success",
+          value: { summary: rpc.endedRunSummary, viewUrl: "" },
+          waiting: false,
+        }
+      );
+    }),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: () =>
     rpc.agentStreamFailureMessage === undefined
@@ -273,6 +288,56 @@ const runningSession = {
   },
 } satisfies unknown;
 
+/** A live task Interactive Run the agent is about to complete. */
+const taskRunSession = {
+  ...session,
+  dryRun: null,
+  run: {
+    assessment: null,
+    attribution: runningSession.run.attribution,
+    findings: [],
+    inputs: [],
+    instructions: [],
+    lastAgentActivityAt: new Date().toISOString(),
+    lifecycle: { phase: "running" },
+    purpose: { kind: "interactive" },
+    referencedSkills: [],
+    requestedTask: "Check that the catalogue lists products.",
+    runId: "agentrun-task",
+    scanReports: [],
+    scanRequirements: [],
+    schemaVersion: 3,
+    startedAt: "2026-08-31T00:00:00.000Z",
+    startingEmulation: {
+      permissions: [],
+      userAgentProfile: "default",
+      viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
+    },
+    title: "Check the catalogue",
+    variables: [],
+  },
+} satisfies unknown;
+
+/** What the Runner persisted once that Run ended. */
+const endedTaskSummary = {
+  ...taskRunSession.run,
+  assessment: {
+    evidence: [{ id: "snapshot-catalogue", kind: "snapshot" }],
+    explanation: "The catalogue listed three products.",
+    outcome: "working",
+    outcomeComplete: true,
+    submittedAt: "2026-08-31T00:00:40.000Z",
+  },
+  endedAt: "2026-08-31T00:00:42.000Z",
+  outcome: "completed",
+  sessionId: session.id,
+  timeline: [],
+  tracePath: null,
+  videoPath: "agentrun-task.webm",
+};
+
+rpc.endedRunSummary = endedTaskSummary;
+
 /** One live Dry Run, rehearsing a drafted Flow Skill with a changed input. */
 const dryRunSession = {
   ...session,
@@ -342,6 +407,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
   rpc.discardCalls = [];
+  rpc.endedRunSummaryCalls = [];
+  rpc.endedRunSummaryResult = undefined;
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
   rpc.renameCalls = [];
@@ -1646,5 +1713,192 @@ test("asks for setup Variables in the dock and folds them out of the browser's w
   );
   expect(
     within(dock).getByRole("region", { name: "Setup Variables" })
+  ).toBeVisible();
+});
+
+test("keeps an Interactive Run on screen with its Run Summary once it ends", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([taskRunSession]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(
+    screen.queryByRole("complementary", { name: "Run Summary" })
+  ).toBeNull();
+
+  // The agent completed the Run: its session leaves the live list.
+  rpc.sessionsResult = resultFor([]);
+
+  const summary = await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+  expect(
+    within(summary).getByText("The catalogue listed three products.")
+  ).toBeVisible();
+  expect(
+    within(summary).getByRole("list", { name: "Run checks" })
+  ).toBeVisible();
+  expect(rpc.endedRunSummaryCalls).toContain("agentrun-task");
+  expect(dock).toHaveTextContent(
+    "The Run has ended. Its Run Summary is beside the browser."
+  );
+  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+  expect(screen.queryByText("No browser session")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
+
+  await user.click(within(dock).getByRole("button", { name: "Done" }));
+
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
+});
+
+test("leaves an ended Run for the next live session", async () => {
+  const user = userEvent.setup();
+  const otherSession = {
+    ...session,
+    clientName: "Other agent",
+    id: "agent-two",
+    viewUrl: "http://127.0.0.1:7777/?session=agent-two",
+  };
+  renderWorkspace(resultFor([taskRunSession, otherSession]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+
+  rpc.sessionsResult = resultFor([otherSession]);
+  await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+
+  await user.click(screen.getByRole("button", { name: "Done" }));
+
+  await waitFor(() => {
+    expect(sessionPicker()).toHaveTextContent("Other agent");
+  });
+  expect(
+    screen.queryByRole("complementary", { name: "Run Summary" })
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+});
+
+test("stops forwarding wheel input when a user-controlled Run ends", async () => {
+  renderWorkspace(
+    resultFor([{ ...taskRunSession, controller: "user" }]),
+    session.id
+  );
+  const canvas = await screen.findByLabelText("Live browser viewport");
+  canvas.dispatchEvent(
+    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 240 })
+  );
+  await waitFor(() => expect(rpc.inputCalls).toHaveLength(1));
+
+  rpc.sessionsResult = resultFor([]);
+  await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+  expect(screen.getByLabelText("Live browser viewport")).toBe(canvas);
+  expect(canvas).toHaveAttribute("aria-readonly", "true");
+  const event = new WheelEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    deltaY: 240,
+  });
+  canvas.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(rpc.inputCalls).toHaveLength(1);
+});
+
+test("stops live streams while keeping an ended Run's Summary", async () => {
+  const failure = Deferred.makeUnsafe<never, Error>();
+  let sessionStreamStopped = false;
+  let browserStreamStopped = false;
+  vi.spyOn(rpcOverrides, "runAgentSessionStream").mockImplementation(() =>
+    Deferred.await(failure).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          sessionStreamStopped = true;
+        })
+      )
+    )
+  );
+  vi.spyOn(rpcOverrides, "runAgentBrowserStream").mockImplementation(() =>
+    Effect.never.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          browserStreamStopped = true;
+        })
+      )
+    )
+  );
+  renderWorkspace(resultFor([taskRunSession]), session.id);
+  const canvas = await screen.findByLabelText("Live browser viewport");
+  rpc.sessionsResult = resultFor([]);
+  const summary = await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+  await waitFor(() => {
+    expect(sessionStreamStopped).toBe(true);
+    expect(browserStreamStopped).toBe(true);
+  });
+  await Effect.runPromise(
+    Deferred.fail(failure, new Error("The ended session stream failed."))
+  );
+  expect(summary).toBeVisible();
+  expect(screen.getByLabelText("Live browser viewport")).toBe(canvas);
+  expect(screen.getByRole("button", { name: "Done" })).toBeVisible();
+});
+
+test("recovers the ended Run Summary when its stream fails before the session poll", async () => {
+  const failure = Deferred.makeUnsafe<never, Error>();
+  vi.spyOn(rpcOverrides, "runAgentSessionStream").mockImplementation(() =>
+    Deferred.await(failure)
+  );
+  renderWorkspace(resultFor([taskRunSession]), session.id);
+  await screen.findByLabelText("Live browser viewport");
+  await Effect.runPromise(
+    Deferred.fail(failure, new Error("The session stream failed."))
+  );
+  expect(await screen.findByText("The session stream failed.")).toBeVisible();
+
+  rpc.sessionsResult = resultFor([]);
+  expect(
+    await screen.findByRole(
+      "complementary",
+      { name: "Run Summary" },
+      { timeout: 5000 }
+    )
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "Done" })).toBeVisible();
+  expect(screen.queryByText("Agent Session unavailable")).toBeNull();
+});
+
+test("says an ended Run's Summary was not written rather than missing from the catalog", async () => {
+  rpc.endedRunSummaryResult = {
+    _tag: "Failure",
+    cause: Cause.fail({
+      _tag: "BrowserRpcError",
+      code: "agent_run_not_found",
+      message: "Run agentrun-task has no persisted Run Summary.",
+    }),
+    waiting: false,
+  };
+  renderWorkspace(resultFor([taskRunSession]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+
+  rpc.sessionsResult = resultFor([]);
+
+  const summary = await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+  expect(
+    within(summary).getByText(
+      "The Run ended, but its Run Summary was not written in time. Open it later with open_run."
+    )
   ).toBeVisible();
 });
