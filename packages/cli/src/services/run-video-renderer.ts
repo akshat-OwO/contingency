@@ -402,16 +402,18 @@ export const RunVideoRendererLive = Layer.effect(
         if (inFlight.has(key)) {
           return Effect.void;
         }
-        // Claimed before forking, so a render that ends at once cannot
-        // leave a stale entry behind.
+        // Claimed before forking and released by the fiber's exit, which
+        // also fires for a fiber interrupted before it ran or already done.
         inFlight.add(key);
         return renderDirectory(key).pipe(
-          Effect.ensuring(
+          Effect.forkIn(scope),
+          Effect.tap((fiber) =>
             Effect.sync(() => {
-              inFlight.delete(key);
+              fiber.addObserver(() => {
+                inFlight.delete(key);
+              });
             })
           ),
-          Effect.forkIn(scope),
           Effect.asVoid
         );
       });

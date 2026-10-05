@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError } from "effect";
+import { Deferred, Effect, FileSystem, Layer, PlatformError } from "effect";
 
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
@@ -149,4 +149,73 @@ it.live("keeps footage when promoting it to the Run video fails", () =>
       ).pipe(Layer.provideMerge(refuseFootagePromote))
     )
   )
+);
+
+/** Holds the manifest's removal until `gate` opens. */
+const holdManifestRemoval = (gate: Deferred.Deferred<boolean>) =>
+  Layer.effect(
+    FileSystem.FileSystem,
+    Effect.gen(function* wrapRemove() {
+      const inner = yield* FileSystem.FileSystem;
+      return FileSystem.FileSystem.of({
+        ...inner,
+        remove: (file, options) =>
+          path.basename(file) === FOOTAGE_MANIFEST_FILE
+            ? Deferred.await(gate).pipe(
+                Effect.andThen(inner.remove(file, options))
+              )
+            : inner.remove(file, options),
+      });
+    })
+  ).pipe(Layer.provide(NodeServices.layer));
+
+it.live(
+  "reports preparing until the footage behind the Run video is removed",
+  () =>
+    Effect.gen(function* holdCleanup() {
+      const gate = yield* Deferred.make<boolean>();
+      const fileSystemLive = holdManifestRemoval(gate);
+      yield* Effect.gen(function* awaitCleanup() {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const directory = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-run-video-cleanup-",
+        });
+        yield* seedUnreadableFootage(directory);
+        const renderer = yield* RunVideoRenderer;
+        expect(yield* renderer.status(directory)).toEqual({
+          state: "preparing",
+        });
+        const video = path.join(directory, RUN_VIDEO_FILE);
+        while (!(yield* fileSystem.exists(video))) {
+          yield* Effect.sleep("10 millis");
+        }
+        // The video is in place, but its footage is not yet removed.
+        expect(yield* renderer.status(directory)).toEqual({
+          state: "preparing",
+        });
+        yield* Deferred.succeed(gate, true);
+        let status = yield* renderer.status(directory);
+        while (status.state === "preparing") {
+          yield* Effect.sleep("10 millis");
+          status = yield* renderer.status(directory);
+        }
+        expect(status).toEqual({
+          condensed: false,
+          reason:
+            "The footage manifest could not be read: The footage manifest is not valid JSON.",
+          state: "ready",
+        });
+        expect(
+          yield* fileSystem.exists(path.join(directory, FOOTAGE_MANIFEST_FILE))
+        ).toBe(false);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          RunVideoRendererLive.pipe(
+            Layer.provide(UnusedBrowser),
+            Layer.provideMerge(fileSystemLive)
+          )
+        )
+      );
+    }).pipe(Effect.timeout("10 seconds"))
 );
