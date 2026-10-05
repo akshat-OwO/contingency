@@ -637,12 +637,18 @@ const AgentLiveView = ({
       {/*
         Browser setup stays available in every state, recording included: the
         device, the Emulation, and the storage a journey needs are part of the
-        setup the recording runs under (ADR 0038). The stage owns the column,
-        so the dock and its notices float over the frame rather than over the
-        docked inspector.
+        setup the recording runs under (ADR 0038). The Emulation alone is
+        fixed from Start, because the Teaching Recording declares the one it
+        was demonstrated under (ADR 0013). The stage owns the column, so the
+        dock and its notices float over the frame rather than over the docked
+        inspector.
       */}
       <WorkspaceBrowserStage
         consoleEntries={state.consoleEntries}
+        emulationFixed={
+          session.activity === "teaching" &&
+          session.captureState._tag !== "setup"
+        }
         onClearConsole={onClearConsole}
         sessionId={session.id}
         teaching={session.activity === "teaching"}

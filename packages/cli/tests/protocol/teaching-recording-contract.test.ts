@@ -94,20 +94,29 @@ test("Teaching capture rejects a state missing its required lifecycle data", () 
 });
 
 test("learning-agent contracts use recording ids and bounded references", () => {
-  expect(
-    decodeList({
-      recordings: [
-        {
-          cleanup: { _tag: "pending" },
-          failure: null,
-          flowSkillName: "checkout-flow",
-          lifecycle: "ready",
-          recordingId: "recording-checkout",
-          updatedAt: at,
-        },
-      ],
-    }).recordings[0]?.recordingId
-  ).toBe("recording-checkout");
+  const summary = {
+    cleanup: { _tag: "pending" },
+    emulation: {
+      colorScheme: "dark",
+      locale: "de-DE",
+      permissions: [],
+      timezoneId: "Europe/Berlin",
+      userAgentProfile: "chrome-android-mobile",
+      viewport: { deviceScaleFactor: 3, height: 800, width: 360 },
+    },
+    failure: null,
+    flowSkillName: "checkout-flow",
+    lifecycle: "ready",
+    recordingId: "recording-checkout",
+    updatedAt: at,
+  };
+  const [listed] = decodeList({ recordings: [summary] }).recordings;
+  expect(listed?.recordingId).toBe("recording-checkout");
+  // An agent picking the recording up later learns its Emulation before
+  // claiming it, so a recording never reaches it without one.
+  expect(listed?.emulation).toEqual(summary.emulation);
+  const { emulation: _omitted, ...withoutEmulation } = summary;
+  expect(() => decodeList({ recordings: [withoutEmulation] })).toThrow();
   expect(
     decodeClaim({
       claimedAt: at,

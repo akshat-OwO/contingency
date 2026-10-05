@@ -377,7 +377,11 @@ it.effect.each([
           recordingId,
           sessionId: taskRunSummary.sessionId,
         });
-        yield* store.start({ operationId: operation("start"), recordingId });
+        yield* store.start({
+          emulation: run.startingEmulation,
+          operationId: operation("start"),
+          recordingId,
+        });
         yield* store.stop({
           artifacts: [],
           operationId: operation("stop"),

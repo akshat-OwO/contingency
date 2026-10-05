@@ -31,7 +31,7 @@ const layer = makeTeachingRecordingStoreLayer({
 const program = Effect.gen(function* runProcessCheck() {
   const store = yield* TeachingRecordingStore;
   if (mode === "write") {
-    yield* store.begin({
+    const begun = yield* store.begin({
       emulation: {
         permissions: [],
         userAgentProfile: UserAgentProfileId.make("default"),
@@ -43,6 +43,7 @@ const program = Effect.gen(function* runProcessCheck() {
       sessionId: AgentSessionId.make("agent-process-restart"),
     });
     yield* store.start({
+      emulation: begun.emulation,
       operationId: OperationId.make("process-start"),
       recordingId,
     });

@@ -41,7 +41,7 @@ it.effect(
         const store = yield* TeachingRecordingStore;
         const learning = yield* TeachingRecordingLearning;
         const now = new Date().toISOString();
-        yield* store.begin({
+        const begun = yield* store.begin({
           emulation: {
             permissions: [],
             userAgentProfile: UserAgentProfileId.make("default"),
@@ -53,6 +53,7 @@ it.effect(
           sessionId: AgentSessionId.make("agent-large-timeline"),
         });
         yield* store.start({
+          emulation: begun.emulation,
           operationId: OperationId.make("large-start"),
           recordingId,
         });
@@ -154,7 +155,7 @@ it.effect(
         const store = yield* TeachingRecordingStore;
         const learning = yield* TeachingRecordingLearning;
         const now = new Date().toISOString();
-        yield* store.begin({
+        const begun = yield* store.begin({
           emulation: {
             permissions: [],
             userAgentProfile: UserAgentProfileId.make("default"),
@@ -166,6 +167,7 @@ it.effect(
           sessionId: AgentSessionId.make("agent-withheld-fill"),
         });
         yield* store.start({
+          emulation: begun.emulation,
           operationId: OperationId.make("withheld-start"),
           recordingId: withheldRecordingId,
         });

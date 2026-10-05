@@ -97,7 +97,7 @@ const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
       recordingId,
       sessionId,
     });
-    yield* store.start({ operationId: step("start"), recordingId });
+    yield* store.start({ emulation, operationId: step("start"), recordingId });
     yield* files.writeFileString(
       path.join(store.directory(recordingId), "recording.webm"),
       "video"
@@ -589,6 +589,7 @@ it.effect("projects one summary for every learning state", () =>
       );
       expect(teachingRecordingSummary(passed)).toEqual({
         cleanup: passed.cleanup,
+        emulation,
         failure: null,
         flowSkillName,
         lifecycle: "dry-run-passed",

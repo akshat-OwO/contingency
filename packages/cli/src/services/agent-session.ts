@@ -2599,7 +2599,11 @@ const makeAgentSession = (
               )
             );
           const manifest = yield* teachingRecordingStore
-            .start({ operationId: operation, recordingId })
+            .start({
+              emulation: record.emulation,
+              operationId: operation,
+              recordingId,
+            })
             .pipe(
               Effect.mapError((cause) =>
                 error("agent_session_invalid", cause.message)
@@ -6917,6 +6921,20 @@ const makeAgentSession = (
               error(
                 "agent_session_conflict",
                 "An Interactive Run reproduces the Emulation the Flow Skill was demonstrated under. Configure the browser while Teaching instead."
+              )
+            );
+          }
+          // A Teaching Recording declares one Emulation, fixed at Start, so
+          // the controls lock once capture begins rather than letting an
+          // unrecorded change land inside the journey (ADR 0013).
+          if (
+            record.snapshot.captureState !== null &&
+            record.snapshot.captureState._tag !== "setup"
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                "Emulation is fixed once recording starts: the Teaching Recording declares the Emulation it was demonstrated under."
               )
             );
           }

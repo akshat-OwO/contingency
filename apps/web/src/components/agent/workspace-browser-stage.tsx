@@ -318,6 +318,21 @@ const browserLockedReason = (
     : "The agent holds the browser. Take control to change its Emulation or storage.";
 };
 
+/**
+ * Why the Emulation is read-only. A Teaching Recording declares the one
+ * Emulation it was demonstrated under, so it is fixed from Start (ADR 0013);
+ * storage stays editable.
+ */
+const emulationLockedReason = (
+  userHoldsBrowser: boolean,
+  teaching: boolean,
+  emulationFixed: boolean
+): string | undefined =>
+  browserLockedReason(userHoldsBrowser, teaching) ??
+  (emulationFixed
+    ? "Emulation is fixed once recording starts: the recording declares the Emulation it was demonstrated under."
+    : undefined);
+
 const StageError = ({
   message,
   onDismiss,
@@ -610,6 +625,7 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
 export const WorkspaceBrowserStage = ({
   children,
   consoleEntries,
+  emulationFixed,
   onClearConsole,
   sessionId,
   teaching,
@@ -618,6 +634,8 @@ export const WorkspaceBrowserStage = ({
   /** The live frame and everything that floats over it. */
   readonly children: ReactNode;
   readonly consoleEntries: readonly BrowserConsoleEntry[];
+  /** A Teaching Recording has started, so its Emulation can no longer change. */
+  readonly emulationFixed: boolean;
   readonly onClearConsole: () => void;
   readonly sessionId: AgentSessionId;
   /**
@@ -658,11 +676,15 @@ export const WorkspaceBrowserStage = ({
 
   const applied =
     state.emulation.status === "known" ? state.emulation.emulation : undefined;
-  const disabled = !userHoldsBrowser || state.pending;
+  const disabled = !userHoldsBrowser || state.pending || emulationFixed;
   const activeUrl = state.activeTab?.url;
   const origin =
     activeUrl === undefined ? undefined : httpOriginFromUrl(activeUrl)?.origin;
-  const lockedReason = browserLockedReason(userHoldsBrowser, teaching);
+  const lockedReason = emulationLockedReason(
+    userHoldsBrowser,
+    teaching,
+    emulationFixed
+  );
 
   const { inspectorSize, regionLength, side } = inspectorLayout(
     inspector,
