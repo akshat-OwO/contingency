@@ -24,6 +24,8 @@ import { routeTree } from "@/routeTree.gen";
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
   discardCalls: [] satisfies unknown[],
+  endedRunSummary: {} satisfies unknown,
+  endedRunSummaryCalls: [] satisfies unknown[],
   inputCalls: [] satisfies unknown[],
   inspectedElement: {
     description: "button: Place order",
@@ -169,6 +171,15 @@ const rpcOverrides = {
       return {};
     })
   ),
+  endedRunSummaryAtom: (runId: string) =>
+    Atom.make(() => {
+      rpc.endedRunSummaryCalls.push(runId);
+      return {
+        _tag: "Success",
+        value: { summary: rpc.endedRunSummary, viewUrl: "" },
+        waiting: false,
+      };
+    }),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: () =>
     rpc.agentStreamFailureMessage === undefined
@@ -273,6 +284,56 @@ const runningSession = {
   },
 } satisfies unknown;
 
+/** A live task Interactive Run the agent is about to complete. */
+const taskRunSession = {
+  ...session,
+  dryRun: null,
+  run: {
+    assessment: null,
+    attribution: runningSession.run.attribution,
+    findings: [],
+    inputs: [],
+    instructions: [],
+    lastAgentActivityAt: new Date().toISOString(),
+    lifecycle: { phase: "running" },
+    purpose: { kind: "interactive" },
+    referencedSkills: [],
+    requestedTask: "Check that the catalogue lists products.",
+    runId: "agentrun-task",
+    scanReports: [],
+    scanRequirements: [],
+    schemaVersion: 3,
+    startedAt: "2026-08-31T00:00:00.000Z",
+    startingEmulation: {
+      permissions: [],
+      userAgentProfile: "default",
+      viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
+    },
+    title: "Check the catalogue",
+    variables: [],
+  },
+} satisfies unknown;
+
+/** What the Runner persisted once that Run ended. */
+const endedTaskSummary = {
+  ...taskRunSession.run,
+  assessment: {
+    evidence: [{ id: "snapshot-catalogue", kind: "snapshot" }],
+    explanation: "The catalogue listed three products.",
+    outcome: "working",
+    outcomeComplete: true,
+    submittedAt: "2026-08-31T00:00:40.000Z",
+  },
+  endedAt: "2026-08-31T00:00:42.000Z",
+  outcome: "completed",
+  sessionId: session.id,
+  timeline: [],
+  tracePath: null,
+  videoPath: "agentrun-task.webm",
+};
+
+rpc.endedRunSummary = endedTaskSummary;
+
 /** One live Dry Run, rehearsing a drafted Flow Skill with a changed input. */
 const dryRunSession = {
   ...session,
@@ -342,6 +403,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
   rpc.discardCalls = [];
+  rpc.endedRunSummaryCalls = [];
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
   rpc.renameCalls = [];
@@ -1647,4 +1709,40 @@ test("asks for setup Variables in the dock and folds them out of the browser's w
   expect(
     within(dock).getByRole("region", { name: "Setup Variables" })
   ).toBeVisible();
+});
+
+test("keeps an Interactive Run on screen with its Run Summary once it ends", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([taskRunSession]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  expect(
+    screen.queryByRole("complementary", { name: "Run Summary" })
+  ).toBeNull();
+
+  // The agent completed the Run: its session leaves the live list.
+  rpc.sessionsResult = resultFor([]);
+
+  const summary = await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+  expect(
+    within(summary).getByText("The catalogue listed three products.")
+  ).toBeVisible();
+  expect(
+    within(summary).getByRole("list", { name: "Run checks" })
+  ).toBeVisible();
+  expect(rpc.endedRunSummaryCalls).toContain("agentrun-task");
+  expect(dock).toHaveTextContent(
+    "The Run has ended. Its Run Summary is beside the browser."
+  );
+  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+  expect(screen.queryByText("No browser session")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
+
+  await user.click(within(dock).getByRole("button", { name: "Done" }));
+
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
 });

@@ -125,6 +125,30 @@ export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
 };
 
 /**
+ * Whether a session is an Interactive Run that has a Run behind it. Only such
+ * a session leaves a Run Summary the Workspace can show once it ends; a Dry
+ * Run reports to its Teaching session instead.
+ */
+export const isInteractiveRunSession = (
+  session: AgentSessionSnapshot
+): boolean =>
+  session.activity === "run" &&
+  (session.dryRun ?? null) === null &&
+  session.run !== null;
+
+/**
+ * The held snapshot of an Interactive Run that has left the live session list.
+ * The list holds live sessions only, so leaving it means the Run ended even
+ * when the Workspace never saw the closing snapshot arrive.
+ */
+export const endedRunSnapshot = (
+  session: AgentSessionSnapshot
+): AgentSessionSnapshot =>
+  isLiveAgentSessionPhase(session.phase)
+    ? { ...session, phase: "closed" }
+    : session;
+
+/**
  * How Agent View describes control. Control is exclusive, and an agent that
  * asked for help has paused without being handed the user's control, so the
  * three states are told apart rather than collapsed into "not the agent".

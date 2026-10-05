@@ -1,9 +1,11 @@
 import type {
   AgentTaskAssessment,
   FlowSkillDryRunResult,
+  TaskAgentRunSummary,
 } from "@contingency/protocol";
 import { agentRunVideoPath } from "@contingency/protocol";
 import {
+  CircleAlertIcon,
   CircleCheckIcon,
   CircleXIcon,
   CornerDownRightIcon,
@@ -12,13 +14,19 @@ import type { ReactNode } from "react";
 
 import type {
   DryRunVerdict,
+  SummaryCheck,
+  SummaryVerdict,
+  SummaryVerdictTone,
   TaskDryRunSummary,
+  TaskInteractiveRunSummary,
 } from "@/components/agent/dry-run-summary-state";
 import {
   assessmentOutcomeLabel,
   dryRunChecks,
   dryRunVerdict,
   evidenceCount,
+  interactiveRunChecks,
+  interactiveRunVerdict,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
 import { RunVideo } from "@/components/agent/run-video";
@@ -36,26 +44,43 @@ const verdictLabel: Record<DryRunVerdict, string> = {
   passed: "Dry Run passed",
 };
 
+const dryRunSummaryVerdict = (verdict: DryRunVerdict): SummaryVerdict => ({
+  label: verdictLabel[verdict],
+  tone: verdict === "failed" ? "failed" : "passed",
+});
+
+const verdictToneClass: Record<SummaryVerdictTone, string> = {
+  attention: "text-amber-600 dark:text-amber-400",
+  failed: "text-destructive",
+  passed: passedTone,
+};
+
+const VerdictIcon = ({ tone }: { readonly tone: SummaryVerdictTone }) => {
+  if (tone === "passed") {
+    return <CircleCheckIcon aria-hidden="true" className="size-3.5" />;
+  }
+  if (tone === "failed") {
+    return <CircleXIcon aria-hidden="true" className="size-3.5" />;
+  }
+  return <CircleAlertIcon aria-hidden="true" className="size-3.5" />;
+};
+
 const Verdict = ({
   className,
   verdict,
 }: {
   readonly className?: string;
-  readonly verdict: DryRunVerdict;
+  readonly verdict: SummaryVerdict;
 }) => (
   <span
     className={cn(
       "inline-flex items-center gap-1 font-medium",
-      verdict === "failed" ? "text-destructive" : passedTone,
+      verdictToneClass[verdict.tone],
       className
     )}
   >
-    {verdict === "failed" ? (
-      <CircleXIcon aria-hidden="true" className="size-3.5" />
-    ) : (
-      <CircleCheckIcon aria-hidden="true" className="size-3.5" />
-    )}
-    {verdictLabel[verdict]}
+    <VerdictIcon tone={verdict.tone} />
+    {verdict.label}
   </span>
 );
 
@@ -67,14 +92,14 @@ const Verdict = ({
  * The video and Trace never leave the machine
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
-const DryRunVideo = ({
+const SummaryVideo = ({
   src,
   summary,
   verdict,
 }: {
-  readonly verdict: DryRunVerdict;
+  readonly verdict: SummaryVerdict;
   readonly src: string;
-  readonly summary: TaskDryRunSummary;
+  readonly summary: TaskAgentRunSummary;
 }) => (
   <section aria-label="Run video" className="space-y-1.5">
     {summary.videoPath === null ? (
@@ -141,9 +166,15 @@ const EvidenceReferences = ({
   </ul>
 );
 
-const Checklist = ({ summary }: { readonly summary: TaskDryRunSummary }) => (
-  <ul aria-label="Pass checks" className="divide-y rounded-lg border">
-    {dryRunChecks(summary).map((check) => (
+const Checklist = ({
+  checks,
+  label,
+}: {
+  readonly checks: readonly SummaryCheck[];
+  readonly label: string;
+}) => (
+  <ul aria-label={label} className="divide-y rounded-lg border">
+    {checks.map((check) => (
       <li
         className="flex items-center gap-2.5 px-3 py-2 text-sm"
         key={check.label}
@@ -174,9 +205,130 @@ const Checklist = ({ summary }: { readonly summary: TaskDryRunSummary }) => (
 );
 
 /**
- * A finished task Dry Run: its video and verdict, four numbers, and the rest
- * behind tabs. The Verdict tab opens on the pass checks, so a failed Dry Run
- * reads as which check is red rather than as paragraphs to compare.
+ * A finished task Run: its video and verdict, four numbers, and the rest
+ * behind tabs. The Verdict tab opens on the checks, so a failed Run reads as
+ * which check is red rather than as paragraphs to compare.
+ */
+const TaskRunSummaryLayout = ({
+  checks,
+  checksLabel,
+  details,
+  failure,
+  summary,
+  verdict,
+  videoSrc,
+}: {
+  readonly checks: readonly SummaryCheck[];
+  readonly checksLabel: string;
+  /** What the Task tab adds about where the task came from. */
+  readonly details: ReactNode;
+  /** A sentence that outranks the checks, such as a failed observable outcome. */
+  readonly failure: string | undefined;
+  readonly summary: TaskAgentRunSummary;
+  readonly verdict: SummaryVerdict;
+  readonly videoSrc: string | undefined;
+}) => (
+  <div className="space-y-3">
+    <SummaryVideo
+      src={videoSrc ?? agentRunVideoPath(summary.runId)}
+      summary={summary}
+      verdict={verdict}
+    />
+    <dl className="grid grid-cols-4 divide-x rounded-lg border">
+      <Stat label="Duration" value={runDuration(summary)} />
+      <Stat label="Actions" value={summary.timeline.length} />
+      <Stat label="Findings" value={summary.findings.length} />
+      <Stat label="Evidence" value={evidenceCount(summary)} />
+    </dl>
+    <ScanResults run={summary} />
+    <Tabs defaultValue="verdict">
+      <TabsList className="w-full">
+        <TabsTrigger value="verdict">Verdict</TabsTrigger>
+        <TabsTrigger value="findings">
+          Findings
+          {summary.findings.length === 0 ? null : (
+            <Badge variant="secondary">{summary.findings.length}</Badge>
+          )}
+        </TabsTrigger>
+        <TabsTrigger value="task">Task</TabsTrigger>
+      </TabsList>
+      <TabsContent className="space-y-3 pt-1" value="verdict">
+        {failure === undefined ? null : (
+          <p className="text-destructive text-sm text-pretty">{failure}</p>
+        )}
+        <Checklist checks={checks} label={checksLabel} />
+        {summary.assessment === null ? (
+          <p className="text-muted-foreground text-sm">
+            No Agent Assessment submitted.
+          </p>
+        ) : (
+          <>
+            <blockquote className="border-l-2 pl-3 text-sm text-pretty wrap-anywhere">
+              {summary.assessment.explanation}
+            </blockquote>
+            <EvidenceReferences assessment={summary.assessment} />
+          </>
+        )}
+      </TabsContent>
+      <TabsContent className="space-y-3 pt-1" value="findings">
+        {summary.findings.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No findings recorded.</p>
+        ) : (
+          <ul aria-label="Findings" className="space-y-3">
+            {summary.findings.map((finding) => (
+              <li className="flex gap-2.5" key={finding.id}>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "mt-1.5 size-2 shrink-0 rounded-full",
+                    findingDot[finding.outcome]
+                  )}
+                />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm text-pretty wrap-anywhere">
+                    {finding.explanation}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {assessmentOutcomeLabel[finding.outcome]}
+                  </p>
+                  <EvidenceReferences assessment={finding} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </TabsContent>
+      <TabsContent className="space-y-3 pt-1 text-sm" value="task">
+        <p className="text-pretty wrap-anywhere">{summary.requestedTask}</p>
+        {summary.instructions.length === 0 ? null : (
+          <ol aria-label="Changed instructions" className="space-y-1">
+            {summary.instructions.map((instruction) => (
+              <li
+                className="text-muted-foreground flex gap-1.5 text-xs wrap-anywhere"
+                key={`${instruction.receivedAt}:${instruction.instruction}`}
+              >
+                <CornerDownRightIcon
+                  aria-hidden="true"
+                  className="mt-0.5 size-3 shrink-0"
+                />
+                {instruction.instruction}
+              </li>
+            ))}
+          </ol>
+        )}
+        <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+          {details}
+          <dt>Run</dt>
+          <dd className="font-mono wrap-anywhere">{summary.runId}</dd>
+        </dl>
+      </TabsContent>
+    </Tabs>
+  </div>
+);
+
+/**
+ * A finished task Dry Run. A Runner result of `failed` leads the Verdict tab:
+ * the observable outcome is a system fact and outranks the pass checks.
  */
 export const DryRunSummaryView = ({
   result,
@@ -187,109 +339,55 @@ export const DryRunSummaryView = ({
   readonly result?: FlowSkillDryRunResult;
   readonly summary: TaskDryRunSummary;
   readonly videoSrc?: string | undefined;
-}) => {
-  const verdict = dryRunVerdict(summary, result);
-  return (
-    <div className="space-y-3">
-      <DryRunVideo
-        src={videoSrc ?? agentRunVideoPath(summary.runId)}
-        summary={summary}
-        verdict={verdict}
-      />
-      <dl className="grid grid-cols-4 divide-x rounded-lg border">
-        <Stat label="Duration" value={runDuration(summary)} />
-        <Stat label="Actions" value={summary.timeline.length} />
-        <Stat label="Findings" value={summary.findings.length} />
-        <Stat label="Evidence" value={evidenceCount(summary)} />
-      </dl>
-      <ScanResults run={summary} />
-      <Tabs defaultValue="verdict">
-        <TabsList className="w-full">
-          <TabsTrigger value="verdict">Verdict</TabsTrigger>
-          <TabsTrigger value="findings">
-            Findings
-            {summary.findings.length === 0 ? null : (
-              <Badge variant="secondary">{summary.findings.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="task">Task</TabsTrigger>
-        </TabsList>
-        <TabsContent className="space-y-3 pt-1" value="verdict">
-          {result?.outcome === "failed" ? (
-            <p className="text-destructive text-sm text-pretty">
-              {result.observableOutcome}
-            </p>
-          ) : null}
-          <Checklist summary={summary} />
-          {summary.assessment === null ? (
-            <p className="text-muted-foreground text-sm">
-              No Agent Assessment submitted.
-            </p>
-          ) : (
-            <>
-              <blockquote className="border-l-2 pl-3 text-sm text-pretty wrap-anywhere">
-                {summary.assessment.explanation}
-              </blockquote>
-              <EvidenceReferences assessment={summary.assessment} />
-            </>
-          )}
-        </TabsContent>
-        <TabsContent className="space-y-3 pt-1" value="findings">
-          {summary.findings.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No findings recorded.
-            </p>
-          ) : (
-            <ul aria-label="Findings" className="space-y-3">
-              {summary.findings.map((finding) => (
-                <li className="flex gap-2.5" key={finding.id}>
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "mt-1.5 size-2 shrink-0 rounded-full",
-                      findingDot[finding.outcome]
-                    )}
-                  />
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm text-pretty wrap-anywhere">
-                      {finding.explanation}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      {assessmentOutcomeLabel[finding.outcome]}
-                    </p>
-                    <EvidenceReferences assessment={finding} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </TabsContent>
-        <TabsContent className="space-y-3 pt-1 text-sm" value="task">
-          <p className="text-pretty wrap-anywhere">{summary.requestedTask}</p>
-          {summary.instructions.length === 0 ? null : (
-            <ol aria-label="Changed instructions" className="space-y-1">
-              {summary.instructions.map((instruction) => (
-                <li
-                  className="text-muted-foreground flex gap-1.5 text-xs wrap-anywhere"
-                  key={`${instruction.receivedAt}:${instruction.instruction}`}
-                >
-                  <CornerDownRightIcon
-                    aria-hidden="true"
-                    className="mt-0.5 size-3 shrink-0"
-                  />
-                  {instruction.instruction}
-                </li>
-              ))}
-            </ol>
-          )}
-          <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-            <dt>Flow Skill</dt>
-            <dd className="wrap-anywhere">{summary.purpose.flowSkillName}</dd>
-            <dt>Run</dt>
-            <dd className="font-mono wrap-anywhere">{summary.runId}</dd>
-          </dl>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-};
+}) => (
+  <TaskRunSummaryLayout
+    checks={dryRunChecks(summary)}
+    checksLabel="Pass checks"
+    details={
+      <>
+        <dt>Flow Skill</dt>
+        <dd className="wrap-anywhere">{summary.purpose.flowSkillName}</dd>
+      </>
+    }
+    failure={
+      result?.outcome === "failed" ? result.observableOutcome : undefined
+    }
+    summary={summary}
+    verdict={dryRunSummaryVerdict(dryRunVerdict(summary, result))}
+    videoSrc={videoSrc}
+  />
+);
+
+/**
+ * A finished Interactive Run, laid out like a Dry Run so the two read the same
+ * way. Its verdict is the Agent Assessment, and its checks are the record
+ * rather than a pass rule.
+ */
+export const InteractiveRunSummaryView = ({
+  summary,
+  videoSrc,
+}: {
+  readonly summary: TaskInteractiveRunSummary;
+  readonly videoSrc?: string | undefined;
+}) => (
+  <TaskRunSummaryLayout
+    checks={interactiveRunChecks(summary)}
+    checksLabel="Run checks"
+    details={
+      summary.referencedSkills.length === 0 ? null : (
+        <>
+          <dt>Flow Skills</dt>
+          <dd className="wrap-anywhere">
+            {summary.referencedSkills
+              .map((skill) => skill.flowSkillName)
+              .join(", ")}
+          </dd>
+        </>
+      )
+    }
+    failure={undefined}
+    summary={summary}
+    verdict={interactiveRunVerdict(summary)}
+    videoSrc={videoSrc}
+  />
+);

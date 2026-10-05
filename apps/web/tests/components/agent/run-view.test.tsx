@@ -11,7 +11,10 @@ import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
+import {
+  DryRunSummaryView,
+  InteractiveRunSummaryView,
+} from "@/components/agent/dry-run-summary";
 import { RunSummaryView, RunViewer } from "@/components/agent/run-view";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
@@ -546,4 +549,51 @@ test("offers user verification only for a completed working Dry Run with a compl
     expect(presentation.action).toBeNull();
     expect(presentation.tone).toBe("failed");
   }
+});
+
+test("lays an Interactive Run out like a Dry Run, with the assessment as its verdict", () => {
+  rpc.videoStatus = readyVideo;
+  render(
+    <TestRegistry>
+      <InteractiveRunSummaryView summary={taskSummary} />
+    </TestRegistry>
+  );
+  expect(screen.getByLabelText("Recorded Run video")).toHaveAttribute(
+    "src",
+    "/agent-runs/agentrun-one/video"
+  );
+  expect(
+    within(screen.getByRole("region", { name: "Run video" })).getByText(
+      "Working"
+    )
+  ).toBeVisible();
+  const checks = screen.getByRole("list", { name: "Run checks" });
+  for (const label of ["Run finished", "Agent assessment"]) {
+    const row = within(checks).getByText(label).closest("li");
+    if (!(row instanceof HTMLElement)) {
+      throw new Error(`No Run check row for ${label}`);
+    }
+    expect(within(row).getByLabelText("Passed")).toBeVisible();
+  }
+  // A Takeover or a partial outcome is ordinary in an Interactive Run.
+  expect(within(checks).queryByText("No takeover")).toBeNull();
+  expect(within(checks).queryByText("Full outcome attempted")).toBeNull();
+  expect(
+    screen.getByText("The cart remains open with an anvil.")
+  ).toBeVisible();
+});
+
+test("never reads an Interactive Run that ended unassessed as a pass", () => {
+  render(
+    <InteractiveRunSummaryView
+      summary={{ ...taskSummary, assessment: null, outcome: "user-closed" }}
+    />
+  );
+  expect(
+    within(screen.getByRole("region", { name: "Run video" })).getByText(
+      "Closed by user"
+    )
+  ).toBeVisible();
+  expect(screen.queryByText("Working")).toBeNull();
+  expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
 });
