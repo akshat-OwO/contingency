@@ -828,9 +828,24 @@ const sessionSensitiveValues = (record: SessionRecord): readonly string[] =>
     ...new Set([
       ...(record.capture?.sensitiveValues() ?? []),
       ...record.supplied.values(),
+      ...record.replacedSensitiveValues,
       ...record.setupSensitiveValues,
     ]),
   ].toSorted((left, right) => right.length - left.length);
+
+/**
+ * Drops supplied values for replacement while keeping them redacted. The Page
+ * can still show a replaced value, such as an unsubmitted OTP field.
+ */
+const retireSupplied = (record: SessionRecord, keys: readonly string[]) => {
+  for (const key of keys) {
+    const value = record.supplied.get(key);
+    if (value !== undefined) {
+      record.replacedSensitiveValues.add(value);
+    }
+    record.supplied.delete(key);
+  }
+};
 
 const redactCapturedSnapshot = (
   record: SessionRecord,
@@ -1293,6 +1308,8 @@ interface SessionRecord {
    * session and are never published, persisted, or returned.
    */
   readonly supplied: Map<string, string>;
+  /** Replaced supplied values, still redacted for the rest of the session. */
+  readonly replacedSensitiveValues: Set<string>;
   readonly setupSensitiveValues: Set<string>;
   /** Start-scoped capture resources. Absent during setup and after Stop. */
   readonly teachingRecorder: TeachingRecorder | undefined;
@@ -3584,6 +3601,7 @@ const makeAgentSession = (
                       scope: sessionScope,
                       screenshots: { directory: undefined },
                       scroll: { burst: undefined },
+                      replacedSensitiveValues: new Set<string>(),
                       setupSensitiveValues: new Set<string>(),
                       snapshot: base,
                       supplied: new Map<string, string>(),
@@ -3598,6 +3616,7 @@ const makeAgentSession = (
                         if (record.snapshot.activity === "teaching") {
                           record.supplied.clear();
                         }
+                        record.replacedSensitiveValues.clear();
                         record.setupSensitiveValues.clear();
                       })
                     );
@@ -6419,13 +6438,15 @@ const makeAgentSession = (
                     )
                   );
                 }
-                if (!replace) {
+                const suppliedVariable = dryRun.variables.find(
+                  (variable) => variable.name === name
+                );
+                if (!(replace && suppliedVariable?.supplied)) {
                   return record.snapshot;
                 }
                 // The tested skill uses the existing Workspace secret fields.
                 // Both lookup forms must lose the previous value on replacement.
-                record.supplied.delete(name);
-                record.supplied.delete(variableKey(name, flowSkillName));
+                retireSupplied(record, [name, variableKey(name, flowSkillName)]);
                 const next = {
                   ...record.snapshot,
                   dryRun: {
@@ -6466,7 +6487,7 @@ const makeAgentSession = (
                 return record.snapshot;
               }
               if (replace) {
-                record.supplied.delete(variableKey(name, flowSkillName));
+                retireSupplied(record, [variableKey(name, flowSkillName)]);
               }
               const at = now().toISOString();
               const decision: AgentPendingDecision = {

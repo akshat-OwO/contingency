@@ -57,6 +57,11 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
           "flowSkillName" in variable && variable.flowSkillName === "cart"
       )?.supplied
     ).toBe(false);
+    const unsuppliedReplacement = yield* runTool(
+      "agent_run_variable_request",
+      { ...targetReplacement, operationId: operation("target-replace-again") }
+    );
+    expect(unsuppliedReplacement.updatedAt).toBe(targetWaiting.updatedAt);
     for (const scope of [null, FlowSkillName.make("cart")]) {
       expect(
         (yield* Effect.flip(
@@ -454,7 +459,23 @@ it.live(
             ref: password,
             sessionId: session.id,
           });
-          const offscope = yield* sessionTool("agent_browser_act", {
+          // A replaced secret can still be on the Page, so it stays redacted.
+          yield* sessionTool("agent_browser_act", {
+            action: {
+              type: "navigate",
+              url: fixture.url("task-session.html?replaced=private-target&"),
+            },
+            operationId: operation("prereq-replaced-visible"),
+            sessionId: session.id,
+          });
+          const replacedVisible = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: session.id,
+          });
+          expect(replacedVisible.url).toContain("replaced=");
+          expect(JSON.stringify(replacedVisible)).not.toContain(
+            "private-target"
+          );
+          const offscope =yield* sessionTool("agent_browser_act", {
             action: {
               type: "navigate",
               url: fixture
