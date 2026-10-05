@@ -621,12 +621,26 @@ it.effect(
         Promise.all([
           executeFile(
             process.execPath,
-            ["--experimental-strip-types", helper, "claim", root, "claim-one"],
+            [
+              "--experimental-strip-types",
+              helper,
+              "claim",
+              root,
+              "claim-one",
+              "2",
+            ],
             { cwd }
           ),
           executeFile(
             process.execPath,
-            ["--experimental-strip-types", helper, "claim", root, "claim-two"],
+            [
+              "--experimental-strip-types",
+              helper,
+              "claim",
+              root,
+              "claim-two",
+              "2",
+            ],
             { cwd }
           ),
         ])

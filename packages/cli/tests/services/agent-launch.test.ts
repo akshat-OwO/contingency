@@ -4,11 +4,13 @@ import {
   AGENT_PROFILES,
   agentArguments,
   currentInvocation,
-  initialMessage,
+  demoInitialMessage,
   olderThan,
+  reconnectCommand,
   registrationCommand,
   sessionServerSpec,
   shellQuote,
+  workInitialMessage,
 } from "../../src/services/agent-launch.ts";
 
 const invocation = currentInvocation({
@@ -19,6 +21,7 @@ const invocation = currentInvocation({
 });
 const spec = sessionServerSpec({
   agent: "claude",
+  demo: false,
   directory: "/work/my app",
   invocation,
 });
@@ -39,6 +42,25 @@ it("supplies a session-only server on an available port for this directory", () 
       CONTINGENCY_MCP_PORT: "0",
     },
   });
+});
+
+it("serves the demo store only to a session started with --demo", () => {
+  expect(
+    sessionServerSpec({
+      agent: "claude",
+      demo: true,
+      directory: "/work/my app",
+      invocation,
+    }).args
+  ).toEqual([
+    "/opt/contingency/dist/index.js",
+    "mcp",
+    "--agent",
+    "claude",
+    "--fallback-directory",
+    "/work/my app",
+    "--demo",
+  ]);
 });
 
 it("re-invokes an npx run through npx at the same version", () => {
@@ -81,6 +103,7 @@ it("passes Claude Code its MCP config and ends the variadic option before the pr
 it("passes Codex TOML overrides and keeps the prompt last", () => {
   const codex = sessionServerSpec({
     agent: "codex",
+    demo: false,
     directory: "/work/app",
     invocation,
   });
@@ -105,7 +128,7 @@ it("passes Codex TOML overrides and keeps the prompt last", () => {
 });
 
 it("points the first message at the bundled prompt and the launch context", () => {
-  const message = initialMessage({
+  const message = demoInitialMessage({
     agent: AGENT_PROFILES.claude,
     catalogRoot: "/work/my app/.contingency",
     directory: "/work/my app",
@@ -119,6 +142,22 @@ it("points the first message at the bundled prompt and the launch context", () =
   expect(message).toContain("- Catalog Root: /work/my app/.contingency");
   expect(message).toContain(
     "/usr/local/bin/node /opt/contingency/dist/index.js register --agent claude --fallback-directory '/work/my app'"
+  );
+});
+
+it("points a work session at the work prompt and how to reconnect", () => {
+  const message = workInitialMessage({
+    agent: AGENT_PROFILES.codex,
+    catalogRoot: "/work/my app/.contingency",
+    directory: "/work/my app",
+    reconnectCommand: reconnectCommand({ agent: "codex", invocation }),
+  });
+  expect(message).toContain("contingency://start/work-prompt");
+  expect(message).not.toContain("contingency://onboarding/starter-prompt");
+  expect(message).not.toContain("register");
+  expect(message).toContain("- Catalog Root: /work/my app/.contingency");
+  expect(message).toContain(
+    "/usr/local/bin/node /opt/contingency/dist/index.js start --agent codex"
   );
 });
 

@@ -2,12 +2,13 @@ import { Layer } from "effect";
 import { McpProtocol, McpServer } from "effect/ai";
 
 import { makeHostMiddleware } from "../routes/rpc.ts";
+import type { DemoSiteService } from "./demo-site.ts";
 import { McpAgentRunLayer } from "./mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
 import { McpCodeModeLayer } from "./mcp-code-mode.ts";
-import { McpOnboardingLayer } from "./mcp-onboarding.ts";
+import { makeMcpStartLayer } from "./mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
 
 /** Streamable HTTP path Cursor and other URL MCP clients POST to. */
@@ -30,11 +31,15 @@ export const MCP_INSTRUCTIONS = [
 
 /**
  * One MCP server on the Agent View HTTP router. Cursor connects by URL so it
- * does not spawn a process, or walk ports, on every CLI or app session.
+ * does not spawn a process, or walk ports, on every CLI or app session. The
+ * demo store's onboarding surface is served only when a `demoSite` is given.
  */
-export const makeMcpHttpLayer = (
+export const makeMcpHttpLayer = <R = never>(
   allowedOrigins: ReadonlySet<string>,
-  options: { readonly codeMode?: boolean } = {}
+  options: {
+    readonly codeMode?: boolean | undefined;
+    readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
+  } = {}
 ) =>
   Layer.mergeAll(
     McpServer.layerHttp({
@@ -56,6 +61,6 @@ export const makeMcpHttpLayer = (
     McpAgentRunLayer,
     McpTeachingRecordingLayer,
     McpAuthoringSkillsLayer,
-    McpOnboardingLayer,
+    makeMcpStartLayer(options.demoSite),
     options.codeMode === true ? McpCodeModeLayer : Layer.empty
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));

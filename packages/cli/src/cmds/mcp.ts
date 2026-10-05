@@ -42,7 +42,7 @@ import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import { MCP_INSTRUCTIONS, makeMcpHttpLayer } from "../services/mcp-http.ts";
-import { McpOnboardingLayer } from "../services/mcp-onboarding.ts";
+import { makeMcpStartLayer } from "../services/mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
@@ -56,8 +56,7 @@ const mcpTools = Layer.mergeAll(
   McpAgentCatalogLayer,
   McpAgentRunLayer,
   McpTeachingRecordingLayer,
-  McpAuthoringSkillsLayer,
-  McpOnboardingLayer
+  McpAuthoringSkillsLayer
 );
 
 const ListenError = Schema.Struct({ code: Schema.String });
@@ -123,6 +122,12 @@ export const mcpCommand = Command.make(
       ),
       Flag.optional
     ),
+    demo: Flag.Boolean("demo").pipe(
+      Flag.withDescription(
+        "Serve the bundled demo store, its Examples, and the onboarding prompt, as `contingency start --demo` does. Off by default."
+      ),
+      Flag.withDefault(false)
+    ),
     fallbackDirectory: Flag.String("fallback-directory").pipe(
       Flag.withDescription(
         "The original onboarding directory, used only when no usable current project directory is available."
@@ -130,7 +135,7 @@ export const mcpCommand = Command.make(
       Flag.optional
     ),
   },
-  Effect.fnUntraced(function* runMcp({ agent, fallbackDirectory }) {
+  Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
     const config = yield* Config.all({
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
@@ -195,9 +200,11 @@ export const mcpCommand = Command.make(
         const runVideoRenderer = Layer.succeedContext(
           yield* Layer.build(RunVideoRendererLive)
         );
-        const demoSite = Layer.succeedContext(
-          yield* Layer.build(makeDemoSiteLayer())
-        );
+        // The demo store binds its own port, so a server without the demo
+        // surface never starts it.
+        const demoSite = demo
+          ? Layer.succeedContext(yield* Layer.build(makeDemoSiteLayer()))
+          : undefined;
         const agentSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
@@ -223,7 +230,6 @@ export const mcpCommand = Command.make(
         const shared = Layer.mergeAll(
           agentSession,
           catalog,
-          demoSite,
           runStore,
           teachingRecordingStore,
           NodeServices.layer
@@ -247,6 +253,7 @@ export const mcpCommand = Command.make(
                   version: "0.0.1",
                 }),
                 mcpTools,
+                makeMcpStartLayer(demoSite),
                 codeMode ? McpCodeModeLayer : Layer.empty
               ).pipe(Layer.provide(shared))
             );
@@ -281,7 +288,7 @@ export const mcpCommand = Command.make(
             agentSession,
             allowedOrigins,
             host,
-            mcp: makeMcpHttpLayer(allowedOrigins, { codeMode }).pipe(
+            mcp: makeMcpHttpLayer(allowedOrigins, { codeMode, demoSite }).pipe(
               Layer.provide(shared)
             ),
             port: address.port,
