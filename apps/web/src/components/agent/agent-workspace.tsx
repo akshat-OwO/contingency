@@ -958,10 +958,16 @@ const useAgentView = (
       }
       endedRunIdsRef.current.add(held.id);
       const session = endedRunSnapshot(held);
-      return current.session === session &&
+      return current.phase === "live" &&
+        current.session === session &&
         current.unresolvedSessionId === undefined
         ? current
-        : { ...current, session, unresolvedSessionId: undefined };
+        : {
+            ...current,
+            phase: "live",
+            session,
+            unresolvedSessionId: undefined,
+          };
     };
 
     if (sessions.length === 0) {
@@ -1154,8 +1160,12 @@ const useAgentView = (
   };
   const enqueueFrameFromEffect = useEffectEvent(enqueueFrame);
 
+  const sessionEnded =
+    state.session !== undefined &&
+    !isLiveAgentSessionPhase(state.session.phase);
+
   useEffect(() => {
-    if (selectedSessionId === undefined) {
+    if (selectedSessionId === undefined || sessionEnded) {
       activeSessionRef.current = null;
       return;
     }
@@ -1195,11 +1205,16 @@ const useAgentView = (
           )
         );
         if (Result.isFailure(outcome) && !cancelled) {
-          setState((current) => ({
-            ...current,
-            browserStreamError: errorMessage(outcome.failure),
-            phase: "unavailable",
-          }));
+          setState((current) =>
+            current.session !== undefined &&
+            !isLiveAgentSessionPhase(current.session.phase)
+              ? current
+              : {
+                  ...current,
+                  browserStreamError: errorMessage(outcome.failure),
+                  phase: "unavailable",
+                }
+          );
         }
       })
     );
@@ -1303,7 +1318,13 @@ const useAgentView = (
       pendingFrameRef.current = null;
       activeStreamRef.current = null;
     };
-  }, [selectedSessionId, setState, setStreamMetrics, streamTransport]);
+  }, [
+    selectedSessionId,
+    sessionEnded,
+    setState,
+    setStreamMetrics,
+    streamTransport,
+  ]);
 
   /**
    * Taking control is a direct user action from this View, and returning it is
@@ -1878,11 +1899,12 @@ const useAgentView = (
    * Scrolling is a wheel event, and React only offers it passively, so the
    * canvas listens itself to keep the page from scrolling underneath it.
    */
-  const controller = state.session?.controller;
+  const userHoldsLiveBrowser =
+    !sessionEnded && state.session?.controller === "user";
   const dispatchInputFromEffect = useEffectEvent(dispatchInput);
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (canvas === null || controller !== "user") {
+    if (canvas === null || !userHoldsLiveBrowser) {
       return;
     }
     const handleWheel = (event: WheelEvent) => {
@@ -1901,7 +1923,7 @@ const useAgentView = (
     return () => {
       canvas.removeEventListener("wheel", handleWheel);
     };
-  }, [controller]);
+  }, [userHoldsLiveBrowser]);
 
   /*
     The picker lists the live sessions and, while one is on screen, the ended
