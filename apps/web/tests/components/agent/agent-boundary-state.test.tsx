@@ -2,7 +2,14 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
@@ -77,6 +84,25 @@ const sessionAt = <Overrides extends object>(
   ...overrides,
 });
 
+/** A paused confirmation Boundary and its pending decision, by id. */
+const boundaryFor = (id: string) => ({
+  action: { ref: "e55", type: "click" },
+  description: "Submit the return for RH-1042",
+  id,
+  operationId: `submit-${id}`,
+  reason: "confirmation",
+  requested: "Submit the return for RH-1042",
+});
+const pendingFor = (id: string) => ({
+  boundaryId: id,
+  createdAt: at,
+  kind: "boundary",
+  pendingDecisionId: `pending-${id}-2ca483b9-83b0-442f`,
+  scopeSummary: "Submit the return for RH-1042",
+  sessionId: "agent-one",
+  variable: null,
+});
+
 const renderWorkspace = () => {
   rpc.sessionsResult = {
     _tag: "Success",
@@ -108,7 +134,7 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
     requested: "https://shop.example.com/checkout",
   };
   rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { boundary }));
-  const shown = await screen.findByText("Reason: confirmation");
+  const shown = await screen.findByText("https://shop.example.com/checkout");
 
   const captureAction = async (entry: number) => {
     rpc.emit?.(
@@ -133,5 +159,118 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
   await captureAction(4);
   await captureAction(5);
 
-  expect(screen.getByText("Reason: confirmation")).toBe(shown);
+  expect(screen.getByText("https://shop.example.com/checkout")).toBe(shown);
+});
+
+test("clears the paused Boundary from the browser during Takeover and restores it on return", async () => {
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Workspace dock" });
+  const boundary = {
+    action: { type: "click" },
+    description: "Submit return",
+    id: "boundary-return",
+    operationId: "submit-return",
+    reason: "confirmation",
+    requested: "Submit the return for RH-1042",
+  };
+  const run = { activity: "run", captureState: null, teaching: null };
+  rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { ...run, boundary }));
+  await screen.findByRole("region", { name: "Execution Boundary" });
+
+  rpc.emit?.(
+    sessionAt("2026-09-02T00:00:02.000Z", {
+      ...run,
+      boundary,
+      controller: "user",
+      phase: "takeover",
+    })
+  );
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("region", { name: "Execution Boundary" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Browser address" })
+    ).toBeEnabled();
+  });
+
+  await screen.findByRole("button", { name: "Return control" });
+  rpc.emit?.(sessionAt("2026-09-02T00:00:03.000Z", { ...run, boundary }));
+  await screen.findByRole("region", { name: "Execution Boundary" });
+  expect(screen.getByText(/in your agent conversation/u)).toBeInTheDocument();
+  expect(
+    screen.getByRole("textbox", { name: "Browser address" })
+  ).toBeDisabled();
+
+  rpc.emit?.(sessionAt("2026-09-02T00:00:04.000Z", run));
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("region", { name: "Execution Boundary" })
+    ).not.toBeInTheDocument();
+  });
+});
+
+test("holds a paused Boundary in the dock and reopens a folded tier for a new one", async () => {
+  const user = userEvent.setup();
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Workspace dock" });
+  const run = { activity: "run", captureState: null, teaching: null };
+  rpc.emit?.(
+    sessionAt("2026-09-02T00:00:01.000Z", {
+      ...run,
+      boundary: boundaryFor("boundary-1"),
+      pendingDecisions: [pendingFor("boundary-1")],
+    })
+  );
+  // A Run's dock replaces the Teaching one, so it is read after the switch.
+  const boundary = await screen.findByRole("region", {
+    name: "Execution Boundary",
+  });
+  const dock = screen.getByRole("region", { name: "Workspace dock" });
+  expect(dock).toContainElement(boundary);
+  expect(
+    within(boundary).getByRole("heading", { name: "Confirm this action" })
+  ).toBeVisible();
+  // A description that repeats the request is not shown twice.
+  expect(
+    within(boundary).getAllByText("Submit the return for RH-1042")
+  ).toHaveLength(1);
+  // The decision is answered in the agent conversation, never here.
+  expect(
+    within(boundary).queryByRole("button", { name: /^allow$/iu })
+  ).toBeNull();
+  expect(
+    within(boundary).getByRole("button", {
+      name: "Copy decision id pending-boundary-1-2ca483b9-83b0-442f",
+    })
+  ).toBeVisible();
+  expect(boundary).not.toHaveTextContent("submit-boundary-1");
+  await user.click(
+    within(boundary).getByRole("button", { name: "Action details" })
+  );
+  expect(boundary).toHaveTextContent("submit-boundary-1");
+
+  await user.click(
+    within(dock).getByRole("button", { name: "Collapse requests" })
+  );
+  expect(
+    within(dock).queryByRole("region", { name: "Execution Boundary" })
+  ).toBeNull();
+  expect(
+    within(dock).getByRole("button", {
+      name: "Show request: Confirm this action. Submit the return for RH-1042",
+    })
+  ).toBeVisible();
+
+  // A new Boundary is a new request: the folded tier opens for it.
+  rpc.emit?.(
+    sessionAt("2026-09-02T00:00:02.000Z", {
+      ...run,
+      boundary: boundaryFor("boundary-2"),
+      pendingDecisions: [pendingFor("boundary-2")],
+    })
+  );
+  expect(
+    await within(dock).findByRole("region", { name: "Execution Boundary" })
+  ).toBeVisible();
 });

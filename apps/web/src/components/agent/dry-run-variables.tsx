@@ -3,10 +3,17 @@ import type {
   AgentSessionVariableState,
 } from "@contingency/protocol";
 import { useAtomSet } from "@effect/atom-react";
+import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  AnsweredVariable,
+  RequestHeader,
+  VariableField,
+  requestIconClassName,
+} from "@/components/agent/dock-request-parts";
+import { splitWaiting } from "@/components/agent/dock-requests-state";
+import { Badge } from "@/components/ui/badge";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -25,14 +32,12 @@ const SecretVariable = ({
   const [pending, setPending] = useState(false);
   const [supplyError, setSupplyError] = useState<string | null>(null);
 
-  if (variable.supplied) {
-    return <p>{variable.name} supplied</p>;
-  }
   return (
-    <form
-      className="flex flex-wrap items-end gap-2"
-      onSubmit={async (event) => {
-        event.preventDefault();
+    <VariableField
+      error={supplyError ?? undefined}
+      id={`dry-run-${variable.name}`}
+      label={variable.name}
+      onSubmit={async () => {
         setPending(true);
         setSupplyError(null);
         try {
@@ -46,52 +51,72 @@ const SecretVariable = ({
           setPending(false);
         }
       }}
-    >
-      <label
-        className="grid min-w-40 flex-1 gap-1"
-        htmlFor={`dry-run-${variable.name}`}
-      >
-        <span>{variable.name}</span>
-        <Input
-          autoComplete="off"
-          id={`dry-run-${variable.name}`}
-          onChange={(event) => setValue(event.target.value)}
-          required
-          type="password"
-          value={value}
-        />
-      </label>
-      <Button disabled={pending || value.length === 0} type="submit">
-        Supply secret
-      </Button>
-      {supplyError === null ? null : <p role="alert">{supplyError}</p>}
-    </form>
+      onValueChange={setValue}
+      pending={pending}
+      supplyLabel={`Supply ${variable.name}`}
+      value={value}
+    />
   );
 };
 
 export const DryRunVariables = ({
+  collapse,
   sessionId,
   variables,
 }: {
+  /** The tier's collapse control, when this is its first request. */
+  readonly collapse?: React.ReactNode;
   readonly sessionId: AgentSessionId;
   readonly variables: readonly AgentSessionVariableState[];
-}) =>
-  variables.length === 0 ? null : (
-    <section
-      aria-label="Dry Run secrets"
-      className="bg-background space-y-2 rounded-lg border p-3 text-sm shadow-lg"
-    >
-      <h2 className="font-semibold">Dry Run secrets</h2>
-      <p>
-        Supply each secret here. The agent sees its name and supply status,
-        never its value.
-      </p>
-      {variables.map((variable) => (
-        <SecretVariable
-          key={variable.name}
-          sessionId={sessionId}
-          variable={variable}
-        />
-      ))}
+}) => {
+  const [waiting, supplied] = splitWaiting(
+    variables,
+    (variable) => !variable.supplied
+  );
+  if (waiting.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label="Dry Run secrets" className="space-y-2">
+      <RequestHeader
+        action={
+          <>
+            <span className="text-muted-foreground hidden text-xs @xl:inline">
+              The agent sees status, never values
+            </span>
+            {collapse}
+          </>
+        }
+        badge={
+          <Badge variant="secondary">
+            {waiting.length} of {variables.length} needed
+          </Badge>
+        }
+        icon={
+          <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
+        }
+        title="Dry Run secrets"
+      />
+      <div className="space-y-2.5">
+        {waiting.map((variable) => (
+          <SecretVariable
+            key={variable.name}
+            sessionId={sessionId}
+            variable={variable}
+          />
+        ))}
+      </div>
+      {supplied.length === 0 ? null : (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {supplied.map((variable) => (
+            <AnsweredVariable
+              key={variable.name}
+              label={variable.name}
+              status="supplied"
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
+};

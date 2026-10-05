@@ -10,7 +10,6 @@ import type {
 import {
   CircleAlertIcon,
   CircleIcon,
-  InfoIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
   SquareIcon,
@@ -32,20 +31,15 @@ import {
 import {
   DockSessionSelect,
   DockShell,
+  DockSpacer,
   DockStatus,
+  DockWordmark,
   Wordmark,
 } from "@/components/agent/workspace-dock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 
 const TICK_MS = 1000;
 
@@ -105,13 +99,17 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
  * capture check caught first.
  */
 export const WorkspaceEmptyDock = () => (
-  <DockShell>
-    <Wordmark />
-    <Badge variant="secondary">No session</Badge>
-    <DockStatus>
-      No session. Open a session to set the browser up, then start recording
-      when the journey begins.
-    </DockStatus>
+  <DockShell
+    status={
+      <DockStatus badges={<Badge variant="secondary">No session</Badge>}>
+        Open a session to set the browser up, then start recording when the
+        journey begins.
+      </DockStatus>
+    }
+  >
+    <span className="pl-1">
+      <Wordmark />
+    </span>
   </DockShell>
 );
 
@@ -144,12 +142,12 @@ const CommentTrigger = ({
     variant="ghost"
   >
     <MessageSquareTextIcon aria-hidden="true" />
-    Comment
+    <span className="hidden @md:inline">Comment</span>
     {count === 0 ? null : (
       <span className="text-muted-foreground tabular-nums">{count}</span>
     )}
     <ShortcutKbd
-      className="max-sm:hidden"
+      className="hidden @lg:inline-flex"
       platform={platform}
       scope={browserFocused ? "chord" : "bare"}
       shortcut="compose"
@@ -158,48 +156,16 @@ const CommentTrigger = ({
 );
 
 /**
- * The state's next-step sentence, behind its own button. Inline, the sentence
- * wrapped the dock onto several lines, and after a failed Dry Run it carried
- * the whole failure explanation. Here the dock stays one row and the sentence
- * stays reachable, which matters when a Dry Run Summary is absent and this is
- * the only place the failure is explained (#297).
- */
-const StateDetails = ({
-  badge,
-  nextStep,
-}: {
-  readonly badge: string;
-  readonly nextStep: string;
-}) => (
-  <Popover>
-    <PopoverTrigger
-      render={(props) => (
-        <Button
-          {...props}
-          aria-label="Show details"
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-        >
-          <InfoIcon />
-        </Button>
-      )}
-    />
-    <PopoverContent align="end" className="w-80">
-      <PopoverHeader>
-        <PopoverTitle>{badge}</PopoverTitle>
-        <PopoverDescription className="text-pretty wrap-anywhere">
-          {nextStep}
-        </PopoverDescription>
-      </PopoverHeader>
-    </PopoverContent>
-  </Popover>
-);
-
-/**
- * The Teaching dock: the Flow Skill name, one state badge, the comment trigger,
- * the state's details, the secondary actions, and at most one primary action,
- * on one row and driven entirely by the pushed capture state (ADR 0039).
+ * The Teaching dock, on the same two-tier card a Run gets: whatever the agent
+ * is waiting on, then the state badge with the next-step sentence, then one
+ * row with the session picker, the comment trigger, the secondary actions,
+ * and at most one primary action. It is driven entirely by the pushed capture
+ * state (ADR 0039).
+ *
+ * The sentence used to sit behind an info button because inline it wrapped
+ * the dock onto several lines (#297). In its own clamped line it no longer
+ * can, so it is back where it is read, and a failed Dry Run's explanation
+ * expands in place.
  */
 export const TeachingRecordingDock = ({
   browserFocused,
@@ -215,6 +181,7 @@ export const TeachingRecordingDock = ({
   pending,
   phase,
   platform,
+  requests,
   selectedSessionId,
   sessions,
 }: {
@@ -241,6 +208,8 @@ export const TeachingRecordingDock = ({
   /** Whether the session is still live. An ended one offers no setup actions. */
   readonly phase: AgentSessionPhase;
   readonly platform: ShortcutPlatform;
+  /** Setup Variables and other requests, as the dock's first tier. */
+  readonly requests?: React.ReactNode;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
@@ -258,42 +227,85 @@ export const TeachingRecordingDock = ({
     setRenaming(true);
   };
   return (
-    <DockShell fit>
-      <Wordmark />
+    <DockShell
+      footer={
+        /*
+          Renaming happens in the dock rather than behind a modal: the name is
+          one field, and the user is looking at the browser it belongs to.
+        */
+        renaming ? (
+          <form
+            className="flex min-w-0 items-center gap-2 border-t px-2 py-1.5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSecondary("rename-flow", rename);
+              setRenaming(false);
+            }}
+          >
+            <Input
+              aria-label="Flow skill name"
+              className="h-8 min-w-0 flex-1"
+              onChange={(event) => setRename(event.target.value)}
+              value={rename}
+            />
+            <Button size="sm" type="submit" variant="secondary">
+              Save name
+            </Button>
+            <Button
+              onClick={() => setRenaming(false)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Cancel rename
+            </Button>
+          </form>
+        ) : null
+      }
+      requests={requests}
+      status={
+        <DockStatus
+          badges={
+            <>
+              <Badge variant={badgeVariant(presentation.tone)}>
+                {presentation.tone === "recording" ? (
+                  <CircleIcon
+                    aria-hidden="true"
+                    className="fill-current text-red-500"
+                  />
+                ) : null}
+                {presentation.tone === "failed" ? (
+                  <CircleAlertIcon aria-hidden="true" />
+                ) : null}
+                {presentation.badge}
+              </Badge>
+              {captureState._tag === "recording" ? (
+                <RecordingElapsed startedAt={captureState.startedAt} />
+              ) : null}
+              {captureState._tag === "finalizing" ? (
+                <LoaderCircleIcon
+                  aria-hidden="true"
+                  className="text-muted-foreground size-4 animate-spin"
+                />
+              ) : null}
+            </>
+          }
+        >
+          {/*
+            The sentence changes when the capture state changes, never on a
+            timer tick: the elapsed clock owns its own leaf render.
+          */}
+          {presentation.nextStep}
+        </DockStatus>
+      }
+    >
+      <DockWordmark />
       <DockSessionSelect
         onSelect={onSelectSession}
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
-      <Badge variant={badgeVariant(presentation.tone)}>
-        {presentation.tone === "recording" ? (
-          <CircleIcon
-            aria-hidden="true"
-            className="fill-current text-red-500"
-          />
-        ) : null}
-        {presentation.tone === "failed" ? (
-          <CircleAlertIcon aria-hidden="true" />
-        ) : null}
-        {presentation.badge}
-      </Badge>
-      {captureState._tag === "recording" ? (
-        <RecordingElapsed startedAt={captureState.startedAt} />
-      ) : null}
-      {captureState._tag === "finalizing" ? (
-        <LoaderCircleIcon
-          aria-hidden="true"
-          className="text-muted-foreground size-4 animate-spin"
-        />
-      ) : null}
-      {/*
-          The state sentence changes when the capture state changes, never on a
-          timer tick: the elapsed clock owns its own leaf render. It is spoken
-          here and read from the details popover, so it never widens the dock.
-        */}
-      <output aria-live="polite" className="sr-only">
-        {presentation.badge}. {presentation.nextStep}
-      </output>
+      <DockSpacer />
       {presentation.showsInspect ? (
         <CommentTrigger
           browserFocused={browserFocused}
@@ -302,10 +314,6 @@ export const TeachingRecordingDock = ({
           platform={platform}
         />
       ) : null}
-      <StateDetails
-        badge={presentation.badge}
-        nextStep={presentation.nextStep}
-      />
       {presentation.secondaries.map((secondary) => (
         <Button
           disabled={pending}
@@ -340,38 +348,6 @@ export const TeachingRecordingDock = ({
           {action.label}
         </Button>
       )}
-      {/*
-          Renaming happens in the dock rather than behind a modal: the name is
-          one field, and the user is looking at the browser it belongs to.
-        */}
-      {renaming ? (
-        <form
-          className="flex w-full min-w-80 items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSecondary("rename-flow", rename);
-            setRenaming(false);
-          }}
-        >
-          <input
-            aria-label="Flow skill name"
-            className="bg-background focus-visible:ring-ring h-8 min-w-0 flex-1 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
-            onChange={(event) => setRename(event.target.value)}
-            value={rename}
-          />
-          <Button size="sm" type="submit" variant="secondary">
-            Save name
-          </Button>
-          <Button
-            onClick={() => setRenaming(false)}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Cancel rename
-          </Button>
-        </form>
-      ) : null}
     </DockShell>
   );
 };

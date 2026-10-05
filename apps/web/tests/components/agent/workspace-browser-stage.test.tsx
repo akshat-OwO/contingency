@@ -88,11 +88,12 @@ const Harness = ({ children }: { readonly children: ReactNode }) => (
   </RpcDependenciesProvider>
 );
 
-const renderSetup = (userHoldsBrowser = true) =>
+const renderSetup = (userHoldsBrowser = true, emulationFixed = false) =>
   render(
     <Harness>
       <WorkspaceBrowserStage
         consoleEntries={[]}
+        emulationFixed={emulationFixed}
         onClearConsole={() => {}}
         sessionId={sessionId}
         teaching={false}
@@ -186,6 +187,21 @@ test("refuses browser setup while the agent holds the browser", async () => {
     )
   ).toBeVisible();
   expect(screen.getByLabelText("Latitude")).toBeDisabled();
+});
+
+test("fixes the Emulation once recording starts", async () => {
+  renderSetup(true, true);
+  expect(await screen.findByText("1280 × 720")).toBeVisible();
+  expect(screen.getByLabelText("Device")).toBeDisabled();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Emulation" }));
+  expect(
+    screen.getByText(
+      "Emulation is fixed once recording starts: the recording declares the Emulation it was demonstrated under."
+    )
+  ).toBeVisible();
+  expect(screen.getByLabelText("Latitude")).toBeDisabled();
+  expect(rpc.emulationPatches).toHaveLength(0);
 });
 
 test("shows a fractional pixel ratio an identity applied", async () => {

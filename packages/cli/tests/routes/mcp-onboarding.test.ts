@@ -8,6 +8,7 @@ import { LEARN_FLOW_SKILL_URI } from "../../src/services/mcp-authoring-skills.ts
 import {
   EXAMPLES_URI,
   STARTER_PROMPT_URI,
+  WORK_PROMPT_URI,
 } from "../../src/services/mcp-onboarding.ts";
 import { ONBOARDING_EXAMPLES } from "../../src/services/onboarding-examples.ts";
 import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
@@ -15,6 +16,12 @@ import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
 const ResourceList = Schema.Struct({
   result: Schema.Struct({
     resources: Schema.Array(Schema.Struct({ uri: Schema.String })),
+  }),
+});
+
+const ToolList = Schema.Struct({
+  result: Schema.Struct({
+    tools: Schema.Array(Schema.Struct({ name: Schema.String })),
   }),
 });
 
@@ -64,7 +71,9 @@ it.live(
   "serves the starter prompt, the learning procedure, and this process's examples",
   () =>
     Effect.gen(function* onboardingResources() {
-      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const { request } = yield* connectMcp(
+        yield* servingMcpHttp({ demo: true })
+      );
       const listed = Schema.decodeUnknownSync(ResourceList)(
         yield* request("resources/list", {})
       );
@@ -105,7 +114,9 @@ it.live(
 
 it.live("serves the demo store only under its hostname and port", () =>
   Effect.gen(function* demoHostGuard() {
-    const { request } = yield* connectMcp(yield* servingMcpHttp());
+    const { request } = yield* connectMcp(
+      yield* servingMcpHttp({ demo: true })
+    );
     const examples = yield* read(request, EXAMPLES_URI);
     const port = Number(
       /http:\/\/ridgeline\.localhost:(?<port>\d+)\//u.exec(examples)?.groups
@@ -136,4 +147,34 @@ it.live("serves the demo store only under its hostname and port", () =>
       )).status
     ).toBe(404);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "serves the work prompt without the demo store, its examples, or the Example tool",
+  () =>
+    Effect.gen(function* workResources() {
+      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const uris = Schema.decodeUnknownSync(ResourceList)(
+        yield* request("resources/list", {})
+      ).result.resources.map((resource) => resource.uri);
+      expect(uris).toEqual(
+        expect.arrayContaining([WORK_PROMPT_URI, LEARN_FLOW_SKILL_URI])
+      );
+      expect(uris).not.toContain(STARTER_PROMPT_URI);
+      expect(uris).not.toContain(EXAMPLES_URI);
+
+      const tools = Schema.decodeUnknownSync(ToolList)(
+        yield* request("tools/list", {})
+      ).result.tools.map((tool) => tool.name);
+      expect(tools).toContain("agent_session_start");
+      expect(tools).not.toContain("agent_example_run_start");
+
+      const work = yield* read(request, WORK_PROMPT_URI);
+      expect(work).toContain("agent_catalog_get");
+      expect(work).toContain(LEARN_FLOW_SKILL_URI);
+      expect(work).toContain("--demo");
+      expect(work).not.toContain("agent_example_run_start");
+      // One authoritative learning procedure: the work prompt points to it.
+      expect(work).not.toContain("agent_teaching_recording_claim");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

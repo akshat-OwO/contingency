@@ -8,7 +8,7 @@ Contingency needs a command that detects installed coding agents, lets the user 
 
 The first version requires an installed, signed-in coding agent. Agent installation and sign-in are outside onboarding. Missing prerequisites need actionable recovery instructions.
 
-Onboarding ends when the user teaches a variation of a bundled example, the agent learns a Flow Skill, a fresh Dry Run passes, and the user explicitly verifies the Flow Skill. An MCP connection alone does not complete onboarding. The agent then invites the user to apply the same kind of task to their own website; that journey is optional. Teaching, Dry Run, and verification retain their existing meanings in [CONTEXT.md](../../CONTEXT.md).
+Onboarding ends when the user teaches a variation of a bundled example, the agent learns a Flow Skill, a fresh Dry Run passes, and the user explicitly verifies the Flow Skill. An MCP connection alone does not complete onboarding. The agent then invites the user to apply the same kind of task to their own website; that journey is optional. Teaching, Dry Run, and verification retain their existing meanings in [GLOSSARY.md](../../GLOSSARY.md).
 
 The initial launch supplies session-only MCP configuration. After the first Flow Skill is verified, the agent asks whether the user wants permanent registration for ordinary agent sessions. Users may choose the current project or all projects.
 
@@ -20,7 +20,11 @@ The user first watches the agent run a prepared example, then teaches a variatio
 
 The agent prepares the browser before recording. It may navigate and request private inputs through Workspace Variables, then hands control to the user. The user starts and stops recording; the agent learns from the resulting Teaching Recording.
 
-Users launch with `npx @contingencyhq/cli start`. The first version supports Claude Code and Codex. The existing `mcp` command remains available for direct server use.
+Users launch onboarding with `npx @contingencyhq/cli start --demo`. The first version supports Claude Code and Codex. The existing `mcp` command remains available for direct server use.
+
+Without `--demo`, `start` is the everyday session-only entry point. The agent follows the bundled work prompt (`contingency://start/work-prompt`) on the user's own website, and the server runs `mcp` without `--demo`, so neither the demo store nor its Example tools exist in that session. The agent does not offer permanent registration; it tells the user that running `start` again reconnects Contingency.
+
+The demo surface is off by default everywhere. `contingency mcp`, and the registrations that run it, serve the demo store, its Examples, and the onboarding prompt only with `--demo`, which `start --demo` passes.
 
 When only one supported agent is installed, the command launches it directly. When both are installed, it shows a picker. An explicit `--agent` option selects the agent without a picker.
 
@@ -50,7 +54,7 @@ Claude rejects an existing server name in the same scope. Codex 0.160.0 replaces
 
 ## Existing Contingency contracts
 
-The [MCP command](../../packages/cli/src/cmds/mcp.ts) already owns the Workspace and serves stdio and HTTP from one process. Its default Workspace port is 7777. If that port is occupied, a spawned stdio process keeps its tools available but cannot serve its Workspace. Onboarding needs a deliberate session and port policy.
+The [MCP command](../../packages/cli/src/cmds/mcp.ts) owns the Workspace and serves stdio and HTTP from one process. Non-terminal stdin automatically receives an available Workspace port, including headless HTTP launches; terminal stdin defaults to 7777. Headless HTTP callers needing a fixed endpoint must explicitly set `CONTINGENCY_MCP_PORT`, which overrides either default. If an explicitly selected port is occupied, a spawned stdio process keeps its tools available but cannot serve its Workspace.
 
 The [Catalog Root](../../packages/cli/src/services/flow-skill-catalog.ts) defaults to `.contingency` under the process's current directory. The launch directory determines where Flow Skills and local evidence live.
 

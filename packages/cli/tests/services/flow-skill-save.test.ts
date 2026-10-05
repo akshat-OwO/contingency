@@ -53,7 +53,7 @@ it.effect(
           const store = yield* TeachingRecordingStore;
           const learning = yield* TeachingRecordingLearning;
           const now = new Date().toISOString();
-          yield* store.begin({
+          const begun = yield* store.begin({
             emulation: {
               permissions: [],
               userAgentProfile: UserAgentProfileId.make("default"),
@@ -65,6 +65,7 @@ it.effect(
             sessionId: AgentSessionId.make("agent-invalid-package"),
           });
           yield* store.start({
+            emulation: begun.emulation,
             operationId: OperationId.make("invalid-package-start"),
             recordingId,
           });

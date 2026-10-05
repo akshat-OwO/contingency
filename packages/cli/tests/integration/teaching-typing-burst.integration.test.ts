@@ -2,7 +2,7 @@ import { OperationId } from "@contingency/protocol";
 import type { AgentSessionId, KeyboardInput } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Duration, Effect, FileSystem } from "effect";
+import { Duration, Effect, FileSystem, Schedule } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
@@ -169,10 +169,21 @@ it.live(
         for (const character of "tablets") {
           yield* press(sessionId, character, character);
         }
-        yield* Effect.sleep("1500 millis");
-
-        // Nothing followed the typing, and the Fill is already recorded.
-        const session = yield* sessionTool("agent_session_get", { sessionId });
+        // The idle timer starts the flush; its snapshot and keyframe still
+        // have to finish. Observe the Fill without sending more browser input.
+        const session = yield* sessionTool("agent_session_get", {
+          sessionId,
+        }).pipe(
+          Effect.repeat({
+            schedule: Schedule.spaced("50 millis"),
+            until: (current) =>
+              current.timeline.some(
+                (entry) =>
+                  entry.description === 'Fill textbox "Search" with "tablets"'
+              ),
+          }),
+          Effect.timeout("10 seconds")
+        );
         expect(session.timeline.map((entry) => entry.description)).toContain(
           'Fill textbox "Search" with "tablets"'
         );

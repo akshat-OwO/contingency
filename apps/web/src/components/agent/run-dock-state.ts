@@ -4,10 +4,12 @@ import type {
   AgentSessionSnapshot,
   TaskAgentRunState,
 } from "@contingency/protocol";
+import { isLiveAgentSessionPhase } from "@contingency/protocol";
 
 import {
   agentControlPresentation,
   agentStatusLabel,
+  isInteractiveRunSession,
 } from "@/components/agent/agent-workspace-state";
 
 /** One Agent Session that is running or rehearsing rather than teaching. */
@@ -123,6 +125,15 @@ const changedInputsSentence = (
 };
 
 /**
+ * Where an ended Interactive Run's evidence went. The Workspace keeps the Run
+ * on screen with its Run Summary docked beside it until the user moves on.
+ */
+const endedRunSentences = (session: RunSessionSnapshot): readonly string[] =>
+  isInteractiveRunSession(session) && !isLiveAgentSessionPhase(session.phase)
+    ? ["The Run has ended. Its Run Summary is beside the browser."]
+    : [];
+
+/**
  * How the Workspace dock presents one live Run session. A Dry Run names the
  * Flow Skill it rehearses and what it changed; an Interactive Run names the
  * flow and which Agent Step it is on. Both end with who holds the browser,
@@ -179,7 +190,7 @@ export const runDockPresentation = (
     }
   }
 
-  sentences.push(`${control.holder}.`);
+  sentences.push(...endedRunSentences(session), `${control.holder}.`);
   if (control.reason !== undefined) {
     sentences.push(control.reason);
   }

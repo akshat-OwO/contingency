@@ -71,6 +71,7 @@ export const teachingRecordingSummary = (
   const { lifecycle } = manifest;
   const summary = (failure: string | null) => ({
     cleanup: manifest.cleanup,
+    emulation: manifest.emulation,
     failure,
     flowSkillName: manifest.flowSkillName,
     lifecycle: lifecycle._tag,

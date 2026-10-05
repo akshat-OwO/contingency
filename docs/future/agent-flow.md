@@ -1,6 +1,6 @@
 # Future: Agent Flow
 
-Vocabulary: [`CONTEXT.md`](../../CONTEXT.md). Decisions: [`docs/adr/`](../adr/).
+Vocabulary: [`GLOSSARY.md`](../../GLOSSARY.md). Decisions: [`docs/adr/`](../adr/).
 
 > Historical. [ADR 0039](../adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md) replaced the Agent Flow compilation, Evidence Slice, and approval model described below with Flow Skills learned from temporary Teaching Recordings. Read this file for the Suite design only; every Agent Flow authoring term in it is superseded.
 

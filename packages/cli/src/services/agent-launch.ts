@@ -12,11 +12,20 @@ import {
 } from "./agent-registration.ts";
 import type { RegisteredAgent } from "./catalog-directory.ts";
 import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
-import { STARTER_PROMPT_URI, starterPromptPath } from "./mcp-onboarding.ts";
+import {
+  STARTER_PROMPT_URI,
+  WORK_PROMPT_URI,
+  starterPromptPath,
+  workPromptPath,
+} from "./mcp-onboarding.ts";
 
 /**
  * Launching an installed coding agent with Contingency connected for one
  * session (`contingency start`).
+ *
+ * `--demo` runs onboarding on the bundled demo store. Without it the agent
+ * follows the work prompt on the user's own website, and the server leaves
+ * the demo store and its Example tools out.
  *
  * The MCP server is supplied through each agent's own session-only options:
  * Claude Code's `--mcp-config` JSON and Codex's `-c` TOML overrides. Neither
@@ -210,6 +219,7 @@ export const currentInvocation = (input: {
 /** The session-only server: this directory's catalog and an available port. */
 export const sessionServerSpec = (input: {
   readonly agent: RegisteredAgent;
+  readonly demo: boolean;
   readonly directory: string;
   readonly invocation: CliInvocation;
 }): ServerSpec => ({
@@ -220,6 +230,7 @@ export const sessionServerSpec = (input: {
     input.agent,
     "--fallback-directory",
     input.directory,
+    ...(input.demo ? ["--demo"] : []),
   ],
   command: input.invocation.command,
   env: {
@@ -236,8 +247,30 @@ export interface LaunchContext {
   readonly agent: AgentProfile;
   readonly catalogRoot: string;
   readonly directory: string;
+}
+
+export interface DemoLaunchContext extends LaunchContext {
   readonly registrationCommand: string;
 }
+
+export interface WorkLaunchContext extends LaunchContext {
+  readonly reconnectCommand: string;
+}
+
+/** The command that starts this session-only connection again. */
+export const reconnectCommand = (input: {
+  readonly agent: RegisteredAgent;
+  readonly invocation: CliInvocation;
+}): string =>
+  [
+    input.invocation.command,
+    ...input.invocation.args,
+    "start",
+    "--agent",
+    input.agent,
+  ]
+    .map(shellQuote)
+    .join(" ");
 
 export const registrationCommand = (input: {
   readonly agent: RegisteredAgent;
@@ -257,11 +290,11 @@ export const registrationCommand = (input: {
     .join(" ");
 
 /**
- * The first message the agent receives. It is short on purpose: the
+ * The first message of a `--demo` launch. It is short on purpose: the
  * procedure is the bundled starter prompt, served by the same server version
  * as an MCP resource and present on disk beside the CLI.
  */
-export const initialMessage = (context: LaunchContext): string =>
+export const demoInitialMessage = (context: DemoLaunchContext): string =>
   [
     "Start Contingency onboarding.",
     "Call agent_catalog_get, then include its workspaceUrl as a clickable Open Workspace link in your introduction before asking the user to choose a task. This base link works before a session starts; invite the user to keep it open to watch the Example and Teaching.",
@@ -274,6 +307,26 @@ export const initialMessage = (context: LaunchContext): string =>
     `- Catalog Root: ${context.catalogRoot}`,
     `- Original onboarding directory (fallback for registration across projects): ${context.directory}`,
     `- Registration command (add --scope project or --scope user, and --replace only after the user chooses replacement): ${context.registrationCommand}`,
+  ].join("\n");
+
+/**
+ * The first message of a launch without `--demo`. Like the demo message, the
+ * procedure is the bundled work prompt; this message carries only the habits
+ * that must hold before the agent reads it, and the launch context.
+ */
+export const workInitialMessage = (context: WorkLaunchContext): string =>
+  [
+    "Start a Contingency session.",
+    "Call agent_catalog_get, then include its workspaceUrl as a clickable Open Workspace link in your introduction before asking the user to choose a task.",
+    "After starting or switching a session, send its returned viewUrl as a clickable Workspace link in a user-visible message before your next browser action. Share the new link for each Teaching session, Dry Run, and Run.",
+    `Read the MCP resource ${WORK_PROMPT_URI} from the ${SERVER_NAME} server and follow it. The same prompt is in ${workPromptPath}.`,
+    "",
+    "Launch context:",
+    `- Agent: ${context.agent.label}`,
+    `- Working directory: ${context.directory}`,
+    `- Catalog Root: ${context.catalogRoot}`,
+    "- Connection: session-only; the user's agent configuration is unchanged.",
+    `- Reconnect command (run from the working directory; add --demo for the guided demo): ${context.reconnectCommand}`,
   ].join("\n");
 
 /** Claude Code's `--mcp-config` document for one stdio server. */

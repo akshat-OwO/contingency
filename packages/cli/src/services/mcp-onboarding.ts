@@ -7,6 +7,7 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import { DemoSite } from "./demo-site.ts";
+import type { DemoSiteService } from "./demo-site.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import { AgentRunFailure, startTaskRun } from "./mcp-agent-run.ts";
 import {
@@ -23,22 +24,36 @@ import {
 } from "./onboarding-examples.ts";
 
 /**
- * The onboarding surface: the bundled starter prompt, the demo store's
- * examples for this process, and the one tool that runs a bundled Example
- * Flow Skill (ADR 0050). Teaching, learning, Dry Runs, and verification keep
- * their ordinary tools; nothing here shortens them.
+ * The `contingency start` surface. Every server serves the work prompt, the
+ * procedure for a session-only launch on the user's own website. A demo
+ * server adds the onboarding starter prompt, the demo store's examples for
+ * this process, and the one tool that runs a bundled Example Flow Skill
+ * (ADR 0050). Teaching, learning, Dry Runs, and verification keep their
+ * ordinary tools; nothing here shortens them.
  */
 
 export const STARTER_PROMPT_URI = "contingency://onboarding/starter-prompt";
 export const EXAMPLES_URI = "contingency://onboarding/examples";
+export const WORK_PROMPT_URI = "contingency://start/work-prompt";
 
-/** Built output keeps the prompt under `dist/onboarding`; a source checkout reads the package. */
-export const resolveStarterPromptPath = (moduleDirectory: string): string =>
+/** Built output keeps prompts under `dist/onboarding`; a source checkout reads the package. */
+export const resolveOnboardingPromptPath = (
+  moduleDirectory: string,
+  file: string
+): string =>
   path.basename(moduleDirectory) === "dist"
-    ? path.join(moduleDirectory, "onboarding", "starter-prompt.md")
-    : path.resolve(moduleDirectory, "../../onboarding/starter-prompt.md");
+    ? path.join(moduleDirectory, "onboarding", file)
+    : path.resolve(moduleDirectory, "../../onboarding", file);
 
-export const starterPromptPath = resolveStarterPromptPath(import.meta.dirname);
+export const starterPromptPath = resolveOnboardingPromptPath(
+  import.meta.dirname,
+  "starter-prompt.md"
+);
+
+export const workPromptPath = resolveOnboardingPromptPath(
+  import.meta.dirname,
+  "work-prompt.md"
+);
 
 const ExampleRunStartTool = Tool.make("agent_example_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore, DemoSite],
@@ -105,20 +120,32 @@ export const OnboardingToolHandlersLive = OnboardingTools.toLayer({
     }),
 });
 
-const readStarterPrompt = Effect.gen(function* readPrompt() {
-  const fileSystem = yield* FileSystem.FileSystem;
-  return yield* fileSystem.readFileString(starterPromptPath).pipe(Effect.orDie);
+const readPrompt = (promptPath: string) =>
+  Effect.gen(function* readPromptFile() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    return yield* fileSystem.readFileString(promptPath).pipe(Effect.orDie);
+  });
+
+export const McpWorkPromptLayer = McpServer.resource({
+  audience: ["assistant"],
+  content: readPrompt(workPromptPath),
+  description:
+    "The procedure for a session-only `contingency start` launch: prove the connection, check features with verified Flow Skills, guide Teaching on the user's website, learn, Dry Run, and record the user's verification.",
+  mimeType: "text/markdown",
+  name: "start/work-prompt",
+  uri: WORK_PROMPT_URI,
 });
 
+/** The demo store's onboarding surface, served only by a demo server. */
 export const McpOnboardingLayer = Layer.mergeAll(
   McpServer.toolkit(OnboardingTools).pipe(
     Layer.provide(OnboardingToolHandlersLive)
   ),
   McpServer.resource({
     audience: ["assistant"],
-    content: readStarterPrompt,
+    content: readPrompt(starterPromptPath),
     description:
-      "The onboarding procedure for a session started with `contingency start`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
+      "The onboarding procedure for a session started with `contingency start --demo`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
     mimeType: "text/markdown",
     name: "onboarding/starter-prompt",
     uri: STARTER_PROMPT_URI,
@@ -136,3 +163,18 @@ export const McpOnboardingLayer = Layer.mergeAll(
     uri: EXAMPLES_URI,
   })
 );
+
+/**
+ * The `start` surface for one server. A demo store, when supplied, adds the
+ * onboarding prompt, examples, and Example tool; without one the server
+ * neither binds the store nor offers its tools.
+ */
+export const makeMcpStartLayer = <R = never>(
+  demoSite: Layer.Layer<DemoSiteService, never, R> | undefined
+) =>
+  demoSite === undefined
+    ? McpWorkPromptLayer
+    : Layer.mergeAll(
+        McpWorkPromptLayer,
+        McpOnboardingLayer.pipe(Layer.provide(demoSite))
+      );

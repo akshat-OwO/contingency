@@ -6,14 +6,16 @@ import {
   UserAgentProfileId,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer, Schedule } from "effect";
 
 import {
   makeTeachingRecordingStoreLayer,
   TeachingRecordingStore,
 } from "../../src/services/teaching-recording-store.ts";
 
-const [mode, root, operation] = process.argv.slice(2);
+const [mode, root, operation, peerArgument] = process.argv.slice(2);
+/** Concurrent claimers keep their outcome until every peer has attempted. */
+const peers = Number(peerArgument ?? "1");
 if (
   (mode !== "write" && mode !== "read" && mode !== "claim") ||
   root === undefined
@@ -31,7 +33,7 @@ const layer = makeTeachingRecordingStoreLayer({
 const program = Effect.gen(function* runProcessCheck() {
   const store = yield* TeachingRecordingStore;
   if (mode === "write") {
-    yield* store.begin({
+    const begun = yield* store.begin({
       emulation: {
         permissions: [],
         userAgentProfile: UserAgentProfileId.make("default"),
@@ -43,6 +45,7 @@ const program = Effect.gen(function* runProcessCheck() {
       sessionId: AgentSessionId.make("agent-process-restart"),
     });
     yield* store.start({
+      emulation: begun.emulation,
       operationId: OperationId.make("process-start"),
       recordingId,
     });
@@ -59,8 +62,25 @@ const program = Effect.gen(function* runProcessCheck() {
         recordingId,
       })
     );
+    // A winner that exits before a slow peer attempts leaves a stale claim
+    // the peer may lawfully reclaim, so hold until every peer has attempted.
+    const fileSystem = yield* FileSystem.FileSystem;
+    yield* fileSystem.writeFileString(
+      `${root}/.claim-attempt-${operation ?? "process-claim"}`,
+      ""
+    );
+    yield* fileSystem.readDirectory(root).pipe(
+      Effect.flatMap((entries) =>
+        entries.filter((entry) => entry.startsWith(".claim-attempt-")).length >=
+        peers
+          ? Effect.void
+          : Effect.fail("waiting" as const)
+      ),
+      Effect.retry(Schedule.spaced("25 millis")),
+      Effect.timeout("10 seconds"),
+      Effect.orDie
+    );
     if (result._tag === "Success") {
-      yield* Effect.sleep("1 second");
       process.stdout.write(
         `${JSON.stringify({ lifecycle: result.success.lifecycle._tag })}\n`
       );

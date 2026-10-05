@@ -13,6 +13,7 @@ import {
   dryRunVideoPath,
   FlowSkillName,
   flowSkillNameRule,
+  isLiveAgentSessionPhase,
   OperationId,
 } from "@contingency/protocol";
 import {
@@ -30,7 +31,7 @@ import {
   LockKeyholeIcon,
   RotateCwIcon,
 } from "lucide-react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { AgentCursor } from "@/components/agent/agent-cursor";
@@ -38,21 +39,21 @@ import {
   adoptSessionSnapshot,
   agentViewStateAtom,
   appendConsoleEntry,
+  endedRunSnapshot,
+  isInteractiveRunSession,
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DemoTeachingPassword } from "@/components/agent/demo-teaching-password";
+import { DockRequests } from "@/components/agent/dock-requests";
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
-import { DryRunVariables } from "@/components/agent/dry-run-variables";
+import { EndedRunSummary } from "@/components/agent/ended-run-summary";
 import { RunDock } from "@/components/agent/run-dock";
 import { hasDemoTeachingPassword } from "@/components/agent/run-provenance";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
-import { hasRuntimeVariableNotice } from "@/components/agent/runtime-variable-state";
-import { RuntimeVariables } from "@/components/agent/runtime-variables";
-import { SetupVariables } from "@/components/agent/setup-variables";
 import { CommentComposer } from "@/components/agent/teaching-comment-composer";
 import type { CommentShortcut } from "@/components/agent/teaching-comment-shortcuts";
 import {
@@ -121,15 +122,10 @@ import {
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
-import { ExecutionBoundary } from "./execution-boundary";
-
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
   { readonly activity: "teaching" }
 >;
-
-const dryRunSecretVariables = (session: AgentSessionSnapshot) =>
-  session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
 
 /**
  * The summary docked beside a finished Dry Run, or `null` while there is none.
@@ -157,6 +153,35 @@ const finishedDryRunSummary = (session: AgentSessionSnapshot) => {
     );
   }
   return <RunSummaryView summary={dryRunSummary} videoSrc={videoSrc} />;
+};
+
+/**
+ * Whether the session is an Interactive Run that has ended. It keeps its Run
+ * Summary docked beside the last frame until the user moves on.
+ */
+const isEndedInteractiveRun = (session: AgentSessionSnapshot): boolean =>
+  isInteractiveRunSession(session) && !isLiveAgentSessionPhase(session.phase);
+
+/**
+ * The summary docked beside the Workspace, named for what it summarizes, or
+ * `null` while there is none: a finished Dry Run's beside its Teaching
+ * session, or an ended Interactive Run's beside its last frame.
+ */
+const finishedRunSummary = (
+  session: AgentSessionSnapshot
+): { readonly label: string; readonly summary: ReactNode } | null => {
+  if (
+    session.activity === "run" &&
+    session.run !== null &&
+    isEndedInteractiveRun(session)
+  ) {
+    return {
+      label: "Run Summary",
+      summary: <EndedRunSummary runId={session.run.runId} />,
+    };
+  }
+  const dryRun = finishedDryRunSummary(session);
+  return dryRun === null ? null : { label: "Dry Run Summary", summary: dryRun };
 };
 
 /**
@@ -421,7 +446,7 @@ const AgentBrowserCanvas = ({
         it, ends up underneath the dock.
       */
       className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3${
-        dockedBelow ? " pb-24" : ""
+        dockedBelow ? " pb-28" : ""
       }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
     >
       {frameReady ? null : (
@@ -619,19 +644,21 @@ const AgentLiveView = ({
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
 }) => {
-  const readOnly = session.controller !== "user";
-  const secretVariables = dryRunSecretVariables(session);
+  // An ended session's browser is gone: its last frame is a picture.
+  const ended = !isLiveAgentSessionPhase(session.phase);
+  const readOnly = ended || session.controller !== "user";
+  const browserStreamError = ended ? undefined : state.browserStreamError;
+  /*
+    What the agent is waiting on (an Execution Boundary, input requests) is
+    the dock's own first tier, not a notice: it sits above the status line it
+    explains and collapses out of the browser's way.
+  */
   const showsNotices =
     hasDemoTeachingPassword(session) ||
     notices !== null ||
-    secretVariables.length > 0 ||
-    (session.controller === "agent" &&
-      (session.setupVariables?.length ?? 0) > 0) ||
-    hasRuntimeVariableNotice(session) ||
     state.botProtectionBlock !== undefined ||
-    state.browserStreamError !== undefined ||
-    session.interruptedAction !== null ||
-    (session.boundary !== null && session.boundary !== undefined);
+    browserStreamError !== undefined ||
+    session.interruptedAction !== null;
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AgentBrowserToolbar
@@ -646,12 +673,18 @@ const AgentLiveView = ({
       {/*
         Browser setup stays available in every state, recording included: the
         device, the Emulation, and the storage a journey needs are part of the
-        setup the recording runs under (ADR 0038). The stage owns the column,
-        so the dock and its notices float over the frame rather than over the
-        docked inspector.
+        setup the recording runs under (ADR 0038). The Emulation alone is
+        fixed from Start, because the Teaching Recording declares the one it
+        was demonstrated under (ADR 0013). The stage owns the column, so the
+        dock and its notices float over the frame rather than over the docked
+        inspector.
       */}
       <WorkspaceBrowserStage
         consoleEntries={state.consoleEntries}
+        emulationFixed={
+          session.activity === "teaching" &&
+          session.captureState._tag !== "setup"
+        }
         onClearConsole={onClearConsole}
         sessionId={session.id}
         teaching={session.activity === "teaching"}
@@ -678,23 +711,19 @@ const AgentLiveView = ({
         />
         {/*
         What the dock cannot hold floats over the browser instead: a stream
-        failure, the action Takeover interrupted, and a paused Execution
-        Boundary. The Boundary is answered in the agent conversation, so it is
-        read-only here (ADR 0037). An interrupted action is disclosed rather
-        than presented as a rollback: Contingency cannot undo a dispatched
-        effect.
+        failure, a bot protection block, and the action Takeover interrupted.
+        An interrupted action is disclosed rather than presented as a
+        rollback: Contingency cannot undo a dispatched effect.
       */}
         {showsNotices ? (
           <DockNotices>
             <>
               {notices}
-              {state.browserStreamError === undefined ? null : (
+              {browserStreamError === undefined ? null : (
                 <Alert variant="destructive">
                   <CircleAlertIcon aria-hidden="true" />
                   <AlertTitle>Browser stream unavailable</AlertTitle>
-                  <AlertDescription>
-                    {state.browserStreamError}
-                  </AlertDescription>
+                  <AlertDescription>{browserStreamError}</AlertDescription>
                 </Alert>
               )}
               {state.botProtectionBlock === undefined ? null : (
@@ -716,16 +745,7 @@ const AgentLiveView = ({
                   </AlertDescription>
                 </Alert>
               )}
-              <ExecutionBoundary session={session} />
-              <RuntimeVariables session={session} />
-              <SetupVariables session={session} />
               <DemoTeachingPassword key={session.id} session={session} />
-              {secretVariables.length > 0 ? (
-                <DryRunVariables
-                  sessionId={session.id}
-                  variables={secretVariables}
-                />
-              ) : null}
             </>
           </DockNotices>
         ) : null}
@@ -858,6 +878,10 @@ const useAgentView = (
   // The address bar belongs to whoever is typing in it: a URL event never
   // overwrites what the user has not submitted yet.
   const addressEditingRef = useRef(false);
+  // Interactive Runs this Workspace watched end, and those the user has
+  // dismissed. Neither is a `?session=` id that failed to resolve.
+  const endedRunIdsRef = useRef(new Set<string>());
+  const dismissedRunIdsRef = useRef(new Set<AgentSessionId>());
   // One inspect read at a time: a pointer moves far more often than the Page
   // can answer a Browser Snapshot, and a queue of them would outline the past.
   const inspectPendingRef = useRef(false);
@@ -909,20 +933,59 @@ const useAgentView = (
     /*
       A missing `?session=` id needs a notice only when this process has no
       live session to show. Otherwise the route adopts the selected session.
+      An Interactive Run this Workspace watched end is not unresolved: its
+      Run Summary was on screen until the user moved on.
     */
     const unresolvedSessionId =
       requestedSessionId !== undefined &&
       requested === undefined &&
-      sessions.length === 0
+      sessions.length === 0 &&
+      !endedRunIdsRef.current.has(requestedSessionId)
         ? requestedSessionId
         : undefined;
 
+    /*
+      An Interactive Run that ends leaves the live list, and its browser goes
+      with it. The Workspace keeps it on screen with its Run Summary docked
+      beside it, as a Dry Run's is, until the user picks another session or
+      dismisses it, rather than dropping straight to whatever is left.
+    */
+    const keptEndedRun = (current: AgentViewState): AgentViewState | null => {
+      const held = current.session;
+      if (
+        requested !== undefined ||
+        held === undefined ||
+        current.selectedSessionId !== held.id ||
+        dismissedRunIdsRef.current.has(held.id) ||
+        !isInteractiveRunSession(held) ||
+        sessions.some(({ id }) => id === held.id)
+      ) {
+        return null;
+      }
+      endedRunIdsRef.current.add(held.id);
+      const session = endedRunSnapshot(held);
+      return current.phase === "live" &&
+        current.session === session &&
+        current.unresolvedSessionId === undefined
+        ? current
+        : {
+            ...current,
+            phase: "live",
+            session,
+            unresolvedSessionId: undefined,
+          };
+    };
+
     if (sessions.length === 0) {
-      setState((current) =>
-        current.phase === "empty" &&
-        current.selectedSessionId === undefined &&
-        current.session === undefined &&
-        current.unresolvedSessionId === unresolvedSessionId
+      setState((current) => {
+        const kept = keptEndedRun(current);
+        if (kept !== null) {
+          return kept;
+        }
+        return current.phase === "empty" &&
+          current.selectedSessionId === undefined &&
+          current.session === undefined &&
+          current.unresolvedSessionId === unresolvedSessionId
           ? current
           : {
               ...current,
@@ -930,12 +993,16 @@ const useAgentView = (
               selectedSessionId: undefined,
               session: undefined,
               unresolvedSessionId,
-            }
-      );
+            };
+      });
       return;
     }
 
     setState((current) => {
+      const kept = keptEndedRun(current);
+      if (kept !== null) {
+        return kept;
+      }
       const existing =
         current.selectedSessionId === undefined
           ? undefined
@@ -1099,8 +1166,12 @@ const useAgentView = (
   };
   const enqueueFrameFromEffect = useEffectEvent(enqueueFrame);
 
+  const sessionEnded =
+    state.session !== undefined &&
+    !isLiveAgentSessionPhase(state.session.phase);
+
   useEffect(() => {
-    if (selectedSessionId === undefined) {
+    if (selectedSessionId === undefined || sessionEnded) {
       activeSessionRef.current = null;
       return;
     }
@@ -1140,11 +1211,16 @@ const useAgentView = (
           )
         );
         if (Result.isFailure(outcome) && !cancelled) {
-          setState((current) => ({
-            ...current,
-            browserStreamError: errorMessage(outcome.failure),
-            phase: "unavailable",
-          }));
+          setState((current) =>
+            current.session !== undefined &&
+            !isLiveAgentSessionPhase(current.session.phase)
+              ? current
+              : {
+                  ...current,
+                  browserStreamError: errorMessage(outcome.failure),
+                  phase: "unavailable",
+                }
+          );
         }
       })
     );
@@ -1248,7 +1324,13 @@ const useAgentView = (
       pendingFrameRef.current = null;
       activeStreamRef.current = null;
     };
-  }, [selectedSessionId, setState, setStreamMetrics, streamTransport]);
+  }, [
+    selectedSessionId,
+    sessionEnded,
+    setState,
+    setStreamMetrics,
+    streamTransport,
+  ]);
 
   /**
    * Taking control is a direct user action from this View, and returning it is
@@ -1823,11 +1905,12 @@ const useAgentView = (
    * Scrolling is a wheel event, and React only offers it passively, so the
    * canvas listens itself to keep the page from scrolling underneath it.
    */
-  const controller = state.session?.controller;
+  const userHoldsLiveBrowser =
+    !sessionEnded && state.session?.controller === "user";
   const dispatchInputFromEffect = useEffectEvent(dispatchInput);
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (canvas === null || controller !== "user") {
+    if (canvas === null || !userHoldsLiveBrowser) {
       return;
     }
     const handleWheel = (event: WheelEvent) => {
@@ -1846,7 +1929,17 @@ const useAgentView = (
     return () => {
       canvas.removeEventListener("wheel", handleWheel);
     };
-  }, [controller]);
+  }, [userHoldsLiveBrowser]);
+
+  /*
+    The picker lists the live sessions and, while one is on screen, the ended
+    Interactive Run being summarized, so its trigger can still name it.
+  */
+  const held = state.session;
+  const pickerSessions =
+    held === undefined || sessions.some(({ id }) => id === held.id)
+      ? sessions
+      : [...sessions, held];
 
   const selectSession = (nextSessionId: string) => {
     const nextSession = sessions.find(({ id }) => id === nextSessionId);
@@ -1866,6 +1959,30 @@ const useAgentView = (
       selectedSessionId: nextSession.id,
       session: nextSession,
       streamConnected: false,
+      unresolvedSessionId: undefined,
+    }));
+  };
+
+  /**
+   * Leaves an ended Interactive Run's summary for the next live session, or
+   * for the empty Workspace when there is none.
+   */
+  const dismissEndedRun = () => {
+    const ended = state.session;
+    if (ended === undefined) {
+      return;
+    }
+    dismissedRunIdsRef.current.add(ended.id);
+    const next = sessions.at(0);
+    if (next !== undefined) {
+      selectSession(next.id);
+      return;
+    }
+    setState((current) => ({
+      ...current,
+      phase: "empty",
+      selectedSessionId: undefined,
+      session: undefined,
       unresolvedSessionId: undefined,
     }));
   };
@@ -1920,6 +2037,7 @@ const useAgentView = (
     clearConsole,
     detachElement,
     dismissBotProtectionBlock,
+    dismissEndedRun,
     exitInspect,
     freezeInspect,
     gestures: {
@@ -1939,7 +2057,7 @@ const useAgentView = (
     runCommentShortcut,
     runSecondary,
     selectSession,
-    sessions,
+    sessions: pickerSessions,
     sessionsResult,
     setAddress,
     setInspectDraft,
@@ -2011,12 +2129,13 @@ export const AgentWorkspace = ({
   }
 
   const { session } = state;
+  const finished = finishedRunSummary(session);
 
   return (
     <div className="relative flex h-svh min-h-0 flex-col">
       <WorkspaceWithRunSummary
-        label="Dry Run Summary"
-        summary={finishedDryRunSummary(session)}
+        label={finished?.label ?? "Run Summary"}
+        summary={finished?.summary ?? null}
       >
         <AgentLiveView
           canvasRef={view.canvasRef}
@@ -2036,6 +2155,7 @@ export const AgentWorkspace = ({
                 pending={view.gestures.recording.pending}
                 phase={session.phase}
                 platform={platform}
+                requests={<DockRequests session={session} />}
                 selectedSessionId={state.selectedSessionId}
                 sessions={view.sessions}
               />
@@ -2044,7 +2164,13 @@ export const AgentWorkspace = ({
                 controlError={view.gestures.control.error}
                 controlPending={view.gestures.control.pending}
                 onControl={view.changeControl}
+                onDismiss={
+                  isEndedInteractiveRun(session)
+                    ? view.dismissEndedRun
+                    : undefined
+                }
                 onSelectSession={view.selectSession}
+                requests={<DockRequests session={session} />}
                 selectedSessionId={state.selectedSessionId}
                 session={session}
                 sessions={view.sessions}

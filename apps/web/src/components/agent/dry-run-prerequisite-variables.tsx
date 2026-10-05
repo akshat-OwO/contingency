@@ -6,10 +6,16 @@ import type {
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
+import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  AnsweredVariable,
+  RequestHeader,
+  VariableField,
+  requestIconClassName,
+} from "@/components/agent/dock-request-parts";
+import { Badge } from "@/components/ui/badge";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -51,47 +57,23 @@ const PrerequisiteVariable = ({
     }
   };
   return (
-    <form
-      className="space-y-2"
-      onSubmit={async (event) => {
-        event.preventDefault();
+    <VariableField
+      error={state.error === "" ? undefined : state.error}
+      id={decision.pendingDecisionId}
+      label={label}
+      onRefuse={async () => {
+        await submit(null);
+      }}
+      onSubmit={async () => {
         await submit(state.value);
       }}
-    >
-      <label className="grid gap-1" htmlFor={decision.pendingDecisionId}>
-        <span>{label}</span>
-        <Input
-          id={decision.pendingDecisionId}
-          autoComplete="off"
-          type="password"
-          required
-          value={state.value}
-          disabled={state.pending}
-          onChange={(event) =>
-            setState((current) => ({ ...current, value: event.target.value }))
-          }
-        />
-      </label>
-      <div className="flex gap-2">
-        <Button
-          type="submit"
-          disabled={state.pending || state.value.length === 0}
-        >
-          Supply {label}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={state.pending}
-          onClick={async () => {
-            await submit(null);
-          }}
-        >
-          Refuse {label}
-        </Button>
-      </div>
-      {state.error === "" ? null : <p role="alert">{state.error}</p>}
-    </form>
+      onValueChange={(value) => setState((current) => ({ ...current, value }))}
+      pending={state.pending}
+      purpose={decision.scopeSummary}
+      refuseLabel={`Refuse ${label}`}
+      supplyLabel={`Supply ${label}`}
+      value={state.value}
+    />
   );
 };
 
@@ -101,10 +83,13 @@ const PrerequisiteVariable = ({
  * Variables here, and an Example Run takes its bundled skill's private inputs.
  */
 export const WorkspaceVariables = ({
+  collapse,
   description,
   heading,
   session,
 }: {
+  /** The tier's collapse control, when this is its first request. */
+  readonly collapse?: React.ReactNode;
   readonly description: string;
   readonly heading: string;
   readonly session: AgentSessionSnapshot;
@@ -134,34 +119,53 @@ export const WorkspaceVariables = ({
     return null;
   }
   return (
-    <section
-      aria-label={heading}
-      className="bg-background space-y-3 rounded-lg border p-3 text-sm shadow-lg"
-    >
-      <h2 className="font-semibold">{heading}</h2>
-      <p>{description}</p>
-      {pending.map((decision) => (
-        <PrerequisiteVariable
-          key={decision.pendingDecisionId}
-          sessionId={session.id}
-          decision={decision}
-        />
-      ))}
-      {answers.map((answer) => (
-        <p key={JSON.stringify([answer.flowSkillName, answer.name])}>
-          {answer.flowSkillName}/{answer.name} {answer.lastAnswer}
-        </p>
-      ))}
+    <section aria-label={heading} className="space-y-2">
+      <RequestHeader
+        action={collapse}
+        badge={
+          pending.length === 0 ? null : (
+            <Badge variant="secondary">{pending.length} needed</Badge>
+          )
+        }
+        icon={
+          <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
+        }
+        title={heading}
+      />
+      <p className="text-muted-foreground text-xs text-pretty">{description}</p>
+      <div className="space-y-2.5">
+        {pending.map((decision) => (
+          <PrerequisiteVariable
+            key={decision.pendingDecisionId}
+            sessionId={session.id}
+            decision={decision}
+          />
+        ))}
+      </div>
+      {answers.length === 0 ? null : (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {answers.map((answer) => (
+            <AnsweredVariable
+              key={JSON.stringify([answer.flowSkillName, answer.name])}
+              label={`${answer.flowSkillName}/${answer.name}`}
+              status={answer.lastAnswer ?? ""}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 };
 
 export const DryRunPrerequisiteVariables = ({
+  collapse,
   session,
 }: {
+  readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => (
   <WorkspaceVariables
+    collapse={collapse}
     description="Supply or refuse private prerequisite inputs here. The agent sees their status, never their values."
     heading="Prerequisite Variables"
     session={session}
@@ -169,11 +173,14 @@ export const DryRunPrerequisiteVariables = ({
 );
 
 export const ExampleVariables = ({
+  collapse,
   session,
 }: {
+  readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => (
   <WorkspaceVariables
+    collapse={collapse}
     description="Supply or refuse this Example's private inputs here. The demo account accepts any password of at least 8 characters. The agent sees their status, never their values."
     heading="Example private inputs"
     session={session}
