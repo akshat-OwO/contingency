@@ -48,6 +48,10 @@
     "test:integration": {
       "cache": false,
       "dependsOn": ["^build"]
+    },
+    "@contingencyhq/cli#test:integration": {
+      "cache": false,
+      "dependsOn": ["build"]
     }
   }
 }
