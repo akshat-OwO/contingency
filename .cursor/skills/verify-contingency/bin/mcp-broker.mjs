@@ -52,6 +52,8 @@ const child = spawn(process.execPath, [cli, "mcp"], {
 const pending = new Map();
 let nextId = 0;
 let buffer = "";
+const channelMessages = [];
+let serverCapabilities = {};
 
 child.stdout.setEncoding("utf-8");
 child.stdout.on("data", (chunk) => {
@@ -69,6 +71,12 @@ child.stdout.on("data", (chunk) => {
       message = JSON.parse(line);
     } catch {
       continue;
+    }
+    if (message.method === "notifications/claude/channel") {
+      channelMessages.push(message);
+      if (channelMessages.length > 256) {
+        channelMessages.shift();
+      }
     }
     const settle = pending.get(message.id);
     if (settle !== undefined) {
@@ -124,6 +132,13 @@ const respond = (response, status, payload) => {
 const handle = async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     respond(response, 200, { ok: true });
+    return;
+  }
+  if (request.method === "GET" && request.url === "/channels") {
+    respond(response, 200, {
+      capabilities: serverCapabilities,
+      messages: channelMessages,
+    });
     return;
   }
   if (request.method === "GET" && request.url === "/tools") {
@@ -214,6 +229,7 @@ if (handshake.error !== undefined) {
   );
   process.exit(1);
 }
+serverCapabilities = handshake.result.capabilities;
 notify("notifications/initialized", {});
 
 server.listen(port, "127.0.0.1", () => {

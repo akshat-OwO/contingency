@@ -242,9 +242,14 @@ interface McpChild {
   readonly workspaceUrl: () => URL | undefined;
 }
 
-const spawnMcpChild = (port?: number, agentOwned = false): McpChild => {
+const spawnMcpChild = (
+  port?: number,
+  agentOwned = false,
+  channel = false
+): McpChild => {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    CONTINGENCY_MCP_CHANNEL: String(channel),
     CONTINGENCY_MCP_HOST: "127.0.0.1",
     CONTINGENCY_MCP_PORT: String(port),
   };
@@ -458,6 +463,71 @@ const spawnMcpChild = (port?: number, agentOwned = false): McpChild => {
     },
   };
 };
+
+it.live.each([false, true])(
+  "declares the channel capability only on opted-in stdio (channel=%s)",
+  (channel) =>
+    Effect.gen(function* channelCapability() {
+      const mcp = spawnMcpChild(undefined, false, channel);
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => mcp.stop()).pipe(Effect.ignore)
+      );
+      yield* Effect.promise(() =>
+        mcp.send({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "initialize",
+          params: {
+            capabilities: {},
+            clientInfo: { name: "channel-test", version: "1" },
+            protocolVersion: "2025-11-25",
+          },
+        })
+      );
+      const response = yield* Effect.promise(() => mcp.receive(1));
+      expect(response.error).toBeUndefined();
+      const result = Schema.decodeUnknownSync(
+        Schema.Struct({
+          capabilities: Schema.Struct({
+            experimental: Schema.optional(Schema.JsonObject),
+          }),
+        })
+      )(response.result);
+      expect(result.capabilities.experimental).toEqual(
+        channel ? { "claude/channel": {} } : undefined
+      );
+      // HTTP is served by the same process but never advertises channels.
+      yield* Effect.promise(() =>
+        mcp.waitForText("Contingency MCP Workspace available at")
+      );
+      const origin = mcp.workspaceUrl();
+      if (origin === undefined) {
+        return yield* Effect.die("No Workspace URL");
+      }
+      const http = yield* Effect.promise(() =>
+        fetch(new URL("/mcp", origin), {
+          body: JSON.stringify({
+            id: 2,
+            jsonrpc: "2.0",
+            method: "initialize",
+            params: {
+              capabilities: {},
+              clientInfo: { name: "channel-http-test", version: "1" },
+              protocolVersion: "2025-11-25",
+            },
+          }),
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          method: "POST",
+        })
+      );
+      const body = yield* Effect.promise(() => http.text());
+      expect(http.status).toBe(200);
+      expect(body).not.toContain("claude/channel");
+    }).pipe(Effect.scoped)
+);
 
 it.live(
   "gives concurrent stdio clients separate Workspaces without port configuration",

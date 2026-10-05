@@ -379,6 +379,18 @@ Preconditions: the current CLI build, an isolated `control-contingency launch`, 
 - **Compare bytes.** `metrics.json` compares average `agent_session_get` bytes with the published ADR 0045 full-view task proof. The two scenarios differ; the comparison does not measure token use or task success.
 - **Clean up.** Run `nub .cursor/skills/verify-contingency/bin/control-contingency cleanup`. Require `doctor` to report that the owned processes stopped. Artifacts survive cleanup.
 
+### Claude Code channels
+
+Launch and run `doctor`, then start the ecommerce fixture. Start the broker with `CONTINGENCY_MCP_CHANNEL=true nub .cursor/skills/verify-contingency/bin/control-contingency mcp start`. Run `mcp channels` and require `capabilities.experimental["claude/channel"]` to be `{}`. Follow the Session Events recipe through `start`, `handoff`, recording, `learn`, and `pass`. Use the shared preview for the Workspace actions.
+
+Choose **Verify flow** in Workspace with no pending MCP wait. After the 250 ms batch delay, run `nub .cursor/skills/verify-contingency/bin/channel-proof.mjs`. Require one frame per affected session containing `flow-skill-verified` and `cleanup-completed`, with only `content` and `meta`. The metadata has only `sessionId` and `eventCursor`. The helper reads `agent_session_get` with the channel cursor as `afterCursor` and proves that a retry returns identical events. Capture the Workspace screenshot and ARIA state under `artifacts/claude-channels/`. Read the catalog to confirm verification and recording removal.
+
+For the off path, restart the broker with `CONTINGENCY_MCP_CHANNEL=false`. Start a fresh Teaching session, hand it to the user, and click **Start recording**. `mcp channels` must show no channel capability and no messages.
+
+For model wakeup, use a disposable Claude Code session with this stdio server, `CONTINGENCY_MCP_CHANNEL=true`, and `--dangerously-load-development-channels server:contingency`. Accept the local development prompt. Ask the agent to finish its turn and read `agent_session_get` when a channel arrives. Click **Verify flow** without sending another conversation message. Keep transcript evidence of the channel and the resulting tool call. If Claude rejects channels because of preview access or organization policy, record that blocker separately from the proven stdio frame delivery.
+
+Stop the disposable Claude process and run `cleanup`. Require artifacts to survive cleanup.
+
 ## Gotchas
 
 - New task Runs use `agent_run_assess`, `agent_run_finding`, and explicit `agent_run_complete`. `agent_run_step_assess` no longer exists; coverage, active steps, and assessment-triggered termination belong only to historical reports.

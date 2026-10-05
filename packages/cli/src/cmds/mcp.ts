@@ -41,8 +41,9 @@ import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
+import { McpChannelStdio } from "../services/mcp-channel.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
-import { MCP_INSTRUCTIONS, makeMcpHttpLayer } from "../services/mcp-http.ts";
+import { makeMcpInstructions, makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { makeMcpStartLayer } from "../services/mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
@@ -141,6 +142,8 @@ export const mcpCommand = Command.make(
   },
   Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
     const config = yield* Config.all({
+      // Claude Code channels are opt-in and stdio-only (ADR 0051).
+      channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
@@ -160,7 +163,7 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const { codeMode, host, port, videoFastForward } = config;
+    const { channel, codeMode, host, port, videoFastForward } = config;
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
@@ -253,7 +256,7 @@ export const mcpCommand = Command.make(
           : Layer.build(
               Layer.mergeAll(
                 McpServer.layerStdio({
-                  instructions: MCP_INSTRUCTIONS,
+                  instructions: makeMcpInstructions(channel),
                   name: "Contingency",
                   protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
                   version: "0.0.1",
@@ -261,7 +264,14 @@ export const mcpCommand = Command.make(
                 mcpTools,
                 makeMcpStartLayer(demoSite),
                 codeMode ? McpCodeModeLayer : Layer.empty
-              ).pipe(Layer.provide(shared))
+              ).pipe(
+                Layer.provide(
+                  channel
+                    ? McpChannelStdio.pipe(Layer.provide(shared))
+                    : Layer.empty
+                ),
+                Layer.provide(shared)
+              )
             );
         const bound = yield* Layer.build(
           makeNodeServerLayer({ host, port })

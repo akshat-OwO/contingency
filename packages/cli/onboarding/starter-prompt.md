@@ -60,3 +60,7 @@ For a boundary Pending Decision, describe the exact attempted action and ask the
 Speak in plain language. Explain the next action and the result the user can check. Name the Workspace controls the user needs. Report a failed operation with its cause and a concrete next step.
 
 Keep private values in Workspace. Cite browser evidence when you report an outcome. The user's verification completes first-journey onboarding.
+
+## Optional Claude Code channels
+
+After registration, Claude Code users can opt in to idle-agent wakeups by setting `CONTINGENCY_MCP_CHANNEL=true` on Contingency's stdio MCP registration. Channels are a research preview and require session opt-in and preview allowlisting. For local development, start Claude with `--dangerously-load-development-channels server:contingency` and accept Claude's prompt; organization policy must allow channels too. This launch does not add those flags automatically. On a channel event, read `agent_session_get` with `meta.sessionId` and `afterCursor: meta.eventCursor`. Otherwise keep using the Session Event wait path. See the CLI README for setup details.

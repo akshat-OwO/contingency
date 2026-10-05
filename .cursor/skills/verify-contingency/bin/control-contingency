@@ -52,6 +52,7 @@ Commands:
   browser wait --role <role> --name <name> [--has-text <substring>] [--timeout-ms <n>] [--partial]
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
+  mcp channels
   mcp call --tool <name> [--params <json>]
   mcp tools [--name <name>]
   mcp resources
@@ -1615,6 +1616,15 @@ const cmdMcpTools = async (flags) => {
   process.stdout.write(`${JSON.stringify(tool)}\n`);
 };
 
+const cmdMcpChannels = async () => {
+  const { brokerUrl } = readInstance();
+  if (typeof brokerUrl !== "string") { fail("No MCP instance is recorded. Run mcp start first."); }
+  const response = await fetch(`${brokerUrl}channels`);
+  const body = await response.text();
+  if (!response.ok) { fail(`Channel capture failed (${response.status}): ${body}`); }
+  process.stdout.write(`${body}\n`);
+};
+
 const cmdMcpStop = async () => {
   const instance = readInstance();
   if (typeof instance.mcpPid !== "number" || !pidAlive(instance.mcpPid)) {
@@ -1730,6 +1740,10 @@ const main = async () => {
     }
     if (action === "call") {
       await cmdMcpCall(parseArgs(argv.slice(2)).flags);
+      return;
+    }
+    if (action === "channels") {
+      await cmdMcpChannels();
       return;
     }
     if (action === "tools") {

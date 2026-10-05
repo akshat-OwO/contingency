@@ -2,7 +2,10 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { MCP_INSTRUCTIONS } from "../../src/services/mcp-http.ts";
+import {
+  MCP_INSTRUCTIONS,
+  makeMcpInstructions,
+} from "../../src/services/mcp-http.ts";
 import {
   connectMcp,
   servingMcpHttp,
@@ -67,7 +70,7 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       yield* request("tools/list", {})
     ).result;
 
-    expect(tools).toHaveLength(35);
+    expect(tools).toHaveLength(34);
     expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
     expect(tools.map((tool) => tool.name)).not.toContain(
       "agent_run_variable_request"
@@ -108,6 +111,17 @@ it.live("annotates read-only tools so hosts may run them concurrently", () =>
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it("builds distinct channel instructions within the server budget", () => {
+  const channel = makeMcpInstructions(true);
+  expect(makeMcpInstructions(false)).toBe(MCP_INSTRUCTIONS);
+  expect(channel).not.toBe(MCP_INSTRUCTIONS);
+  expect(channel).toContain(
+    "meta.sessionId and meta.eventCursor as afterCursor"
+  );
+  expect(channel).toContain("Otherwise wait with afterCursor and waitMs");
+  expect(channel.length).toBeLessThan(800);
+});
 
 it.live("sends the context-saving habits as server instructions", () =>
   Effect.gen(function* serverInstructions() {

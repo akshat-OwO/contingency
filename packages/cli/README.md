@@ -87,3 +87,13 @@ A Teaching session keeps a local video and Playwright Trace, and a Run keeps its
 A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow Skill learned from it deletes its video, Trace, events, and keyframes; the Flow Skill directory and its `references/` are all that remain.
 
 Cleanup is idempotent and resumes at startup. If a file cannot be deleted, the verified Flow Skill stands and the Workspace names the retained sensitive files and offers a retry. Rejecting a drafted Flow Skill keeps every Teaching artifact so the agent can try again.
+
+## Claude Code channels
+
+To wake an idle Claude Code agent when the user acts in Workspace, set `CONTINGENCY_MCP_CHANNEL=true` in the environment of the registered stdio MCP server. It is off by default and never applies to HTTP connections. Stdio supports the 2025-06-18 and 2025-11-25 protocol revisions.
+
+Channels are a [Claude Code research preview](https://code.claude.com/docs/en/channels-reference). They require opt-in for each Claude session and preview allowlisting. For local development with a server registered as `contingency`, start Claude with `claude --dangerously-load-development-channels server:contingency` and accept its development-channel prompt. Organization policy must also allow channels. For an allowlisted channel, use `--channels server:contingency` instead. `contingency start` does not add these Claude flags automatically.
+
+Contingency sends one summary per session after 250 ms without another Session Event. Messages carry event kinds and `meta.sessionId` and `meta.eventCursor`, never snapshots, Variable names or values, or browser content. The cursor precedes the batch: call `agent_session_get` with that session ID and `afterCursor: meta.eventCursor` to read its events. Retrying that read is safe. With channels off, or in a client without channel support, use `agent_session_get` with `afterCursor` and `waitMs` after requesting a Workspace action. Channels do not work with the 2026-07-28 protocol revision.
+
+Channel delivery starts after the MCP initialize response. Earlier Session Events remain in the replay log. Read the session once when attaching to an existing session to obtain its current state and cursor.
