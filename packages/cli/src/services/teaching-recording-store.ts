@@ -73,6 +73,15 @@ export interface TeachingRecordingMutation {
   readonly recordingId: TeachingRecordingId;
 }
 
+/**
+ * Start carries the Emulation in effect at that instant: the user may have
+ * changed it during setup, after the bundle was begun, and the recording must
+ * declare the one it was demonstrated under.
+ */
+export interface TeachingRecordingStart extends TeachingRecordingMutation {
+  readonly emulation: DraftEmulation;
+}
+
 export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation {
   readonly inputs: FlowSkillDryRunResult["inputs"];
   readonly sessionId: AgentSessionId;
@@ -151,7 +160,7 @@ export interface TeachingRecordingStoreService {
     input: TeachingRecordingRename
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly start: (
-    input: TeachingRecordingMutation
+    input: TeachingRecordingStart
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly stop: (
     input: TeachingRecordingStop
@@ -697,7 +706,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         true
       );
 
-    const start = (input: TeachingRecordingMutation) =>
+    const start = (input: TeachingRecordingStart) =>
       withRecordingLock(
         input.recordingId,
         Effect.gen(function* startRecording() {
@@ -729,6 +738,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             withReceipt(
               {
                 ...current,
+                emulation: input.emulation,
                 lifecycle: { _tag: "recording", startedAt: at },
               },
               "start",

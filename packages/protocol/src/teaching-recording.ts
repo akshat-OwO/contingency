@@ -432,6 +432,11 @@ export const TEACHING_RECORDING_WAIT_MAX_MS = 60_000;
 
 export const TeachingRecordingSummary = Schema.Struct({
   cleanup: TeachingRecordingCleanupState,
+  /**
+   * The Emulation the user demonstrated under, so an agent that picks the
+   * recording up later knows the device and environment before claiming it.
+   */
+  emulation: DraftEmulation,
   failure: Schema.NullOr(Schema.String),
   flowSkillName: FlowSkillName,
   lifecycle: Schema.Literals([

@@ -30,6 +30,13 @@ const emulation = {
   viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
 };
 
+const demonstratedEmulation = {
+  ...emulation,
+  colorScheme: "dark" as const,
+  locale: "de-DE",
+  timezoneId: "Europe/Berlin",
+};
+
 const layerFor = (root: string) =>
   makeTeachingRecordingStoreLayer({
     now: () => new Date(at),
@@ -61,14 +68,19 @@ it.effect(
         };
         yield* store.begin(begin);
         yield* store.begin(begin);
+        // The user changed the Emulation during setup, after the bundle was
+        // begun; Start declares the one the journey was demonstrated under.
         const start = {
+          emulation: demonstratedEmulation,
           operationId: OperationId.make("start-once"),
           recordingId,
         };
-        yield* store.start(start);
+        const started = yield* store.start(start);
+        expect(started.emulation).toEqual(demonstratedEmulation);
         yield* store.start(start);
         const extraStart = yield* Effect.flip(
           store.start({
+            emulation,
             operationId: OperationId.make("start-again"),
             recordingId,
           })
@@ -208,6 +220,7 @@ it.effect(
           sessionId,
         });
         yield* store.start({
+          emulation,
           operationId: OperationId.make("start-failure"),
           recordingId: failedRecordingId,
         });
@@ -256,6 +269,7 @@ it.effect(
           sessionId,
         });
         yield* store.start({
+          emulation,
           operationId: OperationId.make("retention-start"),
           recordingId: retainedId,
         });
@@ -357,6 +371,7 @@ it.effect("retries purge-pending cleanup when a store starts", () =>
         sessionId,
       });
       yield* store.start({
+        emulation,
         operationId: OperationId.make("recovery-start"),
         recordingId: recoveryId,
       });
@@ -509,6 +524,7 @@ it.effect("releases and retries failed learning claims", () =>
         sessionId,
       });
       yield* store.start({
+        emulation,
         operationId: OperationId.make("retry-start"),
         recordingId: retryId,
       });
@@ -721,6 +737,7 @@ it.effect(
           sessionId,
         });
         yield* store.start({
+          emulation,
           operationId: OperationId.make("web-start"),
           recordingId,
         });
@@ -768,6 +785,7 @@ it.effect("keeps an active recording under its original Catalog Root", () =>
         sessionId,
       });
       yield* store.start({
+        emulation,
         operationId: OperationId.make("root-start"),
         recordingId,
       });
@@ -880,6 +898,7 @@ it.effect("renames before capture and discards a recording back to setup", () =>
       yield* store.rename(rename);
       const renamed = yield* store.rename(rename);
       yield* store.start({
+        emulation,
         operationId: OperationId.make("start-discard"),
         recordingId: discardedId,
       });
@@ -944,6 +963,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         sessionId,
       });
       yield* store.start({
+        emulation,
         operationId: OperationId.make("lifetime-start"),
         recordingId: claimedId,
       });

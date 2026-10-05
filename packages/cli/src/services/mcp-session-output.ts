@@ -1,6 +1,7 @@
 import {
   AgentRunSummary,
   AgentSessionCompact,
+  DraftEmulation,
   AgentSessionSnapshot,
   AgentSessionView,
   RunSessionSnapshot,
@@ -94,8 +95,13 @@ export const UnpublishedRunSummary = unpublished(
   "The persisted Run Summary in the same shape agent_run_complete answers with."
 );
 
+export const UnpublishedEmulation = unpublished(
+  "The Emulation the recording was demonstrated under. A Dry Run reproduces it."
+);
+
 const encodeSession = Schema.encodeEffect(SessionResult);
 const encodeSummary = Schema.encodeEffect(AgentRunSummary);
+const encodeEmulation = Schema.encodeEffect(DraftEmulation);
 
 /**
  * Encodes a value whose schema the catalog does not publish. A value that
@@ -107,3 +113,6 @@ export const encodeUnpublishedSession = (
 
 export const encodeUnpublishedRunSummary = (value: AgentRunSummary) =>
   Effect.orDie(encodeSummary(value));
+
+export const encodeUnpublishedEmulation = (value: DraftEmulation) =>
+  Effect.orDie(encodeEmulation(value));

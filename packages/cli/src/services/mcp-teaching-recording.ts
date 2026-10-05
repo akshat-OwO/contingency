@@ -9,9 +9,8 @@ import {
   optionalNullable,
   TEACHING_RECORDING_WAIT_MAX_MS,
   TeachingKeyframeFile,
-  TeachingRecordingClaimResult,
+  TeachingRecordingClaim,
   TeachingRecordingId,
-  TeachingRecordingList,
   TeachingRecordingSummary,
   TeachingTimeline,
 } from "@contingency/protocol";
@@ -22,8 +21,10 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 import { AgentSession } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
+  UnpublishedEmulation,
   UnpublishedSession,
   WorkspaceLinkGuidance,
+  encodeUnpublishedEmulation,
   encodeUnpublishedSession,
   sessionViewParameter,
   workspaceLinkGuidance,
@@ -66,6 +67,30 @@ const failure = (
     message: `${cause.message} (${cause.code})`,
   });
 
+/**
+ * A recording summary as the catalog publishes it. Its Emulation is the
+ * protocol shape, encoded but not republished in each tool that answers with
+ * a summary (ADR 0045).
+ */
+const PublishedRecordingSummary = Schema.Struct({
+  ...TeachingRecordingSummary.fields,
+  emulation: UnpublishedEmulation,
+});
+
+const PublishedRecordingList = Schema.Struct({
+  recordings: Schema.Array(PublishedRecordingSummary),
+});
+
+const PublishedClaimResult = Schema.Struct({
+  claim: Schema.NullOr(TeachingRecordingClaim),
+  recording: PublishedRecordingSummary,
+});
+
+const publishSummary = (summary: TeachingRecordingSummary) =>
+  encodeUnpublishedEmulation(summary.emulation).pipe(
+    Effect.map((emulation) => ({ ...summary, emulation }))
+  );
+
 /** Every state a claim or decision lands in has a learning-agent summary. */
 const summaryOf = (manifest: TeachingRecordingManifest) => {
   const summary = teachingRecordingSummary(manifest);
@@ -73,14 +98,14 @@ const summaryOf = (manifest: TeachingRecordingManifest) => {
     ? Effect.die(
         `Teaching Recording ${manifest.recordingId} has no learning-agent state.`
       )
-    : Effect.succeed(summary);
+    : publishSummary(summary);
 };
 
 const TeachingRecordingsListTool = readOnly(
   Tool.make("agent_teaching_recordings_list", {
     dependencies: [TeachingRecordingLearning],
     description:
-      "List process-independent Teaching Recordings that an agent can claim for Flow Skill learning. Recordings created by contingency web appear after Stop, even when this MCP process did not create their browser session. Name a recordingId to answer with that one recording instead, waiting up to timeoutMs (default 30000, at most 60000) for it to reach its next durable state: recording, ready, learning, skill-drafted, dry-running, dry-run-failed, dry-run-passed, verified, or failed. The wait polls the durable manifest, so it works when another process owns the browser, and a recording that never arrives is refused with teaching_recording_timeout.",
+      "List Teaching Recordings an agent can claim for Flow Skill learning, each with the Emulation it was demonstrated under. Recordings from contingency web or another process appear after Stop. Name a recordingId to answer with that one recording instead, waiting up to timeoutMs (default 30000, at most 60000) for it to reach its next durable lifecycle state. The wait polls the durable manifest, so it works when another process owns the browser, and a recording that never arrives is refused with teaching_recording_timeout.",
     failure: TeachingRecordingFailure,
     parameters: Schema.Struct({
       recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
@@ -95,7 +120,7 @@ const TeachingRecordingsListTool = readOnly(
         )
       ),
     }),
-    success: TeachingRecordingList,
+    success: PublishedRecordingList,
   })
 );
 
@@ -111,7 +136,7 @@ const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
     operationId: OperationId,
     recordingId: TeachingRecordingId,
   }),
-  success: TeachingRecordingClaimResult,
+  success: PublishedClaimResult,
 });
 
 const TeachingTimelineGetTool = readOnly(
@@ -219,7 +244,7 @@ const FlowSkillDecideTool = Tool.make("agent_flow_skill_decide", {
     operationId: OperationId,
     recordingId: TeachingRecordingId,
   }),
-  success: TeachingRecordingSummary,
+  success: PublishedRecordingSummary,
 });
 
 export const TeachingRecordingTools = withStrictParameters(
@@ -366,12 +391,16 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           const summary = yield* learning
             .wait(params.recordingId, params.timeoutMs ?? 30_000)
             .pipe(Effect.mapError(failure));
-          return { recordings: [summary] };
+          return { recordings: [yield* publishSummary(summary)] };
         }
         const recordings = yield* learning
           .list()
           .pipe(Effect.mapError(failure));
-        return { recordings };
+        return {
+          recordings: yield* Effect.all(
+            recordings.map((summary) => publishSummary(summary))
+          ),
+        };
       }),
     agent_teaching_timeline_get: (params) =>
       Effect.gen(function* readTeachingTimeline() {

@@ -110,7 +110,7 @@ export const BrowserDeviceBar = ({
   /** The viewport the session applies, once the interface has read it. */
   readonly applied: Viewport | undefined;
   readonly disabled: boolean;
-  /** Why the controls are locked, when it is the agent holding the browser. */
+  /** Why the controls are locked, when they are. */
   readonly lockedReason: string | undefined;
   readonly onPresetChange: (presetId: string) => void;
   readonly onViewportChange: (viewport: Viewport) => void;
