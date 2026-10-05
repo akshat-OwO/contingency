@@ -1,11 +1,12 @@
 import { AgentSessionId } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Queue, Sink, Stdio, Stream } from "effect";
+import { TestClock } from "effect/testing";
 
 import { makeChannelStdio } from "../../src/services/mcp-channel.ts";
 import type { SessionEventBatch } from "../../src/services/session-events.ts";
 
-it.live.each(["2025-06-18", "2025-11-25"])(
+it.effect.each(["2025-06-18", "2025-11-25"])(
   "declares channels on %s, debounces per session, and preserves a replay cursor",
   (protocolVersion) =>
     Effect.gen(function* channelTransport() {
@@ -34,8 +35,18 @@ it.live.each(["2025-06-18", "2025-11-25"])(
         events: [{ at: "now", cursor: "epoch:1", kind: "teaching-started" }],
         sessionId: id,
       });
-      yield* Effect.sleep("300 millis");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("300 millis");
       expect(yield* Queue.size(output)).toBe(0);
+      yield* send('diagnostic line\n{broken JSON\n[]\n{"result":null}\n');
+      for (const line of [
+        "diagnostic line\n",
+        "{broken JSON\n",
+        "[]\n",
+        '{"result":null}\n',
+      ]) {
+        expect(yield* Queue.take(output)).toBe(line);
+      }
       const init = JSON.stringify({
         id: 1,
         jsonrpc: "2.0",
@@ -78,19 +89,22 @@ it.live.each(["2025-06-18", "2025-11-25"])(
         ],
         sessionId: other,
       });
-      yield* Effect.sleep("200 millis");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("200 millis");
       yield* Queue.offer(events, {
         eventCursor: "epoch:2",
         events: [{ at: "now", cursor: "epoch:3", kind: "takeover-returned" }],
         sessionId: id,
       });
-      yield* Effect.sleep("100 millis");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("100 millis");
       const independent = JSON.parse(yield* Queue.take(output));
       expect(independent.params).toEqual({
         content: `Session ${other}: variable-supplied`,
         meta: { eventCursor: "other:0", sessionId: other },
       });
       expect(yield* Queue.size(output)).toBe(0);
+      yield* TestClock.adjust("150 millis");
       const frame = JSON.parse(yield* Queue.take(output));
       expect(frame).toEqual({
         jsonrpc: "2.0",

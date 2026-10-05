@@ -22,6 +22,10 @@ const InitializeResponse = Schema.Struct({
   }),
 });
 const decodeInitialize = Schema.decodeUnknownOption(InitializeResponse);
+const decodeFrame = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.JsonObject)
+);
+const decodeObject = Schema.decodeUnknownOption(Schema.JsonObject);
 
 /** Summaries deliberately never copy event names, snapshots, or Variable values. */
 export const channelFrames = (batches: readonly SessionEventBatch[]) => {
@@ -138,20 +142,22 @@ export const makeChannelStdio = (
             while (newline !== -1) {
               const line = pending.slice(0, newline);
               pending = pending.slice(newline + 1);
-              const message: unknown = JSON.parse(line);
-              const initialize = decodeInitialize(message);
-              if (Option.isSome(initialize)) {
-                const frame = Schema.decodeUnknownSync(Schema.JsonObject)(
-                  message
-                );
+              const frame = decodeFrame(line);
+              const result = frame.pipe(
+                Option.flatMap((message) => decodeObject(message.result))
+              );
+              const initialize = frame.pipe(Option.flatMap(decodeInitialize));
+              if (
+                Option.isSome(frame) &&
+                Option.isSome(result) &&
+                Option.isSome(initialize)
+              ) {
                 yield* Queue.offer(
                   output,
                   `${JSON.stringify({
-                    ...frame,
+                    ...frame.value,
                     result: {
-                      ...Schema.decodeUnknownSync(Schema.JsonObject)(
-                        frame.result
-                      ),
+                      ...result.value,
                       capabilities: {
                         ...initialize.value.result.capabilities,
                         experimental: { "claude/channel": {} },

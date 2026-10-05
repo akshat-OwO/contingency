@@ -43,7 +43,7 @@ import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
-import { MCP_INSTRUCTIONS, makeMcpHttpLayer } from "../services/mcp-http.ts";
+import { makeMcpInstructions, makeMcpHttpLayer } from "../services/mcp-http.ts";
 import { makeMcpStartLayer } from "../services/mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
@@ -256,12 +256,7 @@ export const mcpCommand = Command.make(
           : Layer.build(
               Layer.mergeAll(
                 McpServer.layerStdio({
-                  instructions: channel
-                    ? MCP_INSTRUCTIONS.replace(
-                        "After asking the user to act in the Workspace, call agent_session_get with afterCursor and waitMs instead of asking them to report back.",
-                        "On channel events, call agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
-                      )
-                    : MCP_INSTRUCTIONS,
+                  instructions: makeMcpInstructions(channel),
                   name: "Contingency",
                   protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
                   version: "0.0.1",
