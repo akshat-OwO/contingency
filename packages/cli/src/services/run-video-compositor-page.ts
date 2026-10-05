@@ -49,13 +49,24 @@ window.footageReady = new Promise((resolve, reject) => {
   video.addEventListener("error", () => reject(new Error("The footage could not be decoded (" + (video.error && video.error.code) + ").")), { once: true });
 });
 
+// Seeking and presenting the decoded frame are separate signals: drawing on
+// "seeked" alone can copy the previous frame on a loaded machine.
 const seek = (seconds) => new Promise((resolve, reject) => {
   if (Math.abs(video.currentTime - seconds) < 0.0001) {
     resolve();
     return;
   }
-  const done = () => { video.removeEventListener("error", failed); resolve(); };
+  let sought = false;
+  let presented = false;
+  const settle = () => {
+    if (sought && presented) {
+      video.removeEventListener("error", failed);
+      resolve();
+    }
+  };
+  const done = () => { sought = true; settle(); };
   const failed = () => { video.removeEventListener("seeked", done); reject(new Error("The footage could not be sought.")); };
+  video.requestVideoFrameCallback(() => { presented = true; settle(); });
   video.addEventListener("seeked", done, { once: true });
   video.addEventListener("error", failed, { once: true });
   video.currentTime = seconds;
