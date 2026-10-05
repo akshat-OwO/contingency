@@ -19,7 +19,7 @@ const BASE_URL = "http://127.0.0.1:7783";
 
 /**
  * Serves the production MCP HTTP layer on an ephemeral loopback port, with
- * the demo store unless `demo` is false.
+ * the demo store only when `demo` is true, as `contingency mcp --demo` does.
  */
 export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
@@ -32,7 +32,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
       HttpRouter.serve(
         makeMcpHttpLayer(allowedOrigins, {
           codeMode: options.codeMode,
-          demoSite: options.demo === false ? undefined : makeDemoSiteLayer(),
+          demoSite: options.demo === true ? makeDemoSiteLayer() : undefined,
         })
       ).pipe(
         Layer.provide(

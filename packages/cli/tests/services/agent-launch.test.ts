@@ -21,7 +21,7 @@ const invocation = currentInvocation({
 });
 const spec = sessionServerSpec({
   agent: "claude",
-  demo: true,
+  demo: false,
   directory: "/work/my app",
   invocation,
 });
@@ -44,11 +44,11 @@ it("supplies a session-only server on an available port for this directory", () 
   });
 });
 
-it("leaves the demo store out of a session started without --demo", () => {
+it("serves the demo store only to a session started with --demo", () => {
   expect(
     sessionServerSpec({
       agent: "claude",
-      demo: false,
+      demo: true,
       directory: "/work/my app",
       invocation,
     }).args
@@ -59,7 +59,7 @@ it("leaves the demo store out of a session started without --demo", () => {
     "claude",
     "--fallback-directory",
     "/work/my app",
-    "--no-demo",
+    "--demo",
   ]);
 });
 
@@ -103,7 +103,7 @@ it("passes Claude Code its MCP config and ends the variadic option before the pr
 it("passes Codex TOML overrides and keeps the prompt last", () => {
   const codex = sessionServerSpec({
     agent: "codex",
-    demo: true,
+    demo: false,
     directory: "/work/app",
     invocation,
   });

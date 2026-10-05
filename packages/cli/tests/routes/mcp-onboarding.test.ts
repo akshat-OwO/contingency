@@ -71,7 +71,9 @@ it.live(
   "serves the starter prompt, the learning procedure, and this process's examples",
   () =>
     Effect.gen(function* onboardingResources() {
-      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const { request } = yield* connectMcp(
+        yield* servingMcpHttp({ demo: true })
+      );
       const listed = Schema.decodeUnknownSync(ResourceList)(
         yield* request("resources/list", {})
       );
@@ -108,7 +110,9 @@ it.live(
 
 it.live("serves the demo store only under its hostname and port", () =>
   Effect.gen(function* demoHostGuard() {
-    const { request } = yield* connectMcp(yield* servingMcpHttp());
+    const { request } = yield* connectMcp(
+      yield* servingMcpHttp({ demo: true })
+    );
     const examples = yield* read(request, EXAMPLES_URI);
     const port = Number(
       /http:\/\/ridgeline\.localhost:(?<port>\d+)\//u.exec(examples)?.groups
@@ -145,9 +149,7 @@ it.live(
   "serves the work prompt without the demo store, its examples, or the Example tool",
   () =>
     Effect.gen(function* workResources() {
-      const { request } = yield* connectMcp(
-        yield* servingMcpHttp({ demo: false })
-      );
+      const { request } = yield* connectMcp(yield* servingMcpHttp());
       const uris = Schema.decodeUnknownSync(ResourceList)(
         yield* request("resources/list", {})
       ).result.resources.map((resource) => resource.uri);

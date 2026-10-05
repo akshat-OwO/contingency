@@ -124,9 +124,9 @@ export const mcpCommand = Command.make(
     ),
     demo: Flag.Boolean("demo").pipe(
       Flag.withDescription(
-        "Serve the bundled demo store, its Examples, and the onboarding prompt. --no-demo leaves them out, as `contingency start` does without --demo."
+        "Serve the bundled demo store, its Examples, and the onboarding prompt, as `contingency start --demo` does. Off by default."
       ),
-      Flag.withDefault(true)
+      Flag.withDefault(false)
     ),
     fallbackDirectory: Flag.String("fallback-directory").pipe(
       Flag.withDescription(

@@ -70,7 +70,9 @@ it.live(
   () =>
     Effect.gen(function* startGuidance() {
       const fixture = yield* fixtureServer;
-      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const { request } = yield* connectMcp(
+        yield* servingMcpHttp({ demo: true })
+      );
       const call = callOver(request);
       const catalog = yield* call(
         Schema.Struct({ workspaceUrl: Schema.String }),

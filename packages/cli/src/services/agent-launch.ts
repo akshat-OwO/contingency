@@ -230,7 +230,7 @@ export const sessionServerSpec = (input: {
     input.agent,
     "--fallback-directory",
     input.directory,
-    ...(input.demo ? [] : ["--no-demo"]),
+    ...(input.demo ? ["--demo"] : []),
   ],
   command: input.invocation.command,
   env: {
