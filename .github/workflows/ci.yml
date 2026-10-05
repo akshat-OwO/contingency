@@ -40,11 +40,13 @@ jobs:
   # waits for the slower job only once. When quality fails, the PR cannot
   # merge anyway, so this cancels the run instead of letting integration
   # spend another twenty minutes. It is its own job so quality still reports
-  # as failed, not cancelled.
+  # as failed; this job and integration report as cancelled. Fork PRs get a
+  # read-only token that cannot cancel, so the job skips them rather than
+  # adding a second red check.
   cancel-on-quality-failure:
     name: Cancel run after quality failure
     needs: [quality]
-    if: ${{ failure() }}
+    if: ${{ failure() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
