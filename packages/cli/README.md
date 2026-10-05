@@ -64,6 +64,8 @@ contingency mcp
 
 This runs one local MCP server and serves the Workspace, the interface where you teach a journey by demonstrating it and then watch an agent re-run it. Point your MCP client at the endpoint the command prints. Add `--demo` to also serve the Ridgeline Hardware demo store and its Examples; it is off by default.
 
+When an MCP client starts this command over stdio, Contingency automatically assigns an available Workspace port to each process. No port configuration is required. A terminal launch defaults to port 7777. Set `CONTINGENCY_MCP_PORT` to choose a specific port, and use the Workspace URL the server returns.
+
 During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow Skill to `.contingency/<flow-name>/SKILL.md`, and proves the skill with a Dry Run in a fresh browser context. You verify the Flow Skill in the Workspace, and Contingency then deletes the recording's video, Trace, events, and keyframes.
 
 Once verified, the agent runs the Flow Skill within an Execution Boundary: it may only visit the hosts you demonstrated on, and an irreversible browser action waits for your confirmation every time. The Run also reopens the browser under the Emulation you taught it, so a journey demonstrated on a phone runs as a phone. Scheduling stays outside Contingency — have CI or cron invoke MCP when you want a sanity check.

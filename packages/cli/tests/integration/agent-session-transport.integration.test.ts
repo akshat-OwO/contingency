@@ -221,9 +221,18 @@ interface McpChild {
     readonly signal: NodeJS.Signals | null;
   }>;
   readonly waitForText: (text: string) => Promise<void>;
+  readonly workspaceUrl: () => URL | undefined;
 }
 
-const spawnMcpChild = (port: number, agentOwned = false): McpChild => {
+const spawnMcpChild = (port?: number, agentOwned = false): McpChild => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CONTINGENCY_MCP_HOST: "127.0.0.1",
+    CONTINGENCY_MCP_PORT: String(port),
+  };
+  if (port === undefined) {
+    delete env.CONTINGENCY_MCP_PORT;
+  }
   const child = spawn(
     process.execPath,
     [
@@ -232,11 +241,7 @@ const spawnMcpChild = (port: number, agentOwned = false): McpChild => {
       ...(agentOwned ? ["--agent", "codex"] : []),
     ],
     {
-      env: {
-        ...process.env,
-        CONTINGENCY_MCP_HOST: "127.0.0.1",
-        CONTINGENCY_MCP_PORT: String(port),
-      },
+      env,
       stdio: ["pipe", "pipe", "pipe"],
     }
   );
@@ -427,8 +432,59 @@ const spawnMcpChild = (port: number, agentOwned = false): McpChild => {
         pendingText.push({ pending: { reject, resolve, timer }, text });
       });
     },
+    workspaceUrl: () => {
+      const origin = stderrBuffer.match(
+        /Contingency MCP Workspace available at (?<origin>http:\/\/127\.0\.0\.1:\d+)\//u
+      )?.groups?.origin;
+      return origin === undefined ? undefined : new URL(origin);
+    },
   };
 };
+
+it.live(
+  "gives concurrent stdio clients separate Workspaces without port configuration",
+  () =>
+    Effect.gen(function* automaticWorkspacePorts() {
+      const clients = [spawnMcpChild(), spawnMcpChild()];
+      for (const client of clients) {
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(() => client.stop()).pipe(Effect.ignore)
+        );
+        yield* Effect.promise(() =>
+          client.send({
+            id: 1,
+            jsonrpc: "2.0",
+            method: "initialize",
+            params: {
+              capabilities: {},
+              clientInfo: { name: "automatic-port-test", version: "1" },
+              protocolVersion: "2025-11-25",
+            },
+          })
+        );
+      }
+      const origins = new Set<string>();
+      for (const client of clients) {
+        const initialized = yield* Effect.promise(() => client.receive(1));
+        expect(initialized.error).toBeUndefined();
+        yield* Effect.promise(() =>
+          client.waitForText("Contingency MCP Workspace available at")
+        );
+        const url = client.workspaceUrl();
+        expect(url).toBeDefined();
+        if (url === undefined) {
+          return yield* Effect.die(new Error("MCP Workspace URL was missing."));
+        }
+        expect(url.port).not.toBe("7777");
+        origins.add(url.origin);
+        const response = yield* Effect.promise(() => fetch(url));
+        expect(response.status).toBe(200);
+        const html = yield* Effect.promise(() => response.text());
+        expect(html).toContain("<title>Contingency</title>");
+      }
+      expect(origins.size).toBe(2);
+    }).pipe(Effect.scoped)
+);
 
 it.live("keeps a direct HTTP server running after stdin closes", () =>
   Effect.gen(function* headlessHttpServer() {
