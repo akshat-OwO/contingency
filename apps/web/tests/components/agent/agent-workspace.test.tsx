@@ -12,7 +12,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -26,6 +26,8 @@ const rpc = vi.hoisted(() => ({
   discardCalls: [] satisfies unknown[],
   endedRunSummary: {} satisfies unknown,
   endedRunSummaryCalls: [] satisfies unknown[],
+  /* Replaces the persisted Summary with another result, such as a refusal. */
+  endedRunSummaryResult: undefined satisfies unknown,
   inputCalls: [] satisfies unknown[],
   inspectedElement: {
     description: "button: Place order",
@@ -174,11 +176,13 @@ const rpcOverrides = {
   endedRunSummaryAtom: (runId: string) =>
     Atom.make(() => {
       rpc.endedRunSummaryCalls.push(runId);
-      return {
-        _tag: "Success",
-        value: { summary: rpc.endedRunSummary, viewUrl: "" },
-        waiting: false,
-      };
+      return (
+        rpc.endedRunSummaryResult ?? {
+          _tag: "Success",
+          value: { summary: rpc.endedRunSummary, viewUrl: "" },
+          waiting: false,
+        }
+      );
     }),
   runAgentBrowserStream: () => Effect.never,
   runAgentSessionStream: () =>
@@ -404,6 +408,7 @@ afterEach(() => {
   rpc.agentStreamFailureMessage = undefined;
   rpc.discardCalls = [];
   rpc.endedRunSummaryCalls = [];
+  rpc.endedRunSummaryResult = undefined;
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
   rpc.renameCalls = [];
@@ -1745,4 +1750,60 @@ test("keeps an Interactive Run on screen with its Run Summary once it ends", asy
 
   expect(await screen.findByText("No browser session")).toBeVisible();
   expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
+});
+
+test("leaves an ended Run for the next live session", async () => {
+  const user = userEvent.setup();
+  const otherSession = {
+    ...session,
+    clientName: "Other agent",
+    id: "agent-two",
+    viewUrl: "http://127.0.0.1:7777/?session=agent-two",
+  };
+  renderWorkspace(resultFor([taskRunSession, otherSession]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+
+  rpc.sessionsResult = resultFor([otherSession]);
+  await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+
+  await user.click(screen.getByRole("button", { name: "Done" }));
+
+  await waitFor(() => {
+    expect(sessionPicker()).toHaveTextContent("Other agent");
+  });
+  expect(
+    screen.queryByRole("complementary", { name: "Run Summary" })
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+});
+
+test("says an ended Run's Summary was not written rather than missing from the catalog", async () => {
+  rpc.endedRunSummaryResult = {
+    _tag: "Failure",
+    cause: Cause.fail({
+      _tag: "BrowserRpcError",
+      code: "agent_run_not_found",
+      message: "Run agentrun-task has no persisted Run Summary.",
+    }),
+    waiting: false,
+  };
+  renderWorkspace(resultFor([taskRunSession]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+
+  rpc.sessionsResult = resultFor([]);
+
+  const summary = await screen.findByRole(
+    "complementary",
+    { name: "Run Summary" },
+    { timeout: 5000 }
+  );
+  expect(
+    within(summary).getByText(
+      "The Run ended, but its Run Summary was not written in time. Open it later with open_run."
+    )
+  ).toBeVisible();
 });

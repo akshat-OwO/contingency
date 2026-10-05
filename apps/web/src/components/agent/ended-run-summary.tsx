@@ -1,5 +1,7 @@
 import type { AgentRunId } from "@contingency/protocol";
+import { isBrowserRpcError } from "@contingency/protocol";
 import { useAtomValue } from "@effect/atom-react";
+import { Cause } from "effect";
 import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 
 import { InteractiveRunSummaryView } from "@/components/agent/dry-run-summary";
@@ -8,6 +10,18 @@ import { RunSummaryView } from "@/components/agent/run-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+
+/**
+ * Why the docked Summary is missing. Only a Summary that never arrived
+ * after the Run ended reads as unwritten; any other refusal is its own
+ * sentence.
+ */
+const missingSummaryMessage = (cause: Cause.Cause<unknown>): string | null => {
+  const failure = Cause.squash(cause);
+  return isBrowserRpcError(failure) && failure.code === "agent_run_not_found"
+    ? "The Run ended, but its Run Summary was not written in time. Open it later with open_run."
+    : null;
+};
 
 /**
  * The Run Summary docked beside an Interactive Run the Workspace watched end.
@@ -34,8 +48,9 @@ export const EndedRunSummary = ({ runId }: { readonly runId: AgentRunId }) => {
         <CircleAlertIcon aria-hidden="true" />
         <AlertTitle>The Run Summary could not be opened</AlertTitle>
         <AlertDescription>
-          {refusal(result) ??
-            "No persisted Run Summary was found under the selected Catalog Root."}
+          {missingSummaryMessage(result.cause) ??
+            refusal(result) ??
+            "The server refused to read this Run Summary."}
         </AlertDescription>
       </Alert>
     );
