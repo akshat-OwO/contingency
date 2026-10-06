@@ -3,10 +3,10 @@ import path from "node:path";
 
 import {
   AgentRunSummary,
+  FlowSkillName,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import type {
-  FlowSkillName,
   CatalogBrowseResult,
   CatalogFlowSkillEntry,
   CatalogFlowSkillResult,
@@ -25,11 +25,14 @@ import {
   CATALOG_DIRECTORY,
   FlowSkillCatalog,
   isFlowSkillDirectory,
+  isInside,
 } from "./flow-skill-catalog.ts";
-import type {
-  FlowSkillCatalogService,
-  FlowSkillPackage,
-} from "./flow-skill-catalog.ts";
+import type { FlowSkillCatalogService } from "./flow-skill-catalog.ts";
+import {
+  flowSkillProcedureSteps,
+  readFlowSkillFrontmatter,
+  SKILL_FILE,
+} from "./flow-skill-package.ts";
 import { isVerifiedFlowSkill } from "./requested-flow-skills.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
@@ -89,6 +92,7 @@ export const defaultGlobalCatalogRoot = (): string => {
 };
 
 const SUMMARY_FILE = "summary.json";
+const VERIFICATION_FILE = "references/verification.md";
 const MANIFEST_FILE = "manifest.json";
 const DRY_RUN_DIRECTORY = "dry-run";
 /** Enough to keep a large catalog responsive without exhausting descriptors. */
@@ -145,21 +149,28 @@ export const catalogRecordingEntry = (
   recordingId: manifest.recordingId,
 });
 
+/** A list entry from a skill's SKILL.md and the files beside it. */
 export const catalogFlowSkillEntry = (
-  skill: FlowSkillPackage
+  name: FlowSkillName,
+  skillContent: string,
+  files: readonly { readonly content: string; readonly path: string }[]
 ): CatalogFlowSkillEntry => {
+  const frontmatter = readFlowSkillFrontmatter(skillContent);
+  const hosts = frontmatter?.hosts ?? [];
   const entry: Mutable<CatalogFlowSkillEntry> = {
-    description: skill.title,
-    hosts: skill.hosts,
-    name: skill.name,
-    stepCount: skill.steps.length,
-    verified: isVerifiedFlowSkill(skill.files),
+    description: frontmatter?.description ?? name,
+    hosts,
+    name,
+    stepCount: flowSkillProcedureSteps(skillContent).length,
+    verified: isVerifiedFlowSkill(files),
   };
-  if (isDemoHosts(skill.hosts)) {
+  if (isDemoHosts(hosts)) {
     entry.demo = DEMO_SITE_ID;
   }
   return entry;
 };
+
+const isFlowSkillName = Schema.is(FlowSkillName);
 
 type Read<A> =
   | { readonly _tag: "absent" }
@@ -217,26 +228,66 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       );
     });
 
+  /**
+   * A listing reads only what a list entry shows: SKILL.md, and the
+   * verification stamp in `references/verification.md`. The rest of the
+   * package is read when the user opens the skill.
+   */
+  const listEntry = Effect.fnUntraced(function* readListEntry(
+    root: string,
+    name: FlowSkillName
+  ) {
+    const directory = path.join(root, name);
+    const skillFile = path.join(directory, SKILL_FILE);
+    // A directory without SKILL.md is somebody else's, not a broken Flow
+    // Skill, which is also how the catalog itself lists them.
+    if (!(yield* exists(skillFile))) {
+      return [];
+    }
+    const content = yield* fileSystem
+      .readFileString(skillFile)
+      .pipe(Effect.mapError(ioError(`Could not read ${skillFile}`)));
+    const verificationFile = path.join(directory, VERIFICATION_FILE);
+    const verification = (yield* exists(verificationFile))
+      ? yield* Effect.gen(function* readVerification() {
+          const target = yield* fileSystem
+            .realPath(verificationFile)
+            .pipe(
+              Effect.mapError(ioError(`Could not read ${verificationFile}`))
+            );
+          const packageDirectory = yield* fileSystem
+            .realPath(directory)
+            .pipe(Effect.mapError(ioError(`Could not read ${directory}`)));
+          if (!isInside(packageDirectory, target)) {
+            return [];
+          }
+          return [
+            {
+              content: yield* fileSystem
+                .readFileString(verificationFile)
+                .pipe(
+                  Effect.mapError(ioError(`Could not read ${verificationFile}`))
+                ),
+              path: VERIFICATION_FILE,
+            },
+          ];
+        })
+      : [];
+    return [catalogFlowSkillEntry(name, content, verification)];
+  });
+
   const flowSkills = Effect.fnUntraced(function* listFlowSkills(root: string) {
     const names = (yield* directoryNames(root))
-      .filter(isFlowSkillDirectory)
+      .flatMap((name) =>
+        isFlowSkillDirectory(name) && isFlowSkillName(name) ? [name] : []
+      )
       .toSorted();
-    const packages = yield* Effect.forEach(
+    const entries = yield* Effect.forEach(
       names,
-      (name) =>
-        catalog.read(name, root).pipe(
-          Effect.map((skill) => [catalogFlowSkillEntry(skill)]),
-          // A directory without SKILL.md is somebody else's, not a broken
-          // Flow Skill, which is also how the catalog itself lists them.
-          Effect.catchIf(
-            (error) => error.code === "flow_skill_not_found",
-            () => Effect.succeed([])
-          ),
-          Effect.mapError((error) => browserError("catalog_io", error.message))
-        ),
+      (name) => listEntry(root, name),
       { concurrency: READ_CONCURRENCY }
     );
-    return packages.flat();
+    return entries.flat();
   });
 
   const summaries = (files: readonly string[]) =>
@@ -297,22 +348,27 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     } satisfies CatalogRootView;
   });
 
-  const globalRoot = () => {
+  /** A directory's real path, so a symlinked root compares as its target. */
+  const realRoot = (directory: string) =>
+    fileSystem
+      .realPath(directory)
+      .pipe(Effect.orElseSucceed(() => path.resolve(directory)));
+
+  /** The global root, unless it is the local root by another name. */
+  const globalRoot = Effect.fnUntraced(function* resolveGlobalRoot() {
     if (options.globalRoot === undefined) {
-      return;
+      return null;
     }
-    const resolved = path.resolve(options.globalRoot);
-    return resolved === path.resolve(options.localRoot())
-      ? undefined
-      : resolved;
-  };
+    const global = yield* realRoot(options.globalRoot);
+    const local = yield* realRoot(options.localRoot());
+    return global === local ? null : path.resolve(options.globalRoot);
+  });
 
   const browse = Effect.fnUntraced(function* browseCatalogRoots() {
     const local = yield* view("local", path.resolve(options.localRoot()));
-    const global = globalRoot();
+    const global = yield* globalRoot();
     return {
-      roots:
-        global === undefined ? [local] : [local, yield* view("global", global)],
+      roots: global === null ? [local] : [local, yield* view("global", global)],
     };
   });
 
@@ -321,8 +377,10 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     name: FlowSkillName
   ) {
     const root =
-      scope === "local" ? path.resolve(options.localRoot()) : globalRoot();
-    if (root === undefined) {
+      scope === "local"
+        ? path.resolve(options.localRoot())
+        : yield* globalRoot();
+    if (root === null) {
       return yield* Effect.fail(
         browserError(
           "flow_skill_not_found",
@@ -343,7 +401,11 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
         )
       );
     return {
-      entry: catalogFlowSkillEntry(skill),
+      entry: catalogFlowSkillEntry(
+        skill.name,
+        skill.files.find((file) => file.path === SKILL_FILE)?.content ?? "",
+        skill.files
+      ),
       files: skill.files,
       steps: skill.steps.map((step) => ({
         description: step.description,

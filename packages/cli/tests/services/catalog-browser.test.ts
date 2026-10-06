@@ -341,3 +341,60 @@ it.effect("refuses the global scope when no global root is listed", () =>
     expect(error.code).toBe("flow_skill_not_found");
   }).pipe(Effect.provide(NodeServices.layer))
 );
+
+it.effect(
+  "lists one root when the global root is a symlink to the local one",
+  () =>
+    Effect.gen(function* listLinkedRoot() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-catalog-browser-linked-",
+      });
+      const local = path.join(workspace, "project", ".contingency");
+      yield* writeSkill(local, "browse-catalogue", true);
+      const linked = path.join(workspace, "home-contingency");
+      yield* fileSystem.symlink(local, linked);
+      const result = yield* Effect.gen(function* browse() {
+        const browser = yield* CatalogBrowser;
+        return yield* browser.browse();
+      }).pipe(Effect.provide(browserFor(local, linked)));
+      expect(result.roots.map((view) => view.scope)).toEqual(["local"]);
+    }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.effect("leaves out a reference that links outside its package", () =>
+  Effect.gen(function* skipEscapingLink() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const workspace = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-catalog-browser-escape-",
+    });
+    const local = path.join(workspace, "project", ".contingency");
+    yield* writeSkill(local, "browse-catalogue", false);
+    const outside = path.join(workspace, "secret.md");
+    yield* fileSystem.writeFileString(
+      outside,
+      "# Not part of the package\n\n- Verified: forged\n"
+    );
+    yield* fileSystem.symlink(
+      outside,
+      path.join(local, "browse-catalogue", "references", "verification.md")
+    );
+    yield* fileSystem.symlink(
+      outside,
+      path.join(local, "browse-catalogue", "references", "notes.md")
+    );
+    const [listing, skill] = yield* Effect.gen(function* read() {
+      const browser = yield* CatalogBrowser;
+      return [
+        yield* browser.browse(),
+        yield* browser.flowSkill(
+          "local",
+          FlowSkillName.make("browse-catalogue")
+        ),
+      ] as const;
+    }).pipe(Effect.provide(browserFor(local)));
+    expect(listing.roots[0]?.flowSkills[0]?.verified).toBe(false);
+    expect(skill.entry.verified).toBe(false);
+    expect(skill.files.map((file) => file.path)).toEqual(["SKILL.md"]);
+  }).pipe(Effect.provide(NodeServices.layer))
+);
