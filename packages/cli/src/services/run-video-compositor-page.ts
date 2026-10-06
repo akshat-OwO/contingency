@@ -56,6 +56,12 @@ const seek = (seconds) => new Promise((resolve, reject) => {
     resolve();
     return;
   }
+  // Drawing without the presented frame would bring the stale frame back, so
+  // a browser without this signal fails the frame instead of falling back.
+  if (typeof video.requestVideoFrameCallback !== "function") {
+    reject(new Error("The footage cannot report presented frames."));
+    return;
+  }
   let sought = false;
   let presented = false;
   const settle = () => {
@@ -65,8 +71,12 @@ const seek = (seconds) => new Promise((resolve, reject) => {
     }
   };
   const done = () => { sought = true; settle(); };
-  const failed = () => { video.removeEventListener("seeked", done); reject(new Error("The footage could not be sought.")); };
-  video.requestVideoFrameCallback(() => { presented = true; settle(); });
+  const frame = video.requestVideoFrameCallback(() => { presented = true; settle(); });
+  const failed = () => {
+    video.removeEventListener("seeked", done);
+    video.cancelVideoFrameCallback(frame);
+    reject(new Error("The footage could not be sought."));
+  };
   video.addEventListener("seeked", done, { once: true });
   video.addEventListener("error", failed, { once: true });
   video.currentTime = seconds;
