@@ -1,31 +1,19 @@
+import { OperationId } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
-import { useAtom } from "@effect/atom-react";
+import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { ShieldAlertIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { failureMessage } from "@/lib/failure-message";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { hasExecutionBoundaryNotice } from "./agent-workspace-state";
-import {
-  RelayHint,
-  RequestHeader,
-  requestIconClassName,
-} from "./dock-request-parts";
+import { RequestHeader, requestIconClassName } from "./dock-request-parts";
 import { boundaryTitle } from "./dock-requests-state";
 
-/**
- * The paused Execution Boundary, as a read-only mirror in the dock's first
- * tier. The user allows or refuses it by answering the pending decision in
- * the agent conversation
- * ([ADR 0037](../../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)),
- * so the dock offers no allow or refuse button, only the request, where to
- * answer it, and the decision id to answer.
- *
- * The action attempt, its JSON, and what allowing covers sit behind
- * `Action details`: they matter when checking a decision, not when reading
- * what is being asked.
- */
+/** The user resolves the exact pending boundary in the Workspace dock. */
 export const ExecutionBoundary = ({
   collapse,
   session,
@@ -36,6 +24,16 @@ export const ExecutionBoundary = ({
 }) => {
   const [openAtom] = useState(() => Atom.make(false));
   const [open, setOpen] = useAtom(openAtom);
+  const { agentBoundaryDecisionMutation } = useRpcDependencies();
+  const answer = useAtomSet(agentBoundaryDecisionMutation, { mode: "promise" });
+  const [stateAtom] = useState(() =>
+    Atom.make({ answered: false, error: "", pending: false })
+  );
+  const [state, setState] = useAtom(stateAtom);
+  const [operations] = useState(() => ({
+    allow: OperationId.make(crypto.randomUUID()),
+    refuse: OperationId.make(crypto.randomUUID()),
+  }));
   const { boundary } = session;
   if (
     !hasExecutionBoundaryNotice(session) ||
@@ -48,6 +46,32 @@ export const ExecutionBoundary = ({
     (decision) =>
       decision.kind === "boundary" && decision.boundaryId === boundary.id
   );
+  const submit = async (decision: "allow" | "refuse") => {
+    if (pending === undefined || state.pending || state.answered) {
+      return;
+    }
+    setState({ answered: false, error: "", pending: true });
+    try {
+      await answer({
+        payload: {
+          decision,
+          operationId: operations[decision],
+          pendingDecisionId: pending.pendingDecisionId,
+          sessionId: session.id,
+        },
+      });
+      setState({ answered: true, error: "", pending: false });
+    } catch (error) {
+      setState({
+        answered: false,
+        error: failureMessage(
+          error,
+          "Could not answer this request. Reread the session before retrying."
+        ),
+        pending: false,
+      });
+    }
+  };
   return (
     <section aria-label="Execution Boundary" className="space-y-1.5">
       <RequestHeader
@@ -102,11 +126,49 @@ export const ExecutionBoundary = ({
           </p>
         </div>
       ) : null}
-      <RelayHint pendingDecisionId={pending?.pendingDecisionId}>
-        Reply <strong className="text-foreground font-medium">allow</strong> or{" "}
-        <strong className="text-foreground font-medium">refuse</strong> in your
-        agent conversation. The agent relays your choice to Contingency.
-      </RelayHint>
+      <div className="flex items-center gap-2">
+        <Button
+          disabled={
+            pending === undefined ||
+            session.controller !== "agent" ||
+            state.pending ||
+            state.answered
+          }
+          onClick={async () => {
+            await submit("allow");
+          }}
+          size="sm"
+          type="button"
+        >
+          Allow
+        </Button>
+        <Button
+          disabled={pending === undefined || state.pending || state.answered}
+          onClick={async () => {
+            await submit("refuse");
+          }}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Refuse
+        </Button>
+        {state.pending || state.answered ? (
+          <span role="status" className="text-muted-foreground text-xs">
+            {state.pending ? "Saving decision…" : "Decision saved"}
+          </span>
+        ) : null}
+      </div>
+      {session.controller === "user" ? (
+        <p className="text-muted-foreground text-xs">
+          Return control before allowing this action. You can still refuse it.
+        </p>
+      ) : null}
+      {state.error === "" ? null : (
+        <p role="alert" className="text-destructive text-xs">
+          {state.error}
+        </p>
+      )}
     </section>
   );
 };

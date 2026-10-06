@@ -69,12 +69,12 @@ test("names what a Boundary confirms rather than repeating the badge", () => {
   ).toBe("Allow a new domain");
 });
 
-test("drops a Boundary from the dock while the user holds the browser", () => {
+test("keeps a Boundary in the dock while the user holds the browser", () => {
   expect(
     dockRequests(
       snapshot({ boundary: boundary("confirmation"), controller: "user" })
     )
-  ).toEqual([]);
+  ).toEqual(dockRequests(snapshot({ boundary: boundary("confirmation") })));
 });
 
 test("counts setup Variables still waiting during agent-held setup only", () => {

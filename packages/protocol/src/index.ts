@@ -858,6 +858,17 @@ const AgentSetupVariableAnswerRpc = Rpc.make("agent.setup.variable.answer", {
   payload: AgentSetupVariableAnswerRequest,
   success: AgentSetupVariableAnswered,
 });
+export const AgentBoundaryDecision = Schema.Struct({
+  decision: Schema.Literals(["allow", "refuse"]),
+  operationId: AgentPendingDecisionResolve.fields.operationId,
+  pendingDecisionId: AgentPendingDecisionResolve.fields.pendingDecisionId,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+const AgentBoundaryDecisionRpc = Rpc.make("agent.boundary.decision", {
+  error: BrowserRpcError,
+  payload: AgentBoundaryDecision,
+  success: AgentSessionResult,
+});
 const AgentDryRunVariableAnswerRpc = Rpc.make("agent.dry-run.variable.answer", {
   error: BrowserRpcError,
   payload: AgentDryRunVariableAnswer,
@@ -962,6 +973,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentTeachingVariableInputRpc,
   AgentDryRunVariableSupplyRpc,
   AgentDryRunVariableAnswerRpc,
+  AgentBoundaryDecisionRpc,
   AgentSetupVariableAnswerRpc,
   AgentBrowserNavigateRpc,
   AgentBrowserEmulationGetRpc,

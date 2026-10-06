@@ -73,7 +73,20 @@ export const makeSessionOperationLedger = () => {
       readonly state: Atom.Writable<{
         readonly receipt: ReplayRecord | undefined;
         readonly actionInput: string | undefined;
+        readonly continuation?:
+          | Effect.Effect<AgentActionResult, AgentSessionError>
+          | undefined;
       }>;
+    }
+  >();
+  const sessionOperations = new Map<string, Set<string>>();
+  const boundaries = new Map<
+    string,
+    {
+      readonly operationId: string;
+      readonly kind: "act" | "private-input";
+      readonly target: string;
+      readonly input: string;
     }
   >();
   const entryFor = (key: string) => {
@@ -86,6 +99,9 @@ export const makeSessionOperationLedger = () => {
       state: Atom.make<{
         readonly receipt: ReplayRecord | undefined;
         readonly actionInput: string | undefined;
+        readonly continuation?:
+          | Effect.Effect<AgentActionResult, AgentSessionError>
+          | undefined;
       }>({ actionInput: undefined, receipt: undefined }).pipe(Atom.keepAlive),
     };
     entries.set(key, entry);
@@ -110,6 +126,7 @@ export const makeSessionOperationLedger = () => {
       : Effect.sync(() =>
           registry.update(entryFor(String(operationId)).state, (current) => ({
             ...current,
+            continuation: undefined,
             receipt: { input, kind, result, target },
           }))
         );
@@ -255,6 +272,80 @@ export const makeSessionOperationLedger = () => {
       )
     );
   };
+  /** Keep the original request while paused; terminal receipts release its closure. */
+  const bindBoundary = (
+    boundaryId: string,
+    operationId: OperationId | string,
+    kind: "act" | "private-input",
+    target: string,
+    input: string,
+    continuation: Effect.Effect<AgentActionResult, AgentSessionError>
+  ): Effect.Effect<void> =>
+    Effect.sync(() => {
+      const operations = sessionOperations.get(target) ?? new Set<string>();
+      operations.add(String(operationId));
+      sessionOperations.set(target, operations);
+      boundaries.set(boundaryId, {
+        input,
+        kind,
+        operationId: String(operationId),
+        target,
+      });
+      registry.update(entryFor(String(operationId)).state, (current) => ({
+        ...current,
+        continuation: current.receipt === undefined ? continuation : undefined,
+      }));
+    });
+
+  const resumeBoundary = (boundaryId: string, target: string) =>
+    Effect.suspend(() => {
+      const binding = boundaries.get(boundaryId);
+      if (binding === undefined || binding.target !== target) {
+        return Effect.fail(
+          error(
+            "agent_session_conflict",
+            "This boundary has no undispatched action to resume in this session. Reread the session and browser before starting another attempt."
+          )
+        );
+      }
+      const replayed = replayAction(
+        binding.operationId,
+        binding.kind,
+        target,
+        binding.input
+      );
+      if (replayed !== undefined) {
+        return replayed;
+      }
+      const { continuation } = registry.get(
+        entryFor(binding.operationId).state
+      );
+      return (
+        continuation?.pipe(
+          Effect.tap((result) =>
+            !result.entry.dispatched &&
+            result.intervention !== undefined &&
+            result.intervention.operationId === binding.operationId
+              ? bindBoundary(
+                  result.intervention.id,
+                  binding.operationId,
+                  binding.kind,
+                  target,
+                  binding.input,
+                  continuation
+                )
+              : Effect.void
+          )
+        ) ??
+        Effect.fail(
+          error(
+            "agent_session_conflict",
+            "This action continuation is no longer available. Reread the session before starting another attempt."
+          )
+        )
+      );
+    });
+
   /** Binding is lazy, so merely constructing an Effect cannot reserve an id.
    * Bindings survive interruption, just as action-attempt identity did before.
    */
@@ -358,13 +449,37 @@ export const makeSessionOperationLedger = () => {
         () => replayAction(id, "private-input", target, input) ?? self
       )
     );
+  const releaseBoundary = (boundaryId: string): Effect.Effect<void> =>
+    Effect.sync(() => {
+      const binding = boundaries.get(boundaryId);
+      if (binding !== undefined) {
+        registry.update(entryFor(binding.operationId).state, (current) => ({
+          ...current,
+          continuation: undefined,
+        }));
+      }
+    });
+  const releaseSession = (target: string): Effect.Effect<void> =>
+    Effect.sync(() => {
+      for (const operationId of sessionOperations.get(target) ?? []) {
+        registry.update(entryFor(operationId).state, (current) => ({
+          ...current,
+          continuation: undefined,
+        }));
+      }
+      sessionOperations.delete(target);
+    });
   return {
     action,
+    bindBoundary,
+    releaseBoundary,
+    releaseSession,
     remember,
     rememberRunSummary,
     rememberSession,
     replayAction,
     replaySession,
+    resumeBoundary,
     serializeMutation: <A, E, R>(self: Effect.Effect<A, E, R>) =>
       mutationGate.withPermit(self),
     session,

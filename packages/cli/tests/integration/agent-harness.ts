@@ -126,6 +126,7 @@ const readable = <Value>(name: string, value: Value) =>
 
 /** Tools that answer with a Browser Snapshot and take a `format`. */
 const SNAPSHOT_TOOLS = new Set([
+  "agent_browser_resume",
   "agent_browser_act",
   "agent_browser_act_sequence",
   "agent_browser_snapshot",
