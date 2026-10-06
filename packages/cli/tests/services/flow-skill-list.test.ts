@@ -53,3 +53,42 @@ it.effect("lists a Flow Skill without naming the Catalog Root", () =>
     expect(JSON.stringify(listing)).not.toContain(path.sep);
   }).pipe(Effect.provide(NodeServices.layer))
 );
+
+it.effect(
+  "leaves a reference that links outside its package out of a read",
+  () =>
+    Effect.gen(function* readWithoutEscapingLink() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-flow-skill-escape-",
+      });
+      const directory = path.join(root, "set-delivery-area");
+      yield* fileSystem.makeDirectory(path.join(directory, "references"), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(
+        path.join(directory, "SKILL.md"),
+        SKILL
+      );
+      yield* fileSystem.writeFileString(
+        path.join(directory, "references", "accessibility.md"),
+        "# Accessibility\n"
+      );
+      const outside = path.join(root, "outside.md");
+      yield* fileSystem.writeFileString(outside, "# Elsewhere\n");
+      yield* fileSystem.symlink(
+        outside,
+        path.join(directory, "references", "linked.md")
+      );
+
+      const skill = yield* Effect.gen(function* readSkill() {
+        const catalog = yield* FlowSkillCatalog;
+        return yield* catalog.read("set-delivery-area");
+      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+
+      expect(skill.files.map((file) => file.path)).toEqual([
+        "SKILL.md",
+        "references/accessibility.md",
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer))
+);

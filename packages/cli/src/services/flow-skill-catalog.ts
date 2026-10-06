@@ -128,7 +128,14 @@ const decodeText = (bytes: Uint8Array): string | undefined => {
   }
 };
 
-const isFlowSkillDirectory = (name: string): boolean =>
+/** Whether `target` is `directory` itself or somewhere beneath it. */
+export const isInside = (directory: string, target: string): boolean => {
+  const relative = path.relative(directory, target);
+  return !(relative.startsWith("..") || path.isAbsolute(relative));
+};
+
+/** Whether a Catalog Root entry could be a Flow Skill directory. */
+export const isFlowSkillDirectory = (name: string): boolean =>
   !(name.startsWith(".") || RESERVED.has(name));
 
 const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
@@ -181,6 +188,11 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
     const names = yield* fileSystem
       .readDirectory(referenceDirectory, { recursive: true })
       .pipe(Effect.mapError(ioError(`Could not read ${referenceDirectory}`)));
+    // A symlink that leads out of the package is not part of it: following
+    // it would hand an agent, or the Workspace, a file from elsewhere.
+    const packageDirectory = yield* fileSystem
+      .realPath(directory)
+      .pipe(Effect.mapError(ioError(`Could not read ${directory}`)));
     const references: FlowSkillFile[] = [];
     for (const file of names.toSorted()) {
       const filePath = path.join(referenceDirectory, file);
@@ -189,6 +201,12 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         .stat(filePath)
         .pipe(Effect.mapError(ioError(context)));
       if (info.type !== "File") {
+        continue;
+      }
+      const target = yield* fileSystem
+        .realPath(filePath)
+        .pipe(Effect.mapError(ioError(context)));
+      if (!isInside(packageDirectory, target)) {
         continue;
       }
       const bytes = yield* fileSystem

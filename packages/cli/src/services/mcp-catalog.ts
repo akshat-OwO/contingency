@@ -58,7 +58,7 @@ const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
     dependencies: [AgentSession, FlowSkillCatalog],
     description:
-      "Read the Workspace URL, Catalog Root, and Flow Skill count. It defaults to the workspace's .contingency directory; Contingency never scans a user-global catalog.",
+      "Read the Workspace URL, Catalog Root, and Flow Skill count. It defaults to the workspace's .contingency directory; no tool reads a user-global catalog.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: Schema.Struct({
