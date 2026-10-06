@@ -1,6 +1,5 @@
 import {
   AGENT_ACTION_SEQUENCE_MAX,
-  AgentActSequenceResult,
   AgentActionResult,
   AgentActionSnapshotFormat,
   AgentBrowserAct,
@@ -8,6 +7,7 @@ import {
   AgentBrowserObserve,
   AgentBrowserSnapshot,
   AgentBrowserSnapshotRead,
+  BrowserFailureReason,
   AgentScreenshotFile,
   AgentSessionClose,
   AgentSessionGet,
@@ -25,6 +25,7 @@ import type {
   AgentActionSignal,
   AgentSequenceStopReason,
   AgentSessionId,
+  AgentActSequenceResult,
 } from "@contingency/protocol";
 import { Effect, Layer, Result, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
@@ -40,7 +41,9 @@ import {
 import {
   SessionResult,
   SessionStartResult,
+  UnpublishedSequenceResult,
   UnpublishedSession,
+  encodeUnpublishedSequenceResult,
   encodeUnpublishedSession,
   inStartView,
   inView,
@@ -156,12 +159,14 @@ class AgentSessionFailure extends Schema.Error<AgentSessionFailure>(
 )({
   code: Schema.String,
   message: Schema.String,
+  reason: Schema.optional(BrowserFailureReason),
 }) {}
 
 const failure = (cause: AgentSessionError) =>
   new AgentSessionFailure({
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
+    reason: cause._tag === "BrowserRpcError" ? cause.reason : undefined,
   });
 
 const AgentBrowserObserveParameters = Schema.Struct({
@@ -245,7 +250,7 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      'Read a bounded Snapshot. Default text has indented role, quoted name, state, and @eN refs on controls; nodes is empty. Refs last until removal or navigation. format:"structured" returns nodes. Viewport content comes first. coverage reports scope, eligible nodes, truncation, and nextCursor. Use interactive:true for controls, urls:true for link destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness, not coverage. Reread after effect none, unsettled actions, stale refs, or external changes.',
+      'Read a bounded Snapshot. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
     failure: AgentSessionFailure,
     parameters: AgentBrowserSnapshotRead,
     success: AgentBrowserSnapshot,
@@ -277,7 +282,7 @@ const AgentBrowserActSequenceTool = Tool.make("agent_browser_act_sequence", {
   description: `Act on up to ${AGENT_ACTION_SEQUENCE_MAX} current Snapshot targets in order. Each action has its own operation id and intent, with agent_browser_act checks. Non-atomic: stop on refusal, interruption, Pending Decision, failure, effect none, unsettled Page, or navigation before the last action. stopped names the action and reason; earlier effects remain. Returns attempts and a final Snapshot using agent_browser_act formats. Same ids replay completed attempts. Reread the Page before continuing past a stop.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserActSequenceParameters,
-  success: AgentActSequenceResult,
+  success: UnpublishedSequenceResult,
 });
 
 const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
@@ -462,7 +467,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               break;
             }
           }
-          return {
+          return yield* encodeUnpublishedSequenceResult({
             actions,
             snapshot:
               lastResult === null
@@ -474,7 +479,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
                   ),
             stopped,
             url: lastResult?.url ?? null,
-          };
+          });
         }),
       agent_browser_screenshot: (params) =>
         Effect.gen(function* screenshotAgentSession() {

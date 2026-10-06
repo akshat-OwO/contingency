@@ -19,6 +19,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-snapshot-session-url` keeps an Agent Session's URL aligned with a later Browser Snapshot after delayed navigation.
 - `agent-snapshot-coverage` reports truncation, pages omitted nodes with a bounded continuation, scopes a section with `selector`, and offers redacted compact text with usable refs.
 - `agent-snapshot-context` reports scripted location rows as named clickable controls, attaches product context to repeated buttons, and omits decorative images.
+- `agent-overlay-recovery` reports covered controls, refuses background input, and dismisses stacked sheets through reachable image controls, including an unnamed control, without reload.
 - `agent-snapshot-layer` exposes the usable controls of a top sheet even when its ancestor has `aria-hidden="true"`, while omitting covered and CSS-hidden controls.
 - `agent-act-settle-effect` reports whether an agent action's Snapshot was read after the Page settled, and whether the action was seen to change anything.
 - `agent-watching-readonly` disables the browser toolbar and marks the canvas read-only while the agent holds control.
@@ -229,6 +230,16 @@ Use `prerequisite-shop.html` under the ecommerce fixture for #336. It requires a
 - **Keep the summary on screen.** With the Run open at its `viewUrl`, call `agent_run_assess` and then `agent_run_complete`. Wait for `complementary` named `Run Summary` and capture `run-summary-dock/ended.aria.txt` and `.png`. The canvas stays read-only, the verdict reads the assessment, and the dock reads `Closed` with `Done`. Click `Done` and require heading `No browser session` with no unresolved session notice.
 - **Reopen persisted evidence.** Restart the isolated MCP process, call `open_run` again, and open the new URL. Save `workspace/run-summary.aria.txt` and `workspace/run-summary.png`. Scroll to Run video and confirm the player is reachable. The summary survives the process restart.
 - **Removed modes.** Open `/audit` and `/agent` and require `Page not found`. Return with the `Workspace` navigation link.
+
+### Overlay recovery
+
+- **Start the hostile mobile shop.** Launch, run doctor, start ecommerce and MCP, then call `agent_session_start` with `activity: "teaching"` at `${ECOMMERCE_URL%/*}/popup-recovery.html` with a 390 × 844 viewport. Keep setup agent-held. Open its `viewUrl` in Workspace. Capture `overlay-recovery/before.png`, an ARIA snapshot, and a structured `agent_browser_snapshot`. Retain the Search catalogue and Delivery area refs. Run sessions use the same browser guards.
+- **Stack two sheets.** Click `Show offers and help` through `agent_browser_act`. The top offer sheet has no modal ARIA. Its image close control has no name; Snapshot gives its clickable ref and viewport bounds. The help modal underneath has a clickable div named `Close` from its child image's alt/title. Covered controls carry `blockedBy`; text snapshots omit their action refs. Capture the live Workspace and MCP read under `overlay-recovery/stacked.*`.
+- **Refuse background input.** With fresh operation ids, try click and fill on the retained Search catalogue ref, select Sector 144 on the retained Delivery area ref, and bare `press` of `A` while the old search keeps focus. Each tool refuses with `reason: intercepted` and a reread/dismissal hint. The covered help Close also refuses. Do not loop blocked actions. Reread to confirm no search input arrived and the area remains Sector 14.
+- **Recover in foreground order.** Match the unnamed top close ref's bounds against the screenshot and click it. Search remains blocked, now by dialog `Need help with your order?`. Reread and click the reachable `Close` div. Fill Search catalogue with `anvil` using a fresh operation id; require `Searching: anvil`, Sector 14, and the same URL. Save `overlay-recovery/recovered.*`, reopen Workspace, and reread the session. No reload is needed.
+- **Check a popup race.** In a new session at `popup-recovery.html?on-focus`, snapshot Search catalogue before the modal exists, then attempt fill. Clicking to focus opens the modal; the action must refuse as intercepted before text arrives. Reread and require the empty field and the help dialog.
+- **Keep reachable edges usable.** At `popup-recovery.html?partial`, click `Partly covered action`. Its center is covered but an edge is reachable. Require `1 click`, without any forced action or direct event injection.
+- **Prove the regression and clean up.** Run the covered-controls and popup-on-focus integration checks against the original browser implementation and require both to fail. Run the corrected implementation and require all three popup cases to pass. Retain screenshots, ARIA, MCP responses, and the comparison result under `artifacts/overlay-recovery/`; run cleanup and confirm the evidence remains.
 
 ### Skills drawer
 

@@ -88,13 +88,13 @@ const SENSITIVE_INPUT_SELECTOR = [
   ]),
 ].join(",");
 
-/** A private entry the page refused, named by a reason that holds no value. */
-class PrivateInputRefusedError extends Error {
+/** A refused browser input, named by a reason that holds no private value. */
+class BrowserInputRefusedError extends Error {
   readonly reason: BrowserFailureReasonType;
 
   constructor(reason: BrowserFailureReasonType, message: string) {
     super(message);
-    this.name = "PrivateInputRefusedError";
+    this.name = "BrowserInputRefusedError";
     this.reason = reason;
   }
 }
@@ -102,7 +102,7 @@ class PrivateInputRefusedError extends Error {
 const failureReason = (
   cause: unknown
 ): BrowserFailureReasonType | undefined => {
-  if (cause instanceof PrivateInputRefusedError) {
+  if (cause instanceof BrowserInputRefusedError) {
     return cause.reason;
   }
   return cause instanceof errors.TimeoutError ? "timeout" : undefined;
@@ -468,6 +468,38 @@ const PAGE_READING_PRELUDE = `
       "";
     return own.replace(/\\s+/g, " ").trim().slice(0, ${NAME_LIMIT});
   };
+  // The same viewport hit test drives observations and input preflight.
+  // A control can be partly covered: choose a reachable point, never force
+  // input through the foreground element.
+  const pointerAccess = (element) => {
+    const rect = element.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(innerWidth, rect.right);
+    const bottom = Math.min(innerHeight, rect.bottom);
+    const points = [[0.5, 0.5], [0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9]];
+    let hit = null;
+    if (right > left && bottom > top) {
+      for (const [dx, dy] of points) {
+        const x = left + (right - left) * dx;
+        const y = top + (bottom - top) * dy;
+        const target = document.elementFromPoint(x, y);
+        if (target && element.contains(target)) {
+          return { blocker: null, point: { x: x - rect.left, y: y - rect.top } };
+        }
+        hit ??= target;
+      }
+    }
+    const owner = hit?.closest('[role="dialog"],dialog,[aria-modal="true"]') ?? hit;
+    return {
+      blocker: owner ? {
+        role: owner.getAttribute("role") || ROLE_BY_TAG[owner.tagName] || owner.tagName.toLowerCase(),
+        name: redactSensitive(accessibleName(owner)),
+      } : { role: "viewport", name: "Target has no reachable point in the viewport" },
+      point: null,
+    };
+  };
+
 `;
 
 /** Read native click listeners without patching the page's event APIs. */
@@ -669,6 +701,7 @@ const SNAPSHOT_SCRIPT = ({
   const controls = [];
   const contextual = [];
   const clickable = new Set();
+  const access = new Map();
   const textual = [];
   const everyElement = point ? ancestors :
     scope === document ? document.querySelectorAll("*") :
@@ -691,11 +724,13 @@ const SNAPSHOT_SCRIPT = ({
       continue;
     }
     if (isControl) {
+      access.set(element, pointerAccess(element));
       controls.push(element);
       continue;
     }
     if (isClickableRoot(element)) {
       clickable.add(element);
+      access.set(element, pointerAccess(element));
       controls.push(element);
       continue;
     }
@@ -889,14 +924,16 @@ const SNAPSHOT_SCRIPT = ({
   const eligible = point
     ? tiers.flat()
     : [
-        ...tiers.flatMap((tier) => tier.filter(inViewport)),
+        ...tiers.flatMap((tier) => tier.filter((element) => inViewport(element) && !access.get(element)?.blocker)),
+        ...tiers.flatMap((tier) => tier.filter((element) => inViewport(element) && access.get(element)?.blocker)),
         ...tiers.flatMap((tier) => tier.filter((element) => !inViewport(element))),
       ];
   // Property-only edits and CSS layout changes need not create mutations.
   const signature = point ? null : JSON.stringify(eligible.map((element) => {
     const bounds = element.getBoundingClientRect();
     return [accessibleName(element), isSensitive(element) ? null : element.value,
-      element.checked, element.disabled, bounds.x, bounds.y, bounds.width, bounds.height];
+      element.checked, element.disabled, bounds.x, bounds.y, bounds.width, bounds.height,
+      access.get(element)?.blocker];
   }));
   const picked = point ? controls[0] ?? ancestors.find((element) =>
     eligible.includes(element) && ownsText(element)) ?? eligible[0] : undefined;
@@ -944,6 +981,12 @@ const SNAPSHOT_SCRIPT = ({
     };
     if (isControl) {
       node.interactive = true;
+      if (inViewport(element) && access.get(element)?.blocker) {
+        node.blockedBy = access.get(element).blocker;
+      }
+      if (name === "") {
+        node.bounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+      }
     }
     if (clickable.has(element)) {
       node.clickable = true;
@@ -1044,6 +1087,17 @@ const nameMatchScript = (phrase: string) => `(() => {${PAGE_READING_PRELUDE}
 /** The page is untrusted, so everything it answers with is decoded on arrival. */
 const CollectedNodes = Schema.Array(
   Schema.Struct({
+    blockedBy: Schema.optional(
+      Schema.Struct({ name: Schema.String, role: Schema.String })
+    ),
+    bounds: Schema.optional(
+      Schema.Struct({
+        height: Schema.Finite,
+        width: Schema.Finite,
+        x: Schema.Finite,
+        y: Schema.Finite,
+      })
+    ),
     checked: Schema.optional(Schema.Boolean),
     clickable: Schema.optional(Schema.Boolean),
     context: Schema.optional(Schema.String),
@@ -2042,6 +2096,12 @@ export const redactAgentSnapshot = (
       ...node,
       name: redactKnownValues(node.name, values),
     };
+    if (node.blockedBy !== undefined && node.blockedBy !== null) {
+      redacted.blockedBy = {
+        ...node.blockedBy,
+        name: redactKnownValues(node.blockedBy.name, values),
+      };
+    }
     if (node.context !== undefined) {
       redacted.context = redactKnownValues(node.context, values);
     }
@@ -2539,6 +2599,58 @@ const attempt = <A>(
     try: operation,
   });
 
+const PointerAccess = Schema.Struct({
+  blocker: Schema.NullOr(
+    Schema.Struct({ name: Schema.String, role: Schema.String })
+  ),
+  point: Schema.NullOr(Schema.Struct({ x: Schema.Finite, y: Schema.Finite })),
+});
+const decodePointerAccess = Schema.decodeUnknownSync(PointerAccess);
+const POINTER_ACCESS_SCRIPT = `((element) => {${PAGE_READING_PRELUDE} return pointerAccess(element); })`;
+
+/** Bring a target into view without focusing it through a covering sheet. */
+const reachablePosition = async (element: ElementHandle) => {
+  await element.scrollIntoViewIfNeeded({ timeout: POINTER_TIMEOUT_MS });
+  const read = await element.evaluateHandle<
+    (target: { readonly nodeType: number }) => typeof PointerAccess.Encoded
+  >(POINTER_ACCESS_SCRIPT);
+  let access: typeof PointerAccess.Type;
+  try {
+    access = decodePointerAccess(
+      await read.evaluate((collect, target) => collect(target), element)
+    );
+  } finally {
+    await read.dispose();
+  }
+  if (access.blocker !== null) {
+    throw new BrowserInputRefusedError(
+      "intercepted",
+      `Target is covered by ${access.blocker.role} ${JSON.stringify(access.blocker.name)}. Take a fresh agent_browser_snapshot, target a reachable foreground control, and dismiss the overlay before retrying. Use agent_browser_screenshot and unnamed control bounds when needed. Do not repeat the blocked action unchanged.`
+    );
+  }
+  if (access.point === null) {
+    throw new Error("Target has no reachable pointer position.");
+  }
+  return access.point;
+};
+
+const reachableLocator = async (locator: Locator): Promise<void> => {
+  const element = await locator.elementHandle({ timeout: POINTER_TIMEOUT_MS });
+  if (element === null) {
+    throw new BrowserInputRefusedError(
+      "detached",
+      "The control left the document."
+    );
+  }
+  try {
+    const position = await reachablePosition(element);
+    await element.click({ position, timeout: POINTER_TIMEOUT_MS });
+    await reachablePosition(element);
+  } finally {
+    await element.dispose();
+  }
+};
+
 /**
  * How an action brings its element into view, so pointing at it first moves
  * the Page exactly as the action would and no further. A click or hover
@@ -2628,7 +2740,7 @@ const pointAtHandle = (
             : pointAt(
                 page,
                 element,
-                { action: "move", reveal: "focus", sink },
+                { action: "move", reveal: "none", sink },
                 sink
               );
         },
@@ -2648,6 +2760,22 @@ const FOCUSED_CONTROL_SCRIPT = `(() => {
 const focusedControl = (page: Page) => () =>
   page.evaluateHandle<unknown>(FOCUSED_CONTROL_SCRIPT);
 
+const guardFocusedInput = (page: Page, key: string) =>
+  key === "Escape" || key === "Tab" || key === "Shift+Tab"
+    ? Effect.void
+    : Effect.acquireUseRelease(
+        attempt("Could not inspect keyboard focus", focusedControl(page)),
+        (handle) => {
+          const element = handle.asElement();
+          return element === null
+            ? Effect.void
+            : attempt("Could not reach the focused control", () =>
+                reachablePosition(element)
+              ).pipe(Effect.asVoid);
+        },
+        (handle) => Effect.ignore(Effect.tryPromise(() => handle.dispose()))
+      );
+
 /** Resolve a reference and act on the element it still names, or fail. */
 const onElement = <Success>(
   page: Page,
@@ -2655,18 +2783,34 @@ const onElement = <Success>(
   ref: string,
   description: string,
   pointer: ElementPointer,
-  operation: (element: ElementHandle) => Promise<Success>
+  operation: (
+    element: ElementHandle,
+    position: { readonly x: number; readonly y: number }
+  ) => Promise<Success>
 ): Effect.Effect<void, BrowserRpcErrorType> =>
-  registry.resolve(ref).pipe(
-    Effect.tap((element) =>
-      pointer.sink === undefined
-        ? Effect.void
-        : pointAt(page, element, pointer, pointer.sink)
-    ),
-    Effect.flatMap((element) =>
-      attempt(description, () => operation(element)).pipe(Effect.asVoid)
-    )
-  );
+  Effect.gen(function* reachSnapshotTarget() {
+    const element = yield* registry.resolve(ref);
+    let position = yield* attempt(description, () =>
+      reachablePosition(element)
+    );
+    if (pointer.reveal === "focus") {
+      yield* attempt(description, () =>
+        element.click({ position, timeout: POINTER_TIMEOUT_MS })
+      );
+      position = yield* attempt(description, () => reachablePosition(element));
+    }
+    if (pointer.sink !== undefined) {
+      const box = yield* attempt(description, () => element.boundingBox());
+      if (box !== null) {
+        yield* pointer.sink({
+          action: pointer.action,
+          x: box.x + position.x,
+          y: box.y + position.y,
+        });
+      }
+    }
+    yield* attempt(description, () => operation(element, position));
+  });
 
 const unreachableAction = (action: never): never => {
   throw new Error(`Unhandled agent action: ${JSON.stringify(action)}`);
@@ -2718,7 +2862,8 @@ export const performAgentAction = (
         action.ref,
         `Could not click ${action.ref}`,
         { action: "click", reveal: "scroll", sink: pointer },
-        (element) => element.click({ timeout: ACTION_TIMEOUT_MS })
+        (element, position) =>
+          element.click({ position, timeout: POINTER_TIMEOUT_MS })
       );
     }
     case "hover": {
@@ -2728,7 +2873,8 @@ export const performAgentAction = (
         action.ref,
         `Could not hover ${action.ref}`,
         { action: "move", reveal: "scroll", sink: pointer },
-        (element) => element.hover({ timeout: ACTION_TIMEOUT_MS })
+        (element, position) =>
+          element.hover({ position, timeout: POINTER_TIMEOUT_MS })
       );
     }
     case "fill": {
@@ -2757,7 +2903,8 @@ export const performAgentAction = (
     case "press": {
       const { ref } = action;
       return ref === undefined
-        ? pointAtHandle(page, focusedControl(page), pointer).pipe(
+        ? guardFocusedInput(page, action.key).pipe(
+            Effect.andThen(pointAtHandle(page, focusedControl(page), pointer)),
             Effect.andThen(
               attempt("Could not press a key", () =>
                 page.keyboard.press(action.key)
@@ -2845,13 +2992,13 @@ const enterPrivateVariable = (
     const count = await controls.count();
     const characters = [...value];
     if (count === 0) {
-      throw new PrivateInputRefusedError(
+      throw new BrowserInputRefusedError(
         "detached",
         "The private control is no longer available."
       );
     }
     if (count > 1 && count !== characters.length) {
-      throw new PrivateInputRefusedError(
+      throw new BrowserInputRefusedError(
         "length_mismatch",
         "The split private control does not match the Variable length."
       );
@@ -2865,9 +3012,11 @@ const enterPrivateVariable = (
       if (next === undefined) {
         return;
       }
+      await reachableLocator(controls.nth(index));
       await controls.nth(index).fill(next, { timeout: remaining() });
       await fillEach(values, index + 1);
     };
+    await reachableLocator(controls.first());
     await controls.first().fill(value, { timeout: remaining() });
     const initiallyAccepted = await readPrivateValue(controls);
     if (count === 1 && initiallyAccepted === value) {
@@ -2947,7 +3096,7 @@ const enterPrivateVariable = (
     } finally {
       await controlHandle?.dispose();
     }
-    throw new PrivateInputRefusedError(
+    throw new BrowserInputRefusedError(
       "value_mismatch",
       "The split private control did not accept the value."
     );

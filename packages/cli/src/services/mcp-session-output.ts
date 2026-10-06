@@ -1,4 +1,5 @@
 import {
+  AgentActSequenceResult,
   AgentRunSummary,
   AgentSessionCompact,
   DraftEmulation,
@@ -87,6 +88,10 @@ export const inStartView =
 const unpublished = (description: string) =>
   Schema.Unknown.annotate({ description });
 
+export const UnpublishedSequenceResult = unpublished(
+  "Ordered actions with operationId, entry, and intervention (as in agent_browser_act); a final snapshot and url; stopped is null or contains index, reason, code, and message."
+);
+
 export const UnpublishedSession = unpublished(
   "An Agent Session in the same shape agent_session_get answers with, honouring the call's view."
 );
@@ -100,6 +105,7 @@ export const UnpublishedEmulation = unpublished(
 );
 
 const encodeSession = Schema.encodeEffect(SessionResult);
+const encodeSequence = Schema.encodeEffect(AgentActSequenceResult);
 const encodeSummary = Schema.encodeEffect(AgentRunSummary);
 const encodeEmulation = Schema.encodeEffect(DraftEmulation);
 
@@ -116,3 +122,7 @@ export const encodeUnpublishedRunSummary = (value: AgentRunSummary) =>
 
 export const encodeUnpublishedEmulation = (value: DraftEmulation) =>
   Effect.orDie(encodeEmulation(value));
+
+export const encodeUnpublishedSequenceResult = (
+  value: AgentActSequenceResult
+) => Effect.orDie(encodeSequence(value));

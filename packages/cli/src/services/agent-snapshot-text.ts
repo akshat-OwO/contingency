@@ -9,10 +9,19 @@ import type {
  * reference on every paragraph is a token the agent pays for and never uses.
  */
 const isActionable = (node: AgentSnapshotNode): boolean =>
-  node.interactive === true || node.clickable === true;
+  (node.blockedBy === undefined || node.blockedBy === null) &&
+  (node.interactive === true || node.clickable === true);
 
 const stateOf = (node: AgentSnapshotNode): string[] => {
   const state: string[] = [];
+  if (node.blockedBy !== undefined && node.blockedBy !== null) {
+    state.push(
+      `blocked by ${node.blockedBy.role} ${JSON.stringify(node.blockedBy.name)}`
+    );
+  }
+  if (node.bounds !== undefined && node.bounds !== null) {
+    state.push(`bounds=${JSON.stringify(node.bounds)}`);
+  }
   if (node.disabled) {
     state.push("disabled");
   }
