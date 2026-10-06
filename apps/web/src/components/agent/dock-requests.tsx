@@ -118,7 +118,11 @@ export const DockRequests = ({
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
   return (
     <div className="bg-muted/50 max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 py-2.5">
-      <ExecutionBoundary collapse={collapseFor("boundary")} session={session} />
+      <ExecutionBoundary
+        key={session.boundary?.id}
+        collapse={collapseFor("boundary")}
+        session={session}
+      />
       <SetupVariables
         collapse={collapseFor("setup-variables")}
         session={session}
