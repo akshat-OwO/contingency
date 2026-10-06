@@ -4413,7 +4413,7 @@ const makeAgentSession = (
         boundaryAttempt: {
           readonly operationId: string;
           readonly intent: AgentActionIntent;
-          readonly onDispatch: () => void;
+          readonly onDispatch: Effect.Effect<void>;
         },
         privateRegistration?: {
           readonly target: PrivateInputTarget;
@@ -4465,7 +4465,10 @@ const makeAgentSession = (
         // The Action Window runs from dispatch until the Page has settled,
         // whether the action completes, fails, or is taken over.
         const windowStartedAt = Date.now();
-        boundaryAttempt.onDispatch();
+        // Publish a spent receipt before the browser can act. If this caller
+        // is interrupted before completion is recorded, replay fails closed
+        // rather than dispatching an uncertain action again.
+        yield* Effect.uninterruptible(boundaryAttempt.onDispatch);
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
             const observation = yield* page.beginObservation(action);
@@ -4730,9 +4733,22 @@ const makeAgentSession = (
                     sensitive,
                     {
                       intent,
-                      onDispatch: () => {
+                      onDispatch: Effect.gen(function* spendActionAttempt() {
                         dispatched = true;
-                      },
+                        yield* ledger.remember(
+                          operationId,
+                          operationKind,
+                          sessionId,
+                          requestInput,
+                          {
+                            error: makeBrowserRpcError(
+                              "agent_browser_failed",
+                              "This action was dispatched but its outcome is unknown. It may already have happened. Reread the browser before starting a new attempt."
+                            ),
+                            kind: "act-failure",
+                          }
+                        );
+                      }),
                       operationId: String(operationId ?? id),
                     },
                     privateRegistration

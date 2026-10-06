@@ -315,7 +315,20 @@ export const makeSessionOperationLedger = () => {
         binding.input
       );
       if (replayed !== undefined) {
-        return replayed;
+        // A spent marker may belong to an action still in flight. Wait for
+        // its operation gate, then reread the eventual receipt.
+        return serialize(
+          binding.operationId,
+          Effect.suspend(
+            () =>
+              replayAction(
+                binding.operationId,
+                binding.kind,
+                target,
+                binding.input
+              ) ?? replayed
+          )
+        );
       }
       const { continuation } = registry.get(
         entryFor(binding.operationId).state
