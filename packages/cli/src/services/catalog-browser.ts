@@ -248,31 +248,20 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       .readFileString(skillFile)
       .pipe(Effect.mapError(ioError(`Could not read ${skillFile}`)));
     const verificationFile = path.join(directory, VERIFICATION_FILE);
-    const verification = (yield* exists(verificationFile))
-      ? yield* Effect.gen(function* readVerification() {
-          const target = yield* fileSystem
-            .realPath(verificationFile)
-            .pipe(
-              Effect.mapError(ioError(`Could not read ${verificationFile}`))
-            );
-          const packageDirectory = yield* fileSystem
-            .realPath(directory)
-            .pipe(Effect.mapError(ioError(`Could not read ${directory}`)));
-          if (!isInside(packageDirectory, target)) {
-            return [];
-          }
-          return [
-            {
-              content: yield* fileSystem
-                .readFileString(verificationFile)
-                .pipe(
-                  Effect.mapError(ioError(`Could not read ${verificationFile}`))
-                ),
-              path: VERIFICATION_FILE,
-            },
-          ];
-        })
-      : [];
+    // An unreadable stamp leaves this one skill unverified; it must not
+    // hide the rest of the catalog.
+    const verification = yield* Effect.gen(function* readVerification() {
+      if (!(yield* fileSystem.exists(verificationFile))) {
+        return [];
+      }
+      const target = yield* fileSystem.realPath(verificationFile);
+      const packageDirectory = yield* fileSystem.realPath(directory);
+      if (!isInside(packageDirectory, target)) {
+        return [];
+      }
+      const stamp = yield* fileSystem.readFileString(verificationFile);
+      return [{ content: stamp, path: VERIFICATION_FILE }];
+    }).pipe(Effect.orElseSucceed(() => []));
     return [catalogFlowSkillEntry(name, content, verification)];
   });
 
