@@ -1,6 +1,5 @@
 import {
   AGENT_ACTION_SEQUENCE_MAX,
-  AgentActSequenceResult,
   AgentActionResult,
   AgentActionSnapshotFormat,
   AgentBrowserAct,
@@ -25,6 +24,7 @@ import type {
   AgentActionSignal,
   AgentSequenceStopReason,
   AgentSessionId,
+  AgentActSequenceResult,
 } from "@contingency/protocol";
 import { Effect, Layer, Result, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
@@ -40,7 +40,11 @@ import {
 import {
   SessionResult,
   SessionStartResult,
+  UnpublishedActionResult,
+  UnpublishedSequenceResult,
   UnpublishedSession,
+  encodeUnpublishedActionResult,
+  encodeUnpublishedSequenceResult,
   encodeUnpublishedSession,
   inStartView,
   inView,
@@ -282,7 +286,7 @@ const AgentBrowserResumeTool = Tool.make("agent_browser_resume", {
     format: actionSnapshotFormat,
     sessionId: AgentBrowserObserve.fields.sessionId,
   }),
-  success: AgentActionResult,
+  success: UnpublishedActionResult,
 });
 
 const AgentBrowserActSequenceTool = Tool.make("agent_browser_act_sequence", {
@@ -290,7 +294,7 @@ const AgentBrowserActSequenceTool = Tool.make("agent_browser_act_sequence", {
   description: `Act on up to ${AGENT_ACTION_SEQUENCE_MAX} current Snapshot targets in order. Each action has its own operation id and intent, with agent_browser_act checks. Non-atomic: stop on refusal, interruption, Pending Decision, failure, effect none, unsettled Page, or navigation before the last action. stopped names the action and reason; earlier effects remain. Returns attempts and a final Snapshot using agent_browser_act formats. Same ids replay completed attempts. Reread the Page before continuing past a stop.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserActSequenceParameters,
-  success: AgentActSequenceResult,
+  success: UnpublishedSequenceResult,
 });
 
 const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
@@ -476,7 +480,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               break;
             }
           }
-          return {
+          return yield* encodeUnpublishedSequenceResult({
             actions,
             snapshot:
               lastResult === null
@@ -488,7 +492,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
                   ),
             stopped,
             url: lastResult?.url ?? null,
-          };
+          });
         }),
       agent_browser_resume: (params) =>
         Effect.gen(function* resumeBoundary() {
@@ -497,14 +501,14 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           const result = yield* service
             .resumeBoundary(params.sessionId, params.boundaryId)
             .pipe(Effect.mapError(failure));
-          return {
+          return yield* encodeUnpublishedActionResult({
             ...result,
             snapshot: baselines.present(
               params.sessionId,
               result.snapshot,
               params.format ?? "text"
             ),
-          };
+          });
         }),
       agent_browser_screenshot: (params) =>
         Effect.gen(function* screenshotAgentSession() {
