@@ -7,7 +7,10 @@ import {
   OperationId,
   UserAgentProfileId,
 } from "@contingency/protocol";
-import type { AgentSnapshotNode } from "@contingency/protocol";
+import type {
+  AgentBrowserAction,
+  AgentSnapshotNode,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber, Layer } from "effect";
@@ -1555,5 +1558,76 @@ it.live(
         sessionId: session.id,
       });
       findNode(clicked.snapshot.nodes, "status", "1 click");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "preserves ordinary focus, keyboard, label, and actionability behavior",
+  () =>
+    Effect.gen(function* ordinaryInput() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("popup-recovery.html?ordinary"),
+        "ordinary-start"
+      );
+      let index = 0;
+      const act = (action: AgentBrowserAction) => {
+        const operationId = OperationId.make(`ordinary-${index}`);
+        index += 1;
+        return callTool("agent_browser_act", {
+          action,
+          operationId,
+          sessionId: session.id,
+        });
+      };
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      const activated = yield* act({
+        key: "Enter",
+        ref: findNode(before.nodes, "button", "Activate once").ref,
+        type: "press",
+      });
+      findNode(activated.snapshot.nodes, "status", "1 activations");
+      const filled = yield* act({
+        ref: findNode(before.nodes, "textbox", "Ordinary input").ref,
+        text: "anvil",
+        type: "fill",
+      });
+      findNode(filled.snapshot.nodes, "status", "0 input clicks");
+      const checkbox = findNode(before.nodes, "checkbox", "Label checkbox");
+      expect(checkbox.blockedBy).toBeUndefined();
+      const checked = yield* act({ ref: checkbox.ref, type: "click" });
+      expect(
+        findNode(checked.snapshot.nodes, "checkbox", "Label checkbox").checked
+      ).toBe(true);
+      yield* act({
+        ref: findNode(before.nodes, "button", "Focus hidden checkbox").ref,
+        type: "click",
+      });
+      const hidden = yield* act({ key: "Space", type: "press" });
+      findNode(hidden.snapshot.nodes, "status", "Hidden checked");
+      yield* act({
+        ref: findNode(before.nodes, "button", "Focus offscreen input").ref,
+        type: "click",
+      });
+      const offscreen = yield* act({ key: "ArrowRight", type: "press" });
+      findNode(offscreen.snapshot.nodes, "status", "Scroll 0");
+      yield* act({
+        ref: findNode(before.nodes, "button", "Enable slow action").ref,
+        type: "click",
+      });
+      const slow = yield* act({
+        ref: findNode(before.nodes, "button", "Slow action").ref,
+        type: "click",
+      });
+      findNode(slow.snapshot.nodes, "status", "Slow clicked");
+      const shadow = yield* act({
+        ref: findNode(before.nodes, "button", "Shadow action").ref,
+        type: "click",
+      });
+      findNode(shadow.snapshot.nodes, "status", "Shadow clicked");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );

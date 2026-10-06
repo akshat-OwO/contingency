@@ -129,6 +129,59 @@
           document.querySelector("output").textContent = "1 click";
         });
       }
+      if (new URLSearchParams(location.search).has("ordinary")) {
+        document.querySelector("main").innerHTML =
+          '<button id="activate">Activate once</button><output id="activation" role="status">0 activations</output>' +
+          '<label for="ordinary-input">Ordinary input</label><input id="ordinary-input"><output id="input-clicks" role="status">0 input clicks</output>' +
+          '<label for="label-check" style="position:relative">Label checkbox<input id="label-check" type="checkbox" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;pointer-events:none"></label>' +
+          '<button id="hidden-focus">Focus hidden checkbox</button><input id="hidden-check" type="checkbox" style="position:absolute;width:0;height:0;opacity:0"><output id="hidden-state" role="status">Hidden unchecked</output>' +
+          '<button id="offscreen-focus">Focus offscreen input</button><input id="offscreen" style="position:absolute;top:3000px"><output id="scroll-state" role="status">Scroll not checked</output>' +
+          '<button id="slow" disabled>Slow action</button><button id="arm">Enable slow action</button><output id="slow-state" role="status">Slow waiting</output>' +
+          '<div id="shadow-host"><button id="shadow-action">Shadow action</button></div><output id="shadow-state" role="status">Shadow waiting</output>';
+        document
+          .getElementById("shadow-host")
+          .attachShadow({ mode: "open" }).innerHTML = "<slot></slot>";
+        document.getElementById("shadow-action").onclick = () => {
+          document.getElementById("shadow-state").textContent =
+            "Shadow clicked";
+        };
+        let activations = 0;
+        let inputClicks = 0;
+        document.getElementById("activate").onclick = () => {
+          document.getElementById("activation").textContent =
+            ++activations + " activations";
+        };
+        document.getElementById("ordinary-input").onclick = () => {
+          document.getElementById("input-clicks").textContent =
+            ++inputClicks + " input clicks";
+        };
+        document.getElementById("hidden-focus").onclick = () => {
+          document
+            .getElementById("hidden-check")
+            .focus({ preventScroll: true });
+        };
+        document.getElementById("hidden-check").onchange = (event) => {
+          document.getElementById("hidden-state").textContent = event.target
+            .checked
+            ? "Hidden checked"
+            : "Hidden unchecked";
+        };
+        document.getElementById("offscreen-focus").onclick = () => {
+          document.getElementById("offscreen").focus({ preventScroll: true });
+        };
+        document.getElementById("offscreen").onkeydown = () => {
+          document.getElementById("scroll-state").textContent =
+            "Scroll " + scrollY;
+        };
+        document.getElementById("arm").onclick = () => {
+          setTimeout(() => {
+            document.getElementById("slow").disabled = false;
+          }, 1800);
+        };
+        document.getElementById("slow").onclick = () => {
+          document.getElementById("slow-state").textContent = "Slow clicked";
+        };
+      }
     </script>
   </body>
 </html>

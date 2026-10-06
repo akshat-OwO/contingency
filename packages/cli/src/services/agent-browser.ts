@@ -471,8 +471,13 @@ const PAGE_READING_PRELUDE = `
   // The same viewport hit test drives observations and input preflight.
   // A control can be partly covered: choose a reachable point, never force
   // input through the foreground element.
-  const pointerAccess = (element) => {
+  const pointerAccess = (element, keyboard = false) => {
     const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    if (keyboard && (rect.width <= 1 || rect.height <= 1 || style.opacity === "0" ||
+      style.clip !== "auto" || style.clipPath !== "none")) {
+      return { blocker: null, point: null };
+    }
     const left = Math.max(0, rect.left);
     const top = Math.max(0, rect.top);
     const right = Math.min(innerWidth, rect.right);
@@ -483,13 +488,29 @@ const PAGE_READING_PRELUDE = `
       for (const [dx, dy] of points) {
         const x = left + (right - left) * dx;
         const y = top + (bottom - top) * dy;
-        const target = document.elementFromPoint(x, y);
-        if (target && element.contains(target)) {
+        let target = document.elementFromPoint(x, y);
+        while (target?.shadowRoot) {
+          const inner = target.shadowRoot.elementFromPoint(x, y);
+          if (!inner || inner === target) break;
+          target = inner;
+        }
+        const labels = [...(element.labels ?? [])];
+        let ancestor = target;
+        let belongs = false;
+        while (ancestor) {
+          if (element.contains(ancestor) || labels.some((label) => label.contains(ancestor))) {
+            belongs = true;
+            break;
+          }
+          ancestor = ancestor.getRootNode().host;
+        }
+        if (target && belongs) {
           return { blocker: null, point: { x: x - rect.left, y: y - rect.top } };
         }
         hit ??= target;
       }
     }
+    if (keyboard && !hit) return { blocker: null, point: null };
     const owner = hit?.closest('[role="dialog"],dialog,[aria-modal="true"]') ?? hit;
     return {
       blocker: owner ? {
@@ -2606,18 +2627,26 @@ const PointerAccess = Schema.Struct({
   point: Schema.NullOr(Schema.Struct({ x: Schema.Finite, y: Schema.Finite })),
 });
 const decodePointerAccess = Schema.decodeUnknownSync(PointerAccess);
-const POINTER_ACCESS_SCRIPT = `((element) => {${PAGE_READING_PRELUDE} return pointerAccess(element); })`;
+const POINTER_ACCESS_SCRIPT = `((input) => {${PAGE_READING_PRELUDE} return pointerAccess(input.element, input.keyboard); })`;
 
 /** Bring a target into view without focusing it through a covering sheet. */
-const reachablePosition = async (element: ElementHandle) => {
-  await element.scrollIntoViewIfNeeded({ timeout: POINTER_TIMEOUT_MS });
+const reachablePosition = async (element: ElementHandle, keyboard = false) => {
+  if (!keyboard) {
+    await element.scrollIntoViewIfNeeded({ timeout: ACTION_TIMEOUT_MS });
+  }
   const read = await element.evaluateHandle<
-    (target: { readonly nodeType: number }) => typeof PointerAccess.Encoded
+    (input: {
+      readonly element: { readonly nodeType: number };
+      readonly keyboard: boolean;
+    }) => typeof PointerAccess.Encoded
   >(POINTER_ACCESS_SCRIPT);
   let access: typeof PointerAccess.Type;
   try {
     access = decodePointerAccess(
-      await read.evaluate((collect, target) => collect(target), element)
+      await read.evaluate((collect, input) => collect(input), {
+        element,
+        keyboard,
+      })
     );
   } finally {
     await read.dispose();
@@ -2628,7 +2657,7 @@ const reachablePosition = async (element: ElementHandle) => {
       `Target is covered by ${access.blocker.role} ${JSON.stringify(access.blocker.name)}. Take a fresh agent_browser_snapshot, target a reachable foreground control, and dismiss the overlay before retrying. Use agent_browser_screenshot and unnamed control bounds when needed. Do not repeat the blocked action unchanged.`
     );
   }
-  if (access.point === null) {
+  if (access.point === null && !keyboard) {
     throw new Error("Target has no reachable pointer position.");
   }
   return access.point;
@@ -2643,11 +2672,67 @@ const reachableLocator = async (locator: Locator): Promise<void> => {
     );
   }
   try {
-    const position = await reachablePosition(element);
-    await element.click({ position, timeout: POINTER_TIMEOUT_MS });
+    await reachablePosition(element);
+    await element.focus();
     await reachablePosition(element);
   } finally {
     await element.dispose();
+  }
+};
+
+const pointerActionOptions = (
+  position: { readonly x: number; readonly y: number } | undefined
+) => {
+  if (position === undefined) {
+    return { timeout: ACTION_TIMEOUT_MS };
+  }
+  return { position, timeout: ACTION_TIMEOUT_MS };
+};
+
+/** Use the associated label when it owns the observed pointer hit. */
+const clickReachableControl = async (
+  element: ElementHandle,
+  position: { readonly x: number; readonly y: number } | undefined
+) => {
+  const label = await element.evaluateHandle((control, point) => {
+    if (!point || !("labels" in control)) {
+      return null;
+    }
+    const rect = control.getBoundingClientRect();
+    const hit = control.ownerDocument.elementFromPoint(
+      rect.x + point.x,
+      rect.y + point.y
+    );
+    const { labels } = control;
+    if (labels === null || labels === undefined) {
+      return null;
+    }
+    return [...labels].find((candidate) => candidate.contains(hit)) ?? null;
+  }, position);
+  try {
+    const target = label.asElement();
+    if (target === null) {
+      return await element.click(pointerActionOptions(position));
+    }
+    const [box, labelBox] = await Promise.all([
+      element.boundingBox(),
+      target.boundingBox(),
+    ]);
+    if (box === null || labelBox === null || position === undefined) {
+      throw new BrowserInputRefusedError(
+        "detached",
+        "The associated label left the viewport."
+      );
+    }
+    await target.click({
+      position: {
+        x: box.x + position.x - labelBox.x,
+        y: box.y + position.y - labelBox.y,
+      },
+      timeout: ACTION_TIMEOUT_MS,
+    });
+  } finally {
+    await label.dispose();
   }
 };
 
@@ -2663,6 +2748,7 @@ interface ElementPointer {
   readonly action: BrowserAgentPointer["action"];
   readonly reveal: PointerReveal;
   readonly sink: AgentPointerSink | undefined;
+  readonly keyboard?: boolean;
 }
 
 const revealFor = async (
@@ -2770,7 +2856,7 @@ const guardFocusedInput = (page: Page, key: string) =>
           return element === null
             ? Effect.void
             : attempt("Could not reach the focused control", () =>
-                reachablePosition(element)
+                reachablePosition(element, true)
               ).pipe(Effect.asVoid);
         },
         (handle) => Effect.ignore(Effect.tryPromise(() => handle.dispose()))
@@ -2785,21 +2871,21 @@ const onElement = <Success>(
   pointer: ElementPointer,
   operation: (
     element: ElementHandle,
-    position: { readonly x: number; readonly y: number }
+    position: { readonly x: number; readonly y: number } | undefined
   ) => Promise<Success>
 ): Effect.Effect<void, BrowserRpcErrorType> =>
   Effect.gen(function* reachSnapshotTarget() {
     const element = yield* registry.resolve(ref);
     let position = yield* attempt(description, () =>
-      reachablePosition(element)
+      reachablePosition(element, pointer.keyboard)
     );
     if (pointer.reveal === "focus") {
-      yield* attempt(description, () =>
-        element.click({ position, timeout: POINTER_TIMEOUT_MS })
+      yield* attempt(description, () => element.focus());
+      position = yield* attempt(description, () =>
+        reachablePosition(element, pointer.keyboard)
       );
-      position = yield* attempt(description, () => reachablePosition(element));
     }
-    if (pointer.sink !== undefined) {
+    if (pointer.sink !== undefined && position !== null) {
       const box = yield* attempt(description, () => element.boundingBox());
       if (box !== null) {
         yield* pointer.sink({
@@ -2809,7 +2895,9 @@ const onElement = <Success>(
         });
       }
     }
-    yield* attempt(description, () => operation(element, position));
+    yield* attempt(description, () =>
+      operation(element, position ?? undefined)
+    );
   });
 
 const unreachableAction = (action: never): never => {
@@ -2862,8 +2950,7 @@ export const performAgentAction = (
         action.ref,
         `Could not click ${action.ref}`,
         { action: "click", reveal: "scroll", sink: pointer },
-        (element, position) =>
-          element.click({ position, timeout: POINTER_TIMEOUT_MS })
+        (element, position) => clickReachableControl(element, position)
       );
     }
     case "hover": {
@@ -2873,8 +2960,7 @@ export const performAgentAction = (
         action.ref,
         `Could not hover ${action.ref}`,
         { action: "move", reveal: "scroll", sink: pointer },
-        (element, position) =>
-          element.hover({ position, timeout: POINTER_TIMEOUT_MS })
+        (element, position) => element.hover(pointerActionOptions(position))
       );
     }
     case "fill": {
@@ -2916,7 +3002,7 @@ export const performAgentAction = (
             registry,
             ref,
             `Could not press a key on ${ref}`,
-            types,
+            { ...types, keyboard: true },
             (element) =>
               element.press(action.key, { timeout: ACTION_TIMEOUT_MS })
           );
