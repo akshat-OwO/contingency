@@ -398,3 +398,29 @@ it.effect("leaves out a reference that links outside its package", () =>
     expect(skill.files.map((file) => file.path)).toEqual(["SKILL.md"]);
   }).pipe(Effect.provide(NodeServices.layer))
 );
+
+it.effect("lists a skill as unverified when its stamp cannot be read", () =>
+  Effect.gen(function* listUnreadableStamp() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const workspace = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-catalog-browser-unreadable-",
+    });
+    const local = path.join(workspace, ".contingency");
+    yield* writeSkill(local, "browse-catalogue", true);
+    yield* writeSkill(local, "update-cart", true);
+    yield* fileSystem.chmod(
+      path.join(local, "browse-catalogue", "references", "verification.md"),
+      0o000
+    );
+    const result = yield* Effect.gen(function* browse() {
+      const browser = yield* CatalogBrowser;
+      return yield* browser.browse();
+    }).pipe(Effect.provide(browserFor(local)));
+    expect(
+      result.roots[0]?.flowSkills.map((skill) => [skill.name, skill.verified])
+    ).toEqual([
+      ["browse-catalogue", false],
+      ["update-cart", true],
+    ]);
+  }).pipe(Effect.provide(NodeServices.layer))
+);
