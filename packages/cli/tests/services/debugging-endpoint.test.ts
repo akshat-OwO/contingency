@@ -44,6 +44,21 @@ describe("readDebuggingEndpoint", () => {
     await expect(endpoint).resolves.toBe(`ws://127.0.0.1:9222${ROUTE}`);
   });
 
+  it("waits for a browser id cut off mid-write", async () => {
+    await writeFile(file, `9222\n${ROUTE.slice(0, -8)}`);
+    const endpoint = readDebuggingEndpoint(file);
+    await delay(100);
+    await writeFile(file, `9222\n${ROUTE}`);
+    await expect(endpoint).resolves.toBe(`ws://127.0.0.1:9222${ROUTE}`);
+  });
+
+  it("fails at once on a browser id that is not a UUID", async () => {
+    await writeFile(file, "9222\n/devtools/browser/not-a-uuid");
+    await expect(readDebuggingEndpoint(file)).rejects.toThrow(
+      "Chromium published an invalid debugging endpoint."
+    );
+  });
+
   it("fails at once on contents that can never be an endpoint", async () => {
     await writeFile(file, "not-a-port\n/elsewhere");
     const started = Date.now();

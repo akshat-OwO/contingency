@@ -10,6 +10,24 @@ import { setTimeout as delay } from "node:timers/promises";
 const DEBUGGING_ENDPOINT_TIMEOUT_MS = 10_000;
 const DEBUGGING_ENDPOINT_POLL_MS = 25;
 const BROWSER_ROUTE = "/devtools/browser/";
+/** Chromium names the browser target with a UUID: hex digits laid out as below. */
+const BROWSER_UUID_TEMPLATE = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
+
+/** Whether `id` is the browser UUID or a prefix of it still being written. */
+const browserIdProgress = (id: string): "complete" | "partial" | "invalid" => {
+  if (id.length > BROWSER_UUID_TEMPLATE.length) {
+    return "invalid";
+  }
+  for (const [index, character] of [...id].entries()) {
+    const expected = BROWSER_UUID_TEMPLATE[index];
+    const matches =
+      expected === "-" ? character === "-" : /^[\da-f]$/iu.test(character);
+    if (!matches) {
+      return "invalid";
+    }
+  }
+  return id.length === BROWSER_UUID_TEMPLATE.length ? "complete" : "partial";
+};
 
 type ParsedEndpoint =
   | { readonly kind: "complete"; readonly endpoint: string }
@@ -17,9 +35,9 @@ type ParsedEndpoint =
   | { readonly kind: "invalid" };
 
 /**
- * The file holds the port, a newline, and the browser route. Contents that
- * are still a prefix of that shape may be a write in progress; anything else
- * can never become an endpoint.
+ * The file holds the port, a newline, and the browser route ending in the
+ * browser's UUID. Contents that are still a prefix of that shape may be a
+ * write in progress; anything else can never become an endpoint.
  */
 const parseDebuggingEndpoint = (contents: string): ParsedEndpoint => {
   const [port = "", route, ...rest] = contents.trimEnd().split("\n");
@@ -32,12 +50,15 @@ const parseDebuggingEndpoint = (contents: string): ParsedEndpoint => {
   if (port === "") {
     return { kind: "invalid" };
   }
-  if (route.length > BROWSER_ROUTE.length && route.startsWith(BROWSER_ROUTE)) {
-    return { endpoint: `ws://127.0.0.1:${port}${route}`, kind: "complete" };
+  if (!route.startsWith(BROWSER_ROUTE)) {
+    return BROWSER_ROUTE.startsWith(route)
+      ? { kind: "partial" }
+      : { kind: "invalid" };
   }
-  return BROWSER_ROUTE.startsWith(route)
-    ? { kind: "partial" }
-    : { kind: "invalid" };
+  const progress = browserIdProgress(route.slice(BROWSER_ROUTE.length));
+  return progress === "complete"
+    ? { endpoint: `ws://127.0.0.1:${port}${route}`, kind: "complete" }
+    : { kind: progress };
 };
 
 const pollDebuggingEndpoint = async (
