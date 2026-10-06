@@ -128,7 +128,8 @@ const decodeText = (bytes: Uint8Array): string | undefined => {
   }
 };
 
-const isFlowSkillDirectory = (name: string): boolean =>
+/** Whether a Catalog Root entry could be a Flow Skill directory. */
+export const isFlowSkillDirectory = (name: string): boolean =>
   !(name.startsWith(".") || RESERVED.has(name));
 
 const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(

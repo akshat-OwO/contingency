@@ -50,6 +50,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Timeline or the saved Flow Skill.
 - `agent-variable-spread-otp` verifies complete page-managed code distribution, including missing length metadata and delayed handlers, while partial entry fails and populated segments remain withheld.
 - `workspace-browser-setup` configures the MCP-owned browser during teaching setup: identity, viewport, Emulation environment, and the console, network, and storage panels for the tab the session is showing. The live canvas is a device stage: the frame keeps the applied viewport and only re-zooms when a panel or the Run Summary takes room.
+- `workspace-skills-drawer` opens a read-only `Skills` drawer from a `Skills` button beside the dock's session picker, in every dock state except `Recording` and `Saving`. It lists the local Catalog Root's Flow Skills first and the user's `~/.contingency` under a collapsed `Global` section, groups persisted Runs and Teaching Recordings under the skill they referenced, and files Runs no listed skill claims under `Other runs`, and opens a skill's `SKILL.md`, a Run, or a recording in a closable `Details` panel beside the browser. A skill still being taught holds a dashed `Being taught · not saved yet` row. No MCP tool reads the global root (ADR 0051).
 - `workspace-bot-protection` names the site and the HTTP status when a site's bot protection (Cloudflare today) refuses a request from the session's browser, and dismisses on request.
 
 ## How to get to it (user POV)
@@ -228,6 +229,18 @@ Use `prerequisite-shop.html` under the ecommerce fixture for #336. It requires a
 - **Keep the summary on screen.** With the Run open at its `viewUrl`, call `agent_run_assess` and then `agent_run_complete`. Wait for `complementary` named `Run Summary` and capture `run-summary-dock/ended.aria.txt` and `.png`. The canvas stays read-only, the verdict reads the assessment, and the dock reads `Closed` with `Done`. Click `Done` and require heading `No browser session` with no unresolved session notice.
 - **Reopen persisted evidence.** Restart the isolated MCP process, call `open_run` again, and open the new URL. Save `workspace/run-summary.aria.txt` and `workspace/run-summary.png`. Scroll to Run video and confirm the player is reachable. The summary survives the process restart.
 - **Removed modes.** Open `/audit` and `/agent` and require `Page not found`. Return with the `Workspace` navigation link.
+
+### Skills drawer
+
+The harness points `CONTINGENCY_GLOBAL_CATALOG_ROOT` at `<stateDir>/global-catalog`, so a drive never reads the developer's real `~/.contingency`. Seed it by copying a Flow Skill directory there when a drive needs a global skill.
+
+- **Empty catalog.** On a fresh `launch`, open `/`, click `control-contingency browser click --role button --name "Skills, 0"`, and wait for `complementary` named `Skills`. Require the text `No Flow Skills yet`, which names both `.contingency` and `~/.contingency`. Close it with the button `Close Skills`.
+- **Global only.** Copy any Flow Skill directory into `<stateDir>/global-catalog/`, reopen the drawer, and require `No Flow Skills here yet.` under `Local` and the `Global` section already unfolded with that skill. Nothing else unfolds `Global` while a local skill matches.
+- **Local skill and its Runs.** After the Teaching and Finished Interactive Run steps, open the drawer. The verified skill's row reads `Verified · 1 run` and its Run is listed under `Runs · 1`. Click the Run: the `Details` panel opens on the right with the assessment, the referenced skill, and `Open Run Summary`. Click `SKILL.md`: the panel shows `Procedure` with each `Done when:` and `Files` with the package's markdown. `Close Details` brings an ended Run's `Run Summary` back.
+- **Session marks.** During agent-held setup or `Not recording`, the drawer opens on a dashed `<flow name>` row reading `Being taught · not saved yet` and the column says `Not saved yet`. After the skill is drafted, the row reads `Drafted · … · This session`. During an Interactive Run, the referenced skill reads `In this run`.
+- **Hidden while capturing.** With the drawer open, click `Start recording`: the drawer closes and the dock has no `Skills` button. After `Stop recording` the button returns and the drawer stays closed.
+- **Filter.** Type into `Filter skills` a word no skill name contains. Require `No skill matches “<word>”` and the button `Show all skills`, which clears the filter.
+- **Proof.** Capture `workspace/skills-drawer.aria.txt` and `.png` with the drawer and `Details` open, and `workspace/skills-drawer-empty.png` for the empty catalog.
 
 ### Teaching private Variables
 

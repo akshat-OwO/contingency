@@ -12,6 +12,19 @@ const invalid = (message: string) => ({
   message,
 });
 
+/**
+ * Whether the user verified a package: verification stamps
+ * `references/verification.md` with a `- Verified:` line.
+ */
+export const isVerifiedFlowSkill = (
+  files: readonly { readonly content: string; readonly path: string }[]
+): boolean =>
+  files.some(
+    (file) =>
+      file.path === "references/verification.md" &&
+      /^- Verified: .+$/mu.test(file.content)
+  );
+
 /** Resolve only explicitly requested, user-verified catalog packages. */
 export const readRequestedSkills = (names: readonly FlowSkillName[]) =>
   Effect.gen(function* readSkills() {
@@ -19,13 +32,7 @@ export const readRequestedSkills = (names: readonly FlowSkillName[]) =>
     const skills: FlowSkillPackage[] = [];
     for (const name of new Set(names)) {
       const skill = yield* catalog.read(name);
-      if (
-        !skill.files.some(
-          (file) =>
-            file.path === "references/verification.md" &&
-            /^- Verified: .+$/mu.test(file.content)
-        )
-      ) {
+      if (!isVerifiedFlowSkill(skill.files)) {
         return yield* Effect.fail(
           invalid(`Flow Skill ${name} has not been verified by the user.`)
         );

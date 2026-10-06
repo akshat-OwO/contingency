@@ -229,6 +229,7 @@ export const RunDock = ({
   selectedSessionId,
   session,
   sessions,
+  skills = null,
   streamConnected,
 }: {
   /** What went wrong the last time this dock tried to change control. */
@@ -246,6 +247,8 @@ export const RunDock = ({
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: RunSessionSnapshot;
   readonly sessions: readonly AgentSessionSnapshot[];
+  /** The Skills drawer entry, beside the session picker, or nothing. */
+  readonly skills?: React.ReactNode;
   readonly streamConnected: boolean;
 }) => {
   const presentation = runDockPresentation(session, streamConnected);
@@ -295,6 +298,7 @@ export const RunDock = ({
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
+      {skills}
       <DockSpacer />
       <AgentIdle session={session} />
       {presentation.coverage === undefined ? null : (

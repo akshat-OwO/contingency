@@ -9,7 +9,14 @@ import {
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
-import { defaultCatalogRoot } from "../services/flow-skill-catalog.ts";
+import {
+  defaultGlobalCatalogRoot,
+  makeCatalogBrowserLayer,
+} from "../services/catalog-browser.ts";
+import {
+  defaultCatalogRoot,
+  makeFlowSkillCatalogLayer,
+} from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
@@ -61,6 +68,19 @@ export const webCommand = Command.make(
             })
           )
         );
+        // The Skills drawer reads this root and the user's global one.
+        const catalogBrowser = Layer.succeedContext(
+          yield* Layer.build(
+            makeCatalogBrowserLayer({
+              globalRoot: defaultGlobalCatalogRoot(),
+              localRoot: () => selectedCatalogRoot,
+            }).pipe(
+              Layer.provide(
+                makeFlowSkillCatalogLayer({ root: selectedCatalogRoot })
+              )
+            )
+          )
+        );
         // A Teaching-only process ends no Runs, but it serves their videos
         // and condenses any footage a Run process left unfinished.
         const runVideoRenderer = Layer.succeedContext(
@@ -89,6 +109,7 @@ export const webCommand = Command.make(
             agentRunStore: runStore,
             agentSession,
             allowedOrigins: resolveAllowedOrigins(browserUrl),
+            catalogBrowser,
             host: config.host,
             port: config.port,
             runVideoRenderer,

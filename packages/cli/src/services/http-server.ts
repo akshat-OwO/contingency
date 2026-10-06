@@ -15,6 +15,7 @@ import {
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
+import type { CatalogBrowserService } from "./catalog-browser.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
@@ -67,6 +68,8 @@ export interface HttpServerOptions {
    * and the read-only viewer. Absent in a process that serves no Runs.
    */
   readonly agentRunStore?: Layer.Layer<AgentRunStoreService>;
+  /** The Skills drawer's read-only view of the Catalog Roots. */
+  readonly catalogBrowser?: Layer.Layer<CatalogBrowserService>;
   /** Condenses Run footage, and reports a video's readiness to the Workspace. */
   readonly runVideoRenderer: Layer.Layer<RunVideoRendererService>;
   readonly teachingRecordingStore: Layer.Layer<TeachingRecordingStoreService>;
@@ -108,6 +111,7 @@ export const makeHttpServerLayer = ({
   agentRunStore,
   allowedOrigins,
   agentSession,
+  catalogBrowser,
   host,
   mcp = Layer.empty,
   port,
@@ -119,7 +123,11 @@ export const makeHttpServerLayer = ({
   const webRoutes = serveWebUi
     ? HttpStaticServer.layer({ root: webRoot, spa: true })
     : Layer.empty;
-  const rpcRoutes = makeRpcRoutes({ allowedOrigins });
+  const allRpcRoutes = makeRpcRoutes({ allowedOrigins });
+  const rpcRoutes =
+    catalogBrowser === undefined
+      ? allRpcRoutes
+      : allRpcRoutes.pipe(Layer.provide(catalogBrowser));
   const sessionRpcRoutes =
     agentSession === undefined
       ? rpcRoutes
