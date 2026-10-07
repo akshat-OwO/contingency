@@ -1,6 +1,8 @@
 # The MCP surface is sized for the model
 
-> Extended by [ADR 0051](./0051-agents-learn-of-session-events-by-waiting.md). `agent_session_get` gains a cursor-based wait instead of a new tool, and the two Variable request tools merge into `agent_variable_request`.
+> Extended by [ADR 0055](./0055-agents-learn-of-session-events-by-waiting.md). `agent_session_get` gains a cursor-based wait instead of a new tool, and the two Variable request tools merge into `agent_variable_request`.
+>
+> Extended by [ADR 0057](./0057-system-one-pursues-delegated-sub-goals.md) (proposed). `agent_browser_pursue` is listed only when a System One endpoint is configured.
 
 Every MCP client that lists Contingency's tools pays for the emitted catalog. Every session-returning call repeats session state into the conversation. Between #326 and #331, the `tools/list` answer grew from 140,121 to 216,458 bytes, and nothing failed. Output schemas made up 84% of it: `agent_sessions_get` and `agent_flow_skill_dry_run_start` each inlined the whole session union, about 70 KB, and the Run Summary appeared twice inside it.
 
