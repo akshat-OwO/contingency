@@ -1,6 +1,10 @@
 import path from "node:path";
 
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import {
+  FlowSkillName,
+  OperationId,
+  compactAgentSession,
+} from "@contingency/protocol";
 import type {
   AgentSessionSnapshot,
   TaskAgentRunState,
@@ -66,6 +70,150 @@ inputs:
       "- Verified: 2026-10-01T00:00:00.000Z\n"
     );
   });
+
+it.live(
+  "installs the saved phone environment before the first document without agent emulation arguments",
+  () =>
+    Effect.gen(function* restoreSavedEnvironment() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-saved-emulation-",
+      });
+      const fixture = yield* fixtureServer;
+      for (const state of ["granted", "denied"] as const) {
+        const name = `phone-${state}`;
+        yield* saveSkill(root, name, 390);
+        const file = path.join(root, name, "SKILL.md");
+        yield* files.writeFileString(
+          file,
+          (yield* files.readFileString(file)).replace(
+            "  viewport: 390x480@1",
+            `  viewport: 390x844@2\n  userAgentProfile: chrome-android-mobile\n  locale: de-DE\n  timezone: Europe/Berlin\n  colorScheme: dark\n  geolocation: 28.4595,77.0266@15\n  permissions:\n    - geolocation ${state}`
+          )
+        );
+        yield* Effect.scoped(
+          Effect.gen(function* observeFirstPage() {
+            const startIndex = fixture.requestHeaders.length;
+            const opened = yield* runTool("agent_run_start", {
+              inputs: [],
+              operationId: operation(`saved-${state}`),
+              referencedSkills: [FlowSkillName.make(name)],
+              requestedTask: "Read the saved environment",
+              url: fixture.url("skill-environment.html"),
+            });
+            expect(taskRun(opened).emulationSource).toEqual({
+              flowSkillName: name,
+              kind: "flow-skill",
+            });
+            expect(taskRun(opened).startingEmulation).toMatchObject({
+              locale: "de-DE",
+              timezoneId: "Europe/Berlin",
+              userAgentProfile: "chrome-android-mobile",
+              viewport: { deviceScaleFactor: 2, height: 844, width: 390 },
+            });
+            const observed = yield* sessionTool("agent_browser_act", {
+              action: {
+                text: `"permission": "${state}"`,
+                type: "wait_for_text",
+              },
+              operationId: operation(`saved-wait-${state}`),
+              sessionId: opened.id,
+            });
+            const status = observed.snapshot.nodes
+              .filter((node) => node.role === "status")
+              .map((node) => node.name)
+              .join(" ");
+            for (const fragment of [
+              '"width": 390',
+              '"height": 844',
+              '"scale": 2',
+              '"mobile": true',
+              '"touch": true',
+              '"locale": "de-DE"',
+              '"timezone": "Europe/Berlin"',
+              '"colorScheme": "dark"',
+            ]) {
+              expect(status).toContain(fragment);
+            }
+            expect(status).toContain(
+              state === "granted" ? '"latitude": 28.4595' : '"locationError": 1'
+            );
+            const document = fixture.requestHeaders
+              .slice(startIndex)
+              .find((request) => request.url === "/skill-environment.html");
+            expect(document?.headers["user-agent"]).toContain("Android");
+            expect(document?.headers["sec-ch-ua-mobile"]).toBe("?1");
+            expect(document?.headers["accept-language"]).toContain("de-DE");
+            const sealed = yield* runTool("agent_run_complete", {
+              operationId: operation(`saved-complete-${state}`),
+              sessionId: opened.id,
+            });
+            if (sealed.schemaVersion !== 3) {
+              return yield* Effect.die("Expected task evidence.");
+            }
+            expect(sealed.emulationSource).toEqual(
+              taskRun(opened).emulationSource
+            );
+            expect(sealed.startingEmulation).toEqual(
+              taskRun(opened).startingEmulation
+            );
+            expect(
+              (yield* runTool("open_run", { runId: sealed.runId })).summary
+            ).toEqual(sealed);
+          }).pipe(Effect.provide(agentProcessLayer(root)))
+        );
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "refuses conflicting startup requirements before requesting a document",
+  () =>
+    Effect.gen(function* refuseAmbiguousEnvironment() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-conflicting-emulation-",
+      });
+      const fixture = yield* fixtureServer;
+      yield* saveSkill(root, "phone", 390);
+      yield* saveSkill(root, "desktop", 1280);
+      yield* Effect.scoped(
+        Effect.gen(function* startConflict() {
+          const refused = yield* Effect.flip(
+            runTool("agent_run_start", {
+              inputs: [],
+              operationId: operation("conflicting-start"),
+              referencedSkills: [
+                FlowSkillName.make("phone"),
+                FlowSkillName.make("desktop"),
+              ],
+              requestedTask: "Use both skills",
+              url: fixture.url("skill-environment.html"),
+            })
+          );
+          expect(refused.message).toContain("different emulation");
+          expect(refused.message).toContain("separate Runs");
+          expect(fixture.requests).toEqual([]);
+          const file = path.join(root, "phone", "SKILL.md");
+          yield* files.writeFileString(
+            file,
+            (yield* files.readFileString(file)).replace("390x480@1", "wide")
+          );
+          const invalid = yield* Effect.flip(
+            runTool("agent_run_start", {
+              inputs: [],
+              operationId: operation("invalid-start"),
+              referencedSkills: [FlowSkillName.make("phone")],
+              requestedTask: "Use phone skill",
+              url: fixture.url("skill-environment.html"),
+            })
+          );
+          expect(invalid.message).toContain("invalid emulation");
+          expect(fixture.requests).toEqual([]);
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
 it.live(
   "authorizes task exploration, later requested hosts, and exactly one confirmed action attempt",
@@ -473,6 +621,30 @@ it.live(
           };
           const updated = yield* runTool("agent_run_update", update);
           expect(taskRun(updated).runId).toBe(taskRun(started).runId);
+          expect(taskRun(updated).emulationConflicts).toEqual([
+            {
+              differingFields: ["viewport"],
+              flowSkillName: "flow2",
+              recovery: expect.stringContaining("separate Run"),
+            },
+          ]);
+          expect(taskRun(updated).emulationSource).toEqual({
+            flowSkillName: "flow1",
+            kind: "flow-skill",
+          });
+          const compact = compactAgentSession(updated).run;
+          if (compact === null || compact.kind !== "task") {
+            return yield* Effect.die("Expected compact task Run.");
+          }
+          expect(compact.emulationConflicts).toEqual(
+            taskRun(updated).emulationConflicts
+          );
+          expect(compact.emulationSource).toEqual(
+            taskRun(updated).emulationSource
+          );
+          expect(compact.startingEmulation).toEqual(
+            taskRun(started).startingEmulation
+          );
           expect(taskRun(updated).inputs.map((input) => input.value)).toEqual([
             "one",
             "two",

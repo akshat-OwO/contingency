@@ -368,6 +368,18 @@ export const AgentTaskRunPurpose = Schema.Union([
 ]);
 export type AgentTaskRunPurpose = typeof AgentTaskRunPurpose.Type;
 
+export const RunEmulationSource = Schema.Struct({
+  flowSkillName: Schema.optional(FlowSkillName),
+  kind: Schema.Literals(["default", "flow-skill", "teaching"]),
+});
+
+export const RunEmulationConflict = Schema.Struct({
+  differingFields: Schema.Array(nonEmptyString),
+  flowSkillName: FlowSkillName,
+  recovery: nonEmptyString,
+});
+export type RunEmulationConflict = typeof RunEmulationConflict.Type;
+
 const taskRunFields = {
   assessment: Schema.NullOr(AgentTaskAssessment),
   attribution: AgentRunAttribution,
@@ -376,6 +388,8 @@ const taskRunFields = {
    * evidence in the user's catalog is never mistaken for a real website's.
    */
   demoSite: Schema.optional(DemoSiteId),
+  emulationConflicts: Schema.optional(Schema.Array(RunEmulationConflict)),
+  emulationSource: Schema.optional(RunEmulationSource),
   findings: Schema.Array(AgentTaskFinding),
   inputs: Schema.Array(AgentRunTaskInput),
   instructions: Schema.Array(AgentRunInstruction),

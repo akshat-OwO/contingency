@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Saved skill environment</title>
+    <style>
+      body {
+        font: 16px system-ui;
+        padding: 16px;
+      }
+      output {
+        display: block;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Saved skill environment</h1>
+    <div id="environment">Reading environment</div>
+    <script>
+      const firstDocument = {
+        colorScheme: matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light",
+        height: innerHeight,
+        locale: navigator.language,
+        mobile: navigator.userAgentData?.mobile ?? false,
+        scale: devicePixelRatio,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        touch: navigator.maxTouchPoints > 0,
+        userAgent: navigator.userAgent,
+        width: innerWidth,
+      };
+      const report = (location) => {
+        const observed = { ...firstDocument, ...location };
+        document.getElementById("environment").replaceChildren(
+          ...Object.entries(observed).map(([key, value]) => {
+            const output = document.createElement("output");
+            output.setAttribute("role", "status");
+            output.textContent =
+              JSON.stringify(key) + ": " + JSON.stringify(value);
+            return output;
+          })
+        );
+        fetch(
+          "/skill-environment-beacon?" + new URLSearchParams(observed)
+        ).catch(() => {});
+      };
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((permission) => {
+          navigator.geolocation.getCurrentPosition(
+            (position) =>
+              report({
+                permission: permission.state,
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              }),
+            (error) =>
+              report({
+                permission: permission.state,
+                locationError: error.code,
+              }),
+            { timeout: 5000 }
+          );
+        });
+    </script>
+  </body>
+</html>

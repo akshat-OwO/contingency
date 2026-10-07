@@ -24,6 +24,12 @@ describe("headedUserAgent", () => {
 });
 
 describe("userAgentOverride", () => {
+  it("preserves a declared locale when clearing identity", () => {
+    expect(userAgentOverride(undefined, "de-DE")).toEqual({
+      acceptLanguage: "de-DE",
+      userAgent: "",
+    });
+  });
   it("clears the override for the browser default identity", () => {
     // An empty string restores the context's user agent and Chromium's own
     // client hints; restating the string would erase the hints.
