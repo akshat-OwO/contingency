@@ -415,13 +415,14 @@ export const makeDemonstrationCapture = (
     }),
     recordAction,
     recordInstruction: (text, at, target, scan) => {
-      const instruction: TeachingInstruction = {
+      const baseInstruction = {
         at: eventTime(at),
         id: `instruction-${randomUUID()}`,
-        scan,
         target: target === undefined ? null : redact(target),
         text: redact(text),
       };
+      const instruction: TeachingInstruction =
+        scan === undefined ? baseInstruction : { ...baseInstruction, scan };
       instructions.push(instruction);
       if (instructions.length > INSTRUCTION_LIMIT) {
         const removable = instructions.findIndex(
