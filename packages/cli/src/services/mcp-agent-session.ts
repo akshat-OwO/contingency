@@ -322,7 +322,7 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
 const AgentSetupVariableRequestTool = Tool.make("agent_variable_request", {
   dependencies: [AgentSession],
   description:
-    "Request a private Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowSkillName. The user supplies or refuses it directly in Workspace; you never receive the literal. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter a supplied Variable with agent_variable_enter without flowSkillName. Handoff cancels requests and ends access. Setup inputs are never declared in the learned Flow Skill.",
+    "Request a private Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowSkillName. The user supplies or refuses it directly in Workspace; you never receive the literal. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter it with agent_variable_enter, including flowSkillName for a Run and omitting it for Teaching setup. Handoff ends setup access. Setup inputs are never declared in the learned Flow Skill.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     flowSkillName: optionalNullable(FlowSkillName),

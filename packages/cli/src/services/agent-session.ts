@@ -1961,6 +1961,17 @@ const makeAgentSession = (
                     // but not its older timestamp.
                     return mutate(sessionId, (current) =>
                       current.activity === "teaching" &&
+                      // A read can overlap a local capture transition. Only
+                      // reconcile the state it observed, and keep Stop's local
+                      // capture boundary while the recorder drains to disk.
+                      sameCaptureState(
+                        current.captureState,
+                        snapshot.captureState
+                      ) &&
+                      !(
+                        current.captureState._tag === "finalizing" &&
+                        manifest.lifecycle._tag === "recording"
+                      ) &&
                       manifestDiverges(current, manifest)
                         ? {
                             ...current,

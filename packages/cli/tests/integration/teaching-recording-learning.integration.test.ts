@@ -3,7 +3,7 @@ import path from "node:path";
 import { OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Effect, Fiber, FileSystem } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
@@ -115,9 +115,25 @@ it.live(
           expect(commented.timeline.at(-1)?.detail).toBe(
             "button: Place order: Use the express checkout here."
           );
+          const beforeStop = yield* session.sessionEvents(started.id);
+          const polling = yield* Effect.forever(
+            session
+              .get(started.id)
+              .pipe(Effect.andThen(Effect.sleep("5 millis")))
+          ).pipe(Effect.forkChild);
           yield* session.stopTeachingRecording(
             started.id,
             OperationId.make("learning-stop-recording")
+          );
+          yield* Fiber.interrupt(polling);
+          expect(
+            (yield* session.sessionEvents(
+              started.id,
+              beforeStop.eventCursor
+            )).events.map((event) => event.kind)
+          ).toEqual(["teaching-stopped"]);
+          expect((yield* session.get(started.id)).captureState?._tag).toBe(
+            "ready"
           );
           return started.recordingId;
         }).pipe(Effect.provide(agentProcessLayer(root)))
