@@ -146,7 +146,7 @@ export const mcpCommand = Command.make(
   },
   Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
     const config = yield* Config.all({
-      // Claude Code channels are opt-in and stdio-only (ADR 0051).
+      // Claude Code channels are opt-in and stdio-only (ADR 0055).
       channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),

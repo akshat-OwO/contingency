@@ -1,6 +1,6 @@
 # Session Events review, 2026-10-07
 
-Reviewed the combined implementations of #361 and #362 against ADR 0051. Fresh proof used an isolated production CLI and embedded Workspace, the local ecommerce fixture, a persistent stdio MCP client, and the collaborative preview.
+Reviewed the combined implementations of #361 and #362 against ADR 0055. Fresh proof used an isolated production CLI and embedded Workspace, the local ecommerce fixture, a persistent stdio MCP client, and the collaborative preview.
 
 The review found a capture race. A manifest poll during Stop restored the older recording lifecycle while the recorder finalized, emitting a second `teaching-started` event. Manifest reconciliation now checks that the observed capture state still matches and preserves the local finalizing boundary. The real-browser regression test fails on the original implementation with `teaching-stopped, teaching-started` and passes with only `teaching-stopped` after the fix. The merged Variable request tool's description also now explains that Run entry requires `flowSkillName`.
 
