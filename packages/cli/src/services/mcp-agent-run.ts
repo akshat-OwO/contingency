@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  UserAgentProfileId,
   AgentRunComplete,
   AgentRunId,
   AgentRunOpen,
@@ -29,7 +28,6 @@ import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
-import type { FlowSkillEmulation } from "./flow-skill-package.ts";
 import {
   SessionResult,
   SessionStartResult,
@@ -48,6 +46,11 @@ import {
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
+import {
+  startingRunEmulation,
+  skillRunEmulation,
+  emulationDifferences,
+} from "./run-emulation.ts";
 import { requestedScans } from "./scan-requirements.ts";
 
 /** The failure an MCP client reads for Interactive Run tools. */
@@ -66,39 +69,6 @@ const failure = (cause: { readonly code: string; readonly message: string }) =>
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
   });
-
-/**
- * A stamped identity that no longer exists in this build falls back to the
- * default rather than refusing the Run: the journey still matters when a
- * profile name is retired, and the viewport carries the shape that does.
- */
-const readUserAgentProfileId = (
-  value: string | undefined
-): UserAgentProfileId =>
-  Schema.is(UserAgentProfileId)(value) ? value : "default";
-
-const readColorScheme = (
-  value: string | undefined
-): "dark" | "light" | undefined =>
-  value === "dark" || value === "light" ? value : undefined;
-
-/**
- * The Emulation a Run reproduces, or `undefined` for a package saved before
- * Contingency stamped one. Without a viewport there is no coherent device to
- * restore, so the Run opens at Contingency's default instead of half of one.
- */
-const demonstratedEmulation = (emulation: FlowSkillEmulation | undefined) =>
-  emulation === undefined || emulation.viewport === undefined
-    ? undefined
-    : {
-        colorScheme: readColorScheme(emulation.colorScheme),
-        geolocation: emulation.geolocation,
-        locale: emulation.locale,
-        permissions: emulation.permissions,
-        timezoneId: emulation.timezone,
-        userAgentProfile: readUserAgentProfileId(emulation.userAgentProfile),
-        viewport: emulation.viewport,
-      };
 
 const FlowSkillRunStartTool = Tool.make("agent_flow_skill_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
@@ -361,34 +331,10 @@ export const startTaskRun = (
             );
           }
 
+          const { emulation, source } = yield* startingRunEmulation(skills);
           const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
           const artifactDirectory = yield* store.prepare(runId);
           const startedAt = new Date().toISOString();
-          const demonstrated = demonstratedEmulation(skills[0]?.emulation);
-          const emulation = {
-            ...demonstrated,
-            permissions: demonstrated?.permissions ?? [],
-            userAgentProfile:
-              demonstrated?.userAgentProfile ??
-              UserAgentProfileId.make("default"),
-            viewport: demonstrated?.viewport ?? {
-              deviceScaleFactor: 1,
-              height: 800,
-              width: 1280,
-            },
-          };
-          if (emulation.colorScheme === undefined) {
-            delete emulation.colorScheme;
-          }
-          if (emulation.geolocation === undefined) {
-            delete emulation.geolocation;
-          }
-          if (emulation.locale === undefined) {
-            delete emulation.locale;
-          }
-          if (emulation.timezoneId === undefined) {
-            delete emulation.timezoneId;
-          }
           const run: TaskAgentRunState = markDemoWork(hosts, {
             assessment: null,
             attribution: {
@@ -398,6 +344,10 @@ export const startTaskRun = (
               reportedModel: params.reportedModel ?? null,
               reportedProvider: params.reportedProvider ?? null,
             },
+            emulationSource:
+              source === undefined
+                ? { kind: "default" }
+                : { flowSkillName: source, kind: "flow-skill" },
             findings: [],
             inputs: params.inputs,
             instructions: [],
@@ -566,7 +516,29 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         yield* validateTaskInputs(skills, params.inputs);
         const scans = yield* requestedScans(skills);
         const requested = new Set(params.referencedSkills);
+        const emulationConflicts = [];
+        for (const skill of skills) {
+          if (!requested.has(skill.name)) {
+            continue;
+          }
+          const expected = yield* skillRunEmulation(skill);
+          if (expected === undefined) {
+            continue;
+          }
+          const differingFields = emulationDifferences(
+            run.startingEmulation,
+            expected
+          );
+          if (differingFields.length > 0) {
+            emulationConflicts.push({
+              differingFields,
+              flowSkillName: skill.name,
+              recovery: `The current browser keeps its starting emulation. Start a separate Run of ${skill.name} to reproduce its saved environment, or continue this composed task only where the differing environment is acceptable.`,
+            });
+          }
+        }
         return {
+          emulationConflicts,
           inputs: params.inputs,
           instruction: params.instruction,
           skills: skills.flatMap((skill) =>

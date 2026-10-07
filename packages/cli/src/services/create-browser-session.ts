@@ -302,12 +302,16 @@ const requireEmulationSession = (session: CreateSession, page: Page) =>
 export const applyIdentity = (
   session: CreateSession,
   page: Page,
-  identity: BrowserIdentity | undefined
+  identity: BrowserIdentity | undefined,
+  locale?: string
 ) =>
   Effect.gen(function* setPageIdentity() {
     const cdp = yield* requireEmulationSession(session, page);
     yield* tryBrowser("Could not set the user agent", () =>
-      cdp.send("Emulation.setUserAgentOverride", userAgentOverride(identity))
+      cdp.send(
+        "Emulation.setUserAgentOverride",
+        userAgentOverride(identity, locale)
+      )
     );
     yield* tryBrowser("Could not set touch emulation", () =>
       cdp.send("Emulation.setTouchEmulationEnabled", touchEmulation(identity))
@@ -423,7 +427,7 @@ export const applyEmulationToPage = (
     // The identity first: the device metrics it implies are part of it, so the
     // viewport and the user agent a site reads can never disagree about
     // whether this is a phone.
-    yield* applyIdentity(session, page, state.identity);
+    yield* applyIdentity(session, page, state.identity, state.locale);
     yield* applyViewport(session, page, state.viewport, state.identity);
     yield* applyEnvironment(session, page);
   });

@@ -27,6 +27,7 @@ interface CdpUserAgentMetadata {
 }
 
 interface CdpUserAgentOverride {
+  readonly acceptLanguage?: string;
   readonly platform?: string;
   readonly userAgent: string;
   readonly userAgentMetadata?: CdpUserAgentMetadata;
@@ -49,9 +50,7 @@ interface CdpDeviceMetricsOverride {
  * person's Chrome does (#266). A legacy string-only identity has no hints to
  * declare, so it sends none.
  */
-export const userAgentOverride = (
-  identity?: BrowserIdentity
-): CdpUserAgentOverride => {
+const identityOverride = (identity?: BrowserIdentity): CdpUserAgentOverride => {
   if (identity === undefined) {
     return { userAgent: "" };
   }
@@ -79,6 +78,17 @@ export const userAgentOverride = (
       platformVersion: metadata.platformVersion ?? "",
     },
   };
+};
+
+/** CDP identity overrides must preserve the context's declared language. */
+export const userAgentOverride = (
+  identity?: BrowserIdentity,
+  locale?: string
+): CdpUserAgentOverride => {
+  const override = identityOverride(identity);
+  return locale === undefined
+    ? override
+    : { ...override, acceptLanguage: locale };
 };
 
 /**

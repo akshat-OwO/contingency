@@ -14,6 +14,7 @@ import type {
   AgentRunAssessmentCounts,
   AgentRunCoverage,
   RunVideoTimeMap,
+  RunEmulationConflict,
   DraftEmulation,
   AgentSessionSnapshot,
   AgentTimelineEntry,
@@ -261,6 +262,7 @@ export interface RunFinalizationRecord {
   readonly finalized: ReturnType<typeof makeRunFinalizationState>;
 }
 export interface TaskRunUpdate {
+  readonly emulationConflicts?: readonly RunEmulationConflict[];
   readonly instruction?: string | undefined;
   readonly skills: readonly {
     readonly flowSkillName: FlowSkillName;
@@ -393,6 +395,15 @@ const withTaskUpdate = (
   return {
     ...run,
     assessment: input.instruction === undefined ? run.assessment : null,
+    emulationConflicts: [
+      ...(run.emulationConflicts ?? []).filter(
+        (conflict) =>
+          !input.skills.some(
+            (skill) => skill.flowSkillName === conflict.flowSkillName
+          )
+      ),
+      ...(input.emulationConflicts ?? []),
+    ],
     inputs,
     instructions:
       input.instruction === undefined
