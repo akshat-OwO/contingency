@@ -77,6 +77,9 @@ export const agentSetupVariableAnswerMutation = ContingencyRpcClient.mutation(
 export const agentTeachingVariableInputMutation = ContingencyRpcClient.mutation(
   "agent.teaching.variable.input"
 );
+export const agentBoundaryDecisionMutation = ContingencyRpcClient.mutation(
+  "agent.boundary.decision"
+);
 export const agentDryRunVariableAnswerMutation = ContingencyRpcClient.mutation(
   "agent.dry-run.variable.answer"
 );

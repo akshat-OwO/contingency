@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Overlay recovery](./workspace.md#overlay-recovery) proves interception of background input, stacked sheets, unnamed and image close targets, focus-time popup races, and reachable edges without reload.
+
 - [Agent onboarding](./workspace.md#agent-onboarding) proves session-only agent launch, bundled Examples, private demo Variables, fresh Dry Runs, verification, project-local reuse, registration, and shutdown.
 
 - [Dry Run prerequisites](./workspace.md#dry-run-prerequisites) proves startup-fixed verified setup skills, private Workspace supply and refusal, skill-scoped replacement, and a complete cart outcome in one fresh context using the gated prerequisite shop.
@@ -52,6 +54,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Teaching navigation evidence](./workspace.md#teaching-navigation-evidence) proves transitional navigation metadata and each keyframe's capture URL with delayed and immediate destination rendering.
 
 - [Workspace](./workspace.md) is the UI recipe for navigation, streaming diagnostics and preferences, scaled Inspect alignment, rapid canvas input, Browser Snapshot coverage, scoped compact text, continuation, context and layered sheets, large-cart Inspect and retry feedback, delayed navigation and Session URL sync, the Teaching Start/Stop capture boundary, Run-owned Agent Assessment evidence, complete or partial Dry Run outcome reports, task-directed Interactive Runs with browser continuity and lazy skill-scoped inputs, and task details, responsive Dry Run results, exact private segmented-code acceptance with delayed and missing-length fixtures, and persisted task and historical Run Summaries.
+- [Execution Boundary](./workspace.md#execution-boundary) proves direct Workspace Allow and Refuse, Takeover restrictions, stored single and sequence resumption, and dispatch-once replay.
 - [Combined task proof](./workspace.md#combined-task-proof) runs `agent-task-combined-proof`, `agent-dry-run-outcomes`, and `agent-summary-restart-proof` together. Its command journal, MCP responses, snapshots, screenshots, persisted rereads, and explicit blockers stay under `artifacts/task-proof/` after cleanup.
 - [Saved skill emulation](./workspace.md#saved-skill-emulation) proves runtime restoration without copied agent arguments, first-document signals, explicit invalid requirements, and composed-skill mismatch evidence.
 - [Skills drawer](./workspace.md#skills-drawer) proves the dock's `Skills` entry across dock states, local-first listing with a folded `Global` root isolated under the verify directory, Runs and recordings grouped by skill, the `Details` panel, session marks, and the empty and no-match states.

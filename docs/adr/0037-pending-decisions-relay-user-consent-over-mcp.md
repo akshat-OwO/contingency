@@ -1,5 +1,7 @@
 # Pending Decisions relay user consent over MCP
 
+> Boundary decisions now also accept direct Workspace gestures under [ADR 0052](./0052-workspace-boundary-decisions-resume-stored-attempts.md). The conversation relay remains available.
+
 > Partly superseded by [ADR 0039](./0039-flow-skills-are-learned-from-temporary-teaching-recordings.md). The `authorize_verification` and `approve_flow` decision kinds are removed; `boundary` and `supply_variable` remain.
 
 Contingency represents an in-scope user choice as a server-issued **Pending Decision**. Session and Agent Flow revision snapshots expose each open decision's id, kind, scope summary, Agent Flow id, revision id, and related session id. The external agent presents that scope in its conversation and calls `agent_pending_decision_resolve` only after the user explicitly chooses. Agent View mirrors pending and resolved status but does not authorize verification or approve revisions.

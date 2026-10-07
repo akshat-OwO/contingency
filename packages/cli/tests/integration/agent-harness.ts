@@ -1,14 +1,16 @@
 import path from "node:path";
 
 import {
+  AgentActionResult,
+  AgentActSequenceResult,
   AgentRunSummary,
   AgentSessionCompact,
   AgentSessionSnapshot,
+  BrowserFailureReason,
   FlowSkillDiagnostic,
   OperationId,
 } from "@contingency/protocol";
 import type {
-  AgentActionResult,
   AgentRunState,
   AgentSessionId,
   AgentSnapshotNode,
@@ -59,6 +61,7 @@ export interface ToolFailure {
   readonly code: string;
   readonly diagnostics?: readonly FlowSkillDiagnostic[] | undefined;
   readonly message: string;
+  readonly reason?: typeof BrowserFailureReason.Type | undefined;
 }
 
 const decodeToolSuccess = <Success extends Schema.Top>(
@@ -70,6 +73,7 @@ const ToolFailureSchema = Schema.Struct({
   code: Schema.String,
   diagnostics: Schema.optional(Schema.Array(FlowSkillDiagnostic)),
   message: Schema.String,
+  reason: Schema.optional(BrowserFailureReason),
 });
 
 const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>
@@ -98,6 +102,8 @@ type Readable<T> = T extends { readonly session: infer S }
 
 /** The fields each tool leaves unpublished, with the schema that reads them. */
 const unpublishedFields = new Map<string, Schema.Decoder<object>>([
+  ["agent_browser_resume", AgentActionResult],
+  ["agent_browser_act_sequence", AgentActSequenceResult],
   [
     "agent_flow_skill_dry_run_start",
     Schema.Struct({ session: AgentSessionSnapshot }),
@@ -126,6 +132,7 @@ const readable = <Value>(name: string, value: Value) =>
 
 /** Tools that answer with a Browser Snapshot and take a `format`. */
 const SNAPSHOT_TOOLS = new Set([
+  "agent_browser_resume",
   "agent_browser_act",
   "agent_browser_act_sequence",
   "agent_browser_snapshot",
@@ -166,7 +173,11 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
   name: Name,
   params: Tool.Parameters<Tools[Name]>
 ) => Effect.Effect<
-  Readable<Tool.Success<Tools[Name]>>,
+  Name extends "agent_browser_resume"
+    ? AgentActionResult
+    : Name extends "agent_browser_act_sequence"
+      ? AgentActSequenceResult
+      : Readable<Tool.Success<Tools[Name]>>,
   ToolFailure,
   Tool.HandlersFor<Tools> | Tool.ResultDecodingServices<Tools[Name]>
 >;

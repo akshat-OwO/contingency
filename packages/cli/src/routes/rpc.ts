@@ -334,6 +334,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         agentUnavailable((service) => service.answerSetupVariable(data)).pipe(
           Effect.map((session) => ({ session }))
         ),
+      "agent.boundary.decision": ({ sessionId, ...input }) =>
+        agentUnavailable((service) =>
+          service.resolvePendingDecision(input, {
+            source: "workspace",
+            sessionId,
+          })
+        ).pipe(Effect.map((session) => ({ session }))),
       "agent.dry-run.variable.answer": ({ sessionId, ...input }) =>
         agentUnavailable((service) =>
           service.answerDryRunVariable(sessionId, input)
