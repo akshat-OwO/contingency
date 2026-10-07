@@ -6,6 +6,7 @@ import {
   AgentRunSummary,
   AgentSessionCompact,
   AgentSessionSnapshot,
+  BrowserFailureReason,
   FlowSkillDiagnostic,
   OperationId,
 } from "@contingency/protocol";
@@ -60,6 +61,7 @@ export interface ToolFailure {
   readonly code: string;
   readonly diagnostics?: readonly FlowSkillDiagnostic[] | undefined;
   readonly message: string;
+  readonly reason?: typeof BrowserFailureReason.Type | undefined;
 }
 
 const decodeToolSuccess = <Success extends Schema.Top>(
@@ -71,6 +73,7 @@ const ToolFailureSchema = Schema.Struct({
   code: Schema.String,
   diagnostics: Schema.optional(Schema.Array(FlowSkillDiagnostic)),
   message: Schema.String,
+  reason: Schema.optional(BrowserFailureReason),
 });
 
 const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>

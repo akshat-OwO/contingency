@@ -7,7 +7,10 @@ import {
   OperationId,
   UserAgentProfileId,
 } from "@contingency/protocol";
-import type { AgentSnapshotNode } from "@contingency/protocol";
+import type {
+  AgentBrowserAction,
+  AgentSnapshotNode,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber, Layer } from "effect";
@@ -1365,5 +1368,266 @@ it.live(
         y: 280,
       });
       expect(retry.element.description).toBe("button: Change quantity");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "blocks covered controls and recovers through unnamed and image close targets without reload",
+  () =>
+    Effect.gen(function* recoverStackedPopups() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const { session } = yield* agent("agent.session.start", {
+        activity: "run",
+        clientName: "overlay-test",
+        clientVersion: "1",
+        name: "popup recovery",
+        operationId: OperationId.make("popup-start"),
+        url: fixtures.url("popup-recovery.html"),
+        viewport: { deviceScaleFactor: 1, height: 844, width: 390 },
+      });
+      const sessionId = session.id;
+      const before = yield* callTool("agent_browser_snapshot", { sessionId });
+      const search = findNode(before.nodes, "textbox", "Search catalogue");
+      const area = findNode(before.nodes, "combobox", "Delivery area");
+      const opened = yield* callTool("agent_browser_act", {
+        action: {
+          ref: findNode(before.nodes, "button", "Show offers and help").ref,
+          type: "click",
+        },
+        operationId: OperationId.make("popup-open"),
+        sessionId,
+      });
+      expect(
+        findNode(opened.snapshot.nodes, "textbox", "Search catalogue").blockedBy
+      ).toBeDefined();
+      const blocked = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: search.ref, text: "anvil", type: "fill" },
+          operationId: OperationId.make("popup-blocked-fill"),
+          sessionId,
+        })
+      );
+      expect(blocked.reason).toBe("intercepted");
+      expect(blocked.message).toContain("fresh agent_browser_snapshot");
+      const selected = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: area.ref, type: "select", values: ["Sector 144"] },
+          operationId: OperationId.make("popup-blocked-select"),
+          sessionId,
+        })
+      );
+      expect(selected.reason).toBe("intercepted");
+      const typed = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { key: "A", type: "press" },
+          operationId: OperationId.make("popup-blocked-key"),
+          sessionId,
+        })
+      );
+      expect(typed.reason).toBe("intercepted");
+      const coveredClick = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: search.ref, type: "click" },
+          operationId: OperationId.make("popup-blocked-click"),
+          sessionId,
+        })
+      );
+      expect(coveredClick.reason).toBe("intercepted");
+      const helpClose = opened.snapshot.nodes.find(
+        (node) => node.clickable && node.name === "Close"
+      );
+      const adClose = opened.snapshot.nodes.find(
+        (node) =>
+          node.clickable &&
+          node.name === "" &&
+          node.bounds !== undefined &&
+          node.blockedBy === undefined
+      );
+      if (helpClose === undefined || adClose === undefined) {
+        return yield* Effect.die(
+          "Both React-style image close controls must be represented."
+        );
+      }
+      expect(helpClose.blockedBy).toBeDefined();
+      const inaccessibleClose = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: helpClose.ref, type: "click" },
+          operationId: OperationId.make("popup-covered-close"),
+          sessionId,
+        })
+      );
+      expect(inaccessibleClose.reason).toBe("intercepted");
+      const text = yield* callTool("agent_browser_snapshot", {
+        format: "text",
+        sessionId,
+      });
+      expect(text.text).toContain("blocked by");
+      expect(text.text).not.toContain(`@${search.ref} `);
+      const adDismissed = yield* callTool("agent_browser_act", {
+        action: { ref: adClose.ref, type: "click" },
+        operationId: OperationId.make("popup-dismiss-ad"),
+        sessionId,
+      });
+      const stillCovered = findNode(
+        adDismissed.snapshot.nodes,
+        "textbox",
+        "Search catalogue"
+      );
+      expect(stillCovered.blockedBy?.role).toBe("dialog");
+      expect(stillCovered.blockedBy?.name).toBe("Need help with your order?");
+      const close = adDismissed.snapshot.nodes.find(
+        (node) => node.clickable && node.name === "Close"
+      );
+      if (close === undefined) {
+        return yield* Effect.die("The help dismissal must stay reachable.");
+      }
+      expect(close.blockedBy).toBeUndefined();
+      const dismissed = yield* callTool("agent_browser_act", {
+        action: { ref: close.ref, type: "click" },
+        operationId: OperationId.make("popup-dismiss-help"),
+        sessionId,
+      });
+      expect(
+        findNode(dismissed.snapshot.nodes, "textbox", "Search catalogue").value
+      ).toBeUndefined();
+      expect(
+        findNode(dismissed.snapshot.nodes, "combobox", "Delivery area").value
+      ).toBe("Sector 14");
+      const recovered = yield* callTool("agent_browser_act", {
+        action: { ref: search.ref, text: "anvil", type: "fill" },
+        operationId: OperationId.make("popup-recovered-search"),
+        sessionId,
+      });
+      findNode(recovered.snapshot.nodes, "status", "Searching: anvil");
+      expect(recovered.url).toBe(fixtures.url("popup-recovery.html"));
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("rechecks a popup opened by focus before sending text", () =>
+  Effect.gen(function* popupDuringFocus() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("popup-recovery.html?on-focus"),
+      "popup-focus-start"
+    );
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const search = findNode(before.nodes, "textbox", "Search catalogue");
+    expect(search.blockedBy).toBeUndefined();
+    const failure = yield* Effect.flip(
+      callTool("agent_browser_act", {
+        action: { ref: search.ref, text: "must not arrive", type: "fill" },
+        operationId: OperationId.make("popup-focus-fill"),
+        sessionId: session.id,
+      })
+    );
+    expect(failure.reason).toBe("intercepted");
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      findNode(after.nodes, "textbox", "Search catalogue").value
+    ).toBeUndefined();
+    findNode(after.nodes, "dialog", "Need help with your order?");
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "clicks the reachable edge of a partly covered control without forcing input",
+  () =>
+    Effect.gen(function* reachableEdge() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("popup-recovery.html?partial"),
+        "popup-partial-start"
+      );
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      const button = findNode(before.nodes, "button", "Partly covered action");
+      expect(button.blockedBy).toBeUndefined();
+      const clicked = yield* callTool("agent_browser_act", {
+        action: { ref: button.ref, type: "click" },
+        operationId: OperationId.make("popup-partial-click"),
+        sessionId: session.id,
+      });
+      findNode(clicked.snapshot.nodes, "status", "1 click");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "preserves ordinary focus, keyboard, label, and actionability behavior",
+  () =>
+    Effect.gen(function* ordinaryInput() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("popup-recovery.html?ordinary"),
+        "ordinary-start"
+      );
+      let index = 0;
+      const act = (action: AgentBrowserAction) => {
+        const operationId = OperationId.make(`ordinary-${index}`);
+        index += 1;
+        return callTool("agent_browser_act", {
+          action,
+          operationId,
+          sessionId: session.id,
+        });
+      };
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      const activated = yield* act({
+        key: "Enter",
+        ref: findNode(before.nodes, "button", "Activate once").ref,
+        type: "press",
+      });
+      findNode(activated.snapshot.nodes, "status", "1 activations");
+      const filled = yield* act({
+        ref: findNode(before.nodes, "textbox", "Ordinary input").ref,
+        text: "anvil",
+        type: "fill",
+      });
+      findNode(filled.snapshot.nodes, "status", "0 input clicks");
+      const checkbox = findNode(before.nodes, "checkbox", "Label checkbox");
+      expect(checkbox.blockedBy).toBeUndefined();
+      const checked = yield* act({ ref: checkbox.ref, type: "click" });
+      expect(
+        findNode(checked.snapshot.nodes, "checkbox", "Label checkbox").checked
+      ).toBe(true);
+      yield* act({
+        ref: findNode(before.nodes, "button", "Focus hidden checkbox").ref,
+        type: "click",
+      });
+      const hidden = yield* act({ key: "Space", type: "press" });
+      findNode(hidden.snapshot.nodes, "status", "Hidden checked");
+      yield* act({
+        ref: findNode(before.nodes, "button", "Focus offscreen input").ref,
+        type: "click",
+      });
+      const offscreen = yield* act({ key: "ArrowRight", type: "press" });
+      findNode(offscreen.snapshot.nodes, "status", "Scroll 0");
+      yield* act({
+        ref: findNode(before.nodes, "button", "Enable slow action").ref,
+        type: "click",
+      });
+      const slow = yield* act({
+        ref: findNode(before.nodes, "button", "Slow action").ref,
+        type: "click",
+      });
+      findNode(slow.snapshot.nodes, "status", "Slow clicked");
+      const shadow = yield* act({
+        ref: findNode(before.nodes, "button", "Shadow action").ref,
+        type: "click",
+      });
+      findNode(shadow.snapshot.nodes, "status", "Shadow clicked");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );

@@ -7,6 +7,7 @@ import {
   AgentBrowserObserve,
   AgentBrowserSnapshot,
   AgentBrowserSnapshotRead,
+  BrowserFailureReason,
   AgentScreenshotFile,
   AgentSessionClose,
   AgentSessionGet,
@@ -160,12 +161,14 @@ class AgentSessionFailure extends Schema.Error<AgentSessionFailure>(
 )({
   code: Schema.String,
   message: Schema.String,
+  reason: Schema.optional(BrowserFailureReason),
 }) {}
 
 const failure = (cause: AgentSessionError) =>
   new AgentSessionFailure({
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
+    reason: cause._tag === "BrowserRpcError" ? cause.reason : undefined,
   });
 
 const AgentBrowserObserveParameters = Schema.Struct({
@@ -249,7 +252,7 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      'Read a bounded Snapshot. Default text has indented role, quoted name, state, and @eN refs on controls; nodes is empty. Refs last until removal or navigation. format:"structured" returns nodes. Viewport content comes first. coverage reports scope, eligible nodes, truncation, and nextCursor. Use interactive:true for controls, urls:true for link destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness, not coverage. Reread after effect none, unsettled actions, stale refs, or external changes.',
+      'Read a bounded Snapshot. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
     failure: AgentSessionFailure,
     parameters: AgentBrowserSnapshotRead,
     success: AgentBrowserSnapshot,

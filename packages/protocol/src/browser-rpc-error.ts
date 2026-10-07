@@ -6,6 +6,8 @@ import { Schema } from "effect";
  * target that went away from a value the page refused.
  */
 export const BrowserFailureReason = Schema.Literals([
+  // Another foreground element receives the target's pointer input.
+  "intercepted",
   // The control left the document or its reference went stale.
   "detached",
   // A split control has a different number of boxes than the value has

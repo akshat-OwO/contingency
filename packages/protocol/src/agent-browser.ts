@@ -43,6 +43,17 @@ export type AgentSnapshotId = typeof AgentSnapshotId.Type;
  * `url` is a link's destination, present only when the read asked for URLs.
  */
 export const AgentSnapshotNode = Schema.Struct({
+  blockedBy: optionalNullable(
+    Schema.Struct({ name: Schema.String, role: nonEmptyString })
+  ),
+  bounds: optionalNullable(
+    Schema.Struct({
+      height: Schema.Finite,
+      width: Schema.Finite,
+      x: Schema.Finite,
+      y: Schema.Finite,
+    })
+  ),
   checked: optionalNullable(Schema.Boolean),
   clickable: optionalNullable(Schema.Boolean),
   context: optionalNullable(Schema.String),
