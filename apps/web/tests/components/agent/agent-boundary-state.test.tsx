@@ -25,11 +25,18 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
  * collected.
  */
 const rpc = vi.hoisted(() => ({
+  answer: vi.fn(),
   emit: undefined,
   sessionsResult: undefined,
 }));
 
 const rpcOverrides = {
+  agentBoundaryDecisionMutation: Atom.fn((input) =>
+    Effect.promise(async () => {
+      await rpc.answer(input);
+      return {};
+    })
+  ),
   agentBrowserFrameAckMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserInputMutation: Atom.fn(() => Effect.succeed({})),
   agentBrowserNavigateMutation: Atom.fn(() => Effect.succeed({})),
@@ -119,6 +126,7 @@ const renderWorkspace = () => {
 afterEach(() => {
   cleanup();
   rpc.emit = undefined;
+  rpc.answer.mockReset();
 });
 
 test("keeps an Execution Boundary on screen through a burst of updates", async () => {
@@ -162,7 +170,7 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
   expect(screen.getByText("https://shop.example.com/checkout")).toBe(shown);
 });
 
-test("clears the paused Boundary from the browser during Takeover and restores it on return", async () => {
+test("keeps refusal available during Takeover and enables Allow on return", async () => {
   renderWorkspace();
   await screen.findByRole("region", { name: "Workspace dock" });
   const boundary = {
@@ -173,7 +181,12 @@ test("clears the paused Boundary from the browser during Takeover and restores i
     reason: "confirmation",
     requested: "Submit the return for RH-1042",
   };
-  const run = { activity: "run", captureState: null, teaching: null };
+  const run = {
+    activity: "run",
+    captureState: null,
+    pendingDecisions: [pendingFor("boundary-return")],
+    teaching: null,
+  };
   rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { ...run, boundary }));
   await screen.findByRole("region", { name: "Execution Boundary" });
 
@@ -186,9 +199,8 @@ test("clears the paused Boundary from the browser during Takeover and restores i
     })
   );
   await waitFor(() => {
-    expect(
-      screen.queryByRole("region", { name: "Execution Boundary" })
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refuse" })).toBeEnabled();
     expect(
       screen.getByRole("textbox", { name: "Browser address" })
     ).toBeEnabled();
@@ -197,7 +209,7 @@ test("clears the paused Boundary from the browser during Takeover and restores i
   await screen.findByRole("button", { name: "Return control" });
   rpc.emit?.(sessionAt("2026-09-02T00:00:03.000Z", { ...run, boundary }));
   await screen.findByRole("region", { name: "Execution Boundary" });
-  expect(screen.getByText(/in your agent conversation/u)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Allow" })).toBeVisible();
   expect(
     screen.getByRole("textbox", { name: "Browser address" })
   ).toBeDisabled();
@@ -235,15 +247,10 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   expect(
     within(boundary).getAllByText("Submit the return for RH-1042")
   ).toHaveLength(1);
-  // The decision is answered in the agent conversation, never here.
+  expect(within(boundary).getByRole("button", { name: "Allow" })).toBeEnabled();
   expect(
-    within(boundary).queryByRole("button", { name: /^allow$/iu })
-  ).toBeNull();
-  expect(
-    within(boundary).getByRole("button", {
-      name: "Copy decision id pending-boundary-1-2ca483b9-83b0-442f",
-    })
-  ).toBeVisible();
+    within(boundary).getByRole("button", { name: "Refuse" })
+  ).toBeEnabled();
   expect(boundary).not.toHaveTextContent("submit-boundary-1");
   await user.click(
     within(boundary).getByRole("button", { name: "Action details" })
@@ -273,4 +280,59 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   expect(
     await within(dock).findByRole("region", { name: "Execution Boundary" })
   ).toBeVisible();
+});
+
+test("answers the exact decision in Workspace and reuses its resolution id after a transport failure", async () => {
+  const user = userEvent.setup();
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Workspace dock" });
+  rpc.emit?.(
+    sessionAt("2026-09-02T00:00:01.000Z", {
+      activity: "run",
+      boundary: boundaryFor("ui-answer"),
+      captureState: null,
+      pendingDecisions: [pendingFor("ui-answer")],
+      teaching: null,
+    })
+  );
+  const allow = await screen.findByRole("button", { name: "Allow" });
+  rpc.answer.mockRejectedValueOnce(new Error("Connection interrupted"));
+  await user.click(allow);
+  await screen.findByRole("alert");
+  await user.click(allow);
+  await waitFor(() => expect(allow).toBeDisabled());
+  expect(rpc.answer).toHaveBeenCalledTimes(2);
+  expect(rpc.answer.mock.calls[1]).toEqual(rpc.answer.mock.calls[0]);
+  expect(rpc.answer.mock.calls[0][0].payload).toMatchObject({
+    decision: "allow",
+    pendingDecisionId: pendingFor("ui-answer").pendingDecisionId,
+    sessionId: "agent-one",
+  });
+  expect(rpc.answer.mock.calls[0][0].payload.operationId).not.toBe(
+    boundaryFor("ui-answer").operationId
+  );
+});
+
+test("refuses a pending attempt while the user holds Takeover", async () => {
+  const user = userEvent.setup();
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Workspace dock" });
+  rpc.emit?.(
+    sessionAt("2026-09-02T00:00:01.000Z", {
+      activity: "run",
+      boundary: boundaryFor("ui-refuse"),
+      captureState: null,
+      controller: "user",
+      pendingDecisions: [pendingFor("ui-refuse")],
+      phase: "takeover",
+      teaching: null,
+    })
+  );
+  expect(await screen.findByRole("button", { name: "Allow" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Refuse" }));
+  await waitFor(() => expect(rpc.answer).toHaveBeenCalledTimes(1));
+  expect(rpc.answer.mock.calls[0][0].payload).toMatchObject({
+    decision: "refuse",
+    pendingDecisionId: pendingFor("ui-refuse").pendingDecisionId,
+  });
 });

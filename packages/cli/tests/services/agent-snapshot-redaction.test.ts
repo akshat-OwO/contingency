@@ -9,6 +9,7 @@ test("redacts private values from repeated-item context before compact formattin
       capturedAt: "2026-10-02T00:00:00Z",
       nodes: [
         {
+          blockedBy: { name: "Confirm private-account", role: "dialog" },
           context: "Account private-account",
           depth: 0,
           name: "Continue private-account",
@@ -24,4 +25,5 @@ test("redacts private values from repeated-item context before compact formattin
   );
   expect(JSON.stringify(snapshot)).not.toContain("private-account");
   expect(snapshot.nodes[0]?.context).toContain("Account");
+  expect(snapshot.nodes[0]?.blockedBy?.name).toContain("Confirm");
 });

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -73,6 +72,7 @@ import type {
   CreateSessionState,
 } from "./create-browser-session.ts";
 import { makeCreateBrowserStorage } from "./create-browser-storage.ts";
+import { readDebuggingEndpoint } from "./debugging-endpoint.ts";
 import { environmentContextOptions } from "./emulation-options.ts";
 
 export {
@@ -924,21 +924,12 @@ const launchChromium = async (
     throw new Error("The scan browser did not publish its owner.");
   }
   try {
-    let performanceEndpoint: string | undefined;
-    if (performanceDirectory !== undefined) {
-      const endpoint = await readFile(
-        path.join(performanceDirectory, "DevToolsActivePort"),
-        "utf-8"
-      );
-      const [port, route] = endpoint.trim().split("\n");
-      if (
-        !/^\d+$/u.test(port ?? "") ||
-        !route?.startsWith("/devtools/browser/")
-      ) {
-        throw new Error("Chromium published an invalid debugging endpoint.");
-      }
-      performanceEndpoint = `ws://127.0.0.1:${port}${route}`;
-    }
+    const performanceEndpoint =
+      performanceDirectory === undefined
+        ? undefined
+        : await readDebuggingEndpoint(
+            path.join(performanceDirectory, "DevToolsActivePort")
+          );
     const cdp = await browser.newBrowserCDPSession();
     const version = await cdp.send("Browser.getVersion");
     await cdp.detach();

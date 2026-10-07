@@ -26,6 +26,12 @@ import {
 import { BrowserTabId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
+import {
+  CatalogBrowseGet,
+  CatalogBrowseResult,
+  CatalogFlowSkillGet,
+  CatalogFlowSkillResult,
+} from "./catalog-browser.ts";
 import { Geolocation, PermissionDecisions } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { TeachingScan } from "./scans.ts";
@@ -67,6 +73,8 @@ export * from "./agent-cursor-path.ts";
 export * from "./run-video.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./teaching-recording.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./catalog-browser.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./optional-field.ts";
 export {
@@ -850,6 +858,17 @@ const AgentSetupVariableAnswerRpc = Rpc.make("agent.setup.variable.answer", {
   payload: AgentSetupVariableAnswerRequest,
   success: AgentSetupVariableAnswered,
 });
+export const AgentBoundaryDecision = Schema.Struct({
+  decision: Schema.Literals(["allow", "refuse"]),
+  operationId: AgentPendingDecisionResolve.fields.operationId,
+  pendingDecisionId: AgentPendingDecisionResolve.fields.pendingDecisionId,
+  sessionId: AgentBrowserObserve.fields.sessionId,
+});
+const AgentBoundaryDecisionRpc = Rpc.make("agent.boundary.decision", {
+  error: BrowserRpcError,
+  payload: AgentBoundaryDecision,
+  success: AgentSessionResult,
+});
 const AgentDryRunVariableAnswerRpc = Rpc.make("agent.dry-run.variable.answer", {
   error: BrowserRpcError,
   payload: AgentDryRunVariableAnswer,
@@ -916,6 +935,20 @@ const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   payload: AgentRunSummaryGet,
   success: AgentRunSummaryResult,
 });
+/**
+ * The Workspace's Skills drawer. Both are read-only: browsing never writes to
+ * either Catalog Root, and neither is an MCP tool (ADR 0051).
+ */
+const CatalogBrowseGetRpc = Rpc.make("catalog.browse.get", {
+  error: BrowserRpcError,
+  payload: CatalogBrowseGet,
+  success: CatalogBrowseResult,
+});
+const CatalogFlowSkillGetRpc = Rpc.make("catalog.flow-skill.get", {
+  error: BrowserRpcError,
+  payload: CatalogFlowSkillGet,
+  success: CatalogFlowSkillResult,
+});
 export class ContingencyRpcs extends RpcGroup.make(
   AgentSessionsGetRpc,
   AgentSessionStartRpc,
@@ -940,6 +973,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentTeachingVariableInputRpc,
   AgentDryRunVariableSupplyRpc,
   AgentDryRunVariableAnswerRpc,
+  AgentBoundaryDecisionRpc,
   AgentSetupVariableAnswerRpc,
   AgentBrowserNavigateRpc,
   AgentBrowserEmulationGetRpc,
@@ -951,5 +985,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserStorageSetRpc,
   AgentBrowserStorageDeleteRpc,
   AgentBrowserStorageClearRpc,
-  AgentRunSummaryGetRpc
+  AgentRunSummaryGetRpc,
+  CatalogBrowseGetRpc,
+  CatalogFlowSkillGetRpc
 ) {}

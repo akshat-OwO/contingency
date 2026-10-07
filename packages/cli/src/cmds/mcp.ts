@@ -27,6 +27,10 @@ import {
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
 import {
+  defaultGlobalCatalogRoot,
+  makeCatalogBrowserLayer,
+} from "../services/catalog-browser.ts";
+import {
   REGISTERED_AGENTS,
   defaultHomeDirectory,
   resolveCatalogDirectory,
@@ -206,6 +210,16 @@ export const mcpCommand = Command.make(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
           )
         );
+        // The Workspace's Skills drawer follows the selected root, and also
+        // lists the user's global root; no tool reads the global one.
+        const catalogBrowser = Layer.succeedContext(
+          yield* Layer.build(
+            makeCatalogBrowserLayer({
+              globalRoot: defaultGlobalCatalogRoot(),
+              localRoot: () => selectedCatalogRoot,
+            }).pipe(Layer.provide(catalog))
+          )
+        );
         const runVideoRenderer = Layer.succeedContext(
           yield* Layer.build(RunVideoRendererLive)
         );
@@ -303,6 +317,7 @@ export const mcpCommand = Command.make(
             agentRunStore: runStore,
             agentSession,
             allowedOrigins,
+            catalogBrowser,
             host,
             mcp: makeMcpHttpLayer(allowedOrigins, { codeMode, demoSite }).pipe(
               Layer.provide(shared)

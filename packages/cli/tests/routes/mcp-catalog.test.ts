@@ -70,7 +70,7 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       yield* request("tools/list", {})
     ).result;
 
-    expect(tools).toHaveLength(34);
+    expect(tools).toHaveLength(35);
     expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
     expect(tools.map((tool) => tool.name)).not.toContain(
       "agent_run_variable_request"

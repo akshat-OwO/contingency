@@ -319,13 +319,21 @@ export interface AgentSessionService {
   ) => Effect.Effect<string, AgentSessionError>;
   /**
    * Apply the user's explicit choice to a paused Execution Boundary or a
-   * runtime Variable this session still needs. The agent relays the choice
-   * from the MCP conversation
+   * runtime Variable this session still needs. Boundary choices may come
+   * directly from Workspace or be relayed from the MCP conversation
    * ([ADR 0037](../../../../docs/adr/0037-pending-decisions-relay-user-consent-over-mcp.md)).
    */
   readonly resolvePendingDecision: (
-    input: AgentPendingDecisionResolve
+    input: AgentPendingDecisionResolve,
+    context?: {
+      readonly source: "workspace";
+      readonly sessionId: AgentSessionId;
+    }
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly resumeBoundary: (
+    sessionId: AgentSessionId,
+    boundaryId: string
+  ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   /** An open decision this session minted, for the MCP adapter. */
   readonly pendingDecision: (
     pendingDecisionId: AgentPendingDecisionId
@@ -847,9 +855,24 @@ const sessionSensitiveValues = (record: SessionRecord): readonly string[] =>
     ...new Set([
       ...(record.capture?.sensitiveValues() ?? []),
       ...record.supplied.values(),
+      ...record.replacedSensitiveValues,
       ...record.setupSensitiveValues,
     ]),
   ].toSorted((left, right) => right.length - left.length);
+
+/**
+ * Drops supplied values for replacement while keeping them redacted. The Page
+ * can still show a replaced value, such as an unsubmitted OTP field.
+ */
+const retireSupplied = (record: SessionRecord, keys: readonly string[]) => {
+  for (const key of keys) {
+    const value = record.supplied.get(key);
+    if (value !== undefined) {
+      record.replacedSensitiveValues.add(value);
+    }
+    record.supplied.delete(key);
+  }
+};
 
 const redactCapturedSnapshot = (
   record: SessionRecord,
@@ -1312,6 +1335,8 @@ interface SessionRecord {
    * session and are never published, persisted, or returned.
    */
   readonly supplied: Map<string, string>;
+  /** Replaced supplied values, still redacted for the rest of the session. */
+  readonly replacedSensitiveValues: Set<string>;
   readonly setupSensitiveValues: Set<string>;
   /** Start-scoped capture resources. Absent during setup and after Stop. */
   readonly teachingRecorder: TeachingRecorder | undefined;
@@ -1534,7 +1559,8 @@ const variableResolution = (
 const boundaryResolution = (
   pending: PendingBoundary,
   input: AgentPendingDecisionResolve,
-  decidedAt: string
+  decidedAt: string,
+  source: "conversation" | "workspace"
 ): AgentPendingDecisionResolution => {
   const base = {
     boundaryId: pending.boundary.id,
@@ -1543,6 +1569,7 @@ const boundaryResolution = (
     kind: "boundary",
     operationId: input.operationId,
     pendingDecisionId: pending.decision.pendingDecisionId,
+    source,
     variableName: null,
   } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
   if (input.userMessage === undefined || input.userMessage === null) {
@@ -3637,6 +3664,7 @@ const makeAgentSession = (
                             }),
                       finalized: makeRunFinalizationState(),
                       footage,
+                      replacedSensitiveValues: new Set<string>(),
                       retentionFile,
                       runEvidence: {
                         attempts: new Set(),
@@ -3660,8 +3688,9 @@ const makeAgentSession = (
                         if (record.snapshot.activity === "teaching") {
                           record.supplied.clear();
                         }
+                        record.replacedSensitiveValues.clear();
                         record.setupSensitiveValues.clear();
-                      })
+                      }).pipe(Effect.andThen(ledger.releaseSession(sessionId)))
                     );
                     yield* Ref.update(sessions, (current) =>
                       new Map(current).set(sessionId, record)
@@ -4446,6 +4475,7 @@ const makeAgentSession = (
         boundaryAttempt: {
           readonly operationId: string;
           readonly intent: AgentActionIntent;
+          readonly onDispatch: Effect.Effect<void>;
         },
         privateRegistration?: {
           readonly target: PrivateInputTarget;
@@ -4497,6 +4527,10 @@ const makeAgentSession = (
         // The Action Window runs from dispatch until the Page has settled,
         // whether the action completes, fails, or is taken over.
         const windowStartedAt = Date.now();
+        // Publish a spent receipt before the browser can act. If this caller
+        // is interrupted before completion is recorded, replay fails closed
+        // rather than dispatching an uncertain action again.
+        yield* Effect.uninterruptible(boundaryAttempt.onDispatch);
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
             const observation = yield* page.beginObservation(action);
@@ -4656,7 +4690,8 @@ const makeAgentSession = (
           readonly variable: Variable;
         },
         intent: AgentActionIntent = {}
-      ) {
+      ): Effect.fn.Return<AgentActionResult, AgentSessionError> {
+        let dispatched = false;
         const operationKind =
           privateCapture === undefined ? "act" : "private-input";
         const requestInput =
@@ -4758,7 +4793,26 @@ const makeAgentSession = (
                     failedDescription,
                     id,
                     sensitive,
-                    { intent, operationId: String(operationId ?? id) },
+                    {
+                      intent,
+                      onDispatch: Effect.gen(function* spendActionAttempt() {
+                        dispatched = true;
+                        yield* ledger.remember(
+                          operationId,
+                          operationKind,
+                          sessionId,
+                          requestInput,
+                          {
+                            error: makeBrowserRpcError(
+                              "agent_browser_failed",
+                              "This action was dispatched but its outcome is unknown. It may already have happened. Reread the browser before starting a new attempt."
+                            ),
+                            kind: "act-failure",
+                          }
+                        );
+                      }),
+                      operationId: String(operationId ?? id),
+                    },
                     privateRegistration
                   );
                 })
@@ -4802,6 +4856,9 @@ const makeAgentSession = (
                 outcome.failure.reason
               )
             : error(outcome.failure.code, message);
+        if (!dispatched) {
+          return yield* Effect.fail(failure);
+        }
         yield* ledger.remember(
           operationId,
           operationKind,
@@ -4818,13 +4875,33 @@ const makeAgentSession = (
 
     const actUnlocked = (...args: Parameters<typeof executeAction>) => {
       const [sessionId, action, operationId, privateCapture, intent] = args;
-      return ledger.action(
-        operationId,
-        privateCapture === undefined ? "act" : "private-input",
-        sessionId,
+      const kind = privateCapture === undefined ? "act" : "private-input";
+      const requestInput =
         privateCapture?.requestInput ??
-          JSON.stringify({ action, intent: intent ?? {} }),
+        JSON.stringify({ action, intent: intent ?? {} });
+      const attempt = ledger.action(
+        operationId,
+        kind,
+        sessionId,
+        requestInput,
         executeAction(...args)
+      );
+      return attempt.pipe(
+        Effect.tap((result) =>
+          !result.entry.dispatched &&
+          result.intervention !== undefined &&
+          result.intervention.operationId === String(operationId) &&
+          operationId !== undefined
+            ? ledger.bindBoundary(
+                result.intervention.id,
+                operationId,
+                kind,
+                sessionId,
+                requestInput,
+                attempt
+              )
+            : Effect.void
+        )
       );
     };
 
@@ -5750,11 +5827,9 @@ const makeAgentSession = (
           "The Run ended before the scan stop condition."
         );
         const record = yield* read(sessionId);
-        return yield* runLifecycle.finalize(
-          record,
-          (change) => mutate(sessionId, change),
-          summaryText
-        );
+        return yield* runLifecycle
+          .finalize(record, (change) => mutate(sessionId, change), summaryText)
+          .pipe(Effect.tap(() => ledger.releaseSession(sessionId)));
       }
     );
 
@@ -5812,6 +5887,7 @@ const makeAgentSession = (
               }
             }
             let record = yield* read(sessionId);
+            yield* ledger.releaseSession(sessionId);
             if (
               isLive(record.snapshot.phase) &&
               record.snapshot.activity === "teaching" &&
@@ -6479,6 +6555,52 @@ const makeAgentSession = (
               if (declared._tag === "error") {
                 return yield* Effect.fail(declared.error);
               }
+              const { dryRun } = record.snapshot;
+              if (dryRun !== null && flowSkillName === dryRun.flowSkillName) {
+                if (!declared.variable.secret) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "Ordinary Dry Run inputs are fixed at startup."
+                    )
+                  );
+                }
+                const suppliedVariable = dryRun.variables.find(
+                  (variable) => variable.name === name
+                );
+                if (!(replace && suppliedVariable?.supplied)) {
+                  return record.snapshot;
+                }
+                // The tested skill uses the existing Workspace secret fields.
+                // Both lookup forms must lose the previous value on replacement.
+                retireSupplied(record, [
+                  name,
+                  variableKey(name, flowSkillName),
+                ]);
+                const next = {
+                  ...record.snapshot,
+                  dryRun: {
+                    ...dryRun,
+                    variables: dryRun.variables.map((variable) =>
+                      variable.name === name
+                        ? { ...variable, supplied: false }
+                        : variable
+                    ),
+                  },
+                  run: {
+                    ...run,
+                    variables: run.variables.map((variable) =>
+                      variable.flowSkillName === flowSkillName &&
+                      variable.name === name
+                        ? { ...variable, supplied: false }
+                        : variable
+                    ),
+                  },
+                  updatedAt: now().toISOString(),
+                };
+                yield* save(sessionId, record, next);
+                return next;
+              }
               const variable = run.variables.find(
                 (candidate) =>
                   candidate.flowSkillName === flowSkillName &&
@@ -6495,10 +6617,7 @@ const makeAgentSession = (
                 return record.snapshot;
               }
               if (replace) {
-                record.supplied.delete(variableKey(name, flowSkillName));
-                if (record.snapshot.dryRun?.flowSkillName === flowSkillName) {
-                  record.supplied.delete(name);
-                }
+                retireSupplied(record, [variableKey(name, flowSkillName)]);
               }
               const at = now().toISOString();
               const decision: AgentPendingDecision = {
@@ -6553,18 +6672,23 @@ const makeAgentSession = (
               return next;
             })
         ),
-      resolvePendingDecision: (input) =>
+      resolvePendingDecision: (input, context) =>
         ledger.serializeMutation(
           Effect.gen(function* resolveSessionDecision() {
             // A runtime Variable decision and a paused Execution Boundary both
             // live on the session; the id the agent relays says which.
-            const variable = yield* resolveVariableDecisionUnlocked(input);
+            const variable =
+              context === undefined
+                ? yield* resolveVariableDecisionUnlocked(input)
+                : null;
             if (variable !== null) {
               return variable;
             }
             const requestInput = JSON.stringify({
               decision: input.decision,
               pendingDecisionId: input.pendingDecisionId,
+              sessionId: context?.sessionId ?? null,
+              source: context?.source ?? "conversation",
               userMessage: input.userMessage ?? null,
             });
             return yield* ledger.session(
@@ -6589,6 +6713,17 @@ const makeAgentSession = (
                     )
                   );
                 }
+                if (
+                  context !== undefined &&
+                  context.sessionId !== located.snapshot.id
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "This decision belongs to another session."
+                    )
+                  );
+                }
                 const record = yield* requireLiveRecord(located.snapshot.id);
                 const control = record.executionBoundary;
                 const pending = control?.pending();
@@ -6609,11 +6744,15 @@ const makeAgentSession = (
                   agentIsPaused(record.snapshot)
                 );
                 const allowed = input.decision === "allow";
+                if (!allowed) {
+                  yield* ledger.releaseBoundary(pending.boundary.id);
+                }
                 const decidedAt = now().toISOString();
                 const resolution = boundaryResolution(
                   resolved,
                   input,
-                  decidedAt
+                  decidedAt,
+                  context?.source ?? "conversation"
                 );
                 const snapshot = yield* recordEntry(
                   record.snapshot.id,
@@ -6651,6 +6790,24 @@ const makeAgentSession = (
             );
           })
         ),
+      resumeBoundary: (sessionId, boundaryId) =>
+        Effect.gen(function* resumeApprovedAttempt() {
+          const record = yield* read(sessionId);
+          const decision = record.snapshot.decisionHistory.find(
+            (item) => item.kind === "boundary" && item.boundaryId === boundaryId
+          );
+          if (decision?.decision !== "allow") {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                decision?.decision === "refuse"
+                  ? "The user refused this action. Start a new attempt only after a new user decision."
+                  : "This boundary is not approved. Wait for Allow or Refuse in Workspace, then reread the session."
+              )
+            );
+          }
+          return yield* ledger.resumeBoundary(boundaryId, sessionId);
+        }),
       returnControl: (sessionId, operationId) =>
         ledger.serializeMutation(
           afterUserInput(

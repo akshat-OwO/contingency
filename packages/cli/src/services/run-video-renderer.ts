@@ -2,7 +2,6 @@ import path from "node:path";
 
 import type { RunVideoStatus } from "@contingency/protocol";
 import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect";
-import type { Fiber } from "effect";
 import type { Page } from "playwright-core";
 
 import { parseByteRange } from "./byte-range.ts";
@@ -108,7 +107,11 @@ export const RunVideoRendererLive = Layer.effect(
     const fileSystem = yield* FileSystem.FileSystem;
     const browser = yield* CreateBrowser;
     const scope = yield* Effect.scope;
-    const inFlight = new Map<string, Fiber.Fiber<void>>();
+    /**
+     * Directories this process is condensing. An entry lasts until the
+     * footage is removed, not only until `run.webm` appears.
+     */
+    const inFlight = new Set<string>();
 
     const exists = (file: string) =>
       fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false));
@@ -399,16 +402,16 @@ export const RunVideoRendererLive = Layer.effect(
         if (inFlight.has(key)) {
           return Effect.void;
         }
+        // Claimed before forking and released by the fiber's exit, which
+        // also fires for a fiber interrupted before it ran or already done.
+        inFlight.add(key);
         return renderDirectory(key).pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              inFlight.delete(key);
-            })
-          ),
           Effect.forkIn(scope),
           Effect.tap((fiber) =>
             Effect.sync(() => {
-              inFlight.set(key, fiber);
+              fiber.addObserver(() => {
+                inFlight.delete(key);
+              });
             })
           ),
           Effect.asVoid
@@ -417,6 +420,11 @@ export const RunVideoRendererLive = Layer.effect(
 
     const status = (directory: string) =>
       Effect.gen(function* readRunVideoStatus() {
+        // `run.webm` is renamed into place before the footage is removed;
+        // the video is ready once this process has finished with it.
+        if (inFlight.has(path.resolve(directory))) {
+          return { state: "preparing" } satisfies RunVideoStatus;
+        }
         if (yield* exists(path.join(directory, RUN_VIDEO_FILE))) {
           const fallback = yield* fileSystem
             .readFileString(path.join(directory, FALLBACK_FILE))

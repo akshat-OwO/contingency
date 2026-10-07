@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { FlowSkillName, OperationId } from "@contingency/protocol";
+import type { AgentElementRef, AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
@@ -20,6 +21,95 @@ import {
 import { fixtureServer } from "./harness.ts";
 
 const operation = OperationId.make;
+
+const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
+  function* exerciseTargetSecrets(
+    sessionId: AgentSessionId,
+    ref: AgentElementRef
+  ) {
+    const sessions = yield* AgentSession;
+    const targetRequest = {
+      flowSkillName: FlowSkillName.make("cart"),
+      name: "PASSWORD",
+      operationId: operation("target-request"),
+      sessionId,
+    };
+    const targetSupplied = yield* sessionTool(
+      "agent_variable_request",
+      targetRequest
+    );
+    expect(targetSupplied.id).toBe(sessionId);
+    expect(targetSupplied.dryRun?.variables[0]?.supplied).toBe(true);
+    const targetReplacement = {
+      ...targetRequest,
+      operationId: operation("target-replace"),
+      replace: true,
+    };
+    const targetWaiting = yield* sessionTool(
+      "agent_variable_request",
+      targetReplacement
+    );
+    expect(targetWaiting.pendingDecisions).toEqual([]);
+    expect(targetWaiting.dryRun?.variables[0]?.supplied).toBe(false);
+    expect(
+      targetWaiting.run?.variables.find(
+        (variable) =>
+          "flowSkillName" in variable && variable.flowSkillName === "cart"
+      )?.supplied
+    ).toBe(false);
+    const unsuppliedReplacement = yield* sessionTool("agent_variable_request", {
+      ...targetReplacement,
+      operationId: operation("target-replace-again"),
+    });
+    expect(unsuppliedReplacement.updatedAt).toBe(targetWaiting.updatedAt);
+    for (const scope of [null, FlowSkillName.make("cart")]) {
+      expect(
+        (yield* Effect.flip(
+          scope === null
+            ? sessionTool("agent_variable_enter", {
+                name: "PASSWORD",
+                operationId: operation("target-old-legacy"),
+                ref,
+                sessionId,
+              })
+            : sessionTool("agent_variable_enter", {
+                flowSkillName: scope,
+                name: "PASSWORD",
+                operationId: operation("target-old-scoped"),
+                ref,
+                sessionId,
+              })
+        )).message
+      ).toContain("not been supplied");
+    }
+    yield* sessions.supplyDryRunVariable(
+      sessionId,
+      "PASSWORD",
+      "private-target-new"
+    );
+    // Retrying the replacement operation must not invalidate its new answer.
+    const replayedTarget = yield* sessionTool(
+      "agent_variable_request",
+      targetReplacement
+    );
+    expect(replayedTarget.dryRun?.variables[0]?.supplied).toBe(false);
+    expect(
+      (yield* sessions.get(sessionId)).dryRun?.variables[0]?.supplied
+    ).toBe(true);
+    expect(JSON.stringify(replayedTarget)).not.toContain("private-target-new");
+    for (const name of ["SKU", "UNKNOWN"]) {
+      expect(
+        (yield* Effect.flip(
+          sessionTool("agent_variable_request", {
+            ...targetRequest,
+            name,
+            operationId: operation(`target-invalid-${name}`),
+          })
+        )).code
+      ).toBe("agent_session_invalid");
+    }
+  }
+);
 
 it.live(
   "fixes Dry Run prerequisites at startup and isolates private values, replacement, and fresh retries",
@@ -346,6 +436,7 @@ it.live(
                 variable.flowSkillName === "location"
             )?.supplied
           ).toBe(false);
+          yield* exerciseTargetSecrets(session.id, password);
           const otherScope = yield* sessionTool("agent_variable_request", {
             ...request,
             flowSkillName: FlowSkillName.make("location"),
@@ -368,6 +459,22 @@ it.live(
             ref: password,
             sessionId: session.id,
           });
+          // A replaced secret can still be on the Page, so it stays redacted.
+          yield* sessionTool("agent_browser_act", {
+            action: {
+              type: "navigate",
+              url: fixture.url("task-session.html?replaced=private-target&"),
+            },
+            operationId: operation("prereq-replaced-visible"),
+            sessionId: session.id,
+          });
+          const replacedVisible = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: session.id,
+          });
+          expect(replacedVisible.url).toContain("replaced=");
+          expect(JSON.stringify(replacedVisible)).not.toContain(
+            "private-target"
+          );
           const offscope = yield* sessionTool("agent_browser_act", {
             action: {
               type: "navigate",

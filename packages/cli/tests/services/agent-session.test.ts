@@ -467,27 +467,30 @@ it.effect("refuses a non-loopback Agent View before opening a browser", () =>
   })
 );
 
-it.effect(
-  "replays an ordinary browser-action failure without dispatching again",
-  () =>
-    Effect.gen(function* replayFailedAction() {
-      const fake = makeFakeBrowser();
-      const service = yield* serviceFor(fake);
-      const started = yield* service.start(startInput("start-failed-action"));
-      const operationId = OperationId.make("failed-action");
-      const action = { action: "reload" as const, type: "history" as const };
+it.effect("retries browser lookup failures that occur before dispatch", () =>
+  Effect.gen(function* replayFailedAction() {
+    const fake = makeFakeBrowser();
+    const service = yield* serviceFor(fake);
+    const started = yield* service.start(startInput("start-failed-action"));
+    const operationId = OperationId.make("failed-action");
+    const action = { action: "reload" as const, type: "history" as const };
 
-      const first = yield* Effect.flip(
-        service.act(started.id, action, operationId)
-      );
-      const repeated = yield* Effect.flip(
-        service.act(started.id, action, operationId)
-      );
+    const first = yield* Effect.flip(
+      service.act(started.id, action, operationId)
+    );
+    const repeated = yield* Effect.flip(
+      service.act(started.id, action, operationId)
+    );
 
-      expect(first).toEqual(repeated);
-      expect(first.code).toBe("agent_browser_failed");
-      expect(fake.activePageCalls()).toBe(1);
-    })
+    expect(first).toEqual(repeated);
+    expect(first.code).toBe("agent_browser_failed");
+    expect(fake.activePageCalls()).toBe(2);
+    expect(
+      (yield* service.get(started.id)).timeline.filter(
+        (entry) => entry.dispatched
+      )
+    ).toHaveLength(0);
+  })
 );
 
 it.effect("refuses user navigation while the agent holds the browser", () =>
@@ -1407,4 +1410,222 @@ it.effect("bounds the event log and rejects cursors from another session", () =>
       (yield* Effect.flip(log.read(other.id, first.eventCursor))).code
     ).toBe("agent_session_conflict");
   }).pipe(Effect.scoped)
+);
+
+it.live(
+  "retries the same operation when a failed browser lookup recovers",
+  () =>
+    Effect.gen(function* recoverPageLookup() {
+      const fake = makeFakeBrowser();
+      const browser = yield* makeInMemoryAgentBrowser({
+        onNavigate: fake.visit,
+        url: CONTRACT_URL,
+      });
+      let lookups = 0;
+      const service = yield* makeAgentSessionService(fake.browser, {
+        agentBrowserFactory: () =>
+          Effect.succeed({
+            ...browser,
+            active: () =>
+              Effect.suspend(() => {
+                lookups += 1;
+                return lookups === 1
+                  ? Effect.fail(
+                      makeBrowserRpcError(
+                        "agent_browser_failed",
+                        "Page temporarily unavailable"
+                      )
+                    )
+                  : browser.active();
+              }),
+          }),
+        allowedActivity: "any",
+        baseUrl: "http://127.0.0.1:7777",
+      });
+      const started = yield* service.start({
+        ...startInput("recover-lookup-start"),
+        url: CONTRACT_URL,
+      });
+      const operationId = OperationId.make("recover-lookup-action");
+      const action = { type: "navigate" as const, url: CONTRACT_NEXT_URL };
+      const first = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+      expect(first.code).toBe("agent_browser_failed");
+      const recovered = yield* service.act(started.id, action, operationId);
+      expect(recovered.entry.dispatched).toBe(true);
+      expect(recovered.url).toBe(CONTRACT_NEXT_URL);
+      expect(yield* service.act(started.id, action, operationId)).toEqual(
+        recovered
+      );
+      expect(lookups).toBe(2);
+      yield* service.closeAll();
+    })
+);
+
+it.live(
+  "replays a dispatched failure even when the website already performed the action",
+  () =>
+    Effect.gen(function* uncertainDispatch() {
+      const fake = makeFakeBrowser();
+      const browser = yield* makeInMemoryAgentBrowser({
+        onNavigate: fake.visit,
+        url: CONTRACT_URL,
+      });
+      const tab = yield* browser.active();
+      let dispatches = 0;
+      const service = yield* makeAgentSessionService(fake.browser, {
+        agentBrowserFactory: () =>
+          Effect.succeed({
+            ...browser,
+            active: () =>
+              Effect.succeed({
+                ...tab,
+                perform: (action, pointer) =>
+                  Effect.gen(function* performThenFail() {
+                    dispatches += 1;
+                    yield* tab.perform(action, pointer);
+                    return yield* Effect.fail(
+                      makeBrowserRpcError(
+                        "agent_browser_failed",
+                        "The action ran but its acknowledgement failed"
+                      )
+                    );
+                  }),
+              }),
+          }),
+        allowedActivity: "any",
+        baseUrl: "http://127.0.0.1:7777",
+      });
+      const started = yield* service.start({
+        ...startInput("uncertain-dispatch-start"),
+        url: CONTRACT_URL,
+      });
+      const snapshot = yield* service.snapshot(started.id);
+      const save = snapshot.nodes.find((node) => node.name === "Save");
+      expect(save).toBeDefined();
+      if (save === undefined) {
+        return;
+      }
+      const operationId = OperationId.make("uncertain-dispatch-action");
+      const action = { ref: save.ref, type: "click" as const };
+      const first = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+      const replayed = yield* Effect.flip(
+        service.act(started.id, action, operationId)
+      );
+      expect(replayed).toEqual(first);
+      expect(dispatches).toBe(1);
+      expect(
+        (yield* service.snapshot(started.id)).nodes.some(
+          (node) => node.name === "Saved"
+        )
+      ).toBe(true);
+      expect(
+        (yield* service.get(started.id)).timeline.filter(
+          (entry) => entry.dispatched && entry.outcome === "failed"
+        )
+      ).toHaveLength(1);
+      yield* service.closeAll();
+    })
+);
+
+it.live(
+  "keeps an interrupted approved dispatch spent for both resume and exact-action retries",
+  () =>
+    Effect.gen(function* interruptedApprovedDispatch() {
+      const fake = makeFakeBrowser();
+      const url = "https://contract.example/";
+      const browser = yield* makeInMemoryAgentBrowser({
+        onNavigate: fake.visit,
+        url,
+      });
+      const tab = yield* browser.active();
+      const performed = yield* Deferred.make<true>();
+      let dispatches = 0;
+      const service = yield* makeAgentSessionService(fake.browser, {
+        agentBrowserFactory: () =>
+          Effect.succeed({
+            ...browser,
+            active: () =>
+              Effect.succeed({
+                ...tab,
+                perform: (action, pointer) =>
+                  Effect.gen(function* holdAcknowledgement() {
+                    dispatches += 1;
+                    yield* tab.perform(action, pointer);
+                    yield* Deferred.succeed(performed, true);
+                    yield* Effect.never;
+                  }),
+              }),
+          }),
+        allowedActivity: "any",
+        baseUrl: "http://127.0.0.1:7777",
+      });
+      const started = yield* service.start({
+        ...startInput("interrupted-approved-start"),
+        domainScope: { hosts: [new URL(url).hostname] },
+        url,
+      });
+      const snapshot = yield* service.snapshot(started.id);
+      const save = snapshot.nodes.find((node) => node.name === "Save");
+      if (save === undefined) {
+        return yield* Effect.die("The contract fixture must expose Save.");
+      }
+      const operationId = OperationId.make("interrupted-approved-action");
+      const action = { ref: save.ref, type: "click" as const };
+      const intent = { irreversible: true };
+      const paused = yield* service.act(
+        started.id,
+        action,
+        operationId,
+        intent
+      );
+      const boundary = paused.intervention;
+      const pending = (yield* service.get(started.id)).pendingDecisions.find(
+        (decision) =>
+          decision.kind === "boundary" && decision.boundaryId === boundary?.id
+      );
+      if (boundary === undefined || pending === undefined) {
+        return yield* Effect.die(
+          "The irreversible Save must pause for approval."
+        );
+      }
+      yield* service.resolvePendingDecision(
+        {
+          decision: "allow",
+          operationId: OperationId.make("interrupted-approved-allow"),
+          pendingDecisionId: pending.pendingDecisionId,
+        },
+        { sessionId: started.id, source: "workspace" }
+      );
+      const resume = yield* Effect.forkChild(
+        service.resumeBoundary(started.id, boundary.id)
+      );
+      yield* Deferred.await(performed);
+      const queued = yield* Effect.forkChild(
+        Effect.flip(service.resumeBoundary(started.id, boundary.id))
+      );
+      yield* Effect.yieldNow;
+      expect(queued.pollUnsafe()).toBeUndefined();
+      yield* Fiber.interrupt(resume);
+      const replayed = yield* Effect.flip(
+        service.resumeBoundary(started.id, boundary.id)
+      );
+      expect(yield* Fiber.join(queued)).toEqual(replayed);
+      const exact = yield* Effect.flip(
+        service.act(started.id, action, operationId, intent)
+      );
+      expect(exact).toEqual(replayed);
+      expect(replayed.code).toBe("agent_browser_failed");
+      expect(replayed.message).toContain("outcome is unknown");
+      expect(dispatches).toBe(1);
+      expect(
+        (yield* service.snapshot(started.id)).nodes.some(
+          (node) => node.name === "Saved"
+        )
+      ).toBe(true);
+      yield* service.closeAll();
+    }).pipe(Effect.scoped)
 );

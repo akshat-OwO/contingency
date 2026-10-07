@@ -21,6 +21,11 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import { CatalogBrowser } from "../services/catalog-browser.ts";
+import type {
+  CatalogBrowserError,
+  CatalogBrowserService,
+} from "../services/catalog-browser.ts";
 import {
   decideFlowSkill,
   stopDryRun,
@@ -89,6 +94,37 @@ const runStoreUnavailable = <A>(
             makeBrowserRpcError(
               "agent_run_invalid",
               "No Agent Run store is available in this server process."
+            )
+          )
+    )
+  );
+
+/**
+ * The Skills drawer's read-only catalog view. It is optional for the same
+ * reason the Run store is: a process may serve no Catalog Root.
+ */
+const catalogBrowserUnavailable = <A>(
+  operation: (
+    service: CatalogBrowserService
+  ) => Effect.Effect<A, CatalogBrowserError>
+): Effect.Effect<A, BrowserRpcErrorType> =>
+  Effect.serviceOption(CatalogBrowser).pipe(
+    Effect.flatMap((service) =>
+      Option.isSome(service)
+        ? operation(service.value).pipe(
+            Effect.mapError((cause) =>
+              makeBrowserRpcError(
+                cause.code === "flow_skill_not_found"
+                  ? "agent_flow_not_found"
+                  : "agent_catalog_invalid",
+                cause.message
+              )
+            )
+          )
+        : Effect.fail(
+            makeBrowserRpcError(
+              "agent_catalog_invalid",
+              "No Catalog Root is browsable in this server process."
             )
           )
     )
@@ -298,6 +334,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         agentUnavailable((service) => service.answerSetupVariable(data)).pipe(
           Effect.map((session) => ({ session }))
         ),
+      "agent.boundary.decision": ({ sessionId, ...input }) =>
+        agentUnavailable((service) =>
+          service.resolvePendingDecision(input, {
+            source: "workspace",
+            sessionId,
+          })
+        ).pipe(Effect.map((session) => ({ session }))),
       "agent.dry-run.variable.answer": ({ sessionId, ...input }) =>
         agentUnavailable((service) =>
           service.answerDryRunVariable(sessionId, input)
@@ -324,6 +367,12 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           );
           return { summary, viewUrl };
         }),
+      "catalog.browse.get": () =>
+        catalogBrowserUnavailable((service) => service.browse()),
+      "catalog.flow-skill.get": (data) =>
+        catalogBrowserUnavailable((service) =>
+          service.flowSkill(data.scope, data.name)
+        ),
     };
   })
 );

@@ -385,6 +385,10 @@ export const startDryRun = (input: DryRunStartInput) =>
         reportedModel: null,
         reportedProvider: null,
       },
+      emulationSource: {
+        flowSkillName: manifest.flowSkillName,
+        kind: "teaching",
+      },
       findings: [],
       inputs: [
         ...input.prerequisiteInputs,

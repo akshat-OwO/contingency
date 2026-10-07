@@ -7,6 +7,8 @@ import {
 import type {
   AgentRunId,
   AgentSessionId,
+  CatalogRootScope,
+  FlowSkillName,
   AgentSessionSnapshot,
   BrowserStreamEvent,
 } from "@contingency/protocol";
@@ -74,6 +76,9 @@ export const agentSetupVariableAnswerMutation = ContingencyRpcClient.mutation(
 );
 export const agentTeachingVariableInputMutation = ContingencyRpcClient.mutation(
   "agent.teaching.variable.input"
+);
+export const agentBoundaryDecisionMutation = ContingencyRpcClient.mutation(
+  "agent.boundary.decision"
 );
 export const agentDryRunVariableAnswerMutation = ContingencyRpcClient.mutation(
   "agent.dry-run.variable.answer"
@@ -187,6 +192,22 @@ export const endedRunSummaryAtom = Atom.family((runId: AgentRunId) =>
           isBrowserRpcError(cause) && cause.code === "agent_run_not_found",
       })
     )
+  )
+);
+
+/**
+ * Both Catalog Roots as the Skills drawer lists them. The drawer refreshes it
+ * each time it opens, so a skill an agent saved meanwhile appears.
+ */
+export const catalogBrowseAtom = ContingencyRpcClient.query(
+  "catalog.browse.get",
+  {}
+);
+
+/** One Flow Skill package to read in the Skills drawer, per root and name. */
+export const catalogFlowSkillAtom = Atom.family((scope: CatalogRootScope) =>
+  Atom.family((name: FlowSkillName) =>
+    ContingencyRpcClient.query("catalog.flow-skill.get", { name, scope })
   )
 );
 

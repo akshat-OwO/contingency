@@ -98,7 +98,12 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
  * controls reading **Open browser session** was what the prototype's own
  * capture check caught first.
  */
-export const WorkspaceEmptyDock = () => (
+export const WorkspaceEmptyDock = ({
+  skills = null,
+}: {
+  /** The Skills drawer entry, beside the wordmark. */
+  readonly skills?: React.ReactNode;
+}) => (
   <DockShell
     status={
       <DockStatus badges={<Badge variant="secondary">No session</Badge>}>
@@ -110,6 +115,7 @@ export const WorkspaceEmptyDock = () => (
     <span className="pl-1">
       <Wordmark />
     </span>
+    {skills}
   </DockShell>
 );
 
@@ -184,6 +190,7 @@ export const TeachingRecordingDock = ({
   requests,
   selectedSessionId,
   sessions,
+  skills = null,
 }: {
   /** Whether the live browser holds focus, which changes the shortcut hint. */
   readonly browserFocused: boolean;
@@ -212,6 +219,8 @@ export const TeachingRecordingDock = ({
   readonly requests?: React.ReactNode;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
+  /** The Skills drawer entry, beside the session picker, or nothing. */
+  readonly skills?: React.ReactNode;
 }) => {
   const presentation = teachingRecordingPresentation(
     captureState,
@@ -305,6 +314,7 @@ export const TeachingRecordingDock = ({
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
+      {skills}
       <DockSpacer />
       {presentation.showsInspect ? (
         <CommentTrigger

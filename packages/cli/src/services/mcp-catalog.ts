@@ -59,7 +59,7 @@ const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
     dependencies: [AgentSession, FlowSkillCatalog],
     description:
-      "Read the Workspace URL, Catalog Root, and Flow Skill count. It defaults to the workspace's .contingency directory; Contingency never scans a user-global catalog.",
+      "Read the Workspace URL, Catalog Root, and Flow Skill count. It defaults to the workspace's .contingency directory; no tool reads a user-global catalog.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: Schema.Struct({
@@ -115,7 +115,7 @@ const AgentPendingDecisionResolveTool = Tool.make(
   {
     dependencies: [AgentSession],
     description:
-      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. Use allow for a paused Execution Boundary, supply with the user's literal in value for supply_variable, or refuse for either. Ask the user for a runtime Variable in your own conversation and pass what they typed verbatim; Contingency keeps the value on this machine and never audits it. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns a conflict; reread pendingDecisions before asking again.",
+      "Resolve one server-issued pending decision after the user explicitly chooses in this conversation. The user may also Allow or Refuse a boundary directly in Workspace; reread pendingDecisions before relaying a choice. Resolution must use a distinct operation id from the browser action. After Allow, resume an undispatched action with agent_browser_resume and its boundary id. Use allow for a paused Execution Boundary, supply with the user's literal in value for supply_variable, or refuse for either. Ask the user for a runtime Variable in your own conversation and pass what they typed verbatim; Contingency keeps the value on this machine and never audits it. Do not resolve an ambiguous reply. userMessage is optional audit context, not proof. A stale id returns a conflict; reread pendingDecisions before asking again.",
     failure: AgentCatalogFailure,
     parameters: Schema.Struct({
       decision: AgentPendingDecisionResolve.fields.decision,

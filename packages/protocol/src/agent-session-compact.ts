@@ -20,6 +20,8 @@ import {
   AgentTaskFinding,
   AgentTaskRunOutcome,
   AgentTaskRunPurpose,
+  RunEmulationSource,
+  RunEmulationConflict,
 } from "./agent-run.ts";
 import {
   AgentSessionActivity,
@@ -28,6 +30,7 @@ import {
   AgentSetupVariable,
 } from "./agent-session.ts";
 import type { AgentSessionSnapshot } from "./agent-session.ts";
+import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { scanRequirementsField, scanReportsField } from "./scans.ts";
@@ -50,6 +53,8 @@ const latestOf = <S extends Schema.Top>(item: S) =>
 const CompactTaskRun = Schema.Struct({
   assessment: Schema.NullOr(AgentTaskAssessment),
   demoSite: Schema.optional(DemoSiteId),
+  emulationConflicts: Schema.optional(Schema.Array(RunEmulationConflict)),
+  emulationSource: Schema.optional(RunEmulationSource),
   /** Bundled Example Flow Skills among the referenced skills (ADR 0050). */
   exampleSkills: Schema.optional(Schema.Array(FlowSkillName)),
   findings: latestOf(AgentTaskFinding),
@@ -70,6 +75,7 @@ const CompactTaskRun = Schema.Struct({
   runId: AgentRunId,
   scanReports: scanReportsField,
   scanRequirements: scanRequirementsField,
+  startingEmulation: DraftEmulation,
   variables: Schema.Array(AgentRunTaskVariable),
 });
 
@@ -148,6 +154,7 @@ const compactRun = (
   if ("schemaVersion" in run) {
     const compact: Mutable<typeof CompactTaskRun.Type> = {
       assessment: run.assessment,
+      emulationConflicts: run.emulationConflicts ?? [],
       findings: latest(run.findings),
       inputs: run.inputs.map(({ flowSkillName, name }) => ({
         flowSkillName,
@@ -167,10 +174,14 @@ const compactRun = (
       runId: run.runId,
       scanReports: run.scanReports ?? [],
       scanRequirements: run.scanRequirements ?? [],
+      startingEmulation: run.startingEmulation,
       variables: run.variables,
     };
     if (run.demoSite !== undefined) {
       compact.demoSite = run.demoSite;
+    }
+    if (run.emulationSource !== undefined) {
+      compact.emulationSource = run.emulationSource;
     }
     const exampleSkills = run.referencedSkills.flatMap((skill) =>
       skill.origin === "example" ? [skill.flowSkillName] : []

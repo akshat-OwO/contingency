@@ -762,6 +762,9 @@ const launchCli = async ({ directory, port, stateDir }) => {
     env: {
       ...process.env,
       CONTINGENCY_CATALOG_ROOT: path.join(stateDir, "catalog"),
+      // The Skills drawer also lists a user-global root; a drive must not
+      // read the developer's real ~/.contingency.
+      CONTINGENCY_GLOBAL_CATALOG_ROOT: path.join(stateDir, "global-catalog"),
       CONTINGENCY_WEB_HOST: "127.0.0.1",
       CONTINGENCY_WEB_PORT: String(port),
       NODE_ENV: "production",
@@ -1364,6 +1367,9 @@ const cmdCli = async (rest) => {
     env: {
       ...process.env,
       CONTINGENCY_CATALOG_ROOT: path.join(stateDir, "catalog"),
+      // The Skills drawer also lists a user-global root; a drive must not
+      // read the developer's real ~/.contingency.
+      CONTINGENCY_GLOBAL_CATALOG_ROOT: path.join(stateDir, "global-catalog"),
       HOME: instance === undefined ? homedir() : path.join(verifyDir(), "home"),
       NODE_ENV: "production",
     },
@@ -1480,6 +1486,10 @@ const cmdMcpStart = async () => {
         // `.contingency`; a verification drive must not write Flow Skills into
         // the repository, so it gets its own root under the isolated state.
         CONTINGENCY_CATALOG_ROOT: path.join(instance.stateDir, "catalog"),
+        CONTINGENCY_GLOBAL_CATALOG_ROOT: path.join(
+          instance.stateDir,
+          "global-catalog"
+        ),
         CONTINGENCY_MCP_HOST: "127.0.0.1",
         CONTINGENCY_MCP_PORT: String(port),
         NODE_ENV: "production",

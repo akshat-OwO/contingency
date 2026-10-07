@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Popup recovery shop</title>
+    <style>
+      body {
+        font: 16px system-ui;
+        margin: 0;
+        padding: 20px;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        padding: 10px;
+      }
+      main {
+        display: grid;
+        gap: 16px;
+      }
+      .layer {
+        position: fixed;
+        inset: 0;
+        background: rgb(0 0 0 / 70%);
+      }
+      .help {
+        z-index: 10;
+      }
+      .ad {
+        z-index: 20;
+      }
+      .sheet {
+        position: absolute;
+        bottom: 80px;
+        left: 16px;
+        right: 16px;
+        padding: 24px;
+        background: white;
+        border-radius: 12px;
+      }
+      .close {
+        position: absolute;
+        top: -42px;
+        right: 0;
+        width: 32px;
+        height: 32px;
+        cursor: pointer;
+      }
+      .close img {
+        width: 32px;
+        height: 32px;
+      }
+      .partial {
+        position: fixed;
+        left: 20px;
+        top: 200px;
+        width: 200px;
+        height: 50px;
+      }
+      .partial-cover {
+        position: fixed;
+        left: 70px;
+        top: 200px;
+        width: 150px;
+        height: 50px;
+        background: #777;
+        z-index: 30;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Popup recovery shop</h1>
+      <label for="search">Search catalogue</label><input id="search" />
+      <label for="area">Delivery area</label
+      ><select id="area">
+        <option>Sector 14</option>
+        <option>Sector 144</option>
+      </select>
+      <button id="open" type="button">Show offers and help</button>
+      <p id="result" role="status">Search is ready</p>
+    </main>
+    <div id="portal"></div>
+    <script>
+      const portal = document.getElementById("portal");
+      const search = document.getElementById("search");
+      const icon =
+        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="15" fill="white"/%3E%3Cpath d="M9 9L23 23M23 9L9 23" stroke="black" stroke-width="2"/%3E%3C/svg%3E';
+      const open = (stacked = true) => {
+        portal.innerHTML =
+          '<div class="layer help" role="dialog" aria-modal="true" aria-label="Need help with your order?"><div class="sheet"><h2>Need help with your order?</h2><p>Call an advisor for help ordering.</p><div class="close" data-dismiss="help"><img alt="Close" title="Close Dialog" /></div></div></div>' +
+          (stacked
+            ? '<div class="layer ad"><div class="sheet"><h2>Limited time offers</h2><p>Dismiss this sheet to return to your order.</p><div class="close" data-dismiss="ad"><img alt="" /></div></div></div>'
+            : "");
+        for (const close of portal.querySelectorAll("[data-dismiss]")) {
+          close.querySelector("img").src = icon;
+          // Match React's current DOM props plus root delegation, without an
+          // external runtime or a site-specific selector in the browser code.
+          close.__reactProps$fixture = { onClick: () => {} };
+        }
+      };
+      portal.addEventListener("click", (event) => {
+        const close = event.target.closest("[data-dismiss]");
+        if (close) {
+          close.closest(".layer").remove();
+        }
+      });
+      document.getElementById("open").addEventListener("click", () => {
+        search.focus();
+        open();
+      });
+      search.addEventListener("input", () => {
+        document.getElementById("result").textContent =
+          "Searching: " + search.value;
+      });
+      if (new URLSearchParams(location.search).has("on-focus")) {
+        search.addEventListener("focus", () => open(false), { once: true });
+      }
+      if (new URLSearchParams(location.search).has("partial")) {
+        document.querySelector("main").innerHTML =
+          '<button class="partial" type="button">Partly covered action</button><output role="status">0 clicks</output>';
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          '<div class="partial-cover"></div>'
+        );
+        document.querySelector(".partial").addEventListener("click", () => {
+          document.querySelector("output").textContent = "1 click";
+        });
+      }
+      if (new URLSearchParams(location.search).has("ordinary")) {
+        document.querySelector("main").innerHTML =
+          '<button id="activate">Activate once</button><output id="activation" role="status">0 activations</output>' +
+          '<label for="ordinary-input">Ordinary input</label><input id="ordinary-input"><output id="input-clicks" role="status">0 input clicks</output>' +
+          '<label for="label-check" style="position:relative">Label checkbox<input id="label-check" type="checkbox" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;pointer-events:none"></label>' +
+          '<button id="hidden-focus">Focus hidden checkbox</button><input id="hidden-check" type="checkbox" style="position:absolute;width:0;height:0;opacity:0"><output id="hidden-state" role="status">Hidden unchecked</output>' +
+          '<button id="offscreen-focus">Focus offscreen input</button><input id="offscreen" style="position:absolute;top:3000px"><output id="scroll-state" role="status">Scroll not checked</output>' +
+          '<button id="slow" disabled>Slow action</button><button id="arm">Enable slow action</button><output id="slow-state" role="status">Slow waiting</output>' +
+          '<div id="shadow-host"><button id="shadow-action">Shadow action</button></div><output id="shadow-state" role="status">Shadow waiting</output>';
+        document
+          .getElementById("shadow-host")
+          .attachShadow({ mode: "open" }).innerHTML = "<slot></slot>";
+        document.getElementById("shadow-action").onclick = () => {
+          document.getElementById("shadow-state").textContent =
+            "Shadow clicked";
+        };
+        let activations = 0;
+        let inputClicks = 0;
+        document.getElementById("activate").onclick = () => {
+          document.getElementById("activation").textContent =
+            ++activations + " activations";
+        };
+        document.getElementById("ordinary-input").onclick = () => {
+          document.getElementById("input-clicks").textContent =
+            ++inputClicks + " input clicks";
+        };
+        document.getElementById("hidden-focus").onclick = () => {
+          document
+            .getElementById("hidden-check")
+            .focus({ preventScroll: true });
+        };
+        document.getElementById("hidden-check").onchange = (event) => {
+          document.getElementById("hidden-state").textContent = event.target
+            .checked
+            ? "Hidden checked"
+            : "Hidden unchecked";
+        };
+        document.getElementById("offscreen-focus").onclick = () => {
+          document.getElementById("offscreen").focus({ preventScroll: true });
+        };
+        document.getElementById("offscreen").onkeydown = () => {
+          document.getElementById("scroll-state").textContent =
+            "Scroll " + scrollY;
+        };
+        document.getElementById("arm").onclick = () => {
+          setTimeout(() => {
+            document.getElementById("slow").disabled = false;
+          }, 1800);
+        };
+        document.getElementById("slow").onclick = () => {
+          document.getElementById("slow-state").textContent = "Slow clicked";
+        };
+      }
+    </script>
+  </body>
+</html>

@@ -66,6 +66,7 @@ export interface FlowSkillInput {
  * demonstrated phone stays a phone when the Run reproduces it (ADR 0013).
  */
 export interface FlowSkillEmulation {
+  readonly diagnostics?: readonly string[];
   readonly colorScheme: string | undefined;
   /**
    * The fixed position the demonstration answered location requests with, as
@@ -111,9 +112,8 @@ const GEOLOCATION_SCALAR =
   /^(?<latitude>-?\d+(?:\.\d+)?)\s*,\s*(?<longitude>-?\d+(?:\.\d+)?)(?:\s*@\s*(?<accuracy>\d+(?:\.\d+)?))?$/u;
 
 /**
- * Reads the fixed position scalar. Out-of-range coordinates are dropped rather
- * than stamped onward: a Run would be refused by the browser anyway, and a
- * silently wrong location is worse than an absent one.
+ * Reads the fixed position scalar. Invalid coordinates return undefined so
+ * the emulation parser can retain a diagnostic and refuse the saved requirement.
  */
 const readGeolocationScalar = (
   value: string
@@ -211,12 +211,14 @@ const readFrontmatterLine = (raw: string): FrontmatterLine => {
 
 const readEmulationBlock = (
   fields: Record<string, string>,
-  permissions: readonly FlowSkillPermission[]
+  permissions: readonly FlowSkillPermission[],
+  diagnostics: string[],
+  declared: boolean
 ): FlowSkillEmulation | undefined =>
-  Object.keys(fields).length === 0 && permissions.length === 0
-    ? undefined
-    : {
+  declared
+    ? {
         colorScheme: fields.colorScheme,
+        diagnostics,
         geolocation:
           fields.geolocation === undefined
             ? undefined
@@ -229,7 +231,8 @@ const readEmulationBlock = (
           fields.viewport === undefined
             ? undefined
             : readViewportScalar(fields.viewport),
-      };
+      }
+    : undefined;
 
 /** A declared input while the parser is still filling it in. */
 interface MutableFlowSkillInput {
@@ -275,14 +278,17 @@ const readInputItem = (
   return entry;
 };
 
-/** Records one permission entry, ignoring a shape the grammar cannot read. */
+/** Records one permission entry or a diagnostic for an unreadable shape. */
 const pushPermission = (
   value: string,
-  permissions: FlowSkillPermission[]
+  permissions: FlowSkillPermission[],
+  diagnostics: string[]
 ): void => {
   const decision = value.length > 0 ? readPermissionItem(value) : undefined;
   if (decision !== undefined) {
     permissions.push(decision);
+  } else if (value.length > 0) {
+    diagnostics.push(`Invalid permission decision: ${value}`);
   }
 };
 
@@ -294,15 +300,43 @@ const readEmulationKey = (
   key: string,
   value: string,
   emulation: Record<string, string>,
-  permissions: FlowSkillPermission[]
+  permissions: FlowSkillPermission[],
+  diagnostics: string[]
 ): boolean => {
+  if (
+    ![
+      "viewport",
+      "userAgentProfile",
+      "colorScheme",
+      "locale",
+      "timezone",
+      "geolocation",
+      "permissions",
+    ].includes(key)
+  ) {
+    diagnostics.push(`Unknown emulation field: ${key}`);
+  }
   if (key !== "permissions") {
+    if (Object.hasOwn(emulation, key)) {
+      diagnostics.push(`Duplicate emulation field: ${key}`);
+    }
+    if (key === "viewport" && readViewportScalar(value) === undefined) {
+      diagnostics.push("Invalid viewport scalar.");
+    }
+    if (key === "geolocation" && readGeolocationScalar(value) === undefined) {
+      diagnostics.push("Invalid geolocation scalar.");
+    }
     emulation[key] = value;
     return false;
   }
-  pushPermission(value, permissions);
+  pushPermission(value, permissions, diagnostics);
   return true;
 };
+
+const invalidEmulationHeader = (
+  line: FrontmatterLine,
+  scalars: Record<string, string>
+) => Object.hasOwn(scalars, "emulation") || line.value.length > 0;
 
 /**
  * Reads the small YAML subset a Flow Skill is allowed to use: the `name` and
@@ -326,6 +360,7 @@ export const readFlowSkillFrontmatter = (
   const scalars: Record<string, string> = {};
   const emulation: Record<string, string> = {};
   const permissions: FlowSkillPermission[] = [];
+  const emulationDiagnostics: string[] = [];
   let sequence: "hosts" | "inputs" | undefined;
   let inEmulation = false;
   /** Whether an indented item belongs to `emulation.permissions`. */
@@ -337,7 +372,7 @@ export const readFlowSkillFrontmatter = (
     if (line.item !== undefined) {
       openInput = undefined;
       if (inPermissions) {
-        pushPermission(line.item, permissions);
+        pushPermission(line.item, permissions, emulationDiagnostics);
         continue;
       }
       if (sequence === "hosts") {
@@ -361,7 +396,8 @@ export const readFlowSkillFrontmatter = (
           line.key,
           line.value,
           emulation,
-          permissions
+          permissions,
+          emulationDiagnostics
         );
       } else if (openInput !== undefined && line.key === "description") {
         openInput.description = line.value.length > 0 ? line.value : undefined;
@@ -371,6 +407,9 @@ export const readFlowSkillFrontmatter = (
     openInput = undefined;
     inPermissions = false;
     inEmulation = line.key === "emulation";
+    if (inEmulation && invalidEmulationHeader(line, scalars)) {
+      emulationDiagnostics.push("Emulation must be one flat mapping block.");
+    }
     sequence = sequenceFor(line.key);
     if (sequence !== undefined) {
       if (line.value.length > 0) {
@@ -387,7 +426,12 @@ export const readFlowSkillFrontmatter = (
   return {
     body: content.slice(matched.length),
     description: scalars.description,
-    emulation: readEmulationBlock(emulation, permissions),
+    emulation: readEmulationBlock(
+      emulation,
+      permissions,
+      emulationDiagnostics,
+      Object.hasOwn(scalars, "emulation")
+    ),
     hosts,
     inputs,
     malformedInputs,
