@@ -2010,7 +2010,13 @@ const makeAgentSession = (
                                 : now().toISOString(),
                           }
                         : current
-                    ).pipe(Effect.map((next) => next ?? snapshot));
+                    ).pipe(
+                      Effect.provideService(
+                        SessionEventOrigin,
+                        manifest.eventOrigin ?? "workspace"
+                      ),
+                      Effect.map((next) => next ?? snapshot)
+                    );
                   }
                   if (
                     fileSystem === undefined ||

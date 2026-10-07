@@ -47,6 +47,7 @@ import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
+  TeachingRecordingStore,
 } from "../../src/services/teaching-recording-store.ts";
 import {
   CONTRACT_URL,
@@ -944,6 +945,85 @@ const teachingSessionLayer = (
     Layer.provide(Layer.succeed(CreateBrowser, fake.browser)),
     Layer.provideMerge(NodeServices.layer)
   );
+
+for (const origin of ["workspace", "agent"] as const) {
+  it.live(
+    `observes ${origin} Teaching completion from an independent store`,
+    () =>
+      Effect.gen(function* durableTeachingWait() {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const root = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-durable-teaching-wait-",
+        });
+        const browser = makeFakeBrowser();
+        const writer = yield* Effect.gen(function* independentWriter() {
+          return yield* TeachingRecordingStore;
+        }).pipe(
+          Effect.provide(makeTeachingRecordingStoreLayer({ root: () => root }))
+        );
+        yield* Effect.gen(function* waitWithoutLocalPublish() {
+          const service = yield* AgentSession;
+          const started = yield* service.start({
+            ...startInput("durable-wait-start"),
+            activity: "teaching",
+            name: "add-anvil",
+          });
+          if (started.activity !== "teaching") {
+            return yield* Effect.die("Expected Teaching");
+          }
+          const manifest = yield* writer.read(started.recordingId);
+          yield* writer.start({
+            emulation: manifest.emulation,
+            operationId: OperationId.make("durable-wait-record"),
+            recordingId: started.recordingId,
+          });
+          expect((yield* service.get(started.id)).captureState?._tag).toBe(
+            "recording"
+          );
+          const initial = yield* service.sessionEvents(started.id);
+          const entered = yield* Deferred.make<true>();
+          const release = yield* Deferred.make<true>();
+          browser.holdNextCurrentUrl({ entered, release });
+          const waiting = yield* service
+            .waitForEvents(
+              started.id,
+              initial.eventCursor,
+              origin === "workspace" ? 2000 : 600
+            )
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          const stop = writer.stop({
+            artifacts: [],
+            operationId: OperationId.make("durable-wait-stop"),
+            recordingId: started.recordingId,
+          });
+          yield* origin === "agent" ? fromAgent(stop) : stop;
+          yield* Deferred.succeed(release, true);
+          const result = yield* Fiber.join(waiting).pipe(
+            Effect.timeout("1500 millis")
+          );
+          expect(result.events.map((event) => event.kind)).toEqual(
+            origin === "workspace" ? ["teaching-stopped"] : []
+          );
+          expect(result.captureState?._tag).toBe("ready");
+          expect(
+            (yield* service.waitForEvents(started.id, initial.eventCursor, 0))
+              .events
+          ).toEqual(result.events);
+          expect(
+            (yield* service.waitForEvents(
+              started.id,
+              result.eventCursor ?? "missing",
+              0
+            )).events
+          ).toEqual([]);
+          yield* service.closeAll();
+        }).pipe(
+          Effect.provide(teachingSessionLayer(browser, root, "wait-owner"))
+        );
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}
 
 it.effect(
   "keeps an unstarted Teaching recording in setup when the session closes",

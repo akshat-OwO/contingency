@@ -752,16 +752,20 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
           }
           const at = now().toISOString();
+          const origin = yield* SessionEventOrigin;
           return yield* persist(
             withReceipt(
               {
                 ...current,
                 emulation: input.emulation,
+                eventOrigin: origin,
                 lifecycle: { _tag: "recording", startedAt: at },
               },
               "start",
               input.operationId,
-              at
+              at,
+              undefined,
+              origin
             )
           );
         })
@@ -802,6 +806,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
           }
           const readyAt = now().toISOString();
+          const origin = yield* SessionEventOrigin;
           const lifecycle =
             input.failure === undefined
               ? {
@@ -818,10 +823,18 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           const ready = yield* validateArtifactPaths({
             ...current,
             artifacts: input.artifacts,
+            eventOrigin: origin,
             lifecycle,
           });
           return yield* persist(
-            withReceipt(ready, "stop", input.operationId, readyAt)
+            withReceipt(
+              ready,
+              "stop",
+              input.operationId,
+              readyAt,
+              undefined,
+              origin
+            )
           );
         })
       );

@@ -129,6 +129,17 @@ it.effect(
         },
       };
       log.observe(finalizing, "workspace");
+      const ready = {
+        ...finalizing,
+        captureState: {
+          _tag: "ready" as const,
+          readyAt: at,
+          startedAt: at,
+          stoppedAt: at,
+        },
+      };
+      log.observe(ready, "workspace");
+      log.observe(ready, "workspace");
       const discarded = {
         ...teaching,
         setupVariables: [
