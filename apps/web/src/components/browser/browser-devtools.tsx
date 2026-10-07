@@ -1,4 +1,5 @@
 import type {
+  TeachingBrowserAttachment,
   BrowserConsoleEntry,
   BrowserNetworkRequest,
   BrowserNetworkRequestDetail,
@@ -25,10 +26,15 @@ import {
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
+  PaperclipIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  dragAttachment,
+  requestAttachment,
+} from "@/components/agent/browser-check-attachments";
 import {
   consoleErrorCount,
   devtoolsPanelTitles,
@@ -56,6 +62,8 @@ import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+import { BrowserResponseFields } from "./browser-response-fields";
 
 type ConsoleFilter = "all" | "error" | "log" | "warning";
 type NetworkDetailTab = "headers" | "payload" | "response";
@@ -533,12 +541,16 @@ const DevtoolsConsolePanel = ({
 };
 
 const RequestDetailView = ({
+  onAttach,
   detail,
   detailLoading,
   detailTab,
   onUpdateUiState,
   request,
 }: {
+  readonly onAttach:
+    | ((attachment: TeachingBrowserAttachment) => void)
+    | undefined;
   readonly detail: BrowserNetworkRequestDetail | undefined;
   readonly detailLoading: boolean;
   readonly detailTab: NetworkDetailTab;
@@ -568,12 +580,23 @@ const RequestDetailView = ({
       />
     </div>
     <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-      {renderRequestDetails(detail, detailTab, detailLoading, request)}
+      {detailTab === "response" &&
+      detail?.responseBody !== undefined &&
+      onAttach !== undefined ? (
+        <BrowserResponseFields
+          attach={onAttach}
+          body={detail.responseBody}
+          request={request}
+        />
+      ) : (
+        renderRequestDetails(detail, detailTab, detailLoading, request)
+      )}
     </div>
   </div>
 );
 
 const DevtoolsNetworkPanel = ({
+  onAttach,
   detail,
   detailLoading,
   detailTab,
@@ -584,6 +607,9 @@ const DevtoolsNetworkPanel = ({
   onUpdateUiState,
   selectedRequestId,
 }: {
+  readonly onAttach:
+    | ((attachment: TeachingBrowserAttachment) => void)
+    | undefined;
   readonly detail: BrowserNetworkRequestDetail | undefined;
   readonly detailLoading: boolean;
   readonly detailTab: NetworkDetailTab;
@@ -624,6 +650,7 @@ const DevtoolsNetworkPanel = ({
   if (selectedRequest !== undefined) {
     return (
       <RequestDetailView
+        onAttach={onAttach}
         detail={detail}
         detailLoading={detailLoading}
         detailTab={detailTab}
@@ -685,36 +712,56 @@ const DevtoolsNetworkPanel = ({
               const failedRequest =
                 request.status !== undefined && request.status >= 400;
               return (
-                <button
-                  className="hover:bg-muted/60 focus-visible:bg-muted absolute top-0 left-0 grid h-[30px] w-full grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem_4.5rem] items-center gap-2 rounded-md px-2.5 text-left outline-none"
+                <div
+                  className={cn(
+                    "hover:bg-muted/60 absolute top-0 left-0 grid h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left",
+                    onAttach === undefined
+                      ? "grid-cols-[minmax(8rem,1fr)_4.5rem]"
+                      : "grid-cols-[minmax(8rem,1fr)_2rem]"
+                  )}
                   key={virtualRow.key}
-                  onClick={() => {
-                    onSelectRequest(request);
-                  }}
-                  style={{
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  draggable={onAttach !== undefined}
+                  onDragStart={(event) =>
+                    dragAttachment(event, requestAttachment(request))
+                  }
                   title={request.url}
-                  type="button"
                 >
-                  <span>
-                    <StatusPill status={request.status} />
-                  </span>
-                  <span className="truncate">
-                    <span className="text-muted-foreground mr-1.5 font-mono">
-                      {request.method}
+                  <button
+                    className="grid min-w-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem] items-center gap-2 text-left"
+                    onClick={() => onSelectRequest(request)}
+                    type="button"
+                  >
+                    <span>
+                      <StatusPill status={request.status} />
                     </span>
-                    <span className={cn(failedRequest && "text-destructive")}>
-                      {requestName(request.url)}
+                    <span className="truncate">
+                      <span className="text-muted-foreground mr-1.5 font-mono">
+                        {request.method}
+                      </span>
+                      <span className={cn(failedRequest && "text-destructive")}>
+                        {requestName(request.url)}
+                      </span>
                     </span>
-                  </span>
-                  <span className="text-muted-foreground truncate">
-                    {request.resourceType}
-                  </span>
-                  <time className="text-muted-foreground text-right tabular-nums">
-                    {formatTime(request.timestamp)}
-                  </time>
-                </button>
+                    <span className="text-muted-foreground truncate">
+                      {request.resourceType}
+                    </span>
+                  </button>
+                  {onAttach === undefined ? (
+                    <time className="text-muted-foreground tabular-nums">
+                      {formatTime(request.timestamp)}
+                    </time>
+                  ) : (
+                    <Button
+                      aria-label={`Attach ${request.method} ${requestName(request.url)}`}
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() => onAttach(requestAttachment(request))}
+                    >
+                      <PaperclipIcon />
+                    </Button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -933,6 +980,7 @@ export const BrowserDevtools = ({
         ) : null}
         {panel === "network" ? (
           <DevtoolsNetworkPanel
+            onAttach={tooling.attachBrowserContext}
             detail={detail}
             detailLoading={detailLoading}
             detailTab={detailTab}

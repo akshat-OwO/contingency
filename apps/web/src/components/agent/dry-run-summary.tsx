@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { BrowserCheckResults } from "./browser-check-results";
 import { ScanResults } from "./scan-results.tsx";
 
 const passedTone = "text-emerald-600 dark:text-emerald-400";
@@ -240,6 +241,7 @@ const TaskRunSummaryLayout = ({
       <Stat label="Findings" value={summary.findings.length} />
       <Stat label="Evidence" value={evidenceCount(summary)} />
     </dl>
+    <BrowserCheckResults run={summary} />
     <ScanResults run={summary} />
     <Tabs defaultValue="verdict">
       <TabsList className="w-full">

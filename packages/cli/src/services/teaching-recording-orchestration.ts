@@ -16,6 +16,7 @@ import type {
 import { Effect, FileSystem, Option } from "effect";
 
 import { AgentSession } from "./agent-session.ts";
+import { requestedBrowserChecks } from "./browser-check-requirements.ts";
 import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
@@ -385,6 +386,10 @@ export const startDryRun = (input: DryRunStartInput) =>
         reportedModel: null,
         reportedProvider: null,
       },
+      browserChecks: yield* requestedBrowserChecks([
+        skill,
+        ...prerequisites,
+      ]).pipe(Effect.mapError((cause) => invalid(cause.message))),
       emulationSource: {
         flowSkillName: manifest.flowSkillName,
         kind: "teaching",

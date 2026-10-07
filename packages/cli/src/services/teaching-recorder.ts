@@ -248,6 +248,7 @@ export const teachingEventsFor = (
     pending.push({
       _tag: "instruction",
       at: instruction.at,
+      attachments: instruction.attachments,
       scan: instruction.scan,
       target: instruction.target,
       text: instruction.text,

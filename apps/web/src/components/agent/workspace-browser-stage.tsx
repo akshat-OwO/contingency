@@ -1,4 +1,5 @@
 import type {
+  TeachingBrowserAttachment,
   AgentSessionId,
   BrowserConsoleEntry,
   BrowserNetworkRequest,
@@ -627,6 +628,7 @@ export const WorkspaceBrowserStage = ({
   consoleEntries,
   emulationFixed,
   onClearConsole,
+  onAttachBrowserContext,
   sessionId,
   teaching,
   userHoldsBrowser,
@@ -637,6 +639,9 @@ export const WorkspaceBrowserStage = ({
   /** A Teaching Recording has started, so its Emulation can no longer change. */
   readonly emulationFixed: boolean;
   readonly onClearConsole: () => void;
+  readonly onAttachBrowserContext?:
+    | ((attachment: TeachingBrowserAttachment) => void)
+    | undefined;
   readonly sessionId: AgentSessionId;
   /**
    * Teaching has no Take control: an agent preparing its setup hands the
@@ -817,7 +822,10 @@ export const WorkspaceBrowserStage = ({
                   tabId={state.activeTab.tabId satisfies BrowserTabId}
                   tabTitle={state.activeTab.title || "Current tab"}
                   tabUrl={state.activeTab.url}
-                  tooling={tooling}
+                  tooling={{
+                    ...tooling,
+                    attachBrowserContext: onAttachBrowserContext,
+                  }}
                 />
               )}
             </div>

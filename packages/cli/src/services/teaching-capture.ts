@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type {
+  TeachingBrowserAttachment,
   TeachingScan,
   AgentBrowserSnapshot,
   AgentScreenshot,
@@ -108,7 +109,9 @@ export interface DemonstrationCapture {
     text: string,
     at: string,
     target?: string | undefined,
-    scan?: TeachingScan
+    scan?: TeachingScan,
+    attachments?: readonly TeachingBrowserAttachment[],
+    replaceId?: string
   ) => TeachingInstruction;
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
@@ -414,19 +417,39 @@ export const makeDemonstrationCapture = (
       instructions: [...instructions],
     }),
     recordAction,
-    recordInstruction: (text, at, target, scan) => {
+    recordInstruction: (text, at, target, scan, attachments, replaceId) => {
       const baseInstruction = {
         at: eventTime(at),
+        attachments,
         id: `instruction-${randomUUID()}`,
         target: target === undefined ? null : redact(target),
         text: redact(text),
       };
       const instruction: TeachingInstruction =
         scan === undefined ? baseInstruction : { ...baseInstruction, scan };
-      instructions.push(instruction);
+      const replacing = instructions.findIndex(
+        (entry) => entry.id === replaceId
+      );
+      if (replacing === -1) {
+        instructions.push(instruction);
+      } else {
+        const original = instructions[replacing];
+        if (original !== undefined) {
+          instructions[replacing] = {
+            ...instruction,
+            at: original.at,
+            id: original.id,
+            target: target === undefined ? original.target : instruction.target,
+          };
+        }
+      }
       if (instructions.length > INSTRUCTION_LIMIT) {
         const removable = instructions.findIndex(
-          (entry) => entry.scan === undefined
+          (entry) =>
+            entry.scan === undefined &&
+            !entry.attachments?.some(
+              (attachment) => attachment.requirement !== undefined
+            )
         );
         if (removable !== -1) {
           instructions.splice(removable, 1);

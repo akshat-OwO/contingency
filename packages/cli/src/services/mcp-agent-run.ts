@@ -24,6 +24,7 @@ import type { Mutable } from "effect/Types";
 
 import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
+import { requestedBrowserChecks } from "./browser-check-requirements.ts";
 import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
@@ -329,6 +330,7 @@ export const startTaskRun = (
               reportedModel: params.reportedModel ?? null,
               reportedProvider: params.reportedProvider ?? null,
             },
+            browserChecks: yield* requestedBrowserChecks(skills),
             emulationSource:
               source === undefined
                 ? { kind: "default" }
@@ -517,6 +519,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           ).pipe(Effect.provideService(FlowSkillCatalog, catalog))),
         ];
         yield* validateTaskInputs(skills, params.inputs);
+        const checks = yield* requestedBrowserChecks(skills);
         const scans = yield* requestedScans(skills);
         const requested = new Set(params.referencedSkills);
         const emulationConflicts = [];
@@ -548,6 +551,9 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
             requested.has(skill.name)
               ? [
                   {
+                    browserChecks: checks.filter(
+                      (reference) => reference.flowSkillName === skill.name
+                    ),
                     flowSkillName: skill.name,
                     hosts: skill.hosts,
                     scans: scans.filter(

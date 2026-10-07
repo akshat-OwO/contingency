@@ -31,6 +31,7 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { validateTaughtBrowserChecks } from "./browser-check-requirements.ts";
 import { webHost } from "./domain-scope.ts";
 import {
   stampFlowSkillProvenance,
@@ -560,6 +561,14 @@ const makeTeachingRecordingLearning = Effect.fn(
       // ceiling and device are stamped into the package now, while the event
       // stream is still on disk to prove them.
       const events = yield* readEvents(manifest);
+      yield* validateTaughtBrowserChecks(
+        files,
+        events.filter((event) => event._tag === "instruction")
+      ).pipe(
+        Effect.mapError((cause) =>
+          learningError("teaching_recording_invalid", cause.message)
+        )
+      );
       yield* validateTaughtScans(
         files,
         events.filter((event) => event._tag === "instruction")

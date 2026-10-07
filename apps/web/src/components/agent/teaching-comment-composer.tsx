@@ -2,6 +2,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { openTeachingTimespan } from "@contingency/protocol";
 import type {
   TeachingScan,
+  TeachingBrowserAttachment,
   ScanMode,
   TeachingInstruction,
 } from "@contingency/protocol";
@@ -29,7 +30,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogDescription,
-  DialogOverlay,
   DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -41,6 +41,13 @@ import {
   PopoverTitle,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+import {
+  attachmentMime,
+  readAttachment,
+  storageAttachment,
+} from "./browser-check-attachments";
+import { BrowserAttachmentEditor } from "./browser-check-authoring";
 
 const scanLabels: Record<ScanMode, string> = {
   accessibility: "Accessibility scan",
@@ -87,11 +94,13 @@ const CommentTarget = ({ target }: { readonly target: string | null }) =>
  * this Page outlines its element behind the composer.
  */
 const CommentHistory = ({
+  onEdit,
   instructions,
   onHighlight,
   pinned,
   startedAt,
 }: {
+  readonly onEdit: (instruction: TeachingInstruction) => void;
   readonly instructions: readonly TeachingInstruction[];
   readonly onHighlight: (index?: number) => void;
   readonly pinned: ReadonlySet<number>;
@@ -152,6 +161,13 @@ const CommentHistory = ({
                     {elapsedLabel(startedAt, Date.parse(instruction.at))}
                   </span>
                   <CommentTarget target={instruction.target} />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onEdit(instruction)}
+                  >
+                    Edit comment
+                  </Button>
                 </span>
               </span>
             </li>
@@ -247,11 +263,68 @@ const ScanButtons = ({
  * is written here whether or not it names an element. Without one it is a
  * page comment; with one, inspect has attached the element as a chip.
  *
- * It is a modal dialog, so it traps focus, closes on `Escape` and on a click
- * outside, and gives focus back to whatever held it — usually the browser the
- * user was driving.
+ * The composer stays open while DevTools is used and closes on Escape or submission.
  */
+const CommentAttachments = ({
+  state,
+  pending,
+  origin,
+  onAttach,
+  onAttachmentsChange,
+}: {
+  readonly state: InspectState;
+  readonly pending: boolean;
+  readonly origin: string;
+  readonly onAttach: (attachment: TeachingBrowserAttachment) => void;
+  readonly onAttachmentsChange: (
+    attachments: readonly TeachingBrowserAttachment[]
+  ) => void;
+}) => (
+  <fieldset disabled={pending} className="grid gap-2">
+    {" "}
+    {(state.attachments ?? []).map((attachment) => (
+      <BrowserAttachmentEditor
+        key={attachment.id}
+        attachment={attachment}
+        onChange={(updated) =>
+          onAttachmentsChange(
+            (state.attachments ?? []).map((existing) =>
+              existing.id === attachment.id ? updated : existing
+            )
+          )
+        }
+        onRemove={() =>
+          onAttachmentsChange(
+            (state.attachments ?? []).filter(
+              (existing) => existing.id !== attachment.id
+            )
+          )
+        }
+      />
+    ))}
+    <p className="text-muted-foreground text-xs">
+      Drag a request or cookie from DevTools here. A response field starts a
+      check.
+    </p>
+    <Button
+      disabled={pending || (state.attachments?.length ?? 0) >= 50}
+      type="button"
+      variant="ghost"
+      onClick={() => {
+        const context = storageAttachment(origin, "cookie-name", "cookie");
+        onAttach({ ...context, requirement: context.candidate });
+      }}
+    >
+      Require an unseen cookie
+    </Button>
+  </fieldset>
+);
+
 export const CommentComposer = ({
+  onEdit,
+  origin,
+  onAttachmentsChange,
+  onAttach,
   instructions,
   onDetach,
   onDraftChange,
@@ -266,6 +339,12 @@ export const CommentComposer = ({
   startedAt,
   state,
 }: {
+  readonly origin: string;
+  readonly onAttachmentsChange: (
+    attachments: readonly TeachingBrowserAttachment[]
+  ) => void;
+  readonly onAttach: (attachment: TeachingBrowserAttachment) => void;
+  readonly onEdit: (instruction: TeachingInstruction) => void;
   /** Every instruction on this recording, oldest first. */
   readonly instructions: readonly TeachingInstruction[];
   readonly onDetach: () => void;
@@ -306,25 +385,64 @@ export const CommentComposer = ({
     }
     field.current?.focus();
   };
+  const popup = useRef<HTMLDivElement>(null);
+  const submit = () => {
+    const inputs = popup.current?.querySelectorAll<HTMLInputElement>(
+      "input, textarea, select"
+    );
+    for (const input of inputs ?? []) {
+      if (!input.reportValidity()) {
+        return;
+      }
+    }
+    onSubmit();
+  };
   const canSubmit = !pending && state.draft.trim() !== "";
   const pinned = new Set(state.comments.map((comment) => comment.index));
   return (
-    <Dialog onOpenChange={onOpenChange} open={state.composing}>
+    <Dialog
+      disablePointerDismissal
+      modal={false}
+      onOpenChange={onOpenChange}
+      open={state.composing}
+    >
       <DialogPortal>
         {/*
           No backdrop blur: the outline of a comment's element has to stay
           legible behind the composer while its list item is pointed at.
         */}
-        <DialogOverlay className="bg-black/15 supports-backdrop-filter:backdrop-blur-none dark:bg-black/40" />
         <DialogPrimitive.Popup
-          className="bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-top-2 data-closed:animate-out data-closed:fade-out-0 fixed top-[12%] left-1/2 z-50 flex max-h-[76svh] w-[min(36rem,calc(100%-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl text-sm shadow-2xl ring-1 outline-none"
+          onDragOver={(event) => {
+            if (!pending && event.dataTransfer.types.includes(attachmentMime)) {
+              event.preventDefault();
+            }
+          }}
+          onDrop={(event) => {
+            if (pending) {
+              return;
+            }
+            const attachment = readAttachment(event);
+            if (attachment !== undefined) {
+              event.preventDefault();
+              onAttach(attachment);
+            }
+          }}
+          className="bg-popover text-popover-foreground ring-foreground/10 fixed bottom-28 left-4 z-50 flex max-h-[65svh] w-[min(30rem,calc(100%-2rem))] flex-col overflow-auto rounded-2xl text-sm shadow-2xl ring-1 outline-none"
           initialFocus={field}
+          ref={popup}
         >
           <DialogTitle className="sr-only">Comment</DialogTitle>
           <DialogDescription className="sr-only">
             Tell the agent something about this moment of the recording.
           </DialogDescription>
           <div className="flex flex-col gap-2 px-4 pt-4 pb-2">
+            <CommentAttachments
+              state={state}
+              pending={pending}
+              origin={origin}
+              onAttach={onAttach}
+              onAttachmentsChange={onAttachmentsChange}
+            />
             {state.scan === undefined ? null : (
               <span className="bg-muted inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-0.5 pl-2 text-xs">
                 {state.scan.phase === "stop"
@@ -377,7 +495,7 @@ export const CommentComposer = ({
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   if (canSubmit) {
-                    onSubmit();
+                    submit();
                   }
                 } else if (
                   event.key === "Backspace" &&
@@ -434,11 +552,13 @@ export const CommentComposer = ({
             )}
             <Button
               disabled={!canSubmit}
-              onClick={onSubmit}
+              onClick={submit}
               size="sm"
               type="button"
             >
-              Add comment
+              {state.editingInstructionId === undefined
+                ? "Add comment"
+                : "Save comment"}
               <Kbd className="bg-primary-foreground/15 text-primary-foreground">
                 <CornerDownLeftIcon aria-hidden="true" />
               </Kbd>
@@ -453,6 +573,7 @@ export const CommentComposer = ({
             </h2>
             <div className="min-h-0 px-1.5 pb-1.5">
               <CommentHistory
+                onEdit={onEdit}
                 instructions={instructions}
                 onHighlight={onHighlight}
                 pinned={pinned}

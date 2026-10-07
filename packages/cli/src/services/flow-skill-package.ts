@@ -1,6 +1,10 @@
 import type { FlowSkillDiagnostic, FlowSkillFile } from "@contingency/protocol";
 import { Result } from "effect";
 
+import {
+  parseBrowserChecks,
+  BROWSER_CHECKS_FILE,
+} from "./browser-check-requirements.ts";
 import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
 
 /**
@@ -806,6 +810,16 @@ export const validateFlowSkillPackage = (
   const report = (entry: FlowSkillDiagnostic) => {
     diagnostics.push(entry);
   };
+  const browserChecks = parseBrowserChecks(files);
+  if (Result.isFailure(browserChecks)) {
+    report(
+      diagnostic(
+        "flow_skill_invalid_browser_checks",
+        browserChecks.failure.message,
+        [BROWSER_CHECKS_FILE]
+      )
+    );
+  }
   const scans = parseScanRequirements(files);
   if (Result.isFailure(scans)) {
     report(

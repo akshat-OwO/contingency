@@ -12,6 +12,7 @@ import {
   OperationId,
 } from "./agent-identifiers.ts";
 import { AgentRunSummary } from "./agent-run.ts";
+import { browserAttachmentsField } from "./browser-checks.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
@@ -371,6 +372,7 @@ const TeachingUrlEvent = Schema.TaggedStruct("url", {
 
 /** Free text the user relayed while demonstrating. */
 const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
+  attachments: browserAttachmentsField,
   scan: optionalNullable(TeachingScan),
   ...teachingEventBase,
   /** The element the instruction was attached to, when it named one. */
@@ -650,6 +652,7 @@ export type TeachingKeyframeBytes = typeof TeachingKeyframeBytes.Type;
 /** What the user told the agent to do, as the agent relayed it. */
 export const TeachingInstruction = Schema.Struct({
   at: nonEmptyString,
+  attachments: browserAttachmentsField,
   id: nonEmptyString,
   scan: Schema.optional(TeachingScan),
   /**
@@ -674,7 +677,9 @@ export const UrlTransition = Schema.Struct({
 export type UrlTransition = typeof UrlTransition.Type;
 
 export const TeachingInstructionRecord = Schema.Struct({
+  attachments: browserAttachmentsField,
   operationId: OperationId,
+  replaceId: optionalNullable(Schema.String),
   scan: Schema.optional(TeachingScan),
   sessionId: AgentSessionId,
   text: nonEmptyString,

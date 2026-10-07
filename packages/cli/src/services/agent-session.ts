@@ -4,6 +4,9 @@ import path from "node:path";
 
 import type {
   SessionEvent,
+  TeachingBrowserAttachment,
+  BrowserCheckResult,
+  BrowserCheckIdentity,
   TeachingScan,
   AgentSetupVariable,
   AgentSetupVariableRequest,
@@ -125,6 +128,13 @@ import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
+import { armBrowserChecks } from "./browser-check-engine.ts";
+import {
+  resolveBrowserCheckInputs,
+  validateTeachingAttachments,
+} from "./browser-check-requirements.ts";
+import type { BrowserDiagnosticsReader } from "./browser-diagnostics.ts";
+import { makeBrowserDiagnostics } from "./browser-diagnostics.ts";
 import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
@@ -439,7 +449,9 @@ export interface AgentSessionService {
     operationId?: OperationId | string,
     /** The element the instruction was attached to, when it named one. */
     target?: string | undefined,
-    scan?: TeachingScan
+    scan?: TeachingScan,
+    attachments?: readonly TeachingBrowserAttachment[],
+    replaceId?: string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Ask the user to take control, and answer immediately with the link. */
   readonly requestTakeover: (
@@ -487,7 +499,10 @@ export interface AgentSessionService {
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly snapshot: (
     sessionId: AgentSessionId,
-    options?: AgentSnapshotOptions
+    options?: AgentSnapshotOptions & {
+      readonly diagnostics?: boolean | undefined;
+      readonly checkIds?: readonly BrowserCheckIdentity[] | undefined;
+    }
   ) => Effect.Effect<AgentBrowserSnapshot, AgentSessionError>;
   /**
    * Browser setup tooling the Workspace drives during teaching setup. The
@@ -1298,6 +1313,7 @@ type SnapshotWrite = readonly [
 ];
 
 interface SessionRecord {
+  readonly diagnostics: { reader: BrowserDiagnosticsReader | undefined };
   readonly dryRunControl: { hadTakeover: boolean };
   readonly executionBoundary: ExecutionBoundary | undefined;
   readonly runTimeline: AgentTimelineEntry[];
@@ -3656,6 +3672,7 @@ const makeAgentSession = (
                         inFlight: undefined,
                         lock: Semaphore.makeUnsafe(1),
                       },
+                      diagnostics: { reader: undefined },
                       dryRunControl: { hadTakeover: false },
                       emulation,
                       executionBoundary:
@@ -4464,6 +4481,94 @@ const makeAgentSession = (
         }
       });
 
+    const prepareBrowserChecks = (
+      sessionId: AgentSessionId,
+      record: SessionRecord,
+      intent: AgentActionIntent
+    ) =>
+      Effect.gen(function* prepareChecks() {
+        const checkIds = intent.checkIds ?? [];
+        const { run } = record.snapshot;
+        const requirements =
+          run !== null && isTaskRun(run) ? (run.browserChecks ?? []) : [];
+        const checks = checkIds.map((identity) =>
+          requirements.find(
+            (reference) =>
+              reference.flowSkillName === identity.flowSkillName &&
+              reference.check.id === identity.id
+          )
+        );
+        if (
+          checks.some((check) => check === undefined) ||
+          new Set(checkIds.map((check) => `${check.flowSkillName}/${check.id}`))
+            .size !== checkIds.length
+        ) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_invalid",
+              "Pass unique saved Browser Check IDs belonging to this Run."
+            )
+          );
+        }
+        if (
+          run !== null &&
+          isTaskRun(run) &&
+          run.browserCheckResults?.some((result) => result.status !== "passed")
+        ) {
+          return yield* Effect.fail(
+            error(
+              "agent_session_conflict",
+              "A required Browser Check did not pass. Stop dependent actions and investigate with observations or Takeover; start a fresh Run to retry the journey."
+            )
+          );
+        }
+        const persistChecks = (results: readonly BrowserCheckResult[]) =>
+          mutate(sessionId, (snapshot) =>
+            snapshot.run === null || !isTaskRun(snapshot.run)
+              ? snapshot
+              : {
+                  ...snapshot,
+                  run: {
+                    ...snapshot.run,
+                    assessment: results.some(
+                      (result) => result.status !== "passed"
+                    )
+                      ? null
+                      : snapshot.run.assessment,
+                    browserCheckResults: [
+                      ...(snapshot.run.browserCheckResults ?? []),
+                      ...results,
+                    ],
+                  },
+                }
+          ).pipe(Effect.asVoid);
+        return {
+          checks: yield* Effect.forEach(
+            checks.filter((check) => check !== undefined),
+            (reference) =>
+              resolveBrowserCheckInputs(
+                reference,
+                (name) =>
+                  record.supplied.get(
+                    variableKey(name, reference.flowSkillName)
+                  ) ??
+                  (run !== null && isTaskRun(run)
+                    ? (run.inputs.find(
+                        (input) =>
+                          input.flowSkillName === reference.flowSkillName &&
+                          input.name === name
+                      )?.value ?? undefined)
+                    : undefined)
+              ).pipe(
+                Effect.mapError((cause) =>
+                  error("agent_session_invalid", cause.message)
+                )
+              )
+          ),
+          persistChecks,
+        };
+      });
+
     const dispatch = Effect.fn("AgentSession.dispatch")(
       function* dispatchAgentBrowserAction(
         sessionId: AgentSessionId,
@@ -4525,6 +4630,11 @@ const makeAgentSession = (
         if (boundary !== undefined) {
           return boundary;
         }
+        const { checks, persistChecks } = yield* prepareBrowserChecks(
+          sessionId,
+          current,
+          boundaryAttempt.intent
+        );
         const urlBefore = page.url();
         const snapshotBefore =
           recordingCapture(record)?.latestSnapshotId() ?? null;
@@ -4539,7 +4649,36 @@ const makeAgentSession = (
         yield* Effect.uninterruptible(boundaryAttempt.onDispatch);
         const fiber = yield* Effect.forkChild(
           Effect.gen(function* dispatchAgentAction() {
+            const watch =
+              checks.length === 0
+                ? {
+                    dispose: () => {
+                      /* There are no listeners when the action has no checks. */
+                    },
+                    interrupted: () => [],
+                    start: () => {
+                      /* No response watch needs arming. */
+                    },
+                    wait: () =>
+                      Effect.succeed<readonly BrowserCheckResult[]>([]),
+                  }
+                : yield* armBrowserChecks(
+                    yield* browser.activeTarget(record.browserSessionId),
+                    checks,
+                    boundaryAttempt.operationId
+                  );
+            let finished = false;
+            yield* Effect.addFinalizer(() =>
+              Effect.gen(function* closeCheckWatch() {
+                watch.dispose();
+                if (!finished && checks.length > 0) {
+                  yield* persistChecks(watch.interrupted());
+                }
+              })
+            );
             const observation = yield* page.beginObservation(action);
+            watch.start();
+            const checksFiber = yield* Effect.forkChild(watch.wait());
             if (privateRegistration === undefined) {
               yield* page.perform(action, (pointer) =>
                 browser.pointAgent(record.browserSessionId, pointer)
@@ -4557,6 +4696,11 @@ const makeAgentSession = (
                 accepted
               );
             }
+            const browserCheckResults = yield* Fiber.join(checksFiber);
+            if (browserCheckResults.length > 0) {
+              yield* persistChecks(browserCheckResults);
+            }
+            finished = true;
             const { effect, snapshot } = yield* observedAfter(
               record,
               action,
@@ -4568,14 +4712,20 @@ const makeAgentSession = (
               description,
               dispatched: true,
               id,
-              outcome: "completed",
+              outcome: browserCheckResults.every(
+                (result) => result.status === "passed"
+              )
+                ? "completed"
+                : "failed",
             };
             return {
+              browserCheckResults,
               entry: effect === undefined ? entry : { ...entry, effect },
               snapshot,
               url: snapshot.url,
             };
           }).pipe(
+            Effect.scoped,
             Effect.ensuring(
               Effect.sync(() => {
                 record.footage?.markAction(windowStartedAt, Date.now());
@@ -5712,9 +5862,13 @@ const makeAgentSession = (
       text: string,
       operationId?: OperationId | string,
       target?: string | undefined,
-      scan?: TeachingScan
+      scan?: TeachingScan,
+      attachments?: readonly TeachingBrowserAttachment[],
+      replaceId?: string
     ) {
       const requestInput = JSON.stringify({
+        attachments: attachments ?? [],
+        replaceId: replaceId ?? null,
         scan: scan ?? null,
         target: target ?? null,
         text,
@@ -5746,7 +5900,18 @@ const makeAgentSession = (
             );
           }
           const at = now().toISOString();
-          if (scan !== undefined) {
+          const replacing = yield* validateTeachingAttachments(
+            capture.progress().instructions,
+            attachments,
+            replaceId,
+            scan,
+            sessionSensitiveValues(record)
+          ).pipe(
+            Effect.mapError((cause) =>
+              error("agent_session_invalid", cause.message)
+            )
+          );
+          if (scan !== undefined && replacing === undefined) {
             const open = openTeachingTimespan(capture.progress().instructions);
             if (
               scan.phase === "start" &&
@@ -5785,7 +5950,9 @@ const makeAgentSession = (
             text,
             at,
             target,
-            scan
+            scan,
+            attachments,
+            replaceId
           );
           const next = yield* recordEntry(sessionId, {
             actor: "user",
@@ -6481,7 +6648,15 @@ const makeAgentSession = (
             )
           );
         }),
-      recordInstruction: (sessionId, text, operationId, target, scan) =>
+      recordInstruction: (
+        sessionId,
+        text,
+        operationId,
+        target,
+        scan,
+        attachments,
+        replaceId
+      ) =>
         ledger.serializeMutation(
           afterUserInput(
             sessionId,
@@ -6490,7 +6665,9 @@ const makeAgentSession = (
               text,
               operationId,
               target,
-              scan
+              scan,
+              attachments,
+              replaceId
             )
           )
         ),
@@ -7235,7 +7412,60 @@ const makeAgentSession = (
         ),
       snapshot: (sessionId, snapshotOptions) =>
         observe(sessionId, (record, page) =>
-          page.settledSnapshot(snapshotOptions).pipe(
+          Effect.gen(function* observeBrowserCapabilities() {
+            let diagnostics;
+            if (snapshotOptions?.diagnostics === true) {
+              if (record.diagnostics.reader === undefined) {
+                record.diagnostics.reader = yield* makeBrowserDiagnostics(
+                  yield* browser.activeTarget(record.browserSessionId),
+                  record.scope
+                );
+              }
+              diagnostics = yield* record.diagnostics.reader(
+                browser,
+                record.browserSessionId,
+                sessionSensitiveValues(record)
+              );
+            }
+            let browserCheckResults: readonly BrowserCheckResult[] = [];
+            if ((snapshotOptions?.checkIds?.length ?? 0) > 0) {
+              const { checks, persistChecks } = yield* prepareBrowserChecks(
+                sessionId,
+                record,
+                { checkIds: snapshotOptions?.checkIds }
+              );
+              if (
+                checks.some(
+                  ({ check }) =>
+                    check.kind === "response" || check.change !== "current"
+                )
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "Only current-state storage checks use observation. Pass response or change checks with their triggering action."
+                  )
+                );
+              }
+              const watch = yield* armBrowserChecks(
+                yield* browser.activeTarget(record.browserSessionId),
+                checks,
+                `observation-${randomUUID()}`
+              );
+              browserCheckResults = yield* watch
+                .wait()
+                .pipe(Effect.ensuring(Effect.sync(watch.dispose)));
+              yield* persistChecks(browserCheckResults);
+            }
+            const snapshot = yield* page.settledSnapshot(snapshotOptions);
+            const result: AgentBrowserSnapshot = {
+              ...snapshot,
+              browserCheckResults,
+            };
+            return diagnostics === undefined
+              ? result
+              : { ...result, diagnostics };
+          }).pipe(
             Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
             Effect.tap((snapshot) =>
               rememberCurrentUrl(sessionId, record, snapshot.url)
