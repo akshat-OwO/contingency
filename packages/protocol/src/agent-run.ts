@@ -3,6 +3,10 @@ import { Schema } from "effect";
 import { AgentTimelineEntry } from "./agent-browser.ts";
 import { AgentSessionVariableState, DemoSiteId } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
+import {
+  browserCheckRequirementsField,
+  browserCheckResultsField,
+} from "./browser-checks.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
@@ -383,6 +387,8 @@ export type RunEmulationConflict = typeof RunEmulationConflict.Type;
 const taskRunFields = {
   assessment: Schema.NullOr(AgentTaskAssessment),
   attribution: AgentRunAttribution,
+  browserCheckResults: browserCheckResultsField,
+  browserChecks: browserCheckRequirementsField,
   /**
    * Present when the Run's Domain Scope is a bundled demo site, so demo
    * evidence in the user's catalog is never mistaken for a real website's.

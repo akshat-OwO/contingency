@@ -180,6 +180,7 @@ const AgentBrowserObserveParameters = Schema.Struct({
 
 const AgentBrowserActParameters = Schema.Struct({
   action: AgentBrowserAct.fields.action,
+  checkIds: AgentBrowserAct.fields.checkIds,
   format: actionSnapshotFormat,
   intent: AgentBrowserAct.fields.intent,
   operationId: AgentBrowserAct.fields.operationId,
@@ -255,7 +256,7 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      'Read a bounded Snapshot. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
+      'Read a bounded Snapshot. diagnostics:true adds up to 50 request summaries, 50 console levels, and 50 names per storage kind, with headers, payloads, console content, query values, and storage values withheld. Console observations begin with the first diagnostics read. Pass checkIds:[{flowSkillName,id}] for saved current-state storage checks. Response and creation/change checks belong on the triggering action. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
     failure: AgentSessionFailure,
     parameters: AgentBrowserSnapshotRead,
     success: AgentBrowserSnapshot,
@@ -276,10 +277,10 @@ const AgentBrowserScreenshotTool = readOnly(
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An undispatched intervention pauses the action: wait for Allow in Workspace or resolve an explicit Pending Decision, then call agent_browser_resume with its boundary id. Approval resolution needs its own operation id; never reuse the action id for approval. Legacy exact-action retries must preserve action and intent as well as operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
+    'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. Pass checkIds:[{flowSkillName,id}] for saved Browser Checks tied to this action. Watches arm before dispatch, evaluate locally within the saved deadlines, and return browserCheckResults. A failed or inconclusive check stops dependent actions; observe or take over to investigate and start a fresh Run to retry. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An undispatched intervention pauses the action: wait for Allow in Workspace or resolve an explicit Pending Decision, then call agent_browser_resume with its boundary id. Approval resolution needs its own operation id; never reuse the action id for approval. Legacy exact-action retries must preserve action and intent as well as operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
-  success: AgentActionResult,
+  success: Schema.Unknown.pipe(Schema.decodeTo(AgentActionResult)),
 });
 
 const AgentBrowserResumeTool = Tool.make("agent_browser_resume", {
@@ -419,12 +420,10 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           const service = yield* AgentSession;
           yield* service.noteAgentActivity(params.sessionId);
           const result = yield* service
-            .act(
-              params.sessionId,
-              params.action,
-              params.operationId,
-              params.intent
-            )
+            .act(params.sessionId, params.action, params.operationId, {
+              ...params.intent,
+              checkIds: params.checkIds ?? params.intent?.checkIds,
+            })
             .pipe(Effect.mapError(failure));
           return {
             ...result,
@@ -456,12 +455,10 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           let stopped: AgentActSequenceResult["stopped"] = null;
           for (const [index, step] of params.actions.entries()) {
             const attempt = yield* Effect.result(
-              service.act(
-                params.sessionId,
-                step.action,
-                step.operationId,
-                step.intent
-              )
+              service.act(params.sessionId, step.action, step.operationId, {
+                ...step.intent,
+                checkIds: step.checkIds ?? step.intent?.checkIds,
+              })
             );
             if (Result.isFailure(attempt)) {
               stopped = {
@@ -532,7 +529,9 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           yield* service.noteAgentActivity(params.sessionId);
           return yield* service
             .snapshot(params.sessionId, {
+              checkIds: params.checkIds,
               cursor: params.cursor,
+              diagnostics: params.diagnostics,
               interactive: params.interactive,
               selector: params.selector,
               urls: params.urls,

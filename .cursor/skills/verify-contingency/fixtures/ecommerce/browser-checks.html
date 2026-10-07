@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser Check fixture</title>
+    <style>
+      body {
+        margin: 32px;
+        font: 18px system-ui;
+        background: #fff;
+        color: #172033;
+      }
+      button {
+        padding: 12px 24px;
+        font: inherit;
+      }
+      [role="status"] {
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Submit a request</h1>
+    <button type="button" id="submit">Submit</button>
+    <p role="status" id="confirmation">No request submitted</p>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const fail = params.has("failure");
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      let submissions = 0;
+      // A response observed before the action must not satisfy its later watch.
+      fetch("/browser-check-response?phase=ready");
+      document.getElementById("submit").addEventListener("click", async () => {
+        submissions += 1;
+        document.getElementById("confirmation").textContent =
+          `Submitted ${submissions} time(s)`;
+        await fetch("/browser-check-response?phase=pending", {
+          method: "POST",
+        });
+        await delay(150);
+        if (fail) return;
+        await fetch("/browser-check-response?phase=ready&create=1", {
+          method: "POST",
+        });
+        localStorage.setItem("checkout-state", "ready");
+        document.getElementById("confirmation").textContent =
+          `Confirmation ready. Submitted ${submissions} time(s)`;
+      });
+    </script>
+  </body>
+</html>

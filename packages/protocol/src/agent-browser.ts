@@ -5,6 +5,11 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
+import {
+  BrowserDiagnostics,
+  browserCheckIdsField,
+  browserCheckResultsField,
+} from "./browser-checks.ts";
 import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -115,8 +120,10 @@ export type AgentSnapshotOptions = typeof AgentSnapshotOptions.Type;
  * references, and asks for a screenshot when that is not enough.
  */
 export const AgentBrowserSnapshot = Schema.Struct({
+  browserCheckResults: browserCheckResultsField,
   capturedAt: nonEmptyString,
   coverage: optionalNullable(AgentSnapshotCoverage),
+  diagnostics: Schema.optionalKey(BrowserDiagnostics),
   nodes: Schema.Array(AgentSnapshotNode),
   settle: optionalNullable(AgentPageSettle),
   snapshotId: AgentSnapshotId,
@@ -220,6 +227,7 @@ export const AgentBrowserAction = Schema.Union([
 export type AgentBrowserAction = typeof AgentBrowserAction.Type;
 
 export const AgentActionIntent = Schema.Struct({
+  checkIds: browserCheckIdsField,
   irreversible: optionalNullable(Schema.Boolean),
   objective: optionalNullable(nonEmptyString),
   objectiveKind: optionalNullable(
@@ -290,6 +298,7 @@ export const AgentTimelineEntry = Schema.Struct({
 export type AgentTimelineEntry = typeof AgentTimelineEntry.Type;
 
 export const AgentActionResult = Schema.Struct({
+  browserCheckResults: browserCheckResultsField,
   entry: AgentTimelineEntry,
   intervention: optionalNullable(AgentExecutionBoundary),
   snapshot: AgentBrowserSnapshot,
@@ -311,6 +320,8 @@ export const AgentSnapshotFormat = Schema.Literals(["text", "structured"]);
 export type AgentSnapshotFormat = typeof AgentSnapshotFormat.Type;
 
 export const AgentBrowserSnapshotRead = Schema.Struct({
+  checkIds: browserCheckIdsField,
+  diagnostics: optionalNullable(Schema.Boolean),
   ...AgentBrowserObserve.fields,
   ...AgentSnapshotOptions.fields,
   format: optionalNullable(AgentSnapshotFormat),
@@ -330,6 +341,7 @@ export type AgentActionSnapshotFormat = typeof AgentActionSnapshotFormat.Type;
 
 export const AgentBrowserAct = Schema.Struct({
   action: AgentBrowserAction,
+  checkIds: browserCheckIdsField,
   intent: optionalNullable(AgentActionIntent),
   operationId: OperationId,
   sessionId: AgentSessionId,
@@ -342,6 +354,7 @@ export const AGENT_ACTION_SEQUENCE_MAX = 5;
 /** One action in a bounded sequence, under its own operation id. */
 export const AgentSequenceAction = Schema.Struct({
   action: AgentBrowserAction,
+  checkIds: browserCheckIdsField,
   intent: optionalNullable(AgentActionIntent),
   operationId: OperationId,
 });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  browserCheckCoverage,
   scanCoverage,
   AgentRunSummary,
   OperationId,
@@ -22,6 +23,7 @@ import type {
   AgentRunTaskInput,
   AgentRunTaskVariable,
   FlowSkillName,
+  BrowserCheckReference,
   ScanReference,
 } from "@contingency/protocol";
 import type { FileSystem } from "effect";
@@ -132,7 +134,8 @@ const dryRunPassed = (
   summary.assessment?.outcome === "working" &&
   summary.assessment.outcomeComplete === true &&
   !hadTakeover &&
-  scanCoverage(summary).complete;
+  scanCoverage(summary).complete &&
+  browserCheckCoverage(summary).complete;
 
 const dryRunObservableOutcome = (summary: AgentRunSummary): string => {
   if (summary.schemaVersion === 3) {
@@ -154,7 +157,15 @@ export const endTaskRun = (
 ): TaskAgentRunState =>
   run.lifecycle.phase === "ended"
     ? run
-    : { ...run, lifecycle: { endedAt: at, outcome, phase: "ended" } };
+    : {
+        ...run,
+        assessment:
+          run.assessment?.outcome === "working" &&
+          !browserCheckCoverage(run).complete
+            ? null
+            : run.assessment,
+        lifecycle: { endedAt: at, outcome, phase: "ended" },
+      };
 
 export const endClosedRun = (
   run: LiveRun | null,
@@ -268,6 +279,7 @@ export interface TaskRunUpdate {
     readonly flowSkillName: FlowSkillName;
     readonly hosts: readonly string[];
     readonly variables: readonly AgentRunTaskVariable[];
+    readonly browserChecks?: readonly BrowserCheckReference[];
     readonly scans?: readonly ScanReference[];
   }[];
   readonly inputs: readonly AgentRunTaskInput[];
@@ -326,6 +338,14 @@ const assessTaskRun = (
       );
     }
 
+    if (input.outcome === "working" && !browserCheckCoverage(run).complete) {
+      return yield* Effect.fail(
+        error(
+          "agent_session_invalid",
+          "Every required Browser Check must pass before a Run can be assessed working."
+        )
+      );
+    }
     const assessment = { ...input, submittedAt: at };
 
     return {
@@ -353,9 +373,21 @@ const withTaskUpdate = (
   at: string
 ): TaskAgentRunState => {
   const referencedSkills = [...run.referencedSkills];
+  const browserChecks = [...(run.browserChecks ?? [])];
   const scanRequirements = [...(run.scanRequirements ?? [])];
   const variables = [...run.variables];
   for (const skill of input.skills) {
+    for (const reference of skill.browserChecks ?? []) {
+      if (
+        !browserChecks.some(
+          (existing) =>
+            existing.flowSkillName === reference.flowSkillName &&
+            existing.check.id === reference.check.id
+        )
+      ) {
+        browserChecks.push(reference);
+      }
+    }
     for (const scan of skill.scans ?? []) {
       if (
         !scanRequirements.some(
@@ -394,7 +426,12 @@ const withTaskUpdate = (
   }
   return {
     ...run,
-    assessment: input.instruction === undefined ? run.assessment : null,
+    assessment:
+      input.instruction === undefined &&
+      browserChecks.length === (run.browserChecks?.length ?? 0)
+        ? run.assessment
+        : null,
+    browserChecks,
     emulationConflicts: [
       ...(run.emulationConflicts ?? []).filter(
         (conflict) =>

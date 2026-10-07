@@ -1,4 +1,5 @@
 import type {
+  TeachingBrowserAttachment,
   TeachingScan,
   AgentInspectedElement,
 } from "@contingency/protocol";
@@ -53,6 +54,8 @@ export interface InspectState {
   readonly comments: readonly InspectComment[];
   /** Numbering continues when navigation removes the previous Page's pins. */
   readonly nextCommentIndex: number;
+  readonly editingInstructionId?: string | undefined;
+  readonly attachments?: readonly TeachingBrowserAttachment[] | undefined;
   readonly scan?: TeachingScan | undefined;
   readonly scanMenu?: boolean | undefined;
   readonly draft: string;
@@ -68,9 +71,11 @@ export interface InspectState {
 }
 
 export const emptyInspectState: InspectState = {
+  attachments: [],
   comments: [],
   composing: false,
   draft: "",
+  editingInstructionId: undefined,
   error: undefined,
   frozen: undefined,
   highlighted: undefined,
@@ -140,8 +145,10 @@ export const attachSelection = (
  */
 export const leavePage = (state: InspectState): InspectState => ({
   ...emptyInspectState,
+  attachments: state.attachments,
   composing: state.composing,
   draft: state.draft,
+  editingInstructionId: state.editingInstructionId,
   nextCommentIndex: state.nextCommentIndex,
   scan: state.scan,
 });
@@ -168,6 +175,7 @@ export const completeInspectComment = (
   }
   return {
     ...state,
+    attachments: [],
     comments:
       frozen === undefined || !samePage || state.frozen !== frozen
         ? state.comments
@@ -184,6 +192,7 @@ export const completeInspectComment = (
           ],
     composing: false,
     draft: "",
+    editingInstructionId: undefined,
     error: undefined,
     frozen: undefined,
     highlighted: undefined,

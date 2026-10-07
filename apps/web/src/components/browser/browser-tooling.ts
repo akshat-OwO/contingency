@@ -1,4 +1,5 @@
 import type {
+  TeachingBrowserAttachment,
   AgentSessionId,
   BrowserCookieWrite,
   BrowserRequestId,
@@ -37,6 +38,9 @@ export type StorageErase =
  * process (ADR 0038); the panels only ever see this port.
  */
 export interface BrowserTooling {
+  readonly attachBrowserContext?:
+    | ((attachment: TeachingBrowserAttachment) => void)
+    | undefined;
   readonly clearStorage: (
     tabId: BrowserTabId,
     kind: StorageKind

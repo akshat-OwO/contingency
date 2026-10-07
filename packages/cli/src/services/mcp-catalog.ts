@@ -100,7 +100,9 @@ const TeachingInstructionRecordTool = Tool.make(
       "Record what the user told you to do next in a Teaching session, in their words. The instruction joins the recording's event stream in order, so a learning agent reads it beside the actions it explains. Requires an operation id.",
     failure: AgentCatalogFailure,
     parameters: Schema.Struct({
+      attachments: TeachingInstructionRecord.fields.attachments,
       operationId: TeachingInstructionRecord.fields.operationId,
+      replaceId: TeachingInstructionRecord.fields.replaceId,
       scan: optionalNullable(TeachingScan),
       sessionId: TeachingInstructionRecord.fields.sessionId,
       text: TeachingInstructionRecord.fields.text,
@@ -189,7 +191,9 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
           params.text,
           params.operationId,
           undefined,
-          params.scan
+          params.scan,
+          params.attachments,
+          params.replaceId
         )
         .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
     }),

@@ -1,4 +1,15 @@
+import {
+  httpOriginFromUrl,
+  describeFlowSkillName,
+  dryRunVideoPath,
+  FlowSkillName,
+  flowSkillNameRule,
+  isLiveAgentSessionPhase,
+  OperationId,
+} from "@contingency/protocol";
 import type {
+  TeachingBrowserAttachment,
+  TeachingInstruction,
   TeachingScan,
   AgentHistoryAction,
   AgentInspectedElement,
@@ -7,14 +18,6 @@ import type {
   AgentSessionSnapshot,
   BrowserInput,
   BrowserStreamEvent,
-} from "@contingency/protocol";
-import {
-  describeFlowSkillName,
-  dryRunVideoPath,
-  FlowSkillName,
-  flowSkillNameRule,
-  isLiveAgentSessionPhase,
-  OperationId,
 } from "@contingency/protocol";
 import {
   useAtom,
@@ -628,6 +631,7 @@ const AgentLiveView = ({
   onAddressChange,
   onAddressSubmit,
   onClearConsole,
+  onAttachBrowserContext,
   notices,
   onDismissBotProtectionBlock,
   onNavigate,
@@ -649,6 +653,9 @@ const AgentLiveView = ({
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onClearConsole: () => void;
+  readonly onAttachBrowserContext: (
+    attachment: TeachingBrowserAttachment
+  ) => void;
   readonly onDismissBotProtectionBlock: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly recording: boolean;
@@ -696,6 +703,7 @@ const AgentLiveView = ({
           session.activity === "teaching" &&
           session.captureState._tag !== "setup"
         }
+        onAttachBrowserContext={recording ? onAttachBrowserContext : undefined}
         onClearConsole={onClearConsole}
         sessionId={session.id}
         teaching={session.activity === "teaching"}
@@ -1665,6 +1673,23 @@ const useAgentView = (
     );
   };
 
+  const setAttachments = (attachments: readonly TeachingBrowserAttachment[]) =>
+    updateInspect((inspect) => ({ ...inspect, attachments }));
+  const attachBrowserContext = (attachment: TeachingBrowserAttachment) =>
+    updateInspect((inspect) => ({
+      ...openComposer(inspect),
+      attachments: [...(inspect.attachments ?? []), attachment].slice(0, 50),
+    }));
+
+  const editComment = (instruction: TeachingInstruction) =>
+    updateInspect((inspect) => ({
+      ...openComposer(inspect),
+      attachments: instruction.attachments,
+      draft: instruction.text,
+      editingInstructionId: instruction.id,
+      frozen: undefined,
+      scan: instruction.scan,
+    }));
   const setScan = (scan?: TeachingScan) => {
     setState((current) => ({
       ...current,
@@ -1766,7 +1791,9 @@ const useAgentView = (
           try: () =>
             recordInstruction({
               payload: {
+                attachments: state.inspect.attachments,
                 operationId,
+                replaceId: state.inspect.editingInstructionId,
                 scan: state.inspect.scan,
                 sessionId,
                 /*
@@ -2041,6 +2068,7 @@ const useAgentView = (
   };
 
   return {
+    attachBrowserContext,
     canvasRef,
     changeComposerOpen,
     changeControl,
@@ -2049,6 +2077,7 @@ const useAgentView = (
     detachElement,
     dismissBotProtectionBlock,
     dismissEndedRun,
+    editComment,
     exitInspect,
     freezeInspect,
     gestures: {
@@ -2071,6 +2100,7 @@ const useAgentView = (
     sessions: pickerSessions,
     sessionsResult,
     setAddress,
+    setAttachments,
     setInspectDraft,
     setScan,
     setScanMenu,
@@ -2300,6 +2330,7 @@ export const AgentWorkspace = ({
           }
           onAddressChange={view.setAddress}
           onAddressSubmit={view.submitAddress}
+          onAttachBrowserContext={view.attachBrowserContext}
           onClearConsole={view.clearConsole}
           onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
           onNavigate={view.navigate}
@@ -2312,6 +2343,10 @@ export const AgentWorkspace = ({
       session.captureState._tag === "recording" ? (
         <CommentComposer
           instructions={session.teaching.instructions}
+          origin={httpOriginFromUrl(session.currentUrl)?.origin ?? ""}
+          onEdit={view.editComment}
+          onAttachmentsChange={view.setAttachments}
+          onAttach={view.attachBrowserContext}
           onDetach={view.detachElement}
           onDraftChange={view.setInspectDraft}
           onHighlight={view.highlightComment}

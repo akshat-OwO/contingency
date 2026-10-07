@@ -7,6 +7,7 @@ import type {
 
 import { Badge } from "@/components/ui/badge";
 
+import { BrowserCheckResults } from "./browser-check-results";
 import { runProvenance } from "./run-provenance.ts";
 import { ScanResults } from "./scan-results.tsx";
 
@@ -97,6 +98,7 @@ export const TaskRunDetails = ({
           </ul>
         )}
       </section>
+      <BrowserCheckResults run={run} />
       <ScanResults run={run} />
       <section aria-label="Task assessment" className="space-y-2">
         <h3 className="font-semibold">Agent Assessment</h3>

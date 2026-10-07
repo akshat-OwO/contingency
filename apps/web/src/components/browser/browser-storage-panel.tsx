@@ -13,9 +13,13 @@ import {
   STORAGE_LOCKED_MESSAGE as storageLockedMessage,
 } from "@contingency/protocol";
 import { Cause, Effect, Fiber, Schedule } from "effect";
-import { PlusIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { PaperclipIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
+import {
+  dragAttachment,
+  storageAttachment,
+} from "@/components/agent/browser-check-attachments";
 import {
   applyFetchedStorageSnapshot,
   applyTabUrlOriginChange,
@@ -139,6 +143,8 @@ const cookieIdentitiesEqualRow = (
   cookieIdentitiesEqual(cookie, selection.identity);
 
 const CookieTable = ({
+  onAttach,
+  origin,
   cookies,
   empty,
   mutationsLocked,
@@ -146,6 +152,8 @@ const CookieTable = ({
   onSelect,
   selected,
 }: {
+  readonly onAttach: BrowserTooling["attachBrowserContext"];
+  readonly origin: string;
   readonly cookies: readonly BrowserCookie[];
   readonly empty: boolean;
   readonly mutationsLocked: boolean;
@@ -154,7 +162,7 @@ const CookieTable = ({
   readonly selected: StorageSelection | undefined;
 }) => (
   <>
-    <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_1.75rem] border-b px-2 py-1 text-xs font-medium">
+    <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_3.5rem] border-b px-2 py-1 text-xs font-medium">
       <span>Name</span>
       <span>Domain</span>
       <span>Path</span>
@@ -175,9 +183,16 @@ const CookieTable = ({
         cookies.map((cookie) => (
           <div
             className={cn(
-              "hover:bg-muted/50 grid h-8 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_1.75rem] items-center px-2 font-mono text-xs",
+              "hover:bg-muted/50 grid h-8 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_3.5rem] items-center px-2 font-mono text-xs",
               cookieIdentitiesEqualRow(cookie, selected) && "bg-muted"
             )}
+            draggable={onAttach !== undefined}
+            onDragStart={(event) =>
+              dragAttachment(
+                event,
+                storageAttachment(origin, cookie.name, "cookie", cookie.path)
+              )
+            }
             key={`${cookie.name}\0${cookie.domain}\0${cookie.path}`}
           >
             <button
@@ -197,19 +212,40 @@ const CookieTable = ({
               <span>{flagLabel(cookie.secure)}</span>
               <span>{sameSiteLabel(cookie.sameSite)}</span>
             </button>
-            <Button
-              aria-label={`Delete cookie ${cookie.name}`}
-              className="size-6"
-              disabled={mutationsLocked}
-              onClick={() => {
-                onDelete(cookie);
-              }}
-              size="icon-xs"
-              title={mutationsLocked ? storageLockedMessage : undefined}
-              variant="ghost"
-            >
-              <Trash2Icon />
-            </Button>
+            <div className="flex items-center justify-end">
+              {onAttach === undefined ? null : (
+                <Button
+                  aria-label={`Attach cookie ${cookie.name}`}
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() =>
+                    onAttach(
+                      storageAttachment(
+                        origin,
+                        cookie.name,
+                        "cookie",
+                        cookie.path
+                      )
+                    )
+                  }
+                >
+                  <PaperclipIcon />
+                </Button>
+              )}
+              <Button
+                aria-label={`Delete cookie ${cookie.name}`}
+                className="size-6"
+                disabled={mutationsLocked}
+                onClick={() => {
+                  onDelete(cookie);
+                }}
+                size="icon-xs"
+                title={mutationsLocked ? storageLockedMessage : undefined}
+                variant="ghost"
+              >
+                <Trash2Icon />
+              </Button>
+            </div>
           </div>
         ))
       )}
@@ -308,6 +344,8 @@ const WebStorageInlineAdd = ({
 };
 
 const WebStorageTable = ({
+  onAttach,
+  origin,
   draft,
   empty,
   entries,
@@ -321,6 +359,8 @@ const WebStorageTable = ({
   onSelect,
   selectedKey,
 }: {
+  readonly onAttach: BrowserTooling["attachBrowserContext"];
+  readonly origin: string;
   readonly draft: WebStorageDraft | undefined;
   readonly empty: boolean;
   readonly entries: readonly (readonly [string, string])[];
@@ -337,7 +377,7 @@ const WebStorageTable = ({
   const adding = draft !== undefined && !draft.lockedKey;
   return (
     <>
-      <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_1.75rem] border-b px-2 py-1 text-xs font-medium">
+      <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_3.5rem] border-b px-2 py-1 text-xs font-medium">
         <span>Key</span>
         <span>Value</span>
         <span className="sr-only">Delete</span>
@@ -362,10 +402,14 @@ const WebStorageTable = ({
           entries.map(([key, value]) => (
             <div
               className={cn(
-                "hover:bg-muted/50 grid h-8 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_1.75rem] items-center px-2 font-mono text-xs",
+                "hover:bg-muted/50 grid h-8 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_3.5rem] items-center px-2 font-mono text-xs",
                 selectedKey === key && "bg-muted"
               )}
               key={key}
+              draggable={onAttach !== undefined}
+              onDragStart={(event) =>
+                dragAttachment(event, storageAttachment(origin, key, kind))
+              }
             >
               <button
                 className="col-span-2 grid grid-cols-subgrid items-center text-left"
@@ -379,19 +423,33 @@ const WebStorageTable = ({
                   {truncateStorageValue(value)}
                 </span>
               </button>
-              <Button
-                aria-label={`Delete ${key}`}
-                className="size-6"
-                disabled={mutationsLocked}
-                onClick={() => {
-                  onDelete(key);
-                }}
-                size="icon-xs"
-                title={mutationsLocked ? storageLockedMessage : undefined}
-                variant="ghost"
-              >
-                <Trash2Icon />
-              </Button>
+              <div className="flex items-center justify-end">
+                {onAttach === undefined ? null : (
+                  <Button
+                    aria-label={`Attach ${kind} ${key}`}
+                    size="icon-xs"
+                    variant="ghost"
+                    onClick={() =>
+                      onAttach(storageAttachment(origin, key, kind))
+                    }
+                  >
+                    <PaperclipIcon />
+                  </Button>
+                )}
+                <Button
+                  aria-label={`Delete ${key}`}
+                  className="size-6"
+                  disabled={mutationsLocked}
+                  onClick={() => {
+                    onDelete(key);
+                  }}
+                  size="icon-xs"
+                  title={mutationsLocked ? storageLockedMessage : undefined}
+                  variant="ghost"
+                >
+                  <Trash2Icon />
+                </Button>
+              </div>
             </div>
           ))
         )}
@@ -978,6 +1036,7 @@ const StoragePanelChrome = ({
 };
 
 interface StorageWorkspaceProps {
+  readonly tabUrl: string;
   readonly fetchKind: StorageFetchKind;
   readonly mutationsLocked: boolean;
   readonly onError: (message: string) => void;
@@ -988,7 +1047,10 @@ interface StorageWorkspaceProps {
   readonly uiState: StoragePanelUiState;
 }
 
+const storageOrigin = (url: string) => httpOriginFromUrl(url)?.origin ?? "";
+
 const StorageCookiesWorkspace = ({
+  tabUrl,
   fetchKind,
   mutationsLocked,
   onError,
@@ -1034,6 +1096,8 @@ const StorageCookiesWorkspace = ({
         )}
       >
         <CookieTable
+          onAttach={tooling.attachBrowserContext}
+          origin={storageOrigin(tabUrl)}
           cookies={cookies}
           empty={uiState.storageSnapshots.cookies.length === 0}
           mutationsLocked={mutationsLocked}
@@ -1155,6 +1219,7 @@ const StorageWebWorkspace = ({
   tooling,
   setUiState,
   tabId,
+  tabUrl,
   uiState,
 }: StorageWorkspaceProps) => {
   const { deleteStorageEffect, setStorageEffect } = useStorageMutations(
@@ -1204,6 +1269,8 @@ const StorageWebWorkspace = ({
         )}
       >
         <WebStorageTable
+          onAttach={tooling.attachBrowserContext}
+          origin={storageOrigin(tabUrl)}
           draft={webDraft}
           empty={
             Object.keys(
@@ -1421,6 +1488,7 @@ export const BrowserStoragePanel = ({
     onRefreshStateChange,
     setUiState,
     tabId,
+    tabUrl,
     tooling,
     uiState,
   };

@@ -1388,7 +1388,16 @@ const cmdFixtureServe = async () => {
   const pages = loadEcommercePages();
   const server = createHttpServer((request, response) => {
     const url = request.url ?? "/";
-    const { pathname } = new URL(url, "http://127.0.0.1");
+    const { pathname, searchParams } = new URL(url, "http://127.0.0.1");
+    if (pathname === "/browser-check-response") {
+      const phase = searchParams.get("phase") === "ready" ? "ready" : "pending";
+      const body = JSON.stringify({ order: { status: phase, items: [{ sku: "ANVIL-001", count: 2 }, { sku: "ROPE-001", count: 1 }] }, token: "fixture-private-token" });
+      const headers = { "content-type": "application/json", "content-length": Buffer.byteLength(body) };
+      if (searchParams.has("create")) headers["set-cookie"] = "checkout_ready=fixture-private-cookie; Path=/; HttpOnly; SameSite=Lax";
+      response.writeHead(200, headers);
+      response.end(body);
+      return;
+    }
     if (pathname === "/cart-added" || pathname === "/cart-viewed") {
       response.writeHead(204);
       response.end();

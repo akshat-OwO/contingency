@@ -23,6 +23,7 @@ import {
   AgentSessionTakeover,
   AgentSetupVariableAnswer,
 } from "./agent-session.ts";
+import { browserAttachmentsField } from "./browser-checks.ts";
 import { BrowserTabId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { BrowserRpcError } from "./browser-rpc-error.ts";
@@ -50,6 +51,8 @@ import {
 import { Viewport } from "./viewport.ts";
 
 // The protocol package intentionally exposes one public contract surface.
+// oxlint-disable-next-line oxc/no-barrel-file
+export * from "./browser-checks.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./scans.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
@@ -449,7 +452,9 @@ export const AgentTeachingCleanupRetried = Schema.Struct(
  * comment and a relayed instruction land in one Demonstration rather than two.
  */
 export const AgentTeachingInstructionRecordRequest = Schema.Struct({
+  attachments: browserAttachmentsField,
   operationId: AgentSessionClose.fields.operationId,
+  replaceId: optionalNullable(Schema.String),
   scan: Schema.optional(TeachingScan),
   sessionId: AgentSessionClose.fields.sessionId,
   /**

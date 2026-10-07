@@ -1,4 +1,4 @@
-import { scanCoverage } from "@contingency/protocol";
+import { browserCheckCoverage, scanCoverage } from "@contingency/protocol";
 import type {
   AgentAssessmentOutcome,
   AgentRunSummary,
@@ -62,7 +62,13 @@ const taskRunChecks = (
   summary: TaskAgentRunSummary
 ): readonly SummaryCheck[] => {
   const scans = scanCoverage(summary);
+  const checks = browserCheckCoverage(summary);
   return [
+    {
+      label: "Browser Checks",
+      passed: checks.complete,
+      value: `${checks.fulfilled}/${checks.total} passed`,
+    },
     {
       label: "Required scans",
       passed: scans.complete,

@@ -142,7 +142,10 @@ const TeachingTimelineGetTool = readOnly(
       ),
       recordingId: TeachingRecordingId,
     }),
-    success: TeachingTimeline,
+    success: Schema.Unknown.pipe(Schema.decodeTo(TeachingTimeline)).annotate({
+      description:
+        "A bounded TeachingTimeline page with ordered entries, including reviewed instruction attachments, recordingId, maxCharacters, and nextCursor.",
+    }),
   })
 );
 

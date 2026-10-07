@@ -75,3 +75,7 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 **Emulation**: The coherent browser device and environment one session runs under, recorded with a Teaching Recording and reproduced by its Dry Run. It covers viewport, browser identity, geolocation, website permission decisions, locale, timezone, and color scheme. Coordinates and permission are independent: a site receives the emulated location only when the session grants it access, and observes denial when the session denies it. _Avoid_: device profile, override, spoofing
 
 **Trace**: The local per-session artifact recording each action's before and after state, DOM snapshot, timing, network, and console. It supports inspection. Unredacted, and therefore sensitive. It never reaches an agent, and a verified Flow Skill leaves none behind. _Avoid_: log, replay (as a synonym for Trace)
+
+**Browser Attachment**: A reviewed request, response field, cookie, or storage reference attached to a Teaching Instruction. Context explains the journey without constraining success. Choosing Must happen gives the attachment a Browser Check. _Avoid_: browser action, scan
+
+**Browser Check**: A saved, identified requirement about a response or storage state, with typed predicates, timing, and a deadline. A grouped array check requires one item to satisfy every predicate. Results belong to the Run and triggering operation; missing, failed, inconclusive, or interrupted requirements prevent working and Dry Run verification. _Avoid_: Scan Requirement, assertion inferred from a comment
