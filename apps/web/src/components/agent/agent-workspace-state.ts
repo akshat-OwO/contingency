@@ -229,9 +229,7 @@ export const agentControlPresentation = (
 };
 
 export const hasExecutionBoundaryNotice = (session: AgentSessionSnapshot) =>
-  session.controller === "agent" &&
-  session.boundary !== null &&
-  session.boundary !== undefined;
+  session.boundary !== null && session.boundary !== undefined;
 
 export const agentStatusLabel = (
   session: AgentSessionSnapshot | undefined,

@@ -102,6 +102,7 @@ export const AgentPendingDecisionResolution = Schema.Struct({
   kind: AgentPendingDecisionKind,
   operationId: OperationId,
   pendingDecisionId: AgentPendingDecisionId,
+  source: optionalNullable(Schema.Literals(["workspace", "conversation"])),
   userMessage: optionalNullable(nonEmptyString),
   variableFlowSkillName: optionalNullable(nonEmptyString),
   /**

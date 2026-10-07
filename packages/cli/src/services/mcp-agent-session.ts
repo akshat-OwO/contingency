@@ -41,8 +41,10 @@ import {
 import {
   SessionResult,
   SessionStartResult,
+  UnpublishedActionResult,
   UnpublishedSequenceResult,
   UnpublishedSession,
+  encodeUnpublishedActionResult,
   encodeUnpublishedSequenceResult,
   encodeUnpublishedSession,
   inStartView,
@@ -271,10 +273,23 @@ const AgentBrowserScreenshotTool = readOnly(
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An intervention refuses the action: resolve its Pending Decision, then retry the exact operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
+    'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An undispatched intervention pauses the action: wait for Allow in Workspace or resolve an explicit Pending Decision, then call agent_browser_resume with its boundary id. Approval resolution needs its own operation id; never reuse the action id for approval. Legacy exact-action retries must preserve action and intent as well as operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: AgentActionResult,
+});
+
+const AgentBrowserResumeTool = Tool.make("agent_browser_resume", {
+  dependencies: [AgentSession],
+  description:
+    "Resume the exact undispatched action stored for an approved Execution Boundary. Pass the intervention boundary id and session id, without reconstructing the action, intent, or operation id. Wait for the user's Allow in Workspace or resolve their explicit conversation choice first. Replays return the original result without another dispatch. Refused or unknown boundaries fail. A dispatched failure may already have happened; inspect the browser before requesting a new attempt. After a sequence stops, resume only its paused action and reread the Page before continuing the remaining actions.",
+  failure: AgentSessionFailure,
+  parameters: Schema.Struct({
+    boundaryId: Schema.String.check(Schema.isMinLength(1)),
+    format: actionSnapshotFormat,
+    sessionId: AgentBrowserObserve.fields.sessionId,
+  }),
+  success: UnpublishedActionResult,
 });
 
 const AgentBrowserActSequenceTool = Tool.make("agent_browser_act_sequence", {
@@ -376,6 +391,7 @@ export const AgentSessionTools = withStrictParameters(
     AgentBrowserSnapshotTool,
     AgentBrowserScreenshotTool,
     AgentBrowserActTool,
+    AgentBrowserResumeTool,
     AgentBrowserActSequenceTool,
     AgentTakeoverRequestTool,
     AgentTeachingSetupHandoffTool,
@@ -479,6 +495,22 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
                   ),
             stopped,
             url: lastResult?.url ?? null,
+          });
+        }),
+      agent_browser_resume: (params) =>
+        Effect.gen(function* resumeBoundary() {
+          const service = yield* AgentSession;
+          yield* service.noteAgentActivity(params.sessionId);
+          const result = yield* service
+            .resumeBoundary(params.sessionId, params.boundaryId)
+            .pipe(Effect.mapError(failure));
+          return yield* encodeUnpublishedActionResult({
+            ...result,
+            snapshot: baselines.present(
+              params.sessionId,
+              result.snapshot,
+              params.format ?? "text"
+            ),
           });
         }),
       agent_browser_screenshot: (params) =>

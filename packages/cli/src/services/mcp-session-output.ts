@@ -1,4 +1,5 @@
 import {
+  AgentActionResult,
   AgentActSequenceResult,
   AgentRunSummary,
   AgentSessionCompact,
@@ -88,6 +89,10 @@ export const inStartView =
 const unpublished = (description: string) =>
   Schema.Unknown.annotate({ description });
 
+export const UnpublishedActionResult = unpublished(
+  "The AgentActionResult returned by agent_browser_act: entry, optional intervention, snapshot, and url."
+);
+
 export const UnpublishedSequenceResult = unpublished(
   "Ordered actions with operationId, entry, and intervention (as in agent_browser_act); a final snapshot and url; stopped is null or contains index, reason, code, and message."
 );
@@ -104,8 +109,9 @@ export const UnpublishedEmulation = unpublished(
   "The Emulation the recording was demonstrated under. A Dry Run reproduces it."
 );
 
-const encodeSession = Schema.encodeEffect(SessionResult);
+const encodeAction = Schema.encodeEffect(AgentActionResult);
 const encodeSequence = Schema.encodeEffect(AgentActSequenceResult);
+const encodeSession = Schema.encodeEffect(SessionResult);
 const encodeSummary = Schema.encodeEffect(AgentRunSummary);
 const encodeEmulation = Schema.encodeEffect(DraftEmulation);
 
@@ -122,6 +128,9 @@ export const encodeUnpublishedRunSummary = (value: AgentRunSummary) =>
 
 export const encodeUnpublishedEmulation = (value: DraftEmulation) =>
   Effect.orDie(encodeEmulation(value));
+
+export const encodeUnpublishedActionResult = (value: AgentActionResult) =>
+  Effect.orDie(encodeAction(value));
 
 export const encodeUnpublishedSequenceResult = (
   value: AgentActSequenceResult
