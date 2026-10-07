@@ -518,8 +518,11 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         const requested = new Set(params.referencedSkills);
         const emulationConflicts = [];
         for (const skill of skills) {
+          if (!requested.has(skill.name)) {
+            continue;
+          }
           const expected = yield* skillRunEmulation(skill);
-          if (expected === undefined || !requested.has(skill.name)) {
+          if (expected === undefined) {
             continue;
           }
           const differingFields = emulationDifferences(

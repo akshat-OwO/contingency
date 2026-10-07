@@ -601,6 +601,15 @@ it.live(
           expect(tabsBefore.map((tab) => tab.url)).toContain(
             fixture.url("task-session.html?tab=help")
           );
+          // Updating an existing input does not reapply its skill's environment.
+          const firstSkillFile = path.join(root, "flow1", "SKILL.md");
+          yield* files.writeFileString(
+            firstSkillFile,
+            (yield* files.readFileString(firstSkillFile)).replace(
+              "640x480@1",
+              "wide"
+            )
+          );
           const update = {
             inputs: [
               {
