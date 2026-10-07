@@ -100,6 +100,7 @@ const AgentSessionSnapshotBase = {
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
   error: optionalNullable(Schema.String),
+  eventCursor: Schema.optional(Schema.String),
   id: AgentSessionId,
   /**
    * The action the browser had already been asked to perform when Takeover
@@ -221,8 +222,34 @@ export const AgentSessionStartResult = Schema.Struct({
 });
 export type AgentSessionStartResult = typeof AgentSessionStartResult.Type;
 
+export const SessionEvent = Schema.Struct({
+  at: Schema.String,
+  cursor: Schema.String,
+  kind: Schema.Literals([
+    "teaching-started",
+    "teaching-stopped",
+    "teaching-discarded",
+    "instruction-recorded",
+    "scan-requirement-recorded",
+    "takeover-started",
+    "takeover-returned",
+    "variable-supplied",
+    "variable-refused",
+    "dry-run-stopped",
+    "flow-skill-verified",
+    "flow-skill-rejected",
+    "cleanup-completed",
+    "cleanup-failed",
+    "session-closed",
+  ]),
+  name: Schema.optional(Schema.String),
+});
+export type SessionEvent = typeof SessionEvent.Type;
+
 export const AgentSessionGet = Schema.Struct({
+  afterCursor: optionalNullable(Schema.String),
   sessionId: AgentSessionId,
+  waitMs: optionalNullable(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type AgentSessionGet = typeof AgentSessionGet.Type;
 

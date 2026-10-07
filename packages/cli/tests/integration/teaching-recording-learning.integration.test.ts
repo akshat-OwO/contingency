@@ -3,9 +3,11 @@ import path from "node:path";
 import { OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Deferred, Effect, Fiber, FileSystem } from "effect";
+import { vi } from "vitest";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
   agentProcessLayer,
   agentViewport,
@@ -46,6 +48,98 @@ const LEARN_ANVIL_ACCESSIBILITY = `# Accessibility targets
 Both controls keep their visible labels, and the sign-in form is the only
 region carrying them.
 `;
+
+it.live("waits for a claimable recording after Workspace Stop", () =>
+  Effect.gen(function* waitForLearnableTeaching() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-stop-wait-",
+    });
+    const fixtures = yield* fixtureServer;
+    yield* Effect.gen(function* delayedStopPersistence() {
+      const session = yield* AgentSession;
+      const store = yield* TeachingRecordingStore;
+      const started = yield* startUserTeaching({
+        activity: "teaching",
+        clientName: "integration-stop-wait",
+        clientVersion: "1.0.0",
+        name: "stop-wait",
+        operationId: OperationId.make("stop-wait-session"),
+        url: fixtures.url("agent-login.html"),
+        viewport: agentViewport,
+      });
+      if (started.recordingId === null) {
+        return yield* Effect.die("Expected a Teaching recording");
+      }
+      const { recordingId } = started;
+      yield* session.startTeachingRecording(
+        started.id,
+        OperationId.make("stop-wait-record")
+      );
+      const initial = yield* session.sessionEvents(started.id);
+      const entered = yield* Deferred.make<true>();
+      const release = yield* Deferred.make<true>();
+      const persist = store.stop;
+      const spy = vi
+        .spyOn(store, "stop")
+        .mockImplementation((input) =>
+          Deferred.succeed(entered, true).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.andThen(persist(input))
+          )
+        );
+      yield* Effect.gen(function* stopWhileAgentWaits() {
+        const waiting = yield* session
+          .waitForEvents(started.id, initial.eventCursor, 5000)
+          .pipe(Effect.forkChild);
+        const stopping = yield* session
+          .stopTeachingRecording(started.id, OperationId.make("stop-wait-stop"))
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        const interim = yield* session.waitForEvents(
+          started.id,
+          initial.eventCursor,
+          50
+        );
+        expect(interim.captureState?._tag).toBe("finalizing");
+        expect(interim.events).toEqual([]);
+        expect(interim.eventCursor).toBe(initial.eventCursor);
+        expect(
+          (yield* teachingRecordingTool("agent_teaching_recordings_list", {
+            recordingId,
+          })).recordings[0]?.lifecycle
+        ).toBe("recording");
+        yield* Deferred.succeed(release, true);
+        const completed = yield* Fiber.join(waiting);
+        expect(completed.captureState?._tag).toBe("ready");
+        expect(completed.events.map((event) => event.kind)).toEqual([
+          "teaching-stopped",
+        ]);
+        const listed = yield* teachingRecordingTool(
+          "agent_teaching_recordings_list",
+          { recordingId }
+        );
+        expect(listed.recordings[0]?.lifecycle).toBe("ready");
+        const claimed = yield* teachingRecordingTool(
+          "agent_teaching_recording_claim",
+          {
+            action: "take",
+            operationId: OperationId.make("stop-wait-claim"),
+            recordingId,
+          }
+        );
+        expect(claimed.claim?.flowSkillName).toBe("stop-wait");
+        yield* Fiber.join(stopping);
+      }).pipe(
+        Effect.ensuring(
+          Deferred.succeed(release, true).pipe(
+            Effect.andThen(Effect.sync(() => spy.mockRestore()))
+          )
+        )
+      );
+    }).pipe(Effect.provide(agentProcessLayer(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
 it.live(
   "learns a bounded Flow Skill from a recording created in another process lifetime",
@@ -115,9 +209,25 @@ it.live(
           expect(commented.timeline.at(-1)?.detail).toBe(
             "button: Place order: Use the express checkout here."
           );
+          const beforeStop = yield* session.sessionEvents(started.id);
+          const polling = yield* Effect.forever(
+            session
+              .get(started.id)
+              .pipe(Effect.andThen(Effect.sleep("5 millis")))
+          ).pipe(Effect.forkChild);
           yield* session.stopTeachingRecording(
             started.id,
             OperationId.make("learning-stop-recording")
+          );
+          yield* Fiber.interrupt(polling);
+          expect(
+            (yield* session.sessionEvents(
+              started.id,
+              beforeStop.eventCursor
+            )).events.map((event) => event.kind)
+          ).toEqual(["teaching-stopped"]);
+          expect((yield* session.get(started.id)).captureState?._tag).toBe(
+            "ready"
           );
           return started.recordingId;
         }).pipe(Effect.provide(agentProcessLayer(root)))
@@ -134,7 +244,7 @@ it.live(
           ).toContain(recordingId);
           const waited = yield* teachingRecordingTool(
             "agent_teaching_recordings_list",
-            { recordingId, timeoutMs: 1000 }
+            { recordingId }
           );
           expect(waited.recordings).toHaveLength(1);
           expect(waited.recordings[0]?.lifecycle).toBe("ready");

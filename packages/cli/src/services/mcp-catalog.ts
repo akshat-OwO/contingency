@@ -21,6 +21,7 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { fromAgent } from "./session-events.ts";
 
 /**
  * The Catalog Root, the Flow Skills inside it, and the two decisions that
@@ -176,7 +177,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       }
       return yield* session
         .resolvePendingDecision(params)
-        .pipe(Effect.mapError(failure), inView(view));
+        .pipe(fromAgent, Effect.mapError(failure), inView(view));
     }),
   agent_teaching_instruction_record: (params) =>
     Effect.gen(function* recordInstruction() {
@@ -190,7 +191,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
           undefined,
           params.scan
         )
-        .pipe(Effect.mapError(failure), inView(params.view));
+        .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
     }),
 });
 

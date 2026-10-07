@@ -7,7 +7,6 @@ import {
   FlowSkillSaveResult,
   OperationId,
   optionalNullable,
-  TEACHING_RECORDING_WAIT_MAX_MS,
   TeachingKeyframeFile,
   TeachingRecordingClaim,
   TeachingRecordingId,
@@ -31,6 +30,7 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { fromAgent } from "./session-events.ts";
 import {
   TeachingRecordingLearning,
   TeachingRecordingLearningLive,
@@ -105,20 +105,10 @@ const TeachingRecordingsListTool = readOnly(
   Tool.make("agent_teaching_recordings_list", {
     dependencies: [TeachingRecordingLearning],
     description:
-      "List Teaching Recordings an agent can claim for Flow Skill learning, each with the Emulation it was demonstrated under. Recordings from contingency web or another process appear after Stop. Name a recordingId to answer with that one recording instead, waiting up to timeoutMs (default 30000, at most 60000) for it to reach its next durable lifecycle state. The wait polls the durable manifest, so it works when another process owns the browser, and a recording that never arrives is refused with teaching_recording_timeout.",
+      "List process-independent Teaching Recordings for Flow Skill learning. Name recordingId to filter one recording. Returns immediately. For a session owned by this MCP process, wait with agent_session_get. Otherwise retry the same recordingId about once per second while the list is empty or its lifecycle is recording. Learn when ready; inspect failed capture errors. Stop retrying if the user cancels.",
     failure: TeachingRecordingFailure,
     parameters: Schema.Struct({
       recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
-      timeoutMs: Schema.optional(
-        Schema.NullOr(
-          Schema.Int.check(
-            Schema.isBetween({
-              maximum: TEACHING_RECORDING_WAIT_MAX_MS,
-              minimum: 0,
-            })
-          )
-        )
-      ),
     }),
     success: PublishedRecordingList,
   })
@@ -207,7 +197,7 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
     FlowSkillCatalog,
   ],
   description:
-    "Start a saved Flow Skill in a fresh context with Teaching Emulation. Follow nextAction. The saved skill outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Pass explicitly user-requested verified skill names in prerequisites and their declared ordinary inputs in prerequisiteInputs, scoped by flowSkillName and name. All ordinary prerequisite inputs are fixed at startup. The result includes prerequisite procedures; they share this fresh context without widening Teaching hosts or replacing its outcome. Request prerequisite private Variables on demand with agent_run_variable_request; the user supplies or refuses them in Workspace. Changes to prerequisites or ordinary inputs require a fresh Dry Run. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace when needed. Request or replace a declared tested-skill secret during this same Dry Run with agent_run_variable_request; its existing Workspace field reopens on replace:true and no Pending Decision is created. New input declarations require a revised package and fresh Dry Run. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete skill outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
+    "Start a saved Flow Skill in a fresh context with Teaching Emulation. Follow nextAction. The saved skill outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Pass explicitly user-requested verified skill names in prerequisites and their declared ordinary inputs in prerequisiteInputs, scoped by flowSkillName and name. All ordinary prerequisite inputs are fixed at startup. The result includes prerequisite procedures; they share this fresh context without widening Teaching hosts or replacing its outcome. Request prerequisite private Variables on demand with agent_variable_request; the user supplies or refuses them in Workspace. Changes to prerequisites or ordinary inputs require a fresh Dry Run. Ask for ordinary inputs again. For a secret input, pass its name with secret:true and no value; the user supplies its value in the returned Workspace when needed. Request or replace a declared tested-skill secret during this same Dry Run with agent_variable_request; its existing Workspace field reopens on replace:true and no Pending Decision is created. New input declarations require a revised package and fresh Dry Run. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete skill outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
@@ -263,6 +253,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
   {
     agent_flow_skill_decide: (params) =>
       decideFlowSkill(params).pipe(
+        fromAgent,
         Effect.mapError(failure),
         Effect.flatMap(summaryOf)
       ),
@@ -382,25 +373,16 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
     agent_teaching_recordings_list: (params) =>
       Effect.gen(function* listTeachingRecordings() {
         const learning = yield* TeachingRecordingLearning;
-        /*
-          A named recording is the waiting form. `wait` answers as soon as the
-          recording holds a durable learning state, so a zero timeout reads one
-          recording and a longer one blocks until that state arrives.
-        */
-        if (params.recordingId !== undefined && params.recordingId !== null) {
-          const summary = yield* learning
-            .wait(params.recordingId, params.timeoutMs ?? 30_000)
-            .pipe(Effect.mapError(failure));
-          return { recordings: [yield* publishSummary(summary)] };
-        }
         const recordings = yield* learning
           .list()
           .pipe(Effect.mapError(failure));
-        return {
-          recordings: yield* Effect.all(
-            recordings.map((summary) => publishSummary(summary))
-          ),
-        };
+        const selected =
+          params.recordingId === undefined || params.recordingId === null
+            ? recordings
+            : recordings.filter(
+                (recording) => recording.recordingId === params.recordingId
+              );
+        return { recordings: yield* Effect.all(selected.map(publishSummary)) };
       }),
     agent_teaching_timeline_get: (params) =>
       Effect.gen(function* readTeachingTimeline() {

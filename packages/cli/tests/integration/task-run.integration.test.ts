@@ -719,7 +719,7 @@ it.live(
             ["flow1", "private-one"],
             ["flow2", "private-two"],
           ] as const) {
-            const requested = yield* runTool("agent_run_variable_request", {
+            const requested = yield* sessionTool("agent_variable_request", {
               flowSkillName: FlowSkillName.make(flow),
               name: "PASSWORD",
               operationId: operation(`request-${flow}`),

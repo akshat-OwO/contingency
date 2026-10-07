@@ -31,7 +31,7 @@ const request = (
   operation: string,
   replace = false
 ) =>
-  sessionTool("agent_teaching_setup_variable_request", {
+  sessionTool("agent_variable_request", {
     name: "OTP",
     operationId: OperationId.make(operation),
     purpose: "Authenticate before Teaching",
@@ -64,7 +64,7 @@ it.live(
           const requested = yield* request(sessionId, "request");
           expect(yield* request(sessionId, "request")).toEqual(requested);
           expect(
-            yield* sessionTool("agent_teaching_setup_variable_request", {
+            yield* sessionTool("agent_variable_request", {
               name: "OTP",
               operationId: OperationId.make("request"),
               purpose: "Authenticate before Teaching",

@@ -120,6 +120,7 @@ export const AgentSessionCompact = Schema.Struct({
   currentUrl: Schema.String,
   dryRun: Schema.NullOr(CompactDryRun),
   error: Schema.NullOr(Schema.String),
+  eventCursor: Schema.optional(Schema.String),
   history: Schema.Struct({
     decisions: nonNegativeInt,
     timeline: nonNegativeInt,
@@ -218,6 +219,7 @@ export const compactAgentSession = (
           variables: snapshot.dryRun.variables,
         },
   error: snapshot.error ?? null,
+  eventCursor: snapshot.eventCursor,
   history: {
     decisions: snapshot.decisionHistory.length,
     timeline: snapshot.timeline.length,

@@ -4,15 +4,20 @@ import {
   AgentRunSummary,
   AgentSessionCompact,
   DraftEmulation,
-  AgentSessionSnapshot,
   AgentSessionView,
   RunSessionSnapshot,
+  SessionEvent,
   TeachingSessionSnapshot,
   compactAgentSession,
   optionalNullable,
 } from "@contingency/protocol";
-import type { AgentSessionView as SessionView } from "@contingency/protocol";
+import type {
+  AgentSessionView as SessionView,
+  AgentSessionSnapshot,
+} from "@contingency/protocol";
 import { Effect, Schema } from "effect";
+
+import { AgentSession } from "./agent-session.ts";
 
 /**
  * The optional `view` parameter of every tool that answers with an Agent
@@ -26,9 +31,14 @@ export const sessionViewParameter = optionalNullable(AgentSessionView);
  * session shape is documented once in the protocol package instead of being
  * repeated in each tool definition.
  */
+const eventFields = {
+  events: Schema.optional(Schema.Array(SessionEvent)),
+  eventsTruncated: Schema.optional(Schema.Boolean),
+};
 export const SessionResult = Schema.Union([
-  AgentSessionSnapshot,
-  AgentSessionCompact,
+  Schema.Struct({ ...TeachingSessionSnapshot.fields, ...eventFields }),
+  Schema.Struct({ ...RunSessionSnapshot.fields, ...eventFields }),
+  Schema.Struct({ ...AgentSessionCompact.fields, ...eventFields }),
 ]);
 
 /** The immediate user-visible action after any successful session start. */
@@ -59,13 +69,19 @@ export const SessionStartResult = Schema.Union([
 /** Applies the caller's chosen view to a session-returning effect. */
 export const inView =
   (view: SessionView | undefined) =>
-  <E, R>(
-    effect: Effect.Effect<AgentSessionSnapshot, E, R>
-  ): Effect.Effect<AgentSessionSnapshot | AgentSessionCompact, E, R> =>
-    view === "compact"
-      ? // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.map` is not an array method.
-        Effect.map(effect, compactAgentSession)
-      : effect;
+  <E, R>(effect: Effect.Effect<AgentSessionSnapshot, E, R>) =>
+    // oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.flatMap composes effects.
+    Effect.flatMap(effect, (snapshot) =>
+      Effect.gen(function* presentSession() {
+        const service = yield* AgentSession;
+        const state = yield* service
+          .sessionEvents(snapshot.id)
+          .pipe(Effect.orDie);
+        const result =
+          view === "compact" ? compactAgentSession(snapshot) : snapshot;
+        return { ...result, eventCursor: state.eventCursor };
+      })
+    );
 
 /** Preserve the chosen view and put the link-sharing reminder first. */
 export const inStartView =
@@ -121,7 +137,14 @@ const encodeEmulation = Schema.encodeEffect(DraftEmulation);
  */
 export const encodeUnpublishedSession = (
   value: AgentSessionSnapshot | AgentSessionCompact
-) => Effect.orDie(encodeSession(value));
+) =>
+  Effect.gen(function* encodeSessionWithCursor() {
+    const service = yield* AgentSession;
+    const { eventCursor } = yield* service
+      .sessionEvents(value.id)
+      .pipe(Effect.orDie);
+    return yield* Effect.orDie(encodeSession({ ...value, eventCursor }));
+  });
 
 export const encodeUnpublishedRunSummary = (value: AgentRunSummary) =>
   Effect.orDie(encodeSummary(value));

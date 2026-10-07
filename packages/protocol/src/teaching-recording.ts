@@ -246,9 +246,11 @@ export type TeachingRecordingOperation = typeof TeachingRecordingOperation.Type;
 
 export const TeachingRecordingReceipt = Schema.Struct({
   completedAt: nonEmptyString,
+  eventKind: Schema.optional(Schema.Literal("dry-run-stopped")),
   files: Schema.optional(Schema.Array(nonEmptyString)),
   operation: TeachingRecordingOperation,
   operationId: OperationId,
+  origin: Schema.optional(Schema.Literals(["agent", "workspace"])),
 });
 export type TeachingRecordingReceipt = typeof TeachingRecordingReceipt.Type;
 
@@ -256,6 +258,7 @@ const TeachingRecordingManifestBase = {
   artifacts: Schema.Array(TeachingRecordingArtifact),
   createdAt: nonEmptyString,
   emulation: DraftEmulation,
+  eventOrigin: Schema.optional(Schema.Literals(["agent", "workspace"])),
   flowSkillName: FlowSkillName,
   receipts: Schema.Array(TeachingRecordingReceipt),
   recordingId: TeachingRecordingId,
@@ -368,7 +371,7 @@ const TeachingUrlEvent = Schema.TaggedStruct("url", {
 
 /** Free text the user relayed while demonstrating. */
 const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
-  scan: Schema.optional(TeachingScan),
+  scan: optionalNullable(TeachingScan),
   ...teachingEventBase,
   /** The element the instruction was attached to, when it named one. */
   target: Schema.NullOr(nonEmptyString).pipe(
@@ -428,7 +431,6 @@ export type TeachingEvent = typeof TeachingEvent.Type;
  */
 export const TEACHING_TIMELINE_BUDGET_CHARACTERS = 64 * 1024;
 export const TEACHING_TIMELINE_MAX_EVENTS = 100;
-export const TEACHING_RECORDING_WAIT_MAX_MS = 60_000;
 
 export const TeachingRecordingSummary = Schema.Struct({
   cleanup: TeachingRecordingCleanupState,

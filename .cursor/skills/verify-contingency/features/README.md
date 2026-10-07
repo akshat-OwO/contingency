@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Session Events](./workspace.md#session-events) proves cursor waits and replay through Teaching, private Variable supply, Dry Run verification, Cleanup, and Takeover return, with per-tool byte measurements.
+
 - [Overlay recovery](./workspace.md#overlay-recovery) proves interception of background input, stacked sheets, unnamed and image close targets, focus-time popup races, and reachable edges without reload.
 
 - [Agent onboarding](./workspace.md#agent-onboarding) proves session-only agent launch, bundled Examples, private demo Variables, fresh Dry Runs, verification, project-local reuse, registration, and shutdown.
@@ -59,3 +61,5 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Saved skill emulation](./workspace.md#saved-skill-emulation) proves runtime restoration without copied agent arguments, first-document signals, explicit invalid requirements, and composed-skill mismatch evidence.
 - [Skills drawer](./workspace.md#skills-drawer) proves the dock's `Skills` entry across dock states, local-first listing with a folded `Global` root isolated under the verify directory, Runs and recordings grouped by skill, the `Details` panel, session marks, and the empty and no-match states.
 - [Required scans](./workspace.md#required-scans) proves scan buttons, taught timespan boundaries, durable scan references, real Lighthouse and axe reports, interruption, required coverage, scoped retries, and report downloads.
+
+The Workspace recipe includes Session Event waits and opt-in Claude Code channel delivery, cursor replay, and idle-agent wakeup.

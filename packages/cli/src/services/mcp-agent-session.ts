@@ -17,6 +17,8 @@ import {
   AgentSessionTakeover,
   AgentTeachingSetupHandoff,
   AgentSetupVariableRequest,
+  FlowSkillName,
+  SetupVariableName,
   AgentVariableEnter,
   compactAgentSession,
   optionalNullable,
@@ -53,6 +55,7 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { fromAgent } from "./session-events.ts";
 
 type BrowserSnapshot = typeof AgentBrowserSnapshot.Type;
 
@@ -137,7 +140,7 @@ const AgentSessionStartParameters = Schema.Struct({
 });
 
 const AgentSessionGetParameters = Schema.Struct({
-  sessionId: AgentSessionGet.fields.sessionId,
+  ...AgentSessionGet.fields,
   view: sessionViewParameter,
 });
 
@@ -221,7 +224,7 @@ const AgentSessionGetTool = readOnly(
   Tool.make("agent_session_get", {
     dependencies: [AgentSession],
     description:
-      'Read one Agent Session by id, including a ready Teaching recording after capture has stopped. Every tool that answers with a session accepts view:"compact": open Pending Decisions, Takeover, the newest attempt, Run lifecycle, assessment, and Variables, with older history counted rather than repeated. Page that history with agent_session_history_get.',
+      'Read a session. Pass afterCursor from a session response to wait for Workspace Session Events, with waitMs default 45000, clamped to 50000. Returns compact state, events, eventCursor, and eventsTruncated. Unknown cursors conflict; retrying a cursor replays events. Every tool that answers with a session accepts view:"compact": open Pending Decisions, Takeover, the newest attempt, Run lifecycle, assessment, and Variables, with older history counted rather than repeated. Page that history with agent_session_history_get.',
     failure: AgentSessionFailure,
     parameters: AgentSessionGetParameters,
     success: SessionResult,
@@ -324,7 +327,7 @@ const AgentTeachingSetupHandoffTool = Tool.make(
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a supplied private Variable into one element from the latest Browser Snapshot. The literal stays inside Contingency. During agent-held Teaching setup, request it with agent_teaching_setup_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_run_variable_request and follow its Workspace instructions or relay its decision. Dry Run secrets are supplied in Workspace. Setup access ends at handoff.",
+    "Enter a supplied private Variable into one element from the latest Browser Snapshot. The literal stays inside Contingency. During agent-held Teaching setup, request it with agent_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_variable_request and follow its Workspace instructions or relay its decision. Dry Run secrets are supplied in Workspace. Setup access ends at handoff.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     flowSkillName: AgentVariableEnter.fields.flowSkillName,
@@ -336,20 +339,22 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   success: AgentActionResult,
 });
 
-const AgentSetupVariableRequestTool = Tool.make(
-  "agent_teaching_setup_variable_request",
-  {
-    dependencies: [AgentSession],
-    description:
-      "Request a private Setup Variable by uppercase name and purpose while you hold Teaching setup. The user supplies or refuses it directly in Workspace; you never receive the literal. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter a supplied Variable with agent_variable_enter without flowSkillName. Handoff cancels requests and ends access. Setup inputs are never declared in the learned Flow Skill.",
-    failure: AgentSessionFailure,
-    parameters: Schema.Struct({
-      ...AgentSetupVariableRequest.fields,
-      view: sessionViewParameter,
-    }),
-    success: SessionResult,
-  }
-);
+const AgentSetupVariableRequestTool = Tool.make("agent_variable_request", {
+  dependencies: [AgentSession],
+  description:
+    "Request a private Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowSkillName. The user supplies or refuses it directly in Workspace; you never receive the literal. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter it with agent_variable_enter, including flowSkillName for a Run and omitting it for Teaching setup. Handoff ends setup access. Setup inputs are never declared in the learned Flow Skill.",
+  failure: AgentSessionFailure,
+  parameters: Schema.Struct({
+    flowSkillName: optionalNullable(FlowSkillName),
+    name: SetupVariableName,
+    operationId: AgentSetupVariableRequest.fields.operationId,
+    purpose: optionalNullable(AgentSetupVariableRequest.fields.purpose),
+    replace: optionalNullable(Schema.Boolean),
+    sessionId: AgentSetupVariableRequest.fields.sessionId,
+    view: sessionViewParameter,
+  }),
+  success: SessionResult,
+});
 
 /** Why a sequence must stop after an attempt, or `null` to continue. */
 const sequenceStop = (
@@ -548,12 +553,26 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           const service = yield* AgentSession;
           return yield* service
             .close(params.sessionId, params.operationId)
-            .pipe(Effect.mapError(failure), inView(params.view));
+            .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
         }),
       agent_session_get: (params) =>
         Effect.gen(function* getAgentSession() {
           const service = yield* AgentSession;
           yield* service.noteAgentActivity(params.sessionId);
+          if (params.afterCursor !== undefined) {
+            const { events, eventsTruncated, ...snapshot } = yield* service
+              .waitForEvents(
+                params.sessionId,
+                params.afterCursor,
+                params.waitMs
+              )
+              .pipe(Effect.mapError(failure));
+            return {
+              ...compactAgentSession(snapshot),
+              events,
+              eventsTruncated,
+            };
+          }
           return yield* service
             .get(params.sessionId)
             .pipe(Effect.mapError(failure), inView(params.view));
@@ -638,7 +657,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               params.reason,
               params.operationId
             )
-            .pipe(Effect.mapError(failure), inView(params.view));
+            .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
         }),
       agent_sessions_get: (params) =>
         Effect.gen(function* listAgentSessions() {
@@ -663,13 +682,6 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
             .handOffTeachingSetup(params.sessionId, params.operationId)
             .pipe(Effect.mapError(failure), inView(params.view));
         }),
-      agent_teaching_setup_variable_request: (params) =>
-        Effect.gen(function* requestSetupVariable() {
-          const service = yield* AgentSession;
-          return yield* service
-            .requestSetupVariable(params)
-            .pipe(Effect.mapError(failure), inView(params.view));
-        }),
       agent_variable_enter: (params) =>
         Effect.gen(function* enterSuppliedVariable() {
           const service = yield* AgentSession;
@@ -683,6 +695,49 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               params.flowSkillName
             )
             .pipe(Effect.mapError(failure));
+        }),
+      agent_variable_request: (params) =>
+        Effect.gen(function* requestSetupVariable() {
+          const service = yield* AgentSession;
+          const snapshot = yield* service
+            .get(params.sessionId)
+            .pipe(Effect.mapError(failure));
+          if (snapshot.activity === "teaching") {
+            if (params.purpose === undefined) {
+              return yield* Effect.fail(
+                new AgentSessionFailure({
+                  code: "agent_session_invalid",
+                  message: "Teaching Setup Variables require purpose.",
+                })
+              );
+            }
+            return yield* service
+              .requestSetupVariable({
+                name: params.name,
+                operationId: params.operationId,
+                purpose: params.purpose,
+                replace: params.replace ?? false,
+                sessionId: params.sessionId,
+              })
+              .pipe(Effect.mapError(failure), inView(params.view));
+          }
+          if (params.flowSkillName === undefined) {
+            return yield* Effect.fail(
+              new AgentSessionFailure({
+                code: "agent_session_invalid",
+                message: "Run Variables require flowSkillName.",
+              })
+            );
+          }
+          return yield* service
+            .requestTaskVariable(
+              params.sessionId,
+              params.flowSkillName,
+              params.name,
+              params.operationId,
+              params.replace ?? false
+            )
+            .pipe(Effect.mapError(failure), inView(params.view));
         }),
     };
   })

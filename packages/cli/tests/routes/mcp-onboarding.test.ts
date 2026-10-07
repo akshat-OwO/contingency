@@ -95,7 +95,11 @@ it.live(
 
       const learn = yield* read(request, LEARN_FLOW_SKILL_URI);
       expect(learn).toContain("agent_flow_skill_save");
-      expect(learn).toContain('decision "verify"');
+      expect(learn).toContain("agent_session_get");
+      expect(learn).toContain("afterCursor:eventCursor");
+      expect(learn).toContain(
+        "Relay a conversation choice with agent_flow_skill_decide"
+      );
 
       const examples = yield* read(request, EXAMPLES_URI);
       for (const example of ONBOARDING_EXAMPLES) {

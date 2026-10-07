@@ -3,14 +3,26 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:http";
 import path from "node:path";
 
-import { AgentSessionId, OperationId } from "@contingency/protocol";
+import {
+  AgentSessionId,
+  OperationId,
+  SessionEvent,
+} from "@contingency/protocol";
 import {
   NodeHttpServer,
   NodeServices,
   NodeSocket,
 } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Schema, Stream } from "effect";
+import {
+  Context,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Schema,
+  Stream,
+} from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { makeRpcRoutes } from "../../src/routes/rpc.ts";
@@ -190,7 +202,13 @@ const McpToolResultSchema = Schema.Struct({
   structuredContent: Schema.optional(Schema.Unknown),
 });
 
+const EventWaitSchema = Schema.Struct({
+  eventCursor: Schema.String,
+  events: Schema.Array(SessionEvent),
+});
+
 const SessionSnapshotSchema = Schema.Struct({
+  eventCursor: Schema.String,
   id: Schema.String,
   phase: Schema.String,
 });
@@ -224,9 +242,14 @@ interface McpChild {
   readonly workspaceUrl: () => URL | undefined;
 }
 
-const spawnMcpChild = (port?: number, agentOwned = false): McpChild => {
+const spawnMcpChild = (
+  port?: number,
+  agentOwned = false,
+  channel = false
+): McpChild => {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    CONTINGENCY_MCP_CHANNEL: String(channel),
     CONTINGENCY_MCP_HOST: "127.0.0.1",
     CONTINGENCY_MCP_PORT: String(port),
   };
@@ -441,6 +464,71 @@ const spawnMcpChild = (port?: number, agentOwned = false): McpChild => {
   };
 };
 
+it.live.each([false, true])(
+  "declares the channel capability only on opted-in stdio (channel=%s)",
+  (channel) =>
+    Effect.gen(function* channelCapability() {
+      const mcp = spawnMcpChild(undefined, false, channel);
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => mcp.stop()).pipe(Effect.ignore)
+      );
+      yield* Effect.promise(() =>
+        mcp.send({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "initialize",
+          params: {
+            capabilities: {},
+            clientInfo: { name: "channel-test", version: "1" },
+            protocolVersion: "2025-11-25",
+          },
+        })
+      );
+      const response = yield* Effect.promise(() => mcp.receive(1));
+      expect(response.error).toBeUndefined();
+      const result = Schema.decodeUnknownSync(
+        Schema.Struct({
+          capabilities: Schema.Struct({
+            experimental: Schema.optional(Schema.JsonObject),
+          }),
+        })
+      )(response.result);
+      expect(result.capabilities.experimental).toEqual(
+        channel ? { "claude/channel": {} } : undefined
+      );
+      // HTTP is served by the same process but never advertises channels.
+      yield* Effect.promise(() =>
+        mcp.waitForText("Contingency MCP Workspace available at")
+      );
+      const origin = mcp.workspaceUrl();
+      if (origin === undefined) {
+        return yield* Effect.die("No Workspace URL");
+      }
+      const http = yield* Effect.promise(() =>
+        fetch(new URL("/mcp", origin), {
+          body: JSON.stringify({
+            id: 2,
+            jsonrpc: "2.0",
+            method: "initialize",
+            params: {
+              capabilities: {},
+              clientInfo: { name: "channel-http-test", version: "1" },
+              protocolVersion: "2025-11-25",
+            },
+          }),
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+          },
+          method: "POST",
+        })
+      );
+      const body = yield* Effect.promise(() => http.text());
+      expect(http.status).toBe(200);
+      expect(body).not.toContain("claude/channel");
+    }).pipe(Effect.scoped)
+);
+
 it.live(
   "gives concurrent stdio clients separate Workspaces without port configuration",
   () =>
@@ -637,6 +725,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
 
     const firstSessionId = AgentSessionId.make(String(firstSnapshot.id));
     const secondSessionId = AgentSessionId.make(String(secondSnapshot.id));
+    let firstCursor = firstSnapshot.eventCursor;
     yield* Effect.scoped(
       Effect.gen(function* streamChildSessions() {
         const client = yield* makeLoopbackRpcClient(origin);
@@ -688,6 +777,41 @@ it.live("serves the real MCP stdio child-process boundary", () =>
           },
           { headers: { origin } }
         );
+        yield* Effect.promise(() =>
+          mcp.send({
+            id: 6,
+            jsonrpc: "2.0",
+            method: "tools/call",
+            params: {
+              arguments: {
+                afterCursor: firstCursor,
+                sessionId: firstSessionId,
+                waitMs: 2000,
+              },
+              name: "agent_session_get",
+            },
+          })
+        );
+        const waiting = yield* Effect.promise(() => mcp.receive(6)).pipe(
+          Effect.forkChild
+        );
+        yield* client(
+          "agent.session.close",
+          {
+            operationId: OperationId.make("transport-user-close"),
+            sessionId: firstSessionId,
+          },
+          { headers: { origin } }
+        );
+        const answered = toolResult(yield* Fiber.join(waiting));
+        expect(answered.isError).toBe(false);
+        const eventState = Schema.decodeUnknownSync(EventWaitSchema)(
+          answered.structuredContent
+        );
+        expect(eventState.events.map((event) => event.kind)).toEqual([
+          "session-closed",
+        ]);
+        firstCursor = eventState.eventCursor;
       })
     );
 
@@ -704,6 +828,21 @@ it.live("serves the real MCP stdio child-process boundary", () =>
         firstClosed.structuredContent
       ).phase
     ).toBe("closed");
+
+    const noEvents = toolResult(
+      yield* sendAndReceive(7, "tools/call", {
+        arguments: {
+          afterCursor: firstCursor,
+          sessionId: firstSessionId,
+          waitMs: 0,
+        },
+        name: "agent_session_get",
+      })
+    );
+    expect(
+      Schema.decodeUnknownSync(EventWaitSchema)(noEvents.structuredContent)
+        .events
+    ).toEqual([]);
 
     // Keep the second browser live until owner shutdown. The MCP boundary
     // still sees it as running after the first explicit close.

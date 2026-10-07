@@ -34,8 +34,8 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
       operationId: operation("target-request"),
       sessionId,
     };
-    const targetSupplied = yield* runTool(
-      "agent_run_variable_request",
+    const targetSupplied = yield* sessionTool(
+      "agent_variable_request",
       targetRequest
     );
     expect(targetSupplied.id).toBe(sessionId);
@@ -45,8 +45,8 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
       operationId: operation("target-replace"),
       replace: true,
     };
-    const targetWaiting = yield* runTool(
-      "agent_run_variable_request",
+    const targetWaiting = yield* sessionTool(
+      "agent_variable_request",
       targetReplacement
     );
     expect(targetWaiting.pendingDecisions).toEqual([]);
@@ -57,7 +57,7 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
           "flowSkillName" in variable && variable.flowSkillName === "cart"
       )?.supplied
     ).toBe(false);
-    const unsuppliedReplacement = yield* runTool("agent_run_variable_request", {
+    const unsuppliedReplacement = yield* sessionTool("agent_variable_request", {
       ...targetReplacement,
       operationId: operation("target-replace-again"),
     });
@@ -88,8 +88,8 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
       "private-target-new"
     );
     // Retrying the replacement operation must not invalidate its new answer.
-    const replayedTarget = yield* runTool(
-      "agent_run_variable_request",
+    const replayedTarget = yield* sessionTool(
+      "agent_variable_request",
       targetReplacement
     );
     expect(replayedTarget.dryRun?.variables[0]?.supplied).toBe(false);
@@ -100,7 +100,7 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
     for (const name of ["SKU", "UNKNOWN"]) {
       expect(
         (yield* Effect.flip(
-          runTool("agent_run_variable_request", {
+          sessionTool("agent_variable_request", {
             ...targetRequest,
             name,
             operationId: operation(`target-invalid-${name}`),
@@ -330,8 +330,8 @@ it.live(
             operationId: operation("prereq-request"),
             sessionId: session.id,
           };
-          const requested = yield* runTool(
-            "agent_run_variable_request",
+          const requested = yield* sessionTool(
+            "agent_variable_request",
             request
           );
           expect(Schema.is(Schema.Json)(requested)).toBe(true);
@@ -340,7 +340,7 @@ it.live(
             return yield* Effect.die("Missing private request.");
           }
           expect(
-            (yield* runTool("agent_run_variable_request", request))
+            (yield* sessionTool("agent_variable_request", request))
               .pendingDecisions[0]?.pendingDecisionId
           ).toBe(decision.pendingDecisionId);
           const answer = {
@@ -359,7 +359,7 @@ it.live(
               answer
             )).decisionHistory.at(-1)?.decision
           ).toBe("refuse");
-          const next = yield* runTool("agent_run_variable_request", {
+          const next = yield* sessionTool("agent_variable_request", {
             ...request,
             operationId: operation("prereq-request-again"),
           });
@@ -396,7 +396,7 @@ it.live(
             ...entry,
             operationId: operation("prereq-enter"),
           });
-          const replacing = yield* runTool("agent_run_variable_request", {
+          const replacing = yield* sessionTool("agent_variable_request", {
             ...request,
             operationId: operation("prereq-replace"),
             replace: true,
@@ -437,7 +437,7 @@ it.live(
             )?.supplied
           ).toBe(false);
           yield* exerciseTargetSecrets(session.id, password);
-          const otherScope = yield* runTool("agent_run_variable_request", {
+          const otherScope = yield* sessionTool("agent_variable_request", {
             ...request,
             flowSkillName: FlowSkillName.make("location"),
             operationId: operation("prereq-other-request"),

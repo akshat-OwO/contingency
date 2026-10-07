@@ -19,15 +19,21 @@ export const MCP_HTTP_PATH = "/mcp";
  * habits that save context or turns across every workflow; tool descriptions
  * keep the rules for each call.
  */
-export const MCP_INSTRUCTIONS = [
-  "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
-  "On starting or switching sessions, send the returned viewUrl as a clickable Workspace link before browser actions. Repeat the link for user input.",
-  'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
-  "Reason from the Snapshot each browser action returns. Read the Page again only after effect none, an unsettled Snapshot, a stale reference, or a change you did not cause.",
-  "Use agent_browser_act_sequence for a few known steps on the current Page; it stops where you must look again.",
-  "Tools annotated read-only are safe to call concurrently.",
-  "After your final agent_run_assess, call agent_run_complete.",
-].join(" ");
+export const makeMcpInstructions = (channel = false) =>
+  [
+    "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
+    "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
+    'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
+    "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
+    "Use agent_browser_act_sequence for known steps; it stops where you must look again.",
+    channel
+      ? "On channel events, call agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
+      : "After asking the user to act in the Workspace, call agent_session_get with afterCursor and waitMs instead of asking them to report back.",
+    "After your final agent_run_assess, call agent_run_complete.",
+    "Read-only tools can run concurrently.",
+  ].join(" ");
+
+export const MCP_INSTRUCTIONS = makeMcpInstructions();
 
 /**
  * One MCP server on the Agent View HTTP router. Cursor connects by URL so it
