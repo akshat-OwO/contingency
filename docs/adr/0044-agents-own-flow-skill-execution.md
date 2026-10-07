@@ -4,6 +4,8 @@ status: accepted
 
 # Agents own Flow Skill execution
 
+> Extended by [ADR 0057](./0057-system-one-pursues-delegated-sub-goals.md) (proposed). The agent may delegate a sub-goal to a System One Pursuit while keeping its plan and Agent Assessment.
+
 Flow Skills keep their written procedures, but infrastructure stops enforcing ordered Agent Steps. The agent interprets stopping points against the instructions and observed browser state. This lets a user request part of one Flow Skill and then use another without encoding that journey as a fixed execution sequence.
 
 An Interactive Run starts from a user-requested task with optional Flow Skills. It can use multiple Flow Skills in the same browser context. Switching Flow Skills preserves the current page, tabs, authentication, and other browser state. The user may change the task during the Run, and the changed instruction is recorded without resetting the browser.

@@ -8,16 +8,27 @@ Every browser action today costs the external agent a full model turn. A small S
 
 ## Contract
 
-- **Availability.** `agent_browser_pursue` appears in the catalog only when `CONTINGENCY_SYSTEM_ONE_URL` names an endpoint that serves `POST /v1/systemone`, such as Nev on the user's machine, Jev, or Clef. Contingency bundles no model. The URL belongs to the machine, not the Catalog Root, so it is never committed with Flow Skills. Without it the catalog is unchanged and costs nothing under [ADR 0045](./0045-the-mcp-surface-is-sized-for-the-model.md).
+- **Availability.** `agent_browser_pursue` appears in the catalog only when `CONTINGENCY_SYSTEM_ONE_URL` names an endpoint that serves `POST /v1/systemone`, such as Nev on the user's machine, Jev, or Cloudflare's [Clef](https://huggingface.co/Cloudflare/clef). Contingency bundles no model. The URL belongs to the machine, not the Catalog Root, so it is never committed with Flow Skills. Without it the catalog is unchanged and costs nothing under [ADR 0045](./0045-the-mcp-surface-is-sized-for-the-model.md).
 - **Opt-in.** The external agent decides when to start a Pursuit. With the experimental `CONTINGENCY_SYSTEM_ONE_FIRST=true`, the server instructions tell the agent to try a Pursuit for each Flow Skill step before acting itself. Infrastructure still tracks no steps.
 - **Scope.** Pursuits run in Interactive Runs and Dry Runs, never during Teaching. A Dry Run that used Pursuits can pass, because the agent's evidence-backed assessment still decides it.
-- **Authority.** Every Pursuit action passes the same Execution Boundary, Domain Scope, and Confirmation checks as `agent_browser_act`. A pause ends the Pursuit and returns its Pending Decision to the agent. System One never resolves a decision, and its confidence never authorizes an action.
+- **Authority.** Every Pursuit action passes the same Execution Boundary, Domain Scope, Confirmation, and foreground-interception checks as `agent_browser_act`. System One never resolves a Pending Decision, and its confidence never authorizes an action. Any intervention an action returns ends the Pursuit, as it ends `agent_browser_act_sequence`.
 - **Disclosure.** Configuring the URL is the user's consent to send each request to it. A request carries the Page's URL, title, visible text, interactive elements, recent actions, and the names of the inputs in scope. Non-secret input values are sent so System One can match them to fields. A secret Variable is sent by name only. System One chooses the name, and Contingency substitutes the value when it acts.
-- **Missing input.** When System One chooses a Variable that has no value yet, the Pursuit ends as `needs-input` and names it. The agent requests it through the normal Variable path. A Pursuit never prompts the user.
-- **Stopping.** A Pursuit ends when System One reports the sub-goal done, at a `done` probability of 0.9 before the Pursuit's first action and 0.5 after it. It also ends on a `BLOCKED` operation, on a top answer below the confidence floor, on two consecutive actions with effect `none`, at an Execution Boundary pause, or when its action budget runs out. The thresholds are fixed. The default budget is 8 actions, and the agent may lower it for one call but not raise it.
-- **Result.** The tool returns how the Pursuit ended (`done`, `blocked`, `unsure`, `paused`, or `needs-input`), the reason, each action with its effect and System One's confidence, and the final Browser Snapshot. A pause also carries its Pending Decision.
+- **Missing input.** A `needs-input` ending names the Variable System One chose. The agent requests it through the normal Variable path. A Pursuit never prompts the user.
+- **Stopping.** Each stop condition maps to one ending:
+
+  | Condition | Ending |
+  | --- | --- |
+  | `done` probability of at least 0.9 before the Pursuit's first action, or 0.5 after it | `done` |
+  | System One answers `BLOCKED`, or an action is intercepted by a foreground element ([ADR 0053](./0053-browser-actions-respect-foreground-interception.md)) | `blocked` |
+  | The top answer to the operation, target, or value question is below 0.5; two consecutive actions have effect `none`; or the action or time budget runs out | `unsure` |
+  | An Execution Boundary pause or a Takeover | `paused` |
+  | System One chooses a Variable that has no value yet | `needs-input` |
+
+  The thresholds are fixed and assume a calibrated endpoint. The 0.5 floor means the chosen answer is more likely than every alternative combined; it is revisited with calibration data before this ADR is accepted. The default budget is 8 actions and 40 seconds. The agent may lower either for one call but not raise it. No new action starts once the time budget is spent. `done` is checked before each action, so a Pursuit whose sub-goal already holds takes no action.
+- **Result.** The tool returns how the Pursuit ended (`done`, `blocked`, `unsure`, `paused`, or `needs-input`), the reason, each action with its effect and System One's confidence, and the final Browser Snapshot. A `blocked` ending from interception carries the intercepting element, and a `paused` ending carries its Pending Decision.
 - **Failure.** An unreachable endpoint, a timeout, or a malformed answer fails the tool call rather than ending the Pursuit. Actions already taken remain, and the error lists them, as with `agent_browser_act_sequence`.
-- **Takeover.** A Pursuit is one blocking call. When the user takes over, it stops before its next action and ends as `paused`.
+- **Replay and duration.** A Pursuit is one blocking call with one operation id under [ADR 0026](./0026-external-agents-control-agent-flows-through-mcp.md). Each action inside it records a derived operation id, and repeating the call's id returns the recorded result without acting again. The time budget keeps a call short enough for clients sized to the 50-second wait clamp of [ADR 0055](./0055-agents-learn-of-session-events-by-waiting.md), allowing for one final action's ten-second actionability wait.
+- **Takeover.** When the user takes over, the Pursuit stops before its next action and ends as `paused`.
 - **Evidence.** Pursuit actions are ordinary browser actions with their own Action Windows, Trace, and video. The Run Summary marks each one with its Pursuit, sub-goal, confidence, and how the Pursuit ended, so a reviewer can tell model-chosen actions from the agent's own. The video is unchanged.
 
 ## Considered options
