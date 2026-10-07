@@ -129,6 +129,11 @@ it.effect(
         },
       };
       log.observe(finalizing, "workspace");
+      expect(
+        (yield* log.read(teaching.id, initial.eventCursor)).events.map(
+          (event) => event.kind
+        )
+      ).not.toContain("teaching-stopped");
       const ready = {
         ...finalizing,
         captureState: {

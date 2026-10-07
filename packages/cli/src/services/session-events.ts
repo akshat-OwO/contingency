@@ -55,11 +55,11 @@ const teachingChanges = (
     if (after === "recording" && before !== after) {
       emit("teaching-started");
     }
-    // A durable reader may miss finalizing while another process drains the
-    // recorder. Leaving recording still represents the same Stop boundary.
+    // Stop wakes the learner only after capture is durable. A reader in another
+    // process may skip finalizing while the recorder drains.
     if (
-      before === "recording" &&
-      (after === "finalizing" || after === "ready" || after === "failed")
+      (before === "recording" || before === "finalizing") &&
+      (after === "ready" || after === "failed")
     ) {
       emit("teaching-stopped");
     }

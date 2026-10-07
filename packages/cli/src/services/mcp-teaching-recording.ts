@@ -105,7 +105,7 @@ const TeachingRecordingsListTool = readOnly(
   Tool.make("agent_teaching_recordings_list", {
     dependencies: [TeachingRecordingLearning],
     description:
-      "List process-independent Teaching Recordings that an agent can claim for Flow Skill learning. Recordings created by contingency web appear after Stop, even when this MCP process did not create their browser session. Name recordingId to filter one recording. Returns immediately; wait for Workspace changes with agent_session_get.",
+      "List process-independent Teaching Recordings for Flow Skill learning. Name recordingId to filter one recording. Returns immediately. For a session owned by this MCP process, wait with agent_session_get. Otherwise retry the same recordingId about once per second while the list is empty or its lifecycle is recording. Learn when ready; inspect failed capture errors. Stop retrying if the user cancels.",
     failure: TeachingRecordingFailure,
     parameters: Schema.Struct({
       recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
