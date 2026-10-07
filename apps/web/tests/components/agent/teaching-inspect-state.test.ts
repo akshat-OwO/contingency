@@ -25,6 +25,29 @@ const frozen = {
 
 const text = "Use the express checkout here.";
 
+test("an edit keeps its replacement target across closing and navigation until saved", () => {
+  const editing = {
+    ...emptyInspectState,
+    composing: true,
+    draft: text,
+    editingInstructionId: "instruction-4",
+    frozen,
+  };
+  const navigated = leavePage(openComposer(closeComposer(editing)));
+  expect(navigated).toMatchObject({
+    composing: true,
+    draft: text,
+    editingInstructionId: "instruction-4",
+    frozen: undefined,
+  });
+  expect(completeInspectComment(navigated, { frozen, text }, 4, false)).toEqual(
+    {
+      ...emptyInspectState,
+      nextCommentIndex: 5,
+    }
+  );
+});
+
 test("a save completed after navigation consumes its number and clears the sent draft without a pin", () => {
   const sent = { ...emptyInspectState, draft: text, frozen };
   const navigated = leavePage(sent);

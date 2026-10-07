@@ -183,7 +183,7 @@ const CookieTable = ({
         cookies.map((cookie) => (
           <div
             className={cn(
-              "hover:bg-muted/50 grid h-8 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_1.75rem] items-center px-2 font-mono text-xs",
+              "hover:bg-muted/50 grid h-8 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_3.5rem] items-center px-2 font-mono text-xs",
               cookieIdentitiesEqualRow(cookie, selected) && "bg-muted"
             )}
             draggable={onAttach !== undefined}

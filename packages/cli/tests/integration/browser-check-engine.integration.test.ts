@@ -125,6 +125,7 @@ it.live(
         [reference({ ...responseCheck, response: "first" })],
         "first"
       );
+      first.start();
       yield* trigger(["pending", "ready"]);
       expect(
         (yield* first

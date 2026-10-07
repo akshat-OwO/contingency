@@ -71,9 +71,11 @@ export interface InspectState {
 }
 
 export const emptyInspectState: InspectState = {
+  attachments: [],
   comments: [],
   composing: false,
   draft: "",
+  editingInstructionId: undefined,
   error: undefined,
   frozen: undefined,
   highlighted: undefined,
@@ -146,6 +148,7 @@ export const leavePage = (state: InspectState): InspectState => ({
   attachments: state.attachments,
   composing: state.composing,
   draft: state.draft,
+  editingInstructionId: state.editingInstructionId,
   nextCommentIndex: state.nextCommentIndex,
   scan: state.scan,
 });
