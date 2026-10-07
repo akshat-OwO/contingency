@@ -10,6 +10,7 @@
 | [`design/agent-onboarding-examples.md`](./design/agent-onboarding-examples.md) | Bundled demo tasks and watch-then-teach design |
 | [`design/agent-onboarding-prompt.md`](./design/agent-onboarding-prompt.md) | Starter prompt for agent onboarding |
 | [`releases.md`](./releases.md) | Cutting and publishing a release |
+| [`research/nev.md`](./research/nev.md) | Nev browser decision model: benchmark results |
 | [`agents/matt-pocock-skills-v1.3.md`](./agents/matt-pocock-skills-v1.3.md) | Matt's v1.3 release comparison and glossary migration |
 
 Agent consumption rules: [`agents/domain.md`](./agents/domain.md).
