@@ -26,20 +26,21 @@
     <script>
       const params = new URLSearchParams(location.search);
       const fail = params.has("failure");
+      const query = params.has("query") ? "&ref=batch=2026-10" : "";
       const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       let submissions = 0;
       // A response observed before the action must not satisfy its later watch.
-      fetch("/browser-check-response?phase=ready");
+      fetch(`/browser-check-response?phase=ready${query}`);
       document.getElementById("submit").addEventListener("click", async () => {
         submissions += 1;
         document.getElementById("confirmation").textContent =
           `Submitted ${submissions} time(s)`;
-        await fetch("/browser-check-response?phase=pending", {
+        await fetch(`/browser-check-response?phase=pending${query}`, {
           method: "POST",
         });
         await delay(150);
         if (fail) return;
-        await fetch("/browser-check-response?phase=ready&create=1", {
+        await fetch(`/browser-check-response?phase=ready&create=1${query}`, {
           method: "POST",
         });
         localStorage.setItem("checkout-state", "ready");

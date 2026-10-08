@@ -121,6 +121,54 @@ it("matches reviewed method, origin, variable segments, and query constraints", 
     );
   }
 });
+it.each([
+  ["ref=batch=2026-10", "batch=2026-10", true],
+  ["ref=batch=2026-10", "batch", false],
+  ["ref=receipt==", "receipt==", true],
+  ["ref=receipt==", "receipt", false],
+  ["ref=receipt==", "receipt=", false],
+  ["ref=batch%3D2026-10", "batch=2026-10", true],
+  ["ref=batch%3D2026-10", "batch", false],
+  ["ref=receipt%3D%3D", "receipt==", true],
+  ["ref=batch?month=10", "batch?month=10", true],
+  ["ref=batch?month=10", "batch", false],
+  ["ref=batch%3Fmonth%3D10", "batch?month=10", true],
+  ["ref=batch+receipt", "batch receipt", true],
+  ["ref=batch+receipt", "batch+receipt", false],
+  ["ref=batch%2Breceipt", "batch+receipt", true],
+  ["ref=other&ref=batch=2026-10", "batch=2026-10", true],
+  ["ref=batch=2026-10&ref=other", "batch=2026-10", true],
+  ["ref=other&ref=wrong", "batch=2026-10", false],
+  ["ref=", "", true],
+  ["ref", "", true],
+  ["other=ignored", "", false],
+  ["", "", false],
+  ["%72ef=batch=2026-10", "batch=2026-10", true],
+  ["ref=batch=2026-10#ref=wrong", "batch=2026-10", true],
+  ["other=ignored#ref=batch=2026-10", "batch=2026-10", false],
+])(
+  "matches complete decoded query values: %s against %s",
+  (query, value, matched) => {
+    expect(
+      matchesBrowserRequest("post", `https://example.com/jobs/123?${query}`, {
+        ...check.request,
+        query: { ref: value },
+      })
+    ).toBe(matched);
+  }
+);
+it.each([
+  "https://example.com/jobs/?view=full",
+  "https://example.com/jobs/123/extra?view=full",
+  "https://other.com/jobs/123?view=full",
+  "not a URL",
+  "/jobs/123?view=full",
+  "https://example.com:invalid/jobs/123?view=full",
+  "https://example.com:99999/jobs/123?view=full",
+  "http://[invalid]/jobs/123?view=full",
+])("rejects a mismatched path, origin, or invalid URL: %s", (url) => {
+  expect(matchesBrowserRequest("POST", url, check.request)).toBe(false);
+});
 it.effect(
   "learning preserves unobserved requirements exactly and excludes context",
   () =>
