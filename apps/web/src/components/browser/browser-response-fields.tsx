@@ -67,7 +67,11 @@ const Field = ({
       </details>
     );
   }
-  const candidate = requestAttachment(request, path, value);
+  const candidate = requestAttachment(request, {
+    expected: value,
+    path,
+    purpose: "requirement",
+  });
   return (
     <div
       className="flex items-center gap-2 py-1"
