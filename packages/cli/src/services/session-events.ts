@@ -3,10 +3,12 @@ import { randomUUID } from "node:crypto";
 import type {
   AgentSessionId,
   AgentSessionSnapshot,
+  BrowserCheck,
   SessionEvent,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
-import { Context, Effect } from "effect";
+import { TeachingInstruction } from "@contingency/protocol";
+import { Context, Effect, Schema } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { agentSessionError } from "./agent-session-error.ts";
@@ -44,6 +46,31 @@ const append = (
 };
 
 type Emit = (kind: SessionEvent["kind"], name?: string) => void;
+const sameInstructionContent = Schema.toEquivalence(
+  Schema.Struct({
+    attachments: TeachingInstruction.fields.attachments,
+    scan: TeachingInstruction.fields.scan,
+    target: TeachingInstruction.fields.target,
+    text: TeachingInstruction.fields.text,
+  })
+);
+const checkContent = (check: BrowserCheck) =>
+  check.kind === "response"
+    ? check
+    : { ...check, cookiePath: check.cookiePath ?? undefined };
+const instructionContent = (instruction: TeachingInstruction) => ({
+  attachments: (instruction.attachments ?? []).map((attachment) => ({
+    ...attachment,
+    candidate: checkContent(attachment.candidate),
+    requirement:
+      attachment.requirement === undefined || attachment.requirement === null
+        ? undefined
+        : checkContent(attachment.requirement),
+  })),
+  scan: instruction.scan ?? undefined,
+  target: instruction.target,
+  text: instruction.text,
+});
 const teachingChanges = (
   previous: AgentSessionSnapshot,
   snapshot: AgentSessionSnapshot,
@@ -66,11 +93,21 @@ const teachingChanges = (
     if (after === "setup" && before !== "setup") {
       emit("teaching-discarded");
     }
-    const known = new Set(
-      previous.teaching.instructions.map((instruction) => instruction.id)
+    const known = new Map(
+      previous.teaching.instructions.map((instruction) => [
+        instruction.id,
+        instruction,
+      ])
     );
     for (const instruction of snapshot.teaching.instructions) {
-      if (!known.has(instruction.id)) {
+      const old = known.get(instruction.id);
+      if (
+        old === undefined ||
+        !sameInstructionContent(
+          instructionContent(old),
+          instructionContent(instruction)
+        )
+      ) {
         emit(
           instruction.scan === undefined || instruction.scan === null
             ? "instruction-recorded"
