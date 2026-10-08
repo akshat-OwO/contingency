@@ -1,6 +1,10 @@
 import { CatalogRootView } from "@contingency/protocol";
 import type { CatalogBrowseResult } from "@contingency/protocol";
-import { RegistryProvider, useAtomRefresh } from "@effect/atom-react";
+import {
+  RegistryProvider,
+  useAtomRefresh,
+  useAtomValue,
+} from "@effect/atom-react";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Schema } from "effect";
@@ -18,6 +22,7 @@ import {
   orphanRecordings,
   sessionSkills,
   showsSkillsEntry,
+  skillsSelectionAtom,
 } from "@/components/catalog/skills-drawer-state";
 import { stepInstruction } from "@/components/catalog/skills-format";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
@@ -144,6 +149,11 @@ const RefreshCatalog = () => {
   );
 };
 
+const SelectedDetails = () => {
+  const selection = useAtomValue(skillsSelectionAtom);
+  return selection === null ? null : <SkillDetails selection={selection} />;
+};
+
 test("selects nonempty folders local-first after Teaching and session skills", () => {
   const none = sessionSkills();
   expect(defaultFolder([retained, global], none)).toEqual({
@@ -221,15 +231,13 @@ test("restores retained Runs and orphan recordings when the filter clears", asyn
   expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
 });
 
-test("opens global-only orphan recordings with no nonexistent skill action", () => {
+test("opens global-only orphan recordings with no nonexistent skill action", async () => {
   const root = decodeRoot({ ...retained, runs: [], scope: "global" });
   rpc.browse = browse([emptyLocal, root]);
   render(
     <TestRegistry>
       <SkillsDrawer session={undefined} />
-      <SkillDetails
-        selection={{ kind: "recording", recording, scope: "global" }}
-      />
+      <SelectedDetails />
     </TestRegistry>
   );
   expect(
@@ -238,11 +246,45 @@ test("opens global-only orphan recordings with no nonexistent skill action", () 
   expect(
     screen.getByRole("button", { name: /recording-retained/u })
   ).toBeVisible();
+  expect(screen.getByRole("button", { name: /Global\s*1/u })).toBeVisible();
+  expect(screen.queryByText("1mg mobile login")).toBeNull();
+  await userEvent.click(
+    screen.getByRole("button", { name: /recording-retained/u })
+  );
+  expect(
+    screen.getByRole("heading", { name: "recording-retained" })
+  ).toBeVisible();
   expect(screen.getByText("1mg mobile login")).toHaveAttribute(
     "title",
     "Not in this Catalog Root"
   );
   expect(screen.queryByRole("button", { name: "1mg mobile login" })).toBeNull();
+});
+
+test("counts Global history without double-counting listed-skill entries", async () => {
+  const root = decodeRoot({
+    ...local,
+    recordings: [
+      recording,
+      {
+        ...recording,
+        flowSkillName: "deleted-cart",
+        recordingId: "recording-orphan",
+      },
+    ],
+    scope: "global",
+  });
+  rpc.browse = browse([emptyLocal, root]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  expect(screen.getByRole("button", { name: /Global\s*4/u })).toBeVisible();
+  await userEvent.type(screen.getByLabelText("Filter skills"), "1mg");
+  expect(screen.getByRole("button", { name: /Global\s*1/u })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+  expect(screen.getByRole("button", { name: /Global\s*4/u })).toBeVisible();
 });
 
 test("refresh replaces a removed selected skill with retained history, then emptiness", async () => {

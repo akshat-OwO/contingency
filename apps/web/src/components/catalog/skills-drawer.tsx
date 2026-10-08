@@ -336,9 +336,13 @@ const CatalogColumn = ({
   const [local, global] = roots;
   const openGlobal =
     folder?.scope === "global" || opensGlobal(roots, query, skills);
+  const globalHistoryHits =
+    global === undefined || query.trim() !== ""
+      ? 0
+      : looseRuns(global).length + orphanRecordings(global).length;
   const globalHits =
-    global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
-    0;
+    (global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
+      0) + globalHistoryHits;
   return (
     <section aria-label="Catalog" className="flex min-h-0 flex-col border-r">
       <div className="border-b p-1.5">
