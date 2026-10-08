@@ -163,6 +163,7 @@ export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" browser goto --url http://127.0.0.1:<mcp-port>/
 "$CONTROL" browser wait --role heading --name "No browser session"
 "$CONTROL" browser resize --width 390 --height 844
+"$CONTROL" browser select --role combobox --name "Storage format" --value json
 "$CONTROL" mcp start
 "$CONTROL" mcp tools --name agent_run_assess
 "$CONTROL" mcp call --tool agent_sessions_get
