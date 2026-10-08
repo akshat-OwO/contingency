@@ -78,7 +78,7 @@ export const storageAttachment = (
   cookiePath?: string
 ): TeachingBrowserAttachment => {
   const id = globalThis.crypto.randomUUID();
-  const candidate: BrowserCheck = {
+  const check: BrowserCheck = {
     change: "created",
     cookiePath,
     demonstrated: false,
@@ -95,6 +95,8 @@ export const storageAttachment = (
     timeoutMs: 10_000,
     when: "After the triggering action",
   };
+  const candidate: BrowserCheck =
+    kind === "cookie" ? check : { ...check, format: "raw" };
   return { candidate, id, label: `${kind} · ${name}` };
 };
 export const dragAttachment = (

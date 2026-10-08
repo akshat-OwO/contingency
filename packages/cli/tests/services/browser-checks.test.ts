@@ -305,3 +305,104 @@ it.effect(
       ).toBe("Failure");
     })
 );
+it.effect(
+  "storage format is explicit, persisted, and enforced by raw validation",
+  () =>
+    Effect.gen(function* storageFormat() {
+      const storage: BrowserCheck = {
+        change: "current",
+        demonstrated: false,
+        expectation: {
+          itemPath: ["items", "*"],
+          predicates: [
+            { expected: "{{STATUS}}", operator: "equals", path: ["status"] },
+          ],
+        },
+        format: "json",
+        id: "ready",
+        kind: "session",
+        name: "order",
+        origin: "http://example.test",
+        timeoutMs: 1000,
+        when: "After Submit",
+      };
+      expect(validateBrowserCheck(storage)).toBeUndefined();
+      const { format: _omitted, ...legacy } = storage;
+      expect(validateBrowserCheck(legacy)).toContain("JSON storage format");
+      expect(validateBrowserCheck({ ...storage, format: "raw" })).toContain(
+        "JSON storage format"
+      );
+      const rawRoot: BrowserCheck = {
+        ...storage,
+        expectation: {
+          itemPath: [],
+          predicates: [{ expected: "", operator: "equals", path: [] }],
+        },
+        format: "raw",
+      };
+      expect(validateBrowserCheck(rawRoot)).toBeUndefined();
+      expect(
+        validateBrowserCheck({
+          ...rawRoot,
+          expectation: {
+            itemPath: [],
+            predicates: [{ expected: 1, operator: "gt", path: [] }],
+          },
+        })
+      ).toContain("string expectation");
+      expect(
+        validateBrowserCheck({
+          ...rawRoot,
+          expectation: {
+            itemPath: [],
+            predicates: [{ operator: "exists", path: [] }],
+          },
+          kind: "cookie",
+        })
+      ).toContain("Remove the storage format");
+      const saved = parseBrowserChecks(files([storage, rawRoot, legacy]));
+      expect(Result.isFailure(saved)).toBe(true);
+      const { format: _raw, ...omittedRaw } = rawRoot;
+      const reread = parseBrowserChecks(
+        files([storage, { ...omittedRaw, id: "Submit" }])
+      );
+      expect(
+        Result.getOrThrow(reread).map((entry) =>
+          entry.kind === "response" ? entry.kind : entry.format
+        )
+      ).toEqual(["json", undefined]);
+      const attachment = {
+        candidate: storage,
+        id: storage.id,
+        label: "Stored",
+        requirement: storage,
+      };
+      yield* validateTaughtBrowserChecks(files([storage]), [
+        { attachments: [attachment] },
+      ]);
+      const jsonRoot: BrowserCheck = { ...rawRoot, format: "json" };
+      expect(
+        (yield* Effect.flip(
+          validateTaughtBrowserChecks(files([omittedRaw]), [
+            {
+              attachments: [
+                { ...attachment, candidate: jsonRoot, requirement: jsonRoot },
+              ],
+            },
+          ])
+        )).message
+      ).toContain("exactly");
+      const resolved = yield* resolveBrowserCheckInputs(
+        { check: storage, flowSkillName: "submit" },
+        () => "ready"
+      );
+      expect(resolved.check).toMatchObject({ format: "json" });
+      expect(() =>
+        Schema.decodeUnknownSync(TeachingBrowserAttachment)({
+          candidate: { ...storage, format: "xml" },
+          id: storage.id,
+          label: "Stored",
+        })
+      ).toThrow();
+    })
+);

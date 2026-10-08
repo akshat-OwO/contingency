@@ -49,8 +49,26 @@ const storageValue = (target: BrowserTarget, check: BrowserCheck) =>
     );
   });
 
+type StorageCheck = Exclude<BrowserCheck, { kind: "response" }>;
+const STORAGE_JSON_LIMIT = 65_536;
+const decodeStorageJson = Schema.decodeUnknownResult(
+  Schema.fromJsonString(Schema.Json)
+);
+/** Raw values are compared for change; only an explicit JSON format decodes them for the expectation. */
+const storageObservation = (
+  check: StorageCheck,
+  raw: string | undefined
+): Result.Result<Schema.Json | undefined, unknown> => {
+  if (raw === undefined || check.kind === "cookie" || check.format !== "json") {
+    return Result.succeed(raw);
+  }
+  if (Buffer.byteLength(raw, "utf-8") > STORAGE_JSON_LIMIT) {
+    return Result.fail("Storage JSON exceeds the observation limit");
+  }
+  return decodeStorageJson(raw);
+};
 const storageChangeMatches = (
-  check: Exclude<BrowserCheck, { kind: "response" }>,
+  check: StorageCheck,
   before: string | undefined,
   current: string | undefined
 ) =>
@@ -208,14 +226,19 @@ export const armBrowserChecks = (
                 if (Result.isFailure(current)) {
                   unreadable = true;
                 } else if (
-                  storageChangeMatches(
-                    check,
-                    before.success,
-                    current.success
-                  ) &&
-                  matchesBrowserExpectation(current.success, check.expectation)
+                  storageChangeMatches(check, before.success, current.success)
                 ) {
-                  return result(reference, "passed");
+                  const observed = storageObservation(check, current.success);
+                  if (Result.isFailure(observed)) {
+                    unreadable = true;
+                  } else if (
+                    matchesBrowserExpectation(
+                      observed.success,
+                      check.expectation
+                    )
+                  ) {
+                    return result(reference, "passed");
+                  }
                 }
               }
               yield* Effect.sleep(

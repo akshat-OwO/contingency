@@ -51,6 +51,8 @@ export const BrowserRequestPattern = Schema.Struct({
   ).check(Schema.isMaxProperties(20)),
 });
 export type BrowserRequestPattern = typeof BrowserRequestPattern.Type;
+export const BrowserStorageFormat = Schema.Literals(["raw", "json"]);
+export type BrowserStorageFormat = typeof BrowserStorageFormat.Type;
 const checkFields = {
   demonstrated: Schema.Boolean,
   id: text,
@@ -72,6 +74,8 @@ export const BrowserCheck = Schema.Union([
     change: Schema.Literals(["current", "created", "changed"]),
     cookiePath: optionalNullable(text),
     expectation: BrowserExpectation,
+    /** Local and session storage only. Omission means raw: JSON-looking strings are never decoded. */
+    format: Schema.optionalKey(BrowserStorageFormat),
     kind: Schema.Literals(["cookie", "local", "session"]),
     name: text,
     origin: text,
