@@ -20,11 +20,13 @@ const RunSummarySidebar = ({
   children,
   label,
   mobile,
+  minimumSize,
   onClose,
 }: {
   readonly children: ReactNode;
   readonly label: string;
   readonly mobile: boolean;
+  readonly minimumSize: string;
   /** Closes rather than collapses, for content the user opened themselves. */
   readonly onClose: (() => void) | undefined;
 }) => {
@@ -42,7 +44,7 @@ const RunSummarySidebar = ({
         groupResizeBehavior="preserve-pixel-size"
         id="run-summary"
         maxSize={mobile ? "65%" : "48rem"}
-        minSize={mobile ? "12rem" : "20rem"}
+        minSize={minimumSize}
         onResize={() => {
           setCollapsed(panelRef.current?.isCollapsed() ?? false);
         }}
@@ -123,11 +125,13 @@ const LeadingSidebar = ({
   children,
   label,
   mobile,
+  minimumSize,
   onClose,
 }: {
   readonly children: ReactNode;
   readonly label: string;
   readonly mobile: boolean;
+  readonly minimumSize: string;
   readonly onClose: () => void;
 }) => (
   <>
@@ -136,7 +140,7 @@ const LeadingSidebar = ({
       groupResizeBehavior="preserve-pixel-size"
       id="workspace-leading"
       maxSize={mobile ? "65%" : "50rem"}
-      minSize={mobile ? "12rem" : "24rem"}
+      minSize={minimumSize}
       style={{ overflow: "hidden" }}
     >
       <aside
@@ -196,6 +200,11 @@ export const WorkspaceWithRunSummary = ({
   readonly summary: ReactNode | null;
 }) => {
   const mobile = useIsMobile();
+  // Skills, Workspace, and Details must fit together even with enlarged
+  // text. Three root-relative minima can otherwise force Details closed.
+  const sharingSpace = leading !== null && summary !== null;
+  const leadingMinimum = mobile ? "12rem" : "24rem";
+  const summaryMinimum = mobile ? "12rem" : "20rem";
   return (
     <ResizablePanelGroup
       className="min-h-0 flex-1"
@@ -205,6 +214,7 @@ export const WorkspaceWithRunSummary = ({
         <LeadingSidebar
           label={leading.label}
           mobile={mobile}
+          minimumSize={sharingSpace ? "20%" : leadingMinimum}
           onClose={leading.onClose}
         >
           {leading.content}
@@ -213,7 +223,7 @@ export const WorkspaceWithRunSummary = ({
       <ResizablePanel
         className="flex min-h-0 flex-col"
         id="workspace"
-        minSize={mobile ? "12rem" : "20rem"}
+        minSize={sharingSpace ? "20%" : summaryMinimum}
         style={{ overflow: "hidden" }}
       >
         {children}
@@ -222,6 +232,7 @@ export const WorkspaceWithRunSummary = ({
         <RunSummarySidebar
           label={label}
           mobile={mobile}
+          minimumSize={sharingSpace ? "20%" : summaryMinimum}
           onClose={onCloseSummary}
         >
           {summary}

@@ -5,12 +5,12 @@ import {
   useAtomRefresh,
   useAtomValue,
 } from "@effect/atom-react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Schema } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { SkillDetails } from "@/components/catalog/skill-details";
 import { SkillsDrawer } from "@/components/catalog/skills-drawer";
@@ -27,7 +27,65 @@ import {
 import { stepInstruction } from "@/components/catalog/skills-format";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
-afterEach(cleanup);
+let probeWidth = 1;
+const observers = new Set<() => void>();
+
+beforeEach(() => {
+  probeWidth = 1;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class implements ResizeObserver {
+      readonly notify: ResizeObserverCallback;
+      readonly subscriptions = new Set<() => void>();
+      constructor(notify: ResizeObserverCallback) {
+        this.notify = notify;
+      }
+      observe(target: Element) {
+        const notify = () => {
+          const size = { blockSize: 1, inlineSize: probeWidth };
+          this.notify(
+            [
+              {
+                borderBoxSize: [size],
+                contentBoxSize: [size],
+                contentRect: new DOMRect(0, 0, probeWidth, 1),
+                devicePixelContentBoxSize: [size],
+                target,
+              },
+            ],
+            this
+          );
+        };
+        this.subscriptions.add(notify);
+        observers.add(notify);
+        notify();
+      }
+      disconnect() {
+        for (const notify of this.subscriptions) {
+          observers.delete(notify);
+        }
+        this.subscriptions.clear();
+      }
+      unobserve() {
+        this.disconnect();
+      }
+    }
+  );
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+const resizeNavigation = (width: number) => {
+  act(() => {
+    probeWidth = width;
+    for (const notify of observers) {
+      notify();
+    }
+  });
+};
 
 const rpc = vi.hoisted(() => ({
   browse: { _tag: "Initial", waiting: true } satisfies unknown,
@@ -147,6 +205,11 @@ const RefreshCatalog = () => {
       Refresh catalog
     </button>
   );
+};
+
+const ObserveSelection = () => {
+  useAtomValue(skillsSelectionAtom);
+  return null;
 };
 
 const SelectedDetails = () => {
@@ -536,4 +599,123 @@ test("omits the unreadable warning for a healthy catalog", () => {
     </TestRegistry>
   );
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("narrow navigation preserves filter, folder, Details selection and keyboard focus", async () => {
+  probeWidth = 0;
+  rpc.browse = browse([local, global]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+      <ObserveSelection />
+    </TestRegistry>
+  );
+  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  await userEvent.type(screen.getByLabelText("Filter skills"), "1mg");
+  const row = screen.getByRole("button", { name: /1mg mobile login/u });
+  row.focus();
+  await userEvent.keyboard("{Enter}");
+  expect(screen.queryByRole("region", { name: "Catalog" })).toBeNull();
+  expect(
+    screen.getByRole("heading", { name: "1mg mobile login" })
+  ).toHaveFocus();
+  await userEvent.click(screen.getByRole("button", { name: "SKILL.md" }));
+  expect(screen.getByRole("button", { name: "SKILL.md" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Back to catalog" })
+  );
+  expect(screen.getByLabelText("Filter skills")).toHaveValue("1mg");
+  expect(
+    screen.getByRole("button", { name: /1mg mobile login/u })
+  ).toHaveFocus();
+  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  await userEvent.keyboard("{Enter}");
+  expect(screen.getByRole("button", { name: "SKILL.md" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+});
+
+test("resizing keeps the focused navigation view and selected folder usable", async () => {
+  rpc.browse = browse([local]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+      <ObserveSelection />
+    </TestRegistry>
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  );
+  resizeNavigation(0);
+  expect(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  ).toHaveFocus();
+  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  await userEvent.keyboard("{Enter}");
+  resizeNavigation(1);
+  expect(
+    screen.getByRole("heading", { name: "Ridgeline Boulder cart" })
+  ).toHaveFocus();
+  resizeNavigation(0);
+  expect(
+    screen.getByRole("heading", { name: "Ridgeline Boulder cart" })
+  ).toHaveFocus();
+  expect(screen.queryByRole("region", { name: "Catalog" })).toBeNull();
+});
+
+test("narrow no-match recovery retains the chosen folder and restores history", async () => {
+  probeWidth = 0;
+  rpc.browse = browse([
+    decodeRoot({
+      ...local,
+      recordings: [
+        recording,
+        {
+          ...recording,
+          flowSkillName: "deleted-cart",
+          recordingId: "recording-orphan",
+        },
+      ],
+    }),
+    global,
+  ]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Back to catalog" })
+  );
+  await userEvent.type(screen.getByLabelText("Filter skills"), "nothing");
+  expect(screen.getByText("Nothing here matches “nothing”.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Show all skills" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Other runs/u })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: /Other recordings/u })
+  ).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+  expect(screen.getByLabelText("Filter skills")).toHaveValue("");
+  expect(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: /Other runs/u })).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: /Other recordings/u })
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  await userEvent.click(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  );
+  expect(
+    screen.getByRole("heading", { name: "Ridgeline Boulder cart" })
+  ).toHaveFocus();
+  expect(screen.getByRole("button", { name: "SKILL.md" })).toBeVisible();
 });
