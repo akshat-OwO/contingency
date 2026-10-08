@@ -249,6 +249,12 @@ it.live(
           expect(budget.actions).toHaveLength(1);
           expect(budget.reason).toContain("1-action budget");
 
+          // The same action a third time in a row is a loop, not progress.
+          const looped = yield* pursue(sessionId, "pursuit-loop");
+          expect(looped.ending).toBe("unsure");
+          expect(looped.actions).toHaveLength(2);
+          expect(looped.reason).toContain("a third time in a row");
+
           // Only System One itself failing fails the call.
           systemOne.state.answer = () => "fail";
           const failed = yield* Effect.flip(
@@ -286,6 +292,7 @@ it.live(
             "done",
             "done",
             "blocked",
+            "unsure",
             "unsure",
             "unsure",
             "paused",

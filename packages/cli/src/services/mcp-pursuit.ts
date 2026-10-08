@@ -79,6 +79,12 @@ const REPLAY_LIMIT = 256;
 /** Effects that end a Pursuit as `unsure` when seen this many times running. */
 const NO_EFFECT_LIMIT = 2;
 
+/**
+ * How many times in a row System One may choose the same action. Some pages
+ * need a second identical click; a third is a loop that only spends budget.
+ */
+const REPEAT_LIMIT = 2;
+
 /** Browser failure reasons that say System One's choice did not hold. */
 const UNSURE_FAILURES = new Set([
   "detached",
@@ -95,7 +101,7 @@ type PursueParameters = typeof AgentBrowserPursueParameters.Type;
 
 const AgentBrowserPursueTool = Tool.make("agent_browser_pursue", {
   dependencies: [AgentSession, SystemOne],
-  description: `Delegate one Run or Dry Run sub-goal to the configured System One model. It acts until done, at most ${PURSUIT_LIMITS.maxActions} actions in ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. goal is one Flow Skill step; doneWhen is what the Page visibly shows once it holds. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked (no way forward or intercepted), unsure (low confidence, two no-effect actions, a failed action, or spent budget), paused (Execution Boundary or Takeover), needs-input (request missingVariable, then pursue again). Actions remain whatever the ending; verify done in the Snapshot before assessing. System One receives Page text, elements, recent actions, and ordinary input values; private Variables only by name. Same operationId replays.`,
+  description: `Delegate one Run or Dry Run sub-goal to the configured System One model. It acts until done, at most ${PURSUIT_LIMITS.maxActions} actions in ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. goal is one Flow Skill step; doneWhen is what the Page visibly shows once it holds. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked (no way forward or intercepted), unsure (low confidence, no effect twice, a third identical action, a failed action, or spent budget), paused (Execution Boundary or Takeover), needs-input (request missingVariable, then pursue again). Actions remain whatever the ending; verify done in the Snapshot before assessing. System One receives Page text, elements, recent actions, and ordinary input values; private Variables only by name. Same operationId replays.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserPursueParameters,
   success: UnpublishedPursuitResult,
@@ -442,6 +448,8 @@ interface PursuitProgress {
   latest: { snapshot: AgentBrowserSnapshot; url: string } | null;
   noEffect: number;
   readonly recent: string[];
+  /** The last chosen action, and how many times in a row it was chosen. */
+  repeat: { key: string; times: number } | null;
 }
 
 /** The Run a Pursuit belongs to, refusing Teaching and ordered Runs. */
@@ -500,6 +508,7 @@ const pursue = (params: PursueParameters) =>
       latest: null,
       noEffect: 0,
       recent: [],
+      repeat: null,
     };
 
     /** Act as the agent's own action would, or enter a Variable by name. */
@@ -595,6 +604,21 @@ const pursue = (params: PursueParameters) =>
       if (spent !== undefined) {
         return spent;
       }
+      // References change across reads, so an action is known by its
+      // element's role and name and the input it enters.
+      const key = JSON.stringify([
+        decision.candidate.describe.replace(/^\[\d+\] /u, ""),
+        decision.input?.name ?? null,
+      ]);
+      const times =
+        progress.repeat?.key === key ? progress.repeat.times + 1 : 1;
+      if (times > REPEAT_LIMIT) {
+        return end(
+          "unsure",
+          `System One chose ${decision.candidate.describe.replace(/^\[\d+\] /u, "")} a third time in a row without doneWhen holding.`
+        );
+      }
+      progress.repeat = { key, times };
       return yield* perform(
         decision,
         OperationId.make(`${params.operationId}/${progress.actions.length + 1}`)

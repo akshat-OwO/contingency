@@ -20,7 +20,7 @@ Every browser action today costs the external agent a full model turn. A small S
   | --- | --- |
   | `done` probability of at least 0.9 before the Pursuit's first action, or 0.5 after it | `done` |
   | System One answers `BLOCKED`, or an action is intercepted by a foreground element ([ADR 0053](./0053-browser-actions-respect-foreground-interception.md)) | `blocked` |
-  | The top answer to the operation, target, or value question is below 0.5; two consecutive actions have effect `none`; an action fails as `detached`, `timeout`, `value_mismatch`, or `length_mismatch`; or the action or time budget runs out | `unsure` |
+  | The top answer to the operation, target, or value question is below 0.5; two consecutive actions have effect `none`; System One chooses the same action a third time in a row; an action fails as `detached`, `timeout`, `value_mismatch`, or `length_mismatch`; or the action or time budget runs out | `unsure` |
   | An Execution Boundary pause or a Takeover | `paused` |
   | System One chooses a Variable that has no value yet | `needs-input` |
 

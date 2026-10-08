@@ -41,8 +41,10 @@ Measured with `pursuit-loop.ts`, which hands each Flow Skill step to `agent_brow
 
 | Flow | Jev (TypeSafe paid) | Nev-0.8B |
 | --- | --- | --- |
-| Demo `example-delivery-cart`, 9 runs | 9 passed, 7.9 to 11.9 s per run | not yet measured |
-| Demo `example-broken-cart`, 3 runs | 0 passed, each `blocked` at the banner step | not yet measured |
+| Demo `example-delivery-cart`, 9 runs | 9 passed, 7.9 to 11.9 s per run | 6 passed, 10.1 to 10.4 s per run |
+| Demo `example-broken-cart`, 3 runs | 0 passed, each `blocked` at the banner step | 0 passed, each `unsure` at the cart step |
+
+Nev fails the same three runs every time. With Denver and Highlands it chooses both lists but judges the location step done at 0.62 without selecting "Save location", so the cart never shows a location. On both carts it then selects the Cart link again and again; a Pursuit now ends `unsure` before a third identical action instead of spending its whole budget. A Nev request takes 0.31 s at the median on an Apple M5.
 
 The broken cart ends `blocked` after Jev selects "Restore healthy store": it cannot confirm the banner is gone, which is the weakness the ADR hands back to the agent. A Pursuit takes 2.3 s at the median and 5.0 s at p90; a Jev request takes 0.34 s at the median. The 12 runs sent 66 requests, 116k input tokens, and 15k output tokens.
 
