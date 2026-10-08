@@ -10,7 +10,7 @@ import { awaitExit, findFfmpeg } from "./ffmpeg.ts";
 /**
  * The bundled ffmpeg accepts `pipe:0` but not the `-` shorthand, and it ships
  * exactly the pieces this pipeline needs: the `image2pipe` demuxer, the
- * `mjpeg` decoder, `libvpx`, and the `webm` muxer.
+ * `mjpeg` decoder, `libvpx-vp9`, and the `webm` muxer.
  *
  * Screencast frames arrive whenever Chrome repaints, so the encoder must keep
  * their real spacing rather than assume a frame rate:
@@ -30,13 +30,18 @@ const ffmpegArguments = (output: string): readonly string[] => [
   "-i",
   "pipe:0",
   "-c:v",
-  "libvpx",
-  // Match Playwright's live recorder: avoid offline VP8 encoding competing
-  // with Chromium for CPU while the user is driving the browser.
+  "libvpx-vp9",
+  // Match Playwright's live recorder: avoid offline VP9 encoding competing
+  // with Chromium for CPU while the user is driving the browser, and emit
+  // each frame as it arrives instead of holding a lookahead queue.
   "-deadline",
   "realtime",
   "-cpu-used",
   "8",
+  "-lag-in-frames",
+  "0",
+  "-row-mt",
+  "1",
   "-threads",
   "1",
   "-fps_mode",
@@ -58,7 +63,7 @@ export interface TeachingEncoder {
 
 export interface TeachingEncoderOptions {
   /**
-   * The ceiling on encoder input. MJPEG frames are far larger than the VP8
+   * The ceiling on encoder input. MJPEG frames are far larger than the VP9
    * they become, so bounding the input bounds the output file conservatively:
    * the encoder stops before the recording can fill a disk.
    */
@@ -75,7 +80,7 @@ interface EncoderState {
 
 /**
  * A scoped ffmpeg process that turns the browser's screencast frames into one
- * playable VP8 webm. Nothing here fails the caller: a recording that loses its
+ * playable VP9 webm. Nothing here fails the caller: a recording that loses its
  * video is still a recording, so an encoder problem is reported through
  * `failure` and turned into a visible Teaching failure by the recorder.
  */
