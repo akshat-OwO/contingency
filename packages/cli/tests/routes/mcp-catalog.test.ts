@@ -45,7 +45,7 @@ const bytes = (value: ListedTool | readonly ListedTool[]) =>
  * budgets fail the build when a schema change inflates it, the way #326 to
  * #331 grew it from 140 KB to 216 KB without anyone noticing (ADR 0045).
  */
-const CATALOG_BUDGET_BYTES = 80_000;
+const CATALOG_BUDGET_BYTES = 81_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([

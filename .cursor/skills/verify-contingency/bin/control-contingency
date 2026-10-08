@@ -48,6 +48,7 @@ Commands:
   browser scroll-check --session-id <id> [--record] [--path <directory>] [--events <n>] [--delta <px>]
   browser click --role <role> --name <name> [--partial]
   browser fill --role <role> --name <name> --value <value> [--partial]
+  browser select --role <role> --name <name> --value <option-value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
   browser wait --role <role> --name <name> [--has-text <substring>] [--timeout-ms <n>] [--partial]
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
@@ -591,6 +592,13 @@ const runPageAction = async (page, appUrl, action, flags) => {
         throw new Error("browser fill needs --value.");
       }
       await locator(page, flags).fill(flags.value);
+      return "";
+    }
+    case "select": {
+      if (typeof flags.value !== "string") {
+        throw new Error("browser select needs --value.");
+      }
+      await locator(page, flags).selectOption(flags.value);
       return "";
     }
     case "press": {

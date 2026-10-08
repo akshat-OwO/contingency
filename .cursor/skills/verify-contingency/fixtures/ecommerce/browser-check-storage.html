@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storage Browser Checks</title>
+    <style>
+      body {
+        margin: 32px;
+        font: 18px system-ui;
+        color: #172033;
+        background: white;
+      }
+      button {
+        padding: 12px 24px;
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Stored order</h1>
+    <button type="button" id="submit">Save order</button>
+    <p role="status" id="confirmation">No order saved</p>
+    <script>
+      // ?mode=mismatch stores typed JSON that misses the requirement.
+      // ?mode=malformed stores a raw string that only looks like JSON.
+      const mode = new URLSearchParams(location.search).get("mode");
+      const values = {
+        malformed: '{"order":{"status":"ready"',
+        mismatch: JSON.stringify({
+          order: { items: [{ qty: 1, sku: "a" }], status: "pending" },
+        }),
+      };
+      const ready = JSON.stringify({
+        order: {
+          items: [
+            { qty: 2, sku: "a" },
+            { qty: 1, sku: "b" },
+          ],
+          status: "ready",
+        },
+      });
+      for (const store of [localStorage, sessionStorage]) {
+        store.setItem("order", JSON.stringify({ order: { status: "draft" } }));
+      }
+      let saves = 0;
+      document.getElementById("submit").addEventListener("click", () => {
+        saves += 1;
+        const value = values[mode] ?? ready;
+        localStorage.setItem("order", value);
+        sessionStorage.setItem("order", value);
+        document.getElementById("confirmation").textContent =
+          `Saved ${saves} time(s)`;
+      });
+    </script>
+  </body>
+</html>

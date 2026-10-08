@@ -118,6 +118,35 @@ const validatePredicates = (check: BrowserCheck): string | undefined => {
     }
   }
 };
+const validateStorageFormat = (check: BrowserCheck): string | undefined => {
+  if (check.kind === "response") {
+    return;
+  }
+  if (check.kind === "cookie" && check.format !== undefined) {
+    return "Cookies are checked as raw strings. Remove the storage format.";
+  }
+  if (
+    check.format !== "json" &&
+    (check.expectation.itemPath.length > 0 ||
+      check.expectation.predicates.some(
+        (predicate) => predicate.path.length > 0
+      ))
+  ) {
+    return check.kind === "cookie"
+      ? "Cookie values are raw strings. Clear the array item path and field paths."
+      : "Raw storage values are strings. Clear the array item path and field paths, or choose JSON storage format to check fields.";
+  }
+  if (
+    check.format !== "json" &&
+    check.expectation.predicates.some(
+      (predicate) =>
+        predicate.operator !== "exists" &&
+        !Predicate.isString(predicate.expected)
+    )
+  ) {
+    return "Raw values are strings. Compare them with a string expectation, or choose JSON storage format for typed values.";
+  }
+};
 export const validateBrowserCheck = (
   check: BrowserCheck
 ): string | undefined => {
@@ -139,7 +168,7 @@ export const validateBrowserCheck = (
     ) {
       return "Review the request method, path segments, and separate query constraints.";
     }
-    return validatePredicates(check);
+    return validateStorageFormat(check) ?? validatePredicates(check);
   } catch {
     return "Browser Checks require a valid HTTP(S) origin.";
   }

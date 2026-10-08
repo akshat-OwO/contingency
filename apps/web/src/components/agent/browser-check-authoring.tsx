@@ -7,6 +7,42 @@ import { Schema } from "effect";
 
 import { Button } from "@/components/ui/button";
 
+const operators = [
+  "exists",
+  "equals",
+  "contains",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+] as const;
+const rawOperators = ["exists", "equals", "contains"] as const;
+/** Responses and JSON storage are typed values; cookies and raw storage are one root string. */
+const readsFields = (check: BrowserCheck) =>
+  check.kind === "response" || check.format === "json";
+const asRawString = (check: BrowserCheck): BrowserCheck => ({
+  ...check,
+  demonstrated: false,
+  expectation: {
+    itemPath: [],
+    // Fresh ids remount each predicate so its uncontrolled inputs show the converted value.
+    predicates: check.expectation.predicates.map((predicate) => {
+      const { expected, ...rest } = predicate;
+      const id = globalThis.crypto.randomUUID();
+      if (predicate.operator === "exists") {
+        return { ...rest, id, path: [] };
+      }
+      return {
+        ...rest,
+        expected: expected === undefined ? "" : String(expected),
+        id,
+        operator: predicate.operator === "contains" ? "contains" : "equals",
+        path: [],
+      };
+    }),
+  },
+});
+
 const updateExpected = (
   input: HTMLInputElement,
   change: (expected: Exclude<BrowserPredicate["expected"], undefined>) => void
@@ -192,6 +228,34 @@ const BrowserSourceEditor = ({
           <option value="current">Current state</option>
         </select>
       </label>
+      {check.kind === "cookie" ? null : (
+        <label>
+          Storage format{" "}
+          <select
+            aria-label="Storage format"
+            value={check.format ?? "raw"}
+            onChange={(event) =>
+              update(
+                event.target.value === "json"
+                  ? { ...check, demonstrated: false, format: "json" }
+                  : asRawString({ ...check, format: "raw" })
+              )
+            }
+          >
+            <option value="raw">Raw string</option>
+            <option value="json">JSON</option>
+          </select>
+        </label>
+      )}
+      {readsFields(check) ? (
+        <p>
+          JSON values over 64 KiB or that fail to parse are unreadable evidence.
+        </p>
+      ) : (
+        <p>
+          The stored value is checked as one string. Field paths do not apply.
+        </p>
+      )}
       <p>This declares an expectation. It never creates or changes storage.</p>
     </>
   );
@@ -289,47 +353,53 @@ export const BrowserAttachmentEditor = ({
               />
             </label>
             <BrowserSourceEditor check={check} update={update} />
-            <label>
-              Array item path{" "}
-              <input
-                aria-label="Array item path"
-                defaultValue={JSON.stringify(check.expectation.itemPath)}
-                onBlur={(event) => {
-                  const itemPath = pathValue(event.currentTarget);
-                  if (itemPath !== undefined) {
-                    update({
-                      ...check,
-                      demonstrated: false,
-                      expectation: { ...check.expectation, itemPath },
-                    });
-                  }
-                }}
-              />
-            </label>
-            <p>
-              Use "*" for an item anywhere in an array, or a number for an
-              explicit index. All predicates below must match the same selected
-              item.
-            </p>
+            {readsFields(check) ? (
+              <>
+                <label>
+                  Array item path{" "}
+                  <input
+                    aria-label="Array item path"
+                    defaultValue={JSON.stringify(check.expectation.itemPath)}
+                    onBlur={(event) => {
+                      const itemPath = pathValue(event.currentTarget);
+                      if (itemPath !== undefined) {
+                        update({
+                          ...check,
+                          demonstrated: false,
+                          expectation: { ...check.expectation, itemPath },
+                        });
+                      }
+                    }}
+                  />
+                </label>
+                <p>
+                  Use "*" for an item anywhere in an array, or a number for an
+                  explicit index. All predicates below must match the same
+                  selected item.
+                </p>
+              </>
+            ) : null}
             {check.expectation.predicates.map((predicate, index) => (
               <fieldset
                 className="grid gap-1 rounded border p-2"
                 key={predicate.id ?? JSON.stringify(predicate.path)}
               >
                 <legend>Field {index + 1}</legend>
-                <label>
-                  Full field path{" "}
-                  <input
-                    aria-label={`Field path ${index + 1}`}
-                    defaultValue={JSON.stringify(predicate.path)}
-                    onBlur={(event) => {
-                      const path = pathValue(event.currentTarget);
-                      if (path !== undefined) {
-                        updatePredicate(index, { ...predicate, path });
-                      }
-                    }}
-                  />
-                </label>
+                {readsFields(check) ? (
+                  <label>
+                    Full field path{" "}
+                    <input
+                      aria-label={`Field path ${index + 1}`}
+                      defaultValue={JSON.stringify(predicate.path)}
+                      onBlur={(event) => {
+                        const path = pathValue(event.currentTarget);
+                        if (path !== undefined) {
+                          updatePredicate(index, { ...predicate, path });
+                        }
+                      }}
+                    />
+                  </label>
+                ) : null}
                 <label>
                   Comparison{" "}
                   <select
@@ -337,15 +407,7 @@ export const BrowserAttachmentEditor = ({
                     value={predicate.operator}
                     onChange={(event) => {
                       const operator = Schema.decodeUnknownSync(
-                        Schema.Literals([
-                          "exists",
-                          "equals",
-                          "contains",
-                          "gt",
-                          "gte",
-                          "lt",
-                          "lte",
-                        ])
+                        Schema.Literals(operators)
                       )(event.target.value);
                       const { expected, ...withoutExpected } = predicate;
                       updatePredicate(
@@ -360,17 +422,11 @@ export const BrowserAttachmentEditor = ({
                       );
                     }}
                   >
-                    {[
-                      "exists",
-                      "equals",
-                      "contains",
-                      "gt",
-                      "gte",
-                      "lt",
-                      "lte",
-                    ].map((operator) => (
-                      <option key={operator}>{operator}</option>
-                    ))}
+                    {(readsFields(check) ? operators : rawOperators).map(
+                      (operator) => (
+                        <option key={operator}>{operator}</option>
+                      )
+                    )}
                   </select>
                 </label>
                 {predicate.operator === "exists" ? null : (
