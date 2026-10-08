@@ -76,6 +76,49 @@ test("storage format defaults to raw and only JSON exposes field paths", async (
   expect(screen.queryByRole("textbox", { name: "Field path 1" })).toBeNull();
 });
 
+test("switching JSON to raw keeps typed expectations visible as strings", async () => {
+  const user = userEvent.setup();
+  const changes: TeachingBrowserAttachment[] = [];
+  render(
+    <Editor
+      initial={required(
+        storageAttachment("http://example.test", "order", "session")
+      )}
+      changes={changes}
+    />
+  );
+  await user.click(screen.getByText(/session · order/u));
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Storage format" }),
+    "json"
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Comparison 1" }),
+    "gt"
+  );
+  const expected = screen.getByRole("textbox", { name: "Expected value 1" });
+  await user.clear(expected);
+  await user.type(expected, "42");
+  await user.tab();
+  expect(changes.at(-1)?.requirement?.expectation.predicates[0]?.expected).toBe(
+    42
+  );
+
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Storage format" }),
+    "raw"
+  );
+  const raw = changes.at(-1)?.requirement?.expectation.predicates[0];
+  expect(raw).toMatchObject({ expected: "42", operator: "equals" });
+  expect(
+    screen.getByRole("textbox", { name: "Expected value 1" })
+  ).toHaveProperty("value", '"42"');
+  expect(screen.getByRole("combobox", { name: "Comparison 1" })).toHaveProperty(
+    "value",
+    "equals"
+  );
+});
+
 test("cookies have no storage format control", async () => {
   const user = userEvent.setup();
   const initial = required(

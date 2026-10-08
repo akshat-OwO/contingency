@@ -3,7 +3,7 @@ import type {
   BrowserCheck,
   BrowserPredicate,
 } from "@contingency/protocol";
-import { Predicate, Schema } from "effect";
+import { Schema } from "effect";
 
 import { Button } from "@/components/ui/button";
 
@@ -25,14 +25,17 @@ const asRawString = (check: BrowserCheck): BrowserCheck => ({
   demonstrated: false,
   expectation: {
     itemPath: [],
+    // Fresh ids remount each predicate so its uncontrolled inputs show the converted value.
     predicates: check.expectation.predicates.map((predicate) => {
       const { expected, ...rest } = predicate;
+      const id = globalThis.crypto.randomUUID();
       if (predicate.operator === "exists") {
-        return { ...rest, path: [] };
+        return { ...rest, id, path: [] };
       }
       return {
         ...rest,
-        expected: Predicate.isString(expected) ? expected : "",
+        expected: expected === undefined ? "" : String(expected),
+        id,
         operator: predicate.operator === "contains" ? "contains" : "equals",
         path: [],
       };
