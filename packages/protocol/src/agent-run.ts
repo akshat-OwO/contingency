@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import { AgentTimelineEntry } from "./agent-browser.ts";
 import { AgentSessionVariableState, DemoSiteId } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
+import { AgentPursuitRecord } from "./agent-pursuit.ts";
 import {
   browserCheckRequirementsField,
   browserCheckResultsField,
@@ -400,6 +401,8 @@ const taskRunFields = {
   inputs: Schema.Array(AgentRunTaskInput),
   instructions: Schema.Array(AgentRunInstruction),
   purpose: AgentTaskRunPurpose,
+  /** Sub-goals delegated to System One, absent before the first (ADR 0057). */
+  pursuits: Schema.optional(Schema.Array(AgentPursuitRecord)),
   referencedSkills: Schema.Array(AgentRunSkillReference),
   requestedTask: nonEmptyString,
   runId: AgentRunId,

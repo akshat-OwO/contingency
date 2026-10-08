@@ -21,6 +21,7 @@ import type {
   RunVideoFastForward,
   TaskAgentRunState,
   AgentTaskAssessment,
+  AgentPursuitRecord,
   AgentRunTaskInput,
   AgentRunTaskVariable,
   AgentPendingDecision,
@@ -600,6 +601,15 @@ export interface AgentSessionService {
     finding: boolean,
     operationId: OperationId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  /**
+   * Keep a finished Pursuit on its task Run, so the Run Summary tells
+   * System One's attempts from the agent's own
+   * ([ADR 0057](../../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
+   */
+  readonly recordPursuit: (
+    sessionId: AgentSessionId,
+    pursuit: AgentPursuitRecord
+  ) => Effect.Effect<void, AgentSessionError>;
   readonly requestTaskVariable: (
     sessionId: AgentSessionId,
     flowSkillName: string,
@@ -6695,6 +6705,27 @@ const makeAgentSession = (
           }));
           return next ?? record.snapshot;
         }),
+      recordPursuit: (sessionId, pursuit) =>
+        taskMutation(
+          sessionId,
+          OperationId.make(`${pursuit.operationId}:record`),
+          "task-pursuit",
+          JSON.stringify(pursuit),
+          (_record, run) =>
+            recordEntry(
+              sessionId,
+              {
+                actor: "agent",
+                at: pursuit.endedAt,
+                description: `Pursuit ended ${pursuit.ending}: ${pursuit.goal}`,
+                detail: pursuit.reason,
+                dispatched: false,
+                id: `pursuit-${randomUUID()}`,
+                outcome: "completed",
+              },
+              { run: { ...run, pursuits: [...(run.pursuits ?? []), pursuit] } }
+            )
+        ).pipe(Effect.asVoid),
       renameFlowSkill: (sessionId, name, operationId) =>
         ledger.serializeMutation(
           renameFlowSkillUnlocked(

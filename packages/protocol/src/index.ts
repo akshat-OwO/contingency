@@ -69,6 +69,8 @@ export * from "./agent-browser.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-decision.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./agent-pursuit.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-run.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-cursor-path.ts";

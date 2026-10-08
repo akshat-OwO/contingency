@@ -35,6 +35,17 @@ Both models fail `example-broken-cart` at the step that must confirm a banner is
 
 The loop treats a step with no action yet as done only at a `done` probability of 0.9 or higher, and at 0.5 after its first action. A literal reading of a `Done when:` condition can hold before the step's work happens, for example a search box that is visible before its city is chosen.
 
+## Pursuits
+
+Measured with `pursuit-loop.ts`, which hands each Flow Skill step to `agent_browser_pursue` as one sub-goal ([ADR 0057](../adr/0057-system-one-pursues-delegated-sub-goals.md)) and moves on only when the Pursuit ends `done`. Unlike the live loop above, it asks about one step at a time.
+
+| Flow | Jev (TypeSafe paid) | Nev-0.8B |
+| --- | --- | --- |
+| Demo `example-delivery-cart`, 9 runs | 9 passed, 7.9 to 11.9 s per run | not yet measured |
+| Demo `example-broken-cart`, 3 runs | 0 passed, each `blocked` at the banner step | not yet measured |
+
+The broken cart ends `blocked` after Jev selects "Restore healthy store": it cannot confirm the banner is gone, which is the weakness the ADR hands back to the agent. A Pursuit takes 2.3 s at the median and 5.0 s at p90; a Jev request takes 0.34 s at the median. The 12 runs sent 66 requests, 116k input tokens, and 15k output tokens.
+
 ## Latency per request
 
 | Model                        | Time          |
@@ -52,3 +63,11 @@ JEV_PROVIDER=local JEV_BENCHMARK_REPEATS=3 nub packages/cli/tests/benchmarks/jev
 ```
 
 The script starts the bundled demo store and drives its Example Flow Skills through Contingency's MCP tools. Results go to `.cursor/skills/verify-contingency/artifacts/jev-fast-loop/`. To run Jev instead, set `JEV_PROVIDER=typesafe` and `TYPESAFE_API_KEY`.
+
+To measure Pursuits, point Contingency at the endpoint the way `contingency mcp` reads it:
+
+```sh
+CONTINGENCY_SYSTEM_ONE_URL=http://127.0.0.1:8009 PURSUIT_BENCHMARK_REPEATS=3 nub packages/cli/tests/benchmarks/pursuit-loop.ts
+```
+
+For Jev, use `CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai` and set `CONTINGENCY_SYSTEM_ONE_API_KEY`. Results go to `.cursor/skills/verify-contingency/artifacts/pursuit-loop/`.

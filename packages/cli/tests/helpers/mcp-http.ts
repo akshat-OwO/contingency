@@ -13,6 +13,7 @@ import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
 } from "../../src/services/mcp-http.ts";
+import type { SystemOneConfig } from "../../src/services/system-one.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
 const BASE_URL = "http://127.0.0.1:7783";
@@ -23,7 +24,11 @@ const BASE_URL = "http://127.0.0.1:7783";
  */
 export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
-    options: { readonly codeMode?: boolean; readonly demo?: boolean } = {}
+    options: {
+      readonly codeMode?: boolean;
+      readonly demo?: boolean;
+      readonly systemOne?: SystemOneConfig;
+    } = {}
   ) {
     const fileSystem = yield* FileSystem.FileSystem;
     const catalogRoot = yield* fileSystem.makeTempDirectoryScoped();
@@ -33,6 +38,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
         makeMcpHttpLayer(allowedOrigins, {
           codeMode: options.codeMode,
           demoSite: options.demo === true ? makeDemoSiteLayer() : undefined,
+          systemOne: options.systemOne,
         })
       ).pipe(
         Layer.provide(

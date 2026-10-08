@@ -328,6 +328,42 @@ test("shows a completed task separately from its assessment and evidence-backed 
   expect(screen.queryByText("Coverage")).toBeNull();
 });
 
+test("tells System One's attempts from the agent's own", () => {
+  const { rerender } = render(<RunSummaryView summary={taskSummary} />);
+  expect(
+    screen.queryByRole("region", { name: "System One Pursuits" })
+  ).toBeNull();
+  rerender(
+    <RunSummaryView
+      summary={{
+        ...taskSummary,
+        pursuits: [
+          {
+            actions: [
+              {
+                attemptId: "action-add-anvil",
+                confidence: { operation: 0.97, target: 0.91, value: null },
+              },
+            ],
+            doneWhen: "The cart lists the anvil.",
+            endedAt: "2026-09-04T00:00:30.000Z",
+            ending: "done",
+            goal: "Add the anvil to the cart.",
+            operationId: "pursue-anvil",
+            reason: "System One judged the Page to satisfy doneWhen (0.96).",
+          },
+        ],
+      }}
+    />
+  );
+  const pursuits = screen.getByRole("region", { name: "System One Pursuits" });
+  expect(pursuits).toHaveTextContent("Add the anvil to the cart.");
+  expect(pursuits).toHaveTextContent("done");
+  expect(
+    within(pursuits).getByRole("list", { name: "Model-chosen attempts" })
+  ).toHaveTextContent("action-add-anvil operation 97%, target 91%");
+});
+
 test("shows closure without inventing a task assessment", () => {
   render(
     <RunSummaryView

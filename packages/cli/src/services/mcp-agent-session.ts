@@ -120,6 +120,12 @@ const makeSnapshotBaselines = () => {
   return { present };
 };
 
+/**
+ * One diff base per session for every tool that hands the agent a Snapshot,
+ * including a Pursuit's. Session ids are unique, so the bases are shared.
+ */
+export const snapshotBaselines = makeSnapshotBaselines();
+
 const actionSnapshotFormat = optionalNullable(AgentActionSnapshotFormat);
 
 const AgentBrowserActSequenceParameters = Schema.Struct({
@@ -159,7 +165,7 @@ const AgentSessionCloseParameters = Schema.Struct({
 // `Schema.Error` is a class factory, not a thrown error: the rule's autofix
 // would turn this extends clause into `new Schema.Error(...)`.
 // oxlint-disable-next-line unicorn/throw-new-error
-class AgentSessionFailure extends Schema.Error<AgentSessionFailure>(
+export class AgentSessionFailure extends Schema.Error<AgentSessionFailure>(
   "AgentSessionFailure"
 )({
   code: Schema.String,
@@ -167,7 +173,7 @@ class AgentSessionFailure extends Schema.Error<AgentSessionFailure>(
   reason: Schema.optional(BrowserFailureReason),
 }) {}
 
-const failure = (cause: AgentSessionError) =>
+export const failure = (cause: AgentSessionError) =>
   new AgentSessionFailure({
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
@@ -413,7 +419,7 @@ export const AgentSessionTools = withStrictParameters(
  */
 export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
   Effect.sync(() => {
-    const baselines = makeSnapshotBaselines();
+    const baselines = snapshotBaselines;
     return {
       agent_browser_act: (params) =>
         Effect.gen(function* actInAgentSession() {
