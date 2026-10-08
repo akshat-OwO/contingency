@@ -421,6 +421,14 @@ Preconditions: the current CLI build, an isolated `control-contingency launch`, 
 - **Compare bytes.** `metrics.json` compares average `agent_session_get` bytes with the published ADR 0045 full-view task proof. The two scenarios differ; the comparison does not measure token use or task success.
 - **Clean up.** Run `nub .cursor/skills/verify-contingency/bin/control-contingency cleanup`. Require `doctor` to report that the owned processes stopped. Artifacts survive cleanup.
 
+#### Retained Teaching instruction edits
+
+While recording, add a Comment and retain its full `agent_session_get` snapshot. Open Comment again, choose **Edit comment**, and change its prose. Run `session-events-proof.mjs wait teaching instruction-recorded` before choosing **Save comment**. Require cursor advancement and replay, then read the full snapshot and require the original instruction ID with the corrected text.
+
+Repeat with only an attachment change. Use the Browser Check fixture, open Network, edit the same comment, and choose **Attach GET browser-check-response**. Keep the text unchanged and wait before saving. Reopen **Edit comment** to confirm the attachment. Scan intent edits emit `scan-requirement-recorded` when the corrected instruction carries a scan; ordinary corrections emit `instruction-recorded`. Saving unchanged content and refreshing the session keep the cursor unchanged.
+
+With channels enabled, read `mcp channels` after each edit and require a frame whose preceding cursor replays the same event batch. Event objects contain only `at`, `cursor`, and `kind`; channel parameters contain only `content` and `meta`, with `sessionId` and `eventCursor` in metadata. Instruction prose, expected attachment values, and private Variables stay out of both notifications. Retain each edit's wait and replay responses separately, plus action and reopened-state ARIA/PNG evidence. Stop Teaching, claim and read its Timeline, and confirm the final instruction and attachment in the isolated catalog before cleanup.
+
 ### Claude Code channels
 
 Launch and run `doctor`, then start the ecommerce fixture. Start the broker with `CONTINGENCY_MCP_CHANNEL=true nub .cursor/skills/verify-contingency/bin/control-contingency mcp start`. Run `mcp channels` and require `capabilities.experimental["claude/channel"]` to be `{}`. Follow the Session Events recipe through `start`, `handoff`, recording, `learn`, and `pass`. Use the shared preview for the Workspace actions.
