@@ -279,3 +279,50 @@ test("reads a step as one instruction without its number or outcome", () => {
     )
   ).toBe("Choose `{{city}}` in City, then click Save location.");
 });
+
+test("shows a nonfatal singular warning alongside healthy entries", async () => {
+  rpc.browse = browse([decodeRoot({ ...local, unreadable: 1 }), global]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "1 catalog document could not be read."
+  );
+  expect(screen.queryByText("The catalog could not be read")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: /Sign in with a fresh SMS code/u })
+  ).toBeVisible();
+  await userEvent.click(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  );
+  expect(screen.getByText(/A passing Dry Run is the next step/u)).toBeVisible();
+});
+
+test("shows the combined plural warning with the empty state", () => {
+  rpc.browse = browse([
+    decodeRoot({ ...emptyLocal, present: true, unreadable: 1 }),
+    decodeRoot({ ...global, flowSkills: [], unreadable: 2 }),
+  ]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "3 catalog documents could not be read."
+  );
+  expect(screen.getByText("No Flow Skills yet")).toBeVisible();
+  expect(screen.queryByText("The catalog could not be read")).toBeNull();
+});
+
+test("omits the unreadable warning for a healthy catalog", () => {
+  rpc.browse = browse([local, global]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  expect(screen.queryByRole("status")).toBeNull();
+});
