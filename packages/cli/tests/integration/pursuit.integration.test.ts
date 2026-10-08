@@ -88,17 +88,34 @@ const indexOf = (request: Questions, role: string, name: string) => {
 const pageShows = (request: Questions, text: string) =>
   request.state.page.content.some((line) => line.includes(text));
 
+interface PursueOptions {
+  readonly doneWhen?: string;
+  readonly flowSkillName?: FlowSkillName;
+  readonly goal?: string;
+  readonly irreversible?: boolean;
+  readonly maxActions?: number;
+  readonly steps?: readonly {
+    readonly doneWhen: string;
+    readonly goal: string;
+  }[];
+}
+
+/** One call; a lone goal and doneWhen make a single step. */
 const pursue = (
   sessionId: AgentSessionId,
   id: string,
-  extra: Partial<Parameters<typeof pursueTool<"agent_browser_pursue">>[1]> = {}
+  {
+    doneWhen = "The status line reads that Trail Hammer was added to cart.",
+    goal = 'In "Products", select "Add Trail Hammer to cart".',
+    steps,
+    ...rest
+  }: PursueOptions = {}
 ) =>
   pursueTool("agent_browser_pursue", {
-    doneWhen: "The status line reads that Trail Hammer was added to cart.",
-    goal: 'In "Products", select "Add Trail Hammer to cart".',
     operationId: operation(id),
     sessionId,
-    ...extra,
+    steps: steps ?? [{ doneWhen, goal }],
+    ...rest,
   }).pipe(
     Effect.flatMap((answer) =>
       Schema.decodeUnknownEffect(AgentPursuitResult)(answer).pipe(Effect.orDie)
@@ -390,6 +407,97 @@ it.live(
           expect(sent).not.toContain(secret);
           expect(sent).toContain("the private Variable DEMO_PASSWORD");
           expect(sent).toContain('"order":"RH-1057"');
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              OnboardingToolHandlersLive,
+              PursuitToolHandlersLive.pipe(Layer.provide(systemOne.layer))
+            ).pipe(
+              Layer.provideMerge(makeDemoSiteLayer()),
+              Layer.provideMerge(agentProcessLayer(root))
+            )
+          )
+        )
+      );
+    }).pipe(Effect.provide(NodeServices.layer))
+);
+
+/** The step a question asks about, from its instruction text. */
+const stepOf = (request: Questions, prefix: string) => {
+  const question = request.questions[`${prefix}operation`];
+  return question?.type === "choice" ? question.instructions.step : undefined;
+};
+
+it.live(
+  "pursues several steps in one call and starts the next from the same answer",
+  () =>
+    Effect.gen(function* pursueSteps() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-pursuit-steps-",
+      });
+      const systemOne = scripted();
+      yield* Effect.scoped(
+        Effect.gen(function* exerciseSteps() {
+          const started = yield* exampleTool("agent_example_run_start", {
+            example: FlowSkillName.make("example-delivery-cart"),
+            inputs: [
+              { name: "product", value: "Trail Hammer" },
+              { name: "city", value: "Denver" },
+              { name: "area", value: "Highlands" },
+            ],
+            operationId: operation("steps-start"),
+          });
+          // Each prefix answers its own step: add the hammer, or open the cart.
+          systemOne.state.answer = (request) => {
+            const answers: Record<
+              string,
+              SystemOneResponse["answers"][string]
+            > = {};
+            for (const prefix of ["", "next_"]) {
+              const step = stepOf(request, prefix);
+              if (step === undefined) {
+                continue;
+              }
+              const adding = step.includes("Add Trail Hammer");
+              answers[`${prefix}done`] = noul(
+                adding && pageShows(request, "Trail Hammer added to cart")
+                  ? 0.97
+                  : 0.1
+              );
+              answers[`${prefix}operation`] = choice("CLICK");
+              answers[`${prefix}click_target`] = choice(
+                adding
+                  ? indexOf(request, "button", "Add Trail Hammer to cart")
+                  : indexOf(request, "link", "Cart")
+              );
+            }
+            return respond(answers);
+          };
+          const result = yield* pursue(started.id, "steps-both", {
+            steps: [
+              {
+                doneWhen: "The status line says the hammer was added.",
+                goal: 'Select "Add Trail Hammer to cart".',
+              },
+              {
+                doneWhen: 'The page shows the heading "Your cart".',
+                goal: "Select the Cart link in the store navigation.",
+              },
+            ],
+          });
+          expect(result.ending).toBe("done");
+          expect(result.steps.map((step) => step.ending)).toEqual([
+            "done",
+            "done",
+          ]);
+          expect(result.actions.map((action) => action.step)).toEqual([1, 2]);
+          // The answer that ended step 1 also chose step 2's first action, and
+          // the quoted heading ended step 2 without asking again.
+          expect(systemOne.requests).toHaveLength(2);
+          expect(result.steps[1]?.reason).toBe(
+            "The Page shows what doneWhen describes."
+          );
         }).pipe(
           Effect.provide(
             Layer.mergeAll(

@@ -175,16 +175,39 @@ export const actionFor = (
   return () => ({ ref, type: "click" });
 };
 
+/**
+ * Whether another element covers this one. An element only scrolled out of
+ * the viewport is not covered: the Page shows it once it scrolls.
+ */
+export const isCovered = (node: AgentSnapshotNode): boolean =>
+  node.blockedBy !== undefined &&
+  node.blockedBy !== null &&
+  node.blockedBy.role !== "viewport";
+
 export const actionSpace = (
   snapshot: AgentBrowserSnapshot,
-  options: { readonly withheld?: boolean } = {}
+  options: {
+    /** Leave out what another element covers, as a person would. */
+    readonly visibleOnly?: boolean;
+    readonly withheld?: boolean;
+  } = {}
 ): ActionSpace => {
   const elements: SnapshotElement[] = [];
   const page: string[] = [];
   const targets = new Map<Operation, Map<string, Candidate>>();
   for (const node of snapshot.nodes) {
+    if (options.visibleOnly === true && isCovered(node)) {
+      continue;
+    }
+    // A control with no reachable point cannot be acted on; under
+    // `visibleOnly` it is offered as text only, as the agent's own text
+    // Snapshot gives it no reference.
+    const reachable =
+      options.visibleOnly !== true ||
+      node.blockedBy === undefined ||
+      node.blockedBy === null;
     const operation =
-      node.interactive === true && node.disabled !== true
+      reachable && node.interactive === true && node.disabled !== true
         ? operationFor(node, options.withheld)
         : undefined;
     if (operation === undefined) {

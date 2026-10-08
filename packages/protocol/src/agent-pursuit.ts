@@ -18,18 +18,31 @@ const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
  * ([ADR 0057](../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
  */
 export const PURSUIT_LIMITS = {
+  /** Actions per step. */
   maxActions: 8,
+  /** Steps per call. */
+  maxSteps: 12,
   timeoutMs: 40_000,
 } as const;
 
-/** One sub-goal the external agent hands down to System One. */
-export const AgentBrowserPursue = Schema.Struct({
-  /** What the Page must visibly show for the sub-goal to hold. */
+/** One sub-goal, phrased as one Flow Skill step. */
+export const AgentPursuitStep = Schema.Struct({
+  /**
+   * What the Page must visibly show for the step to hold. Text in double
+   * quotes is matched literally against the Page.
+   */
   doneWhen: nonEmptyString.check(Schema.isMaxLength(500)),
+  goal: nonEmptyString.check(Schema.isMaxLength(1000)),
+});
+export type AgentPursuitStep = typeof AgentPursuitStep.Type;
+
+/**
+ * Sub-goals the external agent hands down to System One, pursued in order.
+ * The call returns at the first step that does not end `done`.
+ */
+export const AgentBrowserPursue = Schema.Struct({
   /** Whose inputs and Variables the Pursuit may use. Absent means all. */
   flowSkillName: optionalNullable(FlowSkillName),
-  /** The sub-goal, phrased as one Flow Skill step. */
-  goal: nonEmptyString.check(Schema.isMaxLength(1000)),
   /** Pause every mutating action of this Pursuit for user Confirmation. */
   irreversible: optionalNullable(Schema.Boolean),
   maxActions: optionalNullable(
@@ -39,6 +52,10 @@ export const AgentBrowserPursue = Schema.Struct({
   ),
   operationId: OperationId,
   sessionId: AgentSessionId,
+  steps: Schema.Array(AgentPursuitStep).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(PURSUIT_LIMITS.maxSteps)
+  ),
   timeoutMs: optionalNullable(
     Schema.Int.check(
       Schema.isBetween({
@@ -85,6 +102,8 @@ export const AgentPursuitRecord = Schema.Struct({
   goal: nonEmptyString,
   operationId: OperationId,
   reason: nonEmptyString,
+  /** One-based position of this step in its call. */
+  step: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
 });
 export type AgentPursuitRecord = typeof AgentPursuitRecord.Type;
 
@@ -95,10 +114,13 @@ export const AgentPursuitResult = Schema.Struct({
       confidence: AgentPursuitConfidence,
       entry: AgentTimelineEntry,
       operationId: OperationId,
+      /** One-based position of the step the action served. */
+      step: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
       /** The Variable entered by name, when the value was one. */
       variable: Schema.NullOr(nonEmptyString),
     })
   ),
+  /** How the last attempted step ended; `done` when every step held. */
   ending: AgentPursuitEnding,
   /** The Execution Boundary a `paused` ending waits on, if one. */
   intervention: Schema.NullOr(AgentExecutionBoundary),
@@ -109,6 +131,10 @@ export const AgentPursuitResult = Schema.Struct({
   reason: nonEmptyString,
   /** The Page as the Pursuit last read it. */
   snapshot: Schema.NullOr(AgentBrowserSnapshot),
+  /** Each attempted step's ending, in order. Later steps were not tried. */
+  steps: Schema.Array(
+    Schema.Struct({ ending: AgentPursuitEnding, reason: nonEmptyString })
+  ),
   url: Schema.NullOr(Schema.String),
 });
 export type AgentPursuitResult = typeof AgentPursuitResult.Type;

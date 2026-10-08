@@ -7,6 +7,7 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentActionResult,
+  AgentActionSignal,
   AgentBrowserSnapshot,
   AgentPursuitConfidence,
   AgentPursuitEnding,
@@ -43,6 +44,8 @@ import { isTaskRun } from "./run-lifecycle.ts";
 import {
   actionSpace,
   buildRequest,
+  isCovered,
+  NEXT,
   targetKey,
   valueKey,
 } from "./system-one-request.ts";
@@ -101,7 +104,7 @@ type PursueParameters = typeof AgentBrowserPursueParameters.Type;
 
 const AgentBrowserPursueTool = Tool.make("agent_browser_pursue", {
   dependencies: [AgentSession, SystemOne],
-  description: `Delegate one Run or Dry Run sub-goal to the configured System One model. It acts until done, at most ${PURSUIT_LIMITS.maxActions} actions in ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. goal is one Flow Skill step; doneWhen is what the Page visibly shows once it holds. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked (no way forward or intercepted), unsure (low confidence, no effect twice, a third identical action, a failed action, or spent budget), paused (Execution Boundary or Takeover), needs-input (request missingVariable, then pursue again). Actions remain whatever the ending; verify done in the Snapshot before assessing. System One receives Page text, elements, recent actions, and ordinary input values; private Variables only by name. Same operationId replays.`,
+  description: `Delegate Run or Dry Run steps to the configured System One model. steps: ordered {goal, doneWhen}; goal is one Flow Skill step, doneWhen what the Page shows once it holds. Double-quoted text in doneWhen must appear verbatim. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; private Variables by name only. Same operationId replays.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserPursueParameters,
   success: UnpublishedPursuitResult,
@@ -241,8 +244,12 @@ type Decision =
 const stop = (ending: Ending): Decision => ({ ending, kind: "end" });
 
 /** The operation and element System One chose, held to the floor. */
-const decideTarget = (response: SystemOneResponse, space: ActionSpace) => {
-  const operation = choiceOf(response, "operation");
+const decideTarget = (
+  response: SystemOneResponse,
+  prefix: string,
+  space: ActionSpace
+) => {
+  const operation = choiceOf(response, `${prefix}operation`);
   if (operation?.choice === "BLOCKED") {
     return end(
       "blocked",
@@ -260,7 +267,7 @@ const decideTarget = (response: SystemOneResponse, space: ActionSpace) => {
     );
   }
   const kind = operation.choice;
-  const target = choiceOf(response, targetKey(kind));
+  const target = choiceOf(response, `${prefix}${targetKey(kind)}`);
   const candidate =
     target === undefined
       ? undefined
@@ -281,11 +288,12 @@ const decideTarget = (response: SystemOneResponse, space: ActionSpace) => {
 /** The input System One chose for a field, held to the floor. */
 const decideValue = (
   response: SystemOneResponse,
+  prefix: string,
   index: string,
   candidate: Candidate,
   inputs: ReadonlyMap<string, ScopeInput>
 ) => {
-  const value = choiceOf(response, valueKey(index));
+  const value = choiceOf(response, `${prefix}${valueKey(index)}`);
   const input = value === undefined ? undefined : inputs.get(value.choice);
   if (
     value === undefined ||
@@ -300,25 +308,179 @@ const decideValue = (
   return { confidence: probabilityOf(value), input };
 };
 
-/** Read one System One answer against the Pursuit's stop conditions. */
-const decide = (
-  response: SystemOneResponse,
-  space: ActionSpace,
-  inputs: ReadonlyMap<string, ScopeInput>,
-  budget: { readonly acted: number; readonly maxActions: number }
-): Decision => {
-  const done = noulOf(response, "done");
-  const doneThreshold =
-    budget.acted === 0
+/** Wording under which quoted text describes what must be absent. */
+const NEGATED =
+  /\b(?:gone|no|not|never|disappears?|disappeared|removed|hidden|without|absent|closes|closed)\b/iu;
+const QUOTED = /"(?<straight>[^"]+)"|\u201C(?<curly>[^\u201D]+)\u201D/gu;
+
+/** Whether `doneWhen`, outside its quotes, describes something going away. */
+const describesAbsence = (doneWhen: string) =>
+  NEGATED.test(doneWhen.replaceAll(QUOTED, " "));
+
+const normalized = (text: string) =>
+  text
+    .toLowerCase()
+    .replaceAll(/\s+/gu, " ")
+    .replace(/[.!]+$/u, "")
+    .trim();
+
+/** The phrases `doneWhen` quotes, or `undefined` when none count. */
+const quotedPhrases = (doneWhen: string): readonly string[] | undefined => {
+  const phrases: string[] = [];
+  for (const match of doneWhen.matchAll(QUOTED)) {
+    const phrase = normalized(
+      match.groups?.["straight"] ?? match.groups?.["curly"] ?? ""
+    );
+    if (phrase.length > 0) {
+      phrases.push(phrase);
+    }
+  }
+  return phrases.length === 0 ? undefined : phrases;
+};
+
+/** The Page's text; what another element covers is not on show. */
+const shownText = (snapshot: AgentBrowserSnapshot, covered: boolean) => {
+  const parts: string[] = [];
+  for (const node of snapshot.nodes) {
+    if (covered || !isCovered(node)) {
+      parts.push(`${node.name} ${node.value ?? ""}`);
+    }
+  }
+  return normalized(parts.join(" "));
+};
+
+/** Whether normalized Page text contains a normalized phrase. */
+const shows = (text: string, phrase: string) => text.includes(phrase);
+
+/**
+ * Whether the Page shows every phrase `doneWhen` quotes, or `undefined` when
+ * it quotes none or describes something going away. A quoted phrase is the
+ * outcome's literal text, so code reads it more reliably than a model does.
+ */
+export const quotedOutcome = (
+  doneWhen: string,
+  snapshot: AgentBrowserSnapshot
+): boolean | undefined => {
+  const phrases = quotedPhrases(doneWhen);
+  if (phrases === undefined) {
+    return undefined;
+  }
+  const shown = shownText(snapshot, false);
+  // `The "Demo fault" banner is gone` holds once its text is no longer shown.
+  return describesAbsence(doneWhen)
+    ? phrases.every((phrase) => !shows(shown, phrase))
+    : phrases.every((phrase) => shows(shown, phrase));
+};
+
+/**
+ * Whether the quoted outcome is in the document but something covers it,
+ * such as an advertisement shown once a step's work is done.
+ */
+export const coveredOutcome = (
+  doneWhen: string,
+  snapshot: AgentBrowserSnapshot
+): boolean => {
+  const phrases = quotedPhrases(doneWhen);
+  if (phrases === undefined || describesAbsence(doneWhen)) {
+    return false;
+  }
+  const shown = shownText(snapshot, false);
+  const present = shownText(snapshot, true);
+  return (
+    phrases.every((phrase) => shows(present, phrase)) &&
+    !phrases.every((phrase) => shows(shown, phrase))
+  );
+};
+
+/** Controls that dismiss a popup, by their accessible name. */
+const DISMISS =
+  /\b(?:close|dismiss|cancel|not now|no thanks|maybe later|got it)\b|[\u00D7\u2715\u2716]/iu;
+
+/**
+ * The action space narrowed to dismissing controls, or unchanged when the
+ * Page names none. System One still chooses which one.
+ */
+const dismissSpace = (space: ActionSpace): ActionSpace => {
+  const clicks = space.targets.get("CLICK");
+  const dismissing = new Map(
+    [...(clicks ?? new Map<string, Candidate>())].filter(([, candidate]) =>
+      DISMISS.test(candidate.describe)
+    )
+  );
+  return dismissing.size === 0
+    ? space
+    : { ...space, targets: new Map([["CLICK", dismissing]]) };
+};
+
+/** Wording that names something laid over the Page. */
+const OVERLAY =
+  /\b(?:popups?|pop-ups?|overlays?|dialogs?|modals?|advertisements?|ads?|sheets?)\b/iu;
+
+/**
+ * Whether nothing covers the Page, for a `doneWhen` that asks for a popup
+ * or overlay to be gone; `undefined` for any other outcome. One picture laid
+ * over another is page design, not a popup.
+ */
+export const overlayOutcome = (
+  doneWhen: string,
+  snapshot: AgentBrowserSnapshot
+): boolean | undefined =>
+  describesAbsence(doneWhen) && OVERLAY.test(doneWhen)
+    ? !snapshot.nodes.some(
+        (node) => isCovered(node) && node.blockedBy?.role !== "img"
+      )
+    : undefined;
+
+/** What the Page shows about `doneWhen`, read in code where it can be. */
+const codeOutcome = (doneWhen: string, snapshot: AgentBrowserSnapshot) =>
+  quotedOutcome(doneWhen, snapshot) ?? overlayOutcome(doneWhen, snapshot);
+
+/** What System One is asked to do while a popup covers the outcome. */
+const UNCOVER_INSTRUCTION =
+  "Close the popup, dialog, or advertisement that covers the page, using its own close control.";
+
+/** Whether the step holds, from System One's answer and any quoted text. */
+const doneEnding = (
+  done: number,
+  acted: number,
+  quoted: boolean | undefined
+): Ending | undefined => {
+  if (quoted === false) {
+    return undefined;
+  }
+  // Before any action, quoted text can already be on the Page (a search
+  // box shown before its city is chosen), so it vetoes but never confirms.
+  if (quoted === true && acted > 0) {
+    return end("done", "The Page shows what doneWhen describes.");
+  }
+  const threshold =
+    acted === 0
       ? PURSUIT_THRESHOLDS.doneBeforeAction
       : PURSUIT_THRESHOLDS.doneAfterAction;
-  if (done >= doneThreshold) {
-    return stop(
-      end(
+  return done >= threshold
+    ? end(
         "done",
         `System One judged the Page to satisfy doneWhen (${confidenceText(done)}).`
       )
-    );
+    : undefined;
+};
+
+/** Read one System One answer against the Pursuit's stop conditions. */
+const decide = (
+  response: SystemOneResponse,
+  prefix: string,
+  space: ActionSpace,
+  inputs: ReadonlyMap<string, ScopeInput>,
+  budget: {
+    readonly acted: number;
+    readonly maxActions: number;
+    readonly quoted: boolean | undefined;
+  }
+): Decision => {
+  const done = noulOf(response, `${prefix}done`);
+  const held = doneEnding(done, budget.acted, budget.quoted);
+  if (held !== undefined) {
+    return stop(held);
   }
   if (budget.acted >= budget.maxActions) {
     return stop(
@@ -328,7 +490,7 @@ const decide = (
       )
     );
   }
-  const chosen = decideTarget(response, space);
+  const chosen = decideTarget(response, prefix, space);
   if ("ending" in chosen) {
     return stop(chosen);
   }
@@ -345,7 +507,7 @@ const decide = (
       kind: "act",
     };
   }
-  const value = decideValue(response, target.choice, candidate, inputs);
+  const value = decideValue(response, prefix, target.choice, candidate, inputs);
   if ("ending" in value) {
     return stop(value);
   }
@@ -411,6 +573,16 @@ const actionEnding = (
   return undefined;
 };
 
+/**
+ * Whether an action failed because the Page moved on under the decision: its
+ * element left the document or has no reachable point left. Reading the Page
+ * again can recover, which a covered or refused target cannot.
+ */
+const isStaleTarget = (cause: AgentSessionError): boolean =>
+  cause._tag === "BrowserRpcError" &&
+  (cause.reason === "detached" ||
+    cause.message.includes("no reachable point in the viewport"));
+
 /** How a refused or failed action ends the Pursuit. */
 const failureEnding = (cause: AgentSessionError): Ending => {
   const reason = cause._tag === "BrowserRpcError" ? cause.reason : undefined;
@@ -442,12 +614,47 @@ const systemOneFailure = (
     } (system_one_failed)`,
   });
 
+/**
+ * The Snapshot an action answered with, when the next decision may read it
+ * instead of the Page. A Page still settling, or a new document that may
+ * still be redirecting, is read again.
+ */
+const reusableSnapshot = (
+  result: AgentActionResult
+): AgentBrowserSnapshot | null => {
+  const signals: readonly AgentActionSignal[] =
+    result.entry.effect?.kind === "observed" ? result.entry.effect.signals : [];
+  return result.snapshot.settle?.settled === false ||
+    signals.includes("url") ||
+    signals.includes("page")
+    ? null
+    : result.snapshot;
+};
+
+/** The action key repeats are counted by: element role and name, and input. */
+const actionKey = (decision: Extract<Decision, { kind: "act" }>) => {
+  const subject = decision.candidate.describe.replace(/^\[\d+\] /u, "");
+  return {
+    key: JSON.stringify([subject, decision.input?.name ?? null]),
+    subject,
+  };
+};
+
 /** What a Pursuit has done so far. */
 interface PursuitProgress {
   readonly actions: AgentPursuitResult["actions"][number][];
+  /** Attempts so far, failed ones included, which number operation ids. */
+  attempts: number;
   latest: { snapshot: AgentBrowserSnapshot; url: string } | null;
+  /**
+   * The settled Snapshot the last action answered with. The next decision
+   * reads it instead of the Page, which saves a read per action.
+   */
+  fresh: AgentBrowserSnapshot | null;
   noEffect: number;
   readonly recent: string[];
+  /** Whether this step already read the Page again after a stale target. */
+  reread: boolean;
   /** The last chosen action, and how many times in a row it was chosen. */
   repeat: { key: string; times: number } | null;
 }
@@ -476,7 +683,17 @@ const requireTaskRun = (session: AgentSessionSnapshot) => {
   return Effect.succeed(run);
 };
 
-/** Perform one sub-goal until one of its stop conditions holds. */
+/**
+ * The answers a step's last request gave about the step after it, on the
+ * Page that step ended on. The next step decides from them without asking.
+ */
+interface Lookahead {
+  readonly response: SystemOneResponse;
+  readonly snapshot: AgentBrowserSnapshot;
+  readonly space: ActionSpace;
+}
+
+/** Perform each sub-goal in order until one does not end `done`. */
 const pursue = (params: PursueParameters) =>
   Effect.gen(function* runPursuit() {
     const service = yield* AgentSession;
@@ -503,21 +720,52 @@ const pursue = (params: PursueParameters) =>
           : undefined
       )
     );
+    const cues = params.steps.map((step, index) => ({
+      doneWhen: step.doneWhen,
+      inputs: criteria,
+      instruction: step.goal,
+      step: index + 1,
+    }));
     const progress: PursuitProgress = {
       actions: [],
+      attempts: 0,
+      fresh: null,
       latest: null,
       noEffect: 0,
       recent: [],
       repeat: null,
+      reread: false,
     };
+    let lookahead: Lookahead | null = null;
+
+    /** The chosen action, or a Variable entered by name. */
+    const dispatch = (
+      { candidate, input }: Extract<Decision, { kind: "act" }>,
+      operationId: OperationId
+    ) =>
+      input?.kind === "variable"
+        ? service.enterSuppliedVariable(
+            sessionId,
+            input.name,
+            candidate.ref,
+            operationId,
+            input.flowSkillName
+          )
+        : service.act(
+            sessionId,
+            candidate.action(input?.value ?? ""),
+            operationId,
+            params.irreversible === true ? { irreversible: true } : undefined
+          );
 
     /** Act as the agent's own action would, or enter a Variable by name. */
     const perform = (
       decision: Extract<Decision, { kind: "act" }>,
-      operationId: OperationId
+      operationId: OperationId,
+      step: number
     ) =>
       Effect.gen(function* performChosenAction() {
-        const { candidate, input } = decision;
+        const { input } = decision;
         // A private input carries no intent, so it cannot be confirmed here.
         if (input?.kind === "variable" && params.irreversible === true) {
           return end(
@@ -525,33 +773,23 @@ const pursue = (params: PursueParameters) =>
             `System One chose private Variable ${input.name}; enter it with agent_variable_enter.`
           );
         }
-        const attempt = yield* Effect.result(
-          input?.kind === "variable"
-            ? service.enterSuppliedVariable(
-                sessionId,
-                input.name,
-                candidate.ref,
-                operationId,
-                input.flowSkillName
-              )
-            : service.act(
-                sessionId,
-                candidate.action(input?.value ?? ""),
-                operationId,
-                params.irreversible === true
-                  ? { irreversible: true }
-                  : undefined
-              )
-        );
+        const attempt = yield* Effect.result(dispatch(decision, operationId));
         if (Result.isFailure(attempt)) {
+          if (isStaleTarget(attempt.failure) && !progress.reread) {
+            progress.reread = true;
+            progress.fresh = null;
+            return;
+          }
           return failureEnding(attempt.failure);
         }
         const result = attempt.success;
         progress.latest = { snapshot: result.snapshot, url: result.url };
+        progress.fresh = reusableSnapshot(result);
         progress.actions.push({
           confidence: decision.confidence,
           entry: result.entry,
           operationId,
+          step,
           variable: input?.kind === "variable" ? input.name : null,
         });
         progress.recent.push(result.entry.description);
@@ -560,100 +798,175 @@ const pursue = (params: PursueParameters) =>
         return actionEnding(result, progress.noEffect);
       });
 
-    const step = Effect.gen(function* decideAndAct() {
-      const paused = pauseOf(yield* service.get(sessionId));
-      if (paused !== undefined) {
-        return paused;
-      }
-      const late = yield* timeEnding;
-      if (late !== undefined) {
-        return late;
-      }
-      const snapshot = yield* service.snapshot(sessionId);
-      progress.latest = { snapshot, url: snapshot.url };
-      const space = actionSpace(snapshot, { withheld });
-      const { questions, state } = buildRequest(
-        "",
-        {
-          current: {
-            doneWhen: params.doneWhen,
-            inputs: criteria,
-            instruction: params.goal,
-            step: 1,
-          },
-          next: undefined,
-        },
-        space,
-        snapshot,
-        progress.recent
-      );
-      const response = yield* systemOne
-        .ask({ questions, state })
-        .pipe(
-          Effect.mapError((cause) => systemOneFailure(cause, progress.recent))
+    /**
+     * Read the Page and ask System One about the step at `index`, unless
+     * code can already see the step holds.
+     */
+    const consult = (
+      index: number,
+      cue: (typeof cues)[number],
+      acted: number
+    ) =>
+      Effect.gen(function* readAndAsk() {
+        const snapshot = progress.fresh ?? (yield* service.snapshot(sessionId));
+        progress.fresh = null;
+        progress.latest = { snapshot, url: snapshot.url };
+        // What code can read after an action settles the step without asking.
+        if (acted > 0 && codeOutcome(cue.doneWhen, snapshot) === true) {
+          // The next step starts from this same read.
+          progress.fresh = snapshot;
+          return end("done", "The Page shows what doneWhen describes.");
+        }
+        // The step's outcome is there but covered: uncover it first.
+        const covered = acted > 0 && coveredOutcome(cue.doneWhen, snapshot);
+        const visible = actionSpace(snapshot, { visibleOnly: true, withheld });
+        // A step that is itself about dismissing gets the same narrowing.
+        const space =
+          covered || DISMISS.test(cue.instruction)
+            ? dismissSpace(visible)
+            : visible;
+        const { questions, state } = buildRequest(
+          "",
+          covered
+            ? {
+                current: { ...cue, instruction: UNCOVER_INSTRUCTION },
+                next: undefined,
+              }
+            : { current: cue, next: cues[index + 1] },
+          space,
+          snapshot,
+          progress.recent
         );
-      const decision = decide(response, space, inputs, {
-        acted: progress.actions.length,
-        maxActions,
+        const response = yield* systemOne
+          .ask({ questions, state })
+          .pipe(
+            Effect.mapError((cause) => systemOneFailure(cause, progress.recent))
+          );
+        return { response, snapshot, space };
       });
-      if (decision.kind === "end") {
-        return decision.ending;
-      }
-      // No new action starts once the time budget is spent.
-      const spent = yield* timeEnding;
-      if (spent !== undefined) {
-        return spent;
-      }
-      // References change across reads, so an action is known by its
-      // element's role and name and the input it enters.
-      const key = JSON.stringify([
-        decision.candidate.describe.replace(/^\[\d+\] /u, ""),
-        decision.input?.name ?? null,
-      ]);
-      const times =
-        progress.repeat?.key === key ? progress.repeat.times + 1 : 1;
-      if (times > REPEAT_LIMIT) {
-        return end(
-          "unsure",
-          `System One chose ${decision.candidate.describe.replace(/^\[\d+\] /u, "")} a third time in a row without doneWhen holding.`
+
+    /** One decision for the step at `index`, and its action if it chose one. */
+    const advance = (index: number, acted: number) =>
+      Effect.gen(function* decideAndAct() {
+        const cue = cues[index];
+        if (cue === undefined) {
+          return end("done", "No step remains.");
+        }
+        const paused = pauseOf(yield* service.get(sessionId));
+        if (paused !== undefined) {
+          return paused;
+        }
+        const late = yield* timeEnding;
+        if (late !== undefined) {
+          return late;
+        }
+        const carried = lookahead;
+        lookahead = null;
+        let response: SystemOneResponse;
+        let prefix = "";
+        let snapshot: AgentBrowserSnapshot;
+        let space: ActionSpace;
+        if (carried === null) {
+          const consulted = yield* consult(index, cue, acted);
+          if ("ending" in consulted) {
+            return consulted;
+          }
+          ({ response, snapshot, space } = consulted);
+        } else {
+          ({ response, snapshot, space } = carried);
+          prefix = NEXT;
+        }
+        const decision = decide(response, prefix, space, inputs, {
+          acted,
+          maxActions,
+          quoted: codeOutcome(cue.doneWhen, snapshot),
+        });
+        if (decision.kind === "end") {
+          // The same answer already says how the next step begins.
+          if (
+            decision.ending.ending === "done" &&
+            prefix === "" &&
+            index + 1 < cues.length
+          ) {
+            lookahead = { response, snapshot, space };
+          }
+          return decision.ending;
+        }
+        // No new action starts once the time budget is spent.
+        const spent = yield* timeEnding;
+        if (spent !== undefined) {
+          return spent;
+        }
+        // References change across reads, so an action is known by its
+        // element's role and name and the input it enters.
+        const { key, subject } = actionKey(decision);
+        const times =
+          progress.repeat?.key === key ? progress.repeat.times + 1 : 1;
+        if (times > REPEAT_LIMIT) {
+          return end(
+            "unsure",
+            `System One chose ${subject} a third time in a row without doneWhen holding.`
+          );
+        }
+        progress.repeat = { key, times };
+        progress.attempts += 1;
+        return yield* perform(
+          decision,
+          OperationId.make(`${params.operationId}/${progress.attempts}`),
+          index + 1
+        );
+      });
+
+    const steps: AgentPursuitResult["steps"][number][] = [];
+    let ending: Ending = end("done", "No step was given.");
+    for (const [index, cue] of cues.entries()) {
+      const firstAction = progress.actions.length;
+      progress.noEffect = 0;
+      progress.repeat = null;
+      progress.reread = false;
+      let stepEnding: Ending | undefined;
+      while (stepEnding === undefined) {
+        stepEnding = yield* advance(
+          index,
+          progress.actions.length - firstAction
         );
       }
-      progress.repeat = { key, times };
-      return yield* perform(
-        decision,
-        OperationId.make(`${params.operationId}/${progress.actions.length + 1}`)
-      );
-    });
-
-    let ending: Ending | undefined;
-    while (ending === undefined) {
-      ending = yield* step;
+      ending = stepEnding;
+      steps.push({ ending: stepEnding.ending, reason: stepEnding.reason });
+      const endedAt = new Date(yield* Clock.currentTimeMillis).toISOString();
+      yield* service
+        .recordPursuit(sessionId, {
+          actions: progress.actions.slice(firstAction).map((action) => ({
+            attemptId: action.entry.id,
+            confidence: action.confidence,
+          })),
+          doneWhen: cue.doneWhen,
+          endedAt,
+          ending: stepEnding.ending,
+          goal: cue.instruction,
+          operationId: params.operationId,
+          reason: stepEnding.reason,
+          step: index + 1,
+        })
+        // A Run that ended mid-Pursuit keeps the attempts on its timeline.
+        .pipe(Effect.ignore);
+      if (stepEnding.ending !== "done") {
+        break;
+      }
     }
-    const finished: AgentPursuitResult = {
+    return {
       actions: progress.actions,
       ending: ending.ending,
       intervention: ending.intervention ?? null,
       missingVariable: ending.missingVariable ?? null,
-      reason: ending.reason,
+      reason:
+        ending.ending === "done"
+          ? ending.reason
+          : `Step ${steps.length}: ${ending.reason}`,
       snapshot: progress.latest?.snapshot ?? null,
+      steps,
       url: progress.latest?.url ?? null,
-    };
-    yield* service
-      .recordPursuit(sessionId, {
-        actions: progress.actions.map((action) => ({
-          attemptId: action.entry.id,
-          confidence: action.confidence,
-        })),
-        doneWhen: params.doneWhen,
-        endedAt: new Date(yield* Clock.currentTimeMillis).toISOString(),
-        ending: finished.ending,
-        goal: params.goal,
-        operationId: params.operationId,
-        reason: finished.reason,
-      })
-      // A Run that ended mid-Pursuit keeps the attempts on its timeline.
-      .pipe(Effect.ignore);
-    return finished;
+    } satisfies AgentPursuitResult;
   });
 
 interface Replay {
@@ -707,7 +1020,7 @@ export const PursuitToolHandlersLive = PursuitTools.toLayer(
             return yield* new AgentSessionFailure({
               code: "agent_session_conflict",
               message:
-                "This operation id already pursued a different sub-goal. Use a new operation id. (agent_session_conflict)",
+                "This operation id already pursued different steps. Use a new operation id. (agent_session_conflict)",
             });
           }
           return yield* encodeUnpublishedPursuitResult({

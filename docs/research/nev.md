@@ -37,16 +37,19 @@ The loop treats a step with no action yet as done only at a `done` probability o
 
 ## Pursuits
 
-Measured with `pursuit-loop.ts`, which hands each Flow Skill step to `agent_browser_pursue` as one sub-goal ([ADR 0057](../adr/0057-system-one-pursues-delegated-sub-goals.md)) and moves on only when the Pursuit ends `done`. Unlike the live loop above, it asks about one step at a time.
+Measured with `pursuit-loop.ts`, which hands a Flow Skill's steps to `agent_browser_pursue` ([ADR 0057](../adr/0057-system-one-pursues-delegated-sub-goals.md)) in one call, and with the 1mg manual-location Flow Skill driven by Claude as the external agent. Nev ran locally on an Apple M5.
 
 | Flow | Jev (TypeSafe paid) | Nev-0.8B |
 | --- | --- | --- |
-| Demo `example-delivery-cart`, 9 runs | 9 passed, 7.9 to 11.9 s per run | 6 passed, 10.1 to 10.4 s per run |
-| Demo `example-broken-cart`, 3 runs | 0 passed, each `blocked` at the banner step | 0 passed, each `unsure` at the cart step |
+| Demo `example-delivery-cart`, one call per run | 3 of 3 passed, 6.9 to 7.1 s per run | 9 of 9 passed, 7.6 to 7.8 s per run |
+| Demo `example-broken-cart` | 0 passed, `blocked` at the banner step | 0 passed, `unsure` at the banner step |
+| 1mg manual location, one call | stops at step 3 | all 5 steps done |
 
-Nev fails the same three runs every time. With Denver and Highlands it chooses both lists but judges the location step done at 0.62 without selecting "Save location", so the cart never shows a location. On both carts it then selects the Cart link again and again; a Pursuit now ends `unsure` before a third identical action instead of spending its whole budget. A Nev request takes 0.31 s at the median on an Apple M5.
+On 1mg the external agent took 68.3 s and 15 tool calls acting alone. One Pursuit on Nev took 32.1 s from the Run's start and 2 tool calls, including closing two popups. One Pursuit per step took 71 to 75 s, because each step still cost an agent turn.
 
-The broken cart ends `blocked` after Jev selects "Restore healthy store": it cannot confirm the banner is gone, which is the weakness the ADR hands back to the agent. A Pursuit takes 2.3 s at the median and 5.0 s at p90; a Jev request takes 0.34 s at the median. The 12 runs sent 66 requests, 116k input tokens, and 15k output tokens.
+Both models judge outcomes worse than they choose controls. Nev called the delivery step done at 0.62 before saving the location, and a 1mg step done at 0.93 before confirming it. Jev never selects a 1mg search result a second time when the first click leaves it unchanged; Nev does. A Pursuit therefore reads quoted outcome text and covering popups in code, and gives System One only the controls the agent could reach. Neither model can tell that the demo's banner is gone unless `doneWhen` quotes its text.
+
+A Jev request takes 0.34 s at the median and a Nev request 0.31 s. In a Pursuit, acting and waiting for the Page to settle take most of the time: about 0.85 s per action on the demo store.
 
 ## Latency per request
 
@@ -66,7 +69,7 @@ JEV_PROVIDER=local JEV_BENCHMARK_REPEATS=3 nub packages/cli/tests/benchmarks/jev
 
 The script starts the bundled demo store and drives its Example Flow Skills through Contingency's MCP tools. Results go to `.cursor/skills/verify-contingency/artifacts/jev-fast-loop/`. To run Jev instead, set `JEV_PROVIDER=typesafe` and `TYPESAFE_API_KEY`.
 
-To measure Pursuits, point Contingency at the endpoint the way `contingency mcp` reads it:
+To measure Pursuits, point Contingency at the endpoint the way `contingency mcp` reads it. `PURSUIT_MODE=steps` makes one call per step instead of one per run:
 
 ```sh
 CONTINGENCY_SYSTEM_ONE_URL=http://127.0.0.1:8009 PURSUIT_BENCHMARK_REPEATS=3 nub packages/cli/tests/benchmarks/pursuit-loop.ts

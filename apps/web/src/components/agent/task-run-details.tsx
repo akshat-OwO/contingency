@@ -65,7 +65,7 @@ const Pursuits = ({
       {pursuits.map((pursuit) => (
         <li
           className="space-y-2 rounded-lg border p-3"
-          key={pursuit.operationId}
+          key={`${pursuit.operationId}:${pursuit.step ?? 1}`}
         >
           <div className="flex flex-wrap items-center gap-2">
             <Badge

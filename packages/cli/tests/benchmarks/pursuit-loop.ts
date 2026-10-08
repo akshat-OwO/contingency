@@ -1,9 +1,9 @@
 /**
  * Delegated sub-goals on real Flow Skills (ADR 0057).
  *
- * A scripted agent hands each Flow Skill step to `agent_browser_pursue` as
- * one sub-goal, the way an agent under `CONTINGENCY_SYSTEM_ONE_FIRST=true` is
- * told to, and moves on only when the Pursuit ends `done`. The outcome is
+ * A scripted agent hands a Flow Skill's steps to `agent_browser_pursue`,
+ * all in one call or one call per step, the way an agent under
+ * `CONTINGENCY_SYSTEM_ONE_FIRST=true` is told to. The outcome is
  * checked in code from the final Page, never taken from System One.
  *
  *   CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai \
@@ -12,6 +12,8 @@
  * Environment:
  *   CONTINGENCY_SYSTEM_ONE_*  the endpoint, as `contingency mcp` reads it
  *   PURSUIT_BENCHMARK_REPEATS repeats of every scenario (default 1)
+ *   PURSUIT_MODE              "flow" (default): every step in one call;
+ *                             "steps": one call per step
  *   JEV_SCENARIOS             "demo" (default), "catalog", or "all", with the
  *                             JEV_SKILL_* variables of jev-fast-loop.ts
  *   PURSUIT_BENCHMARK_LABEL   the results file name (default "pursuit")
@@ -167,26 +169,47 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
     return { flowSkillName, sessionId: started.id, skill };
   });
 
-const pursueStep = (
+interface StepCue {
+  readonly doneWhen: string;
+  readonly instruction: string;
+  readonly step: number;
+}
+
+const pursueSteps = (
   sessionId: AgentSessionId,
   flowSkillName: FlowSkillName,
-  cue: { readonly doneWhen: string; readonly instruction: string },
+  cues: readonly StepCue[],
   operationId: string
 ) =>
   pursueTool("agent_browser_pursue", {
-    doneWhen: cue.doneWhen,
     flowSkillName,
     format: "structured",
-    goal: cue.instruction,
     operationId: OperationId.make(operationId),
     sessionId,
+    steps: cues.map((cue) => ({
+      doneWhen: cue.doneWhen,
+      goal: cue.instruction,
+    })),
   }).pipe(
     Effect.flatMap((answer) =>
       Schema.decodeUnknownEffect(AgentPursuitResult)(answer).pipe(Effect.orDie)
     )
   );
 
-const runScenario = (scenario: Scenario, tag: string, root: string) =>
+/**
+ * `flow` hands every step over in one call, as an agent that trusts the
+ * Flow Skill would; `steps` makes one call per step, as an agent that
+ * checks each step before the next would.
+ */
+const batches = (cues: readonly StepCue[], mode: "flow" | "steps") =>
+  mode === "flow" ? [cues] : cues.map((cue) => [cue]);
+
+const runScenario = (
+  scenario: Scenario,
+  tag: string,
+  root: string,
+  mode: "flow" | "steps"
+) =>
   Effect.gen(function* runFlowSkill() {
     const { flowSkillName, sessionId, skill } = yield* startScenario(
       scenario,
@@ -198,14 +221,24 @@ const runScenario = (scenario: Scenario, tag: string, root: string) =>
     const pages: string[] = [];
     let finalPage = "";
     let failure: string | undefined;
-    for (const cue of cuesFor(skill, scenario.inputs)) {
-      const stepStartedAt = yield* now;
+    const cues = cuesFor(skill, scenario.inputs);
+    for (const batch of batches(cues, mode)) {
+      const [first] = batch;
+      if (first === undefined) {
+        break;
+      }
+      const callStartedAt = yield* now;
       const pursued = yield* Effect.result(
-        pursueStep(sessionId, flowSkillName, cue, `${tag}-step-${cue.step}`)
+        pursueSteps(
+          sessionId,
+          flowSkillName,
+          batch,
+          `${tag}-step-${first.step}`
+        )
       );
-      const ms = yield* elapsedSince(stepStartedAt);
+      const ms = yield* elapsedSince(callStartedAt);
       if (pursued._tag === "Failure") {
-        failure = `Step ${cue.step} failed: ${pursued.failure.message}`;
+        failure = `Step ${first.step} failed: ${pursued.failure.message}`;
         break;
       }
       const result = pursued.success;
@@ -213,19 +246,24 @@ const runScenario = (scenario: Scenario, tag: string, root: string) =>
         finalPage = pageText(result.snapshot);
         pages.push(finalPage);
       }
-      steps.push({
-        actions: result.actions.map((action) => ({
-          confidence: action.confidence,
-          description: action.entry.description,
-          effect: action.entry.effect ?? null,
-        })),
-        ending: result.ending,
-        ms,
-        reason: result.reason,
-        step: cue.step,
-      });
+      for (const [offset, stepResult] of result.steps.entries()) {
+        steps.push({
+          actions: result.actions
+            .filter((action) => action.step === offset + 1)
+            .map((action) => ({
+              confidence: action.confidence,
+              description: action.entry.description,
+              effect: action.entry.effect ?? null,
+            })),
+          ending: stepResult.ending,
+          // One call covers the whole batch; its time is the batch's.
+          ms: offset === 0 ? ms : 0,
+          reason: stepResult.reason,
+          step: first.step + offset,
+        });
+      }
       if (result.ending !== "done") {
-        failure = `Step ${cue.step} ended ${result.ending}: ${result.reason}`;
+        failure = `Step ${first.step + result.steps.length - 1} ended ${result.ending}: ${result.reason}`;
         break;
       }
     }
@@ -258,13 +296,17 @@ const benchmark = (root: string, usage: Usage) =>
     const repeats = yield* Config.Int("PURSUIT_BENCHMARK_REPEATS").pipe(
       Config.withDefault(1)
     );
+    const mode = yield* Config.Literals(["flow", "steps"], "PURSUIT_MODE").pipe(
+      Config.withDefault("flow" as const)
+    );
     const runs = [];
     for (let repeat = 0; repeat < repeats; repeat += 1) {
       for (const [ordinal, scenario] of scenarios.entries()) {
         const run = yield* runScenario(
           scenario,
           `pursuit-${repeat}-${ordinal}`,
-          root
+          root,
+          mode
         );
         runs.push({ ...run, repeat });
         const stop = run.failure === undefined ? "" : ` — ${run.failure}`;
@@ -282,6 +324,7 @@ const benchmark = (root: string, usage: Usage) =>
         ])
       ),
       inputTokens: usage.inputTokens,
+      mode,
       outputTokens: usage.outputTokens,
       passed: runs.filter((run) => run.verified).length,
       pursuitMs: {
