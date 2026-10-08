@@ -1,7 +1,6 @@
 import { Predicate, Schema } from "effect";
 
 import { optionalNullable } from "./optional-field.ts";
-import { httpOriginFromUrl } from "./storage.ts";
 
 const text = Schema.String.check(
   Schema.isMinLength(1),
@@ -240,13 +239,11 @@ export const matchesBrowserRequest = (
   pattern: BrowserRequestPattern
 ): boolean => {
   try {
-    const actual = httpOriginFromUrl(url);
-    if (actual === undefined) {
+    const actual = new URL(url);
+    if (actual.protocol !== "http:" && actual.protocol !== "https:") {
       return false;
     }
-    const suffix = url.slice(actual.origin.length).split("#")[0] ?? "";
-    const [pathname, query = ""] = suffix.split("?");
-    const segments = (pathname || "/").split("/");
+    const segments = actual.pathname.split("/");
     const expected = pattern.path.split("/");
     return (
       method.toUpperCase() === pattern.method.toUpperCase() &&
@@ -256,13 +253,7 @@ export const matchesBrowserRequest = (
         part.startsWith(":") ? segments[index] !== "" : part === segments[index]
       ) &&
       Object.entries(pattern.query).every(([key, value]) =>
-        query.split("&").some((pair) => {
-          const [name, content = ""] = pair.split("=");
-          return (
-            decodeURIComponent(name?.replaceAll("+", " ") ?? "") === key &&
-            decodeURIComponent(content.replaceAll("+", " ")) === value
-          );
-        })
+        actual.searchParams.getAll(key).some((candidate) => candidate === value)
       )
     );
   } catch {

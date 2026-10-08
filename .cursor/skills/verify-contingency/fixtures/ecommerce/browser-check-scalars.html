@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Root scalar Browser Checks</title>
+    <style>
+      body {
+        margin: 32px;
+        font: 18px system-ui;
+        color: #172033;
+        background: white;
+      }
+      button {
+        padding: 12px 24px;
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Root scalar responses</h1>
+    <button type="button" id="submit">Submit scalars</button>
+    <p role="status" id="confirmation">No request submitted</p>
+    <script>
+      const mismatch = new URLSearchParams(location.search).has("mismatch")
+        ? "?mismatch=1"
+        : "";
+      let submissions = 0;
+      document.getElementById("submit").addEventListener("click", async () => {
+        submissions += 1;
+        for (const kind of ["string", "boolean", "number", "null"]) {
+          await fetch(`/browser-check-scalar/${kind}${mismatch}`, {
+            method: "POST",
+          });
+        }
+        document.getElementById("confirmation").textContent =
+          `Submitted ${submissions} time(s)`;
+      });
+    </script>
+  </body>
+</html>

@@ -281,11 +281,14 @@ it.live("ends the recording itself when a capture ceiling is reached", () =>
       }).pipe(
         Effect.repeat({
           schedule: Schedule.spaced("250 millis"),
-          until: (session) => session.captureState?._tag !== "recording",
+          // Finalizing ends capture before the recorder persists its stopped event.
+          until: (session) =>
+            session.captureState?._tag === "ready" ||
+            session.captureState?._tag === "failed",
         }),
         Effect.timeout("30 seconds")
       );
-      expect(settled.captureState?._tag).not.toBe("recording");
+      expect(["ready", "failed"]).toContain(settled.captureState?._tag);
 
       const events = yield* fileSystem.readFileString(
         `${recordingDirectory}/events.jsonl`

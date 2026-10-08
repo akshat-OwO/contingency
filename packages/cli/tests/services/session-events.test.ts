@@ -1,6 +1,7 @@
 import {
   AgentSessionSnapshot,
   TeachingCaptureState,
+  TeachingInstruction,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import type { TeachingRecordingOperation } from "@contingency/protocol";
@@ -81,6 +82,244 @@ const manifest = (
     sessionId: teaching.id,
     updatedAt: at,
   });
+
+const instruction = Schema.decodeUnknownSync(TeachingInstruction)({
+  at,
+  attachments: [
+    {
+      candidate: {
+        demonstrated: true,
+        expectation: {
+          itemPath: [],
+          predicates: [
+            { expected: "private-value", operator: "equals", path: [] },
+          ],
+        },
+        id: "check-1",
+        kind: "response",
+        request: {
+          method: "GET",
+          origin: "http://127.0.0.1",
+          path: "/cart",
+          query: { locale: "en", token: "private-token" },
+        },
+        response: "matching",
+        timeoutMs: 10_000,
+        when: "Cart loaded",
+      },
+      id: "attachment-1",
+      label: "Cart response",
+    },
+  ],
+  id: "retained-instruction",
+  target: null,
+  text: "Original instruction prose",
+});
+
+it.effect(
+  "emits replayable safe batches for retained instruction corrections",
+  () =>
+    Effect.gen(function* instructionCorrections() {
+      if (teaching.activity !== "teaching") {
+        return yield* Effect.die("Expected Teaching");
+      }
+      const batches: SessionEventBatch[] = [];
+      const log = makeSessionEvents((batch) => batches.push(batch));
+      const observe = (
+        current: TeachingInstruction,
+        origin: "agent" | "workspace" = "workspace"
+      ) =>
+        log.observe(
+          {
+            ...teaching,
+            teaching: {
+              ...teaching.teaching,
+              instructionCount: 1,
+              instructions: [current],
+            },
+          },
+          origin
+        );
+      let current = instruction;
+      observe(current);
+      const initial = yield* log.read(teaching.id);
+      const edits: readonly ((
+        prior: TeachingInstruction
+      ) => TeachingInstruction)[] = [
+        (prior) => ({ ...prior, text: "Corrected instruction prose" }),
+        (prior) => ({ ...prior, target: "button Checkout" }),
+        (prior) => ({
+          ...prior,
+          scan: { id: "scan-1", mode: "accessibility", phase: "start" },
+        }),
+        (prior) => ({
+          ...prior,
+          scan: { id: "scan-1", mode: "timespan", phase: "stop" },
+        }),
+        (prior) => ({ ...prior, scan: undefined }),
+        (prior) => ({
+          ...prior,
+          attachments: prior.attachments?.map((attachment) => ({
+            ...attachment,
+            candidate: {
+              ...attachment.candidate,
+              expectation: {
+                itemPath: [],
+                predicates: [
+                  {
+                    expected: "corrected-private-value",
+                    operator: "equals",
+                    path: [],
+                  },
+                ],
+              },
+            },
+          })),
+        }),
+        (prior) => ({ ...prior, attachments: [] }),
+      ];
+      const expectedKinds = [
+        "instruction-recorded",
+        "instruction-recorded",
+        "scan-requirement-recorded",
+        "scan-requirement-recorded",
+        "instruction-recorded",
+        "instruction-recorded",
+        "instruction-recorded",
+      ];
+      for (const [index, edit] of edits.entries()) {
+        const before = yield* log.read(teaching.id);
+        current = edit(current);
+        observe(current);
+        const result = yield* log.read(teaching.id, before.eventCursor);
+        expect(current.id).toBe(instruction.id);
+        expect(result.eventCursor).not.toBe(before.eventCursor);
+        expect(result.events.map((event) => event.kind)).toEqual([
+          expectedKinds[index],
+        ]);
+        expect(batches.at(-1)).toEqual({
+          eventCursor: before.eventCursor,
+          events: result.events,
+          sessionId: teaching.id,
+        });
+        expect(yield* log.read(teaching.id, before.eventCursor)).toEqual(
+          result
+        );
+        observe(structuredClone(current));
+        observe({ ...current, at: "2026-10-05T12:00:00.000Z" });
+        expect(
+          (yield* log.read(teaching.id, result.eventCursor)).events
+        ).toEqual([]);
+      }
+      const result = yield* log.read(teaching.id, initial.eventCursor);
+      expect(result.events.map((event) => event.kind)).toEqual(expectedKinds);
+      expect(result.eventsTruncated).toBe(false);
+      for (const event of result.events) {
+        expect(Object.keys(event).toSorted()).toEqual(["at", "cursor", "kind"]);
+      }
+      expect(batches).toHaveLength(edits.length);
+      observe({ ...current, text: "Agent correction" }, "agent");
+      observe({ ...current, text: "Agent correction" });
+      expect((yield* log.read(teaching.id, result.eventCursor)).events).toEqual(
+        []
+      );
+    })
+);
+
+it.effect(
+  "ignores absent optional content and reconstructed attachment key order",
+  () =>
+    Effect.gen(function* unchangedInstructionContent() {
+      if (teaching.activity !== "teaching") {
+        return yield* Effect.die("Expected Teaching");
+      }
+      const log = makeSessionEvents();
+      const observe = (current: TeachingInstruction) =>
+        log.observe(
+          {
+            ...teaching,
+            teaching: {
+              ...teaching.teaching,
+              instructionCount: 1,
+              instructions: [current],
+            },
+          },
+          "workspace"
+        );
+      observe(instruction);
+      const initial = yield* log.read(teaching.id);
+      observe({
+        ...instruction,
+        attachments: instruction.attachments?.map((attachment) => ({
+          ...structuredClone(attachment),
+          candidate:
+            attachment.candidate.kind === "response"
+              ? {
+                  ...attachment.candidate,
+                  request: {
+                    ...attachment.candidate.request,
+                    query: Object.fromEntries([
+                      ["token", "private-token"],
+                      ["locale", "en"],
+                    ]),
+                  },
+                }
+              : attachment.candidate,
+          requirement: undefined,
+        })),
+      });
+      expect(
+        (yield* log.read(teaching.id, initial.eventCursor)).events
+      ).toEqual([]);
+      observe({ ...instruction, attachments: undefined });
+      const removed = yield* log.read(teaching.id);
+      observe(
+        Schema.decodeUnknownSync(TeachingInstruction)({
+          ...instruction,
+          attachments: null,
+        })
+      );
+      observe({ ...instruction, attachments: [] });
+      expect(
+        (yield* log.read(teaching.id, removed.eventCursor)).events
+      ).toEqual([]);
+    })
+);
+
+it.effect("retains the existing replay bound for instruction edits", () =>
+  Effect.gen(function* boundedInstructionReplay() {
+    if (teaching.activity !== "teaching") {
+      return yield* Effect.die("Expected Teaching");
+    }
+    const log = makeSessionEvents();
+    const observe = (text: string) =>
+      log.observe(
+        {
+          ...teaching,
+          teaching: {
+            ...teaching.teaching,
+            instructionCount: 1,
+            instructions: [{ ...instruction, text }],
+          },
+        },
+        "workspace"
+      );
+    observe("Original");
+    const initial = yield* log.read(teaching.id);
+    observe("Correction 0");
+    const first = yield* log.read(teaching.id);
+    for (let index = 1; index <= 256; index += 1) {
+      observe(`Correction ${index}`);
+    }
+    const truncated = yield* log.read(teaching.id, initial.eventCursor);
+    expect(truncated.eventsTruncated).toBe(true);
+    expect(truncated.events).toEqual([]);
+    const retained = yield* log.read(teaching.id, first.eventCursor);
+    expect(retained.eventsTruncated).toBe(false);
+    expect(retained.events).toHaveLength(256);
+    expect(yield* log.read(teaching.id, first.eventCursor)).toEqual(retained);
+  })
+);
 
 it.effect(
   "records Teaching and Setup Variable changes once and omits private values",
