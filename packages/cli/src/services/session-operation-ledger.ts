@@ -22,6 +22,7 @@ export type AgentOperationKind =
   | "task-update"
   | "task-assess"
   | "task-finding"
+  | "task-pursuit"
   | "variable-request"
   | "setup-variable-request"
   | "setup-variable-answer"

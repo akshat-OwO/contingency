@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import {
   MCP_INSTRUCTIONS,
@@ -91,6 +91,46 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+const systemOne = {
+  apiKey: Option.none(),
+  first: false,
+  model: "jev-latest",
+  url: "http://127.0.0.1:8009/v1/systemone",
+};
+
+it.live("lists agent_browser_pursue only when System One is configured", () =>
+  Effect.gen(function* pursuitAvailability() {
+    const listed = (origin: string) =>
+      Effect.gen(function* listTools() {
+        const { request } = yield* connectMcp(origin);
+        return Schema.decodeUnknownSync(ToolList)(
+          yield* request("tools/list", {})
+        ).result.tools;
+      });
+    const plain = yield* listed(yield* servingMcpHttp());
+    expect(plain.map((tool) => tool.name)).not.toContain(
+      "agent_browser_pursue"
+    );
+    const configured = yield* listed(yield* servingMcpHttp({ systemOne }));
+    const pursue = configured.find(
+      (tool) => tool.name === "agent_browser_pursue"
+    );
+    expect(configured).toHaveLength(plain.length + 1);
+    expect(pursue?.annotations?.readOnlyHint).toBe(false);
+    expect(bytes(configured)).toBeLessThanOrEqual(CATALOG_BUDGET_BYTES);
+    expect(pursue === undefined ? 0 : bytes(pursue)).toBeLessThanOrEqual(
+      TOOL_BUDGET_BYTES
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it("tells the agent to try a Pursuit first only under the experimental flag", () => {
+  expect(makeMcpInstructions(false, systemOne)).toBe(MCP_INSTRUCTIONS);
+  const first = makeMcpInstructions(false, { ...systemOne, first: true });
+  expect(first).toContain("Try agent_browser_pursue for each Flow Skill step");
+  expect(first.length).toBeLessThan(800);
+});
 
 it.live("annotates read-only tools so hosts may run them concurrently", () =>
   Effect.gen(function* readOnlyHints() {

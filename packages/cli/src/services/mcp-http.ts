@@ -9,7 +9,19 @@ import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
 import { McpCodeModeLayer } from "./mcp-code-mode.ts";
 import { makeMcpStartLayer } from "./mcp-onboarding.ts";
+import { McpPursuitLayer } from "./mcp-pursuit.ts";
 import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
+import { makeSystemOneLayer } from "./system-one.ts";
+import type { SystemOneConfig } from "./system-one.ts";
+
+/**
+ * `agent_browser_pursue`, only when the machine names a System One endpoint.
+ * Without one the catalog is unchanged ([ADR 0057](../../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
+ */
+export const makeMcpPursuitLayer = (systemOne: SystemOneConfig | undefined) =>
+  systemOne === undefined
+    ? Layer.empty
+    : McpPursuitLayer.pipe(Layer.provide(makeSystemOneLayer(systemOne)));
 
 /** Streamable HTTP path Cursor and other URL MCP clients POST to. */
 export const MCP_HTTP_PATH = "/mcp";
@@ -19,13 +31,20 @@ export const MCP_HTTP_PATH = "/mcp";
  * habits that save context or turns across every workflow; tool descriptions
  * keep the rules for each call.
  */
-export const makeMcpInstructions = (channel = false) =>
+export const makeMcpInstructions = (
+  channel = false,
+  systemOne?: SystemOneConfig
+) =>
   [
     "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
     "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
     'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
     "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
     "Use agent_browser_act_sequence for known steps; it stops where you must look again.",
+    // Experimental (ADR 0057): only the instructions change, never the Run.
+    ...(systemOne?.first === true
+      ? ["Try agent_browser_pursue for each Flow Skill step first."]
+      : []),
     channel
       ? "On channel events, call agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
       : "After asking the user to act in the Workspace, call agent_session_get with afterCursor and waitMs instead of asking them to report back.",
@@ -45,12 +64,13 @@ export const makeMcpHttpLayer = <R = never>(
   options: {
     readonly codeMode?: boolean | undefined;
     readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
+    readonly systemOne?: SystemOneConfig | undefined;
   } = {}
 ) =>
   Layer.mergeAll(
     McpServer.layerHttp({
       allowedOrigins: [...allowedOrigins],
-      instructions: MCP_INSTRUCTIONS,
+      instructions: makeMcpInstructions(false, options.systemOne),
       name: "Contingency",
       path: MCP_HTTP_PATH,
       // The first adapter answers clients that negotiate an unknown revision,
@@ -68,5 +88,6 @@ export const makeMcpHttpLayer = <R = never>(
     McpTeachingRecordingLayer,
     McpAuthoringSkillsLayer,
     makeMcpStartLayer(options.demoSite),
-    options.codeMode === true ? McpCodeModeLayer : Layer.empty
+    options.codeMode === true ? McpCodeModeLayer : Layer.empty,
+    makeMcpPursuitLayer(options.systemOne)
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));

@@ -1,8 +1,8 @@
 /**
  * The System One request a fast browser loop sends: a Browser Snapshot turned
  * into a numbered action space, and the typed questions one Flow Skill step
- * asks of it. Shared by the Jev benchmark and the Kev training-data crawler,
- * so a trained model sees exactly the requests the loop sends.
+ * asks of it. Shared by Pursuits, the Jev benchmark, and the Kev training-data
+ * crawler, so a trained model sees exactly the requests Contingency sends.
  */
 import { AgentElementRef } from "@contingency/protocol";
 import type {
@@ -94,6 +94,7 @@ export type Operation = "CLICK" | "FILL" | "SELECT";
 export interface Candidate {
   readonly action: (value: string) => AgentBrowserAction;
   readonly describe: string;
+  readonly ref: AgentElementRef;
 }
 
 export interface ActionSpace {
@@ -138,16 +139,21 @@ export const describeElement = (
   return element;
 };
 
-/** Which operation an element accepts, if any. */
+/**
+ * Which operation an element accepts, if any. A field whose value the Snapshot
+ * withholds is fillable only when private Variables are in scope, so training
+ * requests, which carry none, never offer it.
+ */
 export const operationFor = (
-  node: AgentSnapshotNode
+  node: AgentSnapshotNode,
+  withheld = false
 ): Operation | undefined => {
   // A native select lists no options in the Snapshot, so its value comes
   // from the Flow Skill's inputs, like a filled field's.
   if (node.role === "combobox") {
     return "SELECT";
   }
-  if (FILL_ROLES.has(node.role) && node.valueWithheld !== true) {
+  if (FILL_ROLES.has(node.role) && (withheld || node.valueWithheld !== true)) {
     return "FILL";
   }
   if (CLICK_ROLES.has(node.role) || node.clickable === true) {
@@ -169,14 +175,40 @@ export const actionFor = (
   return () => ({ ref, type: "click" });
 };
 
-export const actionSpace = (snapshot: AgentBrowserSnapshot): ActionSpace => {
+/**
+ * Whether another element covers this one. An element only scrolled out of
+ * the viewport is not covered: the Page shows it once it scrolls.
+ */
+export const isCovered = (node: AgentSnapshotNode): boolean =>
+  node.blockedBy !== undefined &&
+  node.blockedBy !== null &&
+  node.blockedBy.role !== "viewport";
+
+export const actionSpace = (
+  snapshot: AgentBrowserSnapshot,
+  options: {
+    /** Leave out what another element covers, as a person would. */
+    readonly visibleOnly?: boolean;
+    readonly withheld?: boolean;
+  } = {}
+): ActionSpace => {
   const elements: SnapshotElement[] = [];
   const page: string[] = [];
   const targets = new Map<Operation, Map<string, Candidate>>();
   for (const node of snapshot.nodes) {
+    if (options.visibleOnly === true && isCovered(node)) {
+      continue;
+    }
+    // A control with no reachable point cannot be acted on; under
+    // `visibleOnly` it is offered as text only, as the agent's own text
+    // Snapshot gives it no reference.
+    const reachable =
+      options.visibleOnly !== true ||
+      node.blockedBy === undefined ||
+      node.blockedBy === null;
     const operation =
-      node.interactive === true && node.disabled !== true
-        ? operationFor(node)
+      reachable && node.interactive === true && node.disabled !== true
+        ? operationFor(node, options.withheld)
         : undefined;
     if (operation === undefined) {
       if (node.name.trim() !== "" && page.length < PAGE_LINE_LIMIT) {
@@ -187,9 +219,11 @@ export const actionSpace = (snapshot: AgentBrowserSnapshot): ActionSpace => {
     const index = String(elements.length + 1);
     elements.push(describeElement(node, index));
     const candidates = targets.get(operation) ?? new Map<string, Candidate>();
+    const ref = AgentElementRef.make(node.ref);
     candidates.set(index, {
-      action: actionFor(operation, AgentElementRef.make(node.ref)),
+      action: actionFor(operation, ref),
       describe: `[${index}] ${node.role} "${node.name}"`,
+      ref,
     });
     targets.set(operation, candidates);
   }

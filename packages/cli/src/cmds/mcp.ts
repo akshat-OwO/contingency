@@ -47,10 +47,15 @@ import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
-import { makeMcpInstructions, makeMcpHttpLayer } from "../services/mcp-http.ts";
+import {
+  makeMcpInstructions,
+  makeMcpHttpLayer,
+  makeMcpPursuitLayer,
+} from "../services/mcp-http.ts";
 import { makeMcpStartLayer } from "../services/mcp-onboarding.ts";
 import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
+import { systemOneConfig } from "../services/system-one.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -168,6 +173,8 @@ export const mcpCommand = Command.make(
       );
     }
     const { channel, codeMode, host, port, videoFastForward } = config;
+    // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
+    const systemOne = Option.getOrUndefined(yield* systemOneConfig);
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
@@ -270,14 +277,15 @@ export const mcpCommand = Command.make(
           : Layer.build(
               Layer.mergeAll(
                 McpServer.layerStdio({
-                  instructions: makeMcpInstructions(channel),
+                  instructions: makeMcpInstructions(channel, systemOne),
                   name: "Contingency",
                   protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
                   version: "0.0.1",
                 }),
                 mcpTools,
                 makeMcpStartLayer(demoSite),
-                codeMode ? McpCodeModeLayer : Layer.empty
+                codeMode ? McpCodeModeLayer : Layer.empty,
+                makeMcpPursuitLayer(systemOne)
               ).pipe(
                 Layer.provide(
                   channel
@@ -319,9 +327,11 @@ export const mcpCommand = Command.make(
             allowedOrigins,
             catalogBrowser,
             host,
-            mcp: makeMcpHttpLayer(allowedOrigins, { codeMode, demoSite }).pipe(
-              Layer.provide(shared)
-            ),
+            mcp: makeMcpHttpLayer(allowedOrigins, {
+              codeMode,
+              demoSite,
+              systemOne,
+            }).pipe(Layer.provide(shared)),
             port: address.port,
             runVideoRenderer,
             serveWebUi: true,

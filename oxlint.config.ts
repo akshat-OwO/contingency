@@ -24,6 +24,7 @@ export default defineConfig({
         "packages/cli/src/services/run-footage.ts",
         "packages/protocol/src/agent-browser.ts",
         "packages/protocol/src/agent-decision.ts",
+        "packages/protocol/src/agent-pursuit.ts",
         "packages/protocol/src/agent-identifiers.ts",
         "packages/protocol/src/agent-run.ts",
         "packages/protocol/src/agent-session.ts",

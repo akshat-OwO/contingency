@@ -1,4 +1,5 @@
 import type {
+  AgentPursuitRecord,
   AgentTaskAssessment,
   AgentTaskEvidence,
   TaskAgentRunState,
@@ -44,6 +45,60 @@ const Assessment = ({
     <p className="wrap-anywhere">{assessment.explanation}</p>
     <EvidenceReferences evidence={assessment.evidence} />
   </div>
+);
+
+const percent = (value: number) => `${Math.round(value * 100)}%`;
+
+/**
+ * Sub-goals the agent delegated to System One. Its actions sit on the same
+ * timeline as the agent's own, so this is how a reviewer tells them apart
+ * ([ADR 0057](../../../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
+ */
+const Pursuits = ({
+  pursuits,
+}: {
+  readonly pursuits: readonly AgentPursuitRecord[];
+}) => (
+  <section aria-label="System One Pursuits" className="space-y-2">
+    <h3 className="font-semibold">System One Pursuits</h3>
+    <ul className="space-y-2">
+      {pursuits.map((pursuit) => (
+        <li
+          className="space-y-2 rounded-lg border p-3"
+          key={`${pursuit.operationId}:${pursuit.step ?? 1}`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={pursuit.ending === "done" ? "secondary" : "outline"}
+            >
+              {pursuit.ending}
+            </Badge>
+            <span className="wrap-anywhere">{pursuit.goal}</span>
+          </div>
+          <p className="text-muted-foreground text-xs wrap-anywhere">
+            {pursuit.reason}
+          </p>
+          {pursuit.actions.length === 0 ? null : (
+            <ol
+              aria-label="Model-chosen attempts"
+              className="text-muted-foreground space-y-1 text-xs"
+            >
+              {pursuit.actions.map((action) => (
+                <li className="wrap-anywhere" key={action.attemptId}>
+                  <code>{action.attemptId}</code> operation{" "}
+                  {percent(action.confidence.operation)}, target{" "}
+                  {percent(action.confidence.target)}
+                  {action.confidence.value === null
+                    ? null
+                    : `, value ${percent(action.confidence.value)}`}
+                </li>
+              ))}
+            </ol>
+          )}
+        </li>
+      ))}
+    </ul>
+  </section>
 );
 
 /** The same task record is readable during execution and after persistence. */
@@ -118,6 +173,9 @@ export const TaskRunDetails = ({
           </p>
         ) : null}
       </section>
+      {run.pursuits === undefined || run.pursuits.length === 0 ? null : (
+        <Pursuits pursuits={run.pursuits} />
+      )}
       <section aria-label="Findings" className="space-y-2">
         <h3 className="font-semibold">Findings</h3>
         {run.findings.length === 0 ? (

@@ -1,6 +1,7 @@
 import {
   AgentActionResult,
   AgentActSequenceResult,
+  AgentPursuitResult,
   AgentRunSummary,
   AgentSessionCompact,
   DraftEmulation,
@@ -113,6 +114,10 @@ export const UnpublishedSequenceResult = unpublished(
   "Ordered actions with operationId, entry, and intervention (as in agent_browser_act); a final snapshot and url; stopped is null or contains index, reason, code, and message."
 );
 
+export const UnpublishedPursuitResult = unpublished(
+  "ending (done, blocked, unsure, paused, or needs-input) and reason; ordered actions with operationId, entry, confidence, and variable; intervention for a paused ending; missingVariable for needs-input; the last snapshot and url."
+);
+
 export const UnpublishedSession = unpublished(
   "An Agent Session in the same shape agent_session_get answers with, honouring the call's view."
 );
@@ -127,6 +132,7 @@ export const UnpublishedEmulation = unpublished(
 
 const encodeAction = Schema.encodeEffect(AgentActionResult);
 const encodeSequence = Schema.encodeEffect(AgentActSequenceResult);
+const encodePursuit = Schema.encodeEffect(AgentPursuitResult);
 const encodeSession = Schema.encodeEffect(SessionResult);
 const encodeSummary = Schema.encodeEffect(AgentRunSummary);
 const encodeEmulation = Schema.encodeEffect(DraftEmulation);
@@ -158,3 +164,6 @@ export const encodeUnpublishedActionResult = (value: AgentActionResult) =>
 export const encodeUnpublishedSequenceResult = (
   value: AgentActSequenceResult
 ) => Effect.orDie(encodeSequence(value));
+
+export const encodeUnpublishedPursuitResult = (value: AgentPursuitResult) =>
+  Effect.orDie(encodePursuit(value));
