@@ -5,6 +5,7 @@ import type {
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
+  ArrowLeftIcon,
   BookOpenIcon,
   ChevronRightIcon,
   CircleAlertIcon,
@@ -19,7 +20,7 @@ import {
   SearchIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type {
   SessionSkills,
@@ -257,9 +258,9 @@ const RootSkills = ({
           }}
           type="button"
         >
-          <PlayIcon aria-hidden="true" className="size-3.5" />
-          <span className="flex-1">Other runs</span>
-          <span className="text-xs tabular-nums">{loose.length}</span>
+          <PlayIcon aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 wrap-anywhere">Other runs</span>
+          <span className="shrink-0 text-xs tabular-nums">{loose.length}</span>
         </button>
       )}
       {orphans.length === 0 || filtering ? null : (
@@ -274,9 +275,11 @@ const RootSkills = ({
           }}
           type="button"
         >
-          <ClapperboardIcon aria-hidden="true" className="size-3.5" />
-          <span className="flex-1">Other recordings</span>
-          <span className="text-xs tabular-nums">{orphans.length}</span>
+          <ClapperboardIcon aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 wrap-anywhere">Other recordings</span>
+          <span className="shrink-0 text-xs tabular-nums">
+            {orphans.length}
+          </span>
         </button>
       )}
     </div>
@@ -344,7 +347,7 @@ const CatalogColumn = ({
     (global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
       0) + globalHistoryHits;
   return (
-    <section aria-label="Catalog" className="flex min-h-0 flex-col border-r">
+    <section aria-label="Catalog" className="flex min-h-0 min-w-0 flex-col">
       <div className="border-b p-1.5">
         <FilterInput query={query} setQuery={setQuery} />
       </div>
@@ -355,7 +358,7 @@ const CatalogColumn = ({
               className="flex items-center gap-1.5 px-2 pt-1 text-xs font-medium"
               title={local.path}
             >
-              <HardDriveIcon aria-hidden="true" className="size-3.5" />
+              <HardDriveIcon aria-hidden="true" className="size-3.5 shrink-0" />
               Local
             </p>
             <RootSkills
@@ -381,7 +384,7 @@ const CatalogColumn = ({
                 aria-hidden="true"
                 className="text-muted-foreground size-3.5 transition-transform duration-150 group-data-panel-open/global:rotate-90"
               />
-              <GlobeIcon aria-hidden="true" className="size-3.5" />
+              <GlobeIcon aria-hidden="true" className="size-3.5 shrink-0" />
               Global
               <span className="text-muted-foreground ml-auto font-normal tabular-nums">
                 {global.present ? globalHits : "none"}
@@ -571,7 +574,9 @@ const ContentsColumn = ({
             <EmptyTitle>Not saved yet</EmptyTitle>
             <EmptyDescription>
               After you stop recording, the agent learns the recording and
-              drafts <code>{folder.name}/SKILL.md</code> here.
+              drafts{" "}
+              <code className="wrap-anywhere">{folder.name}/SKILL.md</code>{" "}
+              here.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -610,9 +615,153 @@ const NoSkillsAnywhere = ({
   </div>
 );
 
+/** Selection survives switching between the two narrow navigation views. */
+const SkillsNavigation = ({
+  roots,
+  skills,
+}: {
+  readonly roots: readonly CatalogRootView[];
+  readonly skills: SessionSkills;
+}) => {
+  const [queryAtom] = useState(() => Atom.make(""));
+  const [folderAtom] = useState(() => Atom.make<SkillsFolder | null>(null));
+  const [viewAtom] = useState(() =>
+    Atom.make<"catalog" | "contents">("catalog")
+  );
+  const [narrowAtom] = useState(() => Atom.make(true));
+  const [query, setQuery] = useAtom(queryAtom);
+  const [chosen, setChosen] = useAtom(folderAtom);
+  const [view, setView] = useAtom(viewAtom);
+  const [narrow, setNarrow] = useAtom(narrowAtom);
+  const breakpointRef = useRef<HTMLSpanElement>(null);
+  const navigationRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusAfterChange = useRef(false);
+
+  useLayoutEffect(() => {
+    const breakpoint = breakpointRef.current;
+    if (breakpoint === null) {
+      return;
+    }
+    // CSS owns the root-relative container query. Observing its probe also
+    // reacts to enlarged text without a viewport breakpoint or polling.
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry === undefined) {
+        return;
+      }
+      const nextNarrow = entry.contentRect.width === 0;
+      const active = document.activeElement;
+      if (nextNarrow && navigationRef.current?.contains(active)) {
+        const inCatalog = active?.closest('[aria-label="Catalog"]') !== null;
+        setView(inCatalog ? "catalog" : "contents");
+        focusAfterChange.current = true;
+      }
+      setNarrow(nextNarrow);
+    });
+    observer.observe(breakpoint);
+    return () => {
+      observer.disconnect();
+    };
+  }, [setNarrow, setView]);
+
+  useLayoutEffect(() => {
+    if (!focusAfterChange.current) {
+      return;
+    }
+    focusAfterChange.current = false;
+    if (view === "contents") {
+      headingRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const catalog = navigationRef.current?.querySelector(
+      '[aria-label="Catalog"]'
+    );
+    const target =
+      catalog?.querySelector<HTMLElement>('button[aria-pressed="true"]') ??
+      catalog?.querySelector<HTMLElement>("input");
+    target?.focus({ preventScroll: true });
+  }, [narrow, view]);
+
+  const folder =
+    availableFolder(chosen, roots, skills) ?? defaultFolder(roots, skills);
+  const historyName =
+    folder?.kind === "recordings" ? "Other recordings" : "Other runs";
+  const folderName = folder?.kind === "skill" ? folder.name : historyName;
+  return (
+    <div className="@container/skills relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute h-px w-0 @min-[36rem]/skills:w-px"
+        ref={breakpointRef}
+      />
+      <div
+        className={cn(
+          "grid min-h-0 min-w-0 flex-1",
+          !narrow && "grid-cols-[14rem_minmax(0,1fr)] divide-x"
+        )}
+        ref={navigationRef}
+      >
+        {!narrow || view === "catalog" ? (
+          <CatalogColumn
+            folder={folder}
+            onFolder={(target) => {
+              setChosen(target);
+              setView("contents");
+              if (narrow) {
+                focusAfterChange.current = true;
+              }
+            }}
+            query={query}
+            roots={roots}
+            setQuery={setQuery}
+            skills={skills}
+          />
+        ) : null}
+        {!narrow || view === "contents" ? (
+          <section
+            aria-label={folderName}
+            className="flex min-h-0 min-w-0 flex-col"
+          >
+            {narrow ? (
+              <Button
+                className="h-auto justify-start rounded-none border-b px-3 py-2 whitespace-normal"
+                onClick={() => {
+                  focusAfterChange.current = true;
+                  setView("catalog");
+                }}
+                variant="ghost"
+              >
+                <ArrowLeftIcon aria-hidden="true" />
+                Back to catalog
+              </Button>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <h2
+                className="text-muted-foreground border-b px-3 py-2 text-xs font-medium tracking-wide wrap-anywhere uppercase"
+                ref={headingRef}
+                tabIndex={-1}
+              >
+                {folderName}
+              </h2>
+              <ContentsColumn
+                folder={folder}
+                onClearQuery={() => {
+                  setQuery("");
+                }}
+                query={query}
+                roots={roots}
+                skills={skills}
+              />
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 /**
- * The drawer's two columns: both Catalog Roots, then the open skill's Runs
- * and Teaching Recordings. What is picked there opens beside the browser.
+ * Read-only Catalog Roots and their contents. Details open beside the browser.
  */
 export const SkillsDrawer = ({
   session,
@@ -627,10 +776,6 @@ export const SkillsDrawer = ({
   useEffect(() => {
     refresh();
   }, [refresh]);
-  const [queryAtom] = useState(() => Atom.make(""));
-  const [folderAtom] = useState(() => Atom.make<SkillsFolder | null>(null));
-  const [query, setQuery] = useAtom(queryAtom);
-  const [chosen, setChosen] = useAtom(folderAtom);
   const skills = sessionSkills(session);
 
   if (result._tag === "Initial") {
@@ -675,40 +820,10 @@ export const SkillsDrawer = ({
       </>
     );
   }
-  const folder =
-    availableFolder(chosen, roots, skills) ?? defaultFolder(roots, skills);
-  const historyName =
-    folder?.kind === "recordings" ? "Other recordings" : "Other runs";
-  const folderName = folder?.kind === "skill" ? folder.name : historyName;
   return (
     <>
       {warning}
-      <div className="grid min-h-0 flex-1 grid-cols-[14rem_minmax(0,1fr)]">
-        <CatalogColumn
-          folder={folder}
-          onFolder={setChosen}
-          query={query}
-          roots={roots}
-          setQuery={setQuery}
-          skills={skills}
-        />
-        <section aria-label={folderName} className="flex min-h-0 flex-col">
-          <h2 className="text-muted-foreground border-b px-3 py-2 text-xs font-medium tracking-wide uppercase">
-            {folderName}
-          </h2>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <ContentsColumn
-              folder={folder}
-              onClearQuery={() => {
-                setQuery("");
-              }}
-              query={query}
-              roots={roots}
-              skills={skills}
-            />
-          </div>
-        </section>
-      </div>
+      <SkillsNavigation roots={roots} skills={skills} />
     </>
   );
 };

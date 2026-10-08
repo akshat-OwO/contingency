@@ -60,6 +60,7 @@ Commands:
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
+  browser skills-layout-check --path <directory> [--text-scale <1|2>] [--allow-overflow]
   browser procedure-check --skill-file <file> --path <directory> [--text-scale <1|2>]
   browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>
   browser download --role <role> --name <name> --path <file> [--partial]
@@ -627,6 +628,66 @@ const runPageAction = async (page, appUrl, action, flags) => {
       }
       await target.waitFor({ state: "visible", timeout });
       return "";
+    }
+    case "skills-layout-check": {
+      if (typeof flags.path !== "string") {
+        throw new Error("skills-layout-check needs --path.");
+      }
+      const scale = Number(flags["text-scale"] ?? 1);
+      if (scale !== 1 && scale !== 2) {
+        throw new Error("skills-layout-check text scale must be 1 or 2.");
+      }
+      await page.evaluate(async (value) => {
+        document.documentElement.style.fontSize = `${16 * value}px`;
+        await document.fonts.ready;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }, scale);
+      const drawer = page.getByRole("complementary", { name: "Skills", exact: true });
+      await drawer.waitFor();
+      await page.waitForFunction(() => !document.querySelector('aside[aria-label="Skills"]').getAnimations({ subtree: true }).some((animation) => animation.playState === "running"));
+      const result = await drawer.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const fontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+        const catalog = element.querySelector('[aria-label="Catalog"]');
+        const back = [...element.querySelectorAll("button")].find((button) => button.textContent.includes("Back to catalog"));
+        const clipped = [];
+        for (const heading of element.querySelectorAll("h2")) {
+          const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const node = walker.currentNode;
+            for (let offset = 0; offset < node.textContent.length; offset += 1) {
+              const range = document.createRange();
+              range.setStart(node, offset);
+              range.setEnd(node, offset + 1);
+              for (const rect of range.getClientRects()) {
+                if (rect.left < bounds.left - 1 || rect.right > bounds.right + 1) {
+                  clipped.push(node.textContent[offset]);
+                }
+              }
+            }
+          }
+        }
+        const controls = [...element.querySelectorAll("button,input")].map((control) => {
+          const rect = control.getBoundingClientRect();
+          return { name: control.getAttribute("aria-label") ?? control.textContent.trim(), left: rect.left, right: rect.right,
+            fits: rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.left >= -1 && rect.right <= innerWidth + 1 && rect.width > 0 };
+        });
+        const narrow = bounds.width < 36 * fontSize;
+        return { width: bounds.width, scrollWidth: element.scrollWidth, viewport: innerWidth, fontSize, narrow,
+          catalog: catalog !== null, back: back !== undefined, clipped, controls,
+          focus: { tag: document.activeElement.tagName, text: document.activeElement.textContent, label: document.activeElement.getAttribute("aria-label") },
+          ok: element.scrollWidth <= Math.ceil(bounds.width) + 1 && clipped.length === 0 && controls.every((control) => control.fits) &&
+            (!narrow || (catalog !== null) !== (back !== undefined)) };
+      });
+      const destination = resolveEvidencePath(flags.path);
+      mkdirSync(destination, { recursive: true });
+      writeFileSync(path.join(destination, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
+      writeFileSync(path.join(destination, "view.aria.txt"), `${await page.locator("body").ariaSnapshot()}\n`);
+      await page.screenshot({ path: path.join(destination, "view.png") });
+      if (!result.ok && flags["allow-overflow"] !== true) {
+        throw new Error(`Skills layout failed. Read ${destination}/result.json.`);
+      }
+      return JSON.stringify({ ...result, destination });
     }
     case "procedure-check": {
       const { Effect } = await import(
