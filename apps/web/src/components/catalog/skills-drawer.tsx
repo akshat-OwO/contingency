@@ -9,6 +9,7 @@ import {
   ChevronRightIcon,
   CircleAlertIcon,
   CircleDashedIcon,
+  ClapperboardIcon,
   FileTextIcon,
   FolderIcon,
   FolderSearchIcon,
@@ -26,10 +27,13 @@ import type {
   SkillsSessionView,
 } from "@/components/catalog/skills-drawer-state";
 import {
+  availableFolder,
   defaultFolder,
+  hasBrowsableEntries,
   looseRuns,
   matchesQuery,
   opensGlobal,
+  orphanRecordings,
   recordingsForSkill,
   runCountLabel,
   runsForSkill,
@@ -177,6 +181,7 @@ const RootSkills = ({
 }) => {
   const listed = root.flowSkills.filter((skill) => matchesQuery(skill, query));
   const loose = looseRuns(root);
+  const orphans = orphanRecordings(root);
   const filtering = query.trim() !== "";
   const pending =
     root.scope === "local" &&
@@ -193,6 +198,10 @@ const RootSkills = ({
     );
   }
   const looseFolder: SkillsFolder = { kind: "loose", scope: root.scope };
+  const recordingsFolder: SkillsFolder = {
+    kind: "recordings",
+    scope: root.scope,
+  };
   return (
     <div className="space-y-0.5">
       {pending === undefined ? null : (
@@ -227,7 +236,9 @@ const RootSkills = ({
           />
         );
       })}
-      {listed.length === 0 && pending === undefined ? (
+      {listed.length === 0 &&
+      pending === undefined &&
+      (filtering || !hasBrowsableEntries(root)) ? (
         <InlineEmpty>
           {filtering
             ? `Nothing here matches “${query.trim()}”.`
@@ -249,6 +260,23 @@ const RootSkills = ({
           <PlayIcon aria-hidden="true" className="size-3.5" />
           <span className="flex-1">Other runs</span>
           <span className="text-xs tabular-nums">{loose.length}</span>
+        </button>
+      )}
+      {orphans.length === 0 || filtering ? null : (
+        <button
+          aria-pressed={sameFolder(folder, recordingsFolder)}
+          className={cn(
+            "hover:bg-muted text-muted-foreground flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+            sameFolder(folder, recordingsFolder) && "bg-muted text-foreground"
+          )}
+          onClick={() => {
+            onFolder(recordingsFolder);
+          }}
+          type="button"
+        >
+          <ClapperboardIcon aria-hidden="true" className="size-3.5" />
+          <span className="flex-1">Other recordings</span>
+          <span className="text-xs tabular-nums">{orphans.length}</span>
         </button>
       )}
     </div>
@@ -306,10 +334,15 @@ const CatalogColumn = ({
   readonly skills: SessionSkills;
 }) => {
   const [local, global] = roots;
-  const openGlobal = opensGlobal(roots, query, skills);
+  const openGlobal =
+    folder?.scope === "global" || opensGlobal(roots, query, skills);
+  const globalHistoryHits =
+    global === undefined || query.trim() !== ""
+      ? 0
+      : looseRuns(global).length + orphanRecordings(global).length;
   const globalHits =
-    global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
-    0;
+    (global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
+      0) + globalHistoryHits;
   return (
     <section aria-label="Catalog" className="flex min-h-0 flex-col border-r">
       <div className="border-b p-1.5">
@@ -378,10 +411,15 @@ const FolderContents = ({
   readonly root: CatalogRootView;
 }) => {
   const [selection, setSelection] = useAtom(skillsSelectionAtom);
+  const historyRuns = folder.kind === "loose" ? looseRuns(root) : [];
+  const historyRecordings =
+    folder.kind === "recordings" ? orphanRecordings(root) : [];
   const runs =
-    folder.kind === "loose" ? looseRuns(root) : runsForSkill(root, folder.name);
+    folder.kind === "skill" ? runsForSkill(root, folder.name) : historyRuns;
   const recordings =
-    folder.kind === "loose" ? [] : recordingsForSkill(root, folder.name);
+    folder.kind === "skill"
+      ? recordingsForSkill(root, folder.name)
+      : historyRecordings;
   const skill =
     folder.kind === "skill"
       ? root.flowSkills.find((entry) => entry.name === folder.name)
@@ -416,31 +454,33 @@ const FolderContents = ({
           />
         </button>
       )}
-      <div>
-        <SectionLabel>Runs · {runs.length}</SectionLabel>
-        {runs.length === 0 ? (
-          <InlineEmpty>
-            Not run yet.{" "}
-            {skill?.verified === false
-              ? "A passing Dry Run is the next step."
-              : "Ask your agent to run it."}
-          </InlineEmpty>
-        ) : (
-          runs.map((run) => {
-            const target = { kind: "run", run, scope: root.scope } as const;
-            return (
-              <RunRow
-                key={run.runId}
-                onSelect={() => {
-                  setSelection(target);
-                }}
-                run={run}
-                selected={sameSelection(selection, target)}
-              />
-            );
-          })
-        )}
-      </div>
+      {folder.kind === "recordings" ? null : (
+        <div>
+          <SectionLabel>Runs · {runs.length}</SectionLabel>
+          {runs.length === 0 ? (
+            <InlineEmpty>
+              Not run yet.{" "}
+              {skill?.verified === false
+                ? "A passing Dry Run is the next step."
+                : "Ask your agent to run it."}
+            </InlineEmpty>
+          ) : (
+            runs.map((run) => {
+              const target = { kind: "run", run, scope: root.scope } as const;
+              return (
+                <RunRow
+                  key={run.runId}
+                  onSelect={() => {
+                    setSelection(target);
+                  }}
+                  run={run}
+                  selected={sameSelection(selection, target)}
+                />
+              );
+            })
+          )}
+        </div>
+      )}
       {recordings.length === 0 ? null : (
         <div>
           <SectionLabel>Teaching Recordings · {recordings.length}</SectionLabel>
@@ -625,7 +665,7 @@ export const SkillsDrawer = ({
       </p>
     );
   if (
-    roots.every((root) => root.flowSkills.length === 0) &&
+    roots.every((root) => !hasBrowsableEntries(root)) &&
     skills.pending === undefined
   ) {
     return (
@@ -635,7 +675,11 @@ export const SkillsDrawer = ({
       </>
     );
   }
-  const folder = chosen ?? defaultFolder(roots, skills);
+  const folder =
+    availableFolder(chosen, roots, skills) ?? defaultFolder(roots, skills);
+  const historyName =
+    folder?.kind === "recordings" ? "Other recordings" : "Other runs";
+  const folderName = folder?.kind === "skill" ? folder.name : historyName;
   return (
     <>
       {warning}
@@ -648,12 +692,9 @@ export const SkillsDrawer = ({
           setQuery={setQuery}
           skills={skills}
         />
-        <section
-          aria-label={folder?.kind === "skill" ? folder.name : "Runs"}
-          className="flex min-h-0 flex-col"
-        >
+        <section aria-label={folderName} className="flex min-h-0 flex-col">
           <h2 className="text-muted-foreground border-b px-3 py-2 text-xs font-medium tracking-wide uppercase">
-            {folder?.kind === "skill" ? folder.name : "Other runs"}
+            {folderName}
           </h2>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <ContentsColumn

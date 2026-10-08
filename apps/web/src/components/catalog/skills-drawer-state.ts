@@ -38,9 +38,10 @@ export type SkillsSelection =
 
 export const skillsSelectionAtom = Atom.make<SkillsSelection | null>(null);
 
-/** A folder the second column is open on: a skill, or Runs without one. */
+/** A listed skill, or retained history without a listed skill. */
 export type SkillsFolder =
   | { readonly kind: "loose"; readonly scope: CatalogRootScope }
+  | { readonly kind: "recordings"; readonly scope: CatalogRootScope }
   | {
       readonly kind: "skill";
       readonly name: string;
@@ -54,7 +55,7 @@ export const sameFolder = (
   a !== undefined &&
   a.kind === b.kind &&
   a.scope === b.scope &&
-  (a.kind === "loose" || (b.kind === "skill" && a.name === b.name));
+  (a.kind !== "skill" || (b.kind === "skill" && a.name === b.name));
 
 export const sameSelection = (
   a: SkillsSelection | null,
@@ -192,6 +193,42 @@ export const looseRuns = (root: CatalogRootView): readonly CatalogRunEntry[] =>
       )
   );
 
+export const orphanRecordings = (
+  root: CatalogRootView
+): readonly CatalogRecordingEntry[] => {
+  const listed = new Set(root.flowSkills.map((skill) => skill.name));
+  return root.recordings.filter(
+    (recording) => !listed.has(recording.flowSkillName)
+  );
+};
+
+export const hasBrowsableEntries = (root: CatalogRootView): boolean =>
+  root.flowSkills.length > 0 ||
+  root.runs.length > 0 ||
+  root.recordings.length > 0;
+
+/** Ignore a choice whose folder disappeared on a catalog refresh. */
+export const availableFolder = (
+  folder: SkillsFolder | null,
+  roots: readonly CatalogRootView[],
+  skills: SessionSkills
+): SkillsFolder | undefined => {
+  const root = roots.find((entry) => entry.scope === folder?.scope);
+  if (folder === null || root === undefined) {
+    return undefined;
+  }
+  if (folder.kind === "loose") {
+    return looseRuns(root).length > 0 ? folder : undefined;
+  }
+  if (folder.kind === "recordings") {
+    return orphanRecordings(root).length > 0 ? folder : undefined;
+  }
+  return root.flowSkills.some((skill) => skill.name === folder.name) ||
+    (folder.scope === "local" && skills.pending === folder.name)
+    ? folder
+    : undefined;
+};
+
 export const skillCount = (roots: readonly CatalogRootView[]): number =>
   roots.reduce((total, root) => total + root.flowSkills.length, 0);
 
@@ -203,8 +240,7 @@ export const runCountLabel = (count: number): string => {
 };
 
 /**
- * Where the drawer opens: on the session's own skill when there is one, then
- * on the first local skill, and on nothing when the catalog is empty.
+ * Prefer Teaching and the session's listed skill, then browse local-first.
  */
 export const defaultFolder = (
   roots: readonly CatalogRootView[],
@@ -219,11 +255,19 @@ export const defaultFolder = (
       return { kind: "skill", name: own.name, scope: root.scope };
     }
   }
-  const [local] = roots;
-  const first = local?.flowSkills.at(0);
-  return first === undefined || local === undefined
-    ? undefined
-    : { kind: "skill", name: first.name, scope: local.scope };
+  for (const root of roots) {
+    const first = root.flowSkills.at(0);
+    if (first !== undefined) {
+      return { kind: "skill", name: first.name, scope: root.scope };
+    }
+    if (looseRuns(root).length > 0) {
+      return { kind: "loose", scope: root.scope };
+    }
+    if (orphanRecordings(root).length > 0) {
+      return { kind: "recordings", scope: root.scope };
+    }
+  }
+  return undefined;
 };
 
 /**
@@ -237,6 +281,9 @@ export const opensGlobal = (
 ): boolean => {
   const [local, global] = roots;
   const hits = (root: CatalogRootView | undefined) =>
-    root?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ?? 0;
-  return hits(local) === 0 && hits(global) > 0 && skills.pending === undefined;
+    root !== undefined &&
+    (query.trim() === ""
+      ? hasBrowsableEntries(root)
+      : root.flowSkills.some((skill) => matchesQuery(skill, query)));
+  return !hits(local) && hits(global) && skills.pending === undefined;
 };
