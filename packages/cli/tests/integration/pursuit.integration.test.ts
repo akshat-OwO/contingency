@@ -422,6 +422,68 @@ it.live(
     }).pipe(Effect.provide(NodeServices.layer))
 );
 
+it.live("confirms quoted text only when the step brought it about", () =>
+  Effect.gen(function* pursueQuotedChange() {
+    const files = yield* FileSystem.FileSystem;
+    const root = yield* files.makeTempDirectoryScoped({
+      prefix: "contingency-pursuit-quoted-",
+    });
+    const systemOne = scripted();
+    yield* Effect.scoped(
+      Effect.gen(function* exerciseQuotedChange() {
+        const started = yield* exampleTool("agent_example_run_start", {
+          example: FlowSkillName.make("example-delivery-cart"),
+          inputs: [
+            { name: "product", value: "Trail Hammer" },
+            { name: "city", value: "Denver" },
+            { name: "area", value: "Highlands" },
+          ],
+          operationId: operation("quoted-start"),
+        });
+        const clicking =
+          (name: string): Answer =>
+          (request) =>
+            respond({
+              click_target: choice(indexOf(request, "button", name)),
+              done: noul(0.1),
+              operation: choice("CLICK"),
+            });
+
+        // "Trail Hammer" is a product name from the start, so a wrong
+        // click does not make the step done.
+        systemOne.state.answer = clicking("Add Cedar Pull Saw to cart");
+        const wrong = yield* pursue(started.id, "quoted-wrong", {
+          doneWhen: 'The status line names "Trail Hammer".',
+          maxActions: 1,
+        });
+        expect(wrong.ending).toBe("unsure");
+        expect(wrong.actions).toHaveLength(1);
+        expect(wrong.snapshot?.text).toContain("Cedar Pull Saw added");
+
+        // Text that appears only after the action still settles the step,
+        // even when System One doubts it.
+        systemOne.state.answer = clicking("Add Trail Hammer to cart");
+        const added = yield* pursue(started.id, "quoted-added", {
+          doneWhen: 'The status line reads "Trail Hammer added to cart".',
+        });
+        expect(added.ending).toBe("done");
+        expect(added.actions).toHaveLength(1);
+        expect(added.reason).toBe("The Page shows what doneWhen describes.");
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            OnboardingToolHandlersLive,
+            PursuitToolHandlersLive.pipe(Layer.provide(systemOne.layer))
+          ).pipe(
+            Layer.provideMerge(makeDemoSiteLayer()),
+            Layer.provideMerge(agentProcessLayer(root))
+          )
+        )
+      )
+    );
+  }).pipe(Effect.provide(NodeServices.layer))
+);
+
 /** The step a question asks about, from its instruction text. */
 const stepOf = (request: Questions, prefix: string) => {
   const question = request.questions[`${prefix}operation`];
@@ -494,7 +556,9 @@ it.live(
                 goal: 'Select "Add Trail Hammer to cart".',
               },
               {
-                doneWhen: 'The page shows the heading "Your cart".',
+                // The Shop page also says "your cart", so code reads a
+                // phrase only the cart shows.
+                doneWhen: 'The page shows "Change delivery location".',
                 goal: "Select the Cart link in the store navigation.",
               },
             ],
@@ -506,7 +570,7 @@ it.live(
           ]);
           expect(result.actions.map((action) => action.step)).toEqual([1, 2]);
           // The answer that ended step 1 also chose step 2's first action, and
-          // the quoted heading ended step 2 without asking again.
+          // the quoted text ended step 2 without asking again.
           expect(systemOne.requests).toHaveLength(2);
           expect(result.steps[1]?.reason).toBe(
             "The Page shows what doneWhen describes."

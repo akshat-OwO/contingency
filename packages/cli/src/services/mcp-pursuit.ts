@@ -349,27 +349,73 @@ const shownText = (snapshot: AgentBrowserSnapshot, covered: boolean) => {
   return normalized(parts.join(" "));
 };
 
-/** Whether normalized Page text contains a normalized phrase. */
-const shows = (text: string, phrase: string) => text.includes(phrase);
+const WORD = /[\p{L}\p{N}_]/u;
+
+/** Whether two adjacent characters belong to one word. */
+const joins = (left: string | undefined, right: string | undefined) =>
+  left !== undefined &&
+  right !== undefined &&
+  WORD.test(left) &&
+  WORD.test(right);
 
 /**
- * Whether the Page shows every phrase `doneWhen` quotes, or `undefined` when
- * it quotes none or describes something going away. A quoted phrase is the
- * outcome's literal text, so code reads it more reliably than a model does.
+ * Whether normalized Page text contains a normalized phrase as whole words,
+ * so `1 item` is not read in `11 items`.
+ */
+const shows = (text: string, phrase: string) => {
+  let at = text.indexOf(phrase);
+  while (at !== -1) {
+    const after = text[at + phrase.length];
+    if (!joins(text[at - 1], phrase[0]) && !joins(phrase.at(-1), after)) {
+      return true;
+    }
+    at = text.indexOf(phrase, at + 1);
+  }
+  return false;
+};
+
+/**
+ * Whether each quoted phrase holds on the Page: shown, or no longer shown
+ * when `doneWhen` describes it going away.
+ */
+const phrasesHold = (
+  doneWhen: string,
+  phrases: readonly string[],
+  snapshot: AgentBrowserSnapshot
+) => {
+  const shown = shownText(snapshot, false);
+  // `The "Demo fault" banner is gone` holds once its text is no longer shown.
+  const absence = describesAbsence(doneWhen);
+  return phrases.map((phrase) => shows(shown, phrase) !== absence);
+};
+
+/**
+ * What the phrases `doneWhen` quotes say about the step. A quoted phrase is
+ * the outcome's literal text, so code reads it more reliably than a model
+ * does. `false` when one does not hold. `true` when all hold and, given the
+ * Page the step started on, at least one did not hold there. `undefined`
+ * when `doneWhen` quotes nothing, or when every phrase held from the start:
+ * text that was already there says nothing about what the step did.
  */
 export const quotedOutcome = (
   doneWhen: string,
-  snapshot: AgentBrowserSnapshot
+  snapshot: AgentBrowserSnapshot,
+  start?: AgentBrowserSnapshot
 ): boolean | undefined => {
   const phrases = quotedPhrases(doneWhen);
   if (phrases === undefined) {
     return undefined;
   }
-  const shown = shownText(snapshot, false);
-  // `The "Demo fault" banner is gone` holds once its text is no longer shown.
-  return describesAbsence(doneWhen)
-    ? phrases.every((phrase) => !shows(shown, phrase))
-    : phrases.every((phrase) => shows(shown, phrase));
+  if (!phrasesHold(doneWhen, phrases, snapshot).every(Boolean)) {
+    return false;
+  }
+  if (
+    start !== undefined &&
+    phrasesHold(doneWhen, phrases, start).every(Boolean)
+  ) {
+    return undefined;
+  }
+  return true;
 };
 
 /**
@@ -431,9 +477,18 @@ export const overlayOutcome = (
       )
     : undefined;
 
-/** What the Page shows about `doneWhen`, read in code where it can be. */
-const codeOutcome = (doneWhen: string, snapshot: AgentBrowserSnapshot) =>
-  quotedOutcome(doneWhen, snapshot) ?? overlayOutcome(doneWhen, snapshot);
+/**
+ * What the Page shows about `doneWhen`, read in code where it can be, against
+ * the Page the step started on.
+ */
+const codeOutcome = (
+  doneWhen: string,
+  snapshot: AgentBrowserSnapshot,
+  start: AgentBrowserSnapshot
+) =>
+  quotedPhrases(doneWhen) === undefined
+    ? overlayOutcome(doneWhen, snapshot)
+    : quotedOutcome(doneWhen, snapshot, start);
 
 /** What System One is asked to do while a popup covers the outcome. */
 const UNCOVER_INSTRUCTION =
@@ -655,6 +710,8 @@ interface PursuitProgress {
   readonly recent: string[];
   /** Whether this step already read the Page again after a stale target. */
   reread: boolean;
+  /** The Page this step started on, which quoted outcomes are read against. */
+  start: AgentBrowserSnapshot | null;
   /** The last chosen action, and how many times in a row it was chosen. */
   repeat: { key: string; times: number } | null;
 }
@@ -735,6 +792,7 @@ const pursue = (params: PursueParameters) =>
       recent: [],
       repeat: null,
       reread: false,
+      start: null,
     };
     let lookahead: Lookahead | null = null;
 
@@ -812,7 +870,11 @@ const pursue = (params: PursueParameters) =>
         progress.fresh = null;
         progress.latest = { snapshot, url: snapshot.url };
         // What code can read after an action settles the step without asking.
-        if (acted > 0 && codeOutcome(cue.doneWhen, snapshot) === true) {
+        if (
+          acted > 0 &&
+          codeOutcome(cue.doneWhen, snapshot, progress.start ?? snapshot) ===
+            true
+        ) {
           // The next step starts from this same read.
           progress.fresh = snapshot;
           return end("done", "The Page shows what doneWhen describes.");
@@ -878,10 +940,11 @@ const pursue = (params: PursueParameters) =>
           ({ response, snapshot, space } = carried);
           prefix = NEXT;
         }
+        progress.start ??= snapshot;
         const decision = decide(response, prefix, space, inputs, {
           acted,
           maxActions,
-          quoted: codeOutcome(cue.doneWhen, snapshot),
+          quoted: codeOutcome(cue.doneWhen, snapshot, progress.start),
         });
         if (decision.kind === "end") {
           // The same answer already says how the next step begins.
@@ -922,6 +985,7 @@ const pursue = (params: PursueParameters) =>
       progress.noEffect = 0;
       progress.repeat = null;
       progress.reread = false;
+      progress.start = null;
       let stepEnding: Ending | undefined;
       while (stepEnding === undefined) {
         stepEnding = yield* advance(

@@ -65,3 +65,50 @@ it("reads quoted text that must be gone", () => {
   expect(quotedOutcome(doneWhen, page("Demo fault", "Restore"))).toBe(false);
   expect(quotedOutcome(doneWhen, page("Your cart"))).toBe(true);
 });
+
+it("matches whole words, not parts of them", () => {
+  const doneWhen = 'The cart line reads "1 item".';
+  expect(quotedOutcome(doneWhen, page("Cart: 11 items"))).toBe(false);
+  expect(quotedOutcome(doneWhen, page("Cart: 1 item"))).toBe(true);
+  expect(quotedOutcome(doneWhen, page("Cart (1 item)"))).toBe(true);
+});
+
+it("confirms only a phrase the step brought about", () => {
+  const doneWhen = 'The status line names "Trail Hammer".';
+  const start = page("Trail Hammer", "Add Trail Hammer to cart");
+  expect(
+    quotedOutcome(
+      doneWhen,
+      page("Trail Hammer", "Cedar Pull Saw added to cart"),
+      start
+    )
+  ).toBeUndefined();
+  expect(
+    quotedOutcome(
+      'The status line reads "Trail Hammer added to cart".',
+      page("Trail Hammer", "Trail Hammer added to cart"),
+      start
+    )
+  ).toBe(true);
+});
+
+it("confirms an absence only for text shown when the step started", () => {
+  const doneWhen = 'The "Demo fault" banner is no longer shown.';
+  expect(
+    quotedOutcome(doneWhen, page("Your cart"), page("Your cart"))
+  ).toBeUndefined();
+  expect(
+    quotedOutcome(doneWhen, page("Your cart"), page("Demo fault", "Restore"))
+  ).toBe(true);
+});
+
+it("confirms once one phrase changes, beside one already shown", () => {
+  // The Shop page already says "your cart"; only the cart page is empty.
+  const doneWhen =
+    'The "Your cart" page shows whether it lists the saw. It reads "Your cart is empty."';
+  const start = page("Add tools to your cart.");
+  expect(
+    quotedOutcome(doneWhen, page("Your cart", "Your cart is empty."), start)
+  ).toBe(true);
+  expect(quotedOutcome(doneWhen, page("Your cart"), start)).toBe(false);
+});
