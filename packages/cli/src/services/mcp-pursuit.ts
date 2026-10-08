@@ -821,18 +821,19 @@ const pursue = (params: PursueParameters) =>
         const covered = acted > 0 && coveredOutcome(cue.doneWhen, snapshot);
         const visible = actionSpace(snapshot, { visibleOnly: true, withheld });
         // A step that is itself about dismissing gets the same narrowing.
-        const space =
-          covered || DISMISS.test(cue.instruction)
-            ? dismissSpace(visible)
-            : visible;
+        const narrowed = covered || DISMISS.test(cue.instruction);
+        const space = narrowed ? dismissSpace(visible) : visible;
+        // The next step's first action needs the whole Page, so a narrowed
+        // request does not ask about it.
+        const next = narrowed ? undefined : cues[index + 1];
         const { questions, state } = buildRequest(
           "",
-          covered
-            ? {
-                current: { ...cue, instruction: UNCOVER_INSTRUCTION },
-                next: undefined,
-              }
-            : { current: cue, next: cues[index + 1] },
+          {
+            current: covered
+              ? { ...cue, instruction: UNCOVER_INSTRUCTION }
+              : cue,
+            next,
+          },
           space,
           snapshot,
           progress.recent
@@ -842,7 +843,7 @@ const pursue = (params: PursueParameters) =>
           .pipe(
             Effect.mapError((cause) => systemOneFailure(cause, progress.recent))
           );
-        return { response, snapshot, space };
+        return { asksNext: next !== undefined, response, snapshot, space };
       });
 
     /** One decision for the step at `index`, and its action if it chose one. */
@@ -866,12 +867,13 @@ const pursue = (params: PursueParameters) =>
         let prefix = "";
         let snapshot: AgentBrowserSnapshot;
         let space: ActionSpace;
+        let asksNext = false;
         if (carried === null) {
           const consulted = yield* consult(index, cue, acted);
           if ("ending" in consulted) {
             return consulted;
           }
-          ({ response, snapshot, space } = consulted);
+          ({ asksNext, response, snapshot, space } = consulted);
         } else {
           ({ response, snapshot, space } = carried);
           prefix = NEXT;
@@ -883,11 +885,7 @@ const pursue = (params: PursueParameters) =>
         });
         if (decision.kind === "end") {
           // The same answer already says how the next step begins.
-          if (
-            decision.ending.ending === "done" &&
-            prefix === "" &&
-            index + 1 < cues.length
-          ) {
+          if (decision.ending.ending === "done" && asksNext) {
             lookahead = { response, snapshot, space };
           }
           return decision.ending;

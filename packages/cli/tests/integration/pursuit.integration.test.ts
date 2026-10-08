@@ -459,6 +459,19 @@ it.live(
               if (step === undefined) {
                 continue;
               }
+              if (step.includes("Close any popup")) {
+                answers[`${prefix}done`] = noul(0.95);
+                answers[`${prefix}operation`] = choice("BLOCKED");
+                continue;
+              }
+              if (step.includes('"Shop"')) {
+                answers[`${prefix}done`] = noul(0.1);
+                answers[`${prefix}operation`] = choice("CLICK");
+                answers[`${prefix}click_target`] = choice(
+                  indexOf(request, "link", "Shop")
+                );
+                continue;
+              }
               const adding = step.includes("Add Trail Hammer");
               answers[`${prefix}done`] = noul(
                 adding && pageShows(request, "Trail Hammer added to cart")
@@ -498,6 +511,33 @@ it.live(
           expect(result.steps[1]?.reason).toBe(
             "The Page shows what doneWhen describes."
           );
+          // A dismissing step narrows its choices to close controls, so its
+          // request does not choose the next step's first action.
+          const asked = systemOne.requests.length;
+          const dismissed = yield* pursue(started.id, "steps-dismiss", {
+            steps: [
+              {
+                doneWhen: "No popup covers the page.",
+                goal: "Close any popup that covers the page.",
+              },
+              {
+                doneWhen:
+                  'The page shows "Tools for the trail and the workshop".',
+                goal: 'Select "Shop" in the store navigation.',
+              },
+            ],
+          });
+          expect(dismissed.steps.map((step) => step.ending)).toEqual([
+            "done",
+            "done",
+          ]);
+          const [narrowed, following] = systemOne.requests.slice(asked);
+          expect(Object.keys(narrowed?.questions ?? {})).not.toContain(
+            "next_operation"
+          );
+          expect(following?.questions["operation"]).toBeDefined();
+          expect(dismissed.actions.map((action) => action.step)).toEqual([2]);
+
           // Each step of the one call is its own record on the Run.
           const summary = yield* runTool("agent_run_complete", {
             operationId: operation("steps-complete"),
@@ -509,6 +549,8 @@ it.live(
           expect(
             summary.pursuits?.map((pursuit) => [pursuit.step, pursuit.ending])
           ).toEqual([
+            [1, "done"],
+            [2, "done"],
             [1, "done"],
             [2, "done"],
           ]);
