@@ -3,7 +3,15 @@ import path from "node:path";
 import { FlowSkillName, TaskAgentRunSummary } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import {
+  Cause,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  PlatformError,
+  Schema,
+} from "effect";
 
 import {
   CatalogBrowser,
@@ -424,3 +432,186 @@ it.effect("lists a skill as unverified when its stamp cannot be read", () =>
     ]);
   }).pipe(Effect.provide(NodeServices.layer))
 );
+
+/** Three independent JSON documents, alongside the healthy seeded history. */
+const extraDocuments = (root: string) =>
+  [
+    path.join(root, "agent-runs", "agentrun-extra", "summary.json"),
+    path.join(root, ".recordings", "recording-extra", "manifest.json"),
+    path.join(
+      root,
+      ".recordings",
+      "recording-extra",
+      "dry-run",
+      "summary.json"
+    ),
+  ] as const;
+
+const seedExtraDocuments = (root: string) =>
+  Effect.gen(function* seedDocuments() {
+    yield* seedLocal(root);
+    const [run, recording, dryRun] = extraDocuments(root);
+    yield* writeJson(run, JSON.stringify(encodeSummary(taskRunSummary)));
+    yield* writeJson(
+      recording,
+      JSON.stringify(manifest("recording-extra", "draft-cart"))
+    );
+    yield* writeJson(dryRun, JSON.stringify(dryRunSummary("recording-extra")));
+  });
+
+const browseWith = (
+  root: string,
+  fileSystem: FileSystem.FileSystem,
+  global?: string
+) =>
+  Effect.gen(function* browseAdapted() {
+    const browser = yield* CatalogBrowser;
+    return yield* browser.browse();
+  }).pipe(
+    Effect.provide(browserFor(root, global)),
+    Effect.provideService(FileSystem.FileSystem, fileSystem)
+  );
+
+for (const reason of ["PermissionDenied", "Busy", "Unknown"] as const) {
+  it.effect(
+    `counts ${reason} JSON read failures once and keeps healthy neighbors`,
+    () =>
+      Effect.gen(function* typedReadFailures() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        yield* seedExtraDocuments(root);
+        const targets = extraDocuments(root);
+        const result = yield* browseWith(root, {
+          ...fs,
+          readFileString: (file, encoding) =>
+            targets.includes(file)
+              ? Effect.fail(
+                  PlatformError.systemError({
+                    _tag: reason,
+                    method: "readFileString",
+                    module: "FileSystem",
+                  })
+                )
+              : fs.readFileString(file, encoding),
+        });
+        expect(result.roots[0]?.unreadable).toBe(4);
+        expect(result.roots[0]?.flowSkills).toHaveLength(2);
+        expect(result.roots[0]?.runs).toHaveLength(2);
+        expect(result.roots[0]?.recordings).toHaveLength(1);
+      }).pipe(Effect.provide(NodeServices.layer))
+  );
+}
+
+it.effect("treats deletion at read time as absent on every JSON path", () =>
+  Effect.gen(function* readRaces() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    yield* seedExtraDocuments(root);
+    const targets = extraDocuments(root);
+    const result = yield* browseWith(root, {
+      ...fs,
+      readFileString: (file, encoding) =>
+        Effect.gen(function* deleteBeforeRead() {
+          if (targets.includes(file)) {
+            yield* fs.remove(file);
+          }
+          return yield* fs.readFileString(file, encoding);
+        }),
+    });
+    expect(result.roots[0]?.unreadable).toBe(1);
+    expect(result.roots[0]?.runs).toHaveLength(2);
+    expect(result.roots[0]?.recordings).toHaveLength(1);
+    for (const target of targets) {
+      expect(yield* fs.exists(target)).toBe(false);
+    }
+  }).pipe(Effect.provide(NodeServices.layer))
+);
+
+for (const contents of ["{", '{"schemaVersion":99}']) {
+  it.effect(
+    `counts each malformed JSON or schema document once: ${contents}`,
+    () =>
+      Effect.gen(function* invalidDocuments() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        yield* seedExtraDocuments(root);
+        for (const file of extraDocuments(root)) {
+          yield* fs.writeFileString(file, contents);
+        }
+        const result = yield* browseWith(root, fs);
+        expect(result.roots[0]?.unreadable).toBe(4);
+        expect(result.roots[0]?.runs).toHaveLength(2);
+        expect(result.roots[0]?.recordings).toHaveLength(1);
+      }).pipe(Effect.provide(NodeServices.layer))
+  );
+}
+
+for (const failure of ["defect", "interruption"] as const) {
+  it.effect(`preserves ${failure} from each JSON read`, () =>
+    Effect.gen(function* preserveCause() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      yield* seedExtraDocuments(root);
+      for (const target of extraDocuments(root)) {
+        const result = yield* Effect.exit(
+          browseWith(root, {
+            ...fs,
+            readFileString: (file, encoding) => {
+              if (file !== target) {
+                return fs.readFileString(file, encoding);
+              }
+              return failure === "defect"
+                ? Effect.die("read defect")
+                : Effect.interrupt;
+            },
+          })
+        );
+        expect(Exit.isFailure(result)).toBe(true);
+        if (Exit.isFailure(result)) {
+          expect(
+            failure === "defect"
+              ? Cause.hasDies(result.cause)
+              : Cause.hasInterrupts(result.cause)
+          ).toBe(true);
+        }
+      }
+    }).pipe(Effect.provide(NodeServices.layer))
+  );
+}
+
+for (const scope of ["local", "global"] as const) {
+  it.effect(`keeps ${scope} root enumeration failures fatal`, () =>
+    Effect.gen(function* fatalRoot() {
+      const fs = yield* FileSystem.FileSystem;
+      const workspace = yield* fs.makeTempDirectoryScoped();
+      const local = path.join(workspace, "local");
+      const global = path.join(workspace, "global");
+      yield* seedLocal(local);
+      yield* writeSkill(global, "staging-login", true);
+      const target = scope === "local" ? local : global;
+      const error = yield* Effect.flip(
+        browseWith(
+          local,
+          {
+            ...fs,
+            readDirectory: (directory, options) =>
+              directory === target
+                ? Effect.fail(
+                    PlatformError.systemError({
+                      _tag: "PermissionDenied",
+                      method: "readDirectory",
+                      module: "FileSystem",
+                    })
+                  )
+                : fs.readDirectory(directory, options),
+          },
+          global
+        )
+      );
+      expect(error).toMatchObject({
+        _tag: "CatalogBrowserError",
+        code: "catalog_io",
+      });
+    }).pipe(Effect.provide(NodeServices.layer))
+  );
+}

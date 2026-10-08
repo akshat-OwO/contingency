@@ -177,6 +177,10 @@ type Read<A> =
   | { readonly _tag: "read"; readonly value: A }
   | { readonly _tag: "unreadable" };
 
+const documentReadFailure = (error: PlatformError): Read<never> => ({
+  _tag: error.reason._tag === "NotFound" ? "absent" : "unreadable",
+});
+
 const readValues = <A>(entries: readonly Read<A>[]): readonly A[] =>
   entries.flatMap((entry) => (entry._tag === "read" ? [entry.value] : []));
 
@@ -207,26 +211,21 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
   });
 
   /**
-   * One JSON document. A file still being written, or one written by a
-   * version this one cannot decode, is unreadable rather than fatal: one bad
-   * Run must not hide the rest of the catalog.
+   * One JSON document. Missing files are absent, including read races.
+   * Typed read and decode failures count once as unreadable; defects and
+   * interruption still escape. Root enumeration uses its own fatal handler.
    */
   const readJson = <A>(
     file: string,
     decode: (contents: string) => Effect.Effect<A, Schema.SchemaError>
-  ): Effect.Effect<Read<A>, CatalogBrowserError> =>
+  ): Effect.Effect<Read<A>> =>
     Effect.gen(function* readDocument() {
-      if (!(yield* exists(file))) {
-        return { _tag: "absent" } as const;
-      }
-      const contents = yield* fileSystem
-        .readFileString(file)
-        .pipe(Effect.mapError(ioError(`Could not read ${file}`)));
+      const contents = yield* fileSystem.readFileString(file);
       return yield* decode(contents).pipe(
         Effect.map((value) => ({ _tag: "read", value }) as const),
         Effect.orElseSucceed(() => ({ _tag: "unreadable" }) as const)
       );
-    });
+    }).pipe(Effect.orElseSucceed(documentReadFailure));
 
   /**
    * A listing reads only what a list entry shows: SKILL.md, and the

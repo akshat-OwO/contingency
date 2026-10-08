@@ -610,42 +610,64 @@ export const SkillsDrawer = ({
     );
   }
   const { roots } = result.value;
+  const unreadable = roots.reduce((count, root) => count + root.unreadable, 0);
+  const warning =
+    unreadable === 0 ? null : (
+      <p
+        className="text-muted-foreground m-3 flex items-start gap-2 text-xs"
+        role="status"
+      >
+        <CircleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
+        <span>
+          {unreadable} catalog {unreadable === 1 ? "document" : "documents"}{" "}
+          could not be read.
+        </span>
+      </p>
+    );
   if (
     roots.every((root) => root.flowSkills.length === 0) &&
     skills.pending === undefined
   ) {
-    return <NoSkillsAnywhere session={session} />;
+    return (
+      <>
+        {warning}
+        <NoSkillsAnywhere session={session} />
+      </>
+    );
   }
   const folder = chosen ?? defaultFolder(roots, skills);
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[14rem_minmax(0,1fr)]">
-      <CatalogColumn
-        folder={folder}
-        onFolder={setChosen}
-        query={query}
-        roots={roots}
-        setQuery={setQuery}
-        skills={skills}
-      />
-      <section
-        aria-label={folder?.kind === "skill" ? folder.name : "Runs"}
-        className="flex min-h-0 flex-col"
-      >
-        <h2 className="text-muted-foreground border-b px-3 py-2 text-xs font-medium tracking-wide uppercase">
-          {folder?.kind === "skill" ? folder.name : "Other runs"}
-        </h2>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ContentsColumn
-            folder={folder}
-            onClearQuery={() => {
-              setQuery("");
-            }}
-            query={query}
-            roots={roots}
-            skills={skills}
-          />
-        </div>
-      </section>
-    </div>
+    <>
+      {warning}
+      <div className="grid min-h-0 flex-1 grid-cols-[14rem_minmax(0,1fr)]">
+        <CatalogColumn
+          folder={folder}
+          onFolder={setChosen}
+          query={query}
+          roots={roots}
+          setQuery={setQuery}
+          skills={skills}
+        />
+        <section
+          aria-label={folder?.kind === "skill" ? folder.name : "Runs"}
+          className="flex min-h-0 flex-col"
+        >
+          <h2 className="text-muted-foreground border-b px-3 py-2 text-xs font-medium tracking-wide uppercase">
+            {folder?.kind === "skill" ? folder.name : "Other runs"}
+          </h2>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ContentsColumn
+              folder={folder}
+              onClearQuery={() => {
+                setQuery("");
+              }}
+              query={query}
+              roots={roots}
+              skills={skills}
+            />
+          </div>
+        </section>
+      </div>
+    </>
   );
 };
