@@ -723,7 +723,10 @@ const DevtoolsNetworkPanel = ({
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                   draggable={onAttach !== undefined}
                   onDragStart={(event) =>
-                    dragAttachment(event, requestAttachment(request))
+                    dragAttachment(
+                      event,
+                      requestAttachment(request, { purpose: "context" })
+                    )
                   }
                   title={request.url}
                 >
@@ -756,7 +759,11 @@ const DevtoolsNetworkPanel = ({
                       aria-label={`Attach ${request.method} ${requestName(request.url)}`}
                       size="icon-xs"
                       variant="ghost"
-                      onClick={() => onAttach(requestAttachment(request))}
+                      onClick={() =>
+                        onAttach(
+                          requestAttachment(request, { purpose: "context" })
+                        )
+                      }
                     >
                       <PaperclipIcon />
                     </Button>

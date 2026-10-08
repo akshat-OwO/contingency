@@ -9,17 +9,25 @@ import type { DragEvent } from "react";
 export const attachmentMime = "application/x-contingency-browser-attachment";
 export const requestAttachment = (
   request: BrowserNetworkRequest,
-  path: readonly (string | number)[] = [],
-  expected?: Schema.Json
+  intent:
+    | { readonly purpose: "context" }
+    | {
+        readonly purpose: "requirement";
+        readonly path: readonly (string | number)[];
+        readonly expected: Schema.Json;
+      }
 ): TeachingBrowserAttachment => {
+  const path = intent.purpose === "requirement" ? intent.path : [];
   const url = new URL(request.url);
   const id = globalThis.crypto.randomUUID();
   const array = path.findLastIndex((segment) => Predicate.isNumber(segment));
   const expectedValue = Schema.decodeUnknownOption(
     Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Null])
-  )(expected).pipe(Option.getOrUndefined);
+  )(intent.purpose === "requirement" ? intent.expected : undefined).pipe(
+    Option.getOrUndefined
+  );
   const check: BrowserCheck = {
-    demonstrated: path.length > 0,
+    demonstrated: intent.purpose === "requirement",
     expectation: {
       itemPath:
         array === -1
@@ -54,12 +62,14 @@ export const requestAttachment = (
     timeoutMs: 10_000,
     when: "After the triggering action",
   };
-  return {
+  const attachment: TeachingBrowserAttachment = {
     candidate: check,
     id,
     label: `${request.method} ${url.pathname}${path.length === 0 ? "" : ` · ${path.join(".")}`}`,
-    requirement: path.length === 0 ? undefined : check,
   };
+  return intent.purpose === "requirement"
+    ? { ...attachment, requirement: check }
+    : attachment;
 };
 export const storageAttachment = (
   origin: string,

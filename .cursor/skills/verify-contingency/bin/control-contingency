@@ -1528,6 +1528,22 @@ const cmdFixtureServe = async () => {
   const server = createHttpServer((request, response) => {
     const url = request.url ?? "/";
     const { pathname, searchParams } = new URL(url, "http://127.0.0.1");
+    if (pathname.startsWith("/browser-check-scalar/")) {
+      const mismatch = searchParams.has("mismatch");
+      const values = mismatch
+        ? { string: "pending", boolean: false, number: 43, null: "not null" }
+        : { string: "ready", boolean: true, number: 42, null: null };
+      const kind = pathname.slice("/browser-check-scalar/".length);
+      if (!Object.hasOwn(values, kind)) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      const body = JSON.stringify(values[kind]);
+      response.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+      response.end(body);
+      return;
+    }
     if (pathname === "/browser-check-response") {
       const phase = searchParams.get("phase") === "ready" ? "ready" : "pending";
       const body = JSON.stringify({ order: { status: phase, items: [{ sku: "ANVIL-001", count: 2 }, { sku: "ROPE-001", count: 1 }] }, token: "fixture-private-token" });
