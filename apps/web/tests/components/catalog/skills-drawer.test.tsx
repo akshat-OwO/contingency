@@ -666,3 +666,56 @@ test("resizing keeps the focused navigation view and selected folder usable", as
   ).toHaveFocus();
   expect(screen.queryByRole("region", { name: "Catalog" })).toBeNull();
 });
+
+test("narrow no-match recovery retains the chosen folder and restores history", async () => {
+  probeWidth = 0;
+  rpc.browse = browse([
+    decodeRoot({
+      ...local,
+      recordings: [
+        recording,
+        {
+          ...recording,
+          flowSkillName: "deleted-cart",
+          recordingId: "recording-orphan",
+        },
+      ],
+    }),
+    global,
+  ]);
+  render(
+    <TestRegistry>
+      <SkillsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Back to catalog" })
+  );
+  await userEvent.type(screen.getByLabelText("Filter skills"), "nothing");
+  expect(screen.getByText("Nothing here matches “nothing”.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Show all skills" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Other runs/u })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: /Other recordings/u })
+  ).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+  expect(screen.getByLabelText("Filter skills")).toHaveValue("");
+  expect(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: /Other runs/u })).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: /Other recordings/u })
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  await userEvent.click(
+    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+  );
+  expect(
+    screen.getByRole("heading", { name: "Ridgeline Boulder cart" })
+  ).toHaveFocus();
+  expect(screen.getByRole("button", { name: "SKILL.md" })).toBeVisible();
+});
