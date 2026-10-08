@@ -34,6 +34,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-task-combined-proof` composes partial flow1 with flow2 in one session, redirects the task, recovers after a finding, and checks lazy skill-scoped values, Domain Scope, per-attempt confirmation, priority Takeover, and operation replay.
 - `agent-dry-run-outcomes` retains evidence for failed, partial, and Takeover attempts, exposes verification only for a complete report without Takeover, retains rejected evidence, and resumes verified Cleanup after restart.
 - `agent-summary-restart-proof` reopens a task summary and an isolated historical version 2 fixture after restart, preserves Step assessments and timeout meaning, and serves both retained videos.
+- `agent-system-one-pursuit` lists `agent_browser_pursue` only when `CONTINGENCY_SYSTEM_ONE_URL` is set, pursues an ordered list of Flow Skill steps through a System One endpoint in one call, replays the same operation id without acting again, and shows each step in the Run Summary's `System One Pursuits` section (ADR 0057).
 - `agent-mcp-efficiency` keeps `tools/list` under its byte budget, answers session-returning tools with `view:"compact"`, pages omitted history with `agent_session_history_get`, performs a bounded `agent_browser_act_sequence`, and marks read-only tools with MCP hints (ADR 0045).
 - `agent-assessment-evidence-contract` publishes a typed evidence array for Agent Assessments, accepts Snapshot and attempt references, and explains the required object shape when an item is malformed.
 - `agent-teaching-inspect-large-cart` selects live controls and bill text beyond the first 300 snapshot nodes, shows a retry notice for an empty point, and records the selected subjects.
@@ -420,6 +421,40 @@ Preconditions: the current CLI build, an isolated `control-contingency launch`, 
 - **Compare bytes.** `metrics.json` compares average `agent_session_get` bytes with the published ADR 0045 full-view task proof. The two scenarios differ; the comparison does not measure token use or task success.
 - **Clean up.** Run `nub .cursor/skills/verify-contingency/bin/control-contingency cleanup`. Require `doctor` to report that the owned processes stopped. Artifacts survive cleanup.
 
+### System One Pursuits
+
+Preconditions: launch, doctor, and ecommerce are running in the isolated verification directory. A System One endpoint is serving `POST /v1/systemone`. For a free local run, start Nev as its model card describes, on port 8009. For hosted Jev, use `https://api.typesafe.ai` and keep the key in your shell, never in a file. Write a disposable verified `pursuit-delivery` package to `$CONTINGENCY_VERIFY_DIR/state/catalog/pursuit-delivery/`:
+
+- `SKILL.md` declares lowercase `city` and `area` inputs and host `127.0.0.1`.
+- `references/verification.md` has a `- Verified:` timestamp.
+
+Uppercase input names are private Variables, so they cannot be passed as ordinary `inputs`.
+
+- **Start MCP with System One.** Run `CONTINGENCY_SYSTEM_ONE_URL=http://127.0.0.1:8009 CONTINGENCY_SYSTEM_ONE_MODEL=kev-latest control-contingency mcp start`. For Jev, set `CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai` and `CONTINGENCY_SYSTEM_ONE_API_KEY`, and leave the model at its default. `mcp start` passes the shell's environment to the server.
+- **Catalog with the tool.** Run `control-contingency mcp tools > artifacts/system-one-pursuit/tools.json`. It lists 36 tools, including `agent_browser_pursue`.
+- **Start the Run.** Call `agent_run_start` with:
+  - `referencedSkills:["pursuit-delivery"]`;
+  - `inputs` `city` Boulder and `area` Pearl Street, both scoped to that skill;
+  - `url` set to `$ECOMMERCE_URL`.
+
+  Export its `id`.
+
+- **Pursue the whole journey.** Call `agent_browser_pursue` with `flowSkillName:"pursuit-delivery"`, a fresh `operationId`, and six `steps`. Give one field per step, and quote only text that appears verbatim:
+  1. `Select "Choose delivery area".` Done when: `The page shows "Select manually".`
+  2. `Select "Select manually".` Done when: `The page shows "Search for your delivery area".`
+  3. `Type Boulder in the City field.` Done when: `The City field holds "Boulder".`
+  4. `Type Pearl Street in "Search for your delivery area".` Done when: `The delivery area field holds "Pearl Street".`
+  5. `Select "Confirm delivery area".` Done when: `The status reads "Delivering to Pearl Street, Boulder".`
+  6. `Select "Add Giant anvil to cart".` Done when: `The cart status reads "1 item in cart".`
+
+  Save the answer as `artifacts/system-one-pursuit/pursue.json`. With Nev it takes about 8 seconds. `ending` is `done`, and `steps` has six `done` entries whose reasons read `The Page shows what doneWhen describes.` `actions` holds one attempt per step, each with its `step`, `operationId` `<id>/<n>`, and `confidence`. No literal input value appears except the ordinary `city` and `area`.
+
+- **Replay.** Repeat the call unchanged. It answers at once with the same attempt ids and acts on nothing. The same id with different `steps` is refused with `agent_session_conflict`.
+- **Watch it live.** Before completing, open `$mcpUrl?session=<id>` and capture `artifacts/system-one-pursuit/live-run.png`. The shop shows `Delivering to Pearl Street, Boulder` and `1 item in cart`.
+- **Proof (Run Summary).** Complete the Run with `agent_run_complete`. The summary's `pursuits` list has steps 1 to 6, each `done` with its goal, `doneWhen`, reason, and attempt ids. Then open `$mcpUrl?run=<runId>` and run `control-contingency browser wait --role region --name "System One Pursuits"`. Capture `system-one-pursuit/summary.aria.txt` and `summary.png`. The region lists each step's ending, its goal, its reason, and a `Model-chosen attempts` list with the attempt id and the operation, target, and value percentages.
+- **Without an endpoint.** Run `mcp stop`, then `env -u CONTINGENCY_SYSTEM_ONE_URL control-contingency mcp start`, then `mcp tools`. There are 35 tools, without `agent_browser_pursue`.
+- **Cleanup.** Run `cleanup`. The `system-one-pursuit` artifacts survive.
+
 ### Claude Code channels
 
 Launch and run `doctor`, then start the ecommerce fixture. Start the broker with `CONTINGENCY_MCP_CHANNEL=true nub .cursor/skills/verify-contingency/bin/control-contingency mcp start`. Run `mcp channels` and require `capabilities.experimental["claude/channel"]` to be `{}`. Follow the Session Events recipe through `start`, `handoff`, recording, `learn`, and `pass`. Use the shared preview for the Workspace actions.
@@ -468,6 +503,10 @@ Stop the disposable Claude process and run `cleanup`. Require artifacts to survi
 - Browser setup writes need the user to hold the browser, and Emulation changes need a Teaching session. An Interactive Run reproduces the Emulation the Flow Skill was demonstrated under, so `agent.browser.emulation.set` is refused there even during Takeover.
 - The setup panel names the Agent Session, never a browser session id. There is no generic `browser.*` route into an Agent Session's browser.
 - A saved Flow Skill is not verified coverage. `agent_flow_skill_decide` with `decision:"verify"` is the only call that purges the Teaching Recording, and only the user's **Verify flow** choice authorizes it.
+
+- A Pursuit's quoted `doneWhen` text is matched literally. Quote text the Page never shows, such as `1 items in cart` for `1 item in cart`, and the step never confirms. System One then repeats its action until the third identical action ends it as `unsure`, so a cart button is pressed twice.
+- Give a Pursuit one field per step. Asked to fill City and area in one step, Nev typed the city into the area field twice.
+- System One answers differ between models and endpoints. Use Nev or Jev to prove the contract: the endings, code-read outcomes, replay, and the Run Summary. Do not treat one model's choices as product behaviour.
 
 ### Required scans
 

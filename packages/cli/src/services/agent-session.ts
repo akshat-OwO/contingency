@@ -6708,7 +6708,10 @@ const makeAgentSession = (
       recordPursuit: (sessionId, pursuit) =>
         taskMutation(
           sessionId,
-          OperationId.make(`${pursuit.operationId}:record`),
+          // Each step of one call keeps its own record.
+          OperationId.make(
+            `${pursuit.operationId}:record:${pursuit.step ?? 1}`
+          ),
           "task-pursuit",
           JSON.stringify(pursuit),
           (_record, run) =>

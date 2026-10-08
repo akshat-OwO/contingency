@@ -498,6 +498,20 @@ it.live(
           expect(result.steps[1]?.reason).toBe(
             "The Page shows what doneWhen describes."
           );
+          // Each step of the one call is its own record on the Run.
+          const summary = yield* runTool("agent_run_complete", {
+            operationId: operation("steps-complete"),
+            sessionId: started.id,
+          });
+          if (!("schemaVersion" in summary) || summary.schemaVersion !== 3) {
+            return yield* Effect.die("Expected a task Run Summary.");
+          }
+          expect(
+            summary.pursuits?.map((pursuit) => [pursuit.step, pursuit.ending])
+          ).toEqual([
+            [1, "done"],
+            [2, "done"],
+          ]);
         }).pipe(
           Effect.provide(
             Layer.mergeAll(

@@ -117,6 +117,8 @@ For the combined task, authority, input, Dry Run, and restart proof, follow [the
 
 `mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Workspace. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits nonzero. The same broker answers `mcp resources` and `mcp resource --uri <uri>`, which is how a drive reads the authoring skills Contingency serves to a learning agent.
 
+`mcp start` passes the shell's environment to the server. Set `CONTINGENCY_SYSTEM_ONE_URL`, and for a hosted endpoint `CONTINGENCY_SYSTEM_ONE_API_KEY`, on that command to expose `agent_browser_pursue`; follow the System One Pursuits recipe in `features/workspace.md`.
+
 Run `mcp channels` to read the broker's bounded channel-frame capture and the server's initialized capabilities. Set `CONTINGENCY_MCP_CHANNEL=true` on `mcp start` to opt in. Follow the Claude Code channels recipe in `features/workspace.md` for frame readback and idle-agent proof.
 
 Run `mcp tools --name <name>` to inspect one tool's raw `tools/list` entry from that same MCP process. Omit `--name` to read the full list.
