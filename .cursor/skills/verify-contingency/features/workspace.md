@@ -265,6 +265,7 @@ The harness points `CONTINGENCY_GLOBAL_CATALOG_ROOT` at `<stateDir>/global-catal
 - **Hidden while capturing.** With the drawer open, click `Start recording`: the drawer closes and the dock has no `Skills` button. After `Stop recording` the button returns and the drawer stays closed.
 - **Filter.** Type into `Filter skills` a word no skill name contains. Require `No skill matches “<word>”` and the button `Show all skills`, which clears the filter.
 - **Proof.** Capture `workspace/skills-drawer.aria.txt` and `.png` with the drawer and `Details` open, and `workspace/skills-drawer-empty.png` for the empty catalog.
+- **Procedure wrapping.** Create `$CONTINGENCY_VERIFY_DIR/state/catalog/`, then copy `fixtures/procedure-wrapping/` into it. Reopen the drawer and select its `SKILL.md`. Run `browser procedure-check --skill-file "$CONTINGENCY_VERIFY_DIR/state/catalog/procedure-wrapping/SKILL.md" --path procedure-wrapping/<width>-<scale> --text-scale <scale>` after `browser resize` at 320, 390, and 1280px, with scales 1 and 2. Require `ok: true`: every instruction and Done when character matches the saved source and stays within its paragraph and viewport. The helper retains per-paragraph screenshots, ARIA, and glyph measurements. Reopen Files, confirm its code viewer still scrolls, and compare the saved file with the fixture before cleanup.
 
 ### Teaching private Variables
 

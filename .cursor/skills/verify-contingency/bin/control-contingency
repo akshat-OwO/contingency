@@ -60,6 +60,7 @@ Commands:
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
+  browser procedure-check --skill-file <file> --path <directory> [--text-scale <1|2>]
   browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>
   browser download --role <role> --name <name> --path <file> [--partial]
   cli -- <contingency args...>
@@ -626,6 +627,144 @@ const runPageAction = async (page, appUrl, action, flags) => {
       }
       await target.waitFor({ state: "visible", timeout });
       return "";
+    }
+    case "procedure-check": {
+      const { Effect } = await import(
+        createRequire(import.meta.url).resolve("effect", {
+          paths: [path.join(repoRoot, "packages/cli")],
+        })
+      );
+      return Effect.runPromise(
+        Effect.tryPromise({
+          try: async () => {
+            if (
+              typeof flags["skill-file"] !== "string" ||
+              typeof flags.path !== "string"
+            ) {
+              throw new Error(
+                "browser procedure-check needs --skill-file and --path."
+              );
+            }
+            const source = readFileSync(
+              resolveInputFilePath(flags["skill-file"]),
+              "utf8"
+            );
+            const expected = [
+              ...source.matchAll(/^\d+\. (.+?)\s+Done when: (.+)$/gm),
+            ].map(([, instruction, doneWhen]) => [
+              instruction.trim(),
+              `Done when: ${doneWhen}`,
+            ]);
+            if (expected.length === 0) {
+              throw new Error(
+                "procedure-check needs the one-line steps in the procedure-wrapping fixture."
+              );
+            }
+            const scale = Number(flags["text-scale"] ?? 1);
+            if (scale !== 1 && scale !== 2) {
+              throw new Error("procedure-check text scale must be 1 or 2.");
+            }
+            await page.evaluate((value) => {
+              document.documentElement.style.fontSize = `${16 * value}px`;
+            }, scale);
+            await page
+              .getByRole("tabpanel", { name: "Procedure", exact: true })
+              .waitFor();
+            await page.evaluate(() => document.fonts.ready);
+            const paragraphs = page
+              .getByRole("tabpanel", { name: "Procedure", exact: true })
+              .locator("li p");
+            await paragraphs.first().scrollIntoViewIfNeeded();
+            const result = await paragraphs.evaluateAll((elements) =>
+              elements.map((element) => {
+                const bounds = element.getBoundingClientRect();
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT
+                );
+                const clipped = [];
+                let characters = 0;
+                while (walker.nextNode()) {
+                  const node = walker.currentNode;
+                  for (
+                    let offset = 0;
+                    offset < node.textContent.length;
+                    offset += 1
+                  ) {
+                    const range = document.createRange();
+                    range.setStart(node, offset);
+                    range.setEnd(node, offset + 1);
+                    for (const rect of range.getClientRects()) {
+                      if (
+                        rect.left < bounds.left - 1 ||
+                        rect.right > bounds.right + 1 ||
+                        rect.left < -1 ||
+                        rect.right > innerWidth + 1 ||
+                        rect.top < bounds.top - 1 ||
+                        rect.bottom > bounds.bottom + 1
+                      ) {
+                        clipped.push({
+                          character: node.textContent[offset],
+                          left: rect.left,
+                          right: rect.right,
+                        });
+                      }
+                    }
+                    characters += 1;
+                  }
+                }
+                return {
+                  characters,
+                  clipped,
+                  text: element.textContent,
+                  width: bounds.width,
+                };
+              })
+            );
+            const destination = resolveEvidencePath(flags.path);
+            mkdirSync(destination, { recursive: true });
+            const actual = result.map((entry) => entry.text);
+            const textMatches =
+              JSON.stringify(actual) === JSON.stringify(expected.flat());
+            const ok =
+              textMatches &&
+              result.every(
+                (entry) => entry.clipped.length === 0 && entry.width > 0
+              );
+            writeFileSync(
+              path.join(destination, "result.json"),
+              `${JSON.stringify({ ok, scale, textMatches, result }, null, 2)}\n`
+            );
+            writeFileSync(
+              path.join(destination, "procedure.aria.txt"),
+              `${await page.locator("body").ariaSnapshot()}\n`
+            );
+            for (
+              let index = 0;
+              index < (await paragraphs.count());
+              index += 1
+            ) {
+              await paragraphs.nth(index).scrollIntoViewIfNeeded();
+              await page.screenshot({
+                path: path.join(destination, `paragraph-${index + 1}.png`),
+              });
+            }
+            if (!ok) {
+              throw new Error(
+                `Procedure text changed or clipped. Read ${destination}/result.json.`
+              );
+            }
+            return JSON.stringify({
+              ok,
+              paragraphs: result.length,
+              scale,
+              destination,
+            });
+          },
+          catch: (cause) =>
+            cause instanceof Error ? cause : new Error(String(cause)),
+        })
+      );
     }
     case "snapshot": {
       if (flags.aria !== true && flags.aria !== "true") {
