@@ -101,3 +101,14 @@ it("confirms an absence only for text shown when the step started", () => {
     quotedOutcome(doneWhen, page("Your cart"), page("Demo fault", "Restore"))
   ).toBe(true);
 });
+
+it("confirms once one phrase changes, beside one already shown", () => {
+  // The Shop page already says "your cart"; only the cart page is empty.
+  const doneWhen =
+    'The "Your cart" page shows whether it lists the saw. It reads "Your cart is empty."';
+  const start = page("Add tools to your cart.");
+  expect(
+    quotedOutcome(doneWhen, page("Your cart", "Your cart is empty."), start)
+  ).toBe(true);
+  expect(quotedOutcome(doneWhen, page("Your cart"), start)).toBe(false);
+});

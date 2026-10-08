@@ -393,9 +393,9 @@ const phrasesHold = (
  * What the phrases `doneWhen` quotes say about the step. A quoted phrase is
  * the outcome's literal text, so code reads it more reliably than a model
  * does. `false` when one does not hold. `true` when all hold and, given the
- * Page the step started on, none held there. `undefined` when `doneWhen`
- * quotes nothing, or when a phrase held from the start: text that was
- * already there says nothing about what the step did.
+ * Page the step started on, at least one did not hold there. `undefined`
+ * when `doneWhen` quotes nothing, or when every phrase held from the start:
+ * text that was already there says nothing about what the step did.
  */
 export const quotedOutcome = (
   doneWhen: string,
@@ -411,7 +411,7 @@ export const quotedOutcome = (
   }
   if (
     start !== undefined &&
-    phrasesHold(doneWhen, phrases, start).some(Boolean)
+    phrasesHold(doneWhen, phrases, start).every(Boolean)
   ) {
     return undefined;
   }
