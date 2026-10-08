@@ -5,13 +5,13 @@ import { registry as playwrightRegistry } from "playwright-core/lib/coreBundle";
 /**
  * How long a finalizing encoder may take to flush and exit before it is
  * killed. Closing a session scope must never hang the Agent Session, and a
- * VP8 encoder with a full frame queue still drains well inside this window.
+ * VP9 encoder with a full frame queue still drains well inside this window.
  */
 const ENCODER_EXIT_TIMEOUT_MS = 10_000;
 
 /**
  * Playwright's bundled ffmpeg. It is deliberately small: it reads MJPEG
- * (through `image2pipe` or Matroska) and VP8, writes VP8 webm, and has no
+ * (through `image2pipe` or Matroska) and VP9, writes VP9 webm, and has no
  * overlay, text, or retiming filters, so anything drawn into a video is drawn
  * before the frames reach it.
  */

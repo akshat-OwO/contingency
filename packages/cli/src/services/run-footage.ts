@@ -70,7 +70,7 @@ export interface RunFootageOptions {
   readonly viewport: Viewport;
 }
 
-/** VP8 wants even dimensions. */
+/** VP9 wants even dimensions. */
 const even = (value: number): number => Math.max(2, Math.floor(value / 2) * 2);
 
 interface Projection {
@@ -84,7 +84,7 @@ interface Projection {
  * Record a Run as it happens, from the same screencast the Workspace shows:
  * each frame keeps the moment Chromium painted it, so the agent's pointer and
  * its actions line up with the footage exactly. Frames are thinned to the
- * video's frame rate and encoded live, so a long Run costs VP8 bytes rather
+ * video's frame rate and encoded live, so a long Run costs VP9 bytes rather
  * than JPEG bytes. Capture never fails the Run: a Run without video is still
  * a Run, so a capture that cannot start leaves none.
  */

@@ -139,7 +139,7 @@ const ffmpegArguments = (
   "-enc_time_base",
   "1/1000",
   "-c:v",
-  "libvpx",
+  "libvpx-vp9",
   "-qmin",
   "0",
   "-qmax",
@@ -148,12 +148,17 @@ const ffmpegArguments = (
   "8",
   "-b:v",
   "1M",
-  // Match Playwright's live recorder: real-time VP8 does not compete with
-  // Chromium for CPU while a Run is still driving the browser.
+  // Match Playwright's live recorder: real-time VP9 does not compete with
+  // Chromium for CPU while a Run is still driving the browser, and it emits
+  // each frame as it arrives instead of holding a lookahead queue.
   "-deadline",
   "realtime",
   "-cpu-used",
   "8",
+  "-lag-in-frames",
+  "0",
+  "-row-mt",
+  "1",
   "-threads",
   "1",
   "-y",
@@ -188,7 +193,7 @@ interface EncoderState {
 }
 
 /**
- * A scoped ffmpeg process that turns timestamped JPEG frames into one VP8
+ * A scoped ffmpeg process that turns timestamped JPEG frames into one VP9
  * webm. Closing the scope without `finish` kills it: an unfinished file is
  * not worth waiting for.
  */
