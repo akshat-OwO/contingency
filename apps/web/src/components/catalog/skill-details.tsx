@@ -165,18 +165,18 @@ const SkillPackage = ({
           <ol className="space-y-4">
             {skill.steps.map((step, index) => (
               <li
-                className="grid grid-cols-[1.5rem_1fr] gap-x-2"
+                className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2"
                 key={step.description}
               >
                 <span className="text-muted-foreground text-sm tabular-nums">
                   {index + 1}.
                 </span>
-                <div className="space-y-1">
-                  <p className="text-sm leading-6">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm leading-6 wrap-anywhere">
                     {stepInstruction(step.description)}
                   </p>
                   {step.doneWhen === "" ? null : (
-                    <p className="border-l-2 border-emerald-500/50 pl-2 text-xs leading-5">
+                    <p className="border-l-2 border-emerald-500/50 pl-2 text-xs leading-5 wrap-anywhere">
                       <span className="font-medium">Done when:</span>{" "}
                       <span className="text-muted-foreground">
                         {step.doneWhen}
