@@ -14,6 +14,10 @@
 - Do not rely on remembered Effect APIs. Always inspect the source in `node_modules` for the installed Effect version before writing or changing Effect code.
 - Use Effect atom for atomic state management.
 
+## Tests
+
+- Read `docs/agents/testing.md` before writing a test, fixing a failing or flaky test, or changing a test's waits or timeouts.
+
 ## Ultracite standards
 
 - Write accessible, performant, type-safe, and maintainable code with clear, explicit intent.

@@ -16,8 +16,53 @@ export default defineConfig({
     "docs/prototypes/**",
     "apps/web/src/routeTree.gen.ts",
   ],
-  jsPlugins: jsPlugins.jsPlugins,
+  jsPlugins: [
+    ...jsPlugins.jsPlugins,
+    {
+      name: "contingency",
+      specifier: "./packages/lint-rules/src/index.mjs",
+    },
+  ],
   overrides: [
+    {
+      files: [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "apps/*/src/test/**",
+        "apps/*/tests/**",
+        "packages/*/tests/**",
+      ],
+      rules: { "contingency/no-test-wait": "error" },
+    },
+    {
+      // Tests that waited on real time before `no-test-wait` existed. This
+      // list only shrinks: a file leaves it once its waits read events.
+      files: [
+        "apps/web/tests/components/agent/agent-boundary-state.test.tsx",
+        "packages/cli/tests/benchmarks/browser-scroll.ts",
+        "packages/cli/tests/benchmarks/browser-streaming.ts",
+        "packages/cli/tests/helpers/teaching-recording-process.ts",
+        "packages/cli/tests/integration/agent-browser.integration.test.ts",
+        "packages/cli/tests/integration/agent-harness.ts",
+        "packages/cli/tests/integration/agent-session-transport.integration.test.ts",
+        "packages/cli/tests/integration/agent-session.integration.test.ts",
+        "packages/cli/tests/integration/browser-check-engine.integration.test.ts",
+        "packages/cli/tests/integration/browser-storage-checks.integration.test.ts",
+        "packages/cli/tests/integration/browser-streaming.integration.test.ts",
+        "packages/cli/tests/integration/create-browser.integration.test.ts",
+        "packages/cli/tests/integration/flow-skill-delivery.integration.test.ts",
+        "packages/cli/tests/integration/harness.ts",
+        "packages/cli/tests/integration/pursuit.integration.test.ts",
+        "packages/cli/tests/integration/run-video.integration.test.ts",
+        "packages/cli/tests/integration/teaching-keyframes.integration.test.ts",
+        "packages/cli/tests/integration/teaching-recording-learning.integration.test.ts",
+        "packages/cli/tests/integration/teaching-scroll.integration.test.ts",
+        "packages/cli/tests/integration/teaching-typing-burst.integration.test.ts",
+        "packages/cli/tests/services/debugging-endpoint.test.ts",
+        "packages/cli/tests/services/run-video-renderer.test.ts",
+      ],
+      rules: { "contingency/no-test-wait": "off" },
+    },
     {
       files: [
         "packages/cli/src/services/recorder-events.ts",
