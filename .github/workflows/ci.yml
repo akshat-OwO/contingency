@@ -56,11 +56,16 @@ jobs:
         run: gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
 
   integration:
-    name: Integration (real browser)
+    name: Integration (real browser, ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    # The suite launches a real Chromium per test file, so it is slower than
-    # everything above by an order of magnitude.
-    timeout-minutes: 20
+    # The suite launches a real Chromium per test file and runs its files one
+    # at a time, so it is split across runners by file. Every shard reports,
+    # so one failing shard still shows the others' results.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -87,4 +92,73 @@ jobs:
       - name: Check ffprobe is present
         run: ffprobe -version
 
-      - run: nub exec turbo run test:integration
+      - run: nub exec turbo run test:integration -- --shard=${{ matrix.shard }}/3
+
+  # A test that passes once can still be a coin flip on a CI runner. Every test
+  # file a PR adds or changes runs five times here, on the same runner class
+  # as the gate, and one failure fails the PR. See docs/agents/testing.md.
+  repeat-changed-tests:
+    name: Repeat changed tests
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Find changed test files
+        id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        # Paths come out relative to each package, ready for its Vitest.
+        run: |
+          list() {
+            git -C "$1" diff --relative --name-only --diff-filter=AMR \
+              "$BASE"...HEAD -- "${@:2}" | tr '\n' ' '
+          }
+          {
+            echo "cli=$(list packages/cli ':(glob)tests/**/*.test.ts' ':(exclude)tests/integration/**')"
+            echo "integration=$(list packages/cli ':(glob)tests/integration/*.test.ts')"
+            echo "web=$(list apps/web ':(glob)**/*.test.ts' ':(glob)**/*.test.tsx')"
+            echo "release=$(list packages/release ':(glob)tests/**/*.test.ts')"
+          } > "$RUNNER_TEMP/changed-tests"
+          if [ -n "$(cut -d= -f2- "$RUNNER_TEMP/changed-tests" | tr -d ' \n')" ]; then
+            echo "any=true" >> "$RUNNER_TEMP/changed-tests"
+          fi
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/changed-tests"
+
+      - uses: nubjs/setup-nub@v0
+        if: ${{ steps.changed.outputs.any == 'true' }}
+
+      - if: ${{ steps.changed.outputs.any == 'true' }}
+        run: nub ci
+
+      - if: ${{ steps.changed.outputs.any == 'true' }}
+        run: nub exec turbo run build
+
+      - name: Install Chromium and ffmpeg
+        if: ${{ steps.changed.outputs.integration != '' }}
+        run: |
+          nub exec --cwd packages/cli playwright-core install chromium
+          sudo apt-get install -y ffmpeg
+
+      - name: Repeat CLI unit tests
+        if: ${{ steps.changed.outputs.cli != '' }}
+        working-directory: packages/cli
+        run: nub exec vitest run --repeats 4 ${{ steps.changed.outputs.cli }}
+
+      - name: Repeat CLI integration tests
+        if: ${{ steps.changed.outputs.integration != '' }}
+        working-directory: packages/cli
+        run: nub exec vitest run --config vitest.integration.config.ts --repeats 4 ${{ steps.changed.outputs.integration }}
+
+      - name: Repeat web tests
+        if: ${{ steps.changed.outputs.web != '' }}
+        working-directory: apps/web
+        run: nub exec vitest run --repeats 4 ${{ steps.changed.outputs.web }}
+
+      - name: Repeat release tests
+        if: ${{ steps.changed.outputs.release != '' }}
+        working-directory: packages/release
+        run: nub exec vitest run --repeats 4 ${{ steps.changed.outputs.release }}
