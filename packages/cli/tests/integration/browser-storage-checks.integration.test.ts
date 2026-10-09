@@ -21,40 +21,46 @@ const order = JSON.stringify({
   },
 });
 
+/** A real Page on a loopback origin whose storage the checks read. */
+const storagePage = Effect.gen(function* openStoragePage() {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end("<title>Storage</title>");
+  });
+  yield* Effect.callback<boolean, Error>((resume) => {
+    server.once("error", (error) => resume(Effect.fail(error)));
+    server.listen(0, "127.0.0.1", () => resume(Effect.succeed(true)));
+  });
+  yield* Effect.addFinalizer(() =>
+    Effect.callback<boolean>((resume) => {
+      server.close(() => resume(Effect.succeed(true)));
+    })
+  );
+  const address = server.address();
+  if (address === null || Predicate.isString(address)) {
+    return yield* Effect.die("No fixture port");
+  }
+  const origin = `http://127.0.0.1:${address.port}`;
+  const browser = yield* CreateBrowser;
+  const viewport = { deviceScaleFactor: 1, height: 480, width: 640 };
+  const sessionId = yield* browser.create("create-storage", viewport, true);
+  yield* Effect.addFinalizer(() =>
+    browser.close(sessionId).pipe(Effect.ignore)
+  );
+  yield* browser.open(sessionId, origin, {
+    permissions: [],
+    userAgentProfile: UserAgentProfileId.make("chrome-mac"),
+    viewport,
+  });
+  const target = yield* browser.activeTarget(sessionId);
+  return { origin, target };
+});
+
 it.live(
   "evaluates raw and JSON local/session storage with raw change baselines",
   () =>
     Effect.gen(function* storageChecks() {
-      const server = createServer((_request, response) => {
-        response.writeHead(200, { "content-type": "text/html" });
-        response.end("<title>Storage</title>");
-      });
-      yield* Effect.callback<boolean, Error>((resume) => {
-        server.once("error", (error) => resume(Effect.fail(error)));
-        server.listen(0, "127.0.0.1", () => resume(Effect.succeed(true)));
-      });
-      yield* Effect.addFinalizer(() =>
-        Effect.callback<boolean>((resume) => {
-          server.close(() => resume(Effect.succeed(true)));
-        })
-      );
-      const address = server.address();
-      if (address === null || Predicate.isString(address)) {
-        return yield* Effect.die("No fixture port");
-      }
-      const origin = `http://127.0.0.1:${address.port}`;
-      const browser = yield* CreateBrowser;
-      const viewport = { deviceScaleFactor: 1, height: 480, width: 640 };
-      const sessionId = yield* browser.create("create-storage", viewport, true);
-      yield* Effect.addFinalizer(() =>
-        browser.close(sessionId).pipe(Effect.ignore)
-      );
-      yield* browser.open(sessionId, origin, {
-        permissions: [],
-        userAgentProfile: UserAgentProfileId.make("chrome-mac"),
-        viewport,
-      });
-      const target = yield* browser.activeTarget(sessionId);
+      const { origin, target } = yield* storagePage;
       const write = (kind: "local" | "session", value?: string) =>
         Effect.tryPromise(() =>
           target.page.evaluate(
@@ -275,4 +281,61 @@ it.live(
       Effect.provide(CreateBrowserLive),
       Effect.provide(NodeServices.layer)
     )
+);
+
+it.live("fails a storage check whose last read the deadline cut short", () =>
+  Effect.gen(function* deadlineCutRead() {
+    const { origin, target } = yield* storagePage;
+    // The baseline and the first watched read answer; every read after them
+    // stalls the Page past the check's deadline, as a busy CI renderer does.
+    yield* Effect.tryPromise(() =>
+      target.page.evaluate(() => {
+        const read = Storage.prototype.getItem;
+        let reads = 0;
+        Storage.prototype.getItem = function getItem(name) {
+          reads += 1;
+          if (reads > 2) {
+            const until = performance.now() + 3000;
+            while (performance.now() < until) {
+              // Hold the renderer the way a starved CI runner does.
+            }
+          }
+          return read.call(this, name);
+        };
+      })
+    );
+    const armed = yield* armBrowserChecks(
+      target,
+      [
+        {
+          check: {
+            change: "current",
+            demonstrated: false,
+            expectation: {
+              itemPath: [],
+              predicates: [{ operator: "exists", path: [] }],
+            },
+            format: "json",
+            id: "absent",
+            kind: "local",
+            name: "order",
+            origin,
+            timeoutMs: 1000,
+            when: "After the action",
+          },
+          flowSkillName: "storage",
+        },
+      ],
+      "deadline-cut"
+    );
+    armed.start();
+    const [result] = yield* armed
+      .wait()
+      .pipe(Effect.ensuring(Effect.sync(armed.dispose)));
+    expect(result?.status).toBe("failed");
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(CreateBrowserLive),
+    Effect.provide(NodeServices.layer)
+  )
 );
