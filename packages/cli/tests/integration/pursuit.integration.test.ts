@@ -6,7 +6,15 @@ import {
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import {
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
@@ -30,11 +38,13 @@ const exampleTool = makeCall(OnboardingTools);
 const pursueTool = makeCall(PursuitTools, "agent");
 
 type Questions = Omit<SystemOneRequest, "model">;
-type Answer = (request: Questions) => SystemOneResponse | "fail";
+type Answer = (request: Questions) => SystemOneResponse | "fail" | "hang";
 
 /** The answerer the current Pursuit is scripted with. */
 interface Script {
   answer: Answer;
+  /** Completed with the request left unanswered. */
+  hung: Deferred.Deferred<Questions>;
 }
 
 /**
@@ -47,12 +57,18 @@ const scripted = () => {
     answer: () => {
       throw new Error("No System One answer was scripted.");
     },
+    hung: Deferred.makeUnsafe<Questions>(),
   };
   const layer = Layer.succeed(SystemOne, {
     ask: (request) =>
       Effect.suspend(() => {
         requests.push(request);
         const response = state.answer(request);
+        if (response === "hang") {
+          return Deferred.succeed(state.hung, request).pipe(
+            Effect.andThen(Effect.never)
+          );
+        }
         return response === "fail"
           ? Effect.fail(new SystemOneError({ message: "Endpoint offline." }))
           : Effect.succeed(response);
@@ -618,6 +634,114 @@ it.live(
             [1, "done"],
             [2, "done"],
           ]);
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              OnboardingToolHandlersLive,
+              PursuitToolHandlersLive.pipe(Layer.provide(systemOne.layer))
+            ).pipe(
+              Layer.provideMerge(makeDemoSiteLayer()),
+              Layer.provideMerge(agentProcessLayer(root))
+            )
+          )
+        )
+      );
+    }).pipe(Effect.provide(NodeServices.layer))
+);
+
+/** Click the named product's Add to cart until the Page says it was added. */
+const addProduct =
+  (product: string): Answer =>
+  (request) =>
+    respond({
+      click_target: choice(
+        indexOf(request, "button", `Add ${product} to cart`)
+      ),
+      done: noul(pageShows(request, `${product} added to cart`) ? 0.97 : 0.1),
+      operation: choice("CLICK"),
+    });
+
+/** Act once, then leave the next request unanswered. */
+const actThenHang = (first: Answer): Answer => {
+  let asked = 0;
+  return (request) => {
+    asked += 1;
+    return asked === 1 ? first(request) : "hang";
+  };
+};
+
+it.live(
+  "pursues afresh when a call with the same operation id was interrupted",
+  () =>
+    Effect.gen(function* retryInterruptedPursuits() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-pursuit-retry-",
+      });
+      const systemOne = scripted();
+      yield* Effect.scoped(
+        Effect.gen(function* exerciseRetries() {
+          const started = yield* exampleTool("agent_example_run_start", {
+            example: FlowSkillName.make("example-delivery-cart"),
+            inputs: [
+              { name: "product", value: "Trail Hammer" },
+              { name: "city", value: "Denver" },
+              { name: "area", value: "Highlands" },
+            ],
+            operationId: operation("retry-start"),
+          });
+          const sessionId = started.id;
+          const options = {
+            doneWhen: "The status line reads that a product was added.",
+            goal: "Add a product to the cart.",
+          };
+
+          // The first call acts once, then times out waiting on System One.
+          systemOne.state.answer = actThenHang(addProduct("Trail Hammer"));
+          const timedOut = yield* pursue(sessionId, "retry-cut", options).pipe(
+            Effect.timeoutOption("3 seconds")
+          );
+          expect(Option.isNone(timedOut)).toBe(true);
+
+          // The retry answers, and a different action under it takes an id
+          // the interrupted call never used.
+          systemOne.state.answer = addProduct("Cedar Pull Saw");
+          const retried = yield* pursue(sessionId, "retry-cut", options);
+          expect(retried.ending).toBe("done");
+          expect(retried.actions.map((action) => action.operationId)).toEqual([
+            "retry-cut/2",
+          ]);
+          expect(retried.actions[0]?.entry.dispatched).toBe(true);
+          expect(retried.snapshot?.text).toContain(
+            "Cedar Pull Saw added to cart"
+          );
+
+          // A call waiting on an interrupted one becomes its retry.
+          systemOne.state.hung = Deferred.makeUnsafe<Questions>();
+          systemOne.state.answer = actThenHang(addProduct("Brass Hinge Set"));
+          const cut = yield* Effect.forkChild(
+            pursue(sessionId, "retry-wait", options)
+          );
+          yield* Deferred.await(systemOne.state.hung);
+          const waiting = yield* Effect.forkChild(
+            pursue(sessionId, "retry-wait", options)
+          );
+          yield* Effect.sleep("200 millis");
+          systemOne.state.answer = addProduct("Garden Trowel");
+          yield* Fiber.interrupt(cut);
+          const waited = yield* Fiber.join(waiting);
+          expect(waited.ending).toBe("done");
+          expect(waited.actions.map((action) => action.operationId)).toEqual([
+            "retry-wait/2",
+          ]);
+          const asked = systemOne.requests.length;
+
+          // A finished retry replays like any other call.
+          const replayed = yield* pursue(sessionId, "retry-wait", options);
+          expect(replayed.actions.map((action) => action.entry.id)).toEqual(
+            waited.actions.map((action) => action.entry.id)
+          );
+          expect(systemOne.requests).toHaveLength(asked);
         }).pipe(
           Effect.provide(
             Layer.mergeAll(
