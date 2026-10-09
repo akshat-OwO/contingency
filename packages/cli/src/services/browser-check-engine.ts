@@ -7,7 +7,7 @@ import type {
   BrowserCheckReference,
   BrowserCheckResult,
 } from "@contingency/protocol";
-import { Effect, Result, Schema } from "effect";
+import { Cause, Effect, Result, Schema } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import type { Request, Response } from "playwright-core";
 
@@ -76,6 +76,55 @@ const storageChangeMatches = (
   (check.change === "created"
     ? before === undefined && current !== undefined
     : current !== before);
+type StoragePoll =
+  | "cut-short"
+  | "passed"
+  | "undecodable"
+  | "unmatched"
+  | "unreadable";
+/**
+ * Storage is evidence only once a read lands and decodes: a Page that never
+ * answered within the deadline is unreadable, not a failed expectation.
+ */
+const storageInconclusive = (
+  check: BrowserCheck,
+  polls: ReadonlySet<StoragePoll>
+) =>
+  check.kind !== "response" &&
+  (polls.has("unreadable") ||
+    polls.has("undecodable") ||
+    !polls.has("unmatched"));
+/**
+ * One storage read against the check's deadline. A read the deadline cut
+ * short says nothing about the storage, unlike a read that failed before it.
+ */
+const pollStorage = (
+  target: BrowserTarget,
+  check: StorageCheck,
+  before: string | undefined,
+  deadline: number
+): Effect.Effect<StoragePoll> =>
+  storageValue(target, check).pipe(
+    Effect.timeout(Math.max(1, Math.min(1000, deadline - Date.now()))),
+    Effect.match({
+      onFailure: (cause) =>
+        Cause.isTimeoutError(cause) && Date.now() >= deadline
+          ? "cut-short"
+          : "unreadable",
+      onSuccess: (current) => {
+        if (!storageChangeMatches(check, before, current)) {
+          return "unmatched";
+        }
+        const observed = storageObservation(check, current);
+        if (Result.isFailure(observed)) {
+          return "undecodable";
+        }
+        return matchesBrowserExpectation(observed.success, check.expectation)
+          ? "passed"
+          : "unmatched";
+      },
+    })
+  );
 
 /** The listeners belong to one dispatch. Request identity excludes already-in-flight evidence. */
 export const armBrowserChecks = (
@@ -162,6 +211,7 @@ export const armBrowserChecks = (
             const deadline = (dispatchedAt ?? Date.now()) + check.timeoutMs;
             let cursor = 0;
             let unreadable = false;
+            const polls = new Set<StoragePoll>();
             while (Date.now() < deadline) {
               if (overflow) {
                 return result(reference, "inconclusive");
@@ -216,36 +266,27 @@ export const armBrowserChecks = (
                   }
                 }
               } else {
-                const current = yield* Effect.result(
-                  storageValue(target, check).pipe(
-                    Effect.timeout(
-                      Math.max(1, Math.min(1000, deadline - Date.now()))
-                    )
-                  )
+                const poll = yield* pollStorage(
+                  target,
+                  check,
+                  before.success,
+                  deadline
                 );
-                if (Result.isFailure(current)) {
-                  unreadable = true;
-                } else if (
-                  storageChangeMatches(check, before.success, current.success)
-                ) {
-                  const observed = storageObservation(check, current.success);
-                  if (Result.isFailure(observed)) {
-                    unreadable = true;
-                  } else if (
-                    matchesBrowserExpectation(
-                      observed.success,
-                      check.expectation
-                    )
-                  ) {
-                    return result(reference, "passed");
-                  }
+                if (poll === "passed") {
+                  return result(reference, "passed");
                 }
+                polls.add(poll);
               }
               yield* Effect.sleep(
                 Math.max(1, Math.min(50, deadline - Date.now()))
               );
             }
-            return result(reference, unreadable ? "inconclusive" : "failed");
+            return result(
+              reference,
+              unreadable || storageInconclusive(check, polls)
+                ? "inconclusive"
+                : "failed"
+            );
           }),
         { concurrency: "unbounded" }
       );
