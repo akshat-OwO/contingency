@@ -308,14 +308,25 @@ const decideValue = (
   return { confidence: probabilityOf(value), input };
 };
 
-/** Wording under which quoted text describes what must be absent. */
+/** Wording that says something is absent. */
 const NEGATED =
   /\b(?:gone|no|not|never|disappears?|disappeared|removed|hidden|without|absent|closes|closed)\b/iu;
+/** Wording after a quoted phrase that says the phrase itself went away. */
+const GOES_AWAY =
+  /\b(?:gone|disappears?|disappeared|removed|hidden|absent|closes|closed|(?:no longer|not|never)\s+(?:be\s+)?(?:shown|shows?|visible|displayed|appears?|there|present|listed))\b/iu;
 const QUOTED = /"(?<straight>[^"]+)"|\u201C(?<curly>[^\u201D]+)\u201D/gu;
+/** Where a quoted phrase stood, once its text is set aside. */
+const MARK = "\uFFFC";
+/**
+ * Where one clause of `doneWhen` ends and the next begins: punctuation, or a
+ * joining word. `"A" and "B" are gone` stays one clause.
+ */
+const CLAUSE_BREAK =
+  /[.;:,!?]|(?=\b(?:and|but|or|while|then)\b(?!\s*\uFFFC))|(?=\b(?:with|without)\b)/iu;
 
-/** Whether `doneWhen`, outside its quotes, describes something going away. */
-const describesAbsence = (doneWhen: string) =>
-  NEGATED.test(doneWhen.replaceAll(QUOTED, " "));
+/** The clauses of `doneWhen`, each quoted phrase replaced by `MARK`. */
+const clauses = (doneWhen: string) =>
+  doneWhen.replaceAll(QUOTED, MARK).split(CLAUSE_BREAK);
 
 const normalized = (text: string) =>
   text
@@ -324,15 +335,55 @@ const normalized = (text: string) =>
     .replace(/[.!]+$/u, "")
     .trim();
 
+/**
+ * How `doneWhen` reads a quoted phrase: shown on the Page, gone from it, or
+ * `unclear` when a negation shares its clause without saying which.
+ */
+type Reading = "gone" | "shown" | "unclear";
+
+/** What one quoted phrase must do on the Page. */
+interface QuotedPhrase {
+  readonly phrase: string;
+  readonly reading: Reading;
+}
+
+/**
+ * How a clause reads the quoted phrase at `at`. A negation counts only when
+ * it is about the phrase: `no "X"`, `"X" is gone`, `"X" is no longer shown`.
+ * `"X" with no error` keeps `"X"` shown.
+ */
+const readingAt = (clause: string, at: number, quotes: number): Reading => {
+  if (!NEGATED.test(clause)) {
+    return "shown";
+  }
+  if (quotes > 1) {
+    return "unclear";
+  }
+  if (NEGATED.test(clause.slice(0, at))) {
+    return "gone";
+  }
+  return GOES_AWAY.test(clause.slice(at + MARK.length)) ? "gone" : "unclear";
+};
+
 /** The phrases `doneWhen` quotes, or `undefined` when none count. */
-const quotedPhrases = (doneWhen: string): readonly string[] | undefined => {
-  const phrases: string[] = [];
-  for (const match of doneWhen.matchAll(QUOTED)) {
-    const phrase = normalized(
-      match.groups?.["straight"] ?? match.groups?.["curly"] ?? ""
-    );
-    if (phrase.length > 0) {
-      phrases.push(phrase);
+const quotedPhrases = (
+  doneWhen: string
+): readonly QuotedPhrase[] | undefined => {
+  const texts = [...doneWhen.matchAll(QUOTED)].map((match) =>
+    normalized(match.groups?.["straight"] ?? match.groups?.["curly"] ?? "")
+  );
+  const phrases: QuotedPhrase[] = [];
+  let index = 0;
+  for (const clause of clauses(doneWhen)) {
+    const quotes = clause.split(MARK).length - 1;
+    let at = clause.indexOf(MARK);
+    while (at !== -1) {
+      const phrase = texts[index] ?? "";
+      index += 1;
+      if (phrase.length > 0) {
+        phrases.push({ phrase, reading: readingAt(clause, at, quotes) });
+      }
+      at = clause.indexOf(MARK, at + MARK.length);
     }
   }
   return phrases.length === 0 ? undefined : phrases;
@@ -376,17 +427,19 @@ const shows = (text: string, phrase: string) => {
 
 /**
  * Whether each quoted phrase holds on the Page: shown, or no longer shown
- * when `doneWhen` describes it going away.
+ * when `doneWhen` describes it going away. `undefined` for an unclear one.
  */
 const phrasesHold = (
-  doneWhen: string,
-  phrases: readonly string[],
+  phrases: readonly QuotedPhrase[],
   snapshot: AgentBrowserSnapshot
 ) => {
   const shown = shownText(snapshot, false);
   // `The "Demo fault" banner is gone` holds once its text is no longer shown.
-  const absence = describesAbsence(doneWhen);
-  return phrases.map((phrase) => shows(shown, phrase) !== absence);
+  return phrases.map(({ phrase, reading }) =>
+    reading === "unclear"
+      ? undefined
+      : shows(shown, phrase) === (reading === "shown")
+  );
 };
 
 /**
@@ -394,8 +447,9 @@ const phrasesHold = (
  * the outcome's literal text, so code reads it more reliably than a model
  * does. `false` when one does not hold. `true` when all hold and, given the
  * Page the step started on, at least one did not hold there. `undefined`
- * when `doneWhen` quotes nothing, or when every phrase held from the start:
- * text that was already there says nothing about what the step did.
+ * when `doneWhen` quotes nothing, when it is unclear whether a phrase must be
+ * shown or gone, or when every phrase held from the start: text that was
+ * already there says nothing about what the step did.
  */
 export const quotedOutcome = (
   doneWhen: string,
@@ -406,12 +460,13 @@ export const quotedOutcome = (
   if (phrases === undefined) {
     return undefined;
   }
-  if (!phrasesHold(doneWhen, phrases, snapshot).every(Boolean)) {
+  const holds = phrasesHold(phrases, snapshot);
+  if (holds.includes(false)) {
     return false;
   }
   if (
-    start !== undefined &&
-    phrasesHold(doneWhen, phrases, start).every(Boolean)
+    holds.includes(undefined) ||
+    (start !== undefined && phrasesHold(phrases, start).every(Boolean))
   ) {
     return undefined;
   }
@@ -427,14 +482,17 @@ export const coveredOutcome = (
   snapshot: AgentBrowserSnapshot
 ): boolean => {
   const phrases = quotedPhrases(doneWhen);
-  if (phrases === undefined || describesAbsence(doneWhen)) {
+  if (
+    phrases === undefined ||
+    phrases.some(({ reading }) => reading !== "shown")
+  ) {
     return false;
   }
   const shown = shownText(snapshot, false);
   const present = shownText(snapshot, true);
   return (
-    phrases.every((phrase) => shows(present, phrase)) &&
-    !phrases.every((phrase) => shows(shown, phrase))
+    phrases.every(({ phrase }) => shows(present, phrase)) &&
+    !phrases.every(({ phrase }) => shows(shown, phrase))
   );
 };
 
@@ -463,15 +521,17 @@ const OVERLAY =
   /\b(?:popups?|pop-ups?|overlays?|dialogs?|modals?|advertisements?|ads?|sheets?)\b/iu;
 
 /**
- * Whether nothing covers the Page, for a `doneWhen` that asks for a popup
- * or overlay to be gone; `undefined` for any other outcome. One picture laid
- * over another is page design, not a popup.
+ * Whether nothing covers the Page, for a `doneWhen` with a clause that asks
+ * for a popup or overlay to be gone; `undefined` for any other outcome. One
+ * picture laid over another is page design, not a popup.
  */
 export const overlayOutcome = (
   doneWhen: string,
   snapshot: AgentBrowserSnapshot
 ): boolean | undefined =>
-  describesAbsence(doneWhen) && OVERLAY.test(doneWhen)
+  clauses(doneWhen).some(
+    (clause) => OVERLAY.test(clause) && NEGATED.test(clause)
+  )
     ? !snapshot.nodes.some(
         (node) => isCovered(node) && node.blockedBy?.role !== "img"
       )

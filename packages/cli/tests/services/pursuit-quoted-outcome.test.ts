@@ -2,7 +2,10 @@ import { AgentElementRef, AgentSnapshotId } from "@contingency/protocol";
 import type { AgentBrowserSnapshot } from "@contingency/protocol";
 import { expect, it } from "vitest";
 
-import { quotedOutcome } from "../../src/services/mcp-pursuit.ts";
+import {
+  overlayOutcome,
+  quotedOutcome,
+} from "../../src/services/mcp-pursuit.ts";
 
 const page = (...names: readonly string[]): AgentBrowserSnapshot => ({
   browserCheckResults: [],
@@ -111,4 +114,55 @@ it("confirms once one phrase changes, beside one already shown", () => {
     quotedOutcome(doneWhen, page("Your cart", "Your cart is empty."), start)
   ).toBe(true);
   expect(quotedOutcome(doneWhen, page("Your cart"), start)).toBe(false);
+});
+
+it("keeps a quoted phrase shown when a negation is about something else", () => {
+  const placed = 'The status reads "Order placed" with no error.';
+  expect(quotedOutcome(placed, page("Checkout", "Place order"))).toBe(false);
+  expect(quotedOutcome(placed, page("Order placed"))).toBe(true);
+  const added =
+    'The status line reads "Trail Hammer added to cart" and no error shows.';
+  expect(
+    quotedOutcome(added, page("Cedar Pull Saw added to cart"), page("Shop"))
+  ).toBe(false);
+  expect(
+    quotedOutcome(added, page("Trail Hammer added to cart"), page("Shop"))
+  ).toBe(true);
+});
+
+it("reads a negation about the quoted phrase itself", () => {
+  const shop = page("Shop");
+  const fault = page("Demo fault", "Restore");
+  expect(quotedOutcome('No "Demo fault" banner shows.', shop, fault)).toBe(
+    true
+  );
+  expect(quotedOutcome('The "Demo fault" banner is gone.', fault)).toBe(false);
+  expect(
+    quotedOutcome('The status reads "Saved", not "Demo fault".', page("Saved"))
+  ).toBe(true);
+  expect(
+    quotedOutcome(
+      'The status reads "Saved", not "Demo fault".',
+      page("Saved", "Demo fault")
+    )
+  ).toBe(false);
+});
+
+it("leaves a negation that could be about the quoted phrase to System One", () => {
+  expect(
+    quotedOutcome(
+      'The "Order placed" page shows no error.',
+      page("Order placed")
+    )
+  ).toBeUndefined();
+  expect(
+    quotedOutcome('"Demo fault" and "Restore" are gone.', page("Shop"))
+  ).toBeUndefined();
+});
+
+it("checks for a popup only when a clause asks for it to be gone", () => {
+  expect(overlayOutcome("The popup is closed.", page("Shop"))).toBe(true);
+  expect(
+    overlayOutcome("The dialog opens and shows no error.", page("Shop"))
+  ).toBeUndefined();
 });
