@@ -661,12 +661,12 @@ const addProduct =
       operation: choice("CLICK"),
     });
 
-/** Act once, then leave the next request unanswered. */
-const actThenHang = (first: Answer): Answer => {
+/** Act once, then fail or leave unanswered every request after it. */
+const actThen = (first: Answer, next: "fail" | "hang"): Answer => {
   let asked = 0;
   return (request) => {
     asked += 1;
-    return asked === 1 ? first(request) : "hang";
+    return asked === 1 ? first(request) : next;
   };
 };
 
@@ -697,7 +697,7 @@ it.live(
           };
 
           // The first call acts once, then times out waiting on System One.
-          systemOne.state.answer = actThenHang(addProduct("Trail Hammer"));
+          systemOne.state.answer = actThen(addProduct("Trail Hammer"), "hang");
           const timedOut = yield* pursue(sessionId, "retry-cut", options).pipe(
             Effect.timeoutOption("3 seconds")
           );
@@ -718,7 +718,10 @@ it.live(
 
           // A call waiting on an interrupted one becomes its retry.
           systemOne.state.hung = Deferred.makeUnsafe<Questions>();
-          systemOne.state.answer = actThenHang(addProduct("Brass Hinge Set"));
+          systemOne.state.answer = actThen(
+            addProduct("Brass Hinge Set"),
+            "hang"
+          );
           const cut = yield* Effect.forkChild(
             pursue(sessionId, "retry-wait", options)
           );
@@ -755,4 +758,102 @@ it.live(
         )
       );
     }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.live("records a step that acted when its call fails or is interrupted", () =>
+  Effect.gen(function* recordUnfinishedSteps() {
+    const files = yield* FileSystem.FileSystem;
+    const root = yield* files.makeTempDirectoryScoped({
+      prefix: "contingency-pursuit-unfinished-",
+    });
+    const systemOne = scripted();
+    yield* Effect.scoped(
+      Effect.gen(function* exerciseUnfinishedSteps() {
+        const started = yield* exampleTool("agent_example_run_start", {
+          example: FlowSkillName.make("example-delivery-cart"),
+          inputs: [
+            { name: "product", value: "Trail Hammer" },
+            { name: "city", value: "Denver" },
+            { name: "area", value: "Highlands" },
+          ],
+          operationId: operation("unfinished-start"),
+        });
+        const sessionId = started.id;
+        const options = {
+          doneWhen: "The status line reads that a product was added.",
+          goal: "Add a product to the cart.",
+        };
+
+        // System One fails after the step's first action.
+        systemOne.state.answer = actThen(addProduct("Trail Hammer"), "fail");
+        const failed = yield* Effect.flip(
+          pursue(sessionId, "unfinished-fail", options)
+        );
+        expect(failed.code).toBe("system_one_failed");
+
+        // The call is interrupted after the step's first action, then
+        // retried under the same operation id.
+        systemOne.state.answer = actThen(addProduct("Cedar Pull Saw"), "hang");
+        const timedOut = yield* pursue(
+          sessionId,
+          "unfinished-cut",
+          options
+        ).pipe(Effect.timeoutOption("3 seconds"));
+        expect(Option.isNone(timedOut)).toBe(true);
+        systemOne.state.answer = addProduct("Brass Hinge Set");
+        const retried = yield* pursue(sessionId, "unfinished-cut", options);
+        expect(retried.ending).toBe("done");
+
+        const summary = yield* runTool("agent_run_complete", {
+          operationId: operation("unfinished-complete"),
+          sessionId,
+        });
+        if (!("schemaVersion" in summary) || summary.schemaVersion !== 3) {
+          return yield* Effect.die("Expected a task Run Summary.");
+        }
+        const attemptOf = (product: string) =>
+          summary.timeline.find((entry) =>
+            entry.description.includes(`Add ${product} to cart`)
+          )?.id;
+        expect(
+          (summary.pursuits ?? []).map((pursuit) => ({
+            attemptIds: pursuit.actions.map((action) => action.attemptId),
+            ending: pursuit.ending,
+            operationId: pursuit.operationId,
+          }))
+        ).toEqual([
+          {
+            attemptIds: [attemptOf("Trail Hammer")],
+            ending: "unsure",
+            operationId: "unfinished-fail",
+          },
+          {
+            attemptIds: [attemptOf("Cedar Pull Saw")],
+            ending: "unsure",
+            operationId: "unfinished-cut",
+          },
+          {
+            attemptIds: [retried.actions[0]?.entry.id],
+            ending: "done",
+            operationId: "unfinished-cut",
+          },
+        ]);
+        const [failedStep, cutStep] = summary.pursuits ?? [];
+        expect(failedStep?.reason).toContain("Endpoint offline.");
+        expect(cutStep?.reason).toBe(
+          "The call was interrupted before this step ended."
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            OnboardingToolHandlersLive,
+            PursuitToolHandlersLive.pipe(Layer.provide(systemOne.layer))
+          ).pipe(
+            Layer.provideMerge(makeDemoSiteLayer()),
+            Layer.provideMerge(agentProcessLayer(root))
+          )
+        )
+      )
+    );
+  }).pipe(Effect.provide(NodeServices.layer))
 );

@@ -608,7 +608,8 @@ export interface AgentSessionService {
    */
   readonly recordPursuit: (
     sessionId: AgentSessionId,
-    pursuit: AgentPursuitRecord
+    pursuit: AgentPursuitRecord,
+    operationId: OperationId
   ) => Effect.Effect<void, AgentSessionError>;
   readonly requestTaskVariable: (
     sessionId: AgentSessionId,
@@ -6705,13 +6706,10 @@ const makeAgentSession = (
           }));
           return next ?? record.snapshot;
         }),
-      recordPursuit: (sessionId, pursuit) =>
+      recordPursuit: (sessionId, pursuit, operationId) =>
         taskMutation(
           sessionId,
-          // Each step of one call keeps its own record.
-          OperationId.make(
-            `${pursuit.operationId}:record:${pursuit.step ?? 1}`
-          ),
+          operationId,
           "task-pursuit",
           JSON.stringify(pursuit),
           (_record, run) =>

@@ -23,6 +23,7 @@ import {
   Effect,
   Exit,
   Layer,
+  Option,
   Result,
   Schema,
 } from "effect";
@@ -811,11 +812,24 @@ interface Lookahead {
 /**
  * Attempts under one operation id, failed ones included, which number its
  * derived action ids. It outlives an interrupted call, so a retry never
- * reuses an id bound to an earlier action.
+ * reuses an id bound to an earlier action. `call` numbers the calls, so a
+ * retry's step records never collide with the interrupted call's.
  */
 interface AttemptCount {
+  readonly call: number;
   value: number;
 }
+
+/** Why a step that acted never ended, for its record on the Run. */
+const unfinishedReason = (cause: Cause.Cause<{ readonly message: string }>) =>
+  Option.match(Cause.findErrorOption(cause), {
+    onNone: () =>
+      Cause.hasInterruptsOnly(cause)
+        ? "The call was interrupted before this step ended."
+        : "The call failed before this step ended.",
+    onSome: (error) =>
+      `The call failed before this step ended: ${error.message}`,
+  });
 
 /** Perform each sub-goal in order until one does not end `done`. */
 const pursue = (params: PursueParameters, attempts: AttemptCount) =>
@@ -1044,40 +1058,72 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
         );
       });
 
+    /** Keep a step on the Run, so the Run Summary marks its actions. */
+    const record = (
+      index: number,
+      firstAction: number,
+      { ending: stepEnding, reason }: Pick<Ending, "ending" | "reason">
+    ) =>
+      Effect.gen(function* recordStep() {
+        const cue = cues[index];
+        if (cue === undefined) {
+          return;
+        }
+        const endedAt = new Date(yield* Clock.currentTimeMillis).toISOString();
+        yield* service.recordPursuit(
+          sessionId,
+          {
+            actions: progress.actions.slice(firstAction).map((action) => ({
+              attemptId: action.entry.id,
+              confidence: action.confidence,
+            })),
+            doneWhen: cue.doneWhen,
+            endedAt,
+            ending: stepEnding,
+            goal: cue.instruction,
+            operationId: params.operationId,
+            reason,
+            step: index + 1,
+          },
+          OperationId.make(
+            `${params.operationId}:record:${attempts.call}.${index + 1}`
+          )
+        );
+      }).pipe(
+        // A Run that ended mid-Pursuit keeps the attempts on its timeline.
+        Effect.ignore
+      );
+
     const steps: AgentPursuitResult["steps"][number][] = [];
     let ending: Ending = end("done", "No step was given.");
-    for (const [index, cue] of cues.entries()) {
+    for (const index of cues.keys()) {
       const firstAction = progress.actions.length;
       progress.noEffect = 0;
       progress.repeat = null;
       progress.reread = false;
       progress.start = null;
-      let stepEnding: Ending | undefined;
-      while (stepEnding === undefined) {
-        stepEnding = yield* advance(
-          index,
-          progress.actions.length - firstAction
-        );
-      }
+      const stepEnding = yield* Effect.gen(function* advanceStep() {
+        let decided: Ending | undefined;
+        while (decided === undefined) {
+          decided = yield* advance(index, progress.actions.length - firstAction);
+        }
+        return decided;
+      }).pipe(
+        // A failed or interrupted call still marks the actions this step
+        // took as System One's, without changing how the call ends.
+        Effect.onError((cause) =>
+          progress.actions.length > firstAction
+            ? record(
+                index,
+                firstAction,
+                end("unsure", unfinishedReason(cause))
+              )
+            : Effect.void
+        )
+      );
       ending = stepEnding;
       steps.push({ ending: stepEnding.ending, reason: stepEnding.reason });
-      const endedAt = new Date(yield* Clock.currentTimeMillis).toISOString();
-      yield* service
-        .recordPursuit(sessionId, {
-          actions: progress.actions.slice(firstAction).map((action) => ({
-            attemptId: action.entry.id,
-            confidence: action.confidence,
-          })),
-          doneWhen: cue.doneWhen,
-          endedAt,
-          ending: stepEnding.ending,
-          goal: cue.instruction,
-          operationId: params.operationId,
-          reason: stepEnding.reason,
-          step: index + 1,
-        })
-        // A Run that ended mid-Pursuit keeps the attempts on its timeline.
-        .pipe(Effect.ignore);
+      yield* record(index, firstAction, stepEnding);
       if (stepEnding.ending !== "done") {
         break;
       }
@@ -1116,8 +1162,8 @@ const evictOldest = (map: Map<string, unknown>) => {
 export const PursuitToolHandlersLive = PursuitTools.toLayer(
   Effect.sync(() => {
     const replays = new Map<string, Replay>();
-    // Attempts interrupted calls made, kept so their retries number on.
-    const interrupted = new Map<string, number>();
+    // Attempts and calls interrupted calls made, kept so retries number on.
+    const interrupted = new Map<string, AttemptCount>();
 
     /** Pursue once under `key`, publishing the outcome to concurrent retries. */
     const pursueOnce = (
@@ -1134,7 +1180,11 @@ export const PursuitToolHandlersLive = PursuitTools.toLayer(
           >();
           replays.set(key, { done, request: fingerprint });
           evictOldest(replays);
-          const attempts = { value: interrupted.get(key) ?? 0 };
+          const prior = interrupted.get(key);
+          const attempts = {
+            call: (prior?.call ?? 0) + 1,
+            value: prior?.value ?? 0,
+          };
           interrupted.delete(key);
           const exit: Exit.Exit<AgentPursuitResult, AgentSessionFailure> =
             yield* Effect.exit(
@@ -1154,7 +1204,7 @@ export const PursuitToolHandlersLive = PursuitTools.toLayer(
             if (replays.get(key)?.done === done) {
               replays.delete(key);
             }
-            interrupted.set(key, attempts.value);
+            interrupted.set(key, attempts);
             evictOldest(interrupted);
           }
           yield* Deferred.done(done, exit);
