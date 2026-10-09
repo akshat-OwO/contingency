@@ -1105,7 +1105,10 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
       const stepEnding = yield* Effect.gen(function* advanceStep() {
         let decided: Ending | undefined;
         while (decided === undefined) {
-          decided = yield* advance(index, progress.actions.length - firstAction);
+          decided = yield* advance(
+            index,
+            progress.actions.length - firstAction
+          );
         }
         return decided;
       }).pipe(
@@ -1113,11 +1116,7 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
         // took as System One's, without changing how the call ends.
         Effect.onError((cause) =>
           progress.actions.length > firstAction
-            ? record(
-                index,
-                firstAction,
-                end("unsure", unfinishedReason(cause))
-              )
+            ? record(index, firstAction, end("unsure", unfinishedReason(cause)))
             : Effect.void
         )
       );
