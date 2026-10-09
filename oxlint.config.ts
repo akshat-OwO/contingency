@@ -20,7 +20,7 @@ export default defineConfig({
     ...jsPlugins.jsPlugins,
     {
       name: "contingency",
-      specifier: "./tooling/oxlint/contingency-plugin.mjs",
+      specifier: "./packages/lint-rules/src/index.mjs",
     },
   ],
   overrides: [

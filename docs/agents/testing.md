@@ -10,7 +10,7 @@ Every wait waits on the **event** the next assertion reads.
 - **Integration tests** wait for a signal the code emits: a `Deferred`, a stream event, a page event, or a state read that reports the very condition the test asserts next. When the product exposes no such signal, add one to the product; it is a seam other callers need too.
 - **One hang guard per wait**: a single `Effect.timeout` sized for a hung process (tens of seconds), never tuned to how long the work usually takes. It turns a hang into a fast, named failure; it is not part of the test's logic.
 
-The `contingency/no-test-wait` lint rule enforces this in test files: real-time sleeps, delays, timers, and spaced schedules fail lint. Files predating the rule sit on a legacy list in `oxlint.config.ts`; that list only shrinks.
+The `contingency/no-test-wait` lint rule (`packages/lint-rules`) enforces this in test files: real-time sleeps, delays, timers, and spaced schedules fail lint. Files predating the rule sit on a legacy list in `oxlint.config.ts`; that list only shrinks.
 
 ## Asserting
 

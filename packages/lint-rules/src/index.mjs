@@ -53,7 +53,7 @@ const runsInPage = (node) => {
     if (
       isFunction(child) &&
       parent.type === "CallExpression" &&
-      parent.arguments.includes(child) &&
+      parent.callee !== child &&
       PAGE_CALLS.has(memberName(parent.callee))
     ) {
       return true;
