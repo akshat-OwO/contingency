@@ -119,7 +119,7 @@ jobs:
           }
           {
             echo "cli=$(list packages/cli ':(glob)tests/**/*.test.ts' ':(exclude)tests/integration/**')"
-            echo "integration=$(list packages/cli ':(glob)tests/integration/*.test.ts')"
+            echo "integration=$(list packages/cli ':(glob)tests/integration/**/*.test.ts')"
             echo "web=$(list apps/web ':(glob)**/*.test.ts' ':(glob)**/*.test.tsx')"
             echo "release=$(list packages/release ':(glob)tests/**/*.test.ts')"
           } > "$RUNNER_TEMP/changed-tests"
