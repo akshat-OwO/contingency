@@ -14,7 +14,12 @@ const REAL_TIME_SCHEDULES = new Set([
   "windowed",
 ]);
 const TIMERS = new Set(["setInterval", "setTimeout"]);
-const TIMER_MODULES = new Set(["node:timers/promises", "timers/promises"]);
+const TIMER_MODULES = new Set([
+  "node:timers",
+  "node:timers/promises",
+  "timers",
+  "timers/promises",
+]);
 const REAL_TIME_IMPORTS = new Set(["scheduler", "setInterval", "setTimeout"]);
 /** Callbacks handed to these run inside the browser Page, not the test. */
 const PAGE_CALLS = new Set([
