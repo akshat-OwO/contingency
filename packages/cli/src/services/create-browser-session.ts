@@ -433,6 +433,82 @@ export const applyEmulationToPage = (
   });
 
 /**
+ * The isolated world that watches a Page's title. Its binding and observer
+ * exist only there, so the site's own scripts cannot see or tamper with them.
+ */
+const TITLE_WORLD = "contingency-title";
+const TITLE_BINDING = "contingencyReportTitle";
+
+/**
+ * Report the top document's title on load and on every later change: a
+ * `<title>` edit, a replaced `<head>`, or a new document after navigation.
+ */
+const TITLE_OBSERVER = `if (window === window.top) {
+  let last;
+  const report = () => {
+    if (document.title !== last) {
+      last = document.title;
+      globalThis.${TITLE_BINDING}(last);
+    }
+  };
+  new MutationObserver(report).observe(document, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  report();
+}`;
+
+/**
+ * Keep a Page's tab title current. Reading it once at `domcontentloaded`
+ * misses every title a page sets later, and under load the read could even
+ * land before the page's own script set the first one. Headless Chromium does
+ * not carry titles in `Target.targetInfoChanged`, so the Page reports its own
+ * through a binding. The binding only fires with both the Page and Runtime
+ * domains enabled on this session.
+ */
+export const trackPageTitle = (
+  session: CreateSession,
+  page: Page
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.gen(function* observePageTitle() {
+    const cdp = yield* requireEmulationSession(session, page);
+    cdp.on("Runtime.bindingCalled", ({ name, payload }) => {
+      if (name !== TITLE_BINDING) {
+        return;
+      }
+      const state = readSessionState(session);
+      if (!state.pageIds.has(page) || state.titles.get(page) === payload) {
+        return;
+      }
+      updateSessionState(session, (current) => ({
+        ...current,
+        titles: new Map(current.titles).set(page, payload),
+      }));
+      publishTabs(session);
+    });
+    yield* tryBrowser("Could not observe the Page title", () =>
+      cdp.send("Page.enable")
+    );
+    yield* tryBrowser("Could not observe the Page title", () =>
+      cdp.send("Runtime.enable")
+    );
+    yield* tryBrowser("Could not observe the Page title", () =>
+      cdp.send("Runtime.addBinding", {
+        executionContextName: TITLE_WORLD,
+        name: TITLE_BINDING,
+      })
+    );
+    yield* tryBrowser("Could not observe the Page title", () =>
+      cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+        runImmediately: true,
+        source: TITLE_OBSERVER,
+        worldName: TITLE_WORLD,
+      })
+    );
+  });
+
+/**
  * Re-apply a session's whole Emulation to every open Page. Every change that
  * can interact with another part goes through here, so changing one never
  * silently drops another (ADR 0013). The viewport is the one carve-out — it

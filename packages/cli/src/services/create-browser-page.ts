@@ -11,7 +11,7 @@ import {
   publishTabs,
   readSessionState,
   reportCallbackFailure,
-  tryBrowser,
+  trackPageTitle,
   updateSessionState,
 } from "./create-browser-session.ts";
 import type { CreateSession } from "./create-browser-session.ts";
@@ -45,23 +45,6 @@ export const initializePage = (session: CreateSession, page: Page): void => {
       timestamp: Date.now(),
       type: "page_error",
     });
-  });
-  page.on("domcontentloaded", () => {
-    Effect.runFork(
-      reportCallbackFailure(
-        session,
-        Effect.gen(function* readPageTitle() {
-          const title = yield* tryBrowser("Could not read the Page title", () =>
-            page.title()
-          );
-          updateSessionState(session, (state) => ({
-            ...state,
-            titles: new Map(state.titles).set(page, title),
-          }));
-          publishTabs(session);
-        })
-      )
-    );
   });
   page.on("request", (request: Request) => {
     const requestId = BrowserRequestId.make(randomUUID());
@@ -167,5 +150,6 @@ export const initializePage = (session: CreateSession, page: Page): void => {
   Effect.runFork(
     reportCallbackFailure(session, applyEmulationToPage(session, page))
   );
+  Effect.runFork(reportCallbackFailure(session, trackPageTitle(session, page)));
   publishTabs(session);
 };

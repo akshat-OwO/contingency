@@ -42,6 +42,62 @@ const waitUntil = (ready: () => boolean) =>
     }
   }).pipe(Effect.timeout("10 seconds"));
 
+/**
+ * A tab's title follows the page after load, whether or not the tab is
+ * active, and the site cannot see how Contingency watches it.
+ */
+it.live("follows title changes after load on every tab", () =>
+  Effect.gen(function* lateTabTitles() {
+    const browser = yield* CreateBrowser;
+    const sessionId = yield* browser.create("create-late-titles", viewport);
+    yield* browser.open(
+      sessionId,
+      "data:text/html,<title>Initial</title><main>ready</main>",
+      draftEmulation("default", viewport)
+    );
+    const firstPage = yield* browser.activePage(sessionId);
+    const [firstTab] = yield* browser.getTabs(sessionId);
+    yield* browser.newTab(sessionId);
+    yield* browser.open(
+      sessionId,
+      "data:text/html,<title>Second</title>",
+      draftEmulation("default", viewport)
+    );
+    const secondPage = yield* browser.activePage(sessionId);
+    yield* Effect.promise(() =>
+      firstPage.evaluate('document.title = "Late first"')
+    );
+    // A replaced head takes the observed title element with it.
+    yield* Effect.promise(() =>
+      secondPage.evaluate(`{
+        const head = document.createElement("head");
+        const title = document.createElement("title");
+        title.textContent = "Late second";
+        head.append(title);
+        document.head.replaceWith(head);
+      }`)
+    );
+    const titles = yield* Effect.gen(function* pollTitles() {
+      for (;;) {
+        const tabs = yield* browser.getTabs(sessionId);
+        const first = tabs.find((tab) => tab.tabId === firstTab?.tabId);
+        const active = tabs.find((tab) => tab.active);
+        if (first?.title === "Late first" && active?.title === "Late second") {
+          return [first.title, active.title];
+        }
+        yield* Effect.sleep("10 millis");
+      }
+    }).pipe(Effect.timeout("10 seconds"));
+    expect(titles).toEqual(["Late first", "Late second"]);
+    expect(
+      yield* Effect.promise(() =>
+        secondPage.evaluate("typeof globalThis.contingencyReportTitle")
+      )
+    ).toBe("undefined");
+    yield* browser.close(sessionId);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
 it.live(
   "opens, streams, stores state, changes emulation, and closes a live browser session",
   () =>
