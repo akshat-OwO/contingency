@@ -6,15 +6,7 @@ import {
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import {
-  Deferred,
-  Effect,
-  Fiber,
-  FileSystem,
-  Layer,
-  Option,
-  Schema,
-} from "effect";
+import { Deferred, Effect, Fiber, FileSystem, Layer, Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
@@ -23,6 +15,7 @@ import {
   OnboardingTools,
 } from "../../src/services/mcp-onboarding.ts";
 import {
+  PursuitReplays,
   PursuitToolHandlersLive,
   PursuitTools,
 } from "../../src/services/mcp-pursuit.ts";
@@ -681,6 +674,7 @@ it.live(
       const systemOne = scripted();
       yield* Effect.scoped(
         Effect.gen(function* exerciseRetries() {
+          const replays = yield* PursuitReplays;
           const started = yield* exampleTool("agent_example_run_start", {
             example: FlowSkillName.make("example-delivery-cart"),
             inputs: [
@@ -696,12 +690,16 @@ it.live(
             goal: "Add a product to the cart.",
           };
 
-          // The first call acts once, then times out waiting on System One.
+          // The first call acts once, then is interrupted waiting on System
+          // One.
           systemOne.state.answer = actThen(addProduct("Trail Hammer"), "hang");
-          const timedOut = yield* pursue(sessionId, "retry-cut", options).pipe(
-            Effect.timeoutOption("3 seconds")
+          const first = yield* Effect.forkChild(
+            pursue(sessionId, "retry-cut", options)
           );
-          expect(Option.isNone(timedOut)).toBe(true);
+          yield* Deferred.await(systemOne.state.hung).pipe(
+            Effect.timeout("30 seconds")
+          );
+          yield* Fiber.interrupt(first);
 
           // The retry answers, and a different action under it takes an id
           // the interrupted call never used.
@@ -725,11 +723,15 @@ it.live(
           const cut = yield* Effect.forkChild(
             pursue(sessionId, "retry-wait", options)
           );
-          yield* Deferred.await(systemOne.state.hung);
+          yield* Deferred.await(systemOne.state.hung).pipe(
+            Effect.timeout("30 seconds")
+          );
           const waiting = yield* Effect.forkChild(
             pursue(sessionId, "retry-wait", options)
           );
-          yield* Effect.sleep("200 millis");
+          yield* replays
+            .awaitWaiter(sessionId, operation("retry-wait"))
+            .pipe(Effect.timeout("30 seconds"));
           systemOne.state.answer = addProduct("Garden Trowel");
           yield* Fiber.interrupt(cut);
           const waited = yield* Fiber.join(waiting);
@@ -794,12 +796,13 @@ it.live("records a step that acted when its call fails or is interrupted", () =>
         // The call is interrupted after the step's first action, then
         // retried under the same operation id.
         systemOne.state.answer = actThen(addProduct("Cedar Pull Saw"), "hang");
-        const timedOut = yield* pursue(
-          sessionId,
-          "unfinished-cut",
-          options
-        ).pipe(Effect.timeoutOption("3 seconds"));
-        expect(Option.isNone(timedOut)).toBe(true);
+        const cut = yield* Effect.forkChild(
+          pursue(sessionId, "unfinished-cut", options)
+        );
+        yield* Deferred.await(systemOne.state.hung).pipe(
+          Effect.timeout("30 seconds")
+        );
+        yield* Fiber.interrupt(cut);
         systemOne.state.answer = addProduct("Brass Hinge Set");
         const retried = yield* pursue(sessionId, "unfinished-cut", options);
         expect(retried.ending).toBe("done");

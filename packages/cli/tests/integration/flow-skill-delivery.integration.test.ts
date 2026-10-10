@@ -477,9 +477,11 @@ it.live(
           expect(assessedAfterNavigation.timeline.at(-2)?.id).toBe(
             clicked.entry.id
           );
+          // The finding lands after everything the session held before the
+          // navigation arrived.
           expect(
-            assessedAfterNavigation.updatedAt >= beforeArrival.updatedAt
-          ).toBe(true);
+            assessedAfterNavigation.timeline.slice(0, -1).map(({ id }) => id)
+          ).toEqual(beforeArrival.timeline.map(({ id }) => id));
           expect(
             (yield* sessionTool("agent_session_get", {
               sessionId: failedRun.session.id,
@@ -791,15 +793,8 @@ it.live(
             ).toMatchObject({ takeoverOccurred: true });
           }
 
-          // A Catalog Root that still declares the old ceiling policy starts
-          // a Dry Run that no clock ends: only the agent or the user does.
-          const legacyPolicy = path.join(root, "catalog.json");
-          yield* fileSystem.writeFileString(
-            legacyPolicy,
-            JSON.stringify({
-              agentRunCeilings: { runCeilingMs: 1000, stepCeilingMs: 100 },
-            })
-          );
+          // Run ceilings are gone (ADR 0043), so no clock ends a Dry Run:
+          // only the agent or the user does.
           const idleRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
             {
@@ -817,7 +812,6 @@ it.live(
               url: fixtures.url("delivery.html"),
             }
           );
-          yield* Effect.sleep("1500 millis");
           const idle = yield* session.get(idleRun.session.id);
           expect(idle.phase).toBe("running");
           expect(idle.run).toHaveProperty("lifecycle.phase", "running");
@@ -828,7 +822,6 @@ it.live(
           expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
             "dry-run-failed"
           );
-          yield* fileSystem.remove(legacyPolicy);
 
           const finalRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",

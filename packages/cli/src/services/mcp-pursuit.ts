@@ -12,6 +12,7 @@ import type {
   AgentPursuitConfidence,
   AgentPursuitEnding,
   AgentPursuitResult,
+  AgentSessionId,
   AgentSessionSnapshot,
   FlowSkillName,
   TaskAgentRunState,
@@ -19,6 +20,7 @@ import type {
 import {
   Cause,
   Clock,
+  Context,
   Deferred,
   Effect,
   Exit,
@@ -1145,6 +1147,8 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
 interface Replay {
   readonly done: Deferred.Deferred<AgentPursuitResult, AgentSessionFailure>;
   readonly request: string;
+  /** Completed once another call waits on this Pursuit while in flight. */
+  readonly waited: Deferred.Deferred<true>;
 }
 
 /** Drop the oldest entries once `map` holds more than `REPLAY_LIMIT`. */
@@ -1158,98 +1162,152 @@ const evictOldest = (map: Map<string, unknown>) => {
   }
 };
 
-export const PursuitToolHandlersLive = PursuitTools.toLayer(
-  Effect.sync(() => {
-    const replays = new Map<string, Replay>();
-    // Attempts and calls interrupted calls made, kept so retries number on.
-    const interrupted = new Map<string, AttemptCount>();
+const replayKey = (sessionId: AgentSessionId, operationId: OperationId) =>
+  `${sessionId}\u0000${operationId}`;
 
-    /** Pursue once under `key`, publishing the outcome to concurrent retries. */
-    const pursueOnce = (
-      key: string,
-      fingerprint: string,
-      params: PursueParameters
-    ) =>
-      // Masked, so an interrupted call still frees its operation id.
-      Effect.uninterruptibleMask((restore) =>
-        Effect.gen(function* pursueAndPublish() {
-          const done = Deferred.makeUnsafe<
-            AgentPursuitResult,
-            AgentSessionFailure
-          >();
-          replays.set(key, { done, request: fingerprint });
-          evictOldest(replays);
-          const prior = interrupted.get(key);
-          const attempts = {
-            call: (prior?.call ?? 0) + 1,
-            value: prior?.value ?? 0,
-          };
-          interrupted.delete(key);
-          const exit: Exit.Exit<AgentPursuitResult, AgentSessionFailure> =
-            yield* Effect.exit(
-              restore(
-                pursue(params, attempts).pipe(
-                  Effect.mapError((cause) =>
-                    cause instanceof AgentSessionFailure
-                      ? cause
-                      : failure(cause)
-                  )
-                )
-              )
-            );
-          // An interrupted call never finished: a retry pursues afresh from
-          // the Page its actions left, under action ids not yet used.
-          if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)) {
-            if (replays.get(key)?.done === done) {
-              replays.delete(key);
-            }
-            interrupted.set(key, attempts);
-            evictOldest(interrupted);
+export interface PursuitReplaysService {
+  /**
+   * The finished Pursuit under `operationId`: replayed once finished, awaited
+   * while in flight, and pursued by `run` otherwise. A call waiting on an
+   * interrupted one becomes its retry.
+   */
+  readonly settle: <R>(
+    sessionId: AgentSessionId,
+    operationId: OperationId,
+    request: string,
+    run: (
+      attempts: AttemptCount
+    ) => Effect.Effect<AgentPursuitResult, AgentSessionFailure, R>
+  ) => Effect.Effect<AgentPursuitResult, AgentSessionFailure, R>;
+  /**
+   * Completes once another call is waiting on the Pursuit in flight under
+   * `operationId`. Dies when no Pursuit was started under it.
+   */
+  readonly awaitWaiter: (
+    sessionId: AgentSessionId,
+    operationId: OperationId
+  ) => Effect.Effect<true>;
+}
+
+/** Same-operation-id replay for Pursuit calls, kept for the process. */
+export const PursuitReplays = Context.Service<PursuitReplaysService>(
+  "@contingency/PursuitReplays"
+);
+
+const makePursuitReplays = (): PursuitReplaysService => {
+  const replays = new Map<string, Replay>();
+  // Attempts and calls interrupted calls made, kept so retries number on.
+  const interrupted = new Map<string, AttemptCount>();
+
+  /** Pursue once under `key`, publishing the outcome to concurrent retries. */
+  const pursueOnce = <R>(
+    key: string,
+    fingerprint: string,
+    run: (
+      attempts: AttemptCount
+    ) => Effect.Effect<AgentPursuitResult, AgentSessionFailure, R>
+  ) =>
+    // Masked, so an interrupted call still frees its operation id.
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* pursueAndPublish() {
+        const done = Deferred.makeUnsafe<
+          AgentPursuitResult,
+          AgentSessionFailure
+        >();
+        replays.set(key, {
+          done,
+          request: fingerprint,
+          waited: Deferred.makeUnsafe<true>(),
+        });
+        evictOldest(replays);
+        const prior = interrupted.get(key);
+        const attempts = {
+          call: (prior?.call ?? 0) + 1,
+          value: prior?.value ?? 0,
+        };
+        interrupted.delete(key);
+        const exit: Exit.Exit<AgentPursuitResult, AgentSessionFailure> =
+          yield* Effect.exit(restore(run(attempts)));
+        // An interrupted call never finished: a retry pursues afresh from
+        // the Page its actions left, under action ids not yet used.
+        if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)) {
+          if (replays.get(key)?.done === done) {
+            replays.delete(key);
           }
-          yield* Deferred.done(done, exit);
-          return yield* exit;
-        })
-      );
+          interrupted.set(key, attempts);
+          evictOldest(interrupted);
+        }
+        yield* Deferred.done(done, exit);
+        return yield* exit;
+      })
+    );
 
-    /** The finished Pursuit under `key`, waiting on one in flight. */
-    const settle = (
-      key: string,
-      fingerprint: string,
-      params: PursueParameters
-    ): ReturnType<typeof pursueOnce> =>
-      Effect.suspend(() => {
-        const existing = replays.get(key);
-        if (existing === undefined) {
-          return pursueOnce(key, fingerprint, params);
-        }
-        if (existing.request !== fingerprint) {
-          return Effect.fail(
-            new AgentSessionFailure({
-              code: "agent_session_conflict",
-              message:
-                "This operation id already pursued different steps. Use a new operation id. (agent_session_conflict)",
-            })
-          );
-        }
-        return Effect.exit(Deferred.await(existing.done)).pipe(
-          Effect.flatMap((exit) =>
-            // The call this one waited on was interrupted, so this one
-            // becomes the retry.
-            Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)
-              ? settle(key, fingerprint, params)
-              : exit
-          )
+  const settle = <R>(
+    key: string,
+    fingerprint: string,
+    run: (
+      attempts: AttemptCount
+    ) => Effect.Effect<AgentPursuitResult, AgentSessionFailure, R>
+  ): Effect.Effect<AgentPursuitResult, AgentSessionFailure, R> =>
+    Effect.suspend(() => {
+      const existing = replays.get(key);
+      if (existing === undefined) {
+        return pursueOnce(key, fingerprint, run);
+      }
+      if (existing.request !== fingerprint) {
+        return Effect.fail(
+          new AgentSessionFailure({
+            code: "agent_session_conflict",
+            message:
+              "This operation id already pursued different steps. Use a new operation id. (agent_session_conflict)",
+          })
         );
-      });
+      }
+      return Deferred.succeed(existing.waited, true).pipe(
+        Effect.andThen(Effect.exit(Deferred.await(existing.done))),
+        Effect.flatMap((exit) =>
+          // The call this one waited on was interrupted, so this one
+          // becomes the retry.
+          Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)
+            ? settle(key, fingerprint, run)
+            : exit
+        )
+      );
+    });
 
+  return {
+    awaitWaiter: (sessionId, operationId) =>
+      Effect.suspend(() => {
+        const existing = replays.get(replayKey(sessionId, operationId));
+        return existing === undefined
+          ? Effect.die(`No Pursuit was started under ${operationId}.`)
+          : Deferred.await(existing.waited);
+      }),
+    settle: (sessionId, operationId, request, run) =>
+      settle(replayKey(sessionId, operationId), request, run),
+  };
+};
+
+export const PursuitToolHandlersLive = PursuitTools.toLayer(
+  Effect.gen(function* makePursuitToolHandlers() {
+    const replays = yield* PursuitReplays;
     return {
       agent_browser_pursue: (params) =>
         Effect.gen(function* pursueSubGoal() {
           const service = yield* AgentSession;
           yield* service.noteAgentActivity(params.sessionId);
-          const key = `${params.sessionId}\u0000${params.operationId}`;
           const { format, ...request } = params;
-          const finished = yield* settle(key, JSON.stringify(request), params);
+          const finished = yield* replays.settle(
+            params.sessionId,
+            params.operationId,
+            JSON.stringify(request),
+            (attempts) =>
+              pursue(params, attempts).pipe(
+                Effect.mapError((cause) =>
+                  cause instanceof AgentSessionFailure ? cause : failure(cause)
+                )
+              )
+          );
           return yield* encodeUnpublishedPursuitResult({
             ...finished,
             snapshot:
@@ -1264,6 +1322,8 @@ export const PursuitToolHandlersLive = PursuitTools.toLayer(
         }),
     };
   })
+).pipe(
+  Layer.provideMerge(Layer.sync(PursuitReplays, () => makePursuitReplays()))
 );
 
 /** Present only when the machine names a System One endpoint. */
