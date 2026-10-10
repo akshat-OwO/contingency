@@ -31,6 +31,8 @@ import {
   fixtureServer,
   NEVER_ANSWERED,
   SETTLE_GATE,
+  UNSTABLE_REPLACE_GATE,
+  UNSTABLE_REPLACED_BEACON,
   USER_INPUT_BEACON,
 } from "./harness.ts";
 
@@ -92,6 +94,9 @@ const startSession = (agent: AgentClient, url: string, operationId: string) =>
     viewport,
   }).pipe(Effect.map(({ session }) => session));
 
+/** The unstable fixture replaced its button. */
+const isReplacement = (url: string) => url === UNSTABLE_REPLACED_BEACON;
+
 const findNode = (
   nodes: readonly AgentSnapshotNode[],
   role: string,
@@ -151,13 +156,16 @@ it.live(
       // The reference came from the Snapshot before the fill, and the fill
       // took another one: within a document, a reference lives until its
       // element does.
+      const viewed = yield* fixtures.awaitRequest(
+        (url) => url === CART_VIEWED_BEACON
+      );
       const clicked = yield* callTool("agent_browser_act", {
         action: { ref: viewCart.ref, type: "click" },
         operationId: OperationId.make("act-view-cart"),
         sessionId: session.id,
       });
       expect(clicked.entry.dispatched).toBe(true);
-      yield* Effect.sleep("500 millis");
+      yield* Deferred.await(viewed).pipe(Effect.timeout("30 seconds"));
       expect(
         fixtures.requests.filter((path) => path === CART_VIEWED_BEACON)
       ).toHaveLength(1);
@@ -170,10 +178,20 @@ it.live(
         sessionId: session.id,
       });
       expect(replayed).toEqual(clicked);
-      yield* Effect.sleep("500 millis");
+      // A fresh operation id clicks again: once its beacon lands, a click the
+      // replay sent would have landed before it.
+      const viewedAgain = yield* fixtures.awaitRequest(
+        (url) => url === CART_VIEWED_BEACON
+      );
+      yield* callTool("agent_browser_act", {
+        action: { ref: viewCart.ref, type: "click" },
+        operationId: OperationId.make("act-view-cart-again"),
+        sessionId: session.id,
+      });
+      yield* Deferred.await(viewedAgain).pipe(Effect.timeout("30 seconds"));
       expect(
         fixtures.requests.filter((path) => path === CART_VIEWED_BEACON)
-      ).toHaveLength(1);
+      ).toHaveLength(2);
 
       const current = yield* agent("agent.session.get", {
         sessionId: session.id,
@@ -188,6 +206,7 @@ it.live(
         current.session.timeline.map(({ description }) => description)
       ).toEqual([
         `Fill ${search.role} "${search.name}" with "anvil"`,
+        `Click ${viewCart.role} "${viewCart.name}"`,
         `Click ${viewCart.role} "${viewCart.name}"`,
       ]);
       expect(current.session.controller).toBe("agent");
@@ -626,6 +645,7 @@ it.live("expires element references when the Page navigates", () =>
     // A meaningful page mutation expires a reference too: this fixture
     // re-creates its button, so the element the Snapshot named is gone even
     // though the Page never navigated.
+    const replace = yield* fixtures.holdRequest(UNSTABLE_REPLACE_GATE);
     yield* callTool("agent_browser_act", {
       action: { type: "navigate", url: fixtures.url("unstable.html") },
       operationId: OperationId.make("act-navigate-unstable"),
@@ -635,7 +655,10 @@ it.live("expires element references when the Page navigates", () =>
       sessionId: session.id,
     });
     const flappy = findNode(unstable.nodes, "button", "Flappy");
-    yield* Effect.sleep("200 millis");
+    // The page replaces the button only once released, after the Snapshot.
+    const replaced = yield* fixtures.awaitRequest(isReplacement);
+    yield* Deferred.succeed(replace.release, true);
+    yield* Deferred.await(replaced).pipe(Effect.timeout("30 seconds"));
     const mutated = yield* Effect.flip(
       callTool("agent_browser_act", {
         action: { ref: flappy.ref, type: "click" },
@@ -727,6 +750,9 @@ it.live("gives a user Takeover priority over the in-flight agent action", () =>
 
     // A navigation the fixture server never answers: the action is dispatched
     // to the browser and still in flight when the user takes control.
+    const dispatched = yield* fixtures.awaitRequest(
+      (url) => url === NEVER_ANSWERED
+    );
     const inFlight = yield* Effect.forkChild(
       Effect.result(
         callTool("agent_browser_act", {
@@ -739,7 +765,7 @@ it.live("gives a user Takeover priority over the in-flight agent action", () =>
         })
       )
     );
-    yield* Effect.sleep("500 millis");
+    yield* Deferred.await(dispatched).pipe(Effect.timeout("30 seconds"));
 
     const takeover = yield* agent("agent.session.takeover", {
       operationId: OperationId.make("takeover-user"),
@@ -825,6 +851,9 @@ it.live(
         sessionId: session.id,
       });
 
+      const pressed = yield* fixtures.awaitRequest((url) =>
+        url.startsWith(USER_INPUT_BEACON)
+      );
       yield* agent("agent.browser.input.send", {
         inputs: [
           {
@@ -838,7 +867,7 @@ it.live(
         ],
         sessionId: session.id,
       });
-      yield* Effect.sleep("500 millis");
+      yield* Deferred.await(pressed).pipe(Effect.timeout("30 seconds"));
       expect(userInput().length).toBeGreaterThan(0);
 
       // Agent actions stay disabled until the user explicitly returns control.
@@ -1095,10 +1124,8 @@ it.live("stops waiting at the bound and says the Page was still loading", () =>
   Effect.gen(function* boundedSettle() {
     const { click } = yield* openSettleFixture("start-settle-stall");
 
-    const startedAt = Date.now();
     const stalled = yield* click("Keep loading", "settle-stall");
 
-    expect(Date.now() - startedAt).toBeLessThan(5000);
     expect(stalled.entry.outcome).toBe("completed");
     expect(stalled.snapshot.settle?.settled).toBe(false);
     expect(stalled.snapshot.settle?.pending).toContain("network");

@@ -462,12 +462,8 @@ export const agentProcessLayer = (
  * Run Summary is written, so a test that reads the file waits for it.
  */
 export const awaitRunVideo = (directory: string) =>
-  Effect.gen(function* pollRunVideo() {
+  Effect.gen(function* settledRunVideo() {
     const renderer = yield* RunVideoRenderer;
-    let status = yield* renderer.status(directory);
-    while (status.state === "preparing") {
-      yield* Effect.sleep("100 millis");
-      status = yield* renderer.status(directory);
-    }
-    return status;
-  }).pipe(Effect.timeout("120 seconds"));
+    yield* renderer.settled(directory).pipe(Effect.timeout("120 seconds"));
+    return yield* renderer.status(directory);
+  });
