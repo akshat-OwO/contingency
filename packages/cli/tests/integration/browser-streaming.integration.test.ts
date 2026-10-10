@@ -13,13 +13,13 @@ const live = Layer.merge(CreateBrowserLive, NodeServices.layer);
 const animation = `data:text/html,${encodeURIComponent('<main>Streaming</main><script>let tick = 0; setInterval(() => { document.body.style.background = "hsl(" + tick++ % 360 + " 80% 50%)"; }, 25);</script>')}`;
 
 /**
- * Reconnecting proves capture went on without the first viewer: a newer frame
- * than it last saw arrives, acknowledged by no one.
+ * No viewer acknowledges a frame, yet 20 arrive. Leaving stops capture; a new
+ * viewer restarts it and sees frames newer than the first viewer's last.
  */
 it.live(
-  "keeps capturing without viewer acknowledgements and reconnects to a newer frame",
+  "captures without viewer acknowledgements and reconnects to a newer frame",
   () =>
-    Effect.gen(function* independentCapture() {
+    Effect.gen(function* unacknowledgedCapture() {
       const browser = yield* CreateBrowser;
       const { sessionId } = yield* browser.open(
         undefined,
