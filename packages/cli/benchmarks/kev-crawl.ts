@@ -25,18 +25,18 @@ import type {
 import { NodeServices } from "@effect/platform-node";
 import { Config, Console, Effect, FileSystem, Layer } from "effect";
 
-import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { OnboardingToolHandlersLive } from "../../src/services/mcp-onboarding.ts";
-import { actionSpace } from "../../src/services/system-one-request.ts";
+import { makeDemoSiteLayer } from "../src/services/demo-site-server.ts";
+import { OnboardingToolHandlersLive } from "../src/services/mcp-onboarding.ts";
+import { actionSpace } from "../src/services/system-one-request.ts";
 import type {
   ActionSpace,
   Operation,
-} from "../../src/services/system-one-request.ts";
+} from "../src/services/system-one-request.ts";
 import {
   agentProcessLayer,
   runTool,
   sessionTool,
-} from "../integration/agent-harness.ts";
+} from "../tests/integration/agent-harness.ts";
 
 /** Names a random walk never clicks, even though a Run would confirm them. */
 const AVOIDED =

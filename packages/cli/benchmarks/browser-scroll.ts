@@ -2,15 +2,23 @@ import path from "node:path";
 
 import { OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import { Context, Effect, Fiber, FileSystem, Layer, Stream } from "effect";
+import {
+  Context,
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Stream,
+} from "effect";
 
-import { makeBrowserInputQueue } from "../../../../apps/web/src/components/browser/browser-input-queue.ts";
-import { AgentSession } from "../../src/services/agent-session.ts";
+import { makeBrowserInputQueue } from "../../../apps/web/src/components/browser/browser-input-queue.ts";
+import { AgentSession } from "../src/services/agent-session.ts";
 import {
   agentProcessLayer,
   startUserTeaching,
-} from "../integration/agent-harness.ts";
-import { fixtureServer } from "../integration/harness.ts";
+} from "../tests/integration/agent-harness.ts";
+import { fixtureServer } from "../tests/integration/harness.ts";
 
 const main = Effect.gen(function* benchmarkWheelInput() {
   const fs = yield* FileSystem.FileSystem;
@@ -59,7 +67,6 @@ const main = Effect.gen(function* benchmarkWheelInput() {
       let finalMovementMs: number | undefined;
       let previousOffset = 0;
       let received = 0;
-      let ready = false;
       let completedDelta = 0;
       let completedDistance = 0;
       let dispatchedEvents = 0;
@@ -67,13 +74,15 @@ const main = Effect.gen(function* benchmarkWheelInput() {
       let previousFrameAt: number | undefined;
       const frameGaps: number[] = [];
       const requestMs: number[] = [];
+      const streamReady = yield* Deferred.make<true>();
+      const drained = yield* Deferred.make<true>();
       const stream = yield* agent.browserStream(session.id).pipe(
         Stream.runForEach((frame) =>
           Effect.sync(() => {
             if (frame.type !== "frame") {
               return;
             }
-            ready = true;
+            Deferred.doneUnsafe(streamReady, Effect.succeed(true));
             if (
               started === 0 ||
               frame.metadata.scrollOffsetY === previousOffset
@@ -100,12 +109,12 @@ const main = Effect.gen(function* benchmarkWheelInput() {
         ),
         Effect.forkChild
       );
-      const isReady = () => ready;
-      yield* Effect.gen(function* waitForStream() {
-        while (!isReady()) {
-          yield* Effect.sleep("10 millis");
+      yield* Deferred.await(streamReady).pipe(Effect.timeout("10 seconds"));
+      const settleDrain = () => {
+        if (completedDistance >= 1440 || failure !== undefined) {
+          Deferred.doneUnsafe(drained, Effect.succeed(true));
         }
-      }).pipe(Effect.timeout("10 seconds"));
+      };
       const enqueue = makeBrowserInputQueue((id: typeof session.id, inputs) =>
         Effect.gen(function* dispatchBatch() {
           for (const input of inputs) {
@@ -113,6 +122,7 @@ const main = Effect.gen(function* benchmarkWheelInput() {
             const result = yield* Effect.result(agent.sendInput(id, input));
             if (result._tag === "Failure") {
               ({ failure } = result);
+              settleDrain();
               return;
             }
             requestMs.push(performance.now() - at);
@@ -121,6 +131,7 @@ const main = Effect.gen(function* benchmarkWheelInput() {
             completedDistance +=
               input.type === "input_mouse" ? Math.abs(input.deltaY ?? 0) : 0;
             dispatchedEvents += 1;
+            settleDrain();
           }
         })
       );
@@ -137,13 +148,7 @@ const main = Effect.gen(function* benchmarkWheelInput() {
         yield* Effect.sleep("8 millis");
       }
       const gestureMs = performance.now() - started;
-      const hasDrained = () =>
-        completedDistance >= 1440 || failure !== undefined;
-      yield* Effect.gen(function* drainWheelInput() {
-        while (!hasDrained()) {
-          yield* Effect.sleep("10 millis");
-        }
-      }).pipe(Effect.timeout("15 seconds"));
+      yield* Deferred.await(drained).pipe(Effect.timeout("15 seconds"));
       const drainedMs = performance.now() - started;
       yield* Effect.sleep("250 millis");
       yield* Fiber.interrupt(stream);

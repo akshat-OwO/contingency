@@ -1,6 +1,6 @@
 # Nev benchmark results
 
-Nev-0.8B is a small decision model that picks the next browser action for a Flow Skill step. It is published at [akshat-OwO/nev-0.8b](https://huggingface.co/akshat-OwO/nev-0.8b). Its test data and the scripts that rebuild every number below are at [akshat-OwO/nev-bench](https://huggingface.co/datasets/akshat-OwO/nev-bench). The live Flow Skill benchmark and the crawler are in [`packages/cli/tests/benchmarks`](../../packages/cli/tests/benchmarks).
+Nev-0.8B is a small decision model that picks the next browser action for a Flow Skill step. It is published at [akshat-OwO/nev-0.8b](https://huggingface.co/akshat-OwO/nev-0.8b). Its test data and the scripts that rebuild every number below are at [akshat-OwO/nev-bench](https://huggingface.co/datasets/akshat-OwO/nev-bench). The live Flow Skill benchmark and the crawler are in [`packages/cli/benchmarks`](../../packages/cli/benchmarks).
 
 ## Steps fully right
 
@@ -64,7 +64,7 @@ A Jev request takes 0.34 s at the median and a Nev request 0.31 s. In a Pursuit,
 With Nev running on port 8009 (see the model card), run this from the repository root:
 
 ```sh
-JEV_PROVIDER=local JEV_BENCHMARK_REPEATS=3 nub packages/cli/tests/benchmarks/jev-fast-loop.ts
+JEV_PROVIDER=local JEV_BENCHMARK_REPEATS=3 nub packages/cli/benchmarks/jev-fast-loop.ts
 ```
 
 The script starts the bundled demo store and drives its Example Flow Skills through Contingency's MCP tools. Results go to `.cursor/skills/verify-contingency/artifacts/jev-fast-loop/`. To run Jev instead, set `JEV_PROVIDER=typesafe` and `TYPESAFE_API_KEY`.
@@ -72,7 +72,7 @@ The script starts the bundled demo store and drives its Example Flow Skills thro
 To measure Pursuits, point Contingency at the endpoint the way `contingency mcp` reads it. `PURSUIT_MODE=steps` makes one call per step instead of one per run:
 
 ```sh
-CONTINGENCY_SYSTEM_ONE_URL=http://127.0.0.1:8009 PURSUIT_BENCHMARK_REPEATS=3 nub packages/cli/tests/benchmarks/pursuit-loop.ts
+CONTINGENCY_SYSTEM_ONE_URL=http://127.0.0.1:8009 PURSUIT_BENCHMARK_REPEATS=3 nub packages/cli/benchmarks/pursuit-loop.ts
 ```
 
 For Jev, use `CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai` and set `CONTINGENCY_SYSTEM_ONE_API_KEY`. Results go to `.cursor/skills/verify-contingency/artifacts/pursuit-loop/`.

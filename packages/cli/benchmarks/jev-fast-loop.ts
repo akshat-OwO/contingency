@@ -9,7 +9,7 @@
  * agent calls. Nothing here is product code, and every outcome is checked in
  * code, never taken from Jev.
  *
- *   OPENCODE_API_KEY=… nub packages/cli/tests/benchmarks/jev-fast-loop.ts
+ *   OPENCODE_API_KEY=… nub packages/cli/benchmarks/jev-fast-loop.ts
  *   TYPESAFE_API_KEY=… JEV_PROVIDER=typesafe nub …/jev-fast-loop.ts
  *   nub …/jev-fast-loop.ts --dry   # prints the first request; no model call
  *
@@ -46,12 +46,12 @@ import {
   HttpClientResponse,
 } from "effect/http";
 
-import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
+import { makeDemoSiteLayer } from "../src/services/demo-site-server.ts";
+import { readFlowSkillFrontmatter } from "../src/services/flow-skill-package.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
-} from "../../src/services/mcp-onboarding.ts";
+} from "../src/services/mcp-onboarding.ts";
 import {
   actionSpace,
   buildRequest,
@@ -59,7 +59,7 @@ import {
   SystemOneResponseSchema,
   targetKey,
   valueKey,
-} from "../../src/services/system-one-request.ts";
+} from "../src/services/system-one-request.ts";
 import type {
   ActionSpace,
   Candidate,
@@ -68,13 +68,13 @@ import type {
   Operation,
   SystemOneRequest,
   SystemOneResponse,
-} from "../../src/services/system-one-request.ts";
+} from "../src/services/system-one-request.ts";
 import {
   agentProcessLayer,
   makeCall,
   runTool,
   sessionTool,
-} from "../integration/agent-harness.ts";
+} from "../tests/integration/agent-harness.ts";
 import {
   catalogScenario,
   cuesFor,
@@ -474,7 +474,7 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
       const skill = yield* fs.readFileString(
         path.resolve(
           import.meta.dirname,
-          "../../examples",
+          "../examples",
           scenario.skill.example,
           "SKILL.md"
         )
@@ -730,7 +730,7 @@ const benchmark = (root: string) =>
     yield* Console.log(`\n${JSON.stringify(summary, null, 2)}`);
     const directory = path.resolve(
       import.meta.dirname,
-      "../../../../.cursor/skills/verify-contingency/artifacts/jev-fast-loop"
+      "../../../.cursor/skills/verify-contingency/artifacts/jev-fast-loop"
     );
     yield* fs.makeDirectory(directory, { recursive: true });
     const file = path.join(

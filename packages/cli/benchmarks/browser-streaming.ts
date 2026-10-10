@@ -32,13 +32,13 @@ import type { Page } from "playwright-core";
 import {
   defaultScreencastOptions,
   ScreencastOptions,
-} from "../../src/services/create-browser-screencast.ts";
+} from "../src/services/create-browser-screencast.ts";
 import {
   CreateBrowser,
   CreateBrowserLive,
-} from "../../src/services/create-browser.ts";
-import { makeTeachingEncoder } from "../../src/services/teaching-encoder.ts";
-import { draftEmulation } from "../integration/harness.ts";
+} from "../src/services/create-browser.ts";
+import { makeTeachingEncoder } from "../src/services/teaching-encoder.ts";
+import { draftEmulation } from "../tests/integration/harness.ts";
 import {
   checkStreamingBudgets,
   streamingBenchmarkReportSchema,
@@ -155,7 +155,7 @@ const main = Effect.gen(function* benchmarkBrowserStreaming() {
   const outputName = focus ? `${profileName}-focus` : profileName;
   const output = path.resolve(
     import.meta.dirname,
-    "../../../../.cursor/skills/verify-contingency/artifacts/streaming-benchmark",
+    "../../../.cursor/skills/verify-contingency/artifacts/streaming-benchmark",
     outputName
   );
   if (process.argv.includes("--check-existing")) {
@@ -170,7 +170,7 @@ const main = Effect.gen(function* benchmarkBrowserStreaming() {
   const html = yield* fs.readFileString(
     path.resolve(
       import.meta.dirname,
-      "../integration/fixtures/streaming-benchmark.html"
+      "../tests/integration/fixtures/streaming-benchmark.html"
     )
   );
   const quality: Record<string, number | string | null | undefined>[] = [];
