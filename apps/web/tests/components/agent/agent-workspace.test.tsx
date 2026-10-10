@@ -21,9 +21,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
-import {
-  WorkspaceRefreshClockContext,
-} from "@/lib/workspace-refresh-interval";
+import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh-interval";
 import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
@@ -441,6 +439,7 @@ afterEach(async () => {
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
   rpc.renameCalls = [];
+  rpc.setupAnswerCalls = [];
   rpc.startSessionCalls = [];
   rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
@@ -1842,7 +1841,9 @@ test("stops live streams while keeping an ended Run's Summary", async () => {
     )
   );
   vi.spyOn(rpcOverrides, "runAgentBrowserStream").mockImplementation(() =>
-    Effect.never.pipe(Effect.ensuring(Deferred.succeed(browserStreamStopped, true)))
+    Effect.never.pipe(
+      Effect.ensuring(Deferred.succeed(browserStreamStopped, true))
+    )
   );
   renderWorkspace(resultFor([taskRunSession]), session.id);
   const canvas = await screen.findByLabelText("Live browser viewport");

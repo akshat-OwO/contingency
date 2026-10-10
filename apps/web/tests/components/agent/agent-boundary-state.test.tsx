@@ -155,7 +155,9 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
     reason: "confirmation",
     requested: "https://shop.example.com/checkout",
   };
-  rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { boundary }));
+  await act(() =>
+    rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { boundary }))
+  );
   const shown = await screen.findByText("https://shop.example.com/checkout");
 
   const captureAction = async (entry: number) => {
@@ -178,9 +180,9 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
       )
     );
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Browser address" })).toHaveValue(
-        `https://shop.example.com/action-${entry}`
-      )
+      expect(
+        screen.getByRole("textbox", { name: "Browser address" })
+      ).toHaveValue(`https://shop.example.com/action-${entry}`)
     );
     expect(screen.getByText("https://shop.example.com/checkout")).toBe(shown);
   };
@@ -209,16 +211,20 @@ test("keeps refusal available during Takeover and enables Allow on return", asyn
     pendingDecisions: [pendingFor("boundary-return")],
     teaching: null,
   };
-  rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { ...run, boundary }));
+  await act(() =>
+    rpc.emit?.(sessionAt("2026-09-02T00:00:01.000Z", { ...run, boundary }))
+  );
   await screen.findByRole("region", { name: "Execution Boundary" });
 
-  rpc.emit?.(
-    sessionAt("2026-09-02T00:00:02.000Z", {
-      ...run,
-      boundary,
-      controller: "user",
-      phase: "takeover",
-    })
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:02.000Z", {
+        ...run,
+        boundary,
+        controller: "user",
+        phase: "takeover",
+      })
+    )
   );
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
@@ -229,14 +235,16 @@ test("keeps refusal available during Takeover and enables Allow on return", asyn
   });
 
   await screen.findByRole("button", { name: "Return control" });
-  rpc.emit?.(sessionAt("2026-09-02T00:00:03.000Z", { ...run, boundary }));
+  await act(() =>
+    rpc.emit?.(sessionAt("2026-09-02T00:00:03.000Z", { ...run, boundary }))
+  );
   await screen.findByRole("region", { name: "Execution Boundary" });
   expect(screen.getByRole("button", { name: "Allow" })).toBeVisible();
   expect(
     screen.getByRole("textbox", { name: "Browser address" })
   ).toBeDisabled();
 
-  rpc.emit?.(sessionAt("2026-09-02T00:00:04.000Z", run));
+  await act(() => rpc.emit?.(sessionAt("2026-09-02T00:00:04.000Z", run)));
   await waitFor(() => {
     expect(
       screen.queryByRole("region", { name: "Execution Boundary" })
@@ -249,12 +257,14 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   renderWorkspace();
   await screen.findByRole("region", { name: "Workspace dock" });
   const run = { activity: "run", captureState: null, teaching: null };
-  rpc.emit?.(
-    sessionAt("2026-09-02T00:00:01.000Z", {
-      ...run,
-      boundary: boundaryFor("boundary-1"),
-      pendingDecisions: [pendingFor("boundary-1")],
-    })
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:01.000Z", {
+        ...run,
+        boundary: boundaryFor("boundary-1"),
+        pendingDecisions: [pendingFor("boundary-1")],
+      })
+    )
   );
   // A Run's dock replaces the Teaching one, so it is read after the switch.
   const boundary = await screen.findByRole("region", {
@@ -292,12 +302,14 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   ).toBeVisible();
 
   // A new Boundary is a new request: the folded tier opens for it.
-  rpc.emit?.(
-    sessionAt("2026-09-02T00:00:02.000Z", {
-      ...run,
-      boundary: boundaryFor("boundary-2"),
-      pendingDecisions: [pendingFor("boundary-2")],
-    })
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:02.000Z", {
+        ...run,
+        boundary: boundaryFor("boundary-2"),
+        pendingDecisions: [pendingFor("boundary-2")],
+      })
+    )
   );
   expect(
     await within(dock).findByRole("region", { name: "Execution Boundary" })
@@ -308,14 +320,16 @@ test("answers the exact decision in Workspace and reuses its resolution id after
   const user = userEvent.setup();
   renderWorkspace();
   await screen.findByRole("region", { name: "Workspace dock" });
-  rpc.emit?.(
-    sessionAt("2026-09-02T00:00:01.000Z", {
-      activity: "run",
-      boundary: boundaryFor("ui-answer"),
-      captureState: null,
-      pendingDecisions: [pendingFor("ui-answer")],
-      teaching: null,
-    })
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:01.000Z", {
+        activity: "run",
+        boundary: boundaryFor("ui-answer"),
+        captureState: null,
+        pendingDecisions: [pendingFor("ui-answer")],
+        teaching: null,
+      })
+    )
   );
   const allow = await screen.findByRole("button", { name: "Allow" });
   rpc.answer.mockRejectedValueOnce(new Error("Connection interrupted"));
@@ -339,16 +353,18 @@ test("refuses a pending attempt while the user holds Takeover", async () => {
   const user = userEvent.setup();
   renderWorkspace();
   await screen.findByRole("region", { name: "Workspace dock" });
-  rpc.emit?.(
-    sessionAt("2026-09-02T00:00:01.000Z", {
-      activity: "run",
-      boundary: boundaryFor("ui-refuse"),
-      captureState: null,
-      controller: "user",
-      pendingDecisions: [pendingFor("ui-refuse")],
-      phase: "takeover",
-      teaching: null,
-    })
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:01.000Z", {
+        activity: "run",
+        boundary: boundaryFor("ui-refuse"),
+        captureState: null,
+        controller: "user",
+        pendingDecisions: [pendingFor("ui-refuse")],
+        phase: "takeover",
+        teaching: null,
+      })
+    )
   );
   expect(await screen.findByRole("button", { name: "Allow" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Refuse" }));
