@@ -4,6 +4,7 @@ import {
   isBrowserRpcError,
 } from "@contingency/protocol";
 import type {
+  AgentSessionSnapshot,
   BrowserRpcErrorType,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
@@ -194,9 +195,22 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           Effect.map((session) => ({ session }))
         ),
       "agent.session.get": (data) =>
-        agentUnavailable((service) => service.get(data.sessionId)).pipe(
-          Effect.map((session) => ({ session }))
-        ),
+        agentUnavailable<AgentSessionSnapshot>((service) =>
+          data.afterCursor === undefined
+            ? Effect.gen(function* readSessionWithCursor() {
+                // Read the cursor first so a concurrent change is replayed.
+                const { eventCursor } = yield* service.sessionEvents(
+                  data.sessionId
+                );
+                const session = yield* service.get(data.sessionId);
+                return { ...session, eventCursor };
+              })
+            : service.waitForEvents(
+                data.sessionId,
+                data.afterCursor,
+                data.waitMs
+              )
+        ).pipe(Effect.map((session) => ({ session }))),
       "agent.session.close": (data) =>
         agentUnavailable((service) =>
           service.close(data.sessionId, data.operationId)

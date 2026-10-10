@@ -6,7 +6,7 @@ import {
 import type { TeachingCaptureLimits } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schedule, Stream } from "effect";
+import { Effect, FileSystem, Layer, Stream } from "effect";
 import { RpcTest } from "effect/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -17,6 +17,7 @@ import {
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
+import { awaitSession } from "./agent-harness.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -187,7 +188,10 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
         operationId: OperationId.make("stop-teaching-boundary"),
         sessionId: setup.id,
       });
-      expect(stopped.session.captureState?._tag).toBe("ready");
+      expect(
+        stopped.session.captureState?._tag,
+        JSON.stringify(stopped.session.captureState)
+      ).toBe("ready");
       expect(stopped.session.phase).toBe("running");
       const events = yield* fileSystem.readFileString(
         `${recordingDirectory}/events.jsonl`
@@ -218,7 +222,10 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
       yield* sessions.closeAll();
       const interrupted = yield* sessions.get(setup.id);
       expect(interrupted.phase).toBe("interrupted");
-      expect(interrupted.captureState?._tag).toBe("ready");
+      expect(
+        interrupted.captureState?._tag,
+        JSON.stringify(interrupted.captureState)
+      ).toBe("ready");
       const secondDirectory = `${root}/.recordings/${second.session.recordingId}`;
       const interruptedEvents = yield* fileSystem.readFileString(
         `${secondDirectory}/events.jsonl`
@@ -273,20 +280,13 @@ it.live("ends the recording itself when a capture ceiling is reached", () =>
         });
       }
 
-      const settled = yield* Effect.gen(function* awaitCeiling() {
-        const current = yield* client("agent.session.get", {
-          sessionId: setup.id,
-        });
-        return current.session;
-      }).pipe(
-        Effect.repeat({
-          schedule: Schedule.spaced("250 millis"),
-          // Finalizing ends capture before the recorder persists its stopped event.
-          until: (session) =>
-            session.captureState?._tag === "ready" ||
-            session.captureState?._tag === "failed",
-        }),
-        Effect.timeout("30 seconds")
+      // Finalizing ends capture before the recorder persists its stopped event.
+      const settled = yield* awaitSession(
+        client,
+        setup.id,
+        (session) =>
+          session.captureState?._tag === "ready" ||
+          session.captureState?._tag === "failed"
       );
       expect(["ready", "failed"]).toContain(settled.captureState?._tag);
 

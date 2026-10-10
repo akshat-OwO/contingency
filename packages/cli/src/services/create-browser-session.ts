@@ -265,18 +265,25 @@ export const requirePage = (
   );
 };
 
-export const emitStatus = (
+export const statusEvent = (
   session: CreateSession,
   screencasting: boolean
-): void => {
+): BrowserStreamEvent => {
   const { viewport } = readSessionState(session);
-  PubSub.publishUnsafe(session.events, {
+  return {
     connected: true,
     screencasting,
     type: "status",
     viewportHeight: viewport.height,
     viewportWidth: viewport.width,
-  });
+  };
+};
+
+export const emitStatus = (
+  session: CreateSession,
+  screencasting: boolean
+): void => {
+  PubSub.publishUnsafe(session.events, statusEvent(session, screencasting));
 };
 
 export const publishTabs = (session: CreateSession): void => {

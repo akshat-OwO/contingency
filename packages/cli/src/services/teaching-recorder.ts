@@ -11,10 +11,13 @@ import type {
   TeachingStopReason,
 } from "@contingency/protocol";
 import { ContentHash, isWithheldValue } from "@contingency/protocol";
-import { Deferred, Effect, Exit, Ref, Scope, Stream } from "effect";
+import { Deferred, Effect, Exit, Fiber, Ref, Scope, Stream } from "effect";
 import type { FileSystem } from "effect";
 
-import type { CreateBrowserService } from "./create-browser-contract.ts";
+import type {
+  BrowserTarget,
+  CreateBrowserService,
+} from "./create-browser-contract.ts";
 import { browserFailure } from "./create-browser-session.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { DemonstrationCounts } from "./teaching-capture.ts";
@@ -71,8 +74,27 @@ export interface TeachingRecorder {
   readonly videoFile: string;
 }
 
+/** The slice of the browser a recorder drives: frames, tracing, and a stop frame. */
+export interface TeachingRecorderBrowser {
+  readonly stream: CreateBrowserService["stream"];
+  readonly activeTarget: (
+    ...args: Parameters<CreateBrowserService["activeTarget"]>
+  ) => Effect.Effect<
+    {
+      readonly context: {
+        readonly tracing: Pick<
+          BrowserTarget["context"]["tracing"],
+          "start" | "stop"
+        >;
+      };
+      readonly page: Pick<BrowserTarget["page"], "screenshot" | "url">;
+    },
+    BrowserRpcErrorType
+  >;
+}
+
 export interface TeachingRecorderOptions {
-  readonly browser: CreateBrowserService;
+  readonly browser: TeachingRecorderBrowser;
   /** O(1) capture sizes, read by the watchdog on every tick. */
   readonly counts: () => DemonstrationCounts;
   /** The capture so far, serialized only when the byte ceiling is near. */
@@ -376,18 +398,32 @@ export const makeTeachingRecorder = (
         output: videoFile,
       })
     );
-    yield* options.browser.stream(options.browserSessionId).pipe(
-      Stream.runForEach((event) => {
-        if (event.type !== "frame") {
-          return Effect.void;
-        }
-        return encoder.write(event.data);
-      }),
-      Effect.tapError((cause) =>
-        Ref.set(failure, `Teaching capture stopped: ${cause.message}`)
-      ),
-      Effect.ignore,
-      Effect.forkIn(scope)
+    // The stream starts the screencast lazily and leads with its status. Start
+    // returns once capture is live, so an immediate navigation cannot swap
+    // renderers under a screencast that is still starting. A stream that fails
+    // first fails Start, like the Trace and encoder above.
+    const capturing = yield* Deferred.make<true, BrowserRpcErrorType>();
+    const capture = yield* options.browser
+      .stream(options.browserSessionId)
+      .pipe(
+        Stream.runForEach((event) =>
+          Deferred.succeed(capturing, true).pipe(
+            Effect.andThen(
+              event.type === "frame" ? encoder.write(event.data) : Effect.void
+            )
+          )
+        ),
+        Effect.tapError((cause) =>
+          Ref.set(failure, `Teaching capture stopped: ${cause.message}`).pipe(
+            Effect.andThen(Deferred.fail(capturing, cause))
+          )
+        ),
+        Effect.ignore,
+        Effect.ensuring(Deferred.succeed(capturing, true)),
+        Effect.forkIn(scope)
+      );
+    yield* Deferred.await(capturing).pipe(
+      Effect.onError(() => Scope.close(scope, Exit.void))
     );
 
     // A ceiling is documented to end the recording, not merely to truncate the
@@ -481,6 +517,26 @@ export const makeTeachingRecorder = (
             };
           }
           stopped = true;
+          yield* Fiber.interrupt(capture);
+          // A quick Stop can precede Chromium's first repaint. Photograph the
+          // current Page only for empty input, before closing the encoder.
+          if ((yield* encoder.bytesWritten) === 0) {
+            yield* options.browser.activeTarget(options.browserSessionId).pipe(
+              Effect.flatMap(({ page }) =>
+                Effect.tryPromise({
+                  catch: (cause) =>
+                    browserFailure(
+                      "Could not capture the Teaching stop frame",
+                      cause
+                    ),
+                  try: () => page.screenshot({ timeout: 10_000, type: "jpeg" }),
+                })
+              ),
+              Effect.flatMap(encoder.write),
+              Effect.tapError((cause) => Ref.set(failure, cause.message)),
+              Effect.ignore
+            );
+          }
           yield* Scope.close(scope, Exit.void);
           const encoderFailure = yield* encoder.failure;
           const duration =
