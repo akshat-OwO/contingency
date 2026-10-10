@@ -40,7 +40,6 @@ export default defineConfig({
       files: [
         "packages/cli/tests/integration/agent-browser.integration.test.ts",
         "packages/cli/tests/integration/agent-harness.ts",
-        "packages/cli/tests/integration/agent-session.integration.test.ts",
         "packages/cli/tests/integration/teaching-keyframes.integration.test.ts",
         "packages/cli/tests/integration/teaching-recording-learning.integration.test.ts",
         "packages/cli/tests/integration/teaching-scroll.integration.test.ts",

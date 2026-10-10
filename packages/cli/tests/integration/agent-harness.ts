@@ -12,6 +12,8 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentRunState,
+  AgentSessionGet,
+  AgentSessionGetResult,
   AgentSessionId,
   AgentSnapshotNode,
 } from "@contingency/protocol";
@@ -219,6 +221,30 @@ export const sessionTool = makeCall(AgentSessionTools);
 export const catalogTool = makeCall(AgentCatalogTools);
 export const runTool = makeCall(AgentRunTools);
 export const teachingRecordingTool = makeCall(TeachingRecordingTools);
+
+/** Wait on Session Events until the snapshot satisfies the next assertion. */
+export const awaitSession = <E, R>(
+  client: (
+    name: "agent.session.get",
+    params: AgentSessionGet
+  ) => Effect.Effect<AgentSessionGetResult, E, R>,
+  sessionId: AgentSessionId,
+  until: (session: AgentSessionSnapshot) => boolean
+) =>
+  Effect.gen(function* awaitSessionState() {
+    let { session } = yield* client("agent.session.get", { sessionId });
+    while (!until(session)) {
+      const afterCursor = session.eventCursor;
+      if (afterCursor === undefined) {
+        return yield* Effect.die("The Agent Session returned no event cursor.");
+      }
+      ({ session } = yield* client("agent.session.get", {
+        afterCursor,
+        sessionId,
+      }));
+    }
+    return session;
+  }).pipe(Effect.timeout("30 seconds"));
 
 /**
  * Open Teaching the way an agent does, then hand the browser straight to the
