@@ -4,7 +4,7 @@ import { FlowSkillName, OperationId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Result } from "effect";
+import { Deferred, Effect, FileSystem, Result } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
@@ -19,7 +19,7 @@ import {
   startUserTeaching,
   teachingRecordingTool,
 } from "./agent-harness.ts";
-import { fixtureServer } from "./harness.ts";
+import { fixtureServer, SETTLE_GATE } from "./harness.ts";
 
 /** The demonstrated pair. A learned Flow Skill must reach a different one. */
 const DEMONSTRATED_CITY = "Gurugram";
@@ -443,6 +443,7 @@ it.live(
             "button",
             "Navigate later"
           );
+          const gate = yield* fixtures.holdRequest(SETTLE_GATE);
           const clicked = yield* sessionTool("agent_browser_act", {
             action: { ref: navigateLater.ref, type: "click" },
             operationId: OperationId.make("delivery-dry-click-later"),
@@ -452,7 +453,14 @@ it.live(
           const beforeArrival = yield* sessionTool("agent_session_get", {
             sessionId: failedRun.session.id,
           });
-          yield* Effect.sleep("3500 millis");
+          yield* Deferred.await(gate.arrived).pipe(
+            Effect.timeout("30 seconds")
+          );
+          const arrived = yield* fixtures.awaitRequest(
+            (url) => url === "/settle.html?arrived"
+          );
+          yield* Deferred.succeed(gate.release, null);
+          yield* Deferred.await(arrived).pipe(Effect.timeout("30 seconds"));
           const afterNavigation = yield* sessionTool("agent_browser_snapshot", {
             sessionId: failedRun.session.id,
           });
