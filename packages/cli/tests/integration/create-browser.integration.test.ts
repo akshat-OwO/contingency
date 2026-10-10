@@ -215,7 +215,12 @@ it.live(
         BrowserStreamId.make(frame.streamId)
       );
 
-      const [tab] = yield* browser.getTabs(sessionId);
+      // The title is reported after the first frame can arrive.
+      const [tab] = yield* awaitTabs(
+        browser,
+        sessionId,
+        (tabs) => activeTitle(tabs) === "Live"
+      );
       expect(tab).toBeDefined();
       expect(tab?.title).toBe("Live");
       const tabId = BrowserTabId.make(tab?.tabId ?? "missing");
