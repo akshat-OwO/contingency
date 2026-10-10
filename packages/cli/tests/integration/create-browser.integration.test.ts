@@ -1,12 +1,14 @@
 import { BrowserStreamId, BrowserTabId } from "@contingency/protocol";
+import type { BrowserTab, SessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Stream } from "effect";
+import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 
 import {
   CreateBrowser,
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
+import type { CreateBrowserService } from "../../src/services/create-browser.ts";
 import { beginScanCollection } from "../../src/services/scan-engine.ts";
 import {
   CLOUDFLARE_BLOCK,
@@ -35,12 +37,48 @@ const CreateBrowserIntegrationLive = Layer.merge(
   NodeServices.layer
 );
 
-const waitUntil = (ready: () => boolean) =>
-  Effect.gen(function* waitForCondition() {
-    while (!ready()) {
-      yield* Effect.sleep("10 millis");
-    }
-  }).pipe(Effect.timeout("10 seconds"));
+/**
+ * The first tabs `ready` accepts, read off the browser stream. The stream
+ * replays the latest tabs on subscribe, so a change made before this call
+ * still counts.
+ */
+const awaitTabs = (
+  browser: CreateBrowserService,
+  sessionId: SessionId,
+  ready: (tabs: readonly BrowserTab[]) => boolean
+) =>
+  browser.stream(sessionId).pipe(
+    Stream.filter((event) => event.type === "tabs"),
+    Stream.map((event) => event.tabs),
+    Stream.filter(ready),
+    Stream.runHead,
+    Effect.flatMap((result) =>
+      result._tag === "Some"
+        ? Effect.succeed(result.value)
+        : Effect.die("The stream ended before the tabs were ready.")
+    ),
+    Effect.timeout("10 seconds")
+  );
+
+/** The title of the tab the session is showing. */
+const activeTitle = (tabs: readonly BrowserTab[]) =>
+  tabs.find(({ active }) => active)?.title ?? "";
+
+/** The title of the first tab whose title starts with `label:`. */
+const reportedTitle = (tabs: readonly BrowserTab[], label: string) =>
+  tabs.find((tab) => tab.title.startsWith(`${label}:`))?.title;
+
+/** Wait until a probe Page reports under its label, and read the report. */
+const awaitReport = (
+  browser: CreateBrowserService,
+  sessionId: SessionId,
+  label: string
+) =>
+  awaitTabs(
+    browser,
+    sessionId,
+    (tabs) => reportedTitle(tabs, label) !== undefined
+  ).pipe(Effect.map((tabs) => reportedTitle(tabs, label)));
 
 /**
  * A tab's title follows the page after load, whether or not the tab is
@@ -77,23 +115,72 @@ it.live("follows title changes after load on every tab", () =>
         document.head.replaceWith(head);
       }`)
     );
-    const titles = yield* Effect.gen(function* pollTitles() {
-      for (;;) {
-        const tabs = yield* browser.getTabs(sessionId);
-        const first = tabs.find((tab) => tab.tabId === firstTab?.tabId);
-        const active = tabs.find((tab) => tab.active);
-        if (first?.title === "Late first" && active?.title === "Late second") {
-          return [first.title, active.title];
-        }
-        yield* Effect.sleep("10 millis");
-      }
-    }).pipe(Effect.timeout("10 seconds"));
-    expect(titles).toEqual(["Late first", "Late second"]);
+    const titles = (tabs: readonly BrowserTab[]) => [
+      tabs.find((tab) => tab.tabId === firstTab?.tabId)?.title,
+      tabs.find((tab) => tab.active)?.title,
+    ];
+    const reported = yield* awaitTabs(browser, sessionId, (tabs) => {
+      const [first, active] = titles(tabs);
+      return first === "Late first" && active === "Late second";
+    });
+    expect(titles(reported)).toEqual(["Late first", "Late second"]);
     expect(
       yield* Effect.promise(() =>
         secondPage.evaluate("typeof globalThis.contingencyReportTitle")
       )
     ).toBe("undefined");
+    yield* browser.close(sessionId);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
+/**
+ * A viewer that subscribes late still learns the current tabs, however much
+ * the page logged since: console output must not push them out of the replay.
+ */
+it.live("replays the latest tabs to a late viewer after console output", () =>
+  Effect.gen(function* lateViewerTabs() {
+    const browser = yield* CreateBrowser;
+    const sessionId = yield* browser.create("create-late-tabs", viewport);
+    yield* browser.open(
+      sessionId,
+      "data:text/html,<title>Initial</title><main>ready</main>",
+      draftEmulation("default", viewport)
+    );
+    const page = yield* browser.activePage(sessionId);
+    // The watcher holds the screencast, so the late viewer does not start it
+    // and learns the tabs only from what the stream replays.
+    const titled = yield* Deferred.make<true>();
+    const logged = yield* Deferred.make<true>();
+    const watcher = yield* browser.stream(sessionId).pipe(
+      Stream.runForEach((event) => {
+        if (event.type === "tabs" && activeTitle(event.tabs) === "Late") {
+          return Deferred.succeed(titled, true);
+        }
+        if (event.type === "console" && event.text === "last") {
+          return Deferred.succeed(logged, true);
+        }
+        return Effect.void;
+      }),
+      Effect.forkChild
+    );
+    yield* Effect.promise(() => page.evaluate('document.title = "Late"'));
+    yield* Deferred.await(titled).pipe(Effect.timeout("10 seconds"));
+    // More lines than the control events' replay window holds.
+    yield* Effect.promise(() =>
+      page.evaluate(`{
+        for (let line = 0; line < 40; line += 1) console.log(String(line));
+        console.log("last");
+      }`)
+    );
+    yield* Deferred.await(logged).pipe(Effect.timeout("10 seconds"));
+
+    const replayed = yield* awaitTabs(
+      browser,
+      sessionId,
+      (tabs) => activeTitle(tabs) === "Late"
+    );
+    expect(activeTitle(replayed)).toBe("Late");
+    yield* Fiber.interrupt(watcher);
     yield* browser.close(sessionId);
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
@@ -128,7 +215,12 @@ it.live(
         BrowserStreamId.make(frame.streamId)
       );
 
-      const [tab] = yield* browser.getTabs(sessionId);
+      // The title is reported after the first frame can arrive.
+      const [tab] = yield* awaitTabs(
+        browser,
+        sessionId,
+        (tabs) => activeTitle(tabs) === "Live"
+      );
       expect(tab).toBeDefined();
       expect(tab?.title).toBe("Live");
       const tabId = BrowserTabId.make(tab?.tabId ?? "missing");
@@ -272,6 +364,9 @@ it.live("rolls back interrupted implicit opens only", () =>
       viewport
     );
     const neverAnsweredUrl = `${fixtures.origin}${NEVER_ANSWERED}`;
+    const implicitRequest = yield* fixtures.awaitRequest(
+      (request) => request === NEVER_ANSWERED
+    );
 
     const implicitOpen = yield* Effect.forkChild(
       browser.open(
@@ -280,14 +375,13 @@ it.live("rolls back interrupted implicit opens only", () =>
         draftEmulation("chrome-windows", viewport)
       )
     );
-    yield* waitUntil(
-      () =>
-        fixtures.requests.filter((request) => request === NEVER_ANSWERED)
-          .length === 1
-    );
+    yield* Deferred.await(implicitRequest).pipe(Effect.timeout("10 seconds"));
     yield* Fiber.interrupt(implicitOpen);
     expect(yield* browser.list()).toEqual([existingSessionId]);
 
+    const existingRequest = yield* fixtures.awaitRequest(
+      (request) => request === NEVER_ANSWERED
+    );
     const existingOpen = yield* Effect.forkChild(
       browser.open(
         existingSessionId,
@@ -295,11 +389,7 @@ it.live("rolls back interrupted implicit opens only", () =>
         draftEmulation("chrome-windows", viewport)
       )
     );
-    yield* waitUntil(
-      () =>
-        fixtures.requests.filter((request) => request === NEVER_ANSWERED)
-          .length === 2
-    );
+    yield* Deferred.await(existingRequest).pipe(Effect.timeout("10 seconds"));
     yield* Fiber.interrupt(existingOpen);
     expect(yield* browser.list()).toEqual([existingSessionId]);
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
@@ -315,6 +405,9 @@ it.live(
         "create-headed-default",
         viewport
       );
+      const identityBeacon = yield* fixtures.awaitRequest((request) =>
+        request.startsWith("/identity-beacon?")
+      );
       // Served over HTTP rather than as a `data:` URL: client hints exist only
       // in a secure context, which loopback is and an opaque origin is not.
       yield* browser.open(
@@ -322,15 +415,9 @@ it.live(
         fixtures.url("browser-identity.html"),
         draftEmulation("default", viewport)
       );
-      yield* waitUntil(() =>
-        fixtures.requests.some((request) =>
-          request.startsWith("/identity-beacon?")
-        )
+      const beacon = yield* Deferred.await(identityBeacon).pipe(
+        Effect.timeout("10 seconds")
       );
-      const beacon =
-        fixtures.requests.find((request) =>
-          request.startsWith("/identity-beacon?")
-        ) ?? "";
       const page = new URLSearchParams(beacon.split("?")[1]);
       expect(page.get("userAgent")).toMatch(/ Chrome\//u);
       expect(page.get("userAgent")).not.toContain("HeadlessChrome");
@@ -398,12 +485,11 @@ it.live("applies an opened profile to every tab in an existing session", () =>
       BrowserTabId.make(firstTab?.tabId ?? "missing")
     );
     yield* browser.navigate(sessionId, "reload");
-    yield* Effect.sleep("100 millis");
 
-    const activeTab = (yield* browser.getTabs(sessionId)).find(
-      ({ active }) => active
+    const reloaded = yield* awaitTabs(browser, sessionId, (tabs) =>
+      activeTitle(tabs).includes("iPhone")
     );
-    expect(activeTab?.title).toContain("iPhone");
+    expect(activeTitle(reloaded)).toContain("iPhone");
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserLive))
 );
 
@@ -430,23 +516,8 @@ it.live(
         { permission: "geolocation", state: "granted" as const },
       ];
 
-      /** Poll until the probe page reports under its label. */
       const waitForReport = (label: string) =>
-        Effect.gen(function* pollTitle() {
-          for (let attempt = 0; attempt < 200; attempt += 1) {
-            const tabs = yield* browser.getTabs(sessionId);
-            const title =
-              tabs.find((tab) => tab.title.startsWith(`${label}:`))?.title ??
-              "";
-            if (title.length > 0) {
-              return title;
-            }
-            yield* Effect.sleep("25 millis");
-          }
-          return yield* Effect.die(
-            `The probe never reported: expected ${label}.`
-          );
-        });
+        awaitReport(browser, sessionId, label);
 
       // Nothing granted yet: a site asking for position is refused.
       yield* browser.open(
@@ -580,20 +651,7 @@ it.live("applies explicit permission decisions in a live session", () =>
     const sessionId = yield* browser.create("create-decisions", viewport);
 
     const waitForReport = (label: string) =>
-      Effect.gen(function* pollTitle() {
-        for (let attempt = 0; attempt < 200; attempt += 1) {
-          const tabs = yield* browser.getTabs(sessionId);
-          const title =
-            tabs.find((tab) => tab.title.startsWith(`${label}:`))?.title ?? "";
-          if (title.length > 0) {
-            return title;
-          }
-          yield* Effect.sleep("25 millis");
-        }
-        return yield* Effect.die(
-          `The probe never reported: expected ${label}.`
-        );
-      });
+      awaitReport(browser, sessionId, label);
 
     yield* browser.open(
       sessionId,
@@ -659,12 +717,15 @@ it.live("applies explicit permission decisions in a live session", () =>
 const ENVIRONMENT_BEACON = "/environment-beacon";
 
 /** What the fixture page reported about the browser it loaded into. */
-const environmentReports = (requests: readonly string[]) =>
-  requests
-    .filter((request) => request.startsWith(`${ENVIRONMENT_BEACON}?`))
-    .map((request) =>
-      Object.fromEntries(new URLSearchParams(request.split("?")[1] ?? ""))
-    );
+const environmentReport = (request: string) =>
+  Object.fromEntries(new URLSearchParams(request.split("?")[1] ?? ""));
+
+/** Whether a request is the fixture's report carrying any of `fields`. */
+const reportsField =
+  (...fields: readonly string[]) =>
+  (request: string) =>
+    request.startsWith(`${ENVIRONMENT_BEACON}?`) &&
+    fields.some((field) => field in environmentReport(request));
 
 /**
  * One navigation applies one whole Emulation. Every claim is read off what the
@@ -678,6 +739,12 @@ it.live(
     Effect.gen(function* applySnapshotBeforeFirstDocument() {
       const fixtures = yield* fixtureServer;
       const browser = yield* CreateBrowser;
+      const environmentBeacon = yield* fixtures.awaitRequest(
+        reportsField("timezone")
+      );
+      const locationBeacon = yield* fixtures.awaitRequest(
+        reportsField("latitude", "locationError")
+      );
       const sessionId = yield* browser
         .open(undefined, `${fixtures.origin}/emulation-environment.html`, {
           colorScheme: "dark",
@@ -690,8 +757,13 @@ it.live(
         })
         .pipe(Effect.map(({ sessionId: opened }) => opened));
 
-      yield* waitUntil(() => environmentReports(fixtures.requests).length >= 2);
-      const [environment, location] = environmentReports(fixtures.requests);
+      const [environment, location] = yield* Effect.all([
+        Deferred.await(environmentBeacon),
+        Deferred.await(locationBeacon),
+      ]).pipe(
+        Effect.map((reports) => reports.map(environmentReport)),
+        Effect.timeout("10 seconds")
+      );
       expect(environment).toMatchObject({
         colorScheme: "dark",
         language: "de-DE",
@@ -787,17 +859,17 @@ it.live(
       // A recording holds the screencast, so a later viewer does not start it
       // and sees the status only through the replay. This holder stops pulling
       // after its first event, as a subscriber that falls behind would.
-      let framed = false;
+      const framed = yield* Deferred.make<true>();
       const holder = yield* Effect.forkChild(
-        browser.stream(sessionId).pipe(
-          Stream.runForEach(() =>
-            Effect.sync(() => {
-              framed = true;
-            }).pipe(Effect.andThen(Effect.never))
+        browser
+          .stream(sessionId)
+          .pipe(
+            Stream.runForEach(() =>
+              Deferred.succeed(framed, true).pipe(Effect.andThen(Effect.never))
+            )
           )
-        )
       );
-      yield* waitUntil(() => framed);
+      yield* Deferred.await(framed).pipe(Effect.timeout("10 seconds"));
       // More than both the control events' replay window and the pointer
       // ring, at one point so no stroke has a duration to wait out; then one
       // last point the late viewer must replay.
