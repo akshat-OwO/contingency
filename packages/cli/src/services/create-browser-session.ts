@@ -280,11 +280,15 @@ export const emitStatus = (
 };
 
 export const publishTabs = (session: CreateSession): void => {
-  PubSub.publishUnsafe(session.tabs, {
-    tabs: tabs(session),
-    timestamp: Date.now(),
-    type: "tabs" as const,
-  });
+  // `publishUnsafe` does not slide: a viewer holding the one slot would drop
+  // this snapshot from delivery and replay alike.
+  Effect.runSync(
+    PubSub.publish(session.tabs, {
+      tabs: tabs(session),
+      timestamp: Date.now(),
+      type: "tabs" as const,
+    })
+  );
 };
 
 const requireEmulationSession = (session: CreateSession, page: Page) =>
