@@ -7,12 +7,13 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Predicate } from "effect";
+import { Effect, Fiber, Predicate } from "effect";
 import { TestClock } from "effect/testing";
 
 import { armBrowserChecks } from "../../src/services/browser-check-engine.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { registeredSleeps } from "../helpers/registered-sleeps.ts";
 
 const reference = (check: BrowserCheck): BrowserCheckReference => ({
   check,
@@ -24,13 +25,14 @@ const observeChecks = (
   deadline?: number
 ) =>
   Effect.gen(function* expireCheck() {
+    const sleeps = yield* registeredSleeps;
     const fiber = yield* Effect.forkChild(
-      armed.wait().pipe(Effect.ensuring(Effect.sync(armed.dispose)))
+      armed
+        .wait()
+        .pipe(Effect.ensuring(Effect.sync(armed.dispose)), sleeps.provide)
     );
     if (deadline !== undefined) {
-      yield* TestClock.withLive(
-        Deferred.await(armed.polling).pipe(Effect.timeout("30 seconds"))
-      );
+      yield* sleeps.waitForSleep(50);
       yield* TestClock.adjust(deadline + 1);
     }
     return yield* TestClock.withLive(
@@ -265,14 +267,16 @@ it.effect(
         [reference(responseCheck)],
         "interrupted"
       );
+      const sleeps = yield* registeredSleeps;
       const fiber = yield* Effect.forkChild(
         interrupted
           .wait()
-          .pipe(Effect.ensuring(Effect.sync(interrupted.dispose)))
+          .pipe(
+            Effect.ensuring(Effect.sync(interrupted.dispose)),
+            sleeps.provide
+          )
       );
-      yield* TestClock.withLive(
-        Deferred.await(interrupted.polling).pipe(Effect.timeout("30 seconds"))
-      );
+      yield* sleeps.waitForSleep(50);
       yield* Fiber.interrupt(fiber);
       expect(interrupted.interrupted()[0]?.status).toBe("interrupted");
     }).pipe(

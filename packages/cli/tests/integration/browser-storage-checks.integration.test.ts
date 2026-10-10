@@ -4,12 +4,13 @@ import { UserAgentProfileId } from "@contingency/protocol";
 import type { BrowserCheck, BrowserPredicate } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Predicate } from "effect";
+import { Effect, Fiber, Predicate } from "effect";
 import { TestClock } from "effect/testing";
 
 import { armBrowserChecks } from "../../src/services/browser-check-engine.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { registeredSleeps } from "../helpers/registered-sleeps.ts";
 
 const order = JSON.stringify({
   order: {
@@ -88,20 +89,19 @@ it.effect(
             check.id
           );
           yield* armed.start();
+          const sleeps = yield* registeredSleeps;
           const fiber = yield* Effect.forkChild(
-            armed.wait().pipe(Effect.ensuring(Effect.sync(armed.dispose)))
+            armed
+              .wait()
+              .pipe(Effect.ensuring(Effect.sync(armed.dispose)), sleeps.provide)
           );
           if (change !== undefined) {
-            yield* TestClock.withLive(
-              Deferred.await(armed.polling).pipe(Effect.timeout("30 seconds"))
-            );
+            yield* sleeps.waitForSleep(50);
             yield* change;
             yield* TestClock.adjust(50);
           }
           if (expire) {
-            yield* TestClock.withLive(
-              Deferred.await(armed.polling).pipe(Effect.timeout("30 seconds"))
-            );
+            yield* sleeps.waitForSleep(50);
             yield* TestClock.adjust(check.timeoutMs + 1);
           }
           const [result] = yield* TestClock.withLive(
@@ -354,16 +354,18 @@ it.effect("fails a storage check whose last read the deadline cut short", () =>
     const stalled = target.page.waitForEvent("console", {
       predicate: (message) => message.text() === "storage-read-stalled",
     });
+    const sleeps = yield* registeredSleeps;
     const fiber = yield* Effect.forkChild(
-      armed.wait().pipe(Effect.ensuring(Effect.sync(armed.dispose)))
+      armed
+        .wait()
+        .pipe(Effect.ensuring(Effect.sync(armed.dispose)), sleeps.provide)
     );
-    yield* TestClock.withLive(
-      Deferred.await(armed.polling).pipe(Effect.timeout("30 seconds"))
-    );
+    yield* sleeps.waitForSleep(50);
     yield* TestClock.adjust(50);
     yield* TestClock.withLive(
       Effect.tryPromise(() => stalled).pipe(Effect.timeout("30 seconds"))
     );
+    yield* sleeps.waitForSleep(950);
     yield* TestClock.adjust(1001);
     const [result] = yield* TestClock.withLive(
       Fiber.join(fiber).pipe(Effect.timeout("30 seconds"))

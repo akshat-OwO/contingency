@@ -7,7 +7,7 @@ import type {
   BrowserCheckReference,
   BrowserCheckResult,
 } from "@contingency/protocol";
-import { Cause, Clock, Deferred, Effect, Result, Schema } from "effect";
+import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import type { Request, Response } from "playwright-core";
 
@@ -142,7 +142,6 @@ export const armBrowserChecks = (
   operationId: string
 ) =>
   Effect.gen(function* armChecks() {
-    const polling = yield* Deferred.make<true>();
     const registry = AtomRegistry.make();
     const requests = new Set<Request>();
     const responses = Atom.make<readonly Response[]>([]).pipe(Atom.keepAlive);
@@ -296,7 +295,6 @@ export const armBrowserChecks = (
                 }
                 polls.add(poll);
               }
-              yield* Deferred.succeed(polling, true);
               const remaining = deadline - (yield* Clock.currentTimeMillis);
               if (remaining > 0) {
                 yield* Effect.sleep(Math.min(50, remaining));
@@ -315,8 +313,6 @@ export const armBrowserChecks = (
       dispose,
       interrupted: () =>
         references.map((reference) => result(reference, "interrupted")),
-      /** Completes after the first observation that needs another poll. */
-      polling,
       start,
       wait,
     };
