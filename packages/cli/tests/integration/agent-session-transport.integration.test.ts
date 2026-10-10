@@ -221,24 +221,22 @@ interface PendingResponse {
   readonly id: number;
   readonly reject: (cause: Error) => void;
   readonly resolve: (response: JsonRpcResponse) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 interface PendingText {
   readonly reject: (cause: Error) => void;
   readonly resolve: () => void;
-  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 interface McpChild {
   readonly child: ChildProcessWithoutNullStreams;
-  readonly receive: (id: number) => Promise<JsonRpcResponse>;
+  readonly receive: (id: number) => Effect.Effect<JsonRpcResponse, Error>;
   readonly send: (message: JsonObject) => Promise<void>;
   readonly stop: () => Promise<{
     readonly code: number | null;
     readonly signal: NodeJS.Signals | null;
   }>;
-  readonly waitForText: (text: string) => Promise<void>;
+  readonly waitForText: (text: string) => Effect.Effect<void, Error>;
   readonly workspaceUrl: () => URL | undefined;
 }
 
@@ -298,14 +296,12 @@ const spawnMcpChild = (
     while (pendingResponses.length > 0) {
       const pending = pendingResponses.shift();
       if (pending !== undefined) {
-        clearTimeout(pending.timer);
         pending.reject(cause);
       }
     }
     while (pendingText.length > 0) {
       const pending = pendingText.shift();
       if (pending !== undefined) {
-        clearTimeout(pending.pending.timer);
         pending.pending.reject(cause);
       }
     }
@@ -347,7 +343,6 @@ const spawnMcpChild = (
         } else {
           const [pending] = pendingResponses.splice(pendingIndex, 1);
           if (pending !== undefined) {
-            clearTimeout(pending.timer);
             pending.resolve(response);
           }
         }
@@ -360,7 +355,6 @@ const spawnMcpChild = (
     for (let index = pendingText.length - 1; index >= 0; index -= 1) {
       const entry = pendingText[index];
       if (entry !== undefined && stderrBuffer.includes(entry.text)) {
-        clearTimeout(entry.pending.timer);
         pendingText.splice(index, 1);
         entry.pending.resolve();
       }
@@ -382,34 +376,37 @@ const spawnMcpChild = (
 
   return {
     child,
-    receive: (id) => {
-      const existing = responses.findIndex((response) => response.id === id);
-      if (existing !== -1) {
-        const [response] = responses.splice(existing, 1);
-        if (response === undefined) {
-          return Promise.reject(new Error(`MCP response ${id} disappeared.`));
-        }
-        return Promise.resolve(response);
-      }
-      if (closed) {
-        return Promise.reject(
-          new Error(`MCP child exited before response ${id}.`)
-        );
-      }
-      // oxlint-disable-next-line promise/avoid-new -- Bridges one bounded child response to Effect.promise.
-      return new Promise<JsonRpcResponse>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const index = pendingResponses.findIndex(
-            (pending) => pending.id === id
+    receive: (id) =>
+      Effect.callback<JsonRpcResponse, Error>((resume) => {
+        const existing = responses.findIndex((response) => response.id === id);
+        if (existing !== -1) {
+          const [response] = responses.splice(existing, 1);
+          resume(
+            response === undefined
+              ? Effect.fail(new Error(`MCP response ${id} disappeared.`))
+              : Effect.succeed(response)
           );
+          return;
+        }
+        if (closed) {
+          resume(
+            Effect.fail(new Error(`MCP child exited before response ${id}.`))
+          );
+          return;
+        }
+        const pending: PendingResponse = {
+          id,
+          reject: (cause) => resume(Effect.fail(cause)),
+          resolve: (response) => resume(Effect.succeed(response)),
+        };
+        pendingResponses.push(pending);
+        return Effect.sync(() => {
+          const index = pendingResponses.indexOf(pending);
           if (index !== -1) {
             pendingResponses.splice(index, 1);
           }
-          reject(new Error(`Timed out waiting for MCP response ${id}.`));
-        }, 15_000);
-        pendingResponses.push({ id, reject, resolve, timer });
-      });
-    },
+        });
+      }),
     send: (message) => {
       const encoded = `${JSON.stringify(message)}\n`;
       if (Buffer.byteLength(encoded) > MAX_NDJSON_BYTES) {
@@ -436,25 +433,31 @@ const spawnMcpChild = (
       child.kill("SIGTERM");
       return closedPromise;
     },
-    waitForText: (text) => {
-      if (stderrBuffer.includes(text)) {
-        return Promise.resolve();
-      }
-      if (closed) {
-        return Promise.reject(new Error(`MCP child exited before ${text}.`));
-      }
-      // oxlint-disable-next-line promise/avoid-new -- Bridges one bounded stderr readiness wait.
-      return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const index = pendingText.findIndex((entry) => entry.text === text);
+    waitForText: (text): Effect.Effect<void, Error> =>
+      Effect.callback((resume) => {
+        if (stderrBuffer.includes(text)) {
+          resume(Effect.void);
+          return;
+        }
+        if (closed) {
+          resume(Effect.fail(new Error(`MCP child exited before ${text}.`)));
+          return;
+        }
+        const entry = {
+          pending: {
+            reject: (cause: Error) => resume(Effect.fail(cause)),
+            resolve: () => resume(Effect.void),
+          },
+          text,
+        };
+        pendingText.push(entry);
+        return Effect.sync(() => {
+          const index = pendingText.indexOf(entry);
           if (index !== -1) {
             pendingText.splice(index, 1);
           }
-          reject(new Error(`Timed out waiting for MCP stderr: ${text}.`));
-        }, 15_000);
-        pendingText.push({ pending: { reject, resolve, timer }, text });
-      });
-    },
+        });
+      }),
     workspaceUrl: () => {
       const origin = stderrBuffer.match(
         /Contingency MCP Workspace available at (?<origin>http:\/\/127\.0\.0\.1:\d+)\//u
@@ -484,7 +487,7 @@ it.live.each([false, true])(
           },
         })
       );
-      const response = yield* Effect.promise(() => mcp.receive(1));
+      const response = yield* mcp.receive(1).pipe(Effect.timeout("15 seconds"));
       expect(response.error).toBeUndefined();
       const result = Schema.decodeUnknownSync(
         Schema.Struct({
@@ -497,9 +500,9 @@ it.live.each([false, true])(
         channel ? { "claude/channel": {} } : undefined
       );
       // HTTP is served by the same process but never advertises channels.
-      yield* Effect.promise(() =>
-        mcp.waitForText("Contingency MCP Workspace available at")
-      );
+      yield* mcp
+        .waitForText("Contingency MCP Workspace available at")
+        .pipe(Effect.timeout("15 seconds"));
       const origin = mcp.workspaceUrl();
       if (origin === undefined) {
         return yield* Effect.die("No Workspace URL");
@@ -553,11 +556,13 @@ it.live(
       }
       const origins = new Set<string>();
       for (const client of clients) {
-        const initialized = yield* Effect.promise(() => client.receive(1));
+        const initialized = yield* client
+          .receive(1)
+          .pipe(Effect.timeout("15 seconds"));
         expect(initialized.error).toBeUndefined();
-        yield* Effect.promise(() =>
-          client.waitForText("Contingency MCP Workspace available at")
-        );
+        yield* client
+          .waitForText("Contingency MCP Workspace available at")
+          .pipe(Effect.timeout("15 seconds"));
         const url = client.workspaceUrl();
         expect(url).toBeDefined();
         if (url === undefined) {
@@ -582,12 +587,14 @@ it.live("keeps a direct HTTP server running after stdin closes", () =>
       Effect.promise(() => mcp.stop()).pipe(Effect.ignore)
     );
     mcp.child.stdin.end();
-    yield* Effect.promise(() =>
-      mcp.waitForText(
+    yield* mcp
+      .waitForText(
         `Contingency MCP Workspace available at http://127.0.0.1:${port}/`
       )
-    );
-    yield* Effect.sleep("100 millis");
+      .pipe(Effect.timeout("15 seconds"));
+    yield* mcp
+      .waitForText("Contingency MCP headless stdin closed.")
+      .pipe(Effect.timeout("15 seconds"));
     const response = yield* Effect.promise(() =>
       fetch(`http://127.0.0.1:${port}/mcp`, {
         body: JSON.stringify({
@@ -622,11 +629,11 @@ it.live("finalizes an agent-owned server when its stdin closes", () =>
     yield* Effect.addFinalizer(() =>
       Effect.promise(() => mcp.stop()).pipe(Effect.ignore)
     );
-    yield* Effect.promise(() =>
-      mcp.waitForText(
+    yield* mcp
+      .waitForText(
         `Contingency MCP Workspace available at http://127.0.0.1:${port}/`
       )
-    );
+      .pipe(Effect.timeout("15 seconds"));
     mcp.child.stdin.end();
     yield* Effect.callback((resume) => {
       if (mcp.child.exitCode !== null) {
@@ -661,11 +668,11 @@ it.live("serves the real MCP stdio child-process boundary", () =>
       )
     );
     const fileSystem = yield* FileSystem.FileSystem;
-    yield* Effect.promise(() =>
-      mcp.waitForText(
+    yield* mcp
+      .waitForText(
         `Contingency MCP Workspace available at http://127.0.0.1:${port}/`
       )
-    );
+      .pipe(Effect.timeout("15 seconds"));
     const ownerPid = mcp.child.pid;
     if (ownerPid === undefined) {
       return yield* Effect.die("MCP child did not expose a pid.");
@@ -682,7 +689,7 @@ it.live("serves the real MCP stdio child-process boundary", () =>
         yield* Effect.promise(() =>
           mcp.send({ id, jsonrpc: "2.0", method, params })
         );
-        return yield* Effect.promise(() => mcp.receive(id));
+        return yield* mcp.receive(id).pipe(Effect.timeout("15 seconds"));
       });
     const initialized = yield* sendAndReceive(1, "initialize", {
       capabilities: {},
@@ -792,9 +799,9 @@ it.live("serves the real MCP stdio child-process boundary", () =>
             },
           })
         );
-        const waiting = yield* Effect.promise(() => mcp.receive(6)).pipe(
-          Effect.forkChild
-        );
+        const waiting = yield* mcp
+          .receive(6)
+          .pipe(Effect.timeout("15 seconds"), Effect.forkChild);
         yield* client(
           "agent.session.close",
           {
@@ -919,11 +926,11 @@ it.live("keeps MCP stdio up when the configured Workspace port is taken", () =>
         Effect.ignore
       )
     );
-    yield* Effect.promise(() =>
-      mcp.waitForText(
+    yield* mcp
+      .waitForText(
         `Contingency MCP Workspace could not bind 127.0.0.1:${occupiedPort}; tools still run on stdio.`
       )
-    );
+      .pipe(Effect.timeout("15 seconds"));
     yield* Effect.promise(() =>
       mcp.send({
         id: 1,
@@ -936,7 +943,9 @@ it.live("keeps MCP stdio up when the configured Workspace port is taken", () =>
         },
       })
     );
-    const initialized = yield* Effect.promise(() => mcp.receive(1));
+    const initialized = yield* mcp
+      .receive(1)
+      .pipe(Effect.timeout("15 seconds"));
     expect(initialized.error).toBeUndefined();
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

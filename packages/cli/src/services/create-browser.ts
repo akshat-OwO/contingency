@@ -927,8 +927,10 @@ const launchChromium = async (
     const performanceEndpoint =
       performanceDirectory === undefined
         ? undefined
-        : await readDebuggingEndpoint(
-            path.join(performanceDirectory, "DevToolsActivePort")
+        : await Effect.runPromise(
+            readDebuggingEndpoint(
+              path.join(performanceDirectory, "DevToolsActivePort")
+            )
           );
     const cdp = await browser.newBrowserCDPSession();
     const version = await cdp.send("Browser.getVersion");

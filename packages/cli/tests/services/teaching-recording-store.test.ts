@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -613,7 +613,7 @@ it.effect(
   15_000
 );
 
-it.effect(
+it.live(
   "grants one learning claim across two real processes",
   () =>
     Effect.gen(function* claimAcrossProcesses() {
@@ -633,35 +633,96 @@ it.effect(
           { cwd }
         )
       );
-      const [first, second] = yield* Effect.promise(() =>
-        Promise.all([
-          executeFile(
-            process.execPath,
-            [
-              "--experimental-strip-types",
-              helper,
-              "claim",
-              root,
-              "claim-one",
-              "2",
-            ],
-            { cwd }
-          ),
-          executeFile(
-            process.execPath,
-            [
-              "--experimental-strip-types",
-              helper,
-              "claim",
-              root,
-              "claim-two",
-              "2",
-            ],
-            { cwd }
-          ),
-        ])
+      const children = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          ["claim-one", "claim-two"].map((operation) =>
+            spawn(
+              process.execPath,
+              [
+                "--experimental-strip-types",
+                helper,
+                "claim",
+                root,
+                operation,
+                "barrier",
+              ],
+              { cwd, stdio: ["pipe", "pipe", "pipe"] }
+            )
+          )
+        ),
+        (peers) =>
+          Effect.sync(() => {
+            for (const peer of peers) {
+              peer.kill();
+            }
+          })
       );
-      const outcomes = [JSON.parse(first.stdout), JSON.parse(second.stdout)];
+      const outputs = yield* Effect.callback<readonly string[], Error>(
+        (resume) => {
+          const stdout = ["", ""];
+          const stderr = ["", ""];
+          const attempted = new Set<number>();
+          const closed = new Set<number>();
+          const cleanup: (() => void)[] = [];
+          for (const [index, child] of children.entries()) {
+            const onStdout = (chunk: Buffer) => {
+              stdout[index] += chunk.toString();
+              if (
+                !attempted.has(index) &&
+                stdout[index]?.startsWith("attempted\n")
+              ) {
+                attempted.add(index);
+                if (attempted.size === children.length) {
+                  for (const peer of children) {
+                    peer.stdin.end();
+                  }
+                }
+              }
+            };
+            const onStderr = (chunk: Buffer) => {
+              stderr[index] += chunk.toString();
+            };
+            const onError = (cause: Error) => resume(Effect.fail(cause));
+            const onClose = (
+              code: number | null,
+              signal: NodeJS.Signals | null
+            ) => {
+              if (code !== 0) {
+                resume(
+                  Effect.fail(
+                    new Error(
+                      `Claim process exited (${code ?? signal}): ${stderr[index]}`
+                    )
+                  )
+                );
+                return;
+              }
+              closed.add(index);
+              if (closed.size === children.length) {
+                resume(Effect.succeed(stdout));
+              }
+            };
+            child.stdout.on("data", onStdout);
+            child.stderr.on("data", onStderr);
+            child.once("error", onError);
+            child.once("close", onClose);
+            cleanup.push(() => {
+              child.stdout.off("data", onStdout);
+              child.stderr.off("data", onStderr);
+              child.off("error", onError);
+              child.off("close", onClose);
+            });
+          }
+          return Effect.sync(() => {
+            for (const removeListeners of cleanup) {
+              removeListeners();
+            }
+          });
+        }
+      ).pipe(Effect.timeout("10 seconds"));
+      const outcomes = outputs.map((output) =>
+        JSON.parse(output.slice("attempted\n".length))
+      );
       expect(
         outcomes.filter((outcome) => outcome.lifecycle === "learning")
       ).toHaveLength(1);

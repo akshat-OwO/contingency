@@ -6,16 +6,14 @@ import {
   UserAgentProfileId,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import { Effect, FileSystem, Layer, Schedule } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 
 import {
   makeTeachingRecordingStoreLayer,
   TeachingRecordingStore,
 } from "../../src/services/teaching-recording-store.ts";
 
-const [mode, root, operation, peerArgument] = process.argv.slice(2);
-/** Concurrent claimers keep their outcome until every peer has attempted. */
-const peers = Number(peerArgument ?? "1");
+const [mode, root, operation, barrier] = process.argv.slice(2);
 if (
   (mode !== "write" && mode !== "read" && mode !== "claim") ||
   root === undefined
@@ -69,17 +67,23 @@ const program = Effect.gen(function* runProcessCheck() {
       `${root}/.claim-attempt-${operation ?? "process-claim"}`,
       ""
     );
-    yield* fileSystem.readDirectory(root).pipe(
-      Effect.flatMap((entries) =>
-        entries.filter((entry) => entry.startsWith(".claim-attempt-")).length >=
-        peers
-          ? Effect.void
-          : Effect.fail("waiting" as const)
-      ),
-      Effect.retry(Schedule.spaced("25 millis")),
-      Effect.timeout("10 seconds"),
-      Effect.orDie
-    );
+    if (barrier === "barrier") {
+      process.stdout.write("attempted\n");
+      yield* Effect.callback((resume) => {
+        if (process.stdin.readableEnded || process.stdin.destroyed) {
+          resume(Effect.void);
+          return;
+        }
+        const released = () => resume(Effect.void);
+        process.stdin.once("end", released);
+        process.stdin.once("close", released);
+        process.stdin.resume();
+        return Effect.sync(() => {
+          process.stdin.off("end", released);
+          process.stdin.off("close", released);
+        });
+      }).pipe(Effect.timeout("10 seconds"), Effect.orDie);
+    }
     if (result._tag === "Success") {
       process.stdout.write(
         `${JSON.stringify({ lifecycle: result.success.lifecycle._tag })}\n`
