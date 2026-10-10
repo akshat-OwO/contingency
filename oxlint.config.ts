@@ -38,10 +38,6 @@ export default defineConfig({
       // Tests that waited on real time before `no-test-wait` existed. This
       // list only shrinks: a file leaves it once its waits read events.
       files: [
-        "packages/cli/tests/integration/teaching-keyframes.integration.test.ts",
-        "packages/cli/tests/integration/teaching-recording-learning.integration.test.ts",
-        "packages/cli/tests/integration/teaching-scroll.integration.test.ts",
-        "packages/cli/tests/integration/teaching-typing-burst.integration.test.ts",
       ],
       rules: { "contingency/no-test-wait": "off" },
     },

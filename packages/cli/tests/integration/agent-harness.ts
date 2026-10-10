@@ -18,10 +18,12 @@ import type {
   AgentSnapshotNode,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
+import type { Clock, Duration } from "effect";
 import { Effect, Layer, Option, Predicate, Schema, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
+import type { AgentBrowserFactory } from "../../src/services/agent-browser-contract.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
@@ -229,7 +231,8 @@ export const awaitSession = <E, R>(
     params: AgentSessionGet
   ) => Effect.Effect<AgentSessionGetResult, E, R>,
   sessionId: AgentSessionId,
-  until: (session: AgentSessionSnapshot) => boolean
+  until: (session: AgentSessionSnapshot) => boolean,
+  timeout: Duration.Input = "30 seconds"
 ) =>
   Effect.gen(function* awaitSessionState() {
     let { session } = yield* client("agent.session.get", { sessionId });
@@ -244,7 +247,7 @@ export const awaitSession = <E, R>(
       }));
     }
     return session;
-  }).pipe(Effect.timeout("30 seconds"));
+  }).pipe(Effect.timeout(timeout));
 
 /**
  * Open Teaching the way an agent does, then hand the browser straight to the
@@ -393,7 +396,10 @@ export const resolveVariable = (input: {
 export const agentProcessLayer = (
   initialCatalogRoot: string,
   options: {
+    readonly agentBrowserFactory?: AgentBrowserFactory;
     readonly followCatalogSelection?: boolean;
+    readonly scrollPauseMs?: number;
+    readonly scrollClock?: Clock.Clock;
     /** The Agent Session registry's clock, for tests that move time. */
     readonly now?: () => Date;
     /** This process's owner marker, under which per-session resources live. */
@@ -408,6 +414,21 @@ export const agentProcessLayer = (
     traceDirectory: () =>
       path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
   };
+  const browserOptions =
+    options.agentBrowserFactory === undefined
+      ? sessionOptions
+      : {
+          ...sessionOptions,
+          agentBrowserFactory: options.agentBrowserFactory,
+        };
+  const scrollOptions =
+    options.scrollClock === undefined
+      ? browserOptions
+      : { ...browserOptions, scrollClock: options.scrollClock };
+  const seamOptions =
+    options.scrollPauseMs === undefined
+      ? scrollOptions
+      : { ...scrollOptions, scrollPauseMs: options.scrollPauseMs };
   const catalogOptions = { root: initialCatalogRoot };
   const recordingStore = makeTeachingRecordingStoreLayer({
     root: () => selectedCatalogRoot,
@@ -426,9 +447,9 @@ export const agentProcessLayer = (
       Layer.mergeAll(
         makeAgentSessionLayer(
           options.resourceDirectory === undefined
-            ? sessionOptions
+            ? seamOptions
             : {
-                ...sessionOptions,
+                ...seamOptions,
                 resourceDirectory: options.resourceDirectory,
               }
         ).pipe(

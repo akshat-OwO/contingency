@@ -584,3 +584,40 @@ it.effect(
       ]);
     })
 );
+
+it.effect("signals a completed user Teaching action once", () =>
+  Effect.gen(function* recordedActionEvent() {
+    const log = makeSessionEvents();
+    log.observe(teaching, "workspace");
+    const initial = yield* log.read(teaching.id);
+    const action = {
+      actor: "user",
+      at,
+      description: "Fill Search",
+      dispatched: true,
+      id: "fill-search",
+      outcome: "completed",
+    };
+    const recorded = Schema.decodeUnknownSync(AgentSessionSnapshot)({
+      ...teaching,
+      timeline: [action],
+    });
+    log.observe(recorded, "workspace");
+    log.observe(recorded, "workspace");
+    const result = yield* log.read(teaching.id, initial.eventCursor);
+    expect(result.events.map((event) => event.kind)).toEqual([
+      "teaching-action-recorded",
+    ]);
+
+    const agentAction = { ...action, actor: "agent", id: "agent-action" };
+    log.observe(
+      Schema.decodeUnknownSync(AgentSessionSnapshot)({
+        ...teaching,
+        timeline: [action, agentAction],
+      }),
+      "agent"
+    );
+    const later = yield* log.read(teaching.id, result.eventCursor);
+    expect(later.events).toEqual([]);
+  })
+);

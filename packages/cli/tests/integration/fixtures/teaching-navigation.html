@@ -29,20 +29,27 @@
       <p>Previous page content</p>
     </main>
     <script>
-      const delay = Number(
-        new URLSearchParams(location.search).get("delay") ?? 1500
-      );
+      const delayed = new URLSearchParams(location.search).has("delayed");
       document.querySelector("button").addEventListener("click", () => {
         history.pushState(
           {},
           "",
-          location.pathname + "?profile&delay=" + delay
+          location.pathname + "?profile" + (delayed ? "&delayed" : "")
         );
-        setTimeout(() => {
+        const render = () => {
           document.body.className = "arrived";
           document.querySelector("main").innerHTML =
             "<h1>User profile</h1><p>Destination content ready</p>";
-        }, delay);
+          fetch("/teaching-rendered-beacon").catch(() => {});
+        };
+        if (delayed) {
+          fetch("/teaching-render-gate")
+            .then((response) => response.text())
+            .then(render)
+            .catch(() => {});
+        } else {
+          render();
+        }
       });
     </script>
   </body>

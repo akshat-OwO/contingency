@@ -93,6 +93,18 @@ const teachingChanges = (
     if (after === "setup" && before !== "setup") {
       emit("teaching-discarded");
     }
+    const knownActions = new Set(previous.timeline.map((entry) => entry.id));
+    if (
+      snapshot.timeline.some(
+        (entry) =>
+          !knownActions.has(entry.id) &&
+          entry.actor === "user" &&
+          entry.dispatched &&
+          entry.outcome === "completed"
+      )
+    ) {
+      emit("teaching-action-recorded");
+    }
     const known = new Map(
       previous.teaching.instructions.map((instruction) => [
         instruction.id,

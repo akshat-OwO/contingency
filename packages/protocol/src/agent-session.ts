@@ -227,6 +227,7 @@ export const SessionEvent = Schema.Struct({
   cursor: Schema.String,
   kind: Schema.Literals([
     "teaching-started",
+    "teaching-action-recorded",
     "teaching-stopped",
     "teaching-discarded",
     "instruction-recorded",

@@ -97,6 +97,7 @@ import {
   Cause,
   Clock,
   Context,
+  Duration,
   Effect,
   Exit,
   FileSystem,
@@ -191,6 +192,10 @@ export interface AgentSessionServiceOptions {
   readonly baseUrl: string;
   /** Injectable capture ceilings, lowered by focused recording tests. */
   readonly captureLimits?: TeachingCaptureLimits;
+  /** Quiet interval that closes a user scroll gesture. */
+  readonly scrollPauseMs?: number;
+  /** Clock used only for scroll pauses, independent of browser deadlines. */
+  readonly scrollClock?: Clock.Clock;
   /** The owner marker written into every in-memory snapshot. */
   readonly processId?: string;
   /** Injectable clock for deterministic protocol tests. */
@@ -1075,6 +1080,9 @@ const passesTypingBurst = (input: BrowserInput): boolean =>
 /** How long typing pauses before its burst is recorded. */
 const TYPING_BURST_IDLE_MS = 750;
 
+/** How long scrolling pauses before its gesture's photograph is taken. */
+const SCROLL_PAUSE_MS = 200;
+
 /** Keep public Teaching records free of credentials and sensitive URL values. */
 const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
   action.type === "navigate"
@@ -1647,6 +1655,8 @@ const makeAgentSession = (
     });
     const owner = AgentProcessId.make(processId(options.processId));
     const now = options.now ?? (() => new Date());
+    const scrollClock = options.scrollClock ?? (yield* Clock.Clock);
+    const scrollPauseMs = options.scrollPauseMs ?? SCROLL_PAUSE_MS;
     const runScans = makeRunScans(fileSystem, now);
     const agentBrowserFactory =
       options.agentBrowserFactory ?? makeChromiumAgentBrowser;
@@ -4028,14 +4038,18 @@ const makeAgentSession = (
     ): Effect.Effect<void> =>
       Effect.gen(function* photographWhenScrollingPauses() {
         while (record.scroll.burst === burst) {
-          const paused = (yield* Clock.currentTimeMillis) - burst.lastInputAt;
-          if (paused < 200) {
-            yield* Effect.sleep(200 - paused);
+          const paused =
+            (yield* scrollClock.currentTimeMillis) - burst.lastInputAt;
+          if (paused < scrollPauseMs) {
+            yield* scrollClock.sleep(Duration.millis(scrollPauseMs - paused));
             continue;
           }
           yield* record.control.lock.withPermit(
             Effect.gen(function* recheckScrollPause() {
-              if ((yield* Clock.currentTimeMillis) - burst.lastInputAt >= 200) {
+              if (
+                (yield* scrollClock.currentTimeMillis) - burst.lastInputAt >=
+                scrollPauseMs
+              ) {
                 yield* closeScrollBurst(sessionId, record, burst);
               }
             })
@@ -4054,7 +4068,7 @@ const makeAgentSession = (
         if (capture === undefined) {
           return;
         }
-        const lastInputAt = yield* Clock.currentTimeMillis;
+        const lastInputAt = yield* scrollClock.currentTimeMillis;
         const existing = record.scroll.burst;
         if (
           existing?.capture === capture &&
