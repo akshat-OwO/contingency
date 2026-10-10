@@ -25,7 +25,7 @@ import {
   useAtomSet,
   useAtomValue,
 } from "@effect/atom-react";
-import { Effect, Fiber, Result, Schedule, Schema } from "effect";
+import { Clock, Effect, Fiber, Result, Schedule, Schema } from "effect";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -133,6 +133,10 @@ import {
 } from "@/components/ui/input-group";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+import {
+  useWorkspaceRefreshClock,
+  useWorkspaceRefreshInterval,
+} from "@/lib/workspace-refresh-interval";
 
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
@@ -800,6 +804,8 @@ const useAgentView = (
     runAgentBrowserStream,
     runAgentSessionStream,
   } = useRpcDependencies();
+  const refreshInterval = useWorkspaceRefreshInterval();
+  const refreshClock = useWorkspaceRefreshClock();
   const sessionsResult = useAtomValue(agentSessionsAtom);
   const refreshSessions = useAtomRefresh(agentSessionsAtom);
   const [state, setState] = useAtom(agentViewStateAtom);
@@ -919,14 +925,15 @@ const useAgentView = (
 
   useEffect(() => {
     const refreshEffect = Effect.sync(() => refreshSessions()).pipe(
-      Effect.repeat(Schedule.spaced("2 seconds")),
+      Effect.repeat(Schedule.spaced(refreshInterval)),
+      Effect.provideService(Clock.Clock, refreshClock),
       Effect.ignore
     );
     const fiber = Effect.runFork(refreshEffect);
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [refreshSessions]);
+  }, [refreshClock, refreshInterval, refreshSessions]);
 
   useEffect(() => {
     if (queryLoading && sessionsResult._tag === "Initial") {

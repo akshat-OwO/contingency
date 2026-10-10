@@ -11,7 +11,7 @@ import type {
 } from "@contingency/protocol";
 import { httpOriginFromUrl, isBrowserRpcError } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
-import { Effect, Fiber, Result, Schedule } from "effect";
+import { Clock, Effect, Fiber, Result, Schedule } from "effect";
 import { Atom } from "effect/reactivity";
 import {
   ActivityIcon,
@@ -53,12 +53,10 @@ import { UserAgentList } from "@/components/browser/user-agent-list";
 import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
-
-/**
- * How often the stage re-reads what it cannot be pushed: the browser's tabs
- * and the network requests they have made.
- */
-const SETUP_POLL_INTERVAL = "2 seconds";
+import {
+  useWorkspaceRefreshClock,
+  useWorkspaceRefreshInterval,
+} from "@/lib/workspace-refresh-interval";
 
 interface SetupState {
   readonly activeTab: BrowserTab | undefined;
@@ -491,6 +489,8 @@ const InspectorCardSurface = ({
  * session cannot push is polled; every change is one Emulation patch.
  */
 const useBrowserSetup = (sessionId: AgentSessionId) => {
+  const refreshInterval = useWorkspaceRefreshInterval();
+  const refreshClock = useWorkspaceRefreshClock();
   const {
     agentBrowserEmulationSetMutation,
     agentBrowserEmulationGetMutation,
@@ -560,13 +560,14 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
     setState(() => initialSetupState);
     const fiber = Effect.runFork(
       Effect.suspend(refreshFromEffect).pipe(
-        Effect.repeat(Schedule.spaced(SETUP_POLL_INTERVAL))
+        Effect.repeat(Schedule.spaced(refreshInterval)),
+        Effect.provideService(Clock.Clock, refreshClock)
       )
     );
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [sessionId, setState]);
+  }, [refreshClock, refreshInterval, sessionId, setState]);
 
   const patch = (
     change: EmulationPatch & {
