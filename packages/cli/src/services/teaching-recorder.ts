@@ -398,21 +398,28 @@ export const makeTeachingRecorder = (
         output: videoFile,
       })
     );
+    // The stream starts the screencast lazily and leads with its status. Start
+    // returns once capture is live, so an immediate navigation cannot swap
+    // renderers under a screencast that is still starting.
+    const capturing = yield* Deferred.make<true>();
     const capture = yield* options.browser
       .stream(options.browserSessionId)
       .pipe(
-        Stream.runForEach((event) => {
-          if (event.type !== "frame") {
-            return Effect.void;
-          }
-          return encoder.write(event.data);
-        }),
+        Stream.runForEach((event) =>
+          Deferred.succeed(capturing, true).pipe(
+            Effect.andThen(
+              event.type === "frame" ? encoder.write(event.data) : Effect.void
+            )
+          )
+        ),
         Effect.tapError((cause) =>
           Ref.set(failure, `Teaching capture stopped: ${cause.message}`)
         ),
         Effect.ignore,
+        Effect.ensuring(Deferred.succeed(capturing, true)),
         Effect.forkIn(scope)
       );
+    yield* Deferred.await(capturing);
 
     // A ceiling is documented to end the recording, not merely to truncate the
     // artifact at Stop. The watchdog trips `breach`, the loop exits, and the

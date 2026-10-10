@@ -56,6 +56,7 @@ import {
   applyPermissions,
   browserFailure,
   emitStatus,
+  statusEvent,
   publishTabs,
   readSessionState,
   reapplyEmulation,
@@ -827,6 +828,9 @@ const makeService = (
           const subscribedAt = Date.now();
           const session = yield* requireSession(sessionId);
           yield* startScreencast(session);
+          // Leads with the status the start published before this subscriber
+          // could hear it, so a reader knows capture is live.
+          const live = statusEvent(session, true);
           return Stream.merge(
             Stream.mergeAll(
               [
@@ -838,6 +842,7 @@ const makeService = (
             ),
             Stream.fromPubSub(session.frames)
           ).pipe(
+            Stream.prepend([live]),
             Stream.filter(
               (event) =>
                 event.type !== "frame" ||
