@@ -74,23 +74,27 @@ export interface TeachingRecorder {
   readonly videoFile: string;
 }
 
+/** The slice of the browser a recorder drives: frames, tracing, and a stop frame. */
+export interface TeachingRecorderBrowser {
+  readonly stream: CreateBrowserService["stream"];
+  readonly activeTarget: (
+    ...args: Parameters<CreateBrowserService["activeTarget"]>
+  ) => Effect.Effect<
+    {
+      readonly context: {
+        readonly tracing: Pick<
+          BrowserTarget["context"]["tracing"],
+          "start" | "stop"
+        >;
+      };
+      readonly page: Pick<BrowserTarget["page"], "screenshot" | "url">;
+    },
+    BrowserRpcErrorType
+  >;
+}
+
 export interface TeachingRecorderOptions {
-  readonly browser: Pick<CreateBrowserService, "stream"> & {
-    readonly activeTarget: (
-      ...args: Parameters<CreateBrowserService["activeTarget"]>
-    ) => Effect.Effect<
-      {
-        readonly context: {
-          readonly tracing: Pick<
-            BrowserTarget["context"]["tracing"],
-            "start" | "stop"
-          >;
-        };
-        readonly page: Pick<BrowserTarget["page"], "screenshot" | "url">;
-      },
-      BrowserRpcErrorType
-    >;
-  };
+  readonly browser: TeachingRecorderBrowser;
   /** O(1) capture sizes, read by the watchdog on every tick. */
   readonly counts: () => DemonstrationCounts;
   /** The capture so far, serialized only when the byte ceiling is near. */
