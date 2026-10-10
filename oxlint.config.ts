@@ -35,12 +35,6 @@ export default defineConfig({
       rules: { "contingency/no-test-wait": "error" },
     },
     {
-      // Tests that waited on real time before `no-test-wait` existed. This
-      // list only shrinks: a file leaves it once its waits read events.
-      files: [],
-      rules: { "contingency/no-test-wait": "off" },
-    },
-    {
       files: [
         "packages/cli/src/services/recorder-events.ts",
         "packages/cli/src/services/run-footage.ts",
