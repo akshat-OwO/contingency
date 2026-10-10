@@ -21,7 +21,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
-import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh-interval";
+import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({

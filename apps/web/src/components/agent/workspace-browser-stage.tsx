@@ -55,8 +55,8 @@ import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 import {
   useWorkspaceRefreshClock,
-  useWorkspaceRefreshInterval,
-} from "@/lib/workspace-refresh-interval";
+  WORKSPACE_REFRESH_INTERVAL,
+} from "@/lib/workspace-refresh";
 
 interface SetupState {
   readonly activeTab: BrowserTab | undefined;
@@ -489,7 +489,6 @@ const InspectorCardSurface = ({
  * session cannot push is polled; every change is one Emulation patch.
  */
 const useBrowserSetup = (sessionId: AgentSessionId) => {
-  const refreshInterval = useWorkspaceRefreshInterval();
   const refreshClock = useWorkspaceRefreshClock();
   const {
     agentBrowserEmulationSetMutation,
@@ -560,14 +559,14 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
     setState(() => initialSetupState);
     const fiber = Effect.runFork(
       Effect.suspend(refreshFromEffect).pipe(
-        Effect.repeat(Schedule.spaced(refreshInterval)),
+        Effect.repeat(Schedule.spaced(WORKSPACE_REFRESH_INTERVAL)),
         Effect.provideService(Clock.Clock, refreshClock)
       )
     );
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [refreshClock, refreshInterval, sessionId, setState]);
+  }, [refreshClock, sessionId, setState]);
 
   const patch = (
     change: EmulationPatch & {

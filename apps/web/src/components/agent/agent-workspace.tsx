@@ -135,8 +135,8 @@ import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import {
   useWorkspaceRefreshClock,
-  useWorkspaceRefreshInterval,
-} from "@/lib/workspace-refresh-interval";
+  WORKSPACE_REFRESH_INTERVAL,
+} from "@/lib/workspace-refresh";
 
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
@@ -804,7 +804,6 @@ const useAgentView = (
     runAgentBrowserStream,
     runAgentSessionStream,
   } = useRpcDependencies();
-  const refreshInterval = useWorkspaceRefreshInterval();
   const refreshClock = useWorkspaceRefreshClock();
   const sessionsResult = useAtomValue(agentSessionsAtom);
   const refreshSessions = useAtomRefresh(agentSessionsAtom);
@@ -925,7 +924,7 @@ const useAgentView = (
 
   useEffect(() => {
     const refreshEffect = Effect.sync(() => refreshSessions()).pipe(
-      Effect.repeat(Schedule.spaced(refreshInterval)),
+      Effect.repeat(Schedule.spaced(WORKSPACE_REFRESH_INTERVAL)),
       Effect.provideService(Clock.Clock, refreshClock),
       Effect.ignore
     );
@@ -933,7 +932,7 @@ const useAgentView = (
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [refreshClock, refreshInterval, refreshSessions]);
+  }, [refreshClock, refreshSessions]);
 
   useEffect(() => {
     if (queryLoading && sessionsResult._tag === "Initial") {
