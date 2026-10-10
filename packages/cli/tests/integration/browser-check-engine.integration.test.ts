@@ -7,7 +7,8 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Fiber, Predicate } from "effect";
+import { Deferred, Effect, Fiber, Predicate } from "effect";
+import { TestClock } from "effect/testing";
 
 import { armBrowserChecks } from "../../src/services/browser-check-engine.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
@@ -18,7 +19,25 @@ const reference = (check: BrowserCheck): BrowserCheckReference => ({
   flowSkillName: "submit",
 });
 
-it.live(
+const observeChecks = (
+  armed: Effect.Success<ReturnType<typeof armBrowserChecks>>,
+  deadline?: number
+) =>
+  Effect.gen(function* expireCheck() {
+    const fiber = yield* Effect.forkChild(
+      armed.wait().pipe(Effect.ensuring(Effect.sync(armed.dispose)))
+    );
+    if (deadline !== undefined) {
+      yield* TestClock.withLive(
+        Deferred.await(armed.polling).pipe(Effect.timeout("30 seconds"))
+      );
+      yield* TestClock.adjust(deadline + 1);
+    }
+    return yield* TestClock.withLive(
+      Fiber.join(fiber).pipe(Effect.timeout("30 seconds"))
+    );
+  });
+it.effect(
   "uses fresh response identity, deadlines, storage baselines, and interruptible watch lifetimes",
   () =>
     Effect.gen(function* browserChecks() {
@@ -65,15 +84,19 @@ it.live(
       const origin = `http://127.0.0.1:${address.port}`;
       const browser = yield* CreateBrowser;
       const viewport = { deviceScaleFactor: 1, height: 480, width: 640 };
-      const sessionId = yield* browser.create("create-checks", viewport, true);
-      yield* Effect.addFinalizer(() =>
-        browser.close(sessionId).pipe(Effect.ignore)
+      const sessionId = yield* TestClock.withLive(
+        browser.create("create-checks", viewport, true)
       );
-      yield* browser.open(sessionId, origin, {
-        permissions: [],
-        userAgentProfile: UserAgentProfileId.make("chrome-mac"),
-        viewport,
-      });
+      yield* Effect.addFinalizer(() =>
+        TestClock.withLive(browser.close(sessionId).pipe(Effect.ignore))
+      );
+      yield* TestClock.withLive(
+        browser.open(sessionId, origin, {
+          permissions: [],
+          userAgentProfile: UserAgentProfileId.make("chrome-mac"),
+          viewport,
+        })
+      );
       const target = yield* browser.activeTarget(sessionId);
       const responseCheck: BrowserCheck = {
         demonstrated: false,
@@ -105,21 +128,15 @@ it.live(
         [reference(responseCheck)],
         "stale"
       );
-      expect(
-        (yield* stale
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(stale.dispose))))[0]?.status
-      ).toBe("failed");
+      expect((yield* observeChecks(stale, 250))[0]?.status).toBe("failed");
       const matching = yield* armBrowserChecks(
         target,
         [reference(responseCheck)],
         "match"
       );
-      matching.start();
+      yield* matching.start();
       yield* trigger(["pending", "ready"]);
-      const passed = yield* matching
-        .wait()
-        .pipe(Effect.ensuring(Effect.sync(matching.dispose)));
+      const passed = yield* observeChecks(matching);
       expect(passed[0]?.status).toBe("passed");
       expect(JSON.stringify(passed)).not.toContain("private-fixture-token");
       const completeQuery: BrowserCheck = {
@@ -137,16 +154,16 @@ it.live(
         [reference(completeQuery)],
         "stale-query"
       );
-      staleQuery.start();
-      expect(
-        (yield* staleQuery
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(staleQuery.dispose))))[0]?.status
-      ).toBe("failed");
+      yield* staleQuery.start();
+      expect((yield* observeChecks(staleQuery, 250))[0]?.status).toBe("failed");
       const queryChecks = yield* armBrowserChecks(
         target,
+        [reference(completeQuery)],
+        "query-submit"
+      );
+      const prefixChecks = yield* armBrowserChecks(
+        target,
         [
-          reference(completeQuery),
           reference({
             ...completeQuery,
             id: "prefix-query",
@@ -155,13 +172,24 @@ it.live(
         ],
         "query-submit"
       );
-      queryChecks.start();
-      yield* Effect.tryPromise(() =>
-        target.page.getByRole("button", { name: "Submit" }).click()
+      yield* queryChecks.start();
+      yield* prefixChecks.start();
+      yield* TestClock.withLive(
+        Effect.tryPromise(async () => {
+          const response = target.page.waitForResponse(
+            (received) =>
+              new URL(received.url()).searchParams.get("ref") ===
+              "batch=2026-10"
+          );
+          await target.page.getByRole("button", { name: "Submit" }).click();
+          const received = await response;
+          await received.finished();
+        }).pipe(Effect.timeout("30 seconds"))
       );
-      const queryResults = yield* queryChecks
-        .wait()
-        .pipe(Effect.ensuring(Effect.sync(queryChecks.dispose)));
+      const queryResults = [
+        ...(yield* observeChecks(queryChecks)),
+        ...(yield* observeChecks(prefixChecks, 250)),
+      ];
       expect(
         queryResults.map(({ id, operationId, status }) => ({
           id,
@@ -178,29 +206,23 @@ it.live(
         [reference({ ...responseCheck, response: "first" })],
         "first"
       );
-      first.start();
+      yield* first.start();
       yield* trigger(["pending", "ready"]);
-      expect(
-        (yield* first
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(first.dispose))))[0]?.status
-      ).toBe("failed");
+      expect((yield* observeChecks(first))[0]?.status).toBe("failed");
       const invalid = yield* armBrowserChecks(
         target,
         [reference(responseCheck)],
         "unreadable"
       );
-      invalid.start();
+      yield* invalid.start();
       yield* Effect.tryPromise(() =>
         target.page.evaluate(async () => {
           await fetch("/signal?invalid=1");
         })
       );
-      expect(
-        (yield* invalid
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(invalid.dispose))))[0]?.status
-      ).toBe("inconclusive");
+      expect((yield* observeChecks(invalid, 250))[0]?.status).toBe(
+        "inconclusive"
+      );
       const cookie: BrowserCheck = {
         change: "created",
         demonstrated: false,
@@ -225,31 +247,19 @@ it.live(
           await fetch("/signal?cookie=1");
         })
       );
-      expect(
-        (yield* creation
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(creation.dispose))))[0]?.status
-      ).toBe("passed");
+      expect((yield* observeChecks(creation))[0]?.status).toBe("passed");
       const existing = yield* armBrowserChecks(
         target,
         [reference(cookie)],
         "existing"
       );
-      expect(
-        (yield* existing
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(existing.dispose))))[0]?.status
-      ).toBe("failed");
+      expect((yield* observeChecks(existing, 100))[0]?.status).toBe("failed");
       const current = yield* armBrowserChecks(
         target,
         [reference({ ...cookie, change: "current" })],
         "current"
       );
-      expect(
-        (yield* current
-          .wait()
-          .pipe(Effect.ensuring(Effect.sync(current.dispose))))[0]?.status
-      ).toBe("passed");
+      expect((yield* observeChecks(current))[0]?.status).toBe("passed");
       const interrupted = yield* armBrowserChecks(
         target,
         [reference(responseCheck)],
@@ -260,7 +270,9 @@ it.live(
           .wait()
           .pipe(Effect.ensuring(Effect.sync(interrupted.dispose)))
       );
-      yield* Effect.sleep(10);
+      yield* TestClock.withLive(
+        Deferred.await(interrupted.polling).pipe(Effect.timeout("30 seconds"))
+      );
       yield* Fiber.interrupt(fiber);
       expect(interrupted.interrupted()[0]?.status).toBe("interrupted");
     }).pipe(
