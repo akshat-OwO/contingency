@@ -44,9 +44,12 @@
         details.hidden = !details.hidden;
       });
       document.getElementById("later").addEventListener("click", () => {
-        setTimeout(() => {
-          location.href = "/settle.html?arrived";
-        }, 3000);
+        fetch("/settle-gate")
+          .then((response) => response.text())
+          .then(() => {
+            location.href = "/settle.html?arrived";
+          })
+          .catch(() => {});
       });
     </script>
   </body>

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
-import type { Server } from "node:http";
+import type { Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,7 +11,7 @@ import type {
   UserAgentProfileId,
   Viewport,
 } from "@contingency/protocol";
-import { Effect, FileSystem } from "effect";
+import { Deferred, Effect, FileSystem } from "effect";
 
 const isTcpAddress = (
   address: AddressInfo | string | null
@@ -130,8 +130,11 @@ export const BUSY_TICK_BEACON = "/busy-tick-beacon";
 /** What the late fixture requests once its content has finished arriving. */
 export const LATE_CONTENT_BEACON = "/settled-beacon";
 
-/** A response held briefly so navigation can prove it waits for network idle. */
+/** A response tests can hold to prove navigation waits for network idle. */
 export const LOAD_READY_BEACON = "/load-ready-beacon";
+
+/** Release this response to let the settle fixture navigate. */
+export const SETTLE_GATE = "/settle-gate";
 
 /**
  * What the stateful fixture requests at load, carrying the cart count it read
@@ -186,6 +189,67 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
    */
   const requestHeaders: { headers: Record<string, string>; url: string }[] = [];
 
+  const waiters = new Set<{
+    predicate: (url: string) => boolean;
+    arrived: Deferred.Deferred<string>;
+  }>();
+  const gates = new Map<string, Deferred.Deferred<ServerResponse>>();
+
+  /** Register before the triggering action, then await the returned Deferred. */
+  const awaitRequest = (predicate: (url: string) => boolean) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const waiter = { arrived: Deferred.makeUnsafe<string>(), predicate };
+        waiters.add(waiter);
+        return waiter;
+      }),
+      (waiter) =>
+        Effect.sync(() => {
+          waiters.delete(waiter);
+        })
+    ).pipe(Effect.map((waiter) => waiter.arrived));
+
+  /** Hold the next request to this pathname until release completes. */
+  const holdRequest = (pathname: string) =>
+    Effect.gen(function* holdResponse() {
+      const received = yield* Effect.acquireRelease(
+        gates.has(pathname)
+          ? Effect.die(`Fixture response already held: ${pathname}`)
+          : Effect.sync(() => {
+              const deferred = Deferred.makeUnsafe<ServerResponse>();
+              gates.set(pathname, deferred);
+              return deferred;
+            }),
+        (deferred) =>
+          Effect.sync(() => {
+            if (gates.get(pathname) === deferred) {
+              gates.delete(pathname);
+            }
+          })
+      );
+      const arrived = yield* Deferred.make<true>();
+      const release = yield* Deferred.make<true>();
+      yield* Effect.gen(function* answerHeldResponse() {
+        const response = yield* Deferred.await(received);
+        yield* Effect.gen(function* releaseResponse() {
+          yield* Deferred.succeed(arrived, true);
+          yield* Deferred.await(release);
+          yield* Effect.sync(() => {
+            response
+              .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
+              .end("ready");
+          });
+        }).pipe(
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              response.destroy();
+            })
+          )
+        );
+      }).pipe(Effect.forkScoped);
+      return { arrived, release };
+    });
+
   const server = yield* Effect.acquireRelease(
     Effect.callback<Server>((resume) => {
       const created = createServer((request, response) => {
@@ -200,7 +264,21 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
           ),
           url,
         });
+        // Resumed observers can register their next waiter while we notify them.
+        const pendingWaiters = [...waiters];
+        for (const waiter of pendingWaiters) {
+          if (waiter.predicate(url)) {
+            waiters.delete(waiter);
+            Deferred.doneUnsafe(waiter.arrived, Effect.succeed(url));
+          }
+        }
         const { pathname } = new URL(url, "http://fixtures");
+        const gate = gates.get(pathname);
+        if (gate !== undefined) {
+          gates.delete(pathname);
+          Deferred.doneUnsafe(gate, Effect.succeed(response));
+          return;
+        }
         if (pathname === "/boundary-redirect-chain") {
           response.writeHead(302, { location: "/boundary-redirect" }).end();
           return;
@@ -235,12 +313,10 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
             .end("<title>Attention Required! | Cloudflare</title>");
           return;
         }
-        if (pathname === LOAD_READY_BEACON) {
-          setTimeout(() => {
-            response
-              .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
-              .end("ready");
-          }, 250);
+        if (pathname === LOAD_READY_BEACON || pathname === SETTLE_GATE) {
+          response
+            .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
+            .end("ready");
           return;
         }
         if (pathname === SCROLL_READY_BEACON) {
@@ -297,6 +373,9 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
   const { port } = address;
   const origin = `http://127.0.0.1:${port}`;
   return {
+    awaitRequest,
+    holdLoadBeacon: () => holdRequest(LOAD_READY_BEACON),
+    holdRequest,
     origin,
     requestHeaders,
     requests,

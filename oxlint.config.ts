@@ -48,7 +48,6 @@ export default defineConfig({
         "packages/cli/tests/integration/browser-streaming.integration.test.ts",
         "packages/cli/tests/integration/create-browser.integration.test.ts",
         "packages/cli/tests/integration/flow-skill-delivery.integration.test.ts",
-        "packages/cli/tests/integration/harness.ts",
         "packages/cli/tests/integration/pursuit.integration.test.ts",
         "packages/cli/tests/integration/teaching-keyframes.integration.test.ts",
         "packages/cli/tests/integration/teaching-recording-learning.integration.test.ts",

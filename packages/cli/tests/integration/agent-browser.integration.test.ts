@@ -13,7 +13,7 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Fiber, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import { RpcTest } from "effect/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -30,6 +30,7 @@ import {
   CART_VIEWED_BEACON,
   fixtureServer,
   NEVER_ANSWERED,
+  SETTLE_GATE,
   USER_INPUT_BEACON,
 } from "./harness.ts";
 
@@ -1171,16 +1172,22 @@ it.live("shows a navigation that starts after the bound on the next read", () =>
     const { click, fixtures, session } =
       yield* openSettleFixture("start-settle-later");
 
+    const gate = yield* fixtures.holdRequest(SETTLE_GATE);
     const clicked = yield* click("Navigate later", "settle-later");
-    expect(clicked.entry.effect).toEqual({ kind: "none" });
+    expect(clicked.snapshot.settle?.pending).toContain("network");
     expect(clicked.url).toBe(fixtures.url("settle.html"));
 
-    yield* Effect.sleep("3 seconds");
+    yield* Deferred.await(gate.arrived).pipe(Effect.timeout("30 seconds"));
+    const arrived = yield* fixtures.awaitRequest(
+      (url) => url === "/settle.html?arrived"
+    );
+    yield* Deferred.succeed(gate.release, true);
+    yield* Deferred.await(arrived).pipe(Effect.timeout("30 seconds"));
     const reread = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,
     });
     expect(reread.url).toBe(`${fixtures.url("settle.html")}?arrived`);
-    expect(reread.settle?.settled).toBe(true);
+    expect(reread.settle).toEqual({ pending: [], settled: true });
   }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
