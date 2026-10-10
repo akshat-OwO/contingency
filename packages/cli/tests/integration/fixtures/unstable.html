@@ -19,7 +19,7 @@
         a Flow author needs told apart from an element that is simply gone.
       -->
 
-      <!-- Replaced faster than an action can settle on it. -->
+      <!-- Replaced once the test releases the gate, after it read the button. -->
       <div id="wrap">
         <button id="flappy" type="button">Flappy</button>
       </div>
@@ -30,17 +30,19 @@
     <div id="veil"></div>
     <script>
       // Re-created rather than merely moved: the node the action resolved to is
-      // detached every tick, which is what the browser reports as detached.
-      setInterval(() => {
-        const wrap = document.getElementById("wrap");
-        wrap.textContent = "";
-        const button = document.createElement("button");
-        button.id = "flappy";
-        button.type = "button";
-        button.textContent = "Flappy";
-        wrap.appendChild(button);
-        fetch("/unstable-replaced-beacon").catch(() => {});
-      }, 30);
+      // detached, which is what the browser reports as detached.
+      fetch("/unstable-replace-gate")
+        .then(() => {
+          const wrap = document.getElementById("wrap");
+          wrap.textContent = "";
+          const button = document.createElement("button");
+          button.id = "flappy";
+          button.type = "button";
+          button.textContent = "Flappy";
+          wrap.appendChild(button);
+          return fetch("/unstable-replaced-beacon");
+        })
+        .catch(() => {});
     </script>
   </body>
 </html>

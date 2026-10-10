@@ -31,6 +31,7 @@ import {
   fixtureServer,
   NEVER_ANSWERED,
   SETTLE_GATE,
+  UNSTABLE_REPLACE_GATE,
   UNSTABLE_REPLACED_BEACON,
   USER_INPUT_BEACON,
 } from "./harness.ts";
@@ -644,6 +645,7 @@ it.live("expires element references when the Page navigates", () =>
     // A meaningful page mutation expires a reference too: this fixture
     // re-creates its button, so the element the Snapshot named is gone even
     // though the Page never navigated.
+    const replace = yield* fixtures.holdRequest(UNSTABLE_REPLACE_GATE);
     yield* callTool("agent_browser_act", {
       action: { type: "navigate", url: fixtures.url("unstable.html") },
       operationId: OperationId.make("act-navigate-unstable"),
@@ -653,12 +655,10 @@ it.live("expires element references when the Page navigates", () =>
       sessionId: session.id,
     });
     const flappy = findNode(unstable.nodes, "button", "Flappy");
-    // The first replacement to land may have been sent before the Snapshot
-    // read the button; the second was made after it.
-    const firstReplaced = yield* fixtures.awaitRequest(isReplacement);
-    yield* Deferred.await(firstReplaced).pipe(Effect.timeout("30 seconds"));
-    const secondReplaced = yield* fixtures.awaitRequest(isReplacement);
-    yield* Deferred.await(secondReplaced).pipe(Effect.timeout("30 seconds"));
+    // The page replaces the button only once released, after the Snapshot.
+    const replaced = yield* fixtures.awaitRequest(isReplacement);
+    yield* Deferred.succeed(replace.release, true);
+    yield* Deferred.await(replaced).pipe(Effect.timeout("30 seconds"));
     const mutated = yield* Effect.flip(
       callTool("agent_browser_act", {
         action: { ref: flappy.ref, type: "click" },

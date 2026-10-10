@@ -121,7 +121,10 @@ export const DOCUMENT_SCROLL_BEACON = "/document-scroll-beacon";
 /** What the Takeover fixture requests for every input the user sends it. */
 export const USER_INPUT_BEACON = "/user-input-beacon";
 
-/** What the unstable fixture requests each time it replaces its button. */
+/** Release this response to let the unstable fixture replace its button. */
+export const UNSTABLE_REPLACE_GATE = "/unstable-replace-gate";
+
+/** What the unstable fixture requests once it has replaced its button. */
 export const UNSTABLE_REPLACED_BEACON = "/unstable-replaced-beacon";
 
 /** What the shop fixture requests once its cart is viewed. */
@@ -316,7 +319,11 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
             .end("<title>Attention Required! | Cloudflare</title>");
           return;
         }
-        if (pathname === LOAD_READY_BEACON || pathname === SETTLE_GATE) {
+        if (
+          pathname === LOAD_READY_BEACON ||
+          pathname === SETTLE_GATE ||
+          pathname === UNSTABLE_REPLACE_GATE
+        ) {
           response
             .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })
             .end("ready");
