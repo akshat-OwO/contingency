@@ -1,14 +1,21 @@
-import { OperationId } from "@contingency/protocol";
+import { ContingencyRpcs, OperationId } from "@contingency/protocol";
 import type { AgentSessionId, KeyboardInput } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Schedule } from "effect";
+import { Effect, FileSystem } from "effect";
+import { RpcTest } from "effect/rpc";
+import { vi } from "vitest";
 
+import type {
+  AgentBrowser,
+  AgentBrowserFactory,
+} from "../../src/services/agent-browser-contract.ts";
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-browser.ts";
 import {
   agentProcessLayer,
   agentViewport,
-  sessionTool,
+  awaitSession,
   startUserTeaching,
   teachingRecordingTool,
 } from "./agent-harness.ts";
@@ -25,15 +32,12 @@ const key = (sessionId: AgentSessionId, input: Omit<KeyboardInput, "type">) =>
     )
   );
 
-/** One key the way the Workspace canvas sends it, timed from down to up. */
+/** One key the way the Workspace canvas sends it. */
 const press = (sessionId: AgentSessionId, name: string, text: string) =>
   Effect.gen(function* pressKey() {
     yield* key(sessionId, { eventType: "keyDown", key: name, text });
     yield* key(sessionId, { eventType: "keyUp", key: name });
-  }).pipe(
-    Effect.timed,
-    Effect.map(([duration]) => Duration.toMillis(duration))
-  );
+  });
 
 const click = (
   sessionId: AgentSessionId,
@@ -115,26 +119,33 @@ it.live(
         prefix: "contingency-typing-burst-",
       });
 
+      // The Browser the recording opens, so the test can observe its Snapshots.
+      const browsers: AgentBrowser[] = [];
+      const agentBrowserFactory: AgentBrowserFactory = (input) =>
+        makeChromiumAgentBrowser(input).pipe(
+          Effect.tap((created) => Effect.sync(() => browsers.push(created)))
+        );
       yield* Effect.gen(function* typeAMobileNumber() {
         const { recordingId, sessionId } =
           yield* startRecording("typing-burst");
-        // What one read of this Page costs: every key used to pay it twice.
-        const [snapshotDuration] = yield* Effect.timed(
-          sessionTool("agent_browser_snapshot", { sessionId })
-        );
-        const snapshotMillis = Duration.toMillis(snapshotDuration);
-        yield* click(sessionId, MOBILE_FIELD);
-        const keyMillis: number[] = [];
-        for (const digit of "9876543210") {
-          keyMillis.push(yield* press(sessionId, digit, digit));
+        const [browser] = browsers;
+        if (browser === undefined) {
+          return yield* Effect.die("Teaching did not open a browser.");
         }
-
-        // The first key observes the field the burst types into; every key
-        // after it goes straight to the Page. Together they cost less than
-        // one read of it, where each of them alone used to cost two.
-        const [, ...following] = keyMillis;
-        const typing = following.reduce((total, next) => total + next, 0);
-        expect(typing).toBeLessThan(snapshotMillis);
+        const page = yield* browser.active();
+        yield* click(sessionId, MOBILE_FIELD);
+        // The first digit observes the field; later digits reuse that evidence.
+        yield* press(sessionId, "9", "9");
+        const snapshots = vi.spyOn(page, "snapshot");
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => snapshots.mockRestore())
+        );
+        for (const digit of "876543210") {
+          yield* press(sessionId, digit, digit);
+        }
+        // Typing after the first digit goes straight to the Page: no Browser
+        // Snapshot between the first digit and the last.
+        expect(snapshots).not.toHaveBeenCalled();
 
         // The tenth digit moved focus on to Search, and the number stays
         // what was typed into Mobile number.
@@ -149,7 +160,10 @@ it.live(
         expect(fill?.target?.value).toBe("9876543210");
         expect(fill?.before.nodeCount).toBeGreaterThan(0);
         expect(fill?.after.nodeCount).toBeGreaterThan(0);
-      }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(agentProcessLayer(root, { agentBrowserFactory }))
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
@@ -171,18 +185,14 @@ it.live(
         }
         // The idle timer starts the flush; its snapshot and keyframe still
         // have to finish. Observe the Fill without sending more browser input.
-        const session = yield* sessionTool("agent_session_get", {
-          sessionId,
-        }).pipe(
-          Effect.repeat({
-            schedule: Schedule.spaced("50 millis"),
-            until: (current) =>
-              current.timeline.some(
-                (entry) =>
-                  entry.description === 'Fill textbox "Search" with "tablets"'
-              ),
-          }),
-          Effect.timeout("10 seconds")
+        const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+          flatten: true,
+        });
+        const session = yield* awaitSession(client, sessionId, (current) =>
+          current.timeline.some(
+            (entry) =>
+              entry.description === 'Fill textbox "Search" with "tablets"'
+          )
         );
         expect(session.timeline.map((entry) => entry.description)).toContain(
           'Fill textbox "Search" with "tablets"'

@@ -5,9 +5,11 @@ import { OperationId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Deferred, Effect, FileSystem } from "effect";
+import { vi } from "vitest";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
   agentProcessLayer,
   agentViewport,
@@ -16,7 +18,11 @@ import {
   startUserTeaching,
   teachingRecordingTool,
 } from "./agent-harness.ts";
-import { fixtureServer } from "./harness.ts";
+import {
+  fixtureServer,
+  TEACHING_RENDER_GATE,
+  TEACHING_RENDERED_BEACON,
+} from "./harness.ts";
 
 /** Where the user's pointer lands on each fixed control of the fixture. */
 const CHOOSE_DELIVERY = { x: 120, y: 116 } as const;
@@ -205,9 +211,9 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-for (const delay of [0, 1500]) {
+for (const delayed of [false, true]) {
   it.live(
-    `preserves transitional navigation evidence with a ${delay} ms render delay`,
+    `preserves transitional navigation evidence with ${delayed ? "held" : "immediate"} rendering`,
     () =>
       Effect.gen(function* recordNavigationEvidence() {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -215,6 +221,12 @@ for (const delay of [0, 1500]) {
           prefix: "contingency-navigation-keyframe-",
         });
         const fixtures = yield* fixtureServer;
+        const gate = delayed
+          ? yield* fixtures.holdRequest(TEACHING_RENDER_GATE)
+          : undefined;
+        const rendered = yield* fixtures.awaitRequest(
+          (url) => url === TEACHING_RENDERED_BEACON
+        );
         const recordingId = yield* Effect.scoped(
           Effect.gen(function* clickWhileRecording() {
             const started = yield* startUserTeaching({
@@ -223,7 +235,7 @@ for (const delay of [0, 1500]) {
               clientVersion: "1.0.0",
               name: "navigation-evidence",
               operationId: OperationId.make("navigation-start-session"),
-              url: `${fixtures.url("teaching-navigation.html")}?delay=${delay}`,
+              url: `${fixtures.url("teaching-navigation.html")}${delayed ? "?delayed" : ""}`,
               viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
             });
             if (started.recordingId === null) {
@@ -236,10 +248,39 @@ for (const delay of [0, 1500]) {
               started.id,
               OperationId.make("navigation-start-recording")
             );
+            const browser = yield* CreateBrowser;
+            const [browserId] = yield* browser.list();
+            if (browserId === undefined) {
+              return yield* Effect.die("Teaching did not open a browser.");
+            }
+            const page = yield* browser.activePage(browserId);
+            // The click's keyframe must show the Page before the delayed render,
+            // so the render waits until that screenshot has been taken.
+            const photographed = yield* Deferred.make<true>();
+            const screenshot = page.screenshot.bind(page);
+            const screenshots = vi
+              .spyOn(page, "screenshot")
+              .mockImplementation(async (...args) => {
+                const image = await screenshot(...args);
+                await Effect.runPromise(Deferred.succeed(photographed, true));
+                return image;
+              });
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => screenshots.mockRestore())
+            );
             yield* clickAsUser(started.id, { x: 120, y: 288 });
             // Let the delayed Page finish before Stop: later rendering must not
             // turn the earlier PNG into evidence of the final destination.
-            yield* Effect.sleep(1600);
+            if (gate !== undefined) {
+              yield* Deferred.await(gate.arrived).pipe(
+                Effect.timeout("30 seconds")
+              );
+              yield* Deferred.await(photographed).pipe(
+                Effect.timeout("30 seconds")
+              );
+              yield* Deferred.succeed(gate.release, true);
+            }
+            yield* Deferred.await(rendered).pipe(Effect.timeout("30 seconds"));
             const settled = yield* sessionTool("agent_browser_snapshot", {
               sessionId: started.id,
             });
@@ -273,8 +314,8 @@ for (const delay of [0, 1500]) {
               description: 'Click button "View details"',
               kind: "click",
             });
-            expect(action?.after.url).toContain("?profile&delay=");
-            if (delay > 0) {
+            expect(action?.after.url).toContain("?profile");
+            if (delayed) {
               expect(action?.appeared).toEqual([]);
               expect(action?.disappeared).toEqual([]);
             }

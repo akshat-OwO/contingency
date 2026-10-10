@@ -18,10 +18,12 @@ import type {
   AgentSnapshotNode,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
+import type { Clock } from "effect";
 import { Effect, Layer, Option, Predicate, Schema, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
+import type { AgentBrowserFactory } from "../../src/services/agent-browser-contract.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
@@ -393,7 +395,10 @@ export const resolveVariable = (input: {
 export const agentProcessLayer = (
   initialCatalogRoot: string,
   options: {
+    readonly agentBrowserFactory?: AgentBrowserFactory;
     readonly followCatalogSelection?: boolean;
+    /** Paces scroll pauses, for tests that close a gesture on demand. */
+    readonly scrollClock?: Clock.Clock;
     /** The Agent Session registry's clock, for tests that move time. */
     readonly now?: () => Date;
     /** This process's owner marker, under which per-session resources live. */
@@ -401,10 +406,12 @@ export const agentProcessLayer = (
   } = {}
 ) => {
   let selectedCatalogRoot = initialCatalogRoot;
+  const { followCatalogSelection, now, ...sessionSeams } = options;
   const sessionOptions = {
+    ...sessionSeams,
     allowedActivity: "any" as const,
     baseUrl: "http://127.0.0.1:7777",
-    now: options.now ?? (() => new Date()),
+    now: now ?? (() => new Date()),
     traceDirectory: () =>
       path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
   };
@@ -424,20 +431,13 @@ export const agentProcessLayer = (
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
-        makeAgentSessionLayer(
-          options.resourceDirectory === undefined
-            ? sessionOptions
-            : {
-                ...sessionOptions,
-                resourceDirectory: options.resourceDirectory,
-              }
-        ).pipe(
+        makeAgentSessionLayer(sessionOptions).pipe(
           Layer.provide(
             Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
           )
         ),
         makeFlowSkillCatalogLayer(
-          options.followCatalogSelection === true
+          followCatalogSelection === true
             ? {
                 ...catalogOptions,
                 onSelect: (root: string) => {

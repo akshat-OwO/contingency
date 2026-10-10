@@ -93,6 +93,11 @@ const teachingChanges = (
     if (after === "setup" && before !== "setup") {
       emit("teaching-discarded");
     }
+    // The recording's own count, so a coalesced gesture such as a scroll or a
+    // typing burst wakes waiters once rather than per input.
+    if (snapshot.teaching.actionCount > previous.teaching.actionCount) {
+      emit("teaching-action-recorded");
+    }
     const known = new Map(
       previous.teaching.instructions.map((instruction) => [
         instruction.id,

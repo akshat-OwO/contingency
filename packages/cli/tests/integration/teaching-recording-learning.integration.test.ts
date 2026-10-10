@@ -211,9 +211,7 @@ it.live(
           );
           const beforeStop = yield* session.sessionEvents(started.id);
           const polling = yield* Effect.forever(
-            session
-              .get(started.id)
-              .pipe(Effect.andThen(Effect.sleep("5 millis")))
+            session.get(started.id).pipe(Effect.andThen(Effect.yieldNow))
           ).pipe(Effect.forkChild);
           yield* session.stopTeachingRecording(
             started.id,

@@ -142,6 +142,10 @@ export const LOAD_READY_BEACON = "/load-ready-beacon";
 /** Release this response to let the settle fixture navigate. */
 export const SETTLE_GATE = "/settle-gate";
 
+/** Release the delayed Teaching destination, then observe its rendered content. */
+export const TEACHING_RENDER_GATE = "/teaching-render-gate";
+export const TEACHING_RENDERED_BEACON = "/teaching-rendered-beacon";
+
 /**
  * What the stateful fixture requests at load, carrying the cart count it read
  * from origin storage: `?at-load=0` means this Run started fresh.
@@ -322,7 +326,9 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
         if (
           pathname === LOAD_READY_BEACON ||
           pathname === SETTLE_GATE ||
-          pathname === UNSTABLE_REPLACE_GATE
+          pathname === UNSTABLE_REPLACE_GATE ||
+          pathname === TEACHING_RENDER_GATE ||
+          pathname === TEACHING_RENDERED_BEACON
         ) {
           response
             .writeHead(OK, { "content-type": "text/plain; charset=utf-8" })

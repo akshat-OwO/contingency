@@ -584,3 +584,41 @@ it.effect(
       ]);
     })
 );
+
+it.effect("signals each recorded Teaching action once", () =>
+  Effect.gen(function* recordedActionEvent() {
+    const log = makeSessionEvents();
+    log.observe(teaching, "workspace");
+    const initial = yield* log.read(teaching.id);
+    const notch = (id: string) => ({
+      actor: "user",
+      at,
+      description: "Scroll down",
+      dispatched: true,
+      id,
+      outcome: "completed",
+    });
+    const recorded = Schema.decodeUnknownSync(AgentSessionSnapshot)({
+      ...teaching,
+      teaching: { ...teaching.teaching, actionCount: 1 },
+      timeline: [notch("notch-1")],
+    });
+    log.observe(recorded, "workspace");
+    log.observe(recorded, "workspace");
+    const result = yield* log.read(teaching.id, initial.eventCursor);
+    expect(result.events.map((event) => event.kind)).toEqual([
+      "teaching-action-recorded",
+    ]);
+
+    // More input coalesced into the same recorded action wakes no one.
+    log.observe(
+      Schema.decodeUnknownSync(AgentSessionSnapshot)({
+        ...recorded,
+        timeline: [notch("notch-1"), notch("notch-2")],
+      }),
+      "workspace"
+    );
+    const later = yield* log.read(teaching.id, result.eventCursor);
+    expect(later.events).toEqual([]);
+  })
+);

@@ -2,11 +2,16 @@ import { OperationId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Clock, Deferred, Effect, FileSystem } from "effect";
+import { TestClock } from "effect/testing";
 import { vi } from "vitest";
 
-import { AgentSession } from "../../src/services/agent-session.ts";
+import {
+  AgentSession,
+  SCROLL_PAUSE_MS,
+} from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
+import { registeredSleeps } from "../helpers/registered-sleeps.ts";
 import {
   agentProcessLayer,
   agentViewport,
@@ -30,7 +35,6 @@ const scrollAsUser = (sessionId: AgentSessionId) =>
         x: 320,
         y: 240,
       });
-      yield* Effect.sleep(25);
     }
   });
 
@@ -43,6 +47,15 @@ it.live.each(["idle", "stop"])(
         prefix: "contingency-scroll-recording-",
       });
       const fixtures = yield* fixtureServer;
+      // The pause runs on the test's clock, so no runner stall between notches
+      // can split the gesture; the test moves the clock to close it.
+      const clock = yield* TestClock.make();
+      const sleeps = yield* registeredSleeps.pipe(
+        Effect.provideService(Clock.Clock, clock)
+      );
+      const scrollClock = yield* sleeps.provide(
+        Clock.clockWith(Effect.succeed)
+      );
 
       const recordingId = yield* Effect.scoped(
         Effect.gen(function* demonstrateScrolling() {
@@ -70,7 +83,15 @@ it.live.each(["idle", "stop"])(
           }
           const page = yield* browser.activePage(browserId);
           // Observe the real screenshot API; the browser and capture still run.
-          const screenshots = vi.spyOn(page, "screenshot");
+          const photographed = yield* Deferred.make<true>();
+          const screenshot = page.screenshot.bind(page);
+          const screenshots = vi
+            .spyOn(page, "screenshot")
+            .mockImplementation(async (...args) => {
+              const image = await screenshot(...args);
+              await Effect.runPromise(Deferred.succeed(photographed, true));
+              return image;
+            });
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => screenshots.mockRestore())
           );
@@ -78,11 +99,16 @@ it.live.each(["idle", "stop"])(
           // no Browser Snapshot of its own, so the gesture's evidence has to come
           // from the capture path itself.
           yield* scrollAsUser(started.id);
-          // A gesture longer than the old 750ms keyframe interval must never
-          // take a PNG in the input path. Capture resumes after a quiet pause.
+          // No photograph enters the input path while the pause clock is held.
           expect(screenshots).not.toHaveBeenCalled();
           if (close === "idle") {
-            yield* Effect.sleep(500);
+            yield* sleeps
+              .waitForSleep(SCROLL_PAUSE_MS)
+              .pipe(Effect.provideService(Clock.Clock, clock));
+            yield* clock.adjust(SCROLL_PAUSE_MS);
+            yield* Deferred.await(photographed).pipe(
+              Effect.timeout("30 seconds")
+            );
             expect(screenshots).toHaveBeenCalledTimes(1);
           }
           yield* service.stopTeachingRecording(
@@ -90,7 +116,7 @@ it.live.each(["idle", "stop"])(
             OperationId.make("scroll-stop-recording")
           );
           return started.recordingId;
-        }).pipe(Effect.provide(agentProcessLayer(root)))
+        }).pipe(Effect.provide(agentProcessLayer(root, { scrollClock })))
       );
 
       yield* Effect.scoped(
