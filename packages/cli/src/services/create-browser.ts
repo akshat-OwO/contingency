@@ -345,7 +345,8 @@ const makeService = (
         capacity: 8,
         replay: 1,
       });
-      const tabSnapshots = yield* PubSub.unbounded<BrowserTabsSnapshot>({
+      const tabSnapshots = yield* PubSub.sliding<BrowserTabsSnapshot>({
+        capacity: 1,
         replay: 1,
       });
       const page = yield* tryBrowser("Could not create browser page", () =>
