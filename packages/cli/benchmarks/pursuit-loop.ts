@@ -7,7 +7,7 @@
  * checked in code from the final Page, never taken from System One.
  *
  *   CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai \
- *   CONTINGENCY_SYSTEM_ONE_API_KEY=… nub packages/cli/tests/benchmarks/pursuit-loop.ts
+ *   CONTINGENCY_SYSTEM_ONE_API_KEY=… nub packages/cli/benchmarks/pursuit-loop.ts
  *
  * Environment:
  *   CONTINGENCY_SYSTEM_ONE_*  the endpoint, as `contingency mcp` reads it
@@ -37,27 +37,27 @@ import {
   Schema,
 } from "effect";
 
-import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
+import { makeDemoSiteLayer } from "../src/services/demo-site-server.ts";
+import { readFlowSkillFrontmatter } from "../src/services/flow-skill-package.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
-} from "../../src/services/mcp-onboarding.ts";
+} from "../src/services/mcp-onboarding.ts";
 import {
   PursuitToolHandlersLive,
   PursuitTools,
-} from "../../src/services/mcp-pursuit.ts";
-import type { SystemOneResponse } from "../../src/services/system-one-request.ts";
+} from "../src/services/mcp-pursuit.ts";
+import type { SystemOneResponse } from "../src/services/system-one-request.ts";
 import {
   makeSystemOneLayer,
   SystemOne,
   systemOneConfig,
-} from "../../src/services/system-one.ts";
+} from "../src/services/system-one.ts";
 import {
   agentProcessLayer,
   makeCall,
   runTool,
-} from "../integration/agent-harness.ts";
+} from "../tests/integration/agent-harness.ts";
 import {
   catalogScenario,
   cuesFor,
@@ -121,7 +121,7 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
       const skill = yield* fs.readFileString(
         path.resolve(
           import.meta.dirname,
-          "../../examples",
+          "../examples",
           scenario.skill.example,
           "SKILL.md"
         )
@@ -353,7 +353,7 @@ const benchmark = (root: string, usage: Usage) =>
     yield* Console.log(`\n${JSON.stringify(summary, null, 2)}`);
     const directory = path.resolve(
       import.meta.dirname,
-      "../../../../.cursor/skills/verify-contingency/artifacts/pursuit-loop"
+      "../../../.cursor/skills/verify-contingency/artifacts/pursuit-loop"
     );
     yield* fs.makeDirectory(directory, { recursive: true });
     const file = path.join(

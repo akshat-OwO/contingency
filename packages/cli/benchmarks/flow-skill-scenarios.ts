@@ -7,8 +7,8 @@ import path from "node:path";
 import type { AgentBrowserSnapshot } from "@contingency/protocol";
 import { Config, Effect } from "effect";
 
-import { flowSkillProcedureSteps } from "../../src/services/flow-skill-package.ts";
-import type { Cue } from "../../src/services/system-one-request.ts";
+import { flowSkillProcedureSteps } from "../src/services/flow-skill-package.ts";
+import type { Cue } from "../src/services/system-one-request.ts";
 
 export interface Scenario {
   readonly inputs: Readonly<Record<string, string>>;
