@@ -37,8 +37,7 @@ export default defineConfig({
     {
       // Tests that waited on real time before `no-test-wait` existed. This
       // list only shrinks: a file leaves it once its waits read events.
-      files: [
-      ],
+      files: [],
       rules: { "contingency/no-test-wait": "off" },
     },
     {

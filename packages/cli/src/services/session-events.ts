@@ -93,16 +93,9 @@ const teachingChanges = (
     if (after === "setup" && before !== "setup") {
       emit("teaching-discarded");
     }
-    const knownActions = new Set(previous.timeline.map((entry) => entry.id));
-    if (
-      snapshot.timeline.some(
-        (entry) =>
-          !knownActions.has(entry.id) &&
-          entry.actor === "user" &&
-          entry.dispatched &&
-          entry.outcome === "completed"
-      )
-    ) {
+    // The recording's own count, so a coalesced gesture such as a scroll or a
+    // typing burst wakes waiters once rather than per input.
+    if (snapshot.teaching.actionCount > previous.teaching.actionCount) {
       emit("teaching-action-recorded");
     }
     const known = new Map(

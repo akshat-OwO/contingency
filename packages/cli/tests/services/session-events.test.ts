@@ -585,22 +585,23 @@ it.effect(
     })
 );
 
-it.effect("signals a completed user Teaching action once", () =>
+it.effect("signals each recorded Teaching action once", () =>
   Effect.gen(function* recordedActionEvent() {
     const log = makeSessionEvents();
     log.observe(teaching, "workspace");
     const initial = yield* log.read(teaching.id);
-    const action = {
+    const notch = (id: string) => ({
       actor: "user",
       at,
-      description: "Fill Search",
+      description: "Scroll down",
       dispatched: true,
-      id: "fill-search",
+      id,
       outcome: "completed",
-    };
+    });
     const recorded = Schema.decodeUnknownSync(AgentSessionSnapshot)({
       ...teaching,
-      timeline: [action],
+      teaching: { ...teaching.teaching, actionCount: 1 },
+      timeline: [notch("notch-1")],
     });
     log.observe(recorded, "workspace");
     log.observe(recorded, "workspace");
@@ -609,13 +610,13 @@ it.effect("signals a completed user Teaching action once", () =>
       "teaching-action-recorded",
     ]);
 
-    const agentAction = { ...action, actor: "agent", id: "agent-action" };
+    // More input coalesced into the same recorded action wakes no one.
     log.observe(
       Schema.decodeUnknownSync(AgentSessionSnapshot)({
-        ...teaching,
-        timeline: [action, agentAction],
+        ...recorded,
+        timeline: [notch("notch-1"), notch("notch-2")],
       }),
-      "agent"
+      "workspace"
     );
     const later = yield* log.read(teaching.id, result.eventCursor);
     expect(later.events).toEqual([]);
