@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 
 import {
   BrowserStreamId,
+  makeBrowserRpcError,
   FrameSequence,
   SessionId,
   UserAgentProfileId,
@@ -228,4 +229,56 @@ it.effect("starts recording only once its screencast is live", () =>
     );
     expect(result.failure).toBeUndefined();
   }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.effect("fails Start when its screencast fails before going live", () =>
+  Effect.gen(function* failBeforeLive() {
+    const files = yield* FileSystem.FileSystem;
+    const directory = yield* files.makeTempDirectoryScoped();
+    const refused = makeBrowserRpcError(
+      "stream_failed",
+      "Could not start the canvas stream"
+    );
+    const target = {
+      context: {
+        tracing: {
+          start: () =>
+            Promise.resolve({
+              [Symbol.asyncDispose]: () => Promise.resolve(),
+              dispose: () => Promise.resolve(),
+            }),
+          stop: () => Promise.resolve(),
+        },
+      },
+      page: {
+        screenshot: () => Promise.reject(new Error("Start never went live.")),
+        url: () => "about:blank",
+      },
+    };
+    const started = yield* Effect.flip(
+      makeTeachingRecorder({
+        browser: {
+          activeTarget: () => Effect.succeed(target),
+          stream: () => Stream.fail(refused),
+        },
+        browserSessionId: SessionId.make("create-refused-capture"),
+        counts: () => ({
+          actions: 0,
+          instructions: 0,
+          keyframes: 0,
+          urlTransitions: 0,
+        }),
+        demonstration: emptyDemonstration,
+        directory,
+        emulation: {
+          permissions: [],
+          userAgentProfile: UserAgentProfileId.make("default"),
+          viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
+        },
+        fileSystem: files,
+        startedAt: new Date().toISOString(),
+      })
+    );
+    expect(started).toBe(refused);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
