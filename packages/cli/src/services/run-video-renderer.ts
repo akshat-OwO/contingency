@@ -125,7 +125,7 @@ export const RunVideoRendererLive = Layer.effect(
      * Directories this process is condensing. An entry lasts until the
      * footage is removed, not only until `run.webm` appears.
      */
-    const inFlight = new Map<string, Deferred.Deferred<void>>();
+    const inFlight = new Map<string, Deferred.Deferred<true>>();
 
     const exists = (file: string) =>
       fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false));
@@ -418,7 +418,7 @@ export const RunVideoRendererLive = Layer.effect(
         }
         // Claimed before forking and released by the fiber's exit, which
         // also fires for a fiber interrupted before it ran or already done.
-        const done = Deferred.makeUnsafe<void>();
+        const done = Deferred.makeUnsafe<true>();
         inFlight.set(key, done);
         return renderDirectory(key).pipe(
           Effect.forkIn(scope),
@@ -426,7 +426,7 @@ export const RunVideoRendererLive = Layer.effect(
             Effect.sync(() => {
               fiber.addObserver(() => {
                 inFlight.delete(key);
-                Deferred.doneUnsafe(done, Effect.void);
+                Deferred.doneUnsafe(done, Effect.succeed(true));
               });
             })
           ),
