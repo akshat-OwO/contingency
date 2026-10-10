@@ -51,24 +51,6 @@ const refuseFootagePromote = Layer.effect(
   })
 ).pipe(Layer.provide(NodeServices.layer));
 
-const awaitRenderAttempt = (directory: string) =>
-  Effect.gen(function* waitForAttempt() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const lock = path.join(directory, LOCK_FILE);
-    // Give the forked render a moment to take the lock so a fast finish is
-    // not mistaken for a render that never started.
-    yield* Effect.sleep("50 millis");
-    for (const _attempt of Array.from({ length: 80 })) {
-      if (!(yield* fileSystem.exists(lock))) {
-        return;
-      }
-      yield* Effect.sleep("25 millis");
-    }
-    return yield* Effect.fail(
-      new Error("The Run video lock was never released.")
-    );
-  });
-
 const seedUnreadableFootage = (directory: string) =>
   Effect.gen(function* writeBrokenFootage() {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -93,7 +75,7 @@ it.live("promotes footage to the Run video when condensing cannot start", () =>
     expect(yield* renderer.status(directory)).toEqual({
       state: "preparing",
     });
-    yield* awaitRenderAttempt(directory);
+    yield* renderer.settled(directory).pipe(Effect.timeout("30 seconds"));
     expect(yield* renderer.status(directory)).toEqual({
       condensed: false,
       reason:
@@ -131,7 +113,7 @@ it.live("keeps footage when promoting it to the Run video fails", () =>
     expect(yield* renderer.status(directory)).toEqual({
       state: "preparing",
     });
-    yield* awaitRenderAttempt(directory);
+    yield* renderer.settled(directory).pipe(Effect.timeout("30 seconds"));
     expect(
       yield* fileSystem.readFileString(path.join(directory, FOOTAGE_VIDEO_FILE))
     ).toBe("real-time footage");
@@ -160,8 +142,8 @@ it.live("keeps footage when promoting it to the Run video fails", () =>
 
 /** Holds the manifest's removal until `gate` opens. */
 const holdManifestRemoval = (
-  gate: Deferred.Deferred<boolean>,
-  entered?: Deferred.Deferred<boolean>
+  gate: Deferred.Deferred<true>,
+  entered: Deferred.Deferred<true>
 ) =>
   Layer.effect(
     FileSystem.FileSystem,
@@ -171,10 +153,7 @@ const holdManifestRemoval = (
         ...inner,
         remove: (file, options) =>
           path.basename(file) === FOOTAGE_MANIFEST_FILE
-            ? (entered === undefined
-                ? Effect.void
-                : Deferred.succeed(entered, true)
-              ).pipe(
+            ? Deferred.succeed(entered, true).pipe(
                 Effect.andThen(Deferred.await(gate)),
                 Effect.andThen(inner.remove(file, options))
               )
@@ -187,8 +166,9 @@ it.live(
   "reports preparing until the footage behind the Run video is removed",
   () =>
     Effect.gen(function* holdCleanup() {
-      const gate = yield* Deferred.make<boolean>();
-      const fileSystemLive = holdManifestRemoval(gate);
+      const gate = yield* Deferred.make<true>();
+      const entered = yield* Deferred.make<true>();
+      const fileSystemLive = holdManifestRemoval(gate, entered);
       yield* Effect.gen(function* awaitCleanup() {
         const fileSystem = yield* FileSystem.FileSystem;
         const directory = yield* fileSystem.makeTempDirectoryScoped({
@@ -199,21 +179,17 @@ it.live(
         expect(yield* renderer.status(directory)).toEqual({
           state: "preparing",
         });
-        const video = path.join(directory, RUN_VIDEO_FILE);
-        while (!(yield* fileSystem.exists(video))) {
-          yield* Effect.sleep("10 millis");
-        }
+        yield* Deferred.await(entered).pipe(Effect.timeout("10 seconds"));
+        expect(
+          yield* fileSystem.exists(path.join(directory, RUN_VIDEO_FILE))
+        ).toBe(true);
         // The video is in place, but its footage is not yet removed.
         expect(yield* renderer.status(directory)).toEqual({
           state: "preparing",
         });
         yield* Deferred.succeed(gate, true);
-        let status = yield* renderer.status(directory);
-        while (status.state === "preparing") {
-          yield* Effect.sleep("10 millis");
-          status = yield* renderer.status(directory);
-        }
-        expect(status).toEqual({
+        yield* renderer.settled(directory).pipe(Effect.timeout("10 seconds"));
+        expect(yield* renderer.status(directory)).toEqual({
           condensed: false,
           reason:
             "The footage manifest could not be read: The footage manifest is not valid JSON.",
@@ -231,13 +207,13 @@ it.live(
           )
         )
       );
-    }).pipe(Effect.timeout("10 seconds"))
+    })
 );
 
 it.live("settles an in-flight render only after footage cleanup", () =>
   Effect.gen(function* awaitInFlightCleanup() {
-    const gate = yield* Deferred.make<boolean>();
-    const entered = yield* Deferred.make<boolean>();
+    const gate = yield* Deferred.make<true>();
+    const entered = yield* Deferred.make<true>();
     yield* Effect.gen(function* settleHeldRender() {
       const fileSystem = yield* FileSystem.FileSystem;
       const directory = yield* fileSystem.makeTempDirectoryScoped({

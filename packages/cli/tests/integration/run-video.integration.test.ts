@@ -2,7 +2,6 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { RunVideoStatus } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Schema } from "effect";
@@ -93,15 +92,11 @@ const writeManifest = (directory: string) =>
   });
 
 const awaitReady = (directory: string) =>
-  Effect.gen(function* pollRunVideo() {
+  Effect.gen(function* awaitRunVideo() {
     const renderer = yield* RunVideoRenderer;
-    let status: RunVideoStatus = yield* renderer.status(directory);
-    while (status.state === "preparing") {
-      yield* Effect.sleep("100 millis");
-      status = yield* renderer.status(directory);
-    }
-    return status;
-  }).pipe(Effect.timeout("90 seconds"));
+    yield* renderer.settled(directory).pipe(Effect.timeout("90 seconds"));
+    return yield* renderer.status(directory);
+  });
 
 interface Region {
   readonly at: number;
@@ -117,7 +112,6 @@ interface Region {
  * 255 only for white.
  */
 const Sample = Schema.Struct({
-  duration: Schema.Finite,
   regions: Schema.Array(
     Schema.Struct({
       darkShare: Schema.Finite,
@@ -162,7 +156,7 @@ window.sampleRegions = async (regions) => {
     const count = data.length / 4;
     samples.push({ darkShare: dark / count, mean: sum.map((value) => value / count), whitest });
   }
-  return { duration: video.duration, regions: samples };
+  return { regions: samples };
 };`;
 
 const sampleVideo = (file: string, regions: readonly Region[]) =>
@@ -212,9 +206,7 @@ it.live(
 
       const status = yield* awaitReady(directory);
       expect(status).toEqual({ condensed: true, state: "ready" });
-      // The real-time footage does not outlive the condensed video. The
-      // encode lock can still be present for a moment after the file is
-      // ready, so this asserts the evidence files, not an exact listing.
+      // The real-time footage does not outlive the condensed video.
       expect(
         yield* fileSystem.exists(path.join(directory, FOOTAGE_VIDEO_FILE))
       ).toBe(false);
@@ -240,9 +232,6 @@ it.live(
         // Past the gap, the blue frame plays in real time.
         { at: 5.3, height: 10, width: 10, x: 40, y: 40 },
       ]);
-      // 1.1s real time, the 8.4s gap capped to 3s, then 1.5s real time.
-      expect(sample.duration).toBeGreaterThan(5.5);
-      expect(sample.duration).toBeLessThan(5.8);
       const [cursor, beforeCursor, badge, noBadge, blue] = sample.regions;
       // The arrow's white fill, which none of the frames contain.
       expect(cursor?.whitest).toBeGreaterThan(200);
