@@ -5,6 +5,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -12,13 +13,15 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Cause, Deferred, Effect } from "effect";
+import { Cause, Deferred, Effect, Exit, Scope } from "effect";
 import { Atom } from "effect/reactivity";
+import { TestClock } from "effect/testing";
 import type { ReactNode } from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
@@ -197,9 +200,22 @@ const rpcOverrides = {
     })),
 };
 
+let refreshClock: TestClock.TestClock;
+let clockScope: Scope.Closeable;
+
+beforeEach(async () => {
+  clockScope = await Effect.runPromise(Scope.make());
+  refreshClock = await Effect.runPromise(
+    TestClock.make().pipe(Effect.provideService(Scope.Scope, clockScope))
+  );
+  await Effect.runPromise(refreshClock.adjust(0));
+});
+
 const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
   <RpcDependenciesProvider overrides={rpcOverrides}>
-    <RegistryProvider>{children}</RegistryProvider>
+    <WorkspaceRefreshClockContext value={refreshClock}>
+      <RegistryProvider>{children}</RegistryProvider>
+    </WorkspaceRefreshClockContext>
   </RpcDependenciesProvider>
 );
 
@@ -402,8 +418,18 @@ const chooseSessionAt = async (
   await user.click(option);
 };
 
-afterEach(() => {
+const refreshWorkspace = async () => {
+  const clock = refreshClock;
+  await act(() =>
+    Effect.runPromise(
+      clock.adjust("2 seconds").pipe(Effect.timeout("30 seconds"))
+    )
+  );
+};
+
+afterEach(async () => {
   cleanup();
+  await Effect.runPromise(Scope.close(clockScope, Exit.void));
   vi.useRealTimers();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
@@ -413,6 +439,7 @@ afterEach(() => {
   rpc.inputCalls = [];
   rpc.instructionCalls = [];
   rpc.renameCalls = [];
+  rpc.setupAnswerCalls = [];
   rpc.startSessionCalls = [];
   rpc.navigateCalls = [];
   rpc.returnControlCalls = [];
@@ -1727,12 +1754,11 @@ test("keeps an Interactive Run on screen with its Run Summary once it ends", asy
 
   // The agent completed the Run: its session leaves the live list.
   rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
 
-  const summary = await screen.findByRole(
-    "complementary",
-    { name: "Run Summary" },
-    { timeout: 5000 }
-  );
+  const summary = await screen.findByRole("complementary", {
+    name: "Run Summary",
+  });
   expect(
     within(summary).getByText("The catalogue listed three products.")
   ).toBeVisible();
@@ -1765,11 +1791,8 @@ test("leaves an ended Run for the next live session", async () => {
   await screen.findByRole("region", { name: "Workspace dock" });
 
   rpc.sessionsResult = resultFor([otherSession]);
-  await screen.findByRole(
-    "complementary",
-    { name: "Run Summary" },
-    { timeout: 5000 }
-  );
+  await refreshWorkspace();
+  await screen.findByRole("complementary", { name: "Run Summary" });
 
   await user.click(screen.getByRole("button", { name: "Done" }));
 
@@ -1794,11 +1817,8 @@ test("stops forwarding wheel input when a user-controlled Run ends", async () =>
   await waitFor(() => expect(rpc.inputCalls).toHaveLength(1));
 
   rpc.sessionsResult = resultFor([]);
-  await screen.findByRole(
-    "complementary",
-    { name: "Run Summary" },
-    { timeout: 5000 }
-  );
+  await refreshWorkspace();
+  await screen.findByRole("complementary", { name: "Run Summary" });
   expect(screen.getByLabelText("Live browser viewport")).toBe(canvas);
   expect(canvas).toHaveAttribute("aria-readonly", "true");
   const event = new WheelEvent("wheel", {
@@ -1813,38 +1833,31 @@ test("stops forwarding wheel input when a user-controlled Run ends", async () =>
 
 test("stops live streams while keeping an ended Run's Summary", async () => {
   const failure = Deferred.makeUnsafe<never, Error>();
-  let sessionStreamStopped = false;
-  let browserStreamStopped = false;
+  const sessionStreamStopped = Deferred.makeUnsafe<true>();
+  const browserStreamStopped = Deferred.makeUnsafe<true>();
   vi.spyOn(rpcOverrides, "runAgentSessionStream").mockImplementation(() =>
     Deferred.await(failure).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          sessionStreamStopped = true;
-        })
-      )
+      Effect.ensuring(Deferred.succeed(sessionStreamStopped, true))
     )
   );
   vi.spyOn(rpcOverrides, "runAgentBrowserStream").mockImplementation(() =>
     Effect.never.pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          browserStreamStopped = true;
-        })
-      )
+      Effect.ensuring(Deferred.succeed(browserStreamStopped, true))
     )
   );
   renderWorkspace(resultFor([taskRunSession]), session.id);
   const canvas = await screen.findByLabelText("Live browser viewport");
   rpc.sessionsResult = resultFor([]);
-  const summary = await screen.findByRole(
-    "complementary",
-    { name: "Run Summary" },
-    { timeout: 5000 }
-  );
-  await waitFor(() => {
-    expect(sessionStreamStopped).toBe(true);
-    expect(browserStreamStopped).toBe(true);
+  await refreshWorkspace();
+  const summary = await screen.findByRole("complementary", {
+    name: "Run Summary",
   });
+  await Effect.runPromise(
+    Effect.all([
+      Deferred.await(sessionStreamStopped),
+      Deferred.await(browserStreamStopped),
+    ]).pipe(Effect.timeout("30 seconds"))
+  );
   await Effect.runPromise(
     Deferred.fail(failure, new Error("The ended session stream failed."))
   );
@@ -1866,12 +1879,9 @@ test("recovers the ended Run Summary when its stream fails before the session po
   expect(await screen.findByText("The session stream failed.")).toBeVisible();
 
   rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
   expect(
-    await screen.findByRole(
-      "complementary",
-      { name: "Run Summary" },
-      { timeout: 5000 }
-    )
+    await screen.findByRole("complementary", { name: "Run Summary" })
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "Done" })).toBeVisible();
   expect(screen.queryByText("Agent Session unavailable")).toBeNull();
@@ -1891,12 +1901,11 @@ test("says an ended Run's Summary was not written rather than missing from the c
   await screen.findByRole("region", { name: "Workspace dock" });
 
   rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
 
-  const summary = await screen.findByRole(
-    "complementary",
-    { name: "Run Summary" },
-    { timeout: 5000 }
-  );
+  const summary = await screen.findByRole("complementary", {
+    name: "Run Summary",
+  });
   expect(
     within(summary).getByText(
       "The Run ended, but its Run Summary was not written in time. Open it later with open_run."

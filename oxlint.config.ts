@@ -38,7 +38,6 @@ export default defineConfig({
       // Tests that waited on real time before `no-test-wait` existed. This
       // list only shrinks: a file leaves it once its waits read events.
       files: [
-        "apps/web/tests/components/agent/agent-boundary-state.test.tsx",
         "packages/cli/tests/helpers/teaching-recording-process.ts",
         "packages/cli/tests/integration/agent-browser.integration.test.ts",
         "packages/cli/tests/integration/agent-harness.ts",
