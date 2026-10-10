@@ -68,6 +68,7 @@ import {
 } from "./create-browser-session.ts";
 import type {
   BrowserFrame,
+  BrowserTabsSnapshot,
   CreateSession,
   CreateSessionState,
 } from "./create-browser-session.ts";
@@ -344,6 +345,9 @@ const makeService = (
         capacity: 8,
         replay: 1,
       });
+      const tabSnapshots = yield* PubSub.unbounded<BrowserTabsSnapshot>({
+        replay: 1,
+      });
       const page = yield* tryBrowser("Could not create browser page", () =>
         context.newPage()
       );
@@ -381,6 +385,7 @@ const makeService = (
         pointers,
         screencastLock: yield* Semaphore.make(1),
         state,
+        tabs: tabSnapshots,
       };
       yield* Ref.update(sessions, (current) =>
         new Map(current).set(decoded, session)
@@ -522,6 +527,7 @@ const makeService = (
       yield* PubSub.shutdown(session.events);
       yield* PubSub.shutdown(session.frames);
       yield* PubSub.shutdown(session.pointers);
+      yield* PubSub.shutdown(session.tabs);
     }
   );
 
@@ -821,9 +827,13 @@ const makeService = (
           const session = yield* requireSession(sessionId);
           yield* startScreencast(session);
           return Stream.merge(
-            Stream.merge(
-              Stream.fromPubSub(session.events),
-              Stream.fromPubSub(session.pointers)
+            Stream.mergeAll(
+              [
+                Stream.fromPubSub(session.events),
+                Stream.fromPubSub(session.pointers),
+                Stream.fromPubSub(session.tabs),
+              ],
+              { concurrency: "unbounded" }
             ),
             Stream.fromPubSub(session.frames)
           ).pipe(

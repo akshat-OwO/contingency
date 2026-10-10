@@ -38,6 +38,11 @@ export type BrowserFrame = Extract<
   { readonly type: "frame" }
 >;
 
+export type BrowserTabsSnapshot = Extract<
+  BrowserStreamEvent,
+  { readonly type: "tabs" }
+>;
+
 export interface ScreencastFramePayload {
   readonly data: string;
   readonly metadata: {
@@ -109,6 +114,13 @@ export interface CreateSession {
    * A viewer only needs the latest point.
    */
   readonly pointers: PubSub.PubSub<BrowserAgentPointer>;
+  /**
+   * Every tab, apart from `events`: a page's console output would otherwise
+   * push the current tabs out of that replay, and a late viewer would never
+   * learn a title set before it subscribed. Each snapshot is whole, so the
+   * latest is all a viewer needs.
+   */
+  readonly tabs: PubSub.PubSub<BrowserTabsSnapshot>;
   readonly inputSession: Ref.Ref<{
     readonly cdp: CDPSession;
     readonly page: Page;
@@ -268,10 +280,10 @@ export const emitStatus = (
 };
 
 export const publishTabs = (session: CreateSession): void => {
-  PubSub.publishUnsafe(session.events, {
+  PubSub.publishUnsafe(session.tabs, {
     tabs: tabs(session),
     timestamp: Date.now(),
-    type: "tabs",
+    type: "tabs" as const,
   });
 };
 
