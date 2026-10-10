@@ -4667,9 +4667,7 @@ const makeAgentSession = (
                       /* There are no listeners when the action has no checks. */
                     },
                     interrupted: () => [],
-                    start: () => {
-                      /* No response watch needs arming. */
-                    },
+                    start: () => Effect.void,
                     wait: () =>
                       Effect.succeed<readonly BrowserCheckResult[]>([]),
                   }
@@ -4688,7 +4686,7 @@ const makeAgentSession = (
               })
             );
             const observation = yield* page.beginObservation(action);
-            watch.start();
+            yield* watch.start();
             const checksFiber = yield* Effect.forkChild(watch.wait());
             if (privateRegistration === undefined) {
               yield* page.perform(action, (pointer) =>

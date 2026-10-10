@@ -43,8 +43,6 @@ export default defineConfig({
         "packages/cli/tests/integration/agent-harness.ts",
         "packages/cli/tests/integration/agent-session-transport.integration.test.ts",
         "packages/cli/tests/integration/agent-session.integration.test.ts",
-        "packages/cli/tests/integration/browser-check-engine.integration.test.ts",
-        "packages/cli/tests/integration/browser-storage-checks.integration.test.ts",
         "packages/cli/tests/integration/browser-streaming.integration.test.ts",
         "packages/cli/tests/integration/create-browser.integration.test.ts",
         "packages/cli/tests/integration/flow-skill-delivery.integration.test.ts",

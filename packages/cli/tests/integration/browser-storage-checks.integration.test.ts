@@ -5,10 +5,12 @@ import type { BrowserCheck, BrowserPredicate } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Fiber, Predicate } from "effect";
+import { TestClock } from "effect/testing";
 
 import { armBrowserChecks } from "../../src/services/browser-check-engine.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { registeredSleeps } from "../helpers/registered-sleeps.ts";
 
 const order = JSON.stringify({
   order: {
@@ -56,11 +58,11 @@ const storagePage = Effect.gen(function* openStoragePage() {
   return { origin, target };
 });
 
-it.live(
+it.effect(
   "evaluates raw and JSON local/session storage with raw change baselines",
   () =>
     Effect.gen(function* storageChecks() {
-      const { origin, target } = yield* storagePage;
+      const { origin, target } = yield* TestClock.withLive(storagePage);
       const write = (kind: "local" | "session", value?: string) =>
         Effect.tryPromise(() =>
           target.page.evaluate(
@@ -77,7 +79,8 @@ it.live(
         );
       const evaluate = (
         check: BrowserCheck,
-        change?: Effect.Effect<unknown, unknown>
+        change?: Effect.Effect<unknown, unknown>,
+        expire = false
       ) =>
         Effect.gen(function* evaluateCheck() {
           const armed = yield* armBrowserChecks(
@@ -85,15 +88,25 @@ it.live(
             [{ check, flowSkillName: "storage" }],
             check.id
           );
-          armed.start();
+          yield* armed.start();
+          const sleeps = yield* registeredSleeps;
           const fiber = yield* Effect.forkChild(
-            armed.wait().pipe(Effect.ensuring(Effect.sync(armed.dispose)))
+            armed
+              .wait()
+              .pipe(Effect.ensuring(Effect.sync(armed.dispose)), sleeps.provide)
           );
           if (change !== undefined) {
-            yield* Effect.sleep(30);
+            yield* sleeps.waitForSleep(50);
             yield* change;
+            yield* TestClock.adjust(50);
           }
-          const [result] = yield* Fiber.join(fiber);
+          if (expire) {
+            yield* sleeps.waitForSleep(50);
+            yield* TestClock.adjust(check.timeoutMs + 1);
+          }
+          const [result] = yield* TestClock.withLive(
+            Fiber.join(fiber).pipe(Effect.timeout("30 seconds"))
+          );
           expect(JSON.stringify(result)).not.toContain("private-order");
           return result?.status;
         });
@@ -159,7 +172,9 @@ it.live(
                 { expected: "b", operator: "equals", path: ["sku"] },
                 { expected: 2, operator: "equals", path: ["qty"] },
               ],
-            })
+            }),
+            undefined,
+            true
           )
         ).toBe("failed");
         const rawOrder = {
@@ -203,14 +218,14 @@ it.live(
             check("json-empty", {
               format: "json",
               predicates: [{ operator: "exists", path: [] }],
-            })
+            }),
+            undefined,
+            true
           )
         ).toBe("inconclusive");
         yield* write(kind, '{"private-order":');
-        expect(yield* evaluate(nested)).toBe("inconclusive");
-        expect(
-          yield* evaluate(nested, write(kind, order).pipe(Effect.delay(30)))
-        ).toBe("passed");
+        expect(yield* evaluate(nested, undefined, true)).toBe("inconclusive");
+        expect(yield* evaluate(nested, write(kind, order))).toBe("passed");
         yield* write(
           kind,
           JSON.stringify({
@@ -228,7 +243,9 @@ it.live(
                   path: ["order", "status"],
                 },
               ],
-            })
+            }),
+            undefined,
+            true
           )
         ).toBe("inconclusive");
         yield* write(kind);
@@ -237,7 +254,9 @@ it.live(
             check("absent", {
               format: "json",
               predicates: [{ operator: "exists", path: [] }],
-            })
+            }),
+            undefined,
+            true
           )
         ).toBe("failed");
         expect(
@@ -267,7 +286,9 @@ it.live(
             },
           ],
         });
-        expect(yield* evaluate(changed, write(kind, order))).toBe("failed");
+        expect(yield* evaluate(changed, write(kind, order), true)).toBe(
+          "failed"
+        );
         expect(
           yield* evaluate(
             changed,
@@ -283,25 +304,26 @@ it.live(
     )
 );
 
-it.live("fails a storage check whose last read the deadline cut short", () =>
+it.effect("fails a storage check whose last read the deadline cut short", () =>
   Effect.gen(function* deadlineCutRead() {
-    const { origin, target } = yield* storagePage;
+    const { origin, target } = yield* TestClock.withLive(storagePage);
     // The baseline and the first watched read answer; every read after them
-    // stalls the Page past the check's deadline, as a busy CI renderer does.
+    // stays pending past the check's deadline, as a busy CI renderer does.
     yield* Effect.tryPromise(() =>
       target.page.evaluate(() => {
         const read = Storage.prototype.getItem;
         let reads = 0;
-        Storage.prototype.getItem = function getItem(name) {
-          reads += 1;
-          if (reads > 2) {
-            const until = performance.now() + 3000;
-            while (performance.now() < until) {
-              // Hold the renderer the way a starved CI runner does.
+        Object.defineProperty(Storage.prototype, "getItem", {
+          value(name: string) {
+            reads += 1;
+            if (reads > 2) {
+              console.debug("storage-read-stalled");
+              // Leave the Page read pending until the watch cuts it short.
+              return Promise.withResolvers<never>().promise;
             }
-          }
-          return read.call(this, name);
-        };
+            return read.call(this, name);
+          },
+        });
       })
     );
     const armed = yield* armBrowserChecks(
@@ -328,10 +350,26 @@ it.live("fails a storage check whose last read the deadline cut short", () =>
       ],
       "deadline-cut"
     );
-    armed.start();
-    const [result] = yield* armed
-      .wait()
-      .pipe(Effect.ensuring(Effect.sync(armed.dispose)));
+    yield* armed.start();
+    const stalled = target.page.waitForEvent("console", {
+      predicate: (message) => message.text() === "storage-read-stalled",
+    });
+    const sleeps = yield* registeredSleeps;
+    const fiber = yield* Effect.forkChild(
+      armed
+        .wait()
+        .pipe(Effect.ensuring(Effect.sync(armed.dispose)), sleeps.provide)
+    );
+    yield* sleeps.waitForSleep(50);
+    yield* TestClock.adjust(50);
+    yield* TestClock.withLive(
+      Effect.tryPromise(() => stalled).pipe(Effect.timeout("30 seconds"))
+    );
+    yield* sleeps.waitForSleep(950);
+    yield* TestClock.adjust(1001);
+    const [result] = yield* TestClock.withLive(
+      Fiber.join(fiber).pipe(Effect.timeout("30 seconds"))
+    );
     expect(result?.status).toBe("failed");
   }).pipe(
     Effect.scoped,

@@ -7,7 +7,7 @@ import type {
   BrowserCheckReference,
   BrowserCheckResult,
 } from "@contingency/protocol";
-import { Cause, Effect, Result, Schema } from "effect";
+import { Cause, Clock, Effect, Result, Schema } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import type { Request, Response } from "playwright-core";
 
@@ -104,27 +104,36 @@ const pollStorage = (
   before: string | undefined,
   deadline: number
 ): Effect.Effect<StoragePoll> =>
-  storageValue(target, check).pipe(
-    Effect.timeout(Math.max(1, Math.min(1000, deadline - Date.now()))),
-    Effect.match({
-      onFailure: (cause) =>
-        Cause.isTimeoutError(cause) && Date.now() >= deadline
-          ? "cut-short"
-          : "unreadable",
-      onSuccess: (current) => {
-        if (!storageChangeMatches(check, before, current)) {
-          return "unmatched";
-        }
-        const observed = storageObservation(check, current);
-        if (Result.isFailure(observed)) {
-          return "undecodable";
-        }
-        return matchesBrowserExpectation(observed.success, check.expectation)
-          ? "passed"
-          : "unmatched";
-      },
-    })
-  );
+  Effect.gen(function* readStorage() {
+    const now = yield* Clock.currentTimeMillis;
+    return yield* storageValue(target, check).pipe(
+      Effect.timeout(Math.max(1, Math.min(1000, deadline - now))),
+      Effect.matchEffect({
+        onFailure: (cause) =>
+          Clock.currentTimeMillis.pipe(
+            Effect.map((at): StoragePoll =>
+              Cause.isTimeoutError(cause) && at >= deadline
+                ? "cut-short"
+                : "unreadable"
+            )
+          ),
+        onSuccess: (current) => {
+          if (!storageChangeMatches(check, before, current)) {
+            return Effect.succeed<StoragePoll>("unmatched");
+          }
+          const observed = storageObservation(check, current);
+          if (Result.isFailure(observed)) {
+            return Effect.succeed<StoragePoll>("undecodable");
+          }
+          return Effect.succeed<StoragePoll>(
+            matchesBrowserExpectation(observed.success, check.expectation)
+              ? "passed"
+              : "unmatched"
+          );
+        },
+      })
+    );
+  });
 
 /** The listeners belong to one dispatch. Request identity excludes already-in-flight evidence. */
 export const armBrowserChecks = (
@@ -138,9 +147,10 @@ export const armBrowserChecks = (
     const responses = Atom.make<readonly Response[]>([]).pipe(Atom.keepAlive);
     let overflow = false;
     let dispatchedAt: number | undefined;
-    const start = () => {
-      dispatchedAt ??= Date.now();
-    };
+    const start = () =>
+      Effect.gen(function* startChecks() {
+        dispatchedAt ??= yield* Clock.currentTimeMillis;
+      });
     const onRequest = (request: Request) => {
       if (dispatchedAt === undefined) {
         return;
@@ -208,11 +218,13 @@ export const armBrowserChecks = (
             if (before === undefined || Result.isFailure(before)) {
               return result(reference, "inconclusive");
             }
-            const deadline = (dispatchedAt ?? Date.now()) + check.timeoutMs;
+            const deadline =
+              (dispatchedAt ?? (yield* Clock.currentTimeMillis)) +
+              check.timeoutMs;
             let cursor = 0;
             let unreadable = false;
             const polls = new Set<StoragePoll>();
-            while (Date.now() < deadline) {
+            while ((yield* Clock.currentTimeMillis) < deadline) {
               if (overflow) {
                 return result(reference, "inconclusive");
               }
@@ -248,7 +260,13 @@ export const armBrowserChecks = (
                       );
                     }).pipe(
                       Effect.timeout(
-                        Math.max(1, Math.min(1000, deadline - Date.now()))
+                        Math.max(
+                          1,
+                          Math.min(
+                            1000,
+                            deadline - (yield* Clock.currentTimeMillis)
+                          )
+                        )
                       )
                     )
                   );
@@ -277,9 +295,10 @@ export const armBrowserChecks = (
                 }
                 polls.add(poll);
               }
-              yield* Effect.sleep(
-                Math.max(1, Math.min(50, deadline - Date.now()))
-              );
+              const remaining = deadline - (yield* Clock.currentTimeMillis);
+              if (remaining > 0) {
+                yield* Effect.sleep(Math.min(50, remaining));
+              }
             }
             return result(
               reference,
