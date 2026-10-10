@@ -1,7 +1,15 @@
 import path from "node:path";
 
 import type { RunVideoStatus } from "@contingency/protocol";
-import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect";
+import {
+  Context,
+  Deferred,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
 import type { Page } from "playwright-core";
 
 import { parseByteRange } from "./byte-range.ts";
@@ -52,6 +60,12 @@ export interface RunVideoRendererService {
    * that exited mid-encode is picked up again here.
    */
   readonly status: (directory: string) => Effect.Effect<RunVideoStatus>;
+  /**
+   * Wait for this process's render attempt, including footage cleanup. Starts
+   * recovery like `status` when a finished Run's manifest remains on disk.
+   * Read `status` afterwards to learn whether the video is available.
+   */
+  readonly settled: (directory: string) => Effect.Effect<void>;
 }
 
 export const RunVideoRenderer = Context.Service<RunVideoRendererService>(
@@ -111,7 +125,7 @@ export const RunVideoRendererLive = Layer.effect(
      * Directories this process is condensing. An entry lasts until the
      * footage is removed, not only until `run.webm` appears.
      */
-    const inFlight = new Set<string>();
+    const inFlight = new Map<string, Deferred.Deferred<true>>();
 
     const exists = (file: string) =>
       fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false));
@@ -404,13 +418,15 @@ export const RunVideoRendererLive = Layer.effect(
         }
         // Claimed before forking and released by the fiber's exit, which
         // also fires for a fiber interrupted before it ran or already done.
-        inFlight.add(key);
+        const done = Deferred.makeUnsafe<true>();
+        inFlight.set(key, done);
         return renderDirectory(key).pipe(
           Effect.forkIn(scope),
           Effect.tap((fiber) =>
             Effect.sync(() => {
               fiber.addObserver(() => {
                 inFlight.delete(key);
+                Deferred.doneUnsafe(done, Effect.succeed(true));
               });
             })
           ),
@@ -450,6 +466,24 @@ export const RunVideoRendererLive = Layer.effect(
         return { state: "unavailable" } satisfies RunVideoStatus;
       });
 
-    return RunVideoRenderer.of({ render, status });
+    const settled = (directory: string) =>
+      Effect.gen(function* awaitRunVideo() {
+        const key = path.resolve(directory);
+        // Join an existing attempt before recovery can start another one.
+        const current = inFlight.get(key);
+        if (current !== undefined) {
+          yield* Deferred.await(current);
+          return;
+        }
+        if (yield* exists(path.join(key, FOOTAGE_MANIFEST_FILE))) {
+          yield* render(key);
+        }
+        const started = inFlight.get(key);
+        if (started !== undefined) {
+          yield* Deferred.await(started);
+        }
+      });
+
+    return RunVideoRenderer.of({ render, settled, status });
   })
 );
