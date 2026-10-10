@@ -39,6 +39,7 @@
         button.type = "button";
         button.textContent = "Flappy";
         wrap.appendChild(button);
+        fetch("/unstable-replaced-beacon").catch(() => {});
       }, 30);
     </script>
   </body>

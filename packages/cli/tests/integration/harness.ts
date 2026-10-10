@@ -121,6 +121,9 @@ export const DOCUMENT_SCROLL_BEACON = "/document-scroll-beacon";
 /** What the Takeover fixture requests for every input the user sends it. */
 export const USER_INPUT_BEACON = "/user-input-beacon";
 
+/** What the unstable fixture requests each time it replaces its button. */
+export const UNSTABLE_REPLACED_BEACON = "/unstable-replaced-beacon";
+
 /** What the shop fixture requests once its cart is viewed. */
 export const CART_VIEWED_BEACON = "/cart-viewed";
 
