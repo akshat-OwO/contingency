@@ -6,7 +6,10 @@ import { Clock, Deferred, Effect, FileSystem } from "effect";
 import { TestClock } from "effect/testing";
 import { vi } from "vitest";
 
-import { AgentSession } from "../../src/services/agent-session.ts";
+import {
+  AgentSession,
+  SCROLL_PAUSE_MS,
+} from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { registeredSleeps } from "../helpers/registered-sleeps.ts";
 import {
@@ -44,9 +47,8 @@ it.live.each(["idle", "stop"])(
         prefix: "contingency-scroll-recording-",
       });
       const fixtures = yield* fixtureServer;
-      // The pause is longer than any stall the runner can add between notches,
-      // and the test's clock moves it on, so the gesture cannot split.
-      const scrollPauseMs = 60_000;
+      // The pause runs on the test's clock, so no runner stall between notches
+      // can split the gesture; the test moves the clock to close it.
       const clock = yield* TestClock.make();
       const sleeps = yield* registeredSleeps.pipe(
         Effect.provideService(Clock.Clock, clock)
@@ -101,9 +103,9 @@ it.live.each(["idle", "stop"])(
           expect(screenshots).not.toHaveBeenCalled();
           if (close === "idle") {
             yield* sleeps
-              .waitForSleep(scrollPauseMs)
+              .waitForSleep(SCROLL_PAUSE_MS)
               .pipe(Effect.provideService(Clock.Clock, clock));
-            yield* clock.adjust(scrollPauseMs);
+            yield* clock.adjust(SCROLL_PAUSE_MS);
             yield* Deferred.await(photographed).pipe(
               Effect.timeout("30 seconds")
             );
@@ -114,11 +116,7 @@ it.live.each(["idle", "stop"])(
             OperationId.make("scroll-stop-recording")
           );
           return started.recordingId;
-        }).pipe(
-          Effect.provide(
-            agentProcessLayer(root, { scrollClock, scrollPauseMs })
-          )
-        )
+        }).pipe(Effect.provide(agentProcessLayer(root, { scrollClock })))
       );
 
       yield* Effect.scoped(

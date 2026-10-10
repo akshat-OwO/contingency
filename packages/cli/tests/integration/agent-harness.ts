@@ -18,7 +18,7 @@ import type {
   AgentSnapshotNode,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
-import type { Clock, Duration } from "effect";
+import type { Clock } from "effect";
 import { Effect, Layer, Option, Predicate, Schema, Stream } from "effect";
 import type { Tool, Toolkit } from "effect/ai";
 
@@ -231,8 +231,7 @@ export const awaitSession = <E, R>(
     params: AgentSessionGet
   ) => Effect.Effect<AgentSessionGetResult, E, R>,
   sessionId: AgentSessionId,
-  until: (session: AgentSessionSnapshot) => boolean,
-  timeout: Duration.Input = "30 seconds"
+  until: (session: AgentSessionSnapshot) => boolean
 ) =>
   Effect.gen(function* awaitSessionState() {
     let { session } = yield* client("agent.session.get", { sessionId });
@@ -247,7 +246,7 @@ export const awaitSession = <E, R>(
       }));
     }
     return session;
-  }).pipe(Effect.timeout(timeout));
+  }).pipe(Effect.timeout("30 seconds"));
 
 /**
  * Open Teaching the way an agent does, then hand the browser straight to the
@@ -398,7 +397,7 @@ export const agentProcessLayer = (
   options: {
     readonly agentBrowserFactory?: AgentBrowserFactory;
     readonly followCatalogSelection?: boolean;
-    readonly scrollPauseMs?: number;
+    /** Paces scroll pauses, for tests that close a gesture on demand. */
     readonly scrollClock?: Clock.Clock;
     /** The Agent Session registry's clock, for tests that move time. */
     readonly now?: () => Date;
@@ -407,28 +406,15 @@ export const agentProcessLayer = (
   } = {}
 ) => {
   let selectedCatalogRoot = initialCatalogRoot;
+  const { followCatalogSelection, now, ...sessionSeams } = options;
   const sessionOptions = {
+    ...sessionSeams,
     allowedActivity: "any" as const,
     baseUrl: "http://127.0.0.1:7777",
-    now: options.now ?? (() => new Date()),
+    now: now ?? (() => new Date()),
     traceDirectory: () =>
       path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),
   };
-  const browserOptions =
-    options.agentBrowserFactory === undefined
-      ? sessionOptions
-      : {
-          ...sessionOptions,
-          agentBrowserFactory: options.agentBrowserFactory,
-        };
-  const scrollOptions =
-    options.scrollClock === undefined
-      ? browserOptions
-      : { ...browserOptions, scrollClock: options.scrollClock };
-  const seamOptions =
-    options.scrollPauseMs === undefined
-      ? scrollOptions
-      : { ...scrollOptions, scrollPauseMs: options.scrollPauseMs };
   const catalogOptions = { root: initialCatalogRoot };
   const recordingStore = makeTeachingRecordingStoreLayer({
     root: () => selectedCatalogRoot,
@@ -445,20 +431,13 @@ export const agentProcessLayer = (
   ).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
-        makeAgentSessionLayer(
-          options.resourceDirectory === undefined
-            ? seamOptions
-            : {
-                ...seamOptions,
-                resourceDirectory: options.resourceDirectory,
-              }
-        ).pipe(
+        makeAgentSessionLayer(sessionOptions).pipe(
           Layer.provide(
             Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
           )
         ),
         makeFlowSkillCatalogLayer(
-          options.followCatalogSelection === true
+          followCatalogSelection === true
             ? {
                 ...catalogOptions,
                 onSelect: (root: string) => {

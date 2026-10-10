@@ -188,15 +188,11 @@ it.live(
         const client = yield* RpcTest.makeClient(ContingencyRpcs, {
           flatten: true,
         });
-        const session = yield* awaitSession(
-          client,
-          sessionId,
-          (current) =>
-            current.timeline.some(
-              (entry) =>
-                entry.description === 'Fill textbox "Search" with "tablets"'
-            ),
-          "10 seconds"
+        const session = yield* awaitSession(client, sessionId, (current) =>
+          current.timeline.some(
+            (entry) =>
+              entry.description === 'Fill textbox "Search" with "tablets"'
+          )
         );
         expect(session.timeline.map((entry) => entry.description)).toContain(
           'Fill textbox "Search" with "tablets"'
