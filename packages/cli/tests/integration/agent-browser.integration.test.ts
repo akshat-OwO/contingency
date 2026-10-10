@@ -1181,7 +1181,7 @@ it.live("shows a navigation that starts after the bound on the next read", () =>
     const arrived = yield* fixtures.awaitRequest(
       (url) => url === "/settle.html?arrived"
     );
-    yield* Deferred.succeed(gate.release, null);
+    yield* Deferred.succeed(gate.release, true);
     yield* Deferred.await(arrived).pipe(Effect.timeout("30 seconds"));
     const reread = yield* callTool("agent_browser_snapshot", {
       sessionId: session.id,

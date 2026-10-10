@@ -459,7 +459,7 @@ it.live(
           const arrived = yield* fixtures.awaitRequest(
             (url) => url === "/settle.html?arrived"
           );
-          yield* Deferred.succeed(gate.release, null);
+          yield* Deferred.succeed(gate.release, true);
           yield* Deferred.await(arrived).pipe(Effect.timeout("30 seconds"));
           const afterNavigation = yield* sessionTool("agent_browser_snapshot", {
             sessionId: failedRun.session.id,

@@ -213,14 +213,13 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
   const holdRequest = (pathname: string) =>
     Effect.gen(function* holdResponse() {
       const received = yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          if (gates.has(pathname)) {
-            throw new Error(`Fixture response already held: ${pathname}`);
-          }
-          const deferred = Deferred.makeUnsafe<ServerResponse>();
-          gates.set(pathname, deferred);
-          return deferred;
-        }),
+        gates.has(pathname)
+          ? Effect.die(`Fixture response already held: ${pathname}`)
+          : Effect.sync(() => {
+              const deferred = Deferred.makeUnsafe<ServerResponse>();
+              gates.set(pathname, deferred);
+              return deferred;
+            }),
         (deferred) =>
           Effect.sync(() => {
             if (gates.get(pathname) === deferred) {
@@ -228,12 +227,12 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
             }
           })
       );
-      const arrived = yield* Deferred.make<null>();
-      const release = yield* Deferred.make<null>();
+      const arrived = yield* Deferred.make<true>();
+      const release = yield* Deferred.make<true>();
       yield* Effect.gen(function* answerHeldResponse() {
         const response = yield* Deferred.await(received);
         yield* Effect.gen(function* releaseResponse() {
-          yield* Deferred.succeed(arrived, null);
+          yield* Deferred.succeed(arrived, true);
           yield* Deferred.await(release);
           yield* Effect.sync(() => {
             response

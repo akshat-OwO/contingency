@@ -125,7 +125,7 @@ it.live(
 
         yield* Deferred.await(gate.arrived).pipe(Effect.timeout("30 seconds"));
         expect(yield* Deferred.isDone(answered)).toBe(false);
-        yield* Deferred.succeed(gate.release, null);
+        yield* Deferred.succeed(gate.release, true);
         expect(
           yield* Deferred.await(answered).pipe(Effect.timeout("30 seconds"))
         ).toBe(200);
