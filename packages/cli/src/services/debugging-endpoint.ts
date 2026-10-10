@@ -4,7 +4,8 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { setTimeout as delay } from "node:timers/promises";
+
+import { Clock, Effect } from "effect";
 
 /** How long Chromium may take to publish its debugging endpoint. */
 const DEBUGGING_ENDPOINT_TIMEOUT_MS = 10_000;
@@ -61,37 +62,42 @@ const parseDebuggingEndpoint = (contents: string): ParsedEndpoint => {
     : { kind: progress };
 };
 
-const pollDebuggingEndpoint = async (
-  file: string,
-  deadline: number
-): Promise<string> => {
-  // Until Chromium writes it, the file is missing; any read failure is
-  // retried, and the deadline reports one that never clears.
-  const contents = await readFile(file, "utf-8").catch(() => "");
-  const parsed = parseDebuggingEndpoint(contents);
-  if (parsed.kind === "complete") {
-    return parsed.endpoint;
-  }
-  if (parsed.kind === "invalid") {
-    throw new Error("Chromium published an invalid debugging endpoint.");
-  }
-  if (Date.now() >= deadline) {
-    throw new Error(
-      contents === ""
-        ? "Chromium did not publish its debugging endpoint."
-        : "Chromium published an incomplete debugging endpoint."
-    );
-  }
-  await delay(DEBUGGING_ENDPOINT_POLL_MS);
-  return pollDebuggingEndpoint(file, deadline);
-};
-
 /**
  * Read `DevToolsActivePort` until it holds a complete endpoint. Chromium can
  * write it after Playwright's launch resolves on a loaded machine, so a
  * missing or partly written file is read again until the timeout passes.
+ * The pause can be supplied by callers that control Chromium's publication.
  */
 export const readDebuggingEndpoint = (
   file: string,
-  timeoutMs: number = DEBUGGING_ENDPOINT_TIMEOUT_MS
-): Promise<string> => pollDebuggingEndpoint(file, Date.now() + timeoutMs);
+  timeoutMs: number = DEBUGGING_ENDPOINT_TIMEOUT_MS,
+  pause: (milliseconds: number) => Effect.Effect<void> = Effect.sleep
+): Effect.Effect<string, Error> =>
+  Effect.gen(function* readEndpoint() {
+    const deadline = (yield* Clock.currentTimeMillis) + timeoutMs;
+    while (true) {
+      // Until Chromium writes it, read failures are retried until the deadline.
+      const contents = yield* Effect.promise(() =>
+        readFile(file, "utf-8").catch(() => "")
+      );
+      const parsed = parseDebuggingEndpoint(contents);
+      if (parsed.kind === "complete") {
+        return parsed.endpoint;
+      }
+      if (parsed.kind === "invalid") {
+        return yield* Effect.fail(
+          new Error("Chromium published an invalid debugging endpoint.")
+        );
+      }
+      if ((yield* Clock.currentTimeMillis) >= deadline) {
+        return yield* Effect.fail(
+          new Error(
+            contents === ""
+              ? "Chromium did not publish its debugging endpoint."
+              : "Chromium published an incomplete debugging endpoint."
+          )
+        );
+      }
+      yield* pause(DEBUGGING_ENDPOINT_POLL_MS);
+    }
+  });

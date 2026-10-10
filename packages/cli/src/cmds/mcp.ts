@@ -96,7 +96,7 @@ export const isListenAddressInUse = (error: McpHttpFailure): boolean => {
  * a headless process whose stdin is closed.
  */
 const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
-  !agentOwned || process.stdin.isTTY
+  process.stdin.isTTY
     ? Effect.never
     : Effect.callback((resume) => {
         if (process.stdin.readableEnded || process.stdin.destroyed) {
@@ -112,7 +112,15 @@ const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
           process.stdin.off("end", leave);
           process.stdin.off("close", leave);
         });
-      });
+      }).pipe(
+        Effect.andThen(
+          agentOwned
+            ? Effect.void
+            : Console.error("Contingency MCP headless stdin closed.").pipe(
+                Effect.andThen(Effect.never)
+              )
+        )
+      );
 
 /**
  * Start one local MCP process. Its Agent Session layer is passed to both the

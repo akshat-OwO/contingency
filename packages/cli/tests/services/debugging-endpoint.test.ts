@@ -1,9 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { TestClock } from "effect/testing";
+import { afterEach, beforeEach, describe } from "vitest";
 
 import { readDebuggingEndpoint } from "../../src/services/debugging-endpoint.ts";
 
@@ -22,62 +24,94 @@ describe("readDebuggingEndpoint", () => {
     await rm(directory, { force: true, recursive: true });
   });
 
-  it("reads a published endpoint", async () => {
-    await writeFile(file, `9222\n${ROUTE}`);
-    await expect(readDebuggingEndpoint(file)).resolves.toBe(
-      `ws://127.0.0.1:9222${ROUTE}`
-    );
-  });
+  it.effect("reads a published endpoint", () =>
+    Effect.gen(function* publishedEndpoint() {
+      yield* Effect.promise(() => writeFile(file, `9222\n${ROUTE}`));
+      const endpoint = yield* readDebuggingEndpoint(file);
+      expect(endpoint).toBe(`ws://127.0.0.1:9222${ROUTE}`);
+    })
+  );
 
-  it("waits for a file Chromium writes after launch", async () => {
-    const endpoint = readDebuggingEndpoint(file);
-    await delay(100);
-    await writeFile(file, `9222\n${ROUTE}\n`);
-    await expect(endpoint).resolves.toBe(`ws://127.0.0.1:9222${ROUTE}`);
-  });
+  it.effect.each([
+    { contents: undefined, description: "a file Chromium writes after launch" },
+    {
+      contents: "9222\n/devtools/",
+      description: "a partly written file to complete",
+    },
+    {
+      contents: `9222\n${ROUTE.slice(0, -8)}`,
+      description: "a browser id cut off mid-write",
+    },
+  ])("waits for $description", ({ contents }) =>
+    Effect.gen(function* completeEndpoint() {
+      if (contents !== undefined) {
+        yield* Effect.promise(() => writeFile(file, contents));
+      }
+      let polls = 0;
+      const endpoint = yield* readDebuggingEndpoint(file, undefined, () =>
+        Effect.gen(function* publishEndpoint() {
+          polls += 1;
+          yield* TestClock.adjust(25);
+          yield* Effect.promise(() => writeFile(file, `9222\n${ROUTE}`));
+        })
+      );
+      expect(endpoint).toBe(`ws://127.0.0.1:9222${ROUTE}`);
+      expect(polls).toBe(1);
+    })
+  );
 
-  it("waits for a partly written file to complete", async () => {
-    await writeFile(file, "9222\n/devtools/");
-    const endpoint = readDebuggingEndpoint(file);
-    await delay(100);
-    await writeFile(file, `9222\n${ROUTE}`);
-    await expect(endpoint).resolves.toBe(`ws://127.0.0.1:9222${ROUTE}`);
-  });
+  it.effect.each([
+    {
+      contents: "9222\n/devtools/browser/not-a-uuid",
+      description: "a browser id that is not a UUID",
+    },
+    {
+      contents: "not-a-port\n/elsewhere",
+      description: "contents that can never be an endpoint",
+    },
+  ])("fails without polling on $description", ({ contents }) =>
+    Effect.gen(function* invalidEndpoint() {
+      yield* Effect.promise(() => writeFile(file, contents));
+      let polls = 0;
+      const result = yield* Effect.result(
+        readDebuggingEndpoint(file, undefined, () =>
+          Effect.sync(() => {
+            polls += 1;
+          })
+        )
+      );
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: new Error("Chromium published an invalid debugging endpoint."),
+      });
+      expect(polls).toBe(0);
+    })
+  );
 
-  it("waits for a browser id cut off mid-write", async () => {
-    await writeFile(file, `9222\n${ROUTE.slice(0, -8)}`);
-    const endpoint = readDebuggingEndpoint(file);
-    await delay(100);
-    await writeFile(file, `9222\n${ROUTE}`);
-    await expect(endpoint).resolves.toBe(`ws://127.0.0.1:9222${ROUTE}`);
-  });
+  it.effect("reports a file that never appears", () =>
+    Effect.gen(function* endpointDeadline() {
+      const result = yield* Effect.result(
+        readDebuggingEndpoint(file, 100, TestClock.adjust)
+      );
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: new Error("Chromium did not publish its debugging endpoint."),
+      });
+    })
+  );
 
-  it("fails at once on a browser id that is not a UUID", async () => {
-    await writeFile(file, "9222\n/devtools/browser/not-a-uuid");
-    await expect(readDebuggingEndpoint(file)).rejects.toThrow(
-      "Chromium published an invalid debugging endpoint."
-    );
-  });
-
-  it("fails at once on contents that can never be an endpoint", async () => {
-    await writeFile(file, "not-a-port\n/elsewhere");
-    const started = Date.now();
-    await expect(readDebuggingEndpoint(file)).rejects.toThrow(
-      "Chromium published an invalid debugging endpoint."
-    );
-    expect(Date.now() - started).toBeLessThan(1000);
-  });
-
-  it("reports a file that never appears", async () => {
-    await expect(readDebuggingEndpoint(file, 100)).rejects.toThrow(
-      "Chromium did not publish its debugging endpoint."
-    );
-  });
-
-  it("reports a file that never completes", async () => {
-    await writeFile(file, "9222\n");
-    await expect(readDebuggingEndpoint(file, 100)).rejects.toThrow(
-      "Chromium published an incomplete debugging endpoint."
-    );
-  });
+  it.effect("reports a file that never completes", () =>
+    Effect.gen(function* endpointDeadline() {
+      yield* Effect.promise(() => writeFile(file, "9222\n"));
+      const result = yield* Effect.result(
+        readDebuggingEndpoint(file, 100, TestClock.adjust)
+      );
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: new Error(
+          "Chromium published an incomplete debugging endpoint."
+        ),
+      });
+    })
+  );
 });
