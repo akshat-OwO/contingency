@@ -8,6 +8,12 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 ## Language
 
+**Platform Runtime**: The platform-specific environment an Agent Session uses for Teaching and Runs. The current runtime is a browser; Android is planned under accepted [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: Agent Harness, Flow Skill, device profile
+
+**Target App**: The Android app the user authorizes a session to operate, with necessary system dialogs included in its execution boundary. Leaving that boundary requires authorization, while the Target App remains authorized when the journey returns. Android support is planned under [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: foreground app, every installed app, implicit cross-app authorization
+
+**Run Environment Permission**: The user's permission for one Android Run to use an Android version, app build, or app identity that differs from its taught environment. It preserves the taught environment and verification history and does not waive starting-state or capability requirements. _Avoid_: re-verification, permanent environment exception, Confirmation
+
 **Suite**: A named, ordered manifest of Flow Skills that defines the required sanity coverage for one business area. The first version runs members sequentially; after a member fails, the agent pauses and asks the user whether to retry it, continue, or stop. An agent may suggest changes to a Suite, but it may not infer that an unlisted Flow Skill is required or claim complete coverage without running every listed Flow Skill. Suites are not built yet; see `docs/future/agent-flow.md`. _Avoid_: vertical (as the persisted artifact), inferred coverage, test bucket
 
 **Teaching**: The authoring process in which a user performs a journey in the browser while Contingency records it. An agent may prepare the browser during setup, then hands control to the user before **Start recording**. Nothing is captured before Start, and every capture source ends at **Stop**. During recording, the agent observes and learns afterward; the user may relay Instructions at branch points. Teaching produces a Teaching Recording, not a reusable artifact. _Avoid_: mixed control during recording, Replay, autonomous Run, compilation
