@@ -16,6 +16,7 @@ import type {
   LaunchRequest,
 } from "../../src/services/agent-harness.ts";
 import { AgentHarnessesLive } from "../../src/services/agent-harnesses.ts";
+import type { AgentLaunchError } from "../../src/services/agent-launch-error.ts";
 import {
   chooseHarness,
   currentInvocation,
@@ -26,10 +27,7 @@ import {
   shellQuote,
   workInitialMessage,
 } from "../../src/services/agent-launch.ts";
-import type {
-  ReadyHarness,
-  AgentLaunchError,
-} from "../../src/services/agent-launch.ts";
+import type { ReadyHarness } from "../../src/services/agent-launch.ts";
 
 const invocation = currentInvocation({
   execPath: "/usr/local/bin/node",
@@ -108,6 +106,7 @@ it.effect(
   () =>
     Effect.gen(function* claudePlan() {
       const plan = yield* launchPlan("claude", {
+        env: {},
         executable: "/bin/claude",
         extra: ["-p"],
         message: "hello",
@@ -144,6 +143,7 @@ it.effect("passes Codex TOML overrides and keeps the prompt last", () =>
       invocation,
     });
     const plan = yield* launchPlan("codex", {
+      env: {},
       executable: "/bin/codex",
       extra: ["exec"],
       message: "hello",
@@ -166,6 +166,118 @@ it.effect("passes Codex TOML overrides and keeps the prompt last", () =>
       env: {},
     });
   })
+);
+
+const opencodeSpec = sessionServerSpec({
+  agent: "opencode",
+  demo: true,
+  directory: "/work/app",
+  invocation,
+});
+
+it.effect(
+  "runs OpenCode standalone with the server injected through its config content",
+  () =>
+    Effect.gen(function* opencodePlan() {
+      const plan = yield* launchPlan("opencode", {
+        env: {},
+        executable: "/bin/opencode",
+        extra: ["--continue"],
+        message: "hello\nworld",
+        spec: opencodeSpec,
+      });
+      expect(plan.command).toBe("/bin/opencode");
+      expect(plan.args).toEqual([
+        "--continue",
+        "--standalone",
+        "--prompt",
+        "hello\nworld",
+      ]);
+      expect(Object.keys(plan.env)).toEqual(["OPENCODE_CONFIG_CONTENT"]);
+      expect(JSON.parse(plan.env.OPENCODE_CONFIG_CONTENT ?? "")).toEqual({
+        mcp: {
+          servers: {
+            contingency: {
+              codemode: false,
+              command: [opencodeSpec.command, ...opencodeSpec.args],
+              environment: opencodeSpec.env,
+              timeout: { startup: 60_000 },
+              type: "local",
+            },
+          },
+        },
+      });
+      // Nothing that changes permissions, models, or authentication.
+      expect(plan.args.join(" ")).not.toMatch(/--auto|--model|--server/u);
+    })
+);
+
+it.effect("adds the server to the user's own OPENCODE_CONFIG_CONTENT", () =>
+  Effect.gen(function* mergedContent() {
+    const inherited = `{
+  // The user's session settings.
+  "model": "opencode/free",
+  "mcp": {
+    "servers": {
+      "other": { "type": "local", "command": ["other"] }
+    }
+  }
+}`;
+    const plan = yield* launchPlan("opencode", {
+      env: { OPENCODE_CONFIG_CONTENT: inherited },
+      executable: "/bin/opencode",
+      extra: [],
+      message: "hello",
+      spec: opencodeSpec,
+    });
+    const content = plan.env.OPENCODE_CONFIG_CONTENT ?? "";
+    expect(content).toContain("// The user's session settings.");
+    expect(content).toContain('"model": "opencode/free"');
+    expect(content).toContain(
+      '"other": { "type": "local", "command": ["other"] }'
+    );
+    expect(content).toContain('"codemode": false');
+  })
+);
+
+it.effect(
+  "refuses OpenCode arguments that attach to a shared server, and unreadable config content",
+  () =>
+    Effect.gen(function* refusals() {
+      for (const extra of [
+        ["--server", "http://127.0.0.1:4096"],
+        ["--server=http://127.0.0.1:4096"],
+      ]) {
+        const result = yield* launchPlan("opencode", {
+          env: {},
+          executable: "/bin/opencode",
+          extra,
+          message: "hello",
+          spec: opencodeSpec,
+        }).pipe(Effect.result);
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.message).toContain(
+            "reads its configuration once"
+          );
+        }
+      }
+      for (const content of ["[1, 2", "[1, 2]", '"text"']) {
+        const unreadable = yield* launchPlan("opencode", {
+          env: { OPENCODE_CONFIG_CONTENT: content },
+          executable: "/bin/opencode",
+          extra: [],
+          message: "hello",
+          spec: opencodeSpec,
+        }).pipe(Effect.result);
+        expect(Result.isFailure(unreadable)).toBe(true);
+        if (Result.isFailure(unreadable)) {
+          expect(unreadable.failure.message).toContain(
+            "OPENCODE_CONFIG_CONTENT is set but is not a JSONC object"
+          );
+        }
+      }
+    })
 );
 
 it("points the first message at the bundled prompt and the launch context", () => {
@@ -257,7 +369,11 @@ const readiness = (harness: HarnessId, pathVariable: string) =>
 
 it.effect("is ready from the executable and its version alone", () =>
   withExecutables(
-    { claude: "2.1.296 (Claude Code)", codex: "codex-cli 0.162.1" },
+    {
+      claude: "2.1.296 (Claude Code)",
+      codex: "codex-cli 0.162.1",
+      opencode: "opencode v2.0.26",
+    },
     ({ calls, pathVariable }) =>
       Effect.gen(function* readyHarnesses() {
         expect(yield* readiness("claude", pathVariable)).toEqual({
@@ -270,10 +386,16 @@ it.effect("is ready from the executable and its version alone", () =>
           executable: path.join(pathVariable, "codex"),
           version: "0.162.1",
         });
+        expect(yield* readiness("opencode", pathVariable)).toEqual({
+          _tag: "ready",
+          executable: path.join(pathVariable, "opencode"),
+          version: "2.0.26",
+        });
         // No authentication probe and no model prompt.
         expect((yield* calls).trim().split("\n").toSorted()).toEqual([
           "claude --version",
           "codex --version",
+          "opencode --version",
         ]);
       })
   )
@@ -295,7 +417,12 @@ it.effect(
   "is unsupported when --version names another product or major version",
   () =>
     withExecutables(
-      { claude: "3.0.0 (Claude Code)", codex: "some-other-codex 0.162.1" },
+      {
+        claude: "3.0.0 (Claude Code)",
+        codex: "some-other-codex 0.162.1",
+        // OpenCode V1 prints a bare version.
+        opencode: "1.14.2",
+      },
       ({ pathVariable }) =>
         Effect.gen(function* unsupportedHarnesses() {
           expect(yield* readiness("claude", pathVariable)).toEqual({
@@ -307,6 +434,11 @@ it.effect(
             _tag: "unsupported",
             executable: path.join(pathVariable, "codex"),
             reported: "some-other-codex 0.162.1",
+          });
+          expect(yield* readiness("opencode", pathVariable)).toEqual({
+            _tag: "unsupported",
+            executable: path.join(pathVariable, "opencode"),
+            reported: "1.14.2",
           });
         })
     )
@@ -345,6 +477,7 @@ const fakeHarnesses = (
   Layer.succeed(AgentHarnesses, {
     claude: fakeHarness("claude", readinessById.claude),
     codex: fakeHarness("codex", readinessById.codex),
+    opencode: fakeHarness("opencode", readinessById.opencode),
   });
 
 const choose = (
@@ -369,10 +502,14 @@ const failureMessage = (
 it.effect("gives install guidance for every harness when none is ready", () =>
   Effect.gen(function* noneReady() {
     const message = failureMessage(
-      yield* choose({ claude: NOT_INSTALLED, codex: NOT_INSTALLED })
+      yield* choose({
+        claude: NOT_INSTALLED,
+        codex: NOT_INSTALLED,
+        opencode: NOT_INSTALLED,
+      })
     );
     expect(message).toContain(
-      "Contingency onboarding needs Harness claude or Harness codex."
+      "Contingency onboarding needs Harness claude, Harness codex, or Harness opencode."
     );
     for (const id of HARNESS_IDS) {
       expect(message).toContain(`- Harness ${id}: Install ${id}.`);
@@ -391,6 +528,7 @@ it.effect("refuses an unsupported harness with install guidance", () =>
           reported: "9.0.0",
         },
         codex: NOT_INSTALLED,
+        opencode: NOT_INSTALLED,
       })
     );
     expect(message).toBe(
@@ -402,7 +540,7 @@ it.effect("refuses an unsupported harness with install guidance", () =>
 it.effect("launches the one ready harness directly", () =>
   Effect.gen(function* oneReady() {
     const result = yield* choose(
-      { claude: NOT_INSTALLED, codex: READY("codex") },
+      { claude: NOT_INSTALLED, codex: READY("codex"), opencode: NOT_INSTALLED },
       { pick: () => Effect.die(new Error("no picker for one harness")) }
     );
     expect(Result.isSuccess(result) && result.success.harness.id).toBe("codex");
@@ -413,7 +551,11 @@ it.effect("lets the user pick among several ready harnesses", () =>
   Effect.gen(function* severalReady() {
     let offered: readonly HarnessId[] = [];
     const result = yield* choose(
-      { claude: READY("claude"), codex: READY("codex") },
+      {
+        claude: READY("claude"),
+        codex: READY("codex"),
+        opencode: READY("opencode"),
+      },
       {
         pick: (ready) =>
           Effect.gen(function* pickLast() {
@@ -424,7 +566,9 @@ it.effect("lets the user pick among several ready harnesses", () =>
       }
     );
     expect(offered).toEqual([...HARNESS_IDS]);
-    expect(Result.isSuccess(result) && result.success.harness.id).toBe("codex");
+    expect(Result.isSuccess(result) && result.success.harness.id).toBe(
+      "opencode"
+    );
   })
 );
 
@@ -433,10 +577,14 @@ it.effect(
   () =>
     Effect.gen(function* nonInteractive() {
       const message = failureMessage(
-        yield* choose({ claude: READY("claude"), codex: READY("codex") })
+        yield* choose({
+          claude: READY("claude"),
+          codex: READY("codex"),
+          opencode: READY("opencode"),
+        })
       );
       expect(message).toBe(
-        "Harness claude and Harness codex are installed. Choose one with --agent claude or --agent codex."
+        "Harness claude, Harness codex, and Harness opencode are installed. Choose one with --agent claude, --agent codex, or --agent opencode."
       );
       for (const id of HARNESS_IDS) {
         expect(message).toContain(`--agent ${id}`);
@@ -448,7 +596,11 @@ it.effect("refuses an explicit --agent that is not ready", () =>
   Effect.gen(function* explicitUnready() {
     const message = failureMessage(
       yield* choose(
-        { claude: NOT_INSTALLED, codex: READY("codex") },
+        {
+          claude: NOT_INSTALLED,
+          codex: READY("codex"),
+          opencode: NOT_INSTALLED,
+        },
         { requested: "claude" }
       )
     );
@@ -461,7 +613,11 @@ it.effect("refuses an explicit --agent that is not ready", () =>
 it.effect("launches an explicit --agent that is ready", () =>
   Effect.gen(function* explicitReady() {
     const result = yield* choose(
-      { claude: READY("claude"), codex: READY("codex") },
+      {
+        claude: READY("claude"),
+        codex: READY("codex"),
+        opencode: NOT_INSTALLED,
+      },
       { requested: "claude" }
     );
     expect(Result.isSuccess(result) && result.success).toEqual({

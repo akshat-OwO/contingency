@@ -64,7 +64,7 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Agent Session**: The ephemeral coordination envelope owned by one MCP server process that binds one Workspace, browser, and external agent to at most one active Teaching or Run activity. It dies with its process; the Teaching Recording and the Run outlive it. It is not reusable automation. _Avoid_: Run, Flow Skill, browser profile
 
-**Agent Harness**: The CLI program, such as Claude Code or Codex, that hosts the external agent, holds the user's credentials and model choice, and connects to Contingency over MCP. _Avoid_: agent (for the program), client, integration
+**Agent Harness**: The CLI program, such as Claude Code, Codex, or OpenCode, that hosts the external agent, holds the user's credentials and model choice, and connects to Contingency over MCP. _Avoid_: agent (for the program), client, integration
 
 **Session Event**: A named change to an Agent Session's state that the agent did not cause itself, such as the user verifying a Flow Skill, returning from Takeover, or relaying an Instruction. The agent learns of Session Events by waiting on the session rather than being told in the conversation. _Avoid_: notification, resource update, webhook
 
