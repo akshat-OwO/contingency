@@ -68,7 +68,10 @@ export const opencodeUserConfigDirectory = (
   );
 };
 
-/** Every file OpenCode reads for user scope, in the order `opencode mcp add` picks one. */
+/**
+ * Every file OpenCode reads for user scope, in load order, which is also the
+ * order `opencode mcp add` picks one.
+ */
 export const opencodeUserConfigPaths = (
   env: Readonly<Record<string, string | undefined>>,
   home: string
@@ -77,7 +80,10 @@ export const opencodeUserConfigPaths = (
     path.join(opencodeUserConfigDirectory(env, home), name)
   );
 
-/** Every file OpenCode reads for project scope, in the order `opencode mcp add` picks one. */
+/**
+ * Every file OpenCode reads for project scope, in load order, which is also
+ * the order `opencode mcp add` picks one.
+ */
 export const opencodeProjectConfigPaths = (
   projectDirectory: string
 ): string[] => [
@@ -404,8 +410,16 @@ const readConfigFile = (filePath: string) =>
   });
 
 /** The file `opencode mcp add` would write: the first that exists, or the first candidate. */
+/**
+ * The file whose entry OpenCode runs: a later document replaces a same-name
+ * server wholesale, so the last entry in load order wins. Without one, the
+ * file `opencode mcp add` would write: the first that exists, or the first
+ * candidate.
+ */
 const targetFile = (files: readonly ConfigFile[]): ConfigFile | undefined =>
-  files.find((file) => file.exists) ?? files[0];
+  files.findLast((file) => file.entry !== undefined) ??
+  files.find((file) => file.exists) ??
+  files[0];
 
 const precedenceNote = (
   target: RegistrationRequest["scope"],
@@ -415,7 +429,7 @@ const precedenceNote = (
   }
 ): string => {
   if (other.scope === target) {
-    return `${describeEntry(other.entry)}. OpenCode reads that file too; remove one of the two entries so it is clear which one applies.`;
+    return `${describeEntry(other.entry)}. OpenCode loads that file earlier, so the registration here replaces it; remove that entry so it is clear which one applies.`;
   }
   return target === "user"
     ? `${describeEntry(other.entry)}. OpenCode merges project configuration over the user configuration, so that entry wins in this project; other projects use the user registration.`

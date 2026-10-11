@@ -685,3 +685,103 @@ it.effect("refuses malformed OpenCode configuration without writing it", () =>
     Effect.provide(NodeServices.layer)
   )
 );
+
+it.effect(
+  "compares and replaces the same-scope OpenCode entry that OpenCode runs",
+  () =>
+    Effect.gen(function* opencodeEffectiveEntry() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      for (const [earlier, later] of [
+        ["opencode.json", "opencode.jsonc"],
+        ["opencode.jsonc", path.join(".opencode", "opencode.json")],
+      ] as const) {
+        const project = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-opencode-effective-",
+        });
+        const earlierPath = path.join(project, earlier);
+        const laterPath = path.join(project, later);
+        yield* fileSystem.makeDirectory(path.dirname(laterPath), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(earlierPath, "{}\n");
+        const old = withOpencodeEntry(
+          "// the user's own settings\n{}\n",
+          opencodeEntry({ ...OPENCODE_SPEC, command: "/old/node" })
+        );
+        yield* fileSystem.writeFileString(laterPath, old);
+        const request = {
+          env: {},
+          harness: "opencode" as const,
+          home: project,
+          projectDirectory: project,
+          replace: false,
+          scope: "project" as const,
+          spec: OPENCODE_SPEC,
+        };
+
+        const differs = yield* register(request);
+        expect(differs).toMatchObject({ _tag: "differs", location: laterPath });
+        expect(yield* fileSystem.readFileString(laterPath)).toBe(old);
+
+        const replaced = yield* register({ ...request, replace: true });
+        expect(replaced).toMatchObject({
+          _tag: "replaced",
+          location: laterPath,
+        });
+        const entry = yield* opencodeEntryFromJsonc(
+          yield* fileSystem.readFileString(laterPath),
+          laterPath
+        );
+        expect(Option.getOrThrow(entry).spec).toEqual(OPENCODE_SPEC);
+        expect(yield* fileSystem.readFileString(laterPath)).toContain(
+          "// the user's own settings"
+        );
+        expect(yield* fileSystem.readFileString(earlierPath)).toBe("{}\n");
+        expect((yield* register(request))._tag).toBe("kept");
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(AgentHarnessesLive),
+      Effect.provide(NodeServices.layer)
+    )
+);
+
+it.effect(
+  "notes an earlier same-scope OpenCode entry that the registration replaces",
+  () =>
+    Effect.gen(function* opencodeShadowedEntry() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const project = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-opencode-shadowed-",
+      });
+      const earlierPath = path.join(project, "opencode.json");
+      const laterPath = path.join(project, "opencode.jsonc");
+      yield* fileSystem.writeFileString(
+        earlierPath,
+        withOpencodeEntry(
+          "",
+          opencodeEntry({ ...OPENCODE_SPEC, command: "/old/node" })
+        )
+      );
+      yield* fileSystem.writeFileString(
+        laterPath,
+        withOpencodeEntry("", opencodeEntry(OPENCODE_SPEC))
+      );
+      const outcome = yield* register({
+        env: {},
+        harness: "opencode",
+        home: project,
+        projectDirectory: project,
+        replace: false,
+        scope: "project",
+        spec: OPENCODE_SPEC,
+      });
+      expect(outcome).toMatchObject({ _tag: "kept", location: laterPath });
+      expect(outcome.notes.join(" ")).toContain(
+        "OpenCode loads that file earlier, so the registration here replaces it"
+      );
+    }).pipe(
+      Effect.provide(AgentHarnessesLive),
+      Effect.provide(NodeServices.layer)
+    )
+);
