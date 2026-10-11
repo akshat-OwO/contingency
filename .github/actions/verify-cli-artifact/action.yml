@@ -1,0 +1,56 @@
+name: Build and verify the CLI release artifact
+description: Stamp, build, pack once, and verify the tarball used for publication
+inputs:
+  version:
+    description: Version to stamp before building
+    required: true
+outputs:
+  tarball:
+    description: Absolute path of the verified tarball
+    value: ${{ steps.pack.outputs.tarball }}
+runs:
+  using: composite
+  steps:
+    # Keep PR verification and trusted publishing on the same npm version.
+    - name: Install release npm
+      shell: bash
+      run: npm install --global npm@12.2.0
+
+    - name: Report release tooling
+      shell: bash
+      run: |
+        node --version
+        npm --version
+        nub --version
+
+    - name: Stamp the release version into the manifest
+      shell: bash
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: nub packages/release/src/main.ts apply-version "$RELEASE_VERSION"
+
+    - name: Build
+      shell: bash
+      run: nub exec turbo run build --filter @contingencyhq/cli
+
+    - name: Verify the binary reports the release version
+      shell: bash
+      env:
+        EXPECTED: ${{ inputs.version }}
+      run: |
+        actual="$(node packages/cli/dist/index.js --version | tr -d '[:space:]')"
+        if [ "$actual" != "contingencyv$EXPECTED" ]; then
+          echo "::error::Built binary reports '$actual', expected 'contingency v$EXPECTED'."
+          exit 1
+        fi
+
+    - name: Pack
+      id: pack
+      shell: bash
+      run: nub packages/release/src/main.ts pack-cli --output "$GITHUB_OUTPUT"
+
+    - name: Verify a clean packed CLI install
+      shell: bash
+      env:
+        TARBALL: ${{ steps.pack.outputs.tarball }}
+      run: nub packages/release/src/main.ts verify-cli-install "$TARBALL"

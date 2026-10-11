@@ -36,8 +36,19 @@ jobs:
       # the CLI's dist — the same artifact a release ships.
       - run: nub exec turbo run quality check-types test
 
-      - name: Verify a clean packed CLI install
-        run: nub packages/release/src/main.ts verify-cli-install
+  release-artifact:
+    name: Verify release artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nubjs/setup-nub@v0
+        with:
+          registry-url: https://registry.npmjs.org
+      - run: nub ci
+      - uses: ./.github/actions/verify-cli-artifact
+        with:
+          version: 0.0.0-ci
 
   # Integration runs alongside quality rather than after it, so a green PR
   # waits for the slower job only once. When quality fails, the PR cannot
