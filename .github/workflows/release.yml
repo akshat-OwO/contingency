@@ -171,6 +171,9 @@ jobs:
         working-directory: packages/cli
         run: npm pack --ignore-scripts
 
+      - name: Verify a clean packed CLI install
+        run: nub packages/release/src/main.ts verify-cli-install
+
       # Authentication is the OIDC exchange configured as npm's trusted
       # publisher for this package: no NPM_TOKEN exists to leak or rotate.
       # Provenance is attested automatically under trusted publishing, so

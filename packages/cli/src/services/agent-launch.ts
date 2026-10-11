@@ -145,11 +145,19 @@ export interface CliInvocation {
 }
 
 /**
- * The current CLI as a reusable command. A run from the npx cache is
- * re-invoked through npx at the same version, because that cache directory is
- * not a stable place to point a permanent registration at.
+ * Start the installed CLI directly. Session children must never resolve a
+ * new npm spec while the agent waits for its MCP handshake.
  */
 export const currentInvocation = (input: {
+  readonly execPath: string;
+  readonly script: string;
+}): CliInvocation => ({
+  args: [path.resolve(input.script)],
+  command: input.execPath,
+});
+
+/** A cache path is unsuitable for permanent registration or later reconnects. */
+export const persistentInvocation = (input: {
   readonly execPath: string;
   readonly packageName: string;
   readonly script: string;

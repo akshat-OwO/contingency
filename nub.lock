@@ -193,13 +193,28 @@ importers:
         version: 5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
 
   packages/cli:
-    dependencies:
+    devDependencies:
+      '@contingency/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@effect/platform-node':
         specifier: 4.0.0
         version: 4.0.0(effect@4.0.0)(redis@6.2.1)
+      '@effect/platform-node-shared':
+        specifier: 4.0.0
+        version: 4.0.0(effect@4.0.0)
+      '@effect/vitest':
+        specifier: catalog:effect
+        version: 4.0.0(effect@4.0.0)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
       '@jitl/quickjs-singlefile-mjs-release-asyncify':
         specifier: 0.32.0
         version: 0.32.0
+      '@nubjs/types':
+        specifier: catalog:types
+        version: 0.7.3(@types/node@26.2.0)
+      '@types/node':
+        specifier: catalog:types
+        version: 26.2.0
       axe-core:
         specifier: ^4.13.0
         version: 4.13.0
@@ -210,7 +225,7 @@ importers:
         specifier: ^3.3.1
         version: 3.3.1
       lighthouse:
-        specifier: ^13.5.0
+        specifier: 13.5.0
         version: 13.5.0(@opentelemetry/core@2.11.0(@opentelemetry/api@1.9.1))
       open:
         specifier: ^11.0.0
@@ -219,7 +234,7 @@ importers:
         specifier: 1.64.0
         version: 1.64.0
       puppeteer-core:
-        specifier: ^25.12.0
+        specifier: 25.12.0
         version: 25.12.0
       quickjs-emscripten-core:
         specifier: 0.32.0
@@ -227,19 +242,6 @@ importers:
       smol-toml:
         specifier: ^1.9.0
         version: 1.9.0
-    devDependencies:
-      '@contingency/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      '@effect/vitest':
-        specifier: catalog:effect
-        version: 4.0.0(effect@4.0.0)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
-      '@nubjs/types':
-        specifier: catalog:types
-        version: 0.7.3(@types/node@26.2.0)
-      '@types/node':
-        specifier: catalog:types
-        version: 26.2.0
       tsdown:
         specifier: ^0.22.14
         version: 0.22.14(typescript@7.0.2)

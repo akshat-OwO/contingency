@@ -21,6 +21,7 @@ import {
   chooseHarness,
   currentInvocation,
   demoInitialMessage,
+  persistentInvocation,
   reconnectCommand,
   registrationCommand,
   sessionServerSpec,
@@ -31,9 +32,7 @@ import type { ReadyHarness } from "../../src/services/agent-launch.ts";
 
 const invocation = currentInvocation({
   execPath: "/usr/local/bin/node",
-  packageName: "@contingencyhq/cli",
   script: "/opt/contingency/dist/index.js",
-  version: "1.2.3",
 });
 const spec = sessionServerSpec({
   agent: "claude",
@@ -79,9 +78,39 @@ it("serves the demo store only to a session started with --demo", () => {
   ]);
 });
 
-it("re-invokes an npx run through npx at the same version", () => {
+it.each(HARNESS_IDS)(
+  "launches %s MCP from the installed npx entrypoint",
+  (agent) => {
+    const script =
+      "/Users/a/.npm/_npx/abc/node_modules/@contingencyhq/cli/dist/index.js";
+    const installed = currentInvocation({
+      execPath: "/usr/local/bin/node",
+      script,
+    });
+    expect(
+      sessionServerSpec({
+        agent,
+        demo: false,
+        directory: "/work/my app",
+        invocation: installed,
+      })
+    ).toMatchObject({
+      args: [
+        script,
+        "mcp",
+        "--agent",
+        agent,
+        "--fallback-directory",
+        "/work/my app",
+      ],
+      command: "/usr/local/bin/node",
+    });
+  }
+);
+
+it("keeps permanent npx registrations and reconnects portable", () => {
   expect(
-    currentInvocation({
+    persistentInvocation({
       execPath: "/usr/local/bin/node",
       packageName: "@contingencyhq/cli",
       script:

@@ -6,7 +6,7 @@ import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
 import { AgentHarnesses, HARNESS_IDS } from "../services/agent-harness.ts";
-import { currentInvocation } from "../services/agent-launch.ts";
+import { persistentInvocation } from "../services/agent-launch.ts";
 import { register } from "../services/agent-registration.ts";
 import type { RegistrationOutcome } from "../services/agent-registration.ts";
 import { defaultHomeDirectory } from "../services/catalog-directory.ts";
@@ -99,7 +99,7 @@ export const registerCommand = Command.make(
     const harnesses = yield* AgentHarnesses;
     const spec = harnesses[options.agent].registrationServerSpec({
       fallbackDirectory,
-      invocation: currentInvocation({
+      invocation: persistentInvocation({
         execPath: process.execPath,
         packageName: packageJson.name,
         script: process.argv[1] ?? "",
