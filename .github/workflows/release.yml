@@ -130,49 +130,13 @@ jobs:
         with:
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs npm 11.5.1+. The runner's bundled npm trails
-      # that, and an older npm fails by asking for a token that does not exist
-      # rather than by naming the real problem.
-      - name: Ensure an npm that supports trusted publishing
-        run: npm install --global npm@latest
-
       - run: nub ci
 
-      - name: Stamp the release version into the manifest
-        run: |
-          node packages/release/src/main.ts apply-version \
-            "${{ needs.preflight.outputs.version }}"
-
-      # Builds the web bundle into packages/cli/dist/web. `prepack` would do
-      # this too, but building here means a failure surfaces as a build
-      # failure rather than as a publish that half-happened.
-      - name: Build
-        run: nub exec turbo run build --filter @contingencyhq/cli
-
-      # The CLI's --version comes from a value inlined into the bundle at build
-      # time, not from reading package.json at runtime. That makes the stamp
-      # order load-bearing: stamp, then build. This asserts the two agree, so a
-      # binary can never ship announcing a version other than the one on its
-      # tag.
-      - name: Verify the binary reports the release version
-        env:
-          EXPECTED: ${{ needs.preflight.outputs.version }}
-        run: |
-          actual="$(node packages/cli/dist/index.js --version | tr -d '[:space:]')"
-          if [ "${actual}" != "contingencyv${EXPECTED}" ]; then
-            echo "::error::Built binary reports '${actual}', expected 'contingency v${EXPECTED}'."
-            exit 1
-          fi
-          echo "Binary reports ${actual}."
-
-      # Packs the exact tarball that will be published, so the contents are
-      # visible in the log and the same file can be attached to the release.
-      - name: Pack
-        working-directory: packages/cli
-        run: npm pack --ignore-scripts
-
-      - name: Verify a clean packed CLI install
-        run: nub packages/release/src/main.ts verify-cli-install
+      - name: Build and verify the release artifact
+        id: artifact
+        uses: ./.github/actions/verify-cli-artifact
+        with:
+          version: ${{ needs.preflight.outputs.version }}
 
       # Authentication is the OIDC exchange configured as npm's trusted
       # publisher for this package: no NPM_TOKEN exists to leak or rotate.
@@ -185,7 +149,7 @@ jobs:
         if: ${{ inputs.dry_run != true }}
         working-directory: packages/cli
         run: |
-          npm publish \
+          npm publish "${{ steps.artifact.outputs.tarball }}" \
             --access public \
             --ignore-scripts \
             --tag "${{ needs.preflight.outputs.dist_tag }}"
@@ -231,4 +195,4 @@ jobs:
             ${notes_start_tag} \
             --prerelease=${{ needs.preflight.outputs.is_prerelease }} \
             --latest=${{ needs.preflight.outputs.make_latest }} \
-            packages/cli/*.tgz
+            "${{ steps.artifact.outputs.tarball }}"

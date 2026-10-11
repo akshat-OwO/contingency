@@ -6,7 +6,7 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import { applyReleaseVersion } from "./apply-version.ts";
 import { resolveReleaseMetadata } from "./release-metadata.ts";
-import { verifyCliInstall } from "./verify-cli-install.ts";
+import { packCli, verifyCliInstall } from "./verify-cli-install.ts";
 
 /**
  * Appends `key=value` lines to the file GitHub Actions reads step outputs
@@ -94,8 +94,19 @@ const root = Command.make("release", {}, () => Effect.void).pipe(
   Command.withSubcommands([
     resolveCommand,
     applyCommand,
-    Command.make("verify-cli-install", {}, () =>
-      verifyCliInstall(process.cwd())
+    Command.make(
+      "pack-cli",
+      {
+        output: Flag.String("output"),
+      },
+      ({ output }) => packCli(process.cwd(), output)
+    ),
+    Command.make(
+      "verify-cli-install",
+      {
+        tarball: Argument.String("tarball"),
+      },
+      ({ tarball }) => verifyCliInstall(process.cwd(), tarball)
     ),
   ])
 );

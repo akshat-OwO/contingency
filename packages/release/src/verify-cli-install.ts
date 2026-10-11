@@ -3,7 +3,48 @@ import path from "node:path";
 import { Console, Effect, FileSystem, Queue, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-const PackResult = Schema.Array(Schema.Struct({ filename: Schema.String }));
+const PackEntry = Schema.Struct({
+  filename: Schema.String,
+  name: Schema.Literal("@contingencyhq/cli"),
+});
+const PackResult = Schema.Union([
+  Schema.Array(PackEntry),
+  Schema.Record(Schema.String, PackEntry),
+]);
+
+/** npm 11 emits an array; npm 12 emits a record keyed by package name. */
+export const parseNpmPackOutput = Effect.fn("parseNpmPackOutput")(
+  function* parse(output: {
+    readonly stdout: string;
+    readonly stderr: string;
+  }) {
+    const decoded = yield* Effect.try({
+      catch: (cause) =>
+        new Error(
+          `Invalid npm pack stdout:\n${output.stdout.slice(0, 2000)}\nStderr:\n${output.stderr}`,
+          { cause }
+        ),
+      try: () =>
+        Schema.decodeUnknownSync(PackResult)(JSON.parse(output.stdout)),
+    });
+    const entries = Object.values(decoded);
+    const [entry] = entries;
+    if (entries.length !== 1 || entry === undefined) {
+      return yield* Effect.fail(
+        new Error("npm pack must return exactly one CLI tarball")
+      );
+    }
+    if (
+      path.basename(entry.filename) !== entry.filename ||
+      !entry.filename.endsWith(".tgz")
+    ) {
+      return yield* Effect.fail(
+        new Error(`Invalid npm pack filename: ${entry.filename}`)
+      );
+    }
+    return entry.filename;
+  }
+);
 const InitializeResponse = Schema.Struct({
   id: Schema.Literal(1),
   result: Schema.Struct({
@@ -104,60 +145,78 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
 );
 
 /** Fail on peer overrides even when npm exits successfully. */
-const run = Effect.fn("runInstallCheckCommand")(function* runCommand(
-  command: string,
-  args: readonly string[],
-  cwd: string,
-  env: Readonly<Record<string, string>> = {}
-) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  return yield* Effect.gen(function* collectCommand() {
-    const child = yield* spawner.spawn(
-      ChildProcess.make(command, args, {
-        cwd,
-        env: { ...process.env, ...env, NODE_OPTIONS: "" },
-      })
-    );
-    const [output, exitCode] = yield* Effect.all(
-      [Stream.mkString(Stream.decodeText(child.all)), child.exitCode],
-      { concurrency: "unbounded" }
-    );
-    if (exitCode !== 0 || output.includes("ERESOLVE")) {
-      return yield* Effect.fail(
-        new Error(`${command} ${args.join(" ")} failed:\n${output}`)
+export const runInstallCheckCommand = Effect.fn("runInstallCheckCommand")(
+  function* runCommand(
+    command: string,
+    args: readonly string[],
+    cwd: string,
+    env: Readonly<Record<string, string>> = {}
+  ) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    return yield* Effect.gen(function* collectCommand() {
+      const child = yield* spawner.spawn(
+        ChildProcess.make(command, args, {
+          cwd,
+          env: { ...process.env, ...env, NODE_OPTIONS: "" },
+        })
       );
-    }
-    return output;
-  }).pipe(Effect.scoped, Effect.timeout("60 seconds"));
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [
+          Stream.mkString(Stream.decodeText(child.stdout)),
+          Stream.mkString(Stream.decodeText(child.stderr)),
+          child.exitCode,
+        ],
+        { concurrency: "unbounded" }
+      );
+      if (
+        exitCode !== 0 ||
+        stdout.includes("ERESOLVE") ||
+        stderr.includes("ERESOLVE")
+      ) {
+        return yield* Effect.fail(
+          new Error(
+            `${command} ${args.join(" ")} failed:\nStdout:\n${stdout}\nStderr:\n${stderr}`
+          )
+        );
+      }
+      return { stderr, stdout };
+    }).pipe(Effect.scoped, Effect.timeout("60 seconds"));
+  }
+);
+
+/** Pack once and pass this exact artifact to verification and publication. */
+export const packCli = Effect.fn("packCli")(function* pack(
+  root: string,
+  output: string
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const directory = path.join(root, "packages/cli");
+  const packed = yield* runInstallCheckCommand(
+    "npm",
+    ["pack", "--ignore-scripts", "--json"],
+    directory
+  );
+  const filename = yield* parseNpmPackOutput(packed);
+  const tarball = path.join(directory, filename);
+  yield* fs.writeFileString(output, `tarball=${tarball}\n`);
+  yield* Console.log(`Packed CLI artifact: ${tarball}`);
 });
 
 /** Install the actual release artifact with no existing npm cache or lockfile. */
 export const verifyCliInstall = Effect.fn("verifyCliInstall")(function* verify(
-  root: string
+  root: string,
+  tarball: string
 ) {
   const fs = yield* FileSystem.FileSystem;
   const directory = yield* fs.makeTempDirectoryScoped({
     prefix: "contingency-install-",
   });
-  const packed = yield* run(
-    "npm",
-    ["pack", "--ignore-scripts", "--json", "--pack-destination", directory],
-    path.join(root, "packages/cli")
-  );
-  const results = yield* Effect.try({
-    catch: (cause) => new Error("Invalid npm pack output", { cause }),
-    try: () => Schema.decodeUnknownSync(PackResult)(JSON.parse(packed)),
-  });
-  const [tarball] = results;
-  if (tarball === undefined) {
-    return yield* Effect.fail(new Error("npm pack returned no tarball"));
-  }
   yield* fs.writeFileString(
     path.join(directory, "package.json"),
     '{"private":true}\n'
   );
   // A fresh cache plus --offline proves no runtime dependency needs the registry.
-  yield* run(
+  yield* runInstallCheckCommand(
     "npm",
     [
       "install",
@@ -167,16 +226,16 @@ export const verifyCliInstall = Effect.fn("verifyCliInstall")(function* verify(
       "--no-fund",
       "--cache",
       path.join(directory, "cache"),
-      path.join(directory, tarball.filename),
+      path.resolve(tarball),
     ],
     directory
   );
-  yield* run("npm", ["ls", "--all"], directory);
+  yield* runInstallCheckCommand("npm", ["ls", "--all"], directory);
   const installed = path.join(
     directory,
     "node_modules/@contingencyhq/cli/dist/index.js"
   );
-  const version = yield* run(
+  const version = yield* runInstallCheckCommand(
     process.execPath,
     [installed, "--version"],
     directory
@@ -204,17 +263,21 @@ export const verifyCliInstall = Effect.fn("verifyCliInstall")(function* verify(
     `#!${process.execPath}\nimport ${JSON.stringify(path.join(root, "packages/release/src/smoke-agent.ts"))};\n`
   );
   yield* fs.chmod(agent, 0o755);
-  const startOutput = yield* run(
+  const startOutput = yield* runInstallCheckCommand(
     process.execPath,
     [installed, "start", "--agent", "claude"],
     directory,
     { PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` }
   );
-  if (!startOutput.includes("Packed start launched MCP directly.")) {
+  if (!startOutput.stdout.includes("Packed start launched MCP directly.")) {
     return yield* Effect.fail(
-      new Error(`Packed start never launched the smoke agent:\n${startOutput}`)
+      new Error(
+        `Packed start never launched the smoke agent:\n${startOutput.stdout}\n${startOutput.stderr}`
+      )
     );
   }
   yield* Console.log("Packed start smoke passed.");
-  yield* Console.log(`Clean packed CLI install passed: ${version.trim()}`);
+  yield* Console.log(
+    `Clean packed CLI install passed: ${version.stdout.trim()}`
+  );
 }, Effect.scoped);
