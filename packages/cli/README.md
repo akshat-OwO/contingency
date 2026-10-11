@@ -25,7 +25,7 @@ npx @contingencyhq/cli start --agent claude
 npx @contingencyhq/cli start --demo
 ```
 
-Install and sign in to Claude Code or Codex first. `start` launches the one installed agent or offers a picker when both are installed. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports.
+Install Claude Code or Codex first. `start` launches the one installed agent or offers a picker when several are installed. It checks only that the agent is on `PATH` at a supported version; a signed-out agent shows its own sign-in when it starts. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports.
 
 Without `--demo`, the agent follows a bundled work prompt on your own website: it lists your saved Flow Skills and unfinished Teaching, runs verified Flow Skills to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
 

@@ -5,110 +5,34 @@ import { Argument, Command, Flag, Prompt } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { HARNESS_IDS, olderThan } from "../services/agent-harness.ts";
 import {
-  AGENT_PROFILES,
   AgentLaunchError,
-  agentArguments,
+  chooseHarness,
   currentInvocation,
   demoInitialMessage,
-  detectAgent,
-  olderThan,
   reconnectCommand,
   registrationCommand,
   sessionServerSpec,
   workInitialMessage,
 } from "../services/agent-launch.ts";
-import type { DetectedAgent } from "../services/agent-launch.ts";
-import { REGISTERED_AGENTS } from "../services/catalog-directory.ts";
-import type { RegisteredAgent } from "../services/catalog-directory.ts";
+import type { ReadyHarness } from "../services/agent-launch.ts";
 import { CATALOG_DIRECTORY } from "../services/flow-skill-catalog.ts";
 
-const missingAgentsMessage = (): string =>
-  [
-    "Contingency onboarding needs Claude Code or Codex, installed and signed in.",
-    ...REGISTERED_AGENTS.map(
-      (agent) =>
-        `- ${AGENT_PROFILES[agent].label}: ${AGENT_PROFILES[agent].install}`
-    ),
-    "Then run `npx @contingencyhq/cli start` again.",
-  ].join("\n");
-
-const unavailable = (
-  agent: RegisteredAgent,
-  detected: Option.Option<DetectedAgent>
-) => {
-  const profile = AGENT_PROFILES[agent];
-  if (Option.isNone(detected)) {
-    return `${profile.label} is not installed or not on PATH. ${profile.install}`;
-  }
-  return `${profile.label} is installed but not signed in. ${profile.signIn}`;
-};
-
-/**
- * Choose the agent: the explicit `--agent`, the one usable agent, or a picker
- * when both are usable. A missing or signed-out agent is reported with the
- * step that fixes it.
- */
-const chooseAgent = (requested: Option.Option<RegisteredAgent>) =>
-  Effect.gen(function* choose() {
-    const detected = {
-      claude: yield* detectAgent("claude", process.env.PATH),
-      codex: yield* detectAgent("codex", process.env.PATH),
-    };
-    if (Option.isSome(requested)) {
-      const found = detected[requested.value];
-      if (Option.isNone(found) || !found.value.signedIn) {
-        return yield* Effect.fail(
-          new AgentLaunchError({ message: unavailable(requested.value, found) })
-        );
-      }
-      return found.value;
-    }
-    const usable = REGISTERED_AGENTS.flatMap((agent) => {
-      const found = detected[agent];
-      return Option.isSome(found) && found.value.signedIn ? [found.value] : [];
-    });
-    const [first, second] = usable;
-    if (first === undefined) {
-      const installed = REGISTERED_AGENTS.filter((agent) =>
-        Option.isSome(detected[agent])
-      );
-      return yield* Effect.fail(
-        new AgentLaunchError({
-          message:
-            installed.length === 0
-              ? missingAgentsMessage()
-              : installed
-                  .map((agent) => unavailable(agent, detected[agent]))
-                  .join("\n"),
-        })
-      );
-    }
-    if (second === undefined) {
-      return first;
-    }
-    if (!process.stdin.isTTY) {
-      return yield* Effect.fail(
-        new AgentLaunchError({
-          message:
-            "Claude Code and Codex are both installed. Choose one with --agent claude or --agent codex.",
-        })
-      );
-    }
-    return yield* Prompt.run(
-      Prompt.Select({
-        choices: usable.map((agent) => ({
-          title: agent.profile.label,
-          value: agent,
-        })),
-        message: "Which agent should run Contingency onboarding?",
-      })
-    ).pipe(
-      Effect.mapError(
-        () => new AgentLaunchError({ message: "No agent was chosen." })
-      )
-    );
-  });
+const pickHarness = (ready: readonly ReadyHarness[]) =>
+  Prompt.run(
+    Prompt.Select({
+      choices: ready.map((entry) => ({
+        title: entry.harness.label,
+        value: entry,
+      })),
+      message: "Which agent should run Contingency onboarding?",
+    })
+  ).pipe(
+    Effect.mapError(
+      () => new AgentLaunchError({ message: "No agent was chosen." })
+    )
+  );
 
 /**
  * While the agent owns the terminal, Ctrl-C belongs to it: the agent handles
@@ -141,9 +65,9 @@ const holdSignals = Effect.acquireRelease(
 export const startCommand = Command.make(
   "start",
   {
-    agent: Flag.Literals("agent", REGISTERED_AGENTS).pipe(
+    agent: Flag.Literals("agent", HARNESS_IDS).pipe(
       Flag.withDescription(
-        "The agent to launch. Without it, the one installed agent starts, or a picker appears when both are installed."
+        "The agent to launch. Without it, the one installed agent starts, or a picker appears when several are installed."
       ),
       Flag.optional
     ),
@@ -163,7 +87,11 @@ export const startCommand = Command.make(
   Effect.fnUntraced(function* runStart({ agent, agentArgs, demo }) {
     const directory = path.resolve(process.cwd());
     const catalogRoot = path.join(directory, CATALOG_DIRECTORY);
-    const chosen = yield* chooseAgent(agent);
+    const chosen = yield* chooseHarness({
+      pathVariable: process.env.PATH,
+      pick: process.stdin.isTTY ? Option.some(pickHarness) : Option.none(),
+      requested: agent,
+    });
     const invocation = currentInvocation({
       execPath: process.execPath,
       packageName: packageJson.name,
@@ -171,47 +99,44 @@ export const startCommand = Command.make(
       version: packageJson.version,
     });
     const spec = sessionServerSpec({
-      agent: chosen.profile.id,
+      agent: chosen.harness.id,
       demo,
       directory,
       invocation,
     });
     yield* Console.error(
       [
-        `Starting ${chosen.profile.label}${chosen.version === undefined ? "" : ` ${chosen.version}`} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
+        `Starting ${chosen.harness.label} ${chosen.version} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
         `Catalog Root: ${catalogRoot}`,
       ].join("\n")
     );
-    if (
-      chosen.version !== undefined &&
-      olderThan(chosen.version, chosen.profile.verifiedVersion)
-    ) {
+    if (olderThan(chosen.version, chosen.harness.verifiedVersion)) {
       yield* Console.error(
-        `This release was verified with ${chosen.profile.label} ${chosen.profile.verifiedVersion}. If onboarding fails, update ${chosen.profile.label} and try again.`
+        `This release was verified with ${chosen.harness.label} ${chosen.harness.verifiedVersion}. If onboarding fails, update ${chosen.harness.label} and try again.`
       );
     }
     const message = demo
       ? demoInitialMessage({
-          agent: chosen.profile,
+          agent: chosen.harness,
           catalogRoot,
           directory,
           registrationCommand: registrationCommand({
-            agent: chosen.profile.id,
+            agent: chosen.harness.id,
             directory,
             invocation,
           }),
         })
       : workInitialMessage({
-          agent: chosen.profile,
+          agent: chosen.harness,
           catalogRoot,
           directory,
           reconnectCommand: reconnectCommand({
-            agent: chosen.profile.id,
+            agent: chosen.harness.id,
             invocation,
           }),
         });
-    const args = agentArguments({
-      agent: chosen.profile.id,
+    const plan = yield* chosen.harness.launchPlan({
+      executable: chosen.executable,
       extra: agentArgs,
       message,
       spec,
@@ -221,11 +146,12 @@ export const startCommand = Command.make(
         yield* holdSignals;
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         const handle = yield* spawner.spawn(
-          ChildProcess.make(chosen.executable, args, {
+          ChildProcess.make(plan.command, [...plan.args], {
             cwd: directory,
             // The agent shares this terminal's process group, so it can read
             // the keyboard and receive Ctrl-C itself.
             detached: false,
+            env: { ...plan.env },
             extendEnv: true,
             stderr: "inherit",
             stdin: "inherit",
@@ -238,7 +164,7 @@ export const startCommand = Command.make(
       Effect.mapError(
         (cause) =>
           new AgentLaunchError({
-            message: `${chosen.profile.label} could not start: ${cause.message}`,
+            message: `${chosen.harness.label} could not start: ${cause.message}`,
           })
       )
     );

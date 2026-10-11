@@ -20,6 +20,7 @@ import { HttpServer } from "effect/http";
 import type { HttpServerError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
 
+import { AgentHarnesses, HARNESS_IDS } from "../services/agent-harness.ts";
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
   defaultAgentResourceDirectory,
@@ -31,7 +32,6 @@ import {
   makeCatalogBrowserLayer,
 } from "../services/catalog-browser.ts";
 import {
-  REGISTERED_AGENTS,
   defaultHomeDirectory,
   resolveCatalogDirectory,
 } from "../services/catalog-directory.ts";
@@ -138,7 +138,7 @@ const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
 export const mcpCommand = Command.make(
   "mcp",
   {
-    agent: Flag.Literals("agent", REGISTERED_AGENTS).pipe(
+    agent: Flag.Literals("agent", HARNESS_IDS).pipe(
       Flag.withDescription(
         "The agent that spawns this server, which says how its current project directory is found."
       ),
@@ -187,12 +187,18 @@ export const mcpCommand = Command.make(
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
         const fileSystem = yield* FileSystem.FileSystem;
+        const harnesses = yield* AgentHarnesses;
+        const projectDirectory = Option.isSome(agent)
+          ? yield* harnesses[agent.value].currentProjectDirectory({
+              cwd: process.cwd(),
+              env: process.env,
+            })
+          : process.cwd();
         const catalogDirectory = yield* resolveCatalogDirectory({
-          agent: Option.getOrUndefined(agent),
-          cwd: process.cwd(),
           env: process.env,
           fallbackDirectory: Option.getOrUndefined(fallbackDirectory),
           home: defaultHomeDirectory(),
+          projectDirectory,
         });
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()

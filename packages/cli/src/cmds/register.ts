@@ -5,16 +5,11 @@ import { Console, Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { AgentHarnesses, HARNESS_IDS } from "../services/agent-harness.ts";
 import { currentInvocation } from "../services/agent-launch.ts";
-import {
-  register,
-  registrationServerSpec,
-} from "../services/agent-registration.ts";
+import { register } from "../services/agent-registration.ts";
 import type { RegistrationOutcome } from "../services/agent-registration.ts";
-import {
-  REGISTERED_AGENTS,
-  defaultHomeDirectory,
-} from "../services/catalog-directory.ts";
+import { defaultHomeDirectory } from "../services/catalog-directory.ts";
 
 /** Claude keys project scopes by real path, so `/tmp` and `/private/tmp` agree. */
 const realDirectory = (directory: string): string => {
@@ -67,7 +62,7 @@ const report = (outcome: RegistrationOutcome): string[] => {
 export const registerCommand = Command.make(
   "register",
   {
-    agent: Flag.Literals("agent", REGISTERED_AGENTS).pipe(
+    agent: Flag.Literals("agent", HARNESS_IDS).pipe(
       Flag.withDescription("The agent whose configuration to update.")
     ),
     fallbackDirectory: Flag.String("fallback-directory").pipe(
@@ -101,8 +96,8 @@ export const registerCommand = Command.make(
     const fallbackDirectory = path.resolve(
       Option.getOrElse(options.fallbackDirectory, () => projectDirectory)
     );
-    const spec = registrationServerSpec({
-      agent: options.agent,
+    const harnesses = yield* AgentHarnesses;
+    const spec = harnesses[options.agent].registrationServerSpec({
       fallbackDirectory,
       invocation: currentInvocation({
         execPath: process.execPath,
@@ -112,8 +107,8 @@ export const registerCommand = Command.make(
       }),
     });
     const outcome = yield* register({
-      agent: options.agent,
       env: process.env,
+      harness: options.agent,
       home: defaultHomeDirectory(),
       projectDirectory,
       replace: options.replace,

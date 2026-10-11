@@ -6,21 +6,26 @@ import { Effect, FileSystem, Option, Result } from "effect";
 import { ChildProcessSpawner } from "effect/process";
 
 import {
+  claudeRegistrationServerSpec,
+  readClaudeEntries,
+} from "../../src/services/agent-harness-claude.ts";
+import {
   codexEntryFromToml,
+  codexRegistrationServerSpec,
   codexTable,
   codexTrustsProject,
+} from "../../src/services/agent-harness-codex.ts";
+import { AgentHarnessesLive } from "../../src/services/agent-harnesses.ts";
+import {
   describeDifferences,
-  readClaudeEntries,
   register,
-  registrationServerSpec,
 } from "../../src/services/agent-registration.ts";
 import {
   findTomlTable,
   replaceTomlTable,
 } from "../../src/services/toml-table.ts";
 
-const SPEC = registrationServerSpec({
-  agent: "codex",
+const SPEC = codexRegistrationServerSpec({
   fallbackDirectory: "/work/onboarding",
   invocation: { args: ["/opt/contingency/index.js"], command: "/usr/bin/node" },
 });
@@ -110,18 +115,19 @@ it.effect("reports the removed Claude entry when replacement fails", () =>
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     let calls = 0;
     const result = yield* register({
-      agent: "claude",
       env: { CLAUDE_CONFIG_DIR: home },
+      harness: "claude",
       home,
       projectDirectory: home,
       replace: true,
       scope: "user",
-      spec: registrationServerSpec({
-        agent: "claude",
+      spec: claudeRegistrationServerSpec({
         fallbackDirectory: home,
         invocation: { args: [], command: "new-server" },
       }),
     }).pipe(
+      // The harness captures its process spawner when its Layer is built.
+      Effect.provide(AgentHarnessesLive),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, {
         ...spawner,
         exitCode: () =>
@@ -280,8 +286,8 @@ it.effect("registers, keeps, reports, and replaces a Codex project entry", () =>
       '# project settings\nmodel_reasoning_effort = "high"\n'
     );
     const request = {
-      agent: "codex" as const,
       env: { CODEX_HOME: codexHome, PATH: process.env.PATH },
+      harness: "codex" as const,
       home,
       projectDirectory: project,
       replace: false,
@@ -321,7 +327,10 @@ it.effect("registers, keeps, reports, and replaces a Codex project entry", () =>
     expect(
       yield* fileSystem.readFileString(path.join(codexHome, "config.toml"))
     ).toBe(UNRELATED);
-  }).pipe(Effect.provide(NodeServices.layer))
+  }).pipe(
+    Effect.provide(AgentHarnessesLive),
+    Effect.provide(NodeServices.layer)
+  )
 );
 
 it.effect("reads Claude Code scopes from its configuration files", () =>

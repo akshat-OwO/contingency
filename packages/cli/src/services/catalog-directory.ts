@@ -9,10 +9,9 @@ import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
  * Which directory an MCP process takes its Catalog Root from (ADR 0049).
  *
  * A permanent registration serves every project, so each session uses its
- * current project's `.contingency` catalog. The selected agent names how that
- * directory is found: Claude Code documents `CLAUDE_PROJECT_DIR` for the stdio
- * servers it spawns, and Codex starts the server in its current working
- * directory. A Claude variable inherited by a Codex process never redirects it.
+ * current project's `.contingency` catalog. The Agent Harness that spawned the
+ * process names that directory (`AgentHarness.currentProjectDirectory`);
+ * direct use takes the working directory.
  *
  * Discovery and catalog access are separate. A usable directory without
  * `.contingency` simply gets a new catalog when work is first saved, and a
@@ -21,12 +20,9 @@ import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
  * selection says so, so the agent can name it before using it.
  */
 
-export const REGISTERED_AGENTS = ["claude", "codex"] as const;
-export type RegisteredAgent = (typeof REGISTERED_AGENTS)[number];
-
 export interface CatalogDirectoryInput {
-  readonly agent: RegisteredAgent | undefined;
-  readonly cwd: string;
+  /** The current project directory, before usability checks. */
+  readonly projectDirectory: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly fallbackDirectory: string | undefined;
   readonly home: string;
@@ -38,19 +34,6 @@ export interface CatalogDirectoryChoice {
     | undefined;
   readonly root: string;
 }
-
-/** The project directory the selected agent reports, before usability checks. */
-export const reportedProjectDirectory = (
-  input: Pick<CatalogDirectoryInput, "agent" | "cwd" | "env">
-): string | undefined => {
-  if (input.agent === "claude") {
-    const reported = input.env.CLAUDE_PROJECT_DIR?.trim();
-    return reported === undefined || reported.length === 0
-      ? input.cwd
-      : reported;
-  }
-  return input.cwd;
-};
 
 /**
  * Why a directory cannot hold a project catalog, or `undefined` when it can.
@@ -93,7 +76,7 @@ export const resolveCatalogDirectory = (input: CatalogDirectoryInput) =>
         root: path.resolve(configured),
       } satisfies CatalogDirectoryChoice;
     }
-    const candidate = reportedProjectDirectory(input) ?? input.cwd;
+    const candidate = input.projectDirectory;
     const info = yield* fileSystem.stat(candidate).pipe(
       Effect.map(Option.some),
       Effect.catchIf(
