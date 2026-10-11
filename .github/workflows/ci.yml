@@ -36,6 +36,9 @@ jobs:
       # the CLI's dist — the same artifact a release ships.
       - run: nub exec turbo run quality check-types test
 
+      - name: Verify a clean packed CLI install
+        run: nub packages/release/src/main.ts verify-cli-install
+
   # Integration runs alongside quality rather than after it, so a green PR
   # waits for the slower job only once. When quality fails, the PR cannot
   # merge anyway, so this cancels the run instead of letting integration

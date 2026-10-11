@@ -9,6 +9,7 @@ import { publishableManifests } from "../src/publishable-packages.ts";
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const PublishableManifest = Schema.Struct({
   bin: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   private: Schema.optional(Schema.Boolean),
 });
 
@@ -40,5 +41,10 @@ describe.each(publishableManifests)("%s", (relativePath) => {
   it("is not private, or it would never reach the registry", async () => {
     const manifest = await readManifest(relativePath);
     expect(manifest.private).not.toBe(true);
+  });
+
+  it("ships runtime dependencies in dist without registry resolution", async () => {
+    const manifest = await readManifest(relativePath);
+    expect(manifest.dependencies).toBeUndefined();
   });
 });

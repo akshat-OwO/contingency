@@ -10,6 +10,7 @@ import { AgentLaunchError } from "../services/agent-launch-error.ts";
 import {
   chooseHarness,
   currentInvocation,
+  persistentInvocation,
   demoInitialMessage,
   reconnectCommand,
   registrationCommand,
@@ -94,6 +95,10 @@ export const startCommand = Command.make(
     });
     const invocation = currentInvocation({
       execPath: process.execPath,
+      script: process.argv[1] ?? "",
+    });
+    const persistent = persistentInvocation({
+      execPath: process.execPath,
       packageName: packageJson.name,
       script: process.argv[1] ?? "",
       version: packageJson.version,
@@ -112,7 +117,7 @@ export const startCommand = Command.make(
           registrationCommand: registrationCommand({
             agent: chosen.harness.id,
             directory,
-            invocation,
+            invocation: persistent,
           }),
         })
       : workInitialMessage({
@@ -121,7 +126,7 @@ export const startCommand = Command.make(
           directory,
           reconnectCommand: reconnectCommand({
             agent: chosen.harness.id,
-            invocation,
+            invocation: persistent,
           }),
         });
     const plan = yield* chosen.harness.launchPlan({
