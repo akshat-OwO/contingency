@@ -6,12 +6,15 @@ import { Command } from "effect/cli";
 
 import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index.ts";
+import { AgentHarnessesLive } from "./services/agent-harnesses.ts";
 import { CreateBrowserLive } from "./services/create-browser.ts";
 import { UiInterfaceLive } from "./services/ui-interface.ts";
 
-const servicesLayer = Layer.mergeAll(CreateBrowserLive, UiInterfaceLive).pipe(
-  Layer.provideMerge(NodeServices.layer)
-);
+const servicesLayer = Layer.mergeAll(
+  AgentHarnessesLive,
+  CreateBrowserLive,
+  UiInterfaceLive
+).pipe(Layer.provideMerge(NodeServices.layer));
 
 /**
  * How soon after the first signal a second one is read as a reflex rather

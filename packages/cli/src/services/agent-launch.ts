@@ -1,16 +1,15 @@
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import path from "node:path";
 
-import { Data, Effect, FileSystem, Option, Schema } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { Data, Effect, Option } from "effect";
 
+import { AgentHarnesses, allHarnesses } from "./agent-harness.ts";
+import type {
+  AgentHarness,
+  HarnessId,
+  HarnessReadiness,
+} from "./agent-harness.ts";
 import type { ServerSpec } from "./agent-registration.ts";
-import {
-  CODEX_STARTUP_TIMEOUT_SECONDS,
-  SERVER_NAME,
-} from "./agent-registration.ts";
-import type { RegisteredAgent } from "./catalog-directory.ts";
+import { SERVER_NAME } from "./agent-registration.ts";
 import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
 import {
   STARTER_PROMPT_URI,
@@ -20,177 +19,127 @@ import {
 } from "./mcp-onboarding.ts";
 
 /**
- * Launching an installed coding agent with Contingency connected for one
+ * Launching an installed Agent Harness with Contingency connected for one
  * session (`contingency start`).
  *
  * `--demo` runs onboarding on the bundled demo store. Without it the agent
  * follows the work prompt on the user's own website, and the server leaves
  * the demo store and its Example tools out.
  *
- * The MCP server is supplied through each agent's own session-only options:
- * Claude Code's `--mcp-config` JSON and Codex's `-c` TOML overrides. Neither
- * writes the user's configuration, and neither touches authentication, model,
+ * Each harness supplies the MCP server through its own session-only launch
+ * plan, which writes no configuration and touches no authentication, model,
  * or permission settings. The agent spawns Contingency as a stdio child that
  * owns its own browser and Workspace on an available port.
  */
-
-export interface AgentProfile {
-  readonly binary: string;
-  readonly id: RegisteredAgent;
-  readonly install: string;
-  readonly label: string;
-  readonly signIn: string;
-  /** The newest version this release was verified with. */
-  readonly verifiedVersion: string;
-}
-
-export const AGENT_PROFILES: Readonly<Record<RegisteredAgent, AgentProfile>> = {
-  claude: {
-    binary: "claude",
-    id: "claude",
-    install:
-      "Install Claude Code from https://code.claude.com/docs/en/setup, then run `claude` once to sign in.",
-    label: "Claude Code",
-    signIn: "Run `claude auth login`, or start `claude` and sign in.",
-    verifiedVersion: "2.1.289",
-  },
-  codex: {
-    binary: "codex",
-    id: "codex",
-    install:
-      "Install Codex with `npm install -g @openai/codex` (see https://developers.openai.com/codex), then run `codex login`.",
-    label: "Codex",
-    signIn: "Run `codex login`.",
-    verifiedVersion: "0.160.0",
-  },
-};
 
 export class AgentLaunchError extends Data.TaggedError("AgentLaunchError")<{
   readonly message: string;
 }> {}
 
-export interface DetectedAgent {
+/** A harness whose executable is on PATH at a supported version. */
+export interface ReadyHarness {
   readonly executable: string;
-  readonly profile: AgentProfile;
-  readonly signedIn: boolean;
-  readonly version: string | undefined;
+  readonly harness: AgentHarness;
+  readonly version: string;
 }
 
-/** Whether `candidate` is a file this process may execute. */
-const isExecutable = (candidate: string) =>
-  Effect.tryPromise(() => access(candidate, constants.X_OK)).pipe(
-    Effect.as(true),
-    Effect.orElseSucceed(() => false)
-  );
+const either = new Intl.ListFormat("en", { type: "disjunction" });
+const both = new Intl.ListFormat("en", { type: "conjunction" });
 
-/** The first executable named `binary` on PATH. */
-export const findOnPath = (binary: string, pathVariable: string | undefined) =>
-  Effect.gen(function* findExecutable() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    for (const directory of (pathVariable ?? "").split(path.delimiter)) {
-      if (directory.length === 0) {
-        continue;
+const unavailable = (
+  harness: AgentHarness,
+  readiness: Exclude<HarnessReadiness, { readonly _tag: "ready" }>
+): string =>
+  readiness._tag === "not-installed"
+    ? `${harness.label} is not installed or not on PATH. ${harness.install}`
+    : `${harness.label} at ${readiness.executable} ${readiness.reported === undefined ? "did not report a version" : `reports ${JSON.stringify(readiness.reported)}`}, which this release does not support. ${harness.install}`;
+
+const missingHarnessesMessage = (harnesses: readonly AgentHarness[]): string =>
+  [
+    `Contingency onboarding needs ${either.format(harnesses.map((harness) => harness.label))}.`,
+    ...harnesses.map((harness) => `- ${harness.label}: ${harness.install}`),
+    "Then run `npx @contingencyhq/cli start` again.",
+  ].join("\n");
+
+/**
+ * Choose the harness: the explicit `--agent`, the one ready harness, or the
+ * user's pick among several. A harness that is missing or at an unsupported
+ * version is reported with the step that fixes it. Without `pick`, as in a
+ * non-interactive terminal, several ready harnesses are an error naming each
+ * `--agent` value.
+ */
+export const chooseHarness = <R>(input: {
+  readonly pathVariable: string | undefined;
+  readonly pick: Option.Option<
+    (
+      ready: readonly ReadyHarness[]
+    ) => Effect.Effect<ReadyHarness, AgentLaunchError, R>
+  >;
+  readonly requested: Option.Option<HarnessId>;
+}) =>
+  Effect.gen(function* choose() {
+    const harnesses = yield* AgentHarnesses;
+    const check = (harness: AgentHarness) =>
+      harness
+        .readiness(input.pathVariable)
+        .pipe(Effect.map((readiness) => ({ harness, readiness })));
+    if (Option.isSome(input.requested)) {
+      const { harness, readiness } = yield* check(
+        harnesses[input.requested.value]
+      );
+      if (readiness._tag !== "ready") {
+        return yield* Effect.fail(
+          new AgentLaunchError({ message: unavailable(harness, readiness) })
+        );
       }
-      const candidate = path.join(directory, binary);
-      const info = yield* fileSystem.stat(candidate).pipe(Effect.option);
-      if (
-        Option.isSome(info) &&
-        info.value.type !== "Directory" &&
-        (yield* isExecutable(candidate))
-      ) {
-        return Option.some(candidate);
-      }
+      return {
+        executable: readiness.executable,
+        harness,
+        version: readiness.version,
+      } satisfies ReadyHarness;
     }
-    return Option.none<string>();
-  });
-
-const output = (command: string, args: readonly string[]) =>
-  Effect.gen(function* readOutput() {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    return yield* spawner
-      .string(
-        ChildProcess.make(command, [...args], {
-          extendEnv: true,
-          stdin: "ignore",
+    const checked = yield* Effect.forEach(allHarnesses(harnesses), check, {
+      concurrency: "unbounded",
+    });
+    const ready = checked.flatMap(({ harness, readiness }) =>
+      readiness._tag === "ready"
+        ? [
+            {
+              executable: readiness.executable,
+              harness,
+              version: readiness.version,
+            } satisfies ReadyHarness,
+          ]
+        : []
+    );
+    const [first, second] = ready;
+    if (first === undefined) {
+      const installed = checked.flatMap(({ harness, readiness }) =>
+        readiness._tag === "not-installed" || readiness._tag === "ready"
+          ? []
+          : [unavailable(harness, readiness)]
+      );
+      return yield* Effect.fail(
+        new AgentLaunchError({
+          message:
+            installed.length === 0
+              ? missingHarnessesMessage(allHarnesses(harnesses))
+              : installed.join("\n"),
         })
-      )
-      .pipe(Effect.timeout("20 seconds"), Effect.option);
-  });
-
-const exitCode = (command: string, args: readonly string[]) =>
-  Effect.gen(function* readExitCode() {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    return yield* spawner
-      .exitCode(
-        ChildProcess.make(command, [...args], {
-          extendEnv: true,
-          stderr: "ignore",
-          stdin: "ignore",
-          stdout: "ignore",
+      );
+    }
+    if (second === undefined) {
+      return first;
+    }
+    if (Option.isNone(input.pick)) {
+      return yield* Effect.fail(
+        new AgentLaunchError({
+          message: `${both.format(ready.map((entry) => entry.harness.label))} are installed. Choose one with ${either.format(ready.map((entry) => `--agent ${entry.harness.id}`))}.`,
         })
-      )
-      .pipe(Effect.timeout("20 seconds"), Effect.option);
-  });
-
-const ClaudeAuthStatus = Schema.Struct({ loggedIn: Schema.Boolean });
-
-const VERSION = /\d+\.\d+\.\d+/u;
-
-/** Whether the installed agent reports a signed-in account. */
-const signedIn = (agent: RegisteredAgent, executable: string) =>
-  Effect.gen(function* checkSignIn() {
-    if (agent === "claude") {
-      const status = yield* output(executable, ["auth", "status"]);
-      if (Option.isNone(status)) {
-        return false;
-      }
-      const decoded = Schema.decodeUnknownOption(
-        Schema.fromJsonString(ClaudeAuthStatus)
-      )(status.value.trim());
-      return Option.isSome(decoded) && decoded.value.loggedIn;
+      );
     }
-    const code = yield* exitCode(executable, ["login", "status"]);
-    return Option.isSome(code) && code.value === 0;
+    return yield* input.pick.value(ready);
   });
-
-export const detectAgent = (
-  agent: RegisteredAgent,
-  pathVariable: string | undefined
-) =>
-  Effect.gen(function* detect() {
-    const profile = AGENT_PROFILES[agent];
-    const executable = yield* findOnPath(profile.binary, pathVariable);
-    if (Option.isNone(executable)) {
-      return Option.none<DetectedAgent>();
-    }
-    const versionOutput = yield* output(executable.value, ["--version"]);
-    const version = Option.isSome(versionOutput)
-      ? VERSION.exec(versionOutput.value)?.[0]
-      : undefined;
-    return Option.some({
-      executable: executable.value,
-      profile,
-      signedIn: yield* signedIn(agent, executable.value),
-      version,
-    } satisfies DetectedAgent);
-  });
-
-const versionParts = (version: string): number[] =>
-  version.split(".").map(Number);
-
-/** Whether `version` is older than the verified one. */
-export const olderThan = (version: string, verified: string): boolean => {
-  const actual = versionParts(version);
-  const reference = versionParts(verified);
-  for (let index = 0; index < reference.length; index += 1) {
-    const left = actual[index] ?? 0;
-    const right = reference[index] ?? 0;
-    if (left !== right) {
-      return left < right;
-    }
-  }
-  return false;
-};
 
 /** How to start this same CLI again from an agent or a registration. */
 export interface CliInvocation {
@@ -218,7 +167,7 @@ export const currentInvocation = (input: {
 
 /** The session-only server: this directory's catalog and an available port. */
 export const sessionServerSpec = (input: {
-  readonly agent: RegisteredAgent;
+  readonly agent: HarnessId;
   readonly demo: boolean;
   readonly directory: string;
   readonly invocation: CliInvocation;
@@ -244,7 +193,7 @@ export const shellQuote = (word: string): string =>
   /^[\w@%+=:,./-]+$/u.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 
 export interface LaunchContext {
-  readonly agent: AgentProfile;
+  readonly agent: Pick<AgentHarness, "label">;
   readonly catalogRoot: string;
   readonly directory: string;
 }
@@ -259,7 +208,7 @@ export interface WorkLaunchContext extends LaunchContext {
 
 /** The command that starts this session-only connection again. */
 export const reconnectCommand = (input: {
-  readonly agent: RegisteredAgent;
+  readonly agent: HarnessId;
   readonly invocation: CliInvocation;
 }): string =>
   [
@@ -273,7 +222,7 @@ export const reconnectCommand = (input: {
     .join(" ");
 
 export const registrationCommand = (input: {
-  readonly agent: RegisteredAgent;
+  readonly agent: HarnessId;
   readonly directory: string;
   readonly invocation: CliInvocation;
 }): string =>
@@ -328,58 +277,3 @@ export const workInitialMessage = (context: WorkLaunchContext): string =>
     "- Connection: session-only; the user's agent configuration is unchanged.",
     `- Reconnect command (run from the working directory; add --demo for the guided demo): ${context.reconnectCommand}`,
   ].join("\n");
-
-/** Claude Code's `--mcp-config` document for one stdio server. */
-export const claudeMcpConfig = (spec: ServerSpec): string =>
-  JSON.stringify({
-    mcpServers: {
-      [SERVER_NAME]: {
-        args: spec.args,
-        command: spec.command,
-        env: spec.env,
-        type: "stdio",
-      },
-    },
-  });
-
-const tomlInlineTable = (record: Readonly<Record<string, string>>): string =>
-  `{ ${Object.entries(record)
-    .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
-    .join(", ")} }`;
-
-/**
- * Codex `-c` overrides for one stdio server. Codex starts the browser server
- * within its default startup window only when Chromium is warm, so the window
- * is widened for this server alone.
- */
-export const codexMcpOverrides = (spec: ServerSpec): string[] => {
-  const key = `mcp_servers.${SERVER_NAME}`;
-  return [
-    `${key}.command=${JSON.stringify(spec.command)}`,
-    `${key}.args=[${spec.args.map((arg) => JSON.stringify(arg)).join(", ")}]`,
-    `${key}.env=${tomlInlineTable(spec.env)}`,
-    `${key}.startup_timeout_sec=${CODEX_STARTUP_TIMEOUT_SECONDS}`,
-  ].flatMap((override) => ["-c", override]);
-};
-
-/**
- * The agent's argument vector. `extra` holds arguments the user passed after
- * `--`, such as `exec` for a non-interactive Codex run; the initial message
- * stays last so both agents read it as their prompt.
- */
-export const agentArguments = (input: {
-  readonly agent: RegisteredAgent;
-  readonly extra: readonly string[];
-  readonly message: string;
-  readonly spec: ServerSpec;
-}): string[] =>
-  input.agent === "claude"
-    ? [
-        ...input.extra,
-        // `--mcp-config` takes several values, so `--` ends it before the prompt.
-        "--mcp-config",
-        claudeMcpConfig(input.spec),
-        "--",
-        input.message,
-      ]
-    : [...codexMcpOverrides(input.spec), ...input.extra, input.message];
