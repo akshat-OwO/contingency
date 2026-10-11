@@ -64,7 +64,7 @@ export const describeDifferences = (
   const differences: string[] = [];
   if (existing.startupTimeoutSeconds !== wanted.startupTimeoutSeconds) {
     differences.push(
-      `startup_timeout_sec is ${existing.startupTimeoutSeconds ?? "unset"}; Contingency would use ${wanted.startupTimeoutSeconds ?? "the default"}`
+      `the startup timeout is ${existing.startupTimeoutSeconds === undefined ? "unset" : `${existing.startupTimeoutSeconds} seconds`}; Contingency would use ${wanted.startupTimeoutSeconds === undefined ? "the default" : `${wanted.startupTimeoutSeconds} seconds`}`
     );
   }
   if (existing.command !== wanted.command) {

@@ -15,6 +15,12 @@ import {
   codexTable,
   codexTrustsProject,
 } from "../../src/services/agent-harness-codex.ts";
+import {
+  opencodeEntry,
+  opencodeEntryFromJsonc,
+  opencodeRegistrationServerSpec,
+  withOpencodeEntry,
+} from "../../src/services/agent-harness-opencode.ts";
 import { AgentHarnessesLive } from "../../src/services/agent-harnesses.ts";
 import {
   describeDifferences,
@@ -96,7 +102,7 @@ it.effect(
       expect(Option.isSome(entry)).toBe(true);
       if (Option.isSome(entry)) {
         expect(describeDifferences(entry.value.spec, SPEC)).toEqual([
-          "startup_timeout_sec is unset; Contingency would use 60",
+          "the startup timeout is unset; Contingency would use 60 seconds",
         ]);
       }
     })
@@ -250,7 +256,7 @@ it("names every difference a user must decide on", () => {
       SPEC
     )
   ).toEqual([
-    "startup_timeout_sec is unset; Contingency would use 60",
+    "the startup timeout is unset; Contingency would use 60 seconds",
     `args are ["old.js","mcp"]; Contingency would use ${JSON.stringify(SPEC.args)}`,
     'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
   ]);
@@ -372,4 +378,310 @@ it.effect("reads Claude Code scopes from its configuration files", () =>
     expect(entries.project?.extras).toEqual(["type is http, not stdio"]);
     expect(entries.shared?.spec.command).toBe("shared");
   }).pipe(Effect.provide(NodeServices.layer))
+);
+
+// ---------------------------------------------------------------------------
+// OpenCode
+// ---------------------------------------------------------------------------
+
+const OPENCODE_SPEC = opencodeRegistrationServerSpec({
+  fallbackDirectory: "/work/onboarding",
+  invocation: { args: ["/opt/contingency/index.js"], command: "/usr/bin/node" },
+});
+
+const OPENCODE_UNRELATED = `{
+\t// Personal settings stay exactly as written.
+\t"$schema": "https://opencode.ai/config.json",
+\t"model": "opencode/free", // trailing comment
+\t"mcp": {
+\t\t"servers": {
+\t\t\t"other": { "type": "local", "command": ["other-server"] },
+\t\t},
+\t},
+}
+`;
+
+it("writes OpenCode's local entry with native tools and a cold-start timeout", () => {
+  expect(opencodeEntry(OPENCODE_SPEC)).toEqual({
+    codemode: false,
+    command: [
+      "/usr/bin/node",
+      "/opt/contingency/index.js",
+      "mcp",
+      "--agent",
+      "opencode",
+      "--fallback-directory",
+      "/work/onboarding",
+    ],
+    environment: { CONTINGENCY_MCP_PORT: "0" },
+    timeout: { startup: 60_000 },
+    type: "local",
+  });
+});
+
+it.effect("edits one JSONC entry and keeps every other byte", () =>
+  Effect.gen(function* jsoncEdit() {
+    const next = withOpencodeEntry(
+      OPENCODE_UNRELATED,
+      opencodeEntry(OPENCODE_SPEC)
+    );
+    const [head, tail] = OPENCODE_UNRELATED.split("\t\t},\n");
+    expect(next.startsWith(head ?? "")).toBe(true);
+    expect(next.endsWith(`\t\t},\n${tail ?? ""}`)).toBe(true);
+    // The new entry follows the file's tab indentation.
+    expect(next).toContain('\t\t\t"contingency": {\n\t\t\t\t"codemode": false');
+    const entry = yield* opencodeEntryFromJsonc(next, "opencode.jsonc");
+    expect(Option.getOrThrow(entry)).toEqual({
+      extras: [],
+      location: "opencode.jsonc",
+      spec: OPENCODE_SPEC,
+    });
+    expect(withOpencodeEntry("", opencodeEntry(OPENCODE_SPEC))).toMatch(
+      /^\{\n {2}"mcp": \{\n[\s\S]*\}\n$/u
+    );
+  })
+);
+
+/** The Contingency entry as `withOpencodeEntry` writes it with tabs. */
+const entryLines = (indent: string, closing = "}") => [
+  `${indent}"contingency": {`,
+  `${indent}\t"codemode": false,`,
+  `${indent}\t"command": [`,
+  `${indent}\t\t"node"`,
+  `${indent}\t],`,
+  `${indent}\t"environment": {},`,
+  `${indent}\t"type": "local"`,
+  `${indent}${closing}`,
+];
+
+it("adds the entry on its own line, after a comment and with CRLF", () => {
+  const value = opencodeEntry({ args: [], command: "node", env: {} });
+  expect(
+    withOpencodeEntry('{\n\t"model": "x" // note\n}\n', value).split("\n")
+  ).toEqual([
+    "{",
+    '\t"model": "x", // note',
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    ...entryLines("\t\t\t"),
+    "\t\t}",
+    "\t}",
+    "}",
+    "",
+  ]);
+  // A trailing comma after the last member is kept, and matched.
+  expect(
+    withOpencodeEntry(
+      '{\r\n\t"mcp": {\r\n\t\t"servers": {\r\n\t\t\t"a": 1, /* c */\r\n\t\t}\r\n\t}\r\n}\r\n',
+      value
+    ).split("\r\n")
+  ).toEqual([
+    "{",
+    '\t"mcp": {',
+    '\t\t"servers": {',
+    '\t\t\t"a": 1, /* c */',
+    ...entryLines("\t\t\t", "},"),
+    "\t\t}",
+    "\t}",
+    "}",
+    "",
+  ]);
+});
+
+it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
+  Effect.gen(function* opencodeDiffers() {
+    const written = `{ "mcp": { "servers": { "contingency": ${JSON.stringify({
+      command: ["/usr/bin/node", "old.js"],
+      cwd: "/elsewhere",
+      disabled: true,
+      type: "local",
+    })} } } }`;
+    const entry = Option.getOrThrow(
+      yield* opencodeEntryFromJsonc(written, "opencode.json")
+    );
+    expect(
+      describeDifferences(entry.spec, OPENCODE_SPEC, entry.extras)
+    ).toEqual([
+      "the startup timeout is unset; Contingency would use 60 seconds",
+      `args are ["old.js"]; Contingency would use ${JSON.stringify(OPENCODE_SPEC.args)}`,
+      'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
+      "disabled is set to true",
+      'cwd is set to "/elsewhere"',
+      "codemode is unset; Contingency would set it to false so its tools stay native",
+    ]);
+    const remote = Option.getOrThrow(
+      yield* opencodeEntryFromJsonc(
+        '{ "mcp": { "servers": { "contingency": { "type": "remote", "url": "https://example.test" } } } }',
+        "opencode.json"
+      )
+    );
+    expect(remote.extras).toEqual([
+      "the entry is not a local command Contingency can read",
+    ]);
+    const malformed = yield* opencodeEntryFromJsonc(
+      '{ "mcp": ',
+      "opencode.json"
+    ).pipe(Effect.result);
+    expect(Result.isFailure(malformed)).toBe(true);
+  })
+);
+
+it.effect(
+  "registers, keeps, reports, and replaces an OpenCode project entry",
+  () =>
+    Effect.gen(function* opencodeProjectLifecycle() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const home = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-opencode-home-",
+      });
+      const project = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-opencode-project-",
+      });
+      const userConfig = path.join(
+        home,
+        ".config",
+        "opencode",
+        "opencode.jsonc"
+      );
+      yield* fileSystem.makeDirectory(path.dirname(userConfig), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(userConfig, OPENCODE_UNRELATED);
+      // OpenCode writes to the first project file that exists, as it does.
+      const projectConfig = path.join(project, ".opencode", "opencode.jsonc");
+      yield* fileSystem.makeDirectory(path.dirname(projectConfig));
+      yield* fileSystem.writeFileString(projectConfig, OPENCODE_UNRELATED);
+      const request = {
+        env: {},
+        harness: "opencode" as const,
+        home,
+        projectDirectory: project,
+        replace: false,
+        scope: "project" as const,
+        spec: OPENCODE_SPEC,
+      };
+
+      const first = yield* register(request);
+      expect(first).toEqual({
+        _tag: "registered",
+        location: projectConfig,
+        notes: [],
+      });
+      const afterFirst = yield* fileSystem.readFileString(projectConfig);
+      expect(afterFirst).toContain(
+        "// Personal settings stay exactly as written."
+      );
+      expect(afterFirst).toContain(
+        '"model": "opencode/free", // trailing comment'
+      );
+
+      const second = yield* register(request);
+      expect(second._tag).toBe("kept");
+      expect(yield* fileSystem.readFileString(projectConfig)).toBe(afterFirst);
+
+      const other = { ...OPENCODE_SPEC, command: "/elsewhere/node" };
+      const differs = yield* register({ ...request, spec: other });
+      expect(differs._tag).toBe("differs");
+      expect(yield* fileSystem.readFileString(projectConfig)).toBe(afterFirst);
+
+      const replaced = yield* register({
+        ...request,
+        replace: true,
+        spec: other,
+      });
+      expect(replaced._tag).toBe("replaced");
+      const afterReplace = yield* fileSystem.readFileString(projectConfig);
+      expect(afterReplace).toContain('"/elsewhere/node"');
+      expect(afterReplace).toContain(
+        "// Personal settings stay exactly as written."
+      );
+      expect(afterReplace).toContain(
+        '"other": { "type": "local", "command": ["other-server"] }'
+      );
+      expect(afterReplace.match(/"contingency"/gu)).toHaveLength(1);
+      // No other file was created, and the user configuration was never written.
+      expect(
+        yield* fileSystem.exists(path.join(project, "opencode.json"))
+      ).toBe(false);
+      expect(yield* fileSystem.readFileString(userConfig)).toBe(
+        OPENCODE_UNRELATED
+      );
+    }).pipe(
+      Effect.provide(AgentHarnessesLive),
+      Effect.provide(NodeServices.layer)
+    )
+);
+
+it.effect(
+  "registers OpenCode user scope in its configuration directory and notes a project entry",
+  () =>
+    Effect.gen(function* opencodeUserScope() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const home = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-opencode-home-",
+      });
+      const configDirectory = path.join(home, "custom-config");
+      const project = path.join(home, "project");
+      yield* fileSystem.makeDirectory(project);
+      yield* fileSystem.writeFileString(
+        path.join(project, "opencode.json"),
+        withOpencodeEntry(
+          "",
+          opencodeEntry({ ...OPENCODE_SPEC, command: "/project/node" })
+        )
+      );
+      const outcome = yield* register({
+        env: { OPENCODE_CONFIG_DIR: configDirectory },
+        harness: "opencode",
+        home,
+        projectDirectory: project,
+        replace: false,
+        scope: "user",
+        spec: OPENCODE_SPEC,
+      });
+      const written = path.join(configDirectory, "opencode.json");
+      expect(outcome._tag).toBe("registered");
+      expect(outcome.location).toBe(written);
+      expect(outcome.notes.join(" ")).toContain(
+        "OpenCode merges project configuration over the user configuration"
+      );
+      const entry = yield* opencodeEntryFromJsonc(
+        yield* fileSystem.readFileString(written),
+        written
+      );
+      expect(Option.getOrThrow(entry).spec).toEqual(OPENCODE_SPEC);
+    }).pipe(
+      Effect.provide(AgentHarnessesLive),
+      Effect.provide(NodeServices.layer)
+    )
+);
+
+it.effect("refuses malformed OpenCode configuration without writing it", () =>
+  Effect.gen(function* opencodeMalformed() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const home = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-opencode-home-",
+    });
+    const projectConfig = path.join(home, "opencode.jsonc");
+    yield* fileSystem.writeFileString(projectConfig, '{ "model": ');
+    const result = yield* register({
+      env: {},
+      harness: "opencode",
+      home,
+      projectDirectory: home,
+      replace: true,
+      scope: "project",
+      spec: OPENCODE_SPEC,
+    }).pipe(Effect.result);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toContain(
+        "is not JSONC Contingency can read"
+      );
+    }
+    expect(yield* fileSystem.readFileString(projectConfig)).toBe('{ "model": ');
+  }).pipe(
+    Effect.provide(AgentHarnessesLive),
+    Effect.provide(NodeServices.layer)
+  )
 );

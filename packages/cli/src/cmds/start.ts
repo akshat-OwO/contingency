@@ -6,8 +6,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import packageJson from "../../package.json" with { type: "json" };
 import { HARNESS_IDS, olderThan } from "../services/agent-harness.ts";
+import { AgentLaunchError } from "../services/agent-launch-error.ts";
 import {
-  AgentLaunchError,
   chooseHarness,
   currentInvocation,
   demoInitialMessage,
@@ -73,7 +73,7 @@ export const startCommand = Command.make(
     ),
     agentArgs: Argument.String("agent-args").pipe(
       Argument.withDescription(
-        "Extra arguments for the agent, after --, such as `exec` for a non-interactive Codex run."
+        "Extra arguments for the agent, after --, such as `exec` for a non-interactive Codex run. OpenCode refuses --server, because a shared server never sees the session-only connection."
       ),
       Argument.variadic()
     ),
@@ -104,17 +104,6 @@ export const startCommand = Command.make(
       directory,
       invocation,
     });
-    yield* Console.error(
-      [
-        `Starting ${chosen.harness.label} ${chosen.version} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
-        `Catalog Root: ${catalogRoot}`,
-      ].join("\n")
-    );
-    if (olderThan(chosen.version, chosen.harness.verifiedVersion)) {
-      yield* Console.error(
-        `This release was verified with ${chosen.harness.label} ${chosen.harness.verifiedVersion}. If onboarding fails, update ${chosen.harness.label} and try again.`
-      );
-    }
     const message = demo
       ? demoInitialMessage({
           agent: chosen.harness,
@@ -136,11 +125,23 @@ export const startCommand = Command.make(
           }),
         });
     const plan = yield* chosen.harness.launchPlan({
+      env: process.env,
       executable: chosen.executable,
       extra: agentArgs,
       message,
       spec,
     });
+    yield* Console.error(
+      [
+        `Starting ${chosen.harness.label} ${chosen.version} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
+        `Catalog Root: ${catalogRoot}`,
+      ].join("\n")
+    );
+    if (olderThan(chosen.version, chosen.harness.verifiedVersion)) {
+      yield* Console.error(
+        `This release was verified with ${chosen.harness.label} ${chosen.harness.verifiedVersion}. If onboarding fails, update ${chosen.harness.label} and try again.`
+      );
+    }
     const code = yield* Effect.scoped(
       Effect.gen(function* runAgent() {
         yield* holdSignals;
@@ -176,6 +177,6 @@ export const startCommand = Command.make(
   })
 ).pipe(
   Command.withDescription(
-    "Launch Claude Code or Codex with Contingency connected for this session only. Add --demo for guided onboarding on the bundled demo store."
+    "Launch Claude Code, Codex, or OpenCode with Contingency connected for this session only. Add --demo for guided onboarding on the bundled demo store."
   )
 );

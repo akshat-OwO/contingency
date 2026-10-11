@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { Data, Effect, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { AgentHarnesses, allHarnesses } from "./agent-harness.ts";
 import type {
@@ -8,6 +8,7 @@ import type {
   HarnessId,
   HarnessReadiness,
 } from "./agent-harness.ts";
+import { AgentLaunchError } from "./agent-launch-error.ts";
 import type { ServerSpec } from "./agent-registration.ts";
 import { SERVER_NAME } from "./agent-registration.ts";
 import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
@@ -31,10 +32,6 @@ import {
  * or permission settings. The agent spawns Contingency as a stdio child that
  * owns its own browser and Workspace on an available port.
  */
-
-export class AgentLaunchError extends Data.TaggedError("AgentLaunchError")<{
-  readonly message: string;
-}> {}
 
 /** A harness whose executable is on PATH at a supported version. */
 export interface ReadyHarness {

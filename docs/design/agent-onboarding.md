@@ -20,7 +20,7 @@ The user first watches the agent run a prepared example, then teaches a variatio
 
 The agent prepares the browser before recording. It may navigate and request private inputs through Workspace Variables, then hands control to the user. The user starts and stops recording; the agent learns from the resulting Teaching Recording.
 
-Users launch onboarding with `npx @contingencyhq/cli start --demo`. The first version supports Claude Code and Codex. The existing `mcp` command remains available for direct server use.
+Users launch onboarding with `npx @contingencyhq/cli start --demo`. The first version supported Claude Code and Codex; OpenCode V2 followed (see [OpenCode V2](#opencode-v2)). The existing `mcp` command remains available for direct server use.
 
 Without `--demo`, `start` is the everyday session-only entry point. The agent follows the bundled work prompt (`contingency://start/work-prompt`) on the user's own website, and the server runs `mcp` without `--demo`, so neither the demo store nor its Example tools exist in that session. The agent does not offer permanent registration; it tells the user that running `start` again reconnects Contingency.
 
@@ -110,3 +110,12 @@ The [example design](./agent-onboarding-examples.md) describes the tasks and run
 - Test project and user registration, equivalent entries, differing entries, and preservation of unrelated configuration.
 - Confirm a fresh project gets its own catalog and directory discovery uses the fallback only when no current project is available.
 - Exit during setup, recording, and a Dry Run; verify persisted results and return-visit choices against the existing lifecycle contracts.
+
+## OpenCode V2
+
+Research on 2026-10-11 checked OpenCode 2.0.26 (`opencode --version` prints `opencode v2.0.26`; V1 printed a bare version and is unsupported).
+
+- **Session-only launch.** `OPENCODE_CONFIG_CONTENT` holding `mcp.servers.contingency` connects the server when the TUI runs with `--standalone`, and merges with the user's and the project's configuration: a project server and the injected one both connected in the same session. No configuration file changed. The shared background service reads its environment once at its own start, so `start` always passes `--standalone` and refuses `--server`. A user's own `OPENCODE_CONFIG_CONTENT` is kept, with the entry added.
+- **Registration.** `opencode mcp add` writes `type: "local"`, a `command` array, and `environment`, keeps comments, and replaces a same-name entry wholesale. It cannot write `codemode` or `timeout`, and it reformats sibling entries. Registration therefore edits the JSONC directly: an existing entry's value is replaced in place, and a new entry goes on its own line before the closing brace, leaving every other byte unchanged. It picks the file `opencode mcp add` would pick: the first existing of `opencode.json`, `opencode.jsonc`, `.opencode/opencode.json`, and `.opencode/opencode.jsonc` in the project; and `opencode.json` or `opencode.jsonc` in `$OPENCODE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode` for user scope.
+- **Entry.** `codemode: false` exposes Contingency's tools natively, as Claude Code and Codex see them, and `timeout.startup` is 60 seconds so a cold `npx` download does not fail the connection.
+- **Project directory.** OpenCode starts a stdio server in the session's directory, both standalone and from the background service, which started each server in its own project's directory. Contingency reads its working directory, as it does for Codex.

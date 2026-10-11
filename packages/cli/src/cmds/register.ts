@@ -124,6 +124,6 @@ export const registerCommand = Command.make(
   })
 ).pipe(
   Command.withDescription(
-    "Register Contingency's MCP server permanently for Claude Code or Codex, for this project or for every project."
+    "Register Contingency's MCP server permanently for Claude Code, Codex, or OpenCode, for this project or for every project."
   )
 );

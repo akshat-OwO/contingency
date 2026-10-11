@@ -2,6 +2,10 @@ import { Effect, Layer } from "effect";
 
 import { ClaudeHarness, ClaudeHarnessLive } from "./agent-harness-claude.ts";
 import { CodexHarness, CodexHarnessLive } from "./agent-harness-codex.ts";
+import {
+  OpencodeHarness,
+  OpencodeHarnessLive,
+} from "./agent-harness-opencode.ts";
 import { AgentHarnesses } from "./agent-harness.ts";
 import type { AgentHarness, HarnessId } from "./agent-harness.ts";
 
@@ -12,7 +16,12 @@ export const AgentHarnessesLive = Layer.effect(
     const harnesses: Readonly<Record<HarnessId, AgentHarness>> = {
       claude: yield* ClaudeHarness,
       codex: yield* CodexHarness,
+      opencode: yield* OpencodeHarness,
     };
     return harnesses;
   })
-).pipe(Layer.provide(Layer.mergeAll(ClaudeHarnessLive, CodexHarnessLive)));
+).pipe(
+  Layer.provide(
+    Layer.mergeAll(ClaudeHarnessLive, CodexHarnessLive, OpencodeHarnessLive)
+  )
+);

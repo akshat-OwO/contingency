@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hold an interactive coding-agent TUI in a pseudo-terminal for verification.
 
-`contingency start` hands the terminal to Claude Code or Codex. A proof that
+`contingency start` hands the terminal to Claude Code, Codex, or OpenCode. A proof that
 spans several user turns needs that same interactive process to stay alive,
 because its MCP child owns the browser and Workspace. This helper runs the
 command in a pty, answers the terminal queries a TUI sends at startup, logs
@@ -14,7 +14,8 @@ raw output, and accepts keystrokes through a FIFO.
   agent-pty.py stop --dir DIR
 
 Read agent turns from the agent's own transcript (Codex rollouts under
-CODEX_HOME/sessions, Claude transcripts under its projects directory) rather
+CODEX_HOME/sessions, Claude transcripts under its projects directory, OpenCode
+through `opencode session export --standalone`) rather
 than from the screen.
 """
 

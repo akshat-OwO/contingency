@@ -5,6 +5,7 @@ import path from "node:path";
 import { Context, Effect, FileSystem, Option } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import type { AgentLaunchError } from "./agent-launch-error.ts";
 import type {
   RegistrationError,
   RegistrationOutcome,
@@ -23,7 +24,7 @@ import type {
  * type rejects an id without an implementation.
  */
 
-export const HARNESS_IDS = ["claude", "codex"] as const;
+export const HARNESS_IDS = ["claude", "codex", "opencode"] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
 /**
@@ -58,6 +59,8 @@ export interface LaunchPlan {
 }
 
 export interface LaunchRequest {
+  /** The environment the harness inherits. */
+  readonly env: Readonly<Record<string, string | undefined>>;
   readonly executable: string;
   /** Arguments the user passed after `--`. */
   readonly extra: readonly string[];
@@ -75,7 +78,9 @@ export interface AgentHarness {
   readonly readiness: (
     pathVariable: string | undefined
   ) => Effect.Effect<HarnessReadiness>;
-  readonly launchPlan: (request: LaunchRequest) => Effect.Effect<LaunchPlan>;
+  readonly launchPlan: (
+    request: LaunchRequest
+  ) => Effect.Effect<LaunchPlan, AgentLaunchError>;
   /** The server a permanent registration of this harness starts. */
   readonly registrationServerSpec: (input: {
     readonly fallbackDirectory: string;

@@ -25,7 +25,7 @@ npx @contingencyhq/cli start --agent claude
 npx @contingencyhq/cli start --demo
 ```
 
-Install Claude Code or Codex first. `start` launches the one installed agent or offers a picker when several are installed. It checks only that the agent is on `PATH` at a supported version; a signed-out agent shows its own sign-in when it starts. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports.
+Install Claude Code, Codex, or OpenCode V2 (`npm install -g @opencode/cli`; verified with 2.0.26) first. OpenCode V1 is not supported. `start` launches the one installed agent or offers a picker when several are installed. It checks only that the agent is on `PATH` at a supported version; a signed-out agent shows its own sign-in when it starts. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports. OpenCode starts with `--standalone`, a private server for that launch, because its shared background service never sees a session-only connection; `start` refuses `--server`.
 
 Without `--demo`, the agent follows a bundled work prompt on your own website: it lists your saved Flow Skills and unfinished Teaching, runs verified Flow Skills to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
 
@@ -40,9 +40,10 @@ After verification in a `--demo` session, you can keep the session-only connecti
 ```sh
 contingency register --agent claude --scope project
 contingency register --agent codex --scope user
+contingency register --agent opencode --scope user
 ```
 
-Project registration applies to the current project. User registration applies across projects, with a separate `.contingency` catalog in each project. Equivalent entries stay unchanged. A different entry is reported without changes; use `--replace` only after choosing replacement. If an agent cannot report a usable project directory, Contingency names and uses the original onboarding directory as its fallback.
+Project registration applies to the current project. User registration applies across projects, with a separate `.contingency` catalog in each project. Equivalent entries stay unchanged. A different entry is reported without changes; use `--replace` only after choosing replacement. OpenCode registration edits `opencode.json` or `opencode.jsonc` in place, keeping comments and unrelated settings, and sets `codemode: false` so Contingency's tools stay native. If an agent cannot report a usable project directory, Contingency names and uses the original onboarding directory as its fallback.
 
 Registrations created through `npx` pin the installed Contingency version. To upgrade one, run `npx -y @contingencyhq/cli@latest register --agent codex --scope user --replace`, choosing the agent and scope of your existing registration.
 
