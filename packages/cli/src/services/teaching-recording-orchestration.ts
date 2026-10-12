@@ -21,6 +21,11 @@ import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
+  browserCapabilities,
+  browserRequirements,
+  validatePlatformRequirements,
+} from "./platform-requirements.ts";
+import {
   PRIVATE_INPUT_NAME,
   readRequestedSkills,
   taskVariables,
@@ -77,6 +82,7 @@ export const teachingRecordingSummary = (
     flowSkillName: manifest.flowSkillName,
     lifecycle: lifecycle._tag,
     recordingId: manifest.recordingId,
+    runtime: manifest.runtime ?? browserRequirements,
     updatedAt: manifest.updatedAt,
   });
   switch (lifecycle._tag) {
@@ -299,6 +305,20 @@ export const startDryRun = (input: DryRunStartInput) =>
         invalid("The Flow Skill has no numbered steps to assess.")
       );
     }
+    const runtime = skill.runtime ?? {
+      diagnostics: [],
+      requirements: browserRequirements,
+    };
+    yield* validatePlatformRequirements(
+      runtime,
+      manifest.runtime?.platform ?? "web",
+      browserCapabilities
+    ).pipe(Effect.mapError((cause) => invalid(cause.message)));
+    yield* validatePlatformRequirements(
+      runtime,
+      "web",
+      browserCapabilities
+    ).pipe(Effect.mapError((cause) => invalid(cause.message)));
     const host = webHost(input.url);
     const { hosts } = skill;
     if (host === undefined || !hosts.includes(host)) {
@@ -478,6 +498,22 @@ export const startDryRun = (input: DryRunStartInput) =>
         },
         emulation: manifest.emulation,
         run,
+        runtimeRequirements: {
+          ...runtime,
+          requirements: {
+            ...runtime.requirements,
+            capabilities: [
+              ...new Set([
+                ...runtime.requirements.capabilities,
+                ...prerequisites.flatMap(
+                  (prerequisite) =>
+                    (prerequisite.runtime?.requirements ?? browserRequirements)
+                      .capabilities
+                ),
+              ]),
+            ],
+          },
+        },
         url: input.url,
         viewport: manifest.emulation.viewport,
       };

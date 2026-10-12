@@ -16,6 +16,7 @@ import { browserAttachmentsField } from "./browser-checks.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { PlatformRequirements } from "./platform.ts";
 import { TeachingScan } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
@@ -263,6 +264,7 @@ const TeachingRecordingManifestBase = {
   flowSkillName: FlowSkillName,
   receipts: Schema.Array(TeachingRecordingReceipt),
   recordingId: TeachingRecordingId,
+  runtime: Schema.optionalKey(PlatformRequirements),
   schemaVersion: Schema.Literal(1),
   sessionId: AgentSessionId,
   updatedAt: nonEmptyString,
@@ -455,6 +457,7 @@ export const TeachingRecordingSummary = Schema.Struct({
     "failed",
   ]),
   recordingId: TeachingRecordingId,
+  runtime: Schema.optionalKey(PlatformRequirements),
   updatedAt: nonEmptyString,
 });
 export type TeachingRecordingSummary = typeof TeachingRecordingSummary.Type;

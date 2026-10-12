@@ -53,6 +53,7 @@ export default defineConfig({
         "packages/protocol/src/emulation.ts",
         "packages/protocol/src/flow.ts",
         "packages/protocol/src/index.ts",
+        "packages/protocol/src/platform.ts",
         "packages/protocol/src/run.ts",
         "packages/protocol/src/run-video.ts",
         "packages/protocol/src/scans.ts",

@@ -2,8 +2,16 @@ import { DraftEmulation } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 
 import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
+import {
+  browserCapabilities,
+  browserRequirements,
+  validatePlatformRequirements,
+} from "./platform-requirements.ts";
 
-type SkillEnvironment = Pick<FlowSkillPackage, "name" | "emulation">;
+type SkillEnvironment = Pick<
+  FlowSkillPackage,
+  "name" | "emulation" | "runtime"
+>;
 
 const invalid = (message: string) => ({
   code: "flow_skill_invalid" as const,
@@ -23,6 +31,11 @@ export const defaultRunEmulation: DraftEmulation = {
 /** Decode the saved requirement without dropping invalid fields or inventing a device. */
 export const skillRunEmulation = (skill: SkillEnvironment) =>
   Effect.gen(function* readSkillEnvironment() {
+    yield* validatePlatformRequirements(
+      skill.runtime ?? { diagnostics: [], requirements: browserRequirements },
+      "web",
+      browserCapabilities
+    );
     const saved = skill.emulation;
     if (saved === undefined) {
       return;
@@ -157,5 +170,23 @@ export const startingRunEmulation = (skills: readonly SkillEnvironment[]) =>
         }
       }
     }
-    return { emulation, source };
+    return {
+      emulation,
+      runtimeRequirements: {
+        diagnostics: [],
+        requirements: {
+          ...browserRequirements,
+          capabilities: [
+            ...new Set(
+              skills.flatMap(
+                (skill) =>
+                  (skill.runtime?.requirements ?? browserRequirements)
+                    .capabilities
+              )
+            ),
+          ],
+        },
+      },
+      source,
+    };
   });

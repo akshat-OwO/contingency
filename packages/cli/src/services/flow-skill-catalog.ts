@@ -23,6 +23,8 @@ import type {
   FlowSkillInput,
   FlowSkillProcedureStep,
 } from "./flow-skill-package.ts";
+import { browserRequirements } from "./platform-requirements.ts";
+import type { SavedPlatformRequirements } from "./platform-requirements.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 /**
@@ -67,6 +69,7 @@ const ioError = (context: string) => (cause: PlatformError) =>
 
 /** One Flow Skill package as it sits on disk. */
 export interface FlowSkillPackage {
+  readonly runtime?: SavedPlatformRequirements;
   readonly directory: string;
   /** The Emulation the journey was demonstrated under, when the package has one. */
   readonly emulation: FlowSkillEmulation | undefined;
@@ -237,6 +240,10 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
       hosts: frontmatter?.hosts ?? [],
       inputs: frontmatter?.inputs ?? [],
       name: FlowSkillName.make(name),
+      runtime: frontmatter?.runtime ?? {
+        diagnostics: [],
+        requirements: browserRequirements,
+      },
       steps: flowSkillProcedureSteps(skill.content),
       title: frontmatter?.description ?? name,
     } satisfies FlowSkillPackage;

@@ -33,6 +33,7 @@ import type { AgentSessionSnapshot } from "./agent-session.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { PlatformIdentity } from "./platform.ts";
 import { scanRequirementsField, scanReportsField } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
@@ -130,6 +131,7 @@ export const AgentSessionCompact = Schema.Struct({
   latestAttempt: Schema.NullOr(AgentTimelineEntry),
   pendingDecisions: Schema.Array(AgentPendingDecision),
   phase: AgentSessionPhase,
+  platform: Schema.optionalKey(PlatformIdentity),
   run: Schema.NullOr(Schema.Union([CompactTaskRun, CompactOrderedRun])),
   setupVariables: Schema.Array(AgentSetupVariable),
   takeover: Schema.NullOr(AgentTakeoverRequest),
@@ -229,6 +231,7 @@ export const compactAgentSession = (
   latestAttempt: snapshot.timeline.at(-1) ?? null,
   pendingDecisions: snapshot.pendingDecisions,
   phase: snapshot.phase,
+  platform: snapshot.platform ?? "web",
   run: compactRun(snapshot.run),
   setupVariables: snapshot.setupVariables ?? [],
   takeover: snapshot.takeover,

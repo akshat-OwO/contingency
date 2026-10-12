@@ -21,9 +21,11 @@ import { AgentSession } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   UnpublishedEmulation,
+  UnpublishedRuntimeRequirements,
   UnpublishedSession,
   WorkspaceLinkGuidance,
   encodeUnpublishedEmulation,
+  encodeUnpublishedRuntimeRequirements,
   encodeUnpublishedSession,
   sessionViewParameter,
   workspaceLinkGuidance,
@@ -68,13 +70,14 @@ const failure = (
   });
 
 /**
- * A recording summary as the catalog publishes it. Its Emulation is the
+ * A recording summary as the catalog publishes it. Its Emulation and runtime requirements are the
  * protocol shape, encoded but not republished in each tool that answers with
  * a summary (ADR 0045).
  */
 const PublishedRecordingSummary = Schema.Struct({
   ...TeachingRecordingSummary.fields,
   emulation: UnpublishedEmulation,
+  runtime: Schema.optionalKey(UnpublishedRuntimeRequirements),
 });
 
 const PublishedRecordingList = Schema.Struct({
@@ -87,9 +90,16 @@ const PublishedClaimResult = Schema.Struct({
 });
 
 const publishSummary = (summary: TeachingRecordingSummary) =>
-  encodeUnpublishedEmulation(summary.emulation).pipe(
-    Effect.map((emulation) => ({ ...summary, emulation }))
-  );
+  Effect.gen(function* publishRecordingSummary() {
+    const emulation = yield* encodeUnpublishedEmulation(summary.emulation);
+    if (summary.runtime === undefined) {
+      return { ...summary, emulation };
+    }
+    const runtime = yield* encodeUnpublishedRuntimeRequirements(
+      summary.runtime
+    );
+    return { ...summary, emulation, runtime };
+  });
 
 /** Every state a claim or decision lands in has a learning-agent summary. */
 const summaryOf = (manifest: TeachingRecordingManifest) => {

@@ -30,6 +30,8 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+import { browserRequirements } from "./platform-requirements.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
 export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
@@ -716,6 +718,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               },
             ],
             recordingId: input.recordingId,
+            runtime: browserRequirements,
             schemaVersion: 1,
             sessionId: input.sessionId,
             updatedAt: at,
@@ -1245,11 +1248,35 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
       return Effect.gen(function* writeVerificationReference() {
         const origin = yield* SessionEventOrigin;
+        const skillPath = path.join(
+          path.dirname(verificationPath),
+          "..",
+          "SKILL.md"
+        );
+        const content = yield* fileSystem
+          .readFileString(skillPath)
+          .pipe(
+            Effect.mapError(ioError("Could not read the skill being verified"))
+          );
+        const runtime = readFlowSkillFrontmatter(content)?.runtime;
+        if (
+          runtime === undefined ||
+          runtime.diagnostics.length > 0 ||
+          runtime.requirements.platform !==
+            (manifest.runtime?.platform ?? "web")
+        ) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_conflict",
+              "The saved skill's platform requirements do not match this Dry Run. Restore the requirements and run a fresh Dry Run before verification."
+            )
+          );
+        }
         return yield* fileSystem.readFileString(verificationPath).pipe(
           Effect.flatMap((contents) =>
             fileSystem.writeFileString(
               verificationPath,
-              `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n- Verification origin: ${origin}\n`,
+              `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n- Platform: ${manifest.runtime?.platform ?? "web"}\n- Verification origin: ${origin}\n`,
               { mode: 0o600 }
             )
           ),

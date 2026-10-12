@@ -49,6 +49,15 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
               return existing;
             }
             const tab: AgentBrowserTab = {
+              activateCoordinates: (x, y) =>
+                Effect.tryPromise({
+                  catch: () =>
+                    makeBrowserRpcError(
+                      "agent_browser_failed",
+                      "Could not activate the observed coordinates. Take a new observation."
+                    ),
+                  try: () => page.mouse.click(x, y),
+                }),
               beginObservation: (action) =>
                 actionTarget(registry, action).pipe(
                   Effect.flatMap((target) =>
