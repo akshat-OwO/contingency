@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="Contingency feasibility helper" android:allowBackup="false" />
+    <instrumentation android:name=".Probe" android:targetPackage="dev.contingency.probe" />
+</manifest>
