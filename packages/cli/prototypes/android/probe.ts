@@ -78,6 +78,28 @@ const program = Effect.gen(function* probe() {
     target,
     use: (driver) =>
       Effect.gen(function* proof() {
+        if (scenario === "launch-unavailable") {
+          const journal = [
+            {
+              operation: "authorized_launch",
+              outcome: yield* result(
+                driver
+                  .launch(target)
+                  .pipe(Effect.map(() => ({ dispatched: true })))
+              ),
+              serial,
+              target,
+            },
+          ];
+          yield* io(() =>
+            writeFile(
+              path.resolve(destination, "journal.json"),
+              JSON.stringify(journal, null, 2),
+              { mode: 0o600 }
+            )
+          );
+          return;
+        }
         const before = yield* driver.observe;
         yield* retain("before", before);
         const journal: unknown[] = [
@@ -121,6 +143,21 @@ const program = Effect.gen(function* probe() {
               serial,
             }
           );
+        }
+        if (scenario === "launch-authorized") {
+          yield* adb(serial, ["shell", "input", "keyevent", "3"], (entry) =>
+            commands.push(entry)
+          );
+          journal.push({
+            operation: "authorized_launch",
+            outcome: yield* result(
+              driver
+                .launch(target)
+                .pipe(Effect.map(() => ({ dispatched: true })))
+            ),
+            serial,
+            target,
+          });
         }
         if (scenario === "launch-denied") {
           journal.push({

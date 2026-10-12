@@ -65,6 +65,24 @@ The `capture-off` scenario switches the screen off, observes the failure, and wa
 
 The `disconnect` scenario powers off the selected emulator with `adb -s SERIAL emu kill`. Use it only on an emulator you own for the proof. It never runs a physical-device reset. Restart that same selected emulator, revalidate its identity, and start a new helper session. The client never reconnects or replays an action automatically.
 
+## Check authorized launcher visibility
+
+Set `PROBE_TARGET` to an already-installed, authorized app with a launcher activity. Bring that app to the foreground through its known explicit component, then run:
+
+```sh
+nub packages/cli/prototypes/android/probe.ts "$PROBE_SERIAL" "$PROBE_TARGET" .cursor/skills/verify-contingency/artifacts/android-463/emulator/launch launch-authorized
+```
+
+This scenario captures the target, returns Home, and requests launch through the helper. The after observation must identify the target. The manifest queries `MAIN/INFO` and `MAIN/LAUNCHER` activities so Android 11+ package visibility does not hide an eligible target. Visibility does not replace authorization.
+
+The helper has no launcher activity. Use it as the declared test target to exercise the genuinely unavailable-launch path without installing another app:
+
+```sh
+nub packages/cli/prototypes/android/probe.ts "$PROBE_SERIAL" dev.contingency.probe .cursor/skills/verify-contingency/artifacts/android-463/emulator/no-launcher launch-unavailable
+```
+
+The journal must record `launch_unavailable`. This scenario performs the lookup without requiring a target observation first.
+
 ## Verify and clean up
 
 ```sh

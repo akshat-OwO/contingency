@@ -1844,6 +1844,47 @@
       "operation": "purge_raw_png",
       "remaining": 0,
       "verificationRound": "final-capture-consistency"
+    },
+    {
+      "command": [
+        "adb",
+        "-s",
+        "emulator-5554",
+        "uninstall",
+        "dev.contingency.probe"
+      ],
+      "exitCode": 0,
+      "stdout": "Success",
+      "stderr": "",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "command": [
+        "adb",
+        "-s",
+        "emulator-5554",
+        "shell",
+        "pidof",
+        "dev.contingency.probe"
+      ],
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "command": ["adb", "forward", "--list"],
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "command": ["adb", "-s", "emulator-5554", "emu", "kill"],
+      "exitCode": 0,
+      "stdout": "OK: killing emulator, bye bye\nOK",
+      "stderr": "",
+      "verificationRound": "launch-visibility-review"
     }
   ],
   "media": [
@@ -2140,6 +2181,55 @@
       "bytes": 122153,
       "status": "purged-after-verification",
       "verificationRound": "final-capture-consistency"
+    },
+    {
+      "file": "launch-before/before.png",
+      "sha256": "863595ec3c591188020c79006eed1ae107086d7ba08a27184e027163b95bb0e9",
+      "bytes": 140104,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "file": "launch-after/before.png",
+      "sha256": "c8e0054150a4086404ed1a4024b30092817c043db0b94f816884e0ee8b99a040",
+      "bytes": 39925,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "file": "launch-after/after.png",
+      "sha256": "c8e0054150a4086404ed1a4024b30092817c043db0b94f816884e0ee8b99a040",
+      "bytes": 39925,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "file": "launch-refusal-review/before.png",
+      "sha256": "c8e0054150a4086404ed1a4024b30092817c043db0b94f816884e0ee8b99a040",
+      "bytes": 39925,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "file": "launch-refusal-review/after.png",
+      "sha256": "c8e0054150a4086404ed1a4024b30092817c043db0b94f816884e0ee8b99a040",
+      "bytes": 39925,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "file": "launch-after-observation/before.png",
+      "sha256": "c8e0054150a4086404ed1a4024b30092817c043db0b94f816884e0ee8b99a040",
+      "bytes": 39925,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
+    },
+    {
+      "file": "launch-after-observation/after.png",
+      "sha256": "c8e0054150a4086404ed1a4024b30092817c043db0b94f816884e0ee8b99a040",
+      "bytes": 39925,
+      "status": "purged-after-verification",
+      "verificationRound": "launch-visibility-review"
     }
   ],
   "build": {
@@ -2149,5 +2239,744 @@
     "androidGradlePlugin": "8.12.0",
     "uiautomator": "2.3.0",
     "compileSdk": 36
+  },
+  "launchVisibilityReview": {
+    "platform": {
+      "avd": "Pixel_9",
+      "serial": "emulator-5554",
+      "api": 36
+    },
+    "target": "com.enfinite.education.teacher",
+    "targetWasAlreadyInstalled": true,
+    "targetModified": false,
+    "beforeSourceCommit": "245c1d4da0c4c2dd115a655ca7c3cf063df3a1ed",
+    "afterHelperApkSha256": "86052eaec347fee17a67d0b5e36db92aff9a73f822bb49575dfa6296d60ae18a",
+    "scenarios": [
+      {
+        "directory": "launch-before",
+        "journal": [
+          {
+            "observation": "1a718468-6ee2-4e60-8ae0-0888cc623a7f",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          },
+          {
+            "operation": "authorized_launch",
+            "outcome": {
+              "error": "launch_unavailable"
+            },
+            "serial": "emulator-5554",
+            "target": "com.enfinite.education.teacher"
+          },
+          {
+            "operation": "status",
+            "state": {
+              "capabilities": [
+                "semantic",
+                "screenshot",
+                "coordinate",
+                "private-input",
+                "fault-injection"
+              ],
+              "closed": false,
+              "observation": "",
+              "paused": true,
+              "session": "e2e357c4-3dae-47a3-b36f-d2c2c8ed60d9"
+            }
+          },
+          {
+            "error": "ownership_denied",
+            "operation": "after_observation"
+          }
+        ],
+        "commands": [
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pm path dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pidof dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "instrument",
+              "-w",
+              "-r",
+              "-e",
+              "token",
+              "<ephemeral-token>",
+              "-e",
+              "target",
+              "com.enfinite.education.teacher",
+              "dev.contingency.probe/.Probe"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "tcp:0",
+              "tcp:8765"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "input",
+              "keyevent",
+              "3"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "--remove",
+              "tcp:53505"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "force-stop",
+              "dev.contingency.probe"
+            ],
+            "outcome": "success"
+          }
+        ],
+        "observations": [
+          {
+            "file": "before.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "1a718468-6ee2-4e60-8ae0-0888cc623a7f",
+            "nodeCount": 11,
+            "sha256": "0eff5d490fd8f425ffc5647229bb78e91fe15fc11ad1514e34cc649f3a775fd2"
+          }
+        ]
+      },
+      {
+        "directory": "launch-after",
+        "journal": [
+          {
+            "observation": "5ebc3aeb-9ad8-4510-bac4-3df821e480c5",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          },
+          {
+            "operation": "authorized_launch",
+            "outcome": {
+              "dispatched": true
+            },
+            "serial": "emulator-5554",
+            "target": "com.enfinite.education.teacher"
+          },
+          {
+            "operation": "status",
+            "state": {
+              "capabilities": [
+                "semantic",
+                "screenshot",
+                "coordinate",
+                "private-input",
+                "fault-injection"
+              ],
+              "closed": false,
+              "observation": "",
+              "paused": true,
+              "session": "3edde1a5-003d-4a0a-99e3-cd7c15470577"
+            }
+          },
+          {
+            "observation": "77f07db4-64e1-43bd-b36c-e028efee64a5",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          }
+        ],
+        "commands": [
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pm path dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pidof dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "instrument",
+              "-w",
+              "-r",
+              "-e",
+              "token",
+              "<ephemeral-token>",
+              "-e",
+              "target",
+              "com.enfinite.education.teacher",
+              "dev.contingency.probe/.Probe"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "tcp:0",
+              "tcp:8765"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "input",
+              "keyevent",
+              "3"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "--remove",
+              "tcp:53593"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "force-stop",
+              "dev.contingency.probe"
+            ],
+            "outcome": "success"
+          }
+        ],
+        "observations": [
+          {
+            "file": "before.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "5ebc3aeb-9ad8-4510-bac4-3df821e480c5",
+            "nodeCount": 3,
+            "sha256": "cc88219ba2acfa4a62a9575dd9f962fa5d4d2d8f0f72080bf61e8dfd547d75e7"
+          },
+          {
+            "file": "after.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "77f07db4-64e1-43bd-b36c-e028efee64a5",
+            "nodeCount": 3,
+            "sha256": "ac5079f0ce00433268aaa52b9e15bf48e523369e3bfb760b994522d3ee085f8f"
+          }
+        ]
+      },
+      {
+        "directory": "launch-after-observation",
+        "journal": [
+          {
+            "observation": "1c22f052-26f7-4edf-b339-d526ff9dca2a",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          },
+          {
+            "operation": "status",
+            "state": {
+              "capabilities": [
+                "semantic",
+                "screenshot",
+                "coordinate",
+                "private-input",
+                "fault-injection"
+              ],
+              "closed": false,
+              "observation": "1c22f052-26f7-4edf-b339-d526ff9dca2a",
+              "paused": false,
+              "session": "cd03742b-19af-4a21-87d3-825a5012dbf0"
+            }
+          },
+          {
+            "observation": "206bb051-8334-4233-9227-1ef6d5cbf252",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          }
+        ],
+        "commands": [
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pm path dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pidof dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "instrument",
+              "-w",
+              "-r",
+              "-e",
+              "token",
+              "<ephemeral-token>",
+              "-e",
+              "target",
+              "com.enfinite.education.teacher",
+              "dev.contingency.probe/.Probe"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "tcp:0",
+              "tcp:8765"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "--remove",
+              "tcp:53672"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "force-stop",
+              "dev.contingency.probe"
+            ],
+            "outcome": "success"
+          }
+        ],
+        "observations": [
+          {
+            "file": "before.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "1c22f052-26f7-4edf-b339-d526ff9dca2a",
+            "nodeCount": 3,
+            "sha256": "ec015084b2bd464b97d98b4711c6fc0a6806c2bae2bdf9f8bdbb24d856f3b413"
+          },
+          {
+            "file": "after.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "206bb051-8334-4233-9227-1ef6d5cbf252",
+            "nodeCount": 3,
+            "sha256": "d102f278d495e990057bc0579dfdf7676f522cb512972dea082b8180e35f95ba"
+          }
+        ]
+      },
+      {
+        "directory": "launch-unavailable",
+        "journal": [
+          {
+            "operation": "authorized_launch",
+            "outcome": {
+              "error": "launch_unavailable"
+            },
+            "serial": "emulator-5554",
+            "target": "dev.contingency.probe"
+          }
+        ],
+        "commands": [
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pm path dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pidof dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "instrument",
+              "-w",
+              "-r",
+              "-e",
+              "token",
+              "<ephemeral-token>",
+              "-e",
+              "target",
+              "dev.contingency.probe",
+              "dev.contingency.probe/.Probe"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "tcp:0",
+              "tcp:8765"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "--remove",
+              "tcp:53766"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "force-stop",
+              "dev.contingency.probe"
+            ],
+            "outcome": "success"
+          }
+        ],
+        "observations": []
+      },
+      {
+        "directory": "launch-refusal-review",
+        "journal": [
+          {
+            "observation": "851049b8-e102-4a75-b44c-f3371dfe9b51",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          },
+          {
+            "operation": "launch",
+            "outcome": {
+              "error": "launch_unauthorized"
+            },
+            "serial": "emulator-5554"
+          },
+          {
+            "operation": "status",
+            "state": {
+              "capabilities": [
+                "semantic",
+                "screenshot",
+                "coordinate",
+                "private-input",
+                "fault-injection"
+              ],
+              "closed": false,
+              "observation": "",
+              "paused": true,
+              "session": "26a7a18c-e37b-43cb-9cf8-c3aeb5ffcbdf"
+            }
+          },
+          {
+            "observation": "3b2ed862-8efc-4c50-8359-9f9c726b7471",
+            "operation": "observe",
+            "serial": "emulator-5554"
+          }
+        ],
+        "commands": [
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pm path dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "pidof dev.contingency.probe || true"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "instrument",
+              "-w",
+              "-r",
+              "-e",
+              "token",
+              "<ephemeral-token>",
+              "-e",
+              "target",
+              "com.enfinite.education.teacher",
+              "dev.contingency.probe/.Probe"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "tcp:0",
+              "tcp:8765"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": ["adb", "-s", "emulator-5554", "get-state"],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "forward",
+              "--remove",
+              "tcp:53797"
+            ],
+            "outcome": "success"
+          },
+          {
+            "command": [
+              "adb",
+              "-s",
+              "emulator-5554",
+              "shell",
+              "am",
+              "force-stop",
+              "dev.contingency.probe"
+            ],
+            "outcome": "success"
+          }
+        ],
+        "observations": [
+          {
+            "file": "before.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "851049b8-e102-4a75-b44c-f3371dfe9b51",
+            "nodeCount": 3,
+            "sha256": "6fe4c8b1f0618d6edabbdb8b8eac150c3fa0662130a6d9d09814f82a88871a66"
+          },
+          {
+            "file": "after.json",
+            "package": "com.enfinite.education.teacher",
+            "observation": "3b2ed862-8efc-4c50-8359-9f9c726b7471",
+            "nodeCount": 3,
+            "sha256": "1802e843cb8ed0874163af997b0e741fdd5d14b5abc6ee3b037840d5b551d679"
+          }
+        ]
+      }
+    ]
   }
 }

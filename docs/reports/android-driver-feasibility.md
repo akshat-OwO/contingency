@@ -30,6 +30,14 @@ The final evidence paths and outcomes are:
 
 Earlier experimental directories are superseded. In particular, early `UiObject2.setText()` probes are not privacy proof. The final helper differs by using the framework's semantic text action, and the final private probe checks diagnostics without exporting their content.
 
+## Authorized launcher visibility regression
+
+Review identified that Android 11 and later can filter `getLaunchIntentForPackage()` results when the caller lacks package visibility. The helper now declares intent queries for `MAIN` with `INFO` and `LAUNCHER`, matching the API's launch-resolution categories. These queries expose eligible launcher activities to lookup; they do not grant permission to launch any package. The exact target-package authorization check still runs first. This follows Android's [package-visibility declaration guidance](https://developer.android.com/training/package-visibility/declaring).
+
+On the same API 36 Pixel_9 emulator, the already-installed, unmodified non-system app `com.enfinite.education.teacher` reproduced the failure. The `launch-authorized` probe first captured the app, returned Home, and asked the helper to launch its declared target. Before the manifest change, the response was `launch_unavailable`. After rebuilding and reinstalling only the helper, the response reported successful dispatch and the after observation belonged to the target app. An independent fresh session confirmed the foreground. The probe did not enter account data, accept prompts, or modify the target app.
+
+The installed helper package itself has no launcher activity. Declaring that package as the test target still returned `launch_unavailable`, proving the missing-launcher failure remains explicit. The unauthorized Chrome launch was also refused before dispatch. These before-and-after journals are in `launch-before`, `launch-after`, `launch-after-observation`, `launch-unavailable`, and `launch-refusal-review`. The receipt's `launchVisibilityReview` section preserves their outcomes, observation identities, and the rebuilt helper hash. Raw screenshots were purged, the helper uninstalled, and the proof emulator stopped again.
+
 ## Helper protocol and driver boundaries
 
 The helper is a separate, non-`testOnly` instrumentation APK, `dev.contingency.probe/.Probe`, targeting its own package. The target app remains unmodified. The host starts it through serial-bound ADB, allocates a host port with `forward tcp:0 tcp:8765`, and sends one newline-delimited JSON request per TCP connection. The device listener binds loopback. An ephemeral random token authenticates requests. The token is omitted from retained command records.
