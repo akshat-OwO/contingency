@@ -14,7 +14,11 @@ export default defineConfig({
     onlyBundle: false,
     onlyImport: ["playwright-core", "lighthouse", "puppeteer-core"],
   },
-  entry: "src/index.ts",
+  entry: {
+    // The OpenCode interpreter runs in its own process (ADR 0059).
+    "code-interpreter-process": "src/services/code-interpreter-process.ts",
+    index: "src/index.ts",
+  },
   env: {
     NODE_ENV: "production",
   },

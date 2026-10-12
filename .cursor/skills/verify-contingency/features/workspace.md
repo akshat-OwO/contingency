@@ -35,6 +35,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-dry-run-outcomes` retains evidence for failed, partial, and Takeover attempts, exposes verification only for a complete report without Takeover, retains rejected evidence, and resumes verified Cleanup after restart.
 - `agent-summary-restart-proof` reopens a task summary and an isolated historical version 2 fixture after restart, preserves Step assessments and timeout meaning, and serves both retained videos.
 - `agent-system-one-pursuit` lists `agent_browser_pursue` only when `CONTINGENCY_SYSTEM_ONE_URL` is set, pursues an ordered list of Flow Skill steps through a System One endpoint in one call, replays the same operation id without acting again, and shows each step in the Run Summary's `System One Pursuits` section (ADR 0057).
+- `agent-code-interpreter` runs one program per fresh OpenCode interpreter process through the opt-in `agent_code_execute` prototype (ADR 0059, #459), waits a full Session Event wait, keeps server receipts across a killed interpreter, and ends a program at a Pending Decision.
 - `agent-mcp-efficiency` keeps `tools/list` under its byte budget, answers session-returning tools with `view:"compact"`, pages omitted history with `agent_session_history_get`, performs a bounded `agent_browser_act_sequence`, and marks read-only tools with MCP hints (ADR 0045).
 - `agent-assessment-evidence-contract` publishes a typed evidence array for Agent Assessments, accepts Snapshot and attempt references, and explains the required object shape when an item is malformed.
 - `agent-teaching-inspect-large-cart` selects live controls and bill text beyond the first 300 snapshot nodes, shows a retry notice for an empty point, and records the selected subjects.
@@ -435,6 +436,17 @@ While recording, add a Comment and retain its full `agent_session_get` snapshot.
 Repeat with only an attachment change. Use the Browser Check fixture, open Network, edit the same comment, and choose **Attach GET browser-check-response**. Keep the text unchanged and wait before saving. Reopen **Edit comment** to confirm the attachment. Scan intent edits emit `scan-requirement-recorded` when the corrected instruction carries a scan; ordinary corrections emit `instruction-recorded`. Saving unchanged content and refreshing the session keep the cursor unchanged.
 
 With channels enabled, read `mcp channels` after each edit and require a frame whose preceding cursor replays the same event batch. Event objects contain only `at`, `cursor`, and `kind`; channel parameters contain only `content` and `meta`, with `sessionId` and `eventCursor` in metadata. Instruction prose, expected attachment values, and private Variables stay out of both notifications. Retain each edit's wait and replay responses separately, plus action and reopened-state ARIA/PNG evidence. Stop Teaching, claim and read its Timeline, and confirm the final instruction and attachment in the isolated catalog before cleanup.
+
+### OpenCode interpreter prototype
+
+Preconditions: the current CLI build, an isolated `launch`, `ecommerce start`, and `CONTINGENCY_MCP_CODE_INTERPRETER=true control-contingency mcp start`. `mcp tools --name agent_code_execute` returns the tool; without the variable it is absent. Start a task Run with `agent_run_start` on `$ECOMMERCE_URL`, task `Add one Giant anvil to the cart`, `inputs: []`, and `referencedSkills: []`. Save its `id`, `viewUrl`, and `eventCursor`, and open the `viewUrl`. Write each program to a file and pass it as the `code` parameter. Save every result under `artifacts/interpreter-feasibility/`.
+
+- **Search signatures.** Run `return search({ query: "" })`. Require `status: completed`, the four operation paths, and no receipts.
+- **Wait a full Session Event wait.** With `timeoutMs: 60000`, await `agent_session_get` with `afterCursor` and `waitMs: 45000`, and return the elapsed time measured inside the program. With no Workspace activity, require about 45,000 ms and `status: completed`.
+- **Act, then lose the interpreter.** Read a structured Snapshot, click `Add Giant anvil to cart` with operation id `interp-add-1`, then block the interpreter with `/^(a+)+$/.test("a".repeat(40) + "b")` under `timeoutMs: 5000`. Require `deadline_exceeded`, a SIGKILL exit, and a `succeeded` receipt for `interp-add-1`. Require `kill -0 <process.pid>` to fail. Reread `agent_session_get`: the timeline has one completed attempt.
+- **Retry the same identity.** In a new program, send the same action under `interp-add-1`. Require the original attempt id, `1 item in cart` in the Snapshot, and still one timeline attempt.
+- **End at a Pending Decision.** Send an `intent.irreversible: true` click under a fresh id, followed by a second click under another id. Require `status: intervention`, the Confirmation as `pendingDecision`, and no receipt for the second click. Capture ARIA and a screenshot of `Confirm this action`, then click `Refuse`. Reread the session: `decisionHistory` records `refuse` from `workspace`.
+- **Clean up.** Run `cleanup`, then require `pgrep -f code-interpreter-process` to print nothing.
 
 ### System One Pursuits
 

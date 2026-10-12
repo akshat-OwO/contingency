@@ -64,6 +64,38 @@ const CodeResponse = Schema.Struct({
   }),
 });
 
+/** The packed interpreter process runs a program that calls the server. */
+const InterpreterResponse = Schema.Struct({
+  id: Schema.Literal(3),
+  result: Schema.Struct({
+    isError: Schema.Literal(false),
+    structuredContent: Schema.Struct({
+      receipts: Schema.Tuple([
+        Schema.Struct({
+          operation: Schema.Literal("agent_sessions_get"),
+          outcome: Schema.Literal("succeeded"),
+        }),
+      ]),
+      status: Schema.Literal("completed"),
+      value: Schema.Literal(0),
+    }),
+  }),
+});
+
+/** The packed process starts with its V8 heap ceiling, and is held to it. */
+const InterpreterCeilingResponse = Schema.Struct({
+  id: Schema.Literal(4),
+  result: Schema.Struct({
+    isError: Schema.Literal(false),
+    structuredContent: Schema.Struct({
+      diagnostic: Schema.Struct({
+        kind: Schema.Literal("MemoryLimitExceeded"),
+      }),
+      status: Schema.Literal("memory_limit"),
+    }),
+  }),
+});
+
 export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
   function* handshake(
     spec: {
@@ -81,6 +113,7 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
           ...process.env,
           ...spec.env,
           CONTINGENCY_CATALOG_ROOT: path.join(directory, "catalog"),
+          CONTINGENCY_MCP_CODE_INTERPRETER: "true",
           CONTINGENCY_MCP_CODE_MODE: "true",
           CONTINGENCY_MCP_PORT: "0",
           NODE_OPTIONS: "",
@@ -136,8 +169,51 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
         new Error(`Packed QuickJS execution failed: ${result}`, { cause }),
       try: () => Schema.decodeUnknownSync(CodeResponse)(JSON.parse(result)),
     });
+    const interpret = (id: number, program: string) =>
+      Queue.offer(
+        input,
+        new TextEncoder().encode(
+          `${JSON.stringify({
+            id,
+            jsonrpc: "2.0",
+            method: "tools/call",
+            params: {
+              arguments: { code: program },
+              name: "agent_code_execute",
+            },
+          })}\n`
+        )
+      );
+    yield* interpret(
+      3,
+      'const listed = await tools.agent_sessions_get({ view: "compact" }); return listed.sessions.length'
+    );
+    const interpreted = yield* Queue.take(output);
+    yield* Effect.try({
+      catch: (cause) =>
+        new Error(`Packed interpreter execution failed: ${interpreted}`, {
+          cause,
+        }),
+      try: () =>
+        Schema.decodeUnknownSync(InterpreterResponse)(JSON.parse(interpreted)),
+    });
+    yield* interpret(
+      4,
+      "const kept = []; for (let i = 0; i < 40; i++) { kept.push(new Array(1000000).fill(i)) } return kept.length"
+    );
+    const ceiling = yield* Queue.take(output);
+    yield* Effect.try({
+      catch: (cause) =>
+        new Error(`Packed interpreter ignored its heap ceiling: ${ceiling}`, {
+          cause,
+        }),
+      try: () =>
+        Schema.decodeUnknownSync(InterpreterCeilingResponse)(
+          JSON.parse(ceiling)
+        ),
+    });
     yield* Console.log(
-      "Packed MCP stdio initialize and QuickJS execution passed."
+      "Packed MCP stdio initialize, QuickJS execution, and interpreter process passed."
     );
   },
   Effect.scoped,

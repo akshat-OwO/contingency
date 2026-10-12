@@ -46,6 +46,7 @@ import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
+import { McpCodeInterpreterLayer } from "../services/mcp-code-interpreter.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import {
   makeMcpInstructions,
@@ -161,6 +162,10 @@ export const mcpCommand = Command.make(
     const config = yield* Config.all({
       // Claude Code channels are opt-in and stdio-only (ADR 0055).
       channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
+      // Opt-in OpenCode interpreter feasibility prototype (ADR 0059).
+      codeInterpreter: Config.Boolean("CODE_INTERPRETER").pipe(
+        Config.withDefault(false)
+      ),
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
@@ -180,7 +185,8 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const { channel, codeMode, host, port, videoFastForward } = config;
+    const { channel, codeInterpreter, codeMode, host, port, videoFastForward } =
+      config;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
     const systemOne = Option.getOrUndefined(yield* systemOneConfig);
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
@@ -299,6 +305,7 @@ export const mcpCommand = Command.make(
                 mcpTools,
                 makeMcpStartLayer(demoSite),
                 codeMode ? McpCodeModeLayer : Layer.empty,
+                codeInterpreter ? McpCodeInterpreterLayer : Layer.empty,
                 makeMcpPursuitLayer(systemOne)
               ).pipe(
                 Layer.provide(
@@ -342,6 +349,7 @@ export const mcpCommand = Command.make(
             catalogBrowser,
             host,
             mcp: makeMcpHttpLayer(allowedOrigins, {
+              codeInterpreter,
               codeMode,
               demoSite,
               systemOne,
