@@ -622,6 +622,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                   viewport: manifest.emulation.viewport,
                 },
                 hosts: demonstratedHosts,
+                runtime: manifest.runtime,
               }),
             }
           : file

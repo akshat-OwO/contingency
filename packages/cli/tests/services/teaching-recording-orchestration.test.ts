@@ -17,6 +17,7 @@ import { Effect, Exit, FileSystem, Layer, Schema } from "effect";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { browserRequirements } from "../../src/services/platform-requirements.ts";
 import {
   decideFlowSkill,
   startDryRun,
@@ -594,6 +595,7 @@ it.effect("projects one summary for every learning state", () =>
         flowSkillName,
         lifecycle: "dry-run-passed",
         recordingId: passed.recordingId,
+        runtime: browserRequirements,
         updatedAt: passed.updatedAt,
       });
     }).pipe(Effect.provide(storeLayer(root)));

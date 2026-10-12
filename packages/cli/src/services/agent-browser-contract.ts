@@ -71,10 +71,15 @@ export interface AgentBrowserTab {
   ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
   readonly beginObservation: (
     action: AgentBrowserAction
-  ) => Effect.Effect<AgentBrowserObservation>;
+  ) => Effect.Effect<AgentBrowserObservation, BrowserRpcErrorType>;
   readonly perform: (
     action: AgentBrowserAction,
     pointer?: AgentPointerSink
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
+  /** Explicit screenshot fallback; the Platform Runtime validates its observation first. */
+  readonly activateCoordinates: (
+    x: number,
+    y: number
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly enterPrivate: (
     target: PrivateInputTarget,
