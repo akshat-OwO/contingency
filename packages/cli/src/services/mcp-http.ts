@@ -7,6 +7,7 @@ import { McpAgentRunLayer } from "./mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
+import { McpCodeInterpreterLayer } from "./mcp-code-interpreter.ts";
 import { McpCodeModeLayer } from "./mcp-code-mode.ts";
 import { makeMcpStartLayer } from "./mcp-onboarding.ts";
 import { McpPursuitLayer } from "./mcp-pursuit.ts";
@@ -62,6 +63,7 @@ export const MCP_INSTRUCTIONS = makeMcpInstructions();
 export const makeMcpHttpLayer = <R = never>(
   allowedOrigins: ReadonlySet<string>,
   options: {
+    readonly codeInterpreter?: boolean | undefined;
     readonly codeMode?: boolean | undefined;
     readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
     readonly systemOne?: SystemOneConfig | undefined;
@@ -89,5 +91,6 @@ export const makeMcpHttpLayer = <R = never>(
     McpAuthoringSkillsLayer,
     makeMcpStartLayer(options.demoSite),
     options.codeMode === true ? McpCodeModeLayer : Layer.empty,
+    options.codeInterpreter === true ? McpCodeInterpreterLayer : Layer.empty,
     makeMcpPursuitLayer(options.systemOne)
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));
