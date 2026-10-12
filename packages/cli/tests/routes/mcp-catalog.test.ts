@@ -85,6 +85,9 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       expect(JSON.stringify(tool.outputSchema ?? {}), tool.name).not.toContain(
         '"captureState"'
       );
+      expect(JSON.stringify(tool.outputSchema ?? {}), tool.name).not.toContain(
+        '"androidVersion"'
+      );
     }
     expect(tools.map((tool) => tool.name)).not.toContain(
       "agent_run_step_assess"
