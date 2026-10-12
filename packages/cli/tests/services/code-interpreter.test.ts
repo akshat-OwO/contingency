@@ -274,6 +274,56 @@ it.live(
 );
 
 it.live(
+  "dispatches no queued request after its program ends",
+  () =>
+    guarded(
+      Effect.gen(function* queuedAfterEnd() {
+        const holding = yield* Deferred.make<"holding">();
+        const release = yield* Deferred.make<"released">();
+        const ended = yield* Deferred.make<"ended">();
+        const dispatched: string[] = [];
+        const execution = yield* run({
+          // Both requests leave at once; the action queues behind the hold.
+          code: "return await Promise.all([tools.increment({}), tools.act({ operationId: 'late' })])",
+          dispatch: (operation) =>
+            Effect.gen(function* holdFirst() {
+              dispatched.push(operation);
+              yield* Deferred.succeed(holding, "holding");
+              yield* Deferred.await(release);
+              return { ok: true as const, value: null };
+            }),
+          onProgramEnd: Deferred.succeed(ended, "ended").pipe(Effect.asVoid),
+          timeoutMs: 1000,
+        }).pipe(Effect.forkChild);
+        yield* Deferred.await(holding);
+        // The interpreter's own timeout ends the program during the hold.
+        yield* Deferred.await(ended);
+        yield* Deferred.succeed(release, "released");
+        const outcome = yield* Fiber.join(execution);
+        expect(dispatched).toEqual(["increment"]);
+        expect(outcome.status).toBe("program_failed");
+        expect(outcome.diagnostic?.kind).toBe("TimeoutExceeded");
+        expect(outcome.receipts).toEqual([
+          {
+            operation: "increment",
+            operationId: null,
+            outcome: "succeeded",
+            sequence: 1,
+          },
+          {
+            message: "The program ended before this operation was dispatched.",
+            operation: "act",
+            operationId: "late",
+            outcome: "rejected",
+            sequence: 2,
+          },
+        ]);
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
   "refuses a malformed process message",
   () =>
     guarded(

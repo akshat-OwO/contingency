@@ -1,6 +1,15 @@
 import path from "node:path";
 
-import { Effect, Fiber, Option, Queue, Result, Schema, Stream } from "effect";
+import {
+  Deferred,
+  Effect,
+  Fiber,
+  Option,
+  Queue,
+  Result,
+  Schema,
+  Stream,
+} from "effect";
 import type { Types } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
@@ -137,6 +146,11 @@ export interface InterpreterRunOptions {
   readonly entry?: string | undefined;
   /** Observes the process as soon as it exists, before it is ready. */
   readonly onStart?: ((pid: number) => Effect.Effect<void>) | undefined;
+  /**
+   * Observes the program's end: its report, a malformed message, or the
+   * process closing its output. From then on no queued request dispatches.
+   */
+  readonly onProgramEnd?: Effect.Effect<void> | undefined;
   /** Replaces the interpreter process, so tests can speak a broken protocol. */
   readonly command?:
     | { readonly command: string; readonly args: readonly string[] }
@@ -246,9 +260,14 @@ const receiptFor = (
   return receipt;
 };
 
-type Line =
-  | { readonly _tag: "line"; readonly text: string }
-  | { readonly _tag: "end" };
+/** One decoded line of interpreter output, or why there is none. */
+type Read =
+  | {
+      readonly _tag: "message";
+      readonly message: typeof InterpreterMessage.Type;
+    }
+  | { readonly _tag: "malformed"; readonly message: string }
+  | { readonly _tag: "ended" };
 
 interface MemoryObservation {
   heapLimitBytes: number | null;
@@ -321,7 +340,28 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           Effect.forkScoped
         );
 
-        const lines = yield* Queue.unbounded<Line>();
+        // Lines decode here, ahead of dispatch, so the program's end is known
+        // while an earlier operation is still in flight.
+        const reads = yield* Queue.unbounded<Read>();
+        const programEnded = yield* Deferred.make<"ended">();
+        const endProgram = Deferred.succeed(programEnded, "ended").pipe(
+          Effect.andThen(options.onProgramEnd ?? Effect.void)
+        );
+        const decodeLine = (text: string) =>
+          Effect.gen(function* decodeRead() {
+            const decoded = yield* Effect.result(decodeMessage(text));
+            if (Result.isFailure(decoded)) {
+              yield* endProgram;
+              return {
+                _tag: "malformed",
+                message: `Malformed interpreter message: ${decoded.failure.message.slice(0, 500)}`,
+              } satisfies Read;
+            }
+            if (decoded.success.type === "done") {
+              yield* endProgram;
+            }
+            return { _tag: "message", message: decoded.success } satisfies Read;
+          });
         yield* child.stdout.pipe(
           Stream.tap((chunk) =>
             Effect.sync(() => {
@@ -331,10 +371,13 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           Stream.decodeText,
           Stream.splitLines,
           Stream.runForEach((text) =>
-            Queue.offer(lines, { _tag: "line", text })
+            decodeLine(text).pipe(
+              Effect.flatMap((read) => Queue.offer(reads, read))
+            )
           ),
           Effect.ignore,
-          Effect.andThen(Queue.offer(lines, { _tag: "end" })),
+          Effect.andThen(endProgram),
+          Effect.andThen(Queue.offer(reads, { _tag: "ended" })),
           Effect.forkScoped
         );
         const telemetry = yield* child.getOutputFd(3).pipe(
@@ -407,21 +450,7 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           } satisfies InterpreterEnding;
         });
 
-        /** Reads one decoded message, or why there is none. */
-        const next = Effect.gen(function* readMessage() {
-          const line = yield* Queue.take(lines);
-          if (line._tag === "end") {
-            return { _tag: "ended" as const };
-          }
-          const decoded = yield* Effect.result(decodeMessage(line.text));
-          if (Result.isFailure(decoded)) {
-            return {
-              _tag: "malformed" as const,
-              message: `Malformed interpreter message: ${decoded.failure.message.slice(0, 500)}`,
-            };
-          }
-          return { _tag: "message" as const, message: decoded.success };
-        });
+        const next = Queue.take(reads);
 
         const known = new Set(options.operations.map(({ name }) => name));
         let sequence = 0;
@@ -473,6 +502,19 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
             }
             sequence += 1;
             const operationId = operationIdOf(message.input);
+            // A request queued behind a slower operation may outlive its
+            // program; it is refused rather than dispatched.
+            if (yield* Deferred.isDone(programEnded)) {
+              receipts.push({
+                message:
+                  "The program ended before this operation was dispatched.",
+                operation: message.operation,
+                operationId,
+                outcome: "rejected",
+                sequence,
+              });
+              continue;
+            }
             if (!known.has(message.operation)) {
               const refusal = `${message.operation} is not an operation this program may request.`;
               receipts.push({
