@@ -402,8 +402,6 @@ it.live(
     guarded(
       Effect.gen(function* orphan() {
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        // The fake parent shares its stdout with the interpreter, so that
-        // stream ends only once the interpreter has exited too.
         const parent = yield* spawner.spawn(
           ChildProcess.make(
             process.execPath,
@@ -412,9 +410,30 @@ it.live(
               resolveInterpreterEntry(
                 path.join(import.meta.dirname, "../../src/services")
               ),
-              "return /^(a+)+$/.test('a'.repeat(40) + 'b')",
             ],
             { additionalFds: { fd3: { type: "output" } } }
+          )
+        );
+        // This test holds the interpreter's stdin open, so the closing pipe
+        // cannot end it; only its watchdog can.
+        const input = yield* Queue.unbounded<Uint8Array>();
+        yield* Stream.fromQueue(input).pipe(
+          Stream.run(parent.stdin),
+          Effect.forkScoped
+        );
+        yield* Queue.offer(
+          input,
+          new TextEncoder().encode(
+            `${JSON.stringify({
+              code: "return /^(a+)+$/.test('a'.repeat(40) + 'b')",
+              limits: {
+                maxOutputBytes: 1000,
+                maxToolCalls: 1,
+                timeoutMs: 600_000,
+              },
+              operations: [],
+              type: "execute",
+            })}\n`
           )
         );
         const lines = yield* Queue.unbounded<string>();
@@ -424,10 +443,20 @@ it.live(
           Stream.runForEach((line) => Queue.offer(lines, line)),
           Effect.forkScoped
         );
+        const telemetry = yield* parent
+          .getOutputFd(3)
+          .pipe(
+            Stream.decodeText,
+            Stream.splitLines,
+            Stream.runCollect,
+            Effect.forkScoped
+          );
         expect(yield* Queue.take(lines)).toContain('"ready"');
-        yield* parent.kill({ killSignal: "SIGKILL" });
-        // The interpreter, now orphaned, closes the last copy of the stream.
+        // Only the parent: its process group also holds the interpreter.
+        process.kill(parent.pid, "SIGKILL");
+        // The orphaned interpreter closes the last copies of both streams.
         yield* Fiber.join(drained);
+        expect(yield* Fiber.join(telemetry)).toContain('{"type":"orphaned"}');
       }).pipe(Effect.scoped)
     ),
   HANG_GUARD_MS
