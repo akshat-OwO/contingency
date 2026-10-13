@@ -1,0 +1,353 @@
+{
+  "entryPoint": "Contingency PlatformRuntimeFactory.android.createRun",
+  "feature": "android-preparation",
+  "journal": [
+    {
+      "command": "create changed-build Run",
+      "outcome": "success"
+    },
+    {
+      "command": "refuse changed-build permission",
+      "outcome": "success"
+    },
+    {
+      "command": "attempt preparation after refusal",
+      "outcome": "success"
+    },
+    {
+      "command": "fail fresh starting condition",
+      "outcome": "success"
+    },
+    {
+      "command": "create selected prepared Run",
+      "outcome": "success"
+    },
+    {
+      "command": "grant changed-build permission",
+      "outcome": "success"
+    },
+    {
+      "command": "establish fresh declared activity",
+      "outcome": "success"
+    },
+    {
+      "command": "simulate unexpected foreground transition",
+      "outcome": "success"
+    },
+    {
+      "command": "observe unexpected app and pause",
+      "outcome": "success"
+    },
+    {
+      "command": "return selected Target App without replay",
+      "outcome": "success"
+    },
+    {
+      "command": "recover same device with fresh observation",
+      "outcome": "success"
+    },
+    {
+      "command": "refuse declared outside-app launch",
+      "outcome": "success"
+    },
+    {
+      "command": "close owned Run",
+      "outcome": "success"
+    }
+  ],
+  "limitations": [
+    "No Android Workspace or MCP tool surface yet; #470 owns rendering and mirrored Teaching",
+    "No physical-device, snapshot-baseline, APK update, or destructive-reset live proof",
+    "Host checks are experimental; no atomic device authority or stock retry guarantee"
+  ],
+  "observations": {
+    "before": {
+      "id": "7fc26fa3-673f-4503-95c5-75977261dd47",
+      "ownership": {
+        "focusedPackage": "com.android.settings",
+        "kind": "experimental-host-check",
+        "systemDialogAuthority": "unsupported"
+      },
+      "screenshotSha256": "f90928a5582bb6a19494328202a4735a4f913466783b8e0f857befcc7604b5a1"
+    },
+    "recovered": {
+      "id": "81d0bef2-f3f7-48df-b51e-8a4c1dcdf847",
+      "ownership": {
+        "focusedPackage": "com.android.settings",
+        "kind": "experimental-host-check",
+        "systemDialogAuthority": "unsupported"
+      },
+      "screenshotSha256": "f90928a5582bb6a19494328202a4735a4f913466783b8e0f857befcc7604b5a1"
+    }
+  },
+  "refusals": {
+    "outsideAppRefusal": {
+      "_tag": "PlatformRuntimeError",
+      "code": "preparation_failed",
+      "message": "The declared Android setup is unsupported or failed. Input is blocked."
+    },
+    "ownershipRefusal": {
+      "_tag": "PlatformRuntimeError",
+      "code": "ownership_unknown",
+      "message": "Android window ownership is unknown or outside the selected target app. Execution is paused."
+    },
+    "permissionRefusal": {
+      "_tag": "PlatformRuntimeError",
+      "code": "preparation_required",
+      "message": "Complete Android preparation and all Run decisions before input."
+    },
+    "startingRefusal": {
+      "_tag": "PlatformRuntimeError",
+      "code": "starting_condition_failed",
+      "message": "The fresh Android observation did not satisfy the declared starting conditions."
+    }
+  },
+  "runs": {
+    "failed": {
+      "decisions": [
+        {
+          "differences": [
+            {
+              "field": "appBuild",
+              "selected": "36",
+              "taught": "35"
+            }
+          ],
+          "id": "866a6f70-6a07-4d6d-88b7-14a1a9644e2d",
+          "kind": "run-environment-permission",
+          "runId": "45b8ca3b-4e65-4c65-996e-946c5ec5b00e",
+          "targetApp": "com.android.settings"
+        }
+      ],
+      "device": {
+        "api": 36,
+        "avd": "Pixel_9",
+        "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+        "host": "local",
+        "serial": "emulator-5554"
+      },
+      "differences": [
+        {
+          "field": "appBuild",
+          "selected": "36",
+          "taught": "35"
+        }
+      ],
+      "environment": {
+        "androidVersion": "16",
+        "appBuild": "36",
+        "appId": "com.android.settings",
+        "startingState": "fresh About emulated device activity"
+      },
+      "evidence": [
+        {
+          "type": "preflight"
+        },
+        {
+          "decisionId": "866a6f70-6a07-4d6d-88b7-14a1a9644e2d",
+          "type": "grant"
+        },
+        {
+          "type": "setup"
+        },
+        {
+          "code": "starting_condition_failed",
+          "type": "pause"
+        },
+        {
+          "type": "closed"
+        }
+      ],
+      "pending": [],
+      "phase": "closed",
+      "runId": "45b8ca3b-4e65-4c65-996e-946c5ec5b00e",
+      "setup": {
+        "activity": "com.android.settings/.Settings$MyDeviceInfoActivity",
+        "conditions": [
+          {
+            "name": "Missing public fixture condition",
+            "role": "text"
+          }
+        ],
+        "kind": "restart-activity"
+      },
+      "taught": {
+        "capabilities": ["semantic-actions", "screenshots"],
+        "environment": {
+          "androidVersion": "16",
+          "appBuild": "35",
+          "appId": "com.android.settings",
+          "startingState": "fresh About emulated device activity"
+        },
+        "platform": "android"
+      }
+    },
+    "prepared": {
+      "decisions": [
+        {
+          "differences": [
+            {
+              "field": "appBuild",
+              "selected": "36",
+              "taught": "35"
+            }
+          ],
+          "id": "30d62f93-0e67-4d7a-bb6b-f05f0b078ef8",
+          "kind": "run-environment-permission",
+          "runId": "98222f82-9a31-43eb-92cb-7b04610bbd19",
+          "targetApp": "com.android.settings"
+        }
+      ],
+      "device": {
+        "api": 36,
+        "avd": "Pixel_9",
+        "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+        "host": "local",
+        "serial": "emulator-5554"
+      },
+      "differences": [
+        {
+          "field": "appBuild",
+          "selected": "36",
+          "taught": "35"
+        }
+      ],
+      "environment": {
+        "androidVersion": "16",
+        "appBuild": "36",
+        "appId": "com.android.settings",
+        "startingState": "fresh About emulated device activity"
+      },
+      "evidence": [
+        {
+          "type": "preflight"
+        },
+        {
+          "decisionId": "30d62f93-0e67-4d7a-bb6b-f05f0b078ef8",
+          "type": "grant"
+        },
+        {
+          "type": "setup"
+        },
+        {
+          "observationId": "7fc26fa3-673f-4503-95c5-75977261dd47",
+          "type": "observation"
+        },
+        {
+          "code": "ownership_unknown",
+          "type": "pause"
+        },
+        {
+          "observationId": "81d0bef2-f3f7-48df-b51e-8a4c1dcdf847",
+          "type": "observation"
+        },
+        {
+          "type": "closed"
+        }
+      ],
+      "pending": [],
+      "phase": "closed",
+      "runId": "98222f82-9a31-43eb-92cb-7b04610bbd19",
+      "setup": {
+        "activity": "com.android.settings/.Settings$MyDeviceInfoActivity",
+        "conditions": [
+          {
+            "name": "Device name",
+            "role": "text"
+          }
+        ],
+        "kind": "restart-activity"
+      },
+      "taught": {
+        "capabilities": ["semantic-actions", "screenshots"],
+        "environment": {
+          "androidVersion": "16",
+          "appBuild": "35",
+          "appId": "com.android.settings",
+          "startingState": "fresh About emulated device activity"
+        },
+        "platform": "android"
+      }
+    },
+    "refused": {
+      "decisions": [
+        {
+          "differences": [
+            {
+              "field": "appBuild",
+              "selected": "36",
+              "taught": "35"
+            }
+          ],
+          "id": "405d7b61-67fa-4c7d-8938-4e0347e567b8",
+          "kind": "run-environment-permission",
+          "runId": "b21060dc-b0c9-4667-884a-abf5f2a1605c",
+          "targetApp": "com.android.settings"
+        }
+      ],
+      "device": {
+        "api": 36,
+        "avd": "Pixel_9",
+        "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+        "host": "local",
+        "serial": "emulator-5554"
+      },
+      "differences": [
+        {
+          "field": "appBuild",
+          "selected": "36",
+          "taught": "35"
+        }
+      ],
+      "environment": {
+        "androidVersion": "16",
+        "appBuild": "36",
+        "appId": "com.android.settings",
+        "startingState": "fresh About emulated device activity"
+      },
+      "evidence": [
+        {
+          "type": "preflight"
+        },
+        {
+          "decisionId": "405d7b61-67fa-4c7d-8938-4e0347e567b8",
+          "type": "refusal"
+        },
+        {
+          "type": "closed"
+        }
+      ],
+      "pending": [],
+      "phase": "closed",
+      "runId": "b21060dc-b0c9-4667-884a-abf5f2a1605c",
+      "setup": {
+        "activity": "com.android.settings/.Settings$MyDeviceInfoActivity",
+        "conditions": [
+          {
+            "name": "Device name",
+            "role": "text"
+          }
+        ],
+        "kind": "restart-activity"
+      },
+      "taught": {
+        "capabilities": ["semantic-actions", "screenshots"],
+        "environment": {
+          "androidVersion": "16",
+          "appBuild": "35",
+          "appId": "com.android.settings",
+          "startingState": "fresh About emulated device activity"
+        },
+        "platform": "android"
+      }
+    }
+  },
+  "cleanup": {
+    "browserOwnedInstanceRemoved": true,
+    "deviceNameUnchanged": true,
+    "emulatorStopped": true,
+    "proofOwnedHelperRemoved": true,
+    "remainingAdbForwards": [],
+    "remainingHelperPid": null
+  }
+}

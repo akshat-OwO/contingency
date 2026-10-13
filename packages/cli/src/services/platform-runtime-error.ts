@@ -13,6 +13,8 @@ const messages = {
     "The selected Android device identity changed. Execution is paused.",
   device_selection_required:
     "Explicitly select a prepared local API 36 emulator, serial, AVD, and build fingerprint.",
+  environment_changed:
+    "The selected Android app build changed. Start a new Run and review its environment.",
   execution_canceled:
     "Android execution was canceled. Take a fresh observation after explicit recovery; do not replay input.",
   helper_incompatible:
@@ -25,11 +27,18 @@ const messages = {
     "Take a fresh Android observation before acting. Observations are consumed once.",
   ownership_unknown:
     "Android window ownership is unknown or outside the selected target app. Execution is paused.",
+  permission_stale: "This decision is not pending for this Run.",
+  preparation_failed:
+    "The declared Android setup is unsupported or failed. Input is blocked.",
+  preparation_required:
+    "Complete Android preparation and all Run decisions before input.",
   runtime_closed: "The Android runtime is closed.",
   runtime_failed:
     "The Android backend failed. Execution is paused; dispatched input may have an uncertain outcome.",
   runtime_paused:
     "Android execution is paused. Explicitly recover the same selected device before continuing.",
+  starting_condition_failed:
+    "The fresh Android observation did not satisfy the declared starting conditions.",
   target_unsupported:
     "The Android target is absent, covered, private, or unsupported for this action.",
 } as const;

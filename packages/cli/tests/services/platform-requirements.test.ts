@@ -117,3 +117,38 @@ it.effect(
       expect(isVerifiedFlowSkill(android, "web")).toBe(false);
     })
 );
+
+it.effect("persists declared Android preparation in saved requirements", () =>
+  Effect.sync(() => {
+    const requirements = {
+      capabilities: ["semantic-actions", "screenshots"],
+      environment: {
+        androidVersion: "16",
+        appBuild: "36",
+        appId: "com.android.settings",
+        startingState: "fresh About device",
+      },
+      platform: "android",
+      preparation: {
+        activity: "com.android.settings/.Settings$MyDeviceInfoActivity",
+        conditions: [{ name: "Device name", role: "text" }],
+        kind: "restart-activity",
+      },
+    };
+    expect(readPlatformRequirements([JSON.stringify(requirements)])).toEqual({
+      diagnostics: [],
+      requirements,
+    });
+    expect(
+      readPlatformRequirements([
+        JSON.stringify({
+          ...requirements,
+          preparation: {
+            ...requirements.preparation,
+            kind: "restore-snapshot",
+          },
+        }),
+      ]).diagnostics
+    ).toHaveLength(1);
+  })
+);

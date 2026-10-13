@@ -397,6 +397,7 @@ it.effect(
         },
         {
           capabilities: runtime.capabilities,
+          createRun: () => Effect.die("Unexpected Run creation"),
           platform: "android",
           start: () => Effect.succeed(runtime),
         }

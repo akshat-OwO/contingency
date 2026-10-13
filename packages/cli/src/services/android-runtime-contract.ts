@@ -1,6 +1,7 @@
 import type { PlatformCapability } from "@contingency/protocol";
 import type { Effect, Scope } from "effect";
 
+import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import type {
   PlatformObservation,
   PlatformRuntimeError,
@@ -101,6 +102,9 @@ export interface AndroidPlatformRuntime extends PlatformRuntimeService {
 }
 
 export interface AndroidRuntimeFactoryService {
+  readonly createRun: (
+    input: AndroidRunInput
+  ) => Effect.Effect<AndroidRun, PlatformRuntimeError>;
   readonly platform: "android";
   readonly capabilities: readonly PlatformCapability[];
   readonly start: (

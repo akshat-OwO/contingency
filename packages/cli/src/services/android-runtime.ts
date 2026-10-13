@@ -2,6 +2,8 @@ import type { Effect as EffectType } from "effect";
 import { Effect, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import { preflightAndroidPreparation } from "./android-preparation.ts";
+import { createAndroidRun } from "./android-run.ts";
 import { acquireAndroidBackend } from "./android-runtime-backend.ts";
 import { androidCapabilities } from "./android-runtime-contract.ts";
 import type {
@@ -12,36 +14,14 @@ import type {
   AndroidRuntimeStartInput,
   AndroidRuntimeState,
 } from "./android-runtime-contract.ts";
+import { validateAndroidStartup } from "./android-startup.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type {
   PlatformAction,
   PlatformRuntimeError,
 } from "./platform-runtime.ts";
 
-const availableCapabilities = new Set(androidCapabilities);
 const publicTextPattern = /^[\u0020-\u007E]*$/u;
-
-export const validateAndroidStartup = (input: AndroidRuntimeStartInput) =>
-  Effect.gen(function* validateStartup() {
-    if (
-      input.device.host !== "local" ||
-      !input.device.serial ||
-      !input.device.avd ||
-      !input.device.fingerprint ||
-      input.device.api !== 36
-    ) {
-      return yield* Effect.fail(
-        platformRuntimeError("device_selection_required")
-      );
-    }
-    if (
-      input.requiredCapabilities.some(
-        (capability) => !availableCapabilities.has(capability)
-      )
-    ) {
-      return yield* Effect.fail(platformRuntimeError("capability_missing"));
-    }
-  });
 
 export const adaptAndroidRuntime = (input: {
   readonly startup: AndroidRuntimeStartInput;
@@ -225,6 +205,15 @@ export const adaptAndroidRuntime = (input: {
 
 export const makeAndroidRuntimeFactory = (): AndroidRuntimeFactoryService => ({
   capabilities: androidCapabilities,
+  createRun: (input) =>
+    createAndroidRun(input, {
+      preflight: preflightAndroidPreparation,
+      start: (startup) =>
+        Effect.gen(function* startPrepared() {
+          const backend = yield* acquireAndroidBackend(startup, startup);
+          return yield* adaptAndroidRuntime({ backend, startup });
+        }),
+    }),
   platform: "android",
   start: (request) =>
     Effect.gen(function* startAndroid() {

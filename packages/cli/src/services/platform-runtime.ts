@@ -81,7 +81,12 @@ export interface PlatformRuntimeError {
     | "runtime_paused"
     | "runtime_closed"
     | "execution_canceled"
-    | "cleanup_failed";
+    | "cleanup_failed"
+    | "preparation_failed"
+    | "preparation_required"
+    | "permission_stale"
+    | "starting_condition_failed"
+    | "environment_changed";
   readonly message: string;
 }
 
