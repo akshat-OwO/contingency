@@ -1,45 +1,23 @@
 # Repository guidelines
 
-## Tooling
+## Engineering
 
-- Use `nub` as the package manager and as the file/script runner.
-- Run `nub exec turbo run quality` for read-only lint and formatting checks.
-- Run `nub exec turbo run quality:fix` to apply safe lint and formatting fixes.
+- Use `nub` for packages and scripts. Check with `nub exec turbo run quality`; apply safe fixes with `nub exec turbo run quality:fix`. Oxlint and Oxfmt define mechanical standards.
+- Use Effect throughout and Effect atom for atomic state. Inspect the installed Effect source in `node_modules` before changing Effect code.
+- Own the result: define observable acceptance criteria, inspect the owning module and callers, and read relevant `GLOSSARY.md` terms and `docs/adr/` decisions.
+- Fix causes in the owning module. Prefer performance, reliability, existing conventions, and reusable services. Preserve existing work and keep changes focused.
+- Write accessible, type-safe code. Narrow `unknown`, validate external input, await promises, and handle errors. Keep credentials out of logs and evidence.
 
-## Engineering principles
+## Verification
 
-- Always prefer performance and reliability.
-- Do not look for workarounds. Write scalable code that does not add regressions.
-- Use Effect everywhere.
-- Do not rely on remembered Effect APIs. Always inspect the source in `node_modules` for the installed Effect version before writing or changing Effect code.
-- Use Effect atom for atomic state management.
+- Read `docs/agents/testing.md` before writing or fixing tests or changing waits. Reproduce regressions; wait on events or virtual time. Passing lint alone does not establish correctness.
+- Use `verify-contingency` for user-visible or MCP-visible changes. Verify acceptance criteria on the final revision; rerun affected paths after edits and disclose evidence gaps.
+- Review the final diff and delegated work yourself. Completion includes required checks, regression review, and cleanup.
+- For GitHub issues and triage, read `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`. For verification briefs, read `docs/agents/verification.md`.
 
-## Tests
+## Processes and memory
 
-- Read `docs/agents/testing.md` before writing a test, fixing a failing or flaky test, or changing a test's waits or timeouts.
-
-## Ultracite standards
-
-- Write accessible, performant, type-safe, and maintainable code with clear, explicit intent.
-- Prefer `unknown` over `any`, type narrowing over assertions, `const` by default, specific imports, and early returns.
-- Await promises, handle errors meaningfully, and remove production `console.log`, `debugger`, and `alert` statements.
-- Keep functions focused, validate external input, avoid `eval()` and unsafe HTML, and do not commit focused or skipped tests.
-- Follow the root Oxlint and Oxfmt output as the source of truth for mechanical style and correctness rules.
-
-## Agent skills
-
-### Issue tracker
-
-Issues live in this repo's GitHub Issues (via `gh`). See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical roles map 1:1 to tracker labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
-
-### Verification
-
-End-to-end proof for user-visible work uses `verify-contingency`. During triage and in agent briefs, see `docs/agents/verification.md`.
+- Track every resource you launch: owner, session ID or PID, start time, descendants, ports, and stop operation. Parents own delegates' cleanup too.
+- Run one heavy build, suite, or device proof at a time by default. Check memory and swap before launch and during long runs; stop expansion when memory pressure rises.
+- Stop owned resources when their purpose ends, including on failure or cancellation. Before yielding, verify processes exited, ports closed, and owned browsers and devices stopped.
+- Preserve user-owned processes and the agent host. Verify ownership before signaling; avoid broad name-based kills. Report cleanup failures explicitly.
