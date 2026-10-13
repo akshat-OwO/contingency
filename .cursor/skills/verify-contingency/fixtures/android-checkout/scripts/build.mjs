@@ -149,13 +149,29 @@ for (const variant of selected) {
     variant,
   });
 }
+// A single-variant build keeps the other variants' entries, but only when they
+// came from the same lockfile and JDK; otherwise they describe another source.
+const manifestPath = path.join(values.out, "builds.json");
+const previous = await readFile(manifestPath, "utf-8").then(
+  (contents) => JSON.parse(contents),
+  (error) => {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+);
+const retained =
+  previous?.lockfileSha256 === lockHash && previous.java === javaVersion
+    ? previous.builds.filter((entry) => !selected.includes(entry.variant))
+    : [];
 const manifest = {
-  builds,
+  builds: [...retained, ...builds].toSorted(
+    (left, right) =>
+      variants.indexOf(left.variant) - variants.indexOf(right.variant)
+  ),
   java: javaVersion,
   lockfileSha256: lockHash,
 };
-await writeFile(
-  path.join(values.out, "builds.json"),
-  `${JSON.stringify(manifest, null, 2)}\n`
-);
+await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);

@@ -820,11 +820,19 @@ try {
     await waitText("Recover same emulator");
     const stillPaused = await read(disconnected.id);
     assert.equal(stillPaused.phase, "paused");
+    const consolePort = /^emulator-(?<port>\d+)$/u.exec(serial)?.groups?.port;
+    assert.ok(
+      consolePort,
+      "Disconnect recovery needs an emulator-<port> serial."
+    );
     const emulator = spawn(
       path.join(sdk, "emulator/emulator"),
       [
         "-avd",
         process.env.CONTINGENCY_ANDROID_AVD,
+        // Keep the selected serial: emulator-<port> is derived from the console port.
+        "-port",
+        consolePort,
         "-no-snapshot-save",
         "-no-boot-anim",
         "-no-window",
