@@ -1,0 +1,924 @@
+// Workspace gestures, device installs, and Runs must happen in order on the selected device.
+/* oxlint-disable eslint/no-await-in-loop */
+import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+
+const root = path.resolve(import.meta.dirname, "../../../..");
+const require = createRequire(path.join(root, "packages/cli/package.json"));
+const { Effect } = await import(pathToFileURL(require.resolve("effect")).href);
+const execute = promisify(execFile);
+const directory = process.env.CONTINGENCY_VERIFY_DIR;
+assert.ok(
+  directory,
+  "Set CONTINGENCY_VERIFY_DIR to the owned verification instance."
+);
+const readInstance = async () =>
+  JSON.parse(await readFile(path.join(directory, "instance.json"), "utf-8"));
+// A restarted MCP server listens on a new port.
+let instance = await readInstance();
+assert.ok(instance.mcpUrl, "Start this instance's MCP broker first.");
+assert.equal(
+  process.env.CONTINGENCY_ANDROID_FIXTURE_INSTALL,
+  "authorized",
+  "The operator must authorize installing the fixture builds on the selected emulator."
+);
+const skillRoot = path.join(root, ".cursor/skills/verify-contingency");
+const artifacts = path.join(skillRoot, "artifacts/android-checkout");
+await mkdir(artifacts, { mode: 0o700, recursive: true });
+const builds = JSON.parse(
+  await readFile(path.join(artifacts, "builds/builds.json"), "utf-8")
+);
+const build = (variant) => {
+  const found = builds.builds.find((entry) => entry.variant === variant);
+  assert.ok(found, `Build the ${variant} fixture first.`);
+  return found;
+};
+const serial = process.env.CONTINGENCY_ANDROID_SERIAL;
+const appId = "dev.contingency.checkout";
+const journal = [];
+let sequence = 0;
+const operation = () => {
+  sequence += 1;
+  return `android-checkout-proof-${process.pid}-${sequence}`;
+};
+const run = (file, args) =>
+  Effect.runPromise(
+    Effect.tryPromise({
+      catch: (cause) => cause,
+      try: () =>
+        execute(file, args, {
+          cwd: root,
+          env: process.env,
+          maxBuffer: 16 * 1024 * 1024,
+        }),
+    }).pipe(
+      Effect.tap(({ stdout }) =>
+        Effect.sync(() =>
+          journal.push({
+            args: [path.basename(file), ...args],
+            stdout: stdout.length > 4000 ? `${stdout.slice(0, 4000)}…` : stdout,
+          })
+        )
+      ),
+      Effect.tapError((cause) =>
+        Effect.sync(() =>
+          journal.push({
+            args: [path.basename(file), ...args],
+            failure: String(cause?.stderr || cause?.stdout || cause),
+          })
+        )
+      ),
+      Effect.map(({ stdout }) => stdout)
+    )
+  );
+const control = (...args) =>
+  run("nub", [path.join(skillRoot, "bin/control-contingency"), ...args]);
+const adb = (...args) => run("adb", ["-s", serial, ...args]);
+const tool = async (name, params) =>
+  JSON.parse(
+    await control(
+      "mcp",
+      "call",
+      "--tool",
+      name,
+      "--params",
+      JSON.stringify(params)
+    )
+  );
+/** A refusal exits nonzero; return its printed reason. */
+const refusal = async (name, params) => {
+  try {
+    await tool(name, params);
+  } catch (error) {
+    return String(error?.stderr || error?.stdout || error);
+  }
+  assert.fail(`${name} was not refused.`);
+};
+const command = (input) => tool("agent_android_workspace", { command: input });
+const click = (name, partial = false) =>
+  control(
+    "browser",
+    "click",
+    "--role",
+    "button",
+    "--name",
+    name,
+    ...(partial ? ["--partial"] : [])
+  );
+const wait = (name, role = "button") =>
+  control(
+    "browser",
+    "wait",
+    "--role",
+    role,
+    "--name",
+    name,
+    "--timeout-ms",
+    "90000"
+  );
+const waitText = (text) =>
+  control(
+    "browser",
+    "wait",
+    "--text",
+    text,
+    "--partial",
+    "--timeout-ms",
+    "90000"
+  );
+const fill = (name, value) =>
+  control(
+    "browser",
+    "fill",
+    "--role",
+    "textbox",
+    "--name",
+    name,
+    "--value",
+    value
+  );
+const snapshot = async (name) => {
+  await control(
+    "browser",
+    "snapshot",
+    "--aria",
+    "--path",
+    path.join(artifacts, `${name}.aria.txt`)
+  );
+  await control(
+    "browser",
+    "screenshot",
+    "--path",
+    path.join(artifacts, `${name}.png`)
+  );
+};
+
+const reversibleActions = [
+  { name: "Sign in", role: "button" },
+  { name: "Add Anvil to cart", role: "button" },
+  { name: "Open cart", role: "button" },
+  { name: "Place mock order", role: "button" },
+];
+const outcome = { name: "Order confirmed", role: "group" };
+const startingCondition = { name: "Fixture Shop sign in", role: "group" };
+const shopper = "Fixture Shopper";
+const selection = (variant) => ({
+  device: {
+    api: 36,
+    avd: process.env.CONTINGENCY_ANDROID_AVD,
+    fingerprint: process.env.CONTINGENCY_ANDROID_FINGERPRINT,
+    host: "local",
+    serial,
+  },
+  environment: {
+    androidVersion: "16",
+    appBuild: build(variant).appBuild,
+    appId,
+    startingState: "Fresh Fixture Shop sign in",
+  },
+  helperConsent: "none",
+  outcomes: [outcome],
+  reversibleActions,
+  setup: {
+    activity: `${appId}/.MainActivity`,
+    conditions: [startingCondition],
+    kind: "restart-activity",
+  },
+});
+assert.ok(
+  Object.values(selection("working").device).every(
+    (value) => value !== undefined
+  ),
+  "Supply the explicitly authorized device declarations."
+);
+const flowSkillName = `android-checkout-${process.pid}`;
+const receipt = {
+  blockers: [],
+  builds: builds.builds.map(
+    ({ appBuild, appId: id, sha256, variant, versionName }) => ({
+      appBuild,
+      appId: id,
+      sha256,
+      variant,
+      versionName,
+    })
+  ),
+  coverage: {},
+  device: selection("working").device,
+  feature: "android-checkout",
+  flowSkillName,
+};
+const nodes = (session) => session.observation?.nodes ?? [];
+const shows = (session, condition) =>
+  nodes(session).some(
+    (node) =>
+      node.role === condition.role &&
+      node.name === condition.name &&
+      !node.covered
+  );
+const names = (session) => nodes(session).map((node) => node.name);
+const read = (sessionId) => command({ _tag: "read", sessionId });
+const observe = (sessionId) =>
+  command({ _tag: "observe", image: false, sessionId });
+const input = (session, action) =>
+  command({
+    _tag: "input",
+    action,
+    observationId: session.observation.id,
+    operationId: operation(),
+    sessionId: session.id,
+  });
+/** Mirrored input settles asynchronously; read fresh observations until the node appears. */
+const untilShown = async (sessionId, condition) => {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const current = await observe(sessionId);
+    if (shows(current, condition)) {
+      return current;
+    }
+    await sleep(1000);
+  }
+  assert.fail(`${condition.role} ${condition.name} never appeared.`);
+};
+const target = (session, condition) => {
+  const node = session.observation.nodes.find(
+    (candidate) =>
+      candidate.role === condition.role &&
+      candidate.name === condition.name &&
+      !candidate.covered
+  );
+  assert.ok(node, `No visible ${condition.role} ${condition.name}.`);
+  return node.target;
+};
+const installVariant = async (variant) => {
+  const { apk, sha256 } = build(variant);
+  assert.equal(
+    createHash("sha256")
+      .update(await readFile(apk))
+      .digest("hex"),
+    sha256,
+    `${variant}.apk changed since it was built.`
+  );
+  const installed = /versionCode=(?<code>\d+) /u.exec(
+    await adb("shell", "dumpsys", "package", appId)
+  )?.groups?.code;
+  // A release build cannot downgrade in place; remove only this fixture first.
+  if (
+    installed !== undefined &&
+    Number(installed) > Number(build(variant).appBuild)
+  ) {
+    await adb("uninstall", appId);
+  }
+  await adb("install", "-r", apk);
+  const dump = await adb("shell", "dumpsys", "package", appId);
+  assert.ok(
+    dump.includes(`versionCode=${build(variant).appBuild} `),
+    `${variant} build was not installed.`
+  );
+};
+const openView = async (sessionId) => {
+  await control(
+    "browser",
+    "goto",
+    "--url",
+    `${instance.mcpUrl}?android=${sessionId}`
+  );
+  await waitText("Preparation:");
+};
+const prepare = async (sessionId) => {
+  await openView(sessionId);
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Take control");
+  const prepared = await observe(sessionId);
+  // Preparation restarts the activity; a carried-over cart or sign-in is not fresh.
+  assert.ok(
+    shows(prepared, startingCondition),
+    "Starting state was not fresh."
+  );
+  assert.ok(
+    !names(prepared).includes("Catalog"),
+    "Starting state carried a session."
+  );
+  return prepared;
+};
+/** The agent completes checkout using only declared semantic controls. */
+const journey = async (sessionId) => {
+  const field = { name: "Shopper name", role: "text-field" };
+  let current = await untilShown(sessionId, field);
+  await input(current, {
+    _tag: "fill",
+    target: target(current, field),
+    text: shopper,
+  });
+  for (const action of reversibleActions) {
+    current = await untilShown(sessionId, action);
+    await input(current, { _tag: "activate", target: target(current, action) });
+  }
+  // The broken build never confirms; wait for either terminal heading.
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    current = await observe(sessionId);
+    if (
+      shows(current, outcome) ||
+      shows(current, { name: "Checkout failed", role: "group" })
+    ) {
+      return current;
+    }
+    await sleep(1000);
+  }
+  return current;
+};
+const complete = (session, outcomeName, explanation) =>
+  command({
+    _tag: "complete",
+    assessment: {
+      explanation,
+      observationId: session.observation.id,
+      outcome: outcomeName,
+    },
+    operationId: operation(),
+    sessionId: session.id,
+  });
+const startSession = (kind, variant, recordingId = null) =>
+  command({
+    _tag: "start",
+    flowSkillName,
+    kind,
+    operationId: operation(),
+    recordingId,
+    selection: selection(variant),
+  });
+const allowPermission = async (sessionId) => {
+  await openView(sessionId);
+  await wait("Run Environment Permission", "group");
+  await snapshot(`permission-${sessionId}`);
+  await click("Allow");
+};
+
+let installedHere = false;
+const sessions = [];
+try {
+  const before = await adb("shell", "pm", "list", "packages", appId);
+  if (before.includes(`package:${appId}`)) {
+    const signatures = await adb("shell", "dumpsys", "package", appId);
+    assert.ok(
+      signatures.includes("versionName=") &&
+        /versionCode=[123] /u.test(signatures),
+      `${appId} exists but is not this fixture. Remove nothing; choose another emulator.`
+    );
+  }
+  installedHere = !before.includes(`package:${appId}`);
+  await installVariant("working");
+
+  // Teaching through mirrored Workspace.
+  await control("browser", "goto", "--url", instance.mcpUrl);
+  await wait("Android experimental");
+  await click("Android experimental");
+  const working = selection("working");
+  const fields = {
+    "Flow Skill name": flowSkillName,
+    "Required outcome name": outcome.name,
+    "Required outcome role": outcome.role,
+    "Reversible actions": reversibleActions
+      .map((action) => `${action.role}: ${action.name}`)
+      .join("\n"),
+    "Selected AVD": working.device.avd,
+    "Selected build fingerprint": working.device.fingerprint,
+    "Selected emulator serial": serial,
+    "Starting activity": working.setup.activity,
+    "Starting condition name": startingCondition.name,
+    "Starting condition role": startingCondition.role,
+    "Starting state description": working.environment.startingState,
+    "Target App package": appId,
+    "Target App versionCode": working.environment.appBuild,
+  };
+  for (const [name, value] of Object.entries(fields)) {
+    await fill(name, value);
+  }
+  await snapshot("teaching-selection");
+  await click("Open experimental Android session");
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Start recording");
+  const listed = await tool("agent_android_sessions_list", {});
+  const taughtSession = listed.find(
+    (session) =>
+      session.flowSkillName === flowSkillName && session.kind === "teaching"
+  );
+  assert.ok(taughtSession);
+  sessions.push(taughtSession.id);
+  const { recordingId } = taughtSession;
+  await click("Start recording");
+  await wait("Stop recording");
+  await snapshot("teaching-started");
+  await fill("Public fixture text", shopper);
+  await click("Enter public text in text-field Shopper name", true);
+  await wait("Activate button Sign in");
+  await click("Activate button Sign in");
+  await wait("Activate button Add Anvil to cart");
+  await fill("Instruction", "Sign in with the public fixture shopper name.");
+  await click("Add Instruction");
+  await click("Activate button Add Anvil to cart");
+  await untilShown(taughtSession.id, { name: "Cart: 1 item", role: "text" });
+  await click("Activate button Open cart");
+  await wait("Activate button Place mock order");
+  await click("Activate button Place mock order");
+  await untilShown(taughtSession.id, outcome);
+  await fill(
+    "Instruction",
+    "Checkout is done when Order confirmed is visible. The mock order takes no payment."
+  );
+  await click("Add Instruction");
+  await snapshot("teaching-checkout");
+  await click("Stop recording");
+  await waitText("Teaching: ready.");
+  const stopped = await read(taughtSession.id);
+  assert.equal(stopped.captureState._tag, "ready");
+  await snapshot("teaching-stopped");
+  await click("Close session");
+  await waitText(`${flowSkillName} · teaching · closed · user control`);
+
+  await tool("agent_teaching_recording_claim", {
+    action: "take",
+    claimOperationId: null,
+    error: null,
+    operationId: "android-checkout-claim",
+    recordingId,
+  });
+  const timeline = await tool("agent_teaching_timeline_get", {
+    claimOperationId: "android-checkout-claim",
+    cursor: 0,
+    recordingId,
+  });
+  await writeFile(
+    path.join(artifacts, "timeline.json"),
+    JSON.stringify(timeline, null, 2),
+    { mode: 0o600 }
+  );
+  const entries = timeline.entries.map((entry) =>
+    entry._tag === "action" ? `action:${entry.description}` : entry._tag
+  );
+  const actions = timeline.entries.filter((entry) => entry._tag === "action");
+  assert.deepEqual(
+    actions.map((entry) => entry.description),
+    [
+      "Enter public fixture text in text-field Shopper name",
+      "Activate button Sign in",
+      "Activate button Add Anvil to cart",
+      "Activate button Open cart",
+      "Activate button Place mock order",
+    ]
+  );
+  const instructions = timeline.entries.filter(
+    (entry) => entry._tag === "instruction"
+  );
+  assert.equal(instructions.length, 2);
+  // The first Instruction sits between Sign in and Add Anvil, as it was recorded.
+  assert.ok(
+    entries.indexOf("action:Activate button Sign in") <
+      entries.indexOf("instruction") &&
+      entries.indexOf("instruction") <
+        entries.indexOf("action:Activate button Add Anvil to cart")
+  );
+  const serialized = JSON.stringify(timeline);
+  assert.ok(serialized.includes(shopper), "Public fill text is missing.");
+  assert.ok(serialized.includes("Order confirmed"), "No checkout observation.");
+  receipt.coverage.teaching = {
+    actions: actions.map((entry) => entry.description),
+    entries,
+    instructions: instructions.map((entry) => entry.text),
+    recordingId,
+  };
+
+  await tool("agent_flow_skill_save", {
+    claimOperationId: "android-checkout-claim",
+    files: [
+      {
+        content: `---\nname: ${flowSkillName}\ndescription: Sign in to the fixture shop, add an Anvil, and place a mock order. Use when checking the experimental Android checkout.\ninputs:\n---\n\n# Mock checkout\n\n1. Enter ${shopper} in the Shopper name field. Done when: the field shows ${shopper}.\n2. Activate Sign in. Done when: Catalog is visible.\n3. Activate Add Anvil to cart. Done when: Cart: 1 item is visible.\n4. Activate Open cart. Done when: Place mock order is visible.\n5. Activate Place mock order. Done when: Order confirmed is visible.\n`,
+        path: "SKILL.md",
+      },
+    ],
+    operationId: operation(),
+    recordingId,
+  });
+  const skillFile = path.join(
+    instance.stateDir,
+    "catalog",
+    flowSkillName,
+    "SKILL.md"
+  );
+  const saved = await readFile(skillFile, "utf-8");
+  assert.ok(saved.includes('"platform":"android"'));
+  assert.ok(saved.includes('"appBuild":"1"'));
+
+  // Fresh Dry Run, refusals, and explicit verification.
+  const dry = await startSession("dry-run", "working", recordingId);
+  sessions.push(dry.id);
+  let current = await prepare(dry.id);
+  const staleObservationId = current.observation.id;
+  current = await observe(dry.id);
+  const stale = await refusal("agent_android_workspace", {
+    command: {
+      _tag: "input",
+      action: {
+        _tag: "activate",
+        target: target(current, reversibleActions[0]),
+      },
+      observationId: `${staleObservationId}-stale`,
+      operationId: operation(),
+      sessionId: dry.id,
+    },
+  });
+  assert.match(stale, /stale/u);
+  const privateText = await refusal("agent_android_workspace", {
+    command: {
+      _tag: "input",
+      action: {
+        _tag: "fill",
+        target: target(current, { name: "Shopper name", role: "text-field" }),
+        text: "Pässword",
+      },
+      observationId: current.observation.id,
+      operationId: operation(),
+      sessionId: dry.id,
+    },
+  });
+  assert.match(privateText, /Private Variables are unavailable/u);
+  const coordinate = await refusal("agent_android_workspace", {
+    command: {
+      _tag: "input",
+      action: { _tag: "tap", x: 100, y: 100 },
+      observationId: current.observation.id,
+      operationId: operation(),
+      sessionId: dry.id,
+    },
+  });
+  receipt.coverage.refusals = {
+    coordinate: coordinate.split("\n").find(Boolean),
+    privateText: privateText.split("\n").find(Boolean),
+    staleTarget: stale.split("\n").find(Boolean),
+  };
+  current = await journey(dry.id);
+  assert.ok(shows(current, outcome), "Dry Run did not reach Order confirmed.");
+  const passed = await complete(
+    current,
+    "working",
+    "Order confirmed was observed after the mock checkout."
+  );
+  assert.equal(passed.captureState._tag, "dry-run-passed");
+  await openView(dry.id);
+  await wait("Verify flow");
+  await snapshot("dry-run-passed");
+  await click("Verify flow");
+  await waitText("Cleanup completed.");
+  const verified = await read(dry.id);
+  assert.equal(verified.captureState._tag, "verified");
+  assert.equal(verified.cleanup._tag, "purged");
+  assert.equal(
+    existsSync(
+      path.join(instance.stateDir, "catalog/.recordings", recordingId)
+    ),
+    false
+  );
+  await snapshot("verified-cleanup");
+  const verification = await readFile(
+    path.join(
+      instance.stateDir,
+      "catalog",
+      flowSkillName,
+      "references/verification.md"
+    ),
+    "utf-8"
+  );
+  assert.ok(verification.includes("- Platform: android"));
+  receipt.coverage.dryRun = {
+    assessment: passed.assessment,
+    freshStart: true,
+    id: dry.id,
+    purged: true,
+    verifiedInWorkspace: true,
+  };
+
+  // Changed successful build: refusal, then a Run-scoped grant.
+  await installVariant("changed");
+  const refusedRun = await startSession("run", "changed");
+  sessions.push(refusedRun.id);
+  assert.deepEqual(
+    refusedRun.preparation.differences.map((entry) => entry.field),
+    ["appBuild"]
+  );
+  await openView(refusedRun.id);
+  await wait("Run Environment Permission", "group");
+  await click("Refuse");
+  await waitText("Preparation: refused");
+  const refusedRead = await read(refusedRun.id);
+  assert.equal(refusedRead.phase, "refused");
+  const refusedInput = await refusal("agent_android_workspace", {
+    command: { _tag: "observe", image: false, sessionId: refusedRun.id },
+  });
+  await snapshot("changed-refused");
+  const changed = await startSession("run", "changed");
+  sessions.push(changed.id);
+  await allowPermission(changed.id);
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Take control");
+  current = await observe(changed.id);
+  assert.ok(shows(current, startingCondition));
+  current = await journey(changed.id);
+  assert.ok(
+    shows(current, outcome),
+    "Changed build did not confirm the order."
+  );
+  const changedComplete = await complete(
+    current,
+    "working",
+    "The changed build confirmed the mock order."
+  );
+  assert.equal(changedComplete.assessment.outcome, "working");
+  assert.ok(
+    changedComplete.preparation.evidence.some((entry) => entry.type === "grant")
+  );
+  await openView(changed.id);
+  await waitText("Agent Assessment: working");
+  await snapshot("changed-run-summary");
+  const unchangedSkill = await readFile(skillFile, "utf-8");
+  assert.ok(unchangedSkill.includes('"appBuild":"1"'), "Taught build changed.");
+  receipt.coverage.changedBuild = {
+    assessment: changedComplete.assessment,
+    differences: changedComplete.preparation.differences,
+    grantRunScoped: true,
+    id: changed.id,
+    refusal: {
+      id: refusedRun.id,
+      observeRefused: refusedInput.split("\n").find(Boolean),
+    },
+    taughtBuildRetained: true,
+  };
+
+  // Deliberately broken build: dispatch alone never passes.
+  await installVariant("broken");
+  const claimed = await startSession("run", "broken");
+  sessions.push(claimed.id);
+  await allowPermission(claimed.id);
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Take control");
+  current = await journey(claimed.id);
+  assert.ok(!shows(current, outcome));
+  assert.ok(names(current).includes("Checkout failed"));
+  const downgraded = await complete(
+    current,
+    "working",
+    "Every checkout action was dispatched."
+  );
+  assert.equal(downgraded.assessment.outcome, "inconclusive");
+  const failed = await startSession("run", "broken");
+  sessions.push(failed.id);
+  await allowPermission(failed.id);
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Take control");
+  current = await journey(failed.id);
+  const notWorking = await complete(
+    current,
+    "not-working",
+    "Checkout failed: the mock payment service was unavailable and Order confirmed never appeared."
+  );
+  assert.equal(notWorking.assessment.outcome, "not-working");
+  await openView(failed.id);
+  await waitText("Agent Assessment: not-working");
+  await snapshot("broken-run-summary");
+  receipt.coverage.brokenBuild = {
+    dispatchOnlyClaim: { assessment: downgraded.assessment, id: claimed.id },
+    notWorking: { assessment: notWorking.assessment, id: failed.id },
+  };
+
+  // Unexpected app: another app takes the foreground mid-Run.
+  const paused = await startSession("run", "broken");
+  sessions.push(paused.id);
+  await allowPermission(paused.id);
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Take control");
+  await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
+  const outside = await refusal("agent_android_workspace", {
+    command: { _tag: "observe", image: false, sessionId: paused.id },
+  });
+  const pausedRead = await read(paused.id);
+  assert.equal(pausedRead.phase, "paused");
+  await openView(paused.id);
+  await wait("Recover same emulator");
+  await snapshot("unexpected-app-paused");
+  await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
+  await click("Recover same emulator");
+  await wait("Take control");
+  const recovered = await observe(paused.id);
+  assert.notEqual(recovered.observation.id, pausedRead.observation?.id);
+  assert.equal(recovered.phase, "running");
+  await click("Close session");
+  receipt.coverage.unexpectedApp = {
+    captureGaps: pausedRead.captureGaps,
+    pause: outside.split("\n").find(Boolean),
+    recoveredObservation: recovered.observation.id,
+  };
+
+  // Capture loss ends Teaching as incomplete; it cannot be learned.
+  await installVariant("working");
+  const lost = await startSession("teaching", "working");
+  sessions.push(lost.id);
+  await openView(lost.id);
+  await wait("Prepare selected emulator");
+  await click("Prepare selected emulator");
+  await wait("Start recording");
+  await click("Start recording");
+  await wait("Stop recording");
+  // The Workspace mirror detects the foreign app on its next capture, before any input.
+  await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
+  await wait("Recover same emulator");
+  const lostRead = await read(lost.id);
+  assert.equal(lostRead.captureState._tag, "failed");
+  await snapshot("capture-loss");
+  await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
+  await click("Close session");
+  const learnRefused = await refusal("agent_teaching_recording_claim", {
+    action: "take",
+    claimOperationId: null,
+    error: null,
+    operationId: "android-checkout-lost-claim",
+    recordingId: lost.recordingId,
+  });
+  receipt.coverage.captureLoss = {
+    captureGaps: lostRead.captureGaps,
+    claimRefused: learnRefused.split("\n").find(Boolean),
+    lifecycle: lostRead.captureState,
+  };
+
+  // A restarted server owns no device; it rereads retained Summaries.
+  await control("mcp", "stop");
+  await control("mcp", "start");
+  instance = await readInstance();
+  const reread = {};
+  for (const [name, id] of Object.entries({
+    brokenClaim: claimed.id,
+    brokenFailed: failed.id,
+    changed: changed.id,
+    dryRun: dry.id,
+  })) {
+    const summary = await read(id);
+    reread[name] = {
+      assessment: summary.assessment?.outcome ?? null,
+      captureState: summary.captureState?._tag ?? null,
+      cleanup: summary.cleanup?._tag ?? null,
+    };
+  }
+  assert.equal(reread.dryRun.captureState, "verified");
+  assert.equal(reread.dryRun.cleanup, "purged");
+  assert.equal(reread.changed.assessment, "working");
+  assert.equal(reread.brokenClaim.assessment, "inconclusive");
+  assert.equal(reread.brokenFailed.assessment, "not-working");
+  receipt.coverage.restart = reread;
+
+  // Disconnect: only an emulator this operator started for the proof may be killed.
+  if (process.env.CONTINGENCY_ANDROID_DISCONNECT === "owned-emulator") {
+    const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
+    assert.ok(sdk, "Export ANDROID_HOME to restart the owned emulator.");
+    const disconnected = await startSession("run", "working");
+    sessions.push(disconnected.id);
+    await prepare(disconnected.id);
+    // A console screen recording ends with the emulator; finalize it first.
+    await adb("emu", "screenrecord", "stop").catch((error) =>
+      journal.push({
+        cause: String(error),
+        note: "No screen recording to finalize.",
+      })
+    );
+    await adb("emu", "kill");
+    // The agent holds control, so its next observation is what detects the loss.
+    const lostDevice = await refusal("agent_android_workspace", {
+      command: { _tag: "observe", image: false, sessionId: disconnected.id },
+    });
+    await wait("Recover same emulator");
+    const pausedByDisconnect = await read(disconnected.id);
+    assert.equal(pausedByDisconnect.phase, "paused");
+    await snapshot("disconnect-paused");
+    const whileAbsent = await refusal("agent_android_workspace", {
+      command: {
+        _tag: "recover",
+        operationId: operation(),
+        sessionId: disconnected.id,
+      },
+    });
+    await click("Recover same emulator");
+    await waitText("Recover same emulator");
+    const stillPaused = await read(disconnected.id);
+    assert.equal(stillPaused.phase, "paused");
+    const emulator = spawn(
+      path.join(sdk, "emulator/emulator"),
+      [
+        "-avd",
+        process.env.CONTINGENCY_ANDROID_AVD,
+        "-no-snapshot-save",
+        "-no-boot-anim",
+        "-no-window",
+        "-memory",
+        "2048",
+      ],
+      { detached: true, stdio: "ignore" }
+    );
+    emulator.unref();
+    await run("adb", ["-s", serial, "wait-for-device"]);
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const booted = await adb("shell", "getprop", "sys.boot_completed").catch(
+        () => ""
+      );
+      if (booted.trim() === "1") {
+        break;
+      }
+      await sleep(1000);
+    }
+    // A cold boot restores the quickboot snapshot, which may predate the fixture.
+    await installVariant("working");
+    await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
+    await click("Recover same emulator");
+    await wait("Take control");
+    const reconnected = await observe(disconnected.id);
+    assert.equal(reconnected.phase, "running");
+    assert.equal(reconnected.selection.device.serial, serial);
+    await snapshot("disconnect-recovered");
+    receipt.coverage.disconnect = {
+      agentRecoveryRefused: whileAbsent.split("\n").find(Boolean),
+      captureGaps: pausedByDisconnect.captureGaps,
+      detectedBy: lostDevice.split("\n").find(Boolean),
+      recoveredObservation: reconnected.observation.id,
+      sameSerial: serial,
+      workspaceRecoveryWhileAbsent: stillPaused.error,
+    };
+  } else {
+    receipt.blockers.push(
+      "Disconnect not driven: set CONTINGENCY_ANDROID_DISCONNECT=owned-emulator for an emulator this operator started."
+    );
+    process.exitCode = 1;
+  }
+} catch (error) {
+  receipt.blockers.push(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+  await snapshot("failure").catch((snapshotError) =>
+    receipt.blockers.push(
+      `Failure snapshot unavailable: ${String(snapshotError)}`
+    )
+  );
+} finally {
+  // Owned cleanup: sessions this proof opened, then the fixture it installed.
+  // Sessions already completed, or owned by the restarted server, refuse close.
+  const closeRefusals = [];
+  for (const id of sessions) {
+    await command({
+      _tag: "close",
+      operationId: operation(),
+      sessionId: id,
+    }).catch(() => {
+      closeRefusals.push(id);
+    });
+  }
+  let uninstallFailure = null;
+  if (installedHere) {
+    await adb("uninstall", appId).catch((error) => {
+      uninstallFailure = String(error?.stderr || error);
+    });
+  }
+  const helper = await adb(
+    "shell",
+    "pidof com.callstack.agentdevice.snapshothelper || true"
+  ).catch(() => "unknown");
+  const forwards = await run("adb", ["forward", "--list"]).catch(
+    () => "unknown"
+  );
+  receipt.cleanup = {
+    closeRefusals,
+    fixtureUninstalled: installedHere && uninstallFailure === null,
+    helperProcess: helper.trim() || null,
+    ownedForwards: forwards
+      .split("\n")
+      .filter((line) => line.startsWith(serial)),
+    uninstallFailure,
+  };
+  await writeFile(
+    path.join(artifacts, "journal.json"),
+    JSON.stringify(journal, null, 2),
+    { mode: 0o600 }
+  );
+  await writeFile(
+    path.join(artifacts, "receipt.json"),
+    JSON.stringify(receipt, null, 2),
+    { mode: 0o600 }
+  );
+  process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
+}

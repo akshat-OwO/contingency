@@ -45,6 +45,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Android preparation](./workspace.md#android-preparation) proves the internal experimental Android factory lifecycle, with explicit device selection and sanitized receipts.
 - [Android workspace](./workspace.md#android-workspace) proves opt-in experimental Android Teaching, Takeover, Dry Run verification and purge, a later Run, and Summary readback after restart through mirrored Workspace.
+- [Android checkout](./workspace.md#android-checkout) proves the Expo checkout fixture end to end: Workspace Teaching, Timeline readback, learning, fresh Dry Run, verification and purge, changed-build permission, broken-build detection, ownership pause, capture loss, restart, and same-device disconnect recovery.
 
 - [Session Events](./workspace.md#session-events) proves cursor waits and replay through Teaching, retained instruction and attachment edits, private Variable supply, Dry Run verification, Cleanup, and Takeover return, with per-tool byte measurements.
 
