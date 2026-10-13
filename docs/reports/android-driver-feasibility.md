@@ -4,6 +4,8 @@ The isolated Android driver and instrumentation helper work on the user-selected
 
 The prototype is in [packages/cli/prototypes/android](../../packages/cli/prototypes/android/README.md). It does not change production runtime services or Workspace. The report follows [ADR 0058](../adr/0058-android-is-the-next-platform-runtime.md). Evidence was captured on 2026-10-12 under `.cursor/skills/verify-contingency/artifacts/android-463/`, with separate physical-device blockers. The [evidence receipt](android-driver-evidence.json) preserves command outcomes, observation identities, and media hashes after sensitive-media cleanup.
 
+The follow-up [backend comparison for issue 467](android-backend-comparison.md) evaluates the pinned agent-device release and records the proposed driver decision in [ADR 0060](../adr/0060-use-stock-agent-device-for-an-experimental-android-runtime.md).
+
 ## Emulator evidence
 
 The user explicitly selected Pixel_9 and authorized helper installation. `adb devices -l` initially listed no attached device. T3's `device_open` returned `Device Pixel_9 failed to boot: The simulator or emulator could not start. Check its configuration on the environment server.` Starting that same authorized AVD with the installed emulator executable succeeded. `adb -s emulator-5554 emu avd name` returned `Pixel_9`; the serial was passed to every device command.
