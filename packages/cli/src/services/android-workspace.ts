@@ -5,8 +5,6 @@ import {
   AgentSessionId,
   ContentHash,
   OperationId,
-  TeachingCaptureState,
-  TeachingRecordingCleanupState,
   TeachingRecordingId,
   AndroidWorkspaceSummary,
 } from "@contingency/protocol";
@@ -21,6 +19,7 @@ import {
   Context,
   Effect,
   Exit,
+  Fiber,
   FileSystem,
   Layer,
   Result,
@@ -104,12 +103,6 @@ const semanticSignature = (nodes: AndroidObservation["nodes"]) =>
       role,
     }))
   );
-
-/** A purged Recording leaves no manifest, so its final state stays beside the Summaries. */
-const PurgedRecording = Schema.Struct({
-  captureState: TeachingCaptureState,
-  cleanup: TeachingRecordingCleanupState,
-});
 
 interface SessionState {
   /** Bounded semantic selections only; historical frames never retain screenshot pixels. */
@@ -213,14 +206,6 @@ export const makeAndroidWorkspaceLayer = (options: {
           );
           yield* io(fs.rename(temporary, session.summaryFile));
         });
-      const purgedFile = (recordingId: TeachingRecordingId) =>
-        path.join(
-          options.root(),
-          ".android-workspace",
-          "recordings",
-          `${recordingId}.json`
-        );
-      const retainedPurges = new Set<TeachingRecordingId>();
       const recordingState = (recordingId: TeachingRecordingId | null) =>
         recordingId === null
           ? Effect.succeed({ captureState: null, cleanup: null })
@@ -228,41 +213,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               Effect.map((manifest) => ({
                 captureState: manifest.lifecycle,
                 cleanup: manifest.cleanup,
-              })),
-              Effect.tap((retained) =>
-                retained.cleanup._tag !== "purged" ||
-                retainedPurges.has(recordingId)
-                  ? Effect.void
-                  : Effect.gen(function* retainPurge() {
-                      const file = purgedFile(recordingId);
-                      yield* io(
-                        fs.makeDirectory(path.dirname(file), {
-                          recursive: true,
-                        })
-                      );
-                      yield* io(
-                        fs.writeFileString(
-                          `${file}.tmp`,
-                          JSON.stringify(retained, null, 2),
-                          { mode: 0o600 }
-                        )
-                      );
-                      yield* io(fs.rename(`${file}.tmp`, file));
-                      retainedPurges.add(recordingId);
-                    })
-              ),
-              Effect.catchIf(
-                (failure) => failure.code === "teaching_recording_not_found",
-                (failure) =>
-                  fs.readFileString(purgedFile(recordingId)).pipe(
-                    Effect.flatMap(
-                      Schema.decodeUnknownEffect(
-                        Schema.fromJsonString(PurgedRecording)
-                      )
-                    ),
-                    Effect.mapError(() => failure)
-                  )
-              )
+              }))
             );
       const snapshot = (
         session: Session,
@@ -1176,7 +1127,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 return yield* snapshotPersisted(summary);
               });
             }
-            return session.lock.withPermits(1)(
+            const serialized = session.lock.withPermits(1)(
               Effect.gen(function* serializedCommand() {
                 const operationId =
                   "operationId" in command ? command.operationId : null;
@@ -1236,6 +1187,14 @@ export const makeAndroidWorkspaceLayer = (options: {
                   : Effect.fail(result.failure);
               })
             );
+            // A capture forwards no input, so a caller that stops waiting, such as a
+            // closed mirror, must not pause the session or mark its capture incomplete.
+            return command._tag === "observe"
+              ? serialized.pipe(
+                  Effect.forkIn(session.scope),
+                  Effect.flatMap(Fiber.join)
+                )
+              : serialized;
           }),
         list: () =>
           Effect.gen(function* listWorkspace() {

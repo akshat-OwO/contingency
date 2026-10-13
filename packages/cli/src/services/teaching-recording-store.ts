@@ -37,6 +37,8 @@ import { SessionEventOrigin } from "./session-events.ts";
 export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
+/** Final manifests of purged Recordings, written before their directories are deleted. */
+const PURGED_DIRECTORY = ".purged";
 const VERIFICATION_FILE = "references/verification.md";
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: /mu;
 
@@ -364,6 +366,15 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       root = rootFor(recordingId)
     ): string =>
       path.join(recordingDirectory(recordingId, root), MANIFEST_FILE);
+    const purgedFile = (
+      recordingId: TeachingRecordingId,
+      root = rootFor(recordingId)
+    ): string =>
+      path.join(
+        recordingsDirectory(root),
+        PURGED_DIRECTORY,
+        `${recordingId}.json`
+      );
     const manifestLockFile = (
       recordingId: TeachingRecordingId,
       root = rootFor(recordingId)
@@ -488,9 +499,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         withDiskLock(recordingId, operation, createDirectory)
       );
 
-    const readAt = (recordingId: TeachingRecordingId, root: string) =>
+    const readAt = (
+      recordingId: TeachingRecordingId,
+      root: string,
+      file = manifestFile(recordingId, root)
+    ) =>
       Effect.gen(function* readManifest() {
-        const file = manifestFile(recordingId, root);
         const exists = yield* fileSystem
           .exists(file)
           .pipe(
@@ -542,11 +556,11 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       });
 
     const persist = <Manifest extends TeachingRecordingManifest>(
-      manifest: Manifest
+      manifest: Manifest,
+      file = manifestFile(manifest.recordingId)
     ): Effect.Effect<Manifest, TeachingRecordingStoreError> =>
       Effect.gen(function* persistManifest() {
-        const directory = recordingDirectory(manifest.recordingId);
-        const file = manifestFile(manifest.recordingId);
+        const directory = path.dirname(file);
         const temporary = `${file}.${randomUUID()}.tmp`;
         yield* fileSystem
           .makeDirectory(directory, { recursive: true })
@@ -618,9 +632,22 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
 
     const read = (recordingId: TeachingRecordingId) => {
       const completed = purged.get(recordingId);
-      return completed === undefined
-        ? readAndRecoverAt(recordingId, rootFor(recordingId))
-        : Effect.succeed(completed);
+      if (completed !== undefined) {
+        return Effect.succeed(completed);
+      }
+      const root = rootFor(recordingId);
+      return readAndRecoverAt(recordingId, root).pipe(
+        Effect.catchIf(
+          (failure) => failure.code === "teaching_recording_not_found",
+          (failure) =>
+            readAt(recordingId, root, purgedFile(recordingId, root)).pipe(
+              Effect.catchIf(
+                (missing) => missing.code === "teaching_recording_not_found",
+                () => Effect.fail(failure)
+              )
+            )
+        )
+      );
     };
 
     const mutate = (
@@ -1404,6 +1431,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             origin
           );
           yield* persist(completed);
+          // Retained first so a restart between here and removal still reads the outcome.
+          yield* persist(completed, purgedFile(input.recordingId));
           yield* fileSystem
             .remove(directory, { force: true, recursive: true })
             .pipe(

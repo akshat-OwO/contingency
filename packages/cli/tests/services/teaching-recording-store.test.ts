@@ -450,6 +450,14 @@ it.effect("retries purge-pending cleanup when a store starts", () =>
 
     expect(yield* fileSystem.exists(directory)).toBe(false);
     expect(yield* fileSystem.exists(artifactFile)).toBe(false);
+
+    // A later process still reads the outcome after the directory is gone.
+    const reopened = yield* Effect.gen(function* readPurgedRecording() {
+      const store = yield* TeachingRecordingStore;
+      return yield* store.read(recoveryId);
+    }).pipe(Effect.provide(layerFor(root)));
+    expect(reopened.lifecycle._tag).toBe("verified");
+    expect(reopened.cleanup._tag).toBe("purged");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

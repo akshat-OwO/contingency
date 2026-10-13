@@ -7,7 +7,15 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Context, Effect, FileSystem, Layer, Result } from "effect";
+import {
+  Context,
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Result,
+} from "effect";
 import type { Scope } from "effect";
 
 import { createAndroidRun } from "../../src/services/android-run.ts";
@@ -64,12 +72,18 @@ const image =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jqz8AAAAASUVORK5CYII=";
 const skill = `---\nname: android-edit\ndescription: Edit a public fixture field and return Home. Use when testing the Android fixture.\ninputs:\n---\n\n# Edit the fixture\n\n1. Activate the button named Edit. Done when: the public field is visible.\n2. Enter public fixture text. Done when: the field shows the value.\n3. Go back. Done when: Home is visible.\n`;
 
+interface CaptureGate {
+  readonly entered: Deferred.Deferred<boolean>;
+  readonly release: Deferred.Deferred<boolean>;
+}
 const fixture = (
   test: (input: {
     readonly root: string;
     readonly calls: string[];
     readonly disconnect: () => void;
     readonly reconnect: () => void;
+    /** Holds the next capture after it starts until the test releases it. */
+    readonly holdNextCapture: () => Effect.Effect<CaptureGate>;
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -94,6 +108,7 @@ const fixture = (
       const calls: string[] = [];
       let connected = true;
       let generation = 0;
+      let held: CaptureGate | undefined;
       const backend: AndroidRuntimeBackend = {
         activate: () =>
           Effect.sync(() => {
@@ -104,53 +119,63 @@ const fixture = (
             calls.push("back");
           }),
         capture: () =>
-          Effect.sync((): AndroidObservation => {
-            generation += 1;
-            return {
-              backendSessionId: "fixture-session",
-              capture: {
-                complete: true,
-                mode: "interactive-windows",
-                secureWindowVisibility: "unverified",
-                windowCount: 1,
-              },
-              device: selection.device,
-              generation,
-              id: `observation-${generation}`,
-              nodes: [
-                {
-                  covered: false,
-                  editable: false,
-                  name: "Home",
-                  packageName: "dev.fixture",
-                  password: false,
-                  role: "text",
-                  target: "@e1",
+          Effect.suspend(() => {
+            const gate = held;
+            held = undefined;
+            return gate === undefined
+              ? Effect.void
+              : Deferred.succeed(gate.entered, true).pipe(
+                  Effect.andThen(Deferred.await(gate.release))
+                );
+          }).pipe(
+            Effect.map((): AndroidObservation => {
+              generation += 1;
+              return {
+                backendSessionId: "fixture-session",
+                capture: {
+                  complete: true,
+                  mode: "interactive-windows",
+                  secureWindowVisibility: "unverified",
+                  windowCount: 1,
                 },
-                {
-                  covered: false,
-                  editable: false,
-                  name: "Edit",
-                  packageName: "dev.fixture",
-                  password: false,
-                  role: "button",
-                  target: "@e2",
+                device: selection.device,
+                generation,
+                id: `observation-${generation}`,
+                nodes: [
+                  {
+                    covered: false,
+                    editable: false,
+                    name: "Home",
+                    packageName: "dev.fixture",
+                    password: false,
+                    role: "text",
+                    target: "@e1",
+                  },
+                  {
+                    covered: false,
+                    editable: false,
+                    name: "Edit",
+                    packageName: "dev.fixture",
+                    password: false,
+                    role: "button",
+                    target: "@e2",
+                  },
+                ],
+                ownership: {
+                  focusedPackage: "dev.fixture",
+                  kind: "experimental-host-check",
+                  systemDialogAuthority: "unsupported",
                 },
-              ],
-              ownership: {
-                focusedPackage: "dev.fixture",
-                kind: "experimental-host-check",
-                systemDialogAuthority: "unsupported",
-              },
-              platform: "android",
-              screenshot: {
-                capturedAt: "2026-10-13T00:00:00.000Z",
-                encoding: "base64",
-                format: "png",
-                image,
-              },
-            };
-          }),
+                platform: "android",
+                screenshot: {
+                  capturedAt: "2026-10-13T00:00:00.000Z",
+                  encoding: "base64",
+                  format: "png",
+                  image,
+                },
+              };
+            })
+          ),
         close: () => Effect.void,
         fill: () => Effect.void,
         recover: () => Effect.void,
@@ -213,6 +238,15 @@ const fixture = (
         disconnect: () => {
           connected = false;
         },
+        holdNextCapture: () =>
+          Effect.gen(function* holdCapture() {
+            const gate = {
+              entered: yield* Deferred.make<boolean>(),
+              release: yield* Deferred.make<boolean>(),
+            };
+            held = gate;
+            return gate;
+          }),
         reconnect: () => {
           connected = true;
         },
@@ -336,6 +370,61 @@ const dryRun = (recordingId: TeachingRecordingId) =>
       "user"
     );
   });
+
+it.effect("cancelling a mirror capture leaves Teaching intact", () =>
+  fixture(({ holdNextCapture }) =>
+    Effect.gen(function* cancelMirror() {
+      const workspace = yield* AndroidWorkspace;
+      const started = yield* workspace.execute(
+        {
+          _tag: "start",
+          flowSkillName,
+          kind: "teaching",
+          operationId: op("start-teaching"),
+          recordingId: null,
+          selection,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        { _tag: "prepare", operationId: op("prepare"), sessionId: started.id },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("record-start"),
+          sessionId: started.id,
+          start: true,
+        },
+        "user"
+      );
+      const gate = yield* holdNextCapture();
+      // Navigation away from the mirror interrupts its in-flight request.
+      const mirror = yield* Effect.forkChild(
+        workspace.execute(
+          { _tag: "observe", image: true, sessionId: started.id },
+          "user"
+        )
+      );
+      yield* Deferred.await(gate.entered);
+      yield* Fiber.interrupt(mirror);
+      yield* Deferred.succeed(gate.release, true);
+      const stopped = yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("record-stop"),
+          sessionId: started.id,
+          start: false,
+        },
+        "user"
+      );
+      expect(stopped.phase).toBe("running");
+      expect(stopped.captureGaps).toEqual([]);
+      expect(stopped.captureState?._tag).toBe("ready");
+    })
+  )
+);
 
 it.effect(
   "a newer mirror frame does not consume a unique semantic selection or repeat its dispatch",
