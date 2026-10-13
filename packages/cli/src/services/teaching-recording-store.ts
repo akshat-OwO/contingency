@@ -65,7 +65,8 @@ const ioError = (context: string) => (cause: PlatformError) =>
   storeError("teaching_recording_io", `${context}: ${cause.message}`);
 
 export interface TeachingRecordingBegin {
-  readonly emulation: DraftEmulation;
+  readonly emulation: DraftEmulation | null;
+  readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly flowSkillName: FlowSkillName;
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
@@ -83,7 +84,7 @@ export interface TeachingRecordingMutation {
  * declare the one it was demonstrated under.
  */
 export interface TeachingRecordingStart extends TeachingRecordingMutation {
-  readonly emulation: DraftEmulation;
+  readonly emulation: DraftEmulation | null;
 }
 
 export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation {
@@ -718,7 +719,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               },
             ],
             recordingId: input.recordingId,
-            runtime: browserRequirements,
+            runtime: input.runtime ?? browserRequirements,
             schemaVersion: 1,
             sessionId: input.sessionId,
             updatedAt: at,
@@ -1262,6 +1263,9 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         if (
           runtime === undefined ||
           runtime.diagnostics.length > 0 ||
+          (manifest.runtime?.platform === "android" &&
+            JSON.stringify(runtime.requirements) !==
+              JSON.stringify(manifest.runtime)) ||
           runtime.requirements.platform !==
             (manifest.runtime?.platform ?? "web")
         ) {

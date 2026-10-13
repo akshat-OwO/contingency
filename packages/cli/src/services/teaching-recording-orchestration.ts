@@ -263,6 +263,17 @@ export const startDryRun = (input: DryRunStartInput) =>
     const manifest = yield* store
       .read(input.recordingId)
       .pipe(Effect.mapError(fromCause));
+    if (
+      manifest.runtime?.platform === "android" ||
+      manifest.emulation === null
+    ) {
+      return yield* Effect.fail(
+        invalid(
+          "Android Dry Runs require the experimental Android Workspace entry point and explicit device preparation."
+        )
+      );
+    }
+    const { emulation } = manifest;
     const replay = manifest.receipts.some(
       (receipt) =>
         receipt.operation === "start-dry-run" &&
@@ -496,7 +507,7 @@ export const startDryRun = (input: DryRunStartInput) =>
             supplied: false,
           })),
         },
-        emulation: manifest.emulation,
+        emulation,
         run,
         runtimeRequirements: {
           ...runtime,
@@ -515,7 +526,7 @@ export const startDryRun = (input: DryRunStartInput) =>
           },
         },
         url: input.url,
-        viewport: manifest.emulation.viewport,
+        viewport: emulation.viewport,
       };
     });
     const session = yield* sessions

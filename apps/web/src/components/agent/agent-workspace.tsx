@@ -47,6 +47,7 @@ import {
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
+import { AndroidWorkspace } from "@/components/agent/android-workspace";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DemoTeachingPassword } from "@/components/agent/demo-teaching-password";
 import { DockRequests } from "@/components/agent/dock-requests";
@@ -2193,7 +2194,7 @@ const WorkspaceLayout = ({
   );
 };
 
-export const AgentWorkspace = ({
+const BrowserWorkspace = ({
   onRecoverSession,
   onSelectSession,
   requestedSessionId,
@@ -2368,5 +2369,30 @@ export const AgentWorkspace = ({
         />
       ) : null}
     </div>
+  );
+};
+
+export const AgentWorkspace = (
+  props: React.ComponentProps<typeof BrowserWorkspace>
+) => {
+  const requestedAndroidSession =
+    new URL(globalThis.location.href).searchParams.get("android") ?? undefined;
+  const [android, setAndroid] = useState(requestedAndroidSession !== undefined);
+  return android ? (
+    <AndroidWorkspace
+      requestedSessionId={requestedAndroidSession}
+      onBrowser={() => setAndroid(false)}
+    />
+  ) : (
+    <>
+      <BrowserWorkspace {...props} />
+      <button
+        type="button"
+        className="bg-background absolute top-4 right-4 rounded-md border px-3 py-2 text-sm shadow-sm"
+        onClick={() => setAndroid(true)}
+      >
+        Android experimental
+      </button>
+    </>
   );
 };

@@ -532,7 +532,7 @@ const emulationLines = (emulation: FlowSkillEmulation): string[] => {
 export const stampFlowSkillProvenance = (
   content: string,
   provenance: {
-    readonly emulation: FlowSkillEmulation;
+    readonly emulation: FlowSkillEmulation | null;
     readonly hosts: readonly string[];
     readonly runtime?: PlatformRequirements | undefined;
   }
@@ -545,10 +545,16 @@ export const stampFlowSkillProvenance = (
   const stamped = [
     ...withoutStampedKeys(match.groups?.block ?? ""),
     `runtime: ${JSON.stringify(provenance.runtime ?? browserRequirements)}`,
-    "hosts:",
-    ...provenance.hosts.map((host) => `  - ${host}`),
-    "emulation:",
-    ...emulationLines(provenance.emulation),
+    ...(provenance.runtime?.platform === "android"
+      ? []
+      : [
+          "hosts:",
+          ...provenance.hosts.map((host) => `  - ${host}`),
+          "emulation:",
+          ...(provenance.emulation === null
+            ? []
+            : emulationLines(provenance.emulation)),
+        ]),
   ].join("\n");
   return `---\n${stamped}\n---\n${content.slice(matched.length)}`;
 };

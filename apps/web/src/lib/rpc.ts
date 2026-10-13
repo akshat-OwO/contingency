@@ -5,6 +5,7 @@ import {
   runVideoStatusPath,
 } from "@contingency/protocol";
 import type {
+  AndroidWorkspaceCommand,
   AgentRunId,
   AgentSessionId,
   CatalogRootScope,
@@ -61,6 +62,17 @@ export const agentSessionsAtom = ContingencyRpcClient.query(
   "agent.sessions.get",
   {}
 );
+export const androidSessionsAtom = ContingencyRpcClient.query(
+  "android.workspace.list",
+  {}
+);
+export const runAndroidWorkspaceCommand = (command: AndroidWorkspaceCommand) =>
+  Effect.scoped(
+    Effect.gen(function* androidWorkspaceCommand() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("android.workspace.command", command);
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
 export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
   "agent.browser.frame.ack"
 );

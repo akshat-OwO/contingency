@@ -9,6 +9,7 @@ import {
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
+import { makeAndroidWorkspaceLayer } from "../services/android-workspace.ts";
 import {
   defaultGlobalCatalogRoot,
   makeCatalogBrowserLayer,
@@ -86,7 +87,7 @@ export const webCommand = Command.make(
         const runVideoRenderer = Layer.succeedContext(
           yield* Layer.build(RunVideoRendererLive)
         );
-        const agentSession = Layer.succeedContext(
+        const browserSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
               allowedActivity: "teaching",
@@ -99,6 +100,19 @@ export const webCommand = Command.make(
             )
           )
         );
+        const androidWorkspace = Layer.succeedContext(
+          yield* Layer.build(
+            makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
+              Layer.provide(
+                Layer.merge(
+                  teachingRecordingStore,
+                  makeFlowSkillCatalogLayer({ root: selectedCatalogRoot })
+                )
+              )
+            )
+          )
+        );
+        const agentSession = Layer.merge(browserSession, androidWorkspace);
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })
