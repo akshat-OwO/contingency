@@ -4,6 +4,8 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 
 ## Sub-features
 
+- `android-preparation` proves declared emulator activity restart, Run-scoped environment decisions, failed starting-condition refusal, unexpected-app pause, and fresh recovery through the internal Android factory. Android Workspace and MCP tools remain unavailable until #470.
+
 - `agent-session-events` wakes a cursor wait for Workspace Teaching, private Variable, verification, Cleanup, and Takeover changes, with replayable events and a compact snapshot.
 
 - `agent-onboarding` launches an installed, signed-in Claude Code, Codex, or OpenCode V2 with session-only MCP configuration and a project-local catalog. Bundled Examples run on Ridgeline Hardware with demo-only authority; a user-taught variation requires a fresh Dry Run and explicit verification.
@@ -483,6 +485,17 @@ For the off path, restart the broker with `CONTINGENCY_MCP_CHANNEL=false`. Start
 For model wakeup, use a disposable Claude Code session with this stdio server, `CONTINGENCY_MCP_CHANNEL=true`, and `--dangerously-load-development-channels server:contingency`. Accept the local development prompt. Ask the agent to finish its turn and read `agent_session_get` when a channel arrives. Click **Verify flow** without sending another conversation message. Keep transcript evidence of the channel and the resulting tool call. If Claude rejects channels because of preview access or organization policy, record that blocker separately from the proven stdio frame delivery.
 
 Stop the disposable Claude process and run `cleanup`. Require artifacts to survive cleanup.
+
+### Android preparation
+
+Preconditions: Build current source. Obtain explicit selection and authorization for the prepared Pixel_9 API 36 emulator. Start only that AVD. Read its serial, AVD, and fingerprint back through ADB. The pinned 0.21.25 helper must already be installed through the consent-bound runtime path. Do not adopt another session or helper process.
+
+- **Declare selection:** Export `CONTINGENCY_ANDROID_SERIAL`, `CONTINGENCY_ANDROID_AVD=Pixel_9`, and `CONTINGENCY_ANDROID_FINGERPRINT` from the authorized device readback. Export `CONTINGENCY_ANDROID_EVIDENCE_DIRECTORY` to an owned directory under `artifacts/android-preparation/`.
+- **Drive preparation:** Run `nub packages/cli/scripts/verify-android-preparation.ts`. The runner restarts the declared Settings About device activity and requires a fresh `Device name` semantic observation. It refuses changed-build permission in one Run and grants it in another, fails an absent starting condition, moves to Home to prove unexpected-app pause, returns Settings, and explicitly recovers without replay.
+- **Read evidence:** Read `preparation-receipt.json` in the exported evidence directory. Require fresh distinct observation IDs, `starting_condition_failed`, `ownership_unknown`, and blocked preparation after refusal. Check retained differences, named decisions, grants, refusals, and owned close evidence. The runner independently rereads the persisted receipt. Screenshot hashes are retained; pixels stay in private runtime state and are purged by close.
+- **Cleanup:** Close all owned Runs. Remove the helper only if this proof installed it. Stop only the emulator this proof started. Retain the sanitized receipt and journal. Use the normal `control-contingency cleanup` for any separate browser regression instance.
+
+This is live production-factory proof. It does not prove an Android MCP tool, Workspace permission rendering, mirrored Teaching, app updates, snapshots, destructive reset, or physical devices. Service tests separately exercise decision isolation, build drift, unsupported capabilities, outside-app setup, and undeclared activations. Settings restart establishes the declared navigation state; it does not clear application data. A journey needing cleared data or another setup procedure is unsupported.
 
 ## Gotchas
 

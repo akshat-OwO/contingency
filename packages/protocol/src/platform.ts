@@ -14,6 +14,19 @@ export const PlatformCapability = Schema.Literals([
 ]);
 export type PlatformCapability = typeof PlatformCapability.Type;
 
+export const AndroidStartingCondition = Schema.Struct({
+  name: Schema.String.check(Schema.isMinLength(1)),
+  role: Schema.String.check(Schema.isMinLength(1)),
+});
+export const AndroidPreparation = Schema.Struct({
+  activity: Schema.String.check(Schema.isMinLength(1)),
+  conditions: Schema.Array(AndroidStartingCondition).check(
+    Schema.isMinLength(1)
+  ),
+  kind: Schema.Literal("restart-activity"),
+});
+export type AndroidPreparation = typeof AndroidPreparation.Type;
+
 /** Internal runtime requirements. Browser Emulation remains a separate typed contract. */
 export const PlatformRequirements = Schema.Union([
   Schema.Struct({
@@ -30,6 +43,7 @@ export const PlatformRequirements = Schema.Union([
       startingState: Schema.String.check(Schema.isMinLength(1)),
     }),
     platform: Schema.Literal("android"),
+    preparation: Schema.optionalKey(AndroidPreparation),
   }),
 ]);
 export type PlatformRequirements = typeof PlatformRequirements.Type;

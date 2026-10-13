@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Android preparation](./workspace.md#android-preparation) proves the internal experimental Android factory lifecycle, with explicit device selection and sanitized receipts. Android MCP and Workspace proof remain deferred to #470.
+
 - [Session Events](./workspace.md#session-events) proves cursor waits and replay through Teaching, retained instruction and attachment edits, private Variable supply, Dry Run verification, Cleanup, and Takeover return, with per-tool byte measurements.
 
 - [Overlay recovery](./workspace.md#overlay-recovery) proves interception of background input, stacked sheets, unnamed and image close targets, focus-time popup races, and reachable edges without reload.

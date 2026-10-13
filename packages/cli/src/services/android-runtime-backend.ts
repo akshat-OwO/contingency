@@ -15,6 +15,11 @@ import type {
 import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import {
+  prepareAndroidStartingState,
+  requireAndroidAppBuild,
+} from "./android-preparation.ts";
+import type { AndroidRunInput } from "./android-run-contract.ts";
 import { androidHelperRelease } from "./android-runtime-contract.ts";
 import type {
   AndroidObservation,
@@ -204,7 +209,8 @@ const requireCapture = (snapshot: CaptureSnapshotResult) =>
 
 /** Isolated daemon, device lock, SDK session, and media are scope-owned. */
 export const acquireAndroidBackend = (
-  input: AndroidRuntimeStartInput
+  input: AndroidRuntimeStartInput,
+  preparation?: AndroidRunInput
 ): Effect.Effect<AndroidRuntimeBackend, PlatformRuntimeError> =>
   Effect.gen(function* acquireBackend() {
     if (
@@ -317,6 +323,9 @@ export const acquireAndroidBackend = (
               )
       );
       yield* io(() => chmod(directory, 0o700));
+      if (preparation !== undefined) {
+        yield* prepareAndroidStartingState(preparation, directory);
+      }
       const cli = (args: readonly string[]) =>
         io(async (signal) => {
           const { stdout } = await execute(
@@ -414,7 +423,12 @@ export const acquireAndroidBackend = (
       const validateEnvironment = () =>
         requireIdentity(input).pipe(
           Effect.andThen(requireHelper(input.device.serial)),
-          Effect.andThen(requireOwnership(input))
+          Effect.andThen(requireOwnership(input)),
+          Effect.andThen(
+            preparation === undefined
+              ? Effect.void
+              : requireAndroidAppBuild(preparation)
+          )
         );
       const lifecycle = makeAndroidSessionLifecycle({
         close: () =>
