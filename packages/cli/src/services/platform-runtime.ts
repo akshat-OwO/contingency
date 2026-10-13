@@ -18,6 +18,11 @@ import type {
   AgentBrowserFactory,
   AgentBrowserTab,
 } from "./agent-browser-contract.ts";
+import type {
+  AndroidPlatformRuntime,
+  AndroidRuntimeFactoryService,
+  AndroidRuntimeStartInput,
+} from "./android-runtime-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 import {
   browserCapabilities,
@@ -45,7 +50,38 @@ export type PlatformAction =
 
 export interface PlatformRuntimeError {
   readonly _tag: "PlatformRuntimeError";
-  readonly code: "observation_stale" | "runtime_failed";
+  readonly operation?:
+    | "host-io"
+    | "open"
+    | "capture"
+    | "screenshot"
+    | "activate"
+    | "fill"
+    | "back"
+    | "session-check";
+  readonly backendReason?:
+    | "ref_generation_mismatch"
+    | "stale_ref"
+    | "device_not_found"
+    | "request_canceled"
+    | "android_text_input_unverified";
+  readonly code:
+    | "observation_stale"
+    | "runtime_failed"
+    | "capability_missing"
+    | "capture_incomplete"
+    | "device_selection_required"
+    | "device_mismatch"
+    | "device_disconnected"
+    | "installation_denied"
+    | "helper_incompatible"
+    | "helper_owned"
+    | "ownership_unknown"
+    | "target_unsupported"
+    | "runtime_paused"
+    | "runtime_closed"
+    | "execution_canceled"
+    | "cleanup_failed";
   readonly message: string;
 }
 
@@ -97,8 +133,32 @@ export interface BrowserRuntimeFactoryService {
   }) => Effect.Effect<BrowserPlatformRuntime, BrowserRpcErrorType>;
 }
 
+export type BrowserRuntimeStartInput = Parameters<
+  BrowserRuntimeFactoryService["start"]
+>[0] & { readonly platform: "web" };
+export interface PlatformRuntimeFactoryService {
+  readonly web: BrowserRuntimeFactoryService;
+  readonly android: AndroidRuntimeFactoryService;
+  readonly start: (
+    input: BrowserRuntimeStartInput | AndroidRuntimeStartInput
+  ) => Effect.Effect<
+    BrowserPlatformRuntime | AndroidPlatformRuntime,
+    BrowserRpcErrorType | PlatformRuntimeError
+  >;
+}
+
+export const makePlatformRuntimeFactory = (
+  web: BrowserRuntimeFactoryService,
+  android: AndroidRuntimeFactoryService
+): PlatformRuntimeFactoryService => ({
+  android,
+  start: (input) =>
+    input.platform === "web" ? web.start(input) : android.start(input),
+  web,
+});
+
 export const PlatformRuntimeFactory =
-  Context.Service<BrowserRuntimeFactoryService>(
+  Context.Service<PlatformRuntimeFactoryService>(
     "@contingency/PlatformRuntimeFactory"
   );
 

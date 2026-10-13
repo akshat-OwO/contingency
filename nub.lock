@@ -215,6 +215,9 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 26.2.0
+      agent-device:
+        specifier: 0.21.25
+        version: 0.21.25
       axe-core:
         specifier: ^4.13.0
         version: 4.13.0
@@ -2293,6 +2296,16 @@ packages:
     resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
     engines: {node: '>=0.4.0'}
     hasBin: true
+
+  agent-device@0.21.25:
+    resolution: {integrity: sha512-JFmAD5AqM03dVU6BVQW1DQ2Kz+MThmbCYBbDxpGw2lka91LcoXHdrb4IjF9NNg4DEQUu41Pg8WnB/7crM3ig2w==}
+    engines: {node: '>=22.12'}
+    hasBin: true
+    peerDependencies:
+      ai: ^6.0.0 || ^7.0.0
+    peerDependenciesMeta:
+      ai:
+        optional: true
 
   ajv-formats@2.1.1:
     resolution: {integrity: sha512-Wx0Kx52hxE7C18hkMEggYlEifqWZtYaRgouJor+WMdPnQyEK13vgEWyVNup7SoeeoLMsr4kf5h6dOW11I15MUA==}
@@ -6313,6 +6326,8 @@ snapshots:
       negotiator: 1.0.0
 
   acorn@8.18.0: {}
+
+  agent-device@0.21.25: {}
 
   ajv-formats@2.1.1(ajv@8.20.0):
     dependencies:
