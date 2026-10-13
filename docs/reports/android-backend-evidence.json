@@ -1,0 +1,2034 @@
+{
+  "issue": 467,
+  "evaluatedAt": "2026-10-13",
+  "repositoryRevision": "5d3b5bf4374ce960d89ff4b41cbd7d4051eddeca",
+  "authorization": {
+    "device": "Pixel_9",
+    "helperInstallationAndCleanup": true
+  },
+  "versions": {
+    "agentDevice": "0.21.25",
+    "agentDeviceSource": "9dabb5b11bf030a8fc0b475dc99ba4718abeca32",
+    "expoDeviceHub": "0.15.3",
+    "expoDeviceHubSource": "42918bc8e66021da5a983aaa09b43365e58c3dce",
+    "prototypeApkSha256": "cb6a609f66d6e3f1f0ef125fd212816f172fcaae4dd603eb7fcbc15a5382848e",
+    "agentSnapshotApkSha256": "79175080eb71f444224c844a599e75e839d6456790eb96d175fc887f85237a12",
+    "adb": "37.0.1-15733141",
+    "emulator": "36.4.10.0"
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "avd": "Pixel_9",
+    "api": 36,
+    "physical": false,
+    "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys"
+  },
+  "agent": [
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/open.json",
+      "sha256": "52fec23ad57e746da35fa8d7984e26a98ea2daade16b77d93644dcd0bfe045a6",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "open",
+        "com.android.settings",
+        "--foreground",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "selection": {
+        "reason": "explicit-selector",
+        "source": "local",
+        "candidateCount": 1,
+        "bootOccurred": false
+      },
+      "serial": "emulator-5554",
+      "refsGeneration": 411582,
+      "capture": {
+        "backend": "android-helper",
+        "pixelDensity": 2.625,
+        "helperVersion": "0.21.25",
+        "helperApiVersion": "2",
+        "helperTransport": "persistent-session",
+        "helperSessionReused": false,
+        "installReason": "missing",
+        "waitForIdleTimeoutMs": 500,
+        "waitForIdleQuietMs": 100,
+        "timeoutMs": 2000,
+        "maxDepth": 128,
+        "maxNodes": 5000,
+        "rootPresent": true,
+        "captureMode": "interactive-windows",
+        "windowCount": 2,
+        "missingRootWindowTypes": [],
+        "nodeCount": 171,
+        "helperTruncated": false,
+        "elapsedMs": 463
+      },
+      "keyboard": {
+        "kind": "absent"
+      },
+      "nodePackages": ["com.android.settings"],
+      "containsPublicSearchLabel": true,
+      "message": "Opened: com.android.settings"
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/search.json",
+      "sha256": "163d0812646a91a9fde58eb836e5d3b27097db576014f0c3bd293c23ca49f706",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "click",
+        "@e2~s411582",
+        "--settle",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 1,
+      "success": false,
+      "error": {
+        "code": "COMMAND_FAILED",
+        "dispatched": "no"
+      }
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/close-recovery.json",
+      "sha256": "bce8aa283e80ce45905e204fe0005382e3ae159dc0c7e264b6ca607f4ae56451",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "close",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "message": "Closed: t3-7bdaf1947e12c9906c7e31c5"
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/reopen.json",
+      "sha256": "15ffc0826340fe6082cfde9805bc47a741a4fadd98761ec91dfdcc01e195fcb3",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "open",
+        "com.android.settings",
+        "--foreground",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "selection": {
+        "reason": "explicit-selector",
+        "source": "local",
+        "candidateCount": 1,
+        "bootOccurred": false
+      },
+      "serial": "emulator-5554",
+      "refsGeneration": 249161,
+      "capture": {
+        "backend": "android-helper",
+        "pixelDensity": 2.625,
+        "helperVersion": "0.21.25",
+        "helperApiVersion": "2",
+        "helperTransport": "persistent-session",
+        "helperSessionReused": false,
+        "installReason": "missing",
+        "waitForIdleTimeoutMs": 500,
+        "waitForIdleQuietMs": 100,
+        "timeoutMs": 2000,
+        "maxDepth": 128,
+        "maxNodes": 5000,
+        "rootPresent": true,
+        "captureMode": "interactive-windows",
+        "windowCount": 2,
+        "missingRootWindowTypes": [],
+        "nodeCount": 170,
+        "helperTruncated": false,
+        "elapsedMs": 391
+      },
+      "keyboard": {
+        "kind": "absent"
+      },
+      "nodePackages": ["com.android.settings"],
+      "containsPublicSearchLabel": true,
+      "message": "Opened: com.android.settings"
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/search-live.json",
+      "sha256": "065571af81e936efbe6bffc1dd88abf9d2b887e61c27315464fc937c27e13e58",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "click",
+        "@e3~s249161",
+        "--settle",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "settle": {
+        "settled": true,
+        "refsGeneration": 249167
+      },
+      "message": "Tapped @e3 (540, 258)"
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/stale.json",
+      "sha256": "799389d2ffa64b4c68ea8a983c51d6f02e41aece2413f07e4b99e0d421124268",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "click",
+        "@e3~s249161",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 1,
+      "success": false,
+      "error": {
+        "code": "COMMAND_FAILED",
+        "reason": "ref_generation_mismatch",
+        "dispatched": "no",
+        "mintedGeneration": 249161,
+        "currentGeneration": 249167
+      }
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/search-readback.json",
+      "sha256": "79a56beaf4de558c55336da4fa4d2189ad9314b54908a6d129729a0184af0b2a",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "snapshot",
+        "-i",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "refsGeneration": 249168,
+      "capture": {
+        "backend": "android-helper",
+        "pixelDensity": 2.625,
+        "helperVersion": "0.21.25",
+        "helperApiVersion": "2",
+        "helperTransport": "persistent-session",
+        "helperSessionReused": true,
+        "installReason": "current",
+        "waitForIdleTimeoutMs": 500,
+        "waitForIdleQuietMs": 100,
+        "timeoutMs": 2000,
+        "maxDepth": 128,
+        "maxNodes": 5000,
+        "rootPresent": true,
+        "captureMode": "interactive-windows",
+        "windowCount": 3,
+        "missingRootWindowTypes": [],
+        "nodeCount": 209,
+        "helperTruncated": false,
+        "elapsedMs": 144
+      },
+      "keyboard": {
+        "kind": "visible",
+        "frame": {
+          "x": 0,
+          "y": 1541,
+          "width": 1080,
+          "height": 883
+        }
+      },
+      "nodePackages": [
+        "com.google.android.inputmethod.latin",
+        "com.google.android.settings.intelligence"
+      ],
+      "containsPublicSearchLabel": true
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/coordinate.json",
+      "sha256": "efb6e44174d75d2b1443dca7555dd888645d0ff15edf80a23f3b0706e251c4f1",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "press",
+        "68",
+        "203",
+        "--settle",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "settle": {
+        "settled": true,
+        "refsGeneration": 249174
+      },
+      "message": "Tapped (68, 203)"
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/coordinate-readback.json",
+      "sha256": "c039bbbd32ba79922b6e76168c3e878c5f1bcf2ac60a9884da10067d390989f1",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "snapshot",
+        "-i",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "refsGeneration": 249175,
+      "capture": {
+        "backend": "android-helper",
+        "pixelDensity": 2.625,
+        "helperVersion": "0.21.25",
+        "helperApiVersion": "2",
+        "helperTransport": "persistent-session",
+        "helperSessionReused": true,
+        "installReason": "current",
+        "waitForIdleTimeoutMs": 500,
+        "waitForIdleQuietMs": 100,
+        "timeoutMs": 2000,
+        "maxDepth": 128,
+        "maxNodes": 5000,
+        "rootPresent": true,
+        "captureMode": "interactive-windows",
+        "windowCount": 2,
+        "missingRootWindowTypes": [],
+        "nodeCount": 171,
+        "helperTruncated": false,
+        "elapsedMs": 27
+      },
+      "keyboard": {
+        "kind": "absent"
+      },
+      "nodePackages": ["com.android.settings"],
+      "containsPublicSearchLabel": true
+    },
+    {
+      "file": ".cursor/skills/verify-contingency/artifacts/android-467/agent/close.json",
+      "sha256": "bce8aa283e80ce45905e204fe0005382e3ae159dc0c7e264b6ca607f4ae56451",
+      "command": [
+        "<T3-returned-agent-device-launcher>",
+        "close",
+        "--platform",
+        "android",
+        "--serial",
+        "emulator-5554",
+        "--config",
+        "<private-host-config>",
+        "--session",
+        "t3-7bdaf1947e12c9906c7e31c5",
+        "--json"
+      ],
+      "exitCode": 0,
+      "success": true,
+      "message": "Closed: t3-7bdaf1947e12c9906c7e31c5"
+    }
+  ],
+  "sdk": {
+    "entryPoint": "createAgentDeviceClient",
+    "serial": "emulator-5554",
+    "app": "com.android.settings",
+    "firstGeneration": 833571,
+    "secondGeneration": 833572,
+    "capture": {
+      "backend": "android-helper",
+      "pixelDensity": 2.625,
+      "helperVersion": "0.21.25",
+      "helperApiVersion": "2",
+      "helperTransport": "persistent-session",
+      "helperSessionReused": true,
+      "installReason": "current",
+      "waitForIdleTimeoutMs": 500,
+      "waitForIdleQuietMs": 100,
+      "timeoutMs": 2000,
+      "maxDepth": 128,
+      "maxNodes": 5000,
+      "rootPresent": true,
+      "captureMode": "interactive-windows",
+      "windowCount": 2,
+      "missingRootWindowTypes": [],
+      "nodeCount": 171,
+      "helperTruncated": false,
+      "elapsedMs": 23
+    },
+    "canceled": {
+      "code": "COMMAND_FAILED",
+      "reason": "request_canceled",
+      "dispatched": "no"
+    },
+    "readbackCapture": {
+      "backend": "android-helper",
+      "pixelDensity": 2.625,
+      "helperVersion": "0.21.25",
+      "helperApiVersion": "2",
+      "helperTransport": "persistent-session",
+      "helperSessionReused": true,
+      "installReason": "current",
+      "waitForIdleTimeoutMs": 500,
+      "waitForIdleQuietMs": 100,
+      "timeoutMs": 2000,
+      "maxDepth": 128,
+      "maxNodes": 5000,
+      "rootPresent": true,
+      "captureMode": "interactive-windows",
+      "windowCount": 2,
+      "missingRootWindowTypes": [],
+      "nodeCount": 171,
+      "helperTruncated": false,
+      "elapsedMs": 21
+    }
+  },
+  "prototype": [
+    {
+      "scenario": "cancel",
+      "journal": [
+        {
+          "observation": "5a4b1e24-58eb-4262-b6c7-b2bb4a470a7a",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "action": {
+            "kind": "click",
+            "target": "android:id/button2"
+          },
+          "operation": "dispatch",
+          "outcome": {
+            "error": "ownership_ambiguous"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "stale_replay",
+          "outcome": {
+            "error": "observation_stale"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "3b45af33-9891-4912-a38c-4c837e03b916"
+          }
+        },
+        {
+          "observation": "4c098e34-1ad5-4591-8f33-3f032387ba03",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63813"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cancel/after.json",
+          "observation": "4c098e34-1ad5-4591-8f33-3f032387ba03",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        },
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cancel/before.json",
+          "observation": "5a4b1e24-58eb-4262-b6c7-b2bb4a470a7a",
+          "package": "com.android.settings",
+          "nodeCount": 18
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cancel",
+        "click",
+        "android:id/button2"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "capture-failure",
+      "journal": [
+        {
+          "observation": "9eb2b52c-5373-4866-aead-3e69424295f1",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "fault_capture",
+          "outcome": {
+            "error": "capture_failed"
+          }
+        },
+        {
+          "operation": "failure_status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "25a6cc4e-4c22-46fd-ad97-dea725f6a40b"
+          }
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "25a6cc4e-4c22-46fd-ad97-dea725f6a40b"
+          }
+        },
+        {
+          "observation": "718f286f-abda-42d4-bee9-cbe2911301e4",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63860"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/capture-failure/after.json",
+          "observation": "718f286f-abda-42d4-bee9-cbe2911301e4",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        },
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/capture-failure/before.json",
+          "observation": "9eb2b52c-5373-4866-aead-3e69424295f1",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/capture-failure",
+        "capture-failure"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "coordinate",
+      "journal": [
+        {
+          "observation": "c17d762b-3656-4c87-8070-2154e91d1c6f",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "action": {
+            "kind": "coordinate",
+            "x": 400,
+            "y": 945
+          },
+          "operation": "dispatch",
+          "outcome": {
+            "action": {
+              "kind": "coordinate",
+              "x": 400,
+              "y": 945
+            },
+            "observation": "c17d762b-3656-4c87-8070-2154e91d1c6f",
+            "serial": "emulator-5554",
+            "session": "1d9bb4cc-3008-4c08-ade6-d17fc3d4dc40"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "stale_replay",
+          "outcome": {
+            "error": "observation_stale"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "1d9bb4cc-3008-4c08-ade6-d17fc3d4dc40"
+          }
+        },
+        {
+          "error": "capture_changed",
+          "operation": "after_observation"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63724"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/coordinate/before.json",
+          "observation": "c17d762b-3656-4c87-8070-2154e91d1c6f",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/coordinate",
+        "coordinate",
+        "400",
+        "945"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "cross-app",
+      "journal": [
+        {
+          "observation": "1e5dce35-5e9a-4cba-938b-a822bd273469",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "unexpected_transition",
+          "outcome": {
+            "error": "ownership_denied"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "0dd25cd5-b8a7-42c1-aa10-1b49129336bc"
+          }
+        },
+        {
+          "error": "ownership_denied",
+          "operation": "after_observation"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63998"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cross-app/before.json",
+          "observation": "1e5dce35-5e9a-4cba-938b-a822bd273469",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cross-app",
+        "cross-app"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "helper-failure",
+      "journal": [
+        {
+          "observation": "5b90ebdf-58e5-475a-a459-03755277427b",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "operation": "helper_failure",
+          "outcome": {
+            "error": "transport_failed"
+          }
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "84647507-8b42-430a-8410-0c0cccd2f6ff"
+          }
+        },
+        {
+          "error": "transport_failed",
+          "operation": "after_observation"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63933"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/helper-failure/before.json",
+          "observation": "5b90ebdf-58e5-475a-a459-03755277427b",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/helper-failure",
+        "helper-failure"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "launch-denied",
+      "journal": [
+        {
+          "observation": "9f1064fb-9cfb-4016-8c18-bcf9ec75b6c9",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "launch",
+          "outcome": {
+            "error": "launch_unauthorized"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "cf02d3be-971f-4849-acec-b9e202d8ecc5"
+          }
+        },
+        {
+          "observation": "c6b78688-e658-44a0-bc06-edacde4c6d78",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63899"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/launch-denied/after.json",
+          "observation": "c6b78688-e658-44a0-bc06-edacde4c6d78",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        },
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/launch-denied/before.json",
+          "observation": "9f1064fb-9cfb-4016-8c18-bcf9ec75b6c9",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/launch-denied",
+        "launch-denied"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "observe",
+      "journal": [
+        {
+          "observation": "10f936e7-e2e3-4fec-8714-181f92709977",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "10f936e7-e2e3-4fec-8714-181f92709977",
+            "paused": false,
+            "session": "d863c9c8-3145-4d2f-a870-4855941b0ca1"
+          }
+        },
+        {
+          "observation": "e6e98d0b-e005-4363-ae63-b36eaf5f91dd",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63680"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/observe/after.json",
+          "observation": "e6e98d0b-e005-4363-ae63-b36eaf5f91dd",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        },
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/observe/before.json",
+          "observation": "10f936e7-e2e3-4fec-8714-181f92709977",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/observe"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "private",
+      "journal": [
+        {
+          "observation": "1cb9c902-e0b4-458a-9843-16213cdfebe2",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "action": {
+            "kind": "fill",
+            "target": "android:id/edit",
+            "variable": "PROBE_INPUT"
+          },
+          "operation": "dispatch",
+          "outcome": {
+            "action": {
+              "kind": "fill",
+              "target": "android:id/edit",
+              "variable": "PROBE_INPUT"
+            },
+            "observation": "1cb9c902-e0b4-458a-9843-16213cdfebe2",
+            "serial": "emulator-5554",
+            "session": "0dc9c167-c31d-4efe-a36a-6d7c6187a97c"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "stale_replay",
+          "outcome": {
+            "error": "observation_stale"
+          },
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "",
+            "paused": true,
+            "session": "0dc9c167-c31d-4efe-a36a-6d7c6187a97c"
+          }
+        },
+        {
+          "observation": "dfb09adb-2909-4a0d-a424-1f6b9b5318d0",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "diagnosticsContainedPrivateValue": false,
+          "operation": "privacy_check"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:63768"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/private/after.json",
+          "observation": "dfb09adb-2909-4a0d-a424-1f6b9b5318d0",
+          "package": "com.android.settings",
+          "nodeCount": 18
+        },
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/private/before.json",
+          "observation": "1cb9c902-e0b4-458a-9843-16213cdfebe2",
+          "package": "com.android.settings",
+          "nodeCount": 18
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/private",
+        "private",
+        "android:id/edit"
+      ],
+      "exitCode": 0
+    },
+    {
+      "scenario": "recovery",
+      "journal": [
+        {
+          "observation": "81c256a3-5398-4ac9-bbd1-4754926a0212",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        },
+        {
+          "operation": "status",
+          "state": {
+            "capabilities": [
+              "semantic",
+              "screenshot",
+              "coordinate",
+              "private-input",
+              "fault-injection"
+            ],
+            "closed": false,
+            "observation": "81c256a3-5398-4ac9-bbd1-4754926a0212",
+            "paused": false,
+            "session": "06048d5e-1c09-4972-921a-f3f612ad4f5f"
+          }
+        },
+        {
+          "observation": "068fd3ad-0d7c-4fae-bd64-17b608f95483",
+          "operation": "observe",
+          "serial": "emulator-5554"
+        }
+      ],
+      "commands": [
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pm path dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "pidof dev.contingency.probe || true"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            "-r",
+            "-e",
+            "token",
+            "<ephemeral-token>",
+            "-e",
+            "target",
+            "com.android.settings",
+            "dev.contingency.probe/.Probe"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "tcp:0",
+            "tcp:8765"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": ["adb", "-s", "emulator-5554", "get-state"],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "forward",
+            "--remove",
+            "tcp:64068"
+          ],
+          "outcome": "success"
+        },
+        {
+          "command": [
+            "adb",
+            "-s",
+            "emulator-5554",
+            "shell",
+            "am",
+            "force-stop",
+            "dev.contingency.probe"
+          ],
+          "outcome": "success"
+        }
+      ],
+      "observations": [
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/recovery/after.json",
+          "observation": "068fd3ad-0d7c-4fae-bd64-17b608f95483",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        },
+        {
+          "file": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/recovery/before.json",
+          "observation": "81c256a3-5398-4ac9-bbd1-4754926a0212",
+          "package": "com.android.settings",
+          "nodeCount": 60
+        }
+      ],
+      "command": [
+        "nub",
+        "packages/cli/prototypes/android/probe.ts",
+        "emulator-5554",
+        "com.android.settings",
+        ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/recovery",
+        "observe"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "media": [
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cancel/after.png",
+      "sha256": "a7be6966b4a9b8654572656be74bfb3ad26b39d869fa6d1e4703dfb200f585f2",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cancel/before.png",
+      "sha256": "0ac7e2b84ac99ce1259aa528bfc7e6e1168e8d67c8bd8cc0e01b6098c5fee893",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/capture-failure/after.png",
+      "sha256": "1fb6cdfc51243f7d9996f2e9394d219377d06f88e2afb0549a91a860ec684017",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/capture-failure/before.png",
+      "sha256": "1fb6cdfc51243f7d9996f2e9394d219377d06f88e2afb0549a91a860ec684017",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/coordinate/before.png",
+      "sha256": "4ca132295185005efc34e43f7d7babe6e8b4ee2ca867d83a12b641d2402900f8",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/cross-app/before.png",
+      "sha256": "d124f7dc31b61a8745d604fe95bd2e2dafa2fcff6f16a4fc9cd580e83256f6ae",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/helper-failure/before.png",
+      "sha256": "1fb6cdfc51243f7d9996f2e9394d219377d06f88e2afb0549a91a860ec684017",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/launch-denied/after.png",
+      "sha256": "1fb6cdfc51243f7d9996f2e9394d219377d06f88e2afb0549a91a860ec684017",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/launch-denied/before.png",
+      "sha256": "1fb6cdfc51243f7d9996f2e9394d219377d06f88e2afb0549a91a860ec684017",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/observe/after.png",
+      "sha256": "ecf934e983f82d6f5e85b4eddf5fbfcbab16f579bfe70fe9dd7b6e6417580088",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/observe/before.png",
+      "sha256": "ecf934e983f82d6f5e85b4eddf5fbfcbab16f579bfe70fe9dd7b6e6417580088",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/private/after.png",
+      "sha256": "a3b250ec6987b777968bebc36b861c1170b18bd4b98c911fc0f46779fad4909e",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/private/before.png",
+      "sha256": "4ecd4ada75cdb95965486972dc777b354feb086453298fea2fa8f9d4ff5a9966",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/recovery/after.png",
+      "sha256": "d124f7dc31b61a8745d604fe95bd2e2dafa2fcff6f16a4fc9cd580e83256f6ae",
+      "purged": true
+    },
+    {
+      "path": ".cursor/skills/verify-contingency/artifacts/android-463/evaluation-467/recovery/before.png",
+      "sha256": "d124f7dc31b61a8745d604fe95bd2e2dafa2fcff6f16a4fc9cd580e83256f6ae",
+      "purged": true
+    }
+  ],
+  "protocolTests": {
+    "command": "nub exec --filter @contingencyhq/cli vitest run prototypes/android/driver.test.ts",
+    "passed": 14,
+    "failed": 0,
+    "evidenceKind": "protocol tests; not live device proof"
+  },
+  "blockers": {
+    "physical": "No attached physical device or authorized physical serial",
+    "multiDevice": "Only emulator-5554 attached; second AVD not selected",
+    "systemDialog": "No prepared target and declared action that triggers an OS permission dialog",
+    "overlay": "No prepared focus/occlusion overlay fixture",
+    "secureWindow": "No prepared FLAG_SECURE target and alternative observable outcome",
+    "workspaceMirroring": "No Contingency Workspace stream adapter, authenticated proxy or capture-interval acknowledgements",
+    "inFlightCancellation": "Pre-aborted SDK request only; no controlled in-flight dispatch fixture",
+    "apiCoverage": "API 36 only"
+  },
+  "cleanup": {
+    "prototypeUninstalled": true,
+    "agentSnapshotHelperUninstalled": true,
+    "agentImeHelperAbsent": true,
+    "previousImeRestored": "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME",
+    "deviceNameUnchanged": "sdk_gphone64_arm64",
+    "forwardsAfterCleanup": [],
+    "devicePanelClosed": true,
+    "ownedEmulatorShutdown": true,
+    "rawPngsPurged": true,
+    "unrelatedAppsOrCatalogReset": false
+  }
+}
