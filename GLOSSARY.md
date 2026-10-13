@@ -8,9 +8,9 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 ## Language
 
-**Platform Runtime**: The platform-specific environment an Agent Session uses for Teaching and Runs. The current runtime is a browser; Android is planned under accepted [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: Agent Harness, Flow Skill, device profile
+**Platform Runtime**: The platform-specific environment an Agent Session uses for Teaching and Runs. The supported runtime is a browser. An opt-in experimental Android runtime ships under [ADR 0060](./docs/adr/0060-use-stock-agent-device-for-an-experimental-android-runtime.md); full Android support is planned under accepted [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: Agent Harness, Flow Skill, device profile
 
-**Target App**: The Android app the user authorizes a session to operate, with necessary system dialogs included in its execution boundary. Leaving that boundary requires authorization, while the Target App remains authorized when the journey returns. Android support is planned under [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: foreground app, every installed app, implicit cross-app authorization
+**Target App**: The Android app the user authorizes a session to operate, with necessary system dialogs included in its execution boundary. Leaving that boundary requires authorization, while the Target App remains authorized when the journey returns. The experimental Android runtime under [ADR 0060](./docs/adr/0060-use-stock-agent-device-for-an-experimental-android-runtime.md) excludes system dialogs and cross-app authorization, so leaving the Target App pauses input; full support is planned under [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: foreground app, every installed app, implicit cross-app authorization
 
 **Run Environment Permission**: The user's permission for one Android Run to use an Android version, app build, or app identity that differs from its taught environment. It preserves the taught environment and verification history and does not waive starting-state or capability requirements. _Avoid_: re-verification, permanent environment exception, Confirmation
 
