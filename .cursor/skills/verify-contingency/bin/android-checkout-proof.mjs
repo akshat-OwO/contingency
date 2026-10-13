@@ -49,7 +49,7 @@ const operation = () => {
   sequence += 1;
   return `android-checkout-proof-${process.pid}-${sequence}`;
 };
-const run = (file, args) =>
+const run = (file, args, options = {}) =>
   Effect.runPromise(
     Effect.tryPromise({
       catch: (cause) => cause,
@@ -58,6 +58,7 @@ const run = (file, args) =>
           cwd: root,
           env: process.env,
           maxBuffer: 16 * 1024 * 1024,
+          ...options,
         }),
     }).pipe(
       Effect.tap(({ stdout }) =>
@@ -841,17 +842,31 @@ try {
       ],
       { detached: true, stdio: "ignore" }
     );
+    let emulatorExit = null;
+    emulator.once("exit", (code, signal) => {
+      emulatorExit = signal ?? `code ${code}`;
+    });
     emulator.unref();
-    await run("adb", ["-s", serial, "wait-for-device"]);
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      const booted = await adb("shell", "getprop", "sys.boot_completed").catch(
-        () => ""
+    // Bounded boot wait: each probe has its own timeout, and an emulator that
+    // exits or never boots fails the stage instead of hanging the proof.
+    let booted = false;
+    for (let attempt = 0; attempt < 240 && !booted; attempt += 1) {
+      assert.equal(
+        emulatorExit,
+        null,
+        `The restarted emulator exited (${emulatorExit}) before booting.`
       );
-      if (booted.trim() === "1") {
-        break;
+      const state = await run(
+        "adb",
+        ["-s", serial, "shell", "getprop", "sys.boot_completed"],
+        { timeout: 10_000 }
+      ).catch(() => "");
+      booted = state.trim() === "1";
+      if (!booted) {
+        await sleep(1000);
       }
-      await sleep(1000);
     }
+    assert.ok(booted, `${serial} did not finish booting within 240 seconds.`);
     // A cold boot restores the quickboot snapshot, which may predate the fixture.
     await installVariant("working");
     await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
