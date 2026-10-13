@@ -76,7 +76,7 @@ const failure = (
  */
 const PublishedRecordingSummary = Schema.Struct({
   ...TeachingRecordingSummary.fields,
-  emulation: UnpublishedEmulation,
+  emulation: Schema.NullOr(UnpublishedEmulation),
   runtime: Schema.optionalKey(UnpublishedRuntimeRequirements),
 });
 
@@ -91,7 +91,10 @@ const PublishedClaimResult = Schema.Struct({
 
 const publishSummary = (summary: TeachingRecordingSummary) =>
   Effect.gen(function* publishRecordingSummary() {
-    const emulation = yield* encodeUnpublishedEmulation(summary.emulation);
+    const emulation =
+      summary.emulation === null
+        ? null
+        : yield* encodeUnpublishedEmulation(summary.emulation);
     if (summary.runtime === undefined) {
       return { ...summary, emulation };
     }

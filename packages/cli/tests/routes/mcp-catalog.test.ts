@@ -49,6 +49,7 @@ const CATALOG_BUDGET_BYTES = 81_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([
+  "agent_android_sessions_list",
   "agent_browser_screenshot",
   "agent_browser_snapshot",
   "agent_catalog_get",
@@ -61,6 +62,32 @@ const READ_ONLY_TOOLS = new Set([
   "agent_teaching_timeline_get",
   "open_run",
 ]);
+
+it.live(
+  "adds bounded Android tools only after explicit experimental opt-in",
+  () =>
+    Effect.gen(function* androidOptIn() {
+      const plain = yield* servingMcpHttp();
+      const enabled = yield* servingMcpHttp({ android: true });
+      const original = Schema.decodeUnknownSync(ToolList)(
+        yield* (yield* connectMcp(plain)).request("tools/list", {})
+      ).result.tools;
+      const expanded = Schema.decodeUnknownSync(ToolList)(
+        yield* (yield* connectMcp(enabled)).request("tools/list", {})
+      ).result.tools;
+      expect(
+        original.some((tool) => tool.name.startsWith("agent_android_"))
+      ).toBe(false);
+      expect(expanded).toHaveLength(original.length + 2);
+      // A selected experiment pays for its new commands; ordinary browser clients keep the existing budget.
+      expect(bytes(expanded) - bytes(original)).toBeLessThanOrEqual(10_000);
+      for (const tool of expanded.filter((entry) =>
+        entry.name.startsWith("agent_android_")
+      )) {
+        expect(bytes(tool)).toBeLessThanOrEqual(TOOL_BUDGET_BYTES);
+      }
+    }).pipe(Effect.provide(NodeServices.layer))
+);
 
 it.live("keeps the emitted tool catalog inside its byte budget", () =>
   Effect.gen(function* catalogBudget() {

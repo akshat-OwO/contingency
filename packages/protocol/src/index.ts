@@ -23,6 +23,11 @@ import {
   AgentSessionTakeover,
   AgentSetupVariableAnswer,
 } from "./agent-session.ts";
+import {
+  AndroidWorkspaceCommand,
+  AndroidWorkspaceSnapshot,
+  AndroidWorkspaceSummary,
+} from "./android-workspace.ts";
 import { browserAttachmentsField } from "./browser-checks.ts";
 import { BrowserTabId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
@@ -53,6 +58,7 @@ import { Viewport } from "./viewport.ts";
 // The protocol package intentionally exposes one public contract surface.
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./browser-checks.ts";
+export * from "./android-workspace.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./scans.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
@@ -958,6 +964,16 @@ const CatalogFlowSkillGetRpc = Rpc.make("catalog.flow-skill.get", {
   success: CatalogFlowSkillResult,
 });
 export class ContingencyRpcs extends RpcGroup.make(
+  Rpc.make("android.workspace.command", {
+    error: BrowserRpcError,
+    payload: AndroidWorkspaceCommand,
+    success: AndroidWorkspaceSnapshot,
+  }),
+  Rpc.make("android.workspace.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Array(AndroidWorkspaceSummary),
+  }),
   AgentSessionsGetRpc,
   AgentSessionStartRpc,
   AgentSessionGetRpc,

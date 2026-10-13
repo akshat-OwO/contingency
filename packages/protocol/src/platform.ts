@@ -42,8 +42,12 @@ export const PlatformRequirements = Schema.Union([
       appId: Schema.String.check(Schema.isMinLength(1)),
       startingState: Schema.String.check(Schema.isMinLength(1)),
     }),
+    outcomes: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
     platform: Schema.Literal("android"),
     preparation: Schema.optionalKey(AndroidPreparation),
+    reversibleActions: Schema.optionalKey(
+      Schema.Array(AndroidStartingCondition)
+    ),
   }),
 ]);
 export type PlatformRequirements = typeof PlatformRequirements.Type;

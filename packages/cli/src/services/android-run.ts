@@ -163,10 +163,12 @@ export const createAndroidRun = (
           paused(platformRuntimeError("execution_canceled"))
         )
       );
-    const observed = (observation: AndroidObservation) =>
+    const observed = (observation: AndroidObservation, retainEvidence = true) =>
       Effect.sync(() => {
         registry.set(latest, structuredClone(observation));
-        record({ observationId: observation.id, type: "observation" });
+        if (retainEvidence) {
+          record({ observationId: observation.id, type: "observation" });
+        }
         registry.update(status, (current) => ({
           ...current,
           phase: "ready" as const,
@@ -259,12 +261,21 @@ export const createAndroidRun = (
             })
           )
         ),
+      mirror: () =>
+        lock.withPermits(1)(
+          guarded(
+            requireRuntime().pipe(
+              Effect.flatMap((active) => active.observe()),
+              Effect.flatMap((observation) => observed(observation, false))
+            )
+          )
+        ),
       observe: () =>
         lock.withPermits(1)(
           guarded(
             requireRuntime().pipe(
               Effect.flatMap((active) => active.observe()),
-              Effect.flatMap(observed)
+              Effect.flatMap((observation) => observed(observation))
             )
           )
         ),

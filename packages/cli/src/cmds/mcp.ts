@@ -27,6 +27,7 @@ import {
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
+import { makeAndroidWorkspaceLayer } from "../services/android-workspace.ts";
 import {
   defaultGlobalCatalogRoot,
   makeCatalogBrowserLayer,
@@ -49,6 +50,7 @@ import { McpChannelStdio } from "../services/mcp-channel.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import {
   makeMcpInstructions,
+  makeMcpAndroidLayer,
   makeMcpHttpLayer,
   makeMcpPursuitLayer,
 } from "../services/mcp-http.ts";
@@ -159,6 +161,9 @@ export const mcpCommand = Command.make(
   },
   Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
     const config = yield* Config.all({
+      android: Config.Boolean("ANDROID_EXPERIMENTAL").pipe(
+        Config.withDefault(false)
+      ),
       // Claude Code channels are opt-in and stdio-only (ADR 0055).
       channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
       // Opt-in sandboxed code orchestration (ADR 0045).
@@ -180,7 +185,7 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const { channel, codeMode, host, port, videoFastForward } = config;
+    const { android, channel, codeMode, host, port, videoFastForward } = config;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
     const systemOne = Option.getOrUndefined(yield* systemOneConfig);
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
@@ -249,7 +254,7 @@ export const mcpCommand = Command.make(
         const demoSite = demo
           ? Layer.succeedContext(yield* Layer.build(makeDemoSiteLayer()))
           : undefined;
-        const agentSession = Layer.succeedContext(
+        const browserSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
               allowedActivity: "any",
@@ -271,6 +276,14 @@ export const mcpCommand = Command.make(
             )
           )
         );
+        const androidWorkspace = Layer.succeedContext(
+          yield* Layer.build(
+            makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
+              Layer.provide(Layer.merge(teachingRecordingStore, catalog))
+            )
+          )
+        );
+        const agentSession = Layer.merge(browserSession, androidWorkspace);
         const shared = Layer.mergeAll(
           agentSession,
           catalog,
@@ -297,6 +310,7 @@ export const mcpCommand = Command.make(
                   version: "0.0.1",
                 }),
                 mcpTools,
+                makeMcpAndroidLayer(android),
                 makeMcpStartLayer(demoSite),
                 codeMode ? McpCodeModeLayer : Layer.empty,
                 makeMcpPursuitLayer(systemOne)
@@ -342,6 +356,7 @@ export const mcpCommand = Command.make(
             catalogBrowser,
             host,
             mcp: makeMcpHttpLayer(allowedOrigins, {
+              android,
               codeMode,
               demoSite,
               systemOne,

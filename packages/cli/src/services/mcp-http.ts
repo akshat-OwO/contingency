@@ -5,6 +5,7 @@ import { makeHostMiddleware } from "../routes/rpc.ts";
 import type { DemoSiteService } from "./demo-site.ts";
 import { McpAgentRunLayer } from "./mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
+import { McpAndroidWorkspaceLayer } from "./mcp-android-workspace.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
 import { McpCodeModeLayer } from "./mcp-code-mode.ts";
@@ -13,6 +14,9 @@ import { McpPursuitLayer } from "./mcp-pursuit.ts";
 import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
 import { makeSystemOneLayer } from "./system-one.ts";
 import type { SystemOneConfig } from "./system-one.ts";
+
+export const makeMcpAndroidLayer = (enabled: boolean | undefined) =>
+  enabled === true ? McpAndroidWorkspaceLayer : Layer.empty;
 
 /**
  * `agent_browser_pursue`, only when the machine names a System One endpoint.
@@ -62,6 +66,7 @@ export const MCP_INSTRUCTIONS = makeMcpInstructions();
 export const makeMcpHttpLayer = <R = never>(
   allowedOrigins: ReadonlySet<string>,
   options: {
+    readonly android?: boolean | undefined;
     readonly codeMode?: boolean | undefined;
     readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
     readonly systemOne?: SystemOneConfig | undefined;
@@ -83,6 +88,7 @@ export const makeMcpHttpLayer = <R = never>(
       version: "0.0.1",
     }),
     McpAgentSessionLayer,
+    makeMcpAndroidLayer(options.android),
     McpAgentCatalogLayer,
     McpAgentRunLayer,
     McpTeachingRecordingLayer,

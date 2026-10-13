@@ -259,7 +259,7 @@ export type TeachingRecordingReceipt = typeof TeachingRecordingReceipt.Type;
 const TeachingRecordingManifestBase = {
   artifacts: Schema.Array(TeachingRecordingArtifact),
   createdAt: nonEmptyString,
-  emulation: DraftEmulation,
+  emulation: Schema.NullOr(DraftEmulation),
   eventOrigin: Schema.optional(Schema.Literals(["agent", "workspace"])),
   flowSkillName: FlowSkillName,
   receipts: Schema.Array(TeachingRecordingReceipt),
@@ -327,6 +327,13 @@ export type TeachingTargetSummary = typeof TeachingTargetSummary.Type;
 
 /** What the Page looked like at one instant, bounded to what a reader needs. */
 export const TeachingObservation = Schema.Struct({
+  android: Schema.optionalKey(
+    Schema.Struct({
+      nodes: Schema.Array(TeachingTargetSummary),
+      observationId: nonEmptyString,
+      screenshotCapturedAt: nonEmptyString,
+    })
+  ),
   /** Navigation was observed, but destination rendering was not verified. */
   capture: Schema.optionalKey(Schema.Literal("transitional")),
   nodeCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -342,7 +349,7 @@ const teachingEventBase = {
 
 const TeachingStartedEvent = Schema.TaggedStruct("started", {
   ...teachingEventBase,
-  emulation: DraftEmulation,
+  emulation: Schema.NullOr(DraftEmulation),
   url: Schema.String,
 });
 
@@ -442,7 +449,7 @@ export const TeachingRecordingSummary = Schema.Struct({
    * The Emulation the user demonstrated under, so an agent that picks the
    * recording up later knows the device and environment before claiming it.
    */
-  emulation: DraftEmulation,
+  emulation: Schema.NullOr(DraftEmulation),
   failure: Schema.NullOr(Schema.String),
   flowSkillName: FlowSkillName,
   lifecycle: Schema.Literals([

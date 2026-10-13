@@ -22,6 +22,7 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import { AndroidWorkspace } from "../services/android-workspace.ts";
 import { CatalogBrowser } from "../services/catalog-browser.ts";
 import type {
   CatalogBrowserError,
@@ -186,6 +187,45 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by Agent Session lifecycle rather than sorted.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "android.workspace.command": (command) =>
+        Effect.serviceOption(AndroidWorkspace).pipe(
+          Effect.flatMap((service) =>
+            Option.isSome(service)
+              ? service.value
+                  .execute(command, "user")
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      makeBrowserRpcError(
+                        "agent_session_unavailable",
+                        cause.message
+                      )
+                    )
+                  )
+              : Effect.fail(
+                  makeBrowserRpcError(
+                    "agent_session_unavailable",
+                    "Experimental Android Workspace is unavailable in this process."
+                  )
+                )
+          )
+        ),
+      "android.workspace.list": () =>
+        Effect.serviceOption(AndroidWorkspace).pipe(
+          Effect.flatMap((service) =>
+            Option.isSome(service)
+              ? service.value
+                  .list()
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      makeBrowserRpcError(
+                        "agent_session_unavailable",
+                        cause.message
+                      )
+                    )
+                  )
+              : Effect.succeed([])
+          )
+        ),
       "agent.sessions.get": () =>
         agentUnavailable((service) =>
           service.list().pipe(Effect.map((sessions) => ({ sessions })))

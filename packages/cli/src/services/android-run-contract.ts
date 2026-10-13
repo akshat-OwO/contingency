@@ -76,6 +76,8 @@ export interface AndroidRunState {
 
 /** Workspace gets decisions and sanitized evidence; no runtime handle bypasses preparation. */
 export interface AndroidRun {
+  /** Display capture updates the current observation without retaining every idle frame as Run evidence. */
+  readonly mirror: AndroidPlatformRuntime["observe"];
   readonly state: () => AndroidRunState;
   readonly decide: (
     id: string,

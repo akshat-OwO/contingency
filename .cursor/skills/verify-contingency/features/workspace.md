@@ -4,7 +4,9 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 
 ## Sub-features
 
-- `android-preparation` proves declared emulator activity restart, Run-scoped environment decisions, failed starting-condition refusal, unexpected-app pause, and fresh recovery through the internal Android factory. Android Workspace and MCP tools remain unavailable until #470.
+- `android-preparation` proves declared emulator activity restart, Run-scoped environment decisions, failed starting-condition refusal, unexpected-app pause, and fresh recovery through the internal Android factory.
+
+- `android-workspace` proves opt-in experimental Android Teaching in mirrored Workspace, Timeline readback and learning, Takeover refusal, Dry Run verification with Recording purge, a later Run, and Summary readback after an MCP restart.
 
 - `agent-session-events` wakes a cursor wait for Workspace Teaching, private Variable, verification, Cleanup, and Takeover changes, with replayable events and a compact snapshot.
 
@@ -496,6 +498,17 @@ Preconditions: Build current source. Obtain explicit selection and authorization
 - **Cleanup:** Close all owned Runs. Remove the helper only if this proof installed it. Stop only the emulator this proof started. Retain the sanitized receipt and journal. Use the normal `control-contingency cleanup` for any separate browser regression instance.
 
 This is live production-factory proof. It does not prove an Android MCP tool, Workspace permission rendering, mirrored Teaching, app updates, snapshots, destructive reset, or physical devices. Service tests separately exercise decision isolation, build drift, unsupported capabilities, outside-app setup, and undeclared activations. Settings restart establishes the declared navigation state; it does not clear application data. A journey needing cleared data or another setup procedure is unsupported.
+
+### Android workspace
+
+Preconditions: Build current source. Obtain explicit selection and authorization for the Pixel_9 API 36 emulator, then start only that AVD. Set `hw.keyboard=no` in its `config.ini` and cold-boot it: with a hardware keyboard, Gboard shows a floating toolbar in a full-screen IME window, and agent-device reports every dialog node beneath it as covered. Launch, run doctor, and start MCP with `CONTINGENCY_MCP_ANDROID_EXPERIMENTAL=true` and `ANDROID_HOME` exported. Close every open Android session first; a paused session still owns the device.
+
+- **Declare selection:** Export `CONTINGENCY_ANDROID_SERIAL`, `CONTINGENCY_ANDROID_AVD=Pixel_9`, and `CONTINGENCY_ANDROID_FINGERPRINT` from the ADB readback. Export `CONTINGENCY_ANDROID_HELPER_CONSENT=install` only when the pinned helper is absent and the operator authorizes installing it; the default is `none`.
+- **Drive the lifecycle:** Run `nub .cursor/skills/verify-contingency/bin/android-workspace-proof.mjs` with the same environment. It opens `Android experimental` in Workspace, prepares the emulator, records Device name activation, public fixture text, and Back, reads the Timeline, and learns the skill. It then takes control during a Dry Run, requires agent input to be refused and the Dry Run to fail, passes a fresh Dry Run, clicks `Verify flow`, and runs the verified skill again.
+- **Restart readback:** The runner stops and restarts MCP, then reads both sessions. The verified Dry Run must still read `captureState:"verified"` and `cleanup:"purged"` although the Recording directory is gone, and the later Run keeps its `working` assessment.
+- **Read evidence:** Read `artifacts/android-workspace/receipt.json`. Require empty `blockers` and `coverage` keys `teaching`, `takeover`, `verification`, `laterRun`, and `restart`. ARIA snapshots and screenshots for each stage, the Timeline, and the command journal sit beside it.
+
+This proves semantic actions and public text on one local emulator. Private Variables, coordinates, physical devices, cross-app input, and system-dialog authority remain deferred under #457.
 
 ## Gotchas
 
