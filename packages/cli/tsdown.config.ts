@@ -9,10 +9,19 @@ export default defineConfig({
     // These packages load files relative to their original module paths.
     // vendor-runtime copies their complete installed trees into dist.
     alwaysBundle: (id) =>
-      !/^(?:playwright-core|lighthouse|puppeteer-core)(?:\/|$)/u.test(id),
-    neverBundle: [/^(?:playwright-core|lighthouse|puppeteer-core)(?:\/|$)/u],
+      !/^(?:playwright-core|lighthouse|puppeteer-core|agent-device)(?:\/|$)/u.test(
+        id
+      ),
+    neverBundle: [
+      /^(?:playwright-core|lighthouse|puppeteer-core|agent-device)(?:\/|$)/u,
+    ],
     onlyBundle: false,
-    onlyImport: ["playwright-core", "lighthouse", "puppeteer-core"],
+    onlyImport: [
+      "playwright-core",
+      "lighthouse",
+      "puppeteer-core",
+      "agent-device",
+    ],
   },
   entry: "src/index.ts",
   env: {

@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { vendorPackages } from "./vendor-packages.ts";
 
 vendorPackages(
-  ["playwright-core", "lighthouse", "puppeteer-core"],
+  ["playwright-core", "lighthouse", "puppeteer-core", "agent-device"],
   process.cwd(),
   path.resolve("dist")
 ).pipe(Effect.provide(NodeServices.layer), NodeRuntime.runMain);

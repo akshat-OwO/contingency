@@ -1678,8 +1678,9 @@ const makeAgentSession = (
     );
     const runtimeFactory =
       options.platformRuntimeFactory ??
-      Option.getOrElse(providedRuntimeFactory, () =>
-        makeBrowserRuntimeFactory(browser, agentBrowserFactory)
+      Option.getOrElse(
+        providedRuntimeFactory.pipe(Option.map((factory) => factory.web)),
+        () => makeBrowserRuntimeFactory(browser, agentBrowserFactory)
       );
 
     const writeTeachingRetentionManifest = (
