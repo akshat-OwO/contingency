@@ -1,0 +1,18 @@
+{
+  "name": "contingency-android-checkout-fixture",
+  "private": true,
+  "description": "Verification fixture: an Expo mock checkout for experimental Android Workspace proof.",
+  "main": "index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "expo": "57.0.27",
+    "expo-constants": "57.0.21",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

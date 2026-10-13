@@ -16,8 +16,10 @@ import type { FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
 
+import { parseReversibleActions } from "./android-workspace-state";
 import {
   sessionStartGestureAtom,
   useWorkspaceGesture,
@@ -58,7 +60,10 @@ const condition = (form: HTMLFormElement, prefix: string) => ({
   name: selected(form, `${prefix}Name`),
   role: selected(form, `${prefix}Role`),
 });
-const selection = (form: HTMLFormElement): AndroidWorkspaceSelection => ({
+const selection = (
+  form: HTMLFormElement,
+  actions: AndroidWorkspaceSelection["reversibleActions"]
+): AndroidWorkspaceSelection => ({
   device: {
     api: 36,
     avd: selected(form, "avd"),
@@ -78,9 +83,7 @@ const selection = (form: HTMLFormElement): AndroidWorkspaceSelection => ({
     Option.getOrElse(() => "none" as const)
   ),
   outcomes: [condition(form, "outcome")],
-  reversibleActions: selected(form, "actionName")
-    ? [condition(form, "action")]
-    : [],
+  reversibleActions: actions,
   setup: {
     activity: selected(form, "activity"),
     conditions: [condition(form, "starting")],
@@ -604,13 +607,21 @@ export const AndroidWorkspace = ({
       }));
       return;
     }
+    const actions = parseReversibleActions(selected(form, "actions"));
+    if (actions === undefined) {
+      setState((current) => ({
+        ...current,
+        failure: "Write each reversible action as role: name on its own line.",
+      }));
+      return;
+    }
     mutate({
       _tag: "start",
       flowSkillName: name,
       kind: "teaching",
       operationId: operationId(),
       recordingId: null,
-      selection: selection(form),
+      selection: selection(form, actions),
     });
   };
   const input = (
@@ -693,8 +704,23 @@ export const AndroidWorkspace = ({
           <Field name="startingState" label="Starting state description" />
           <Field name="startingRole" label="Starting condition role" />
           <Field name="startingName" label="Starting condition name" />
-          <Field name="actionRole" label="Reversible action role" />
-          <Field name="actionName" label="Reversible action name" />
+          <div className="grid gap-1 text-sm sm:col-span-2">
+            <label className="grid gap-1">
+              Reversible actions
+              <Textarea
+                name="actions"
+                aria-describedby="android-reversible-actions-hint"
+                rows={4}
+              />
+            </label>
+            <span
+              id="android-reversible-actions-hint"
+              className="text-muted-foreground"
+            >
+              One role: name per line, such as button: Sign in. Only these
+              controls can be activated.
+            </span>
+          </div>
           <Field name="outcomeRole" label="Required outcome role" />
           <Field name="outcomeName" label="Required outcome name" />
           <label>
