@@ -21,6 +21,7 @@ import type {
   AndroidRuntimeBackend,
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
+import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
@@ -394,8 +395,8 @@ export const acquireAndroidBackend = (
         })
       );
       yield* identities(opened.identifiers);
-      const requireSession = () =>
-        Effect.gen(function* selectedSession() {
+      const readSessionSerial = () =>
+        Effect.gen(function* readSelectedSession() {
           const sessions = yield* io(
             (signal) => client.sessions.list({ signal }),
             "runtime_failed",
@@ -404,17 +405,43 @@ export const acquireAndroidBackend = (
           const selected = sessions.find(
             (session) => session.name === sessionId
           );
-          if (selected?.device.android?.serial !== input.device.serial) {
-            return yield* Effect.fail(platformRuntimeError("device_mismatch"));
+          if (selected === undefined) {
+            return null;
           }
+          // An existing session without an Android binding is a mismatch, not absence.
+          return selected.device.android?.serial ?? "";
         });
       const validateEnvironment = () =>
         requireIdentity(input).pipe(
           Effect.andThen(requireHelper(input.device.serial)),
-          Effect.andThen(requireSession()),
           Effect.andThen(requireOwnership(input))
         );
-      const validate = validateEnvironment;
+      const lifecycle = makeAndroidSessionLifecycle({
+        close: () =>
+          io((signal) => client.sessions.close({ signal })).pipe(Effect.asVoid),
+        open: () =>
+          Effect.gen(function* reopenSelectedSession() {
+            const reopened = yield* io(
+              (signal) =>
+                client.apps.open({
+                  ...options(),
+                  foreground: false,
+                  noRecord: true,
+                  signal,
+                  testIme: false,
+                }),
+              "runtime_failed",
+              "open"
+            );
+            yield* identities(reopened.identifiers);
+          }),
+        readSerial: readSessionSerial,
+        registry: cleanupRegistry,
+        serial: input.device.serial,
+        validateEnvironment,
+      });
+      const validate = () =>
+        validateEnvironment().pipe(Effect.andThen(lifecycle.requireSession()));
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const backend: AndroidRuntimeBackend = {
         activate: (ref) =>
@@ -521,27 +548,7 @@ export const acquireAndroidBackend = (
           io((signal) => fillPublic({ ...options(), ref, signal, text })).pipe(
             Effect.asVoid
           ),
-        recover: () =>
-          Effect.gen(function* recoverOwnedSession() {
-            yield* validateEnvironment();
-            yield* io((signal) => client.sessions.close({ signal }));
-            yield* requireIdentity(input);
-            yield* requireHelper(input.device.serial);
-            yield* requireOwnership(input);
-            const reopened = yield* io(
-              (signal) =>
-                client.apps.open({
-                  ...options(),
-                  foreground: false,
-                  noRecord: true,
-                  signal,
-                  testIme: false,
-                }),
-              "runtime_failed",
-              "open"
-            );
-            yield* identities(reopened.identifiers);
-          }),
+        recover: lifecycle.recover,
         sessionId,
         validate,
       };
