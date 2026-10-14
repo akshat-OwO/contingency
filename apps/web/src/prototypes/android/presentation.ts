@@ -7,6 +7,7 @@ import type {
   AndroidWorkspaceSummary,
 } from "@contingency/protocol";
 
+import { androidDeviceLabel } from "@/components/agent/android-workspace-state";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import type { SkillsSessionView } from "@/components/catalog/skills-drawer-state";
 
@@ -251,7 +252,7 @@ export const androidDockPresentation = (
       return {
         ...quiet(
           "Not prepared",
-          `Prepare ${session.selection.device.avd} to mirror it here. Nothing is captured until you start recording.`
+          `Prepare ${androidDeviceLabel(session.selection.device)} to mirror it here. Nothing is captured until you start recording.`
         ),
         action: action(
           "prepare",

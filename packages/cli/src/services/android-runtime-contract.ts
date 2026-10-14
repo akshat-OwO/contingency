@@ -37,13 +37,15 @@ export const androidPrivateTextRelease = {
 } as const;
 
 /** A selection is supplied by the user, never inferred from device count. */
-export interface AndroidDeviceSelection {
+export type AndroidDeviceSelection = {
   readonly host: "local";
   readonly serial: string;
-  readonly avd: string;
   readonly api: 36;
   readonly fingerprint: string;
-}
+} & (
+  | { readonly kind?: "emulator"; readonly avd: string }
+  | { readonly kind: "physical"; readonly model: string }
+);
 
 export interface AndroidInstallationGrant {
   readonly serial: string;

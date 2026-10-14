@@ -295,8 +295,8 @@ const openView = async (sessionId) => {
 };
 const prepare = async (sessionId) => {
   await openView(sessionId);
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Take control");
   const prepared = await observe(sessionId);
   // Preparation restarts the activity; a carried-over cart or sign-in is not fresh.
@@ -390,9 +390,9 @@ try {
     "Reversible actions": reversibleActions
       .map((action) => `${action.role}: ${action.name}`)
       .join("\n"),
-    "Selected AVD": working.device.avd,
+    "Selected AVD or device model": working.device.avd,
     "Selected build fingerprint": working.device.fingerprint,
-    "Selected emulator serial": serial,
+    "Selected device serial": serial,
     "Starting activity": working.setup.activity,
     "Starting condition name": startingCondition.name,
     "Starting condition role": startingCondition.role,
@@ -405,8 +405,8 @@ try {
   }
   await snapshot("teaching-selection");
   await click("Open experimental Android session");
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Start recording");
   const listed = await tool("agent_android_sessions_list", {});
   const taughtSession = listed.find(
@@ -628,8 +628,8 @@ try {
   const changed = await startSession("run", "changed");
   sessions.push(changed.id);
   await allowPermission(changed.id);
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Take control");
   current = await observe(changed.id);
   assert.ok(shows(current, startingCondition));
@@ -669,8 +669,8 @@ try {
   const claimed = await startSession("run", "broken");
   sessions.push(claimed.id);
   await allowPermission(claimed.id);
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Take control");
   current = await journey(claimed.id);
   assert.ok(!shows(current, outcome));
@@ -684,8 +684,8 @@ try {
   const failed = await startSession("run", "broken");
   sessions.push(failed.id);
   await allowPermission(failed.id);
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Take control");
   current = await journey(failed.id);
   const notWorking = await complete(
@@ -706,8 +706,8 @@ try {
   const paused = await startSession("run", "broken");
   sessions.push(paused.id);
   await allowPermission(paused.id);
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Take control");
   await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
   const outside = await refusal("agent_android_workspace", {
@@ -716,10 +716,10 @@ try {
   const pausedRead = await read(paused.id);
   assert.equal(pausedRead.phase, "paused");
   await openView(paused.id);
-  await wait("Recover same emulator");
+  await wait("Recover same device");
   await snapshot("unexpected-app-paused");
   await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
-  await click("Recover same emulator");
+  await click("Recover same device");
   await wait("Take control");
   const recovered = await observe(paused.id);
   assert.notEqual(recovered.observation.id, pausedRead.observation?.id);
@@ -736,14 +736,14 @@ try {
   const lost = await startSession("teaching", "working");
   sessions.push(lost.id);
   await openView(lost.id);
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");
   // The Workspace mirror detects the foreign app on its next capture, before any input.
   await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
-  await wait("Recover same emulator");
+  await wait("Recover same device");
   const lostRead = await read(lost.id);
   assert.equal(lostRead.captureState._tag, "failed");
   await snapshot("capture-loss");
@@ -806,7 +806,7 @@ try {
     const lostDevice = await refusal("agent_android_workspace", {
       command: { _tag: "observe", image: false, sessionId: disconnected.id },
     });
-    await wait("Recover same emulator");
+    await wait("Recover same device");
     const pausedByDisconnect = await read(disconnected.id);
     assert.equal(pausedByDisconnect.phase, "paused");
     await snapshot("disconnect-paused");
@@ -817,8 +817,8 @@ try {
         sessionId: disconnected.id,
       },
     });
-    await click("Recover same emulator");
-    await waitText("Recover same emulator");
+    await click("Recover same device");
+    await waitText("Recover same device");
     const stillPaused = await read(disconnected.id);
     assert.equal(stillPaused.phase, "paused");
     const consolePort = /^emulator-(?<port>\d+)$/u.exec(serial)?.groups?.port;
@@ -870,7 +870,7 @@ try {
     // A cold boot restores the quickboot snapshot, which may predate the fixture.
     await installVariant("working");
     await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
-    await click("Recover same emulator");
+    await click("Recover same device");
     await wait("Take control");
     const reconnected = await observe(disconnected.id);
     assert.equal(reconnected.phase, "running");

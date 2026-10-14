@@ -163,8 +163,8 @@ const openView = async (sessionId) => {
     "--url",
     `${instance.mcpUrl}?android=${sessionId}`
   );
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Take control");
 };
 const journey = async (sessionId) => {
@@ -215,9 +215,9 @@ try {
     "Required outcome name": "Device name",
     "Required outcome role": "text",
     "Reversible actions": "text: Device name",
-    "Selected AVD": selection.device.avd,
+    "Selected AVD or device model": selection.device.avd,
     "Selected build fingerprint": selection.device.fingerprint,
-    "Selected emulator serial": selection.device.serial,
+    "Selected device serial": selection.device.serial,
     "Starting activity": selection.setup.activity,
     "Starting condition name": "Device name",
     "Starting condition role": "text",
@@ -249,8 +249,8 @@ try {
     process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none"
   );
   await click("Open experimental Android session");
-  await wait("Prepare selected emulator");
-  await click("Prepare selected emulator");
+  await wait("Prepare selected device");
+  await click("Prepare selected device");
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");

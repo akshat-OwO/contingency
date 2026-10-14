@@ -1002,7 +1002,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           } else if (command._tag === "observe") {
             if (summary.phase !== "running") {
               return yield* denied(
-                "Prepare or explicitly recover this selected emulator first."
+                "Prepare or explicitly recover this selected device first."
               );
             }
             if (source === "agent" || summary.controller === "user") {

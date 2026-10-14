@@ -15,9 +15,12 @@ import type {
 import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
 import {
   prepareAndroidStartingState,
   requireAndroidAppBuild,
+  requireAndroidClearDataConsent,
+  requireAndroidPermissionState,
 } from "./android-preparation.ts";
 import {
   enterAndroidPrivateText,
@@ -129,29 +132,9 @@ const decode = <A>(schema: Schema.Codec<A>, value: string) =>
   });
 
 const requireIdentity = (input: AndroidRuntimeStartInput) =>
-  Effect.gen(function* identity() {
-    if ((yield* adb(input.device.serial, ["get-state"])) !== "device") {
-      return yield* Effect.fail(platformRuntimeError("device_disconnected"));
-    }
-    const avd = yield* adb(input.device.serial, ["emu", "avd", "name"]);
-    const fingerprint = yield* adb(input.device.serial, [
-      "shell",
-      "getprop",
-      "ro.build.fingerprint",
-    ]);
-    const api = yield* adb(input.device.serial, [
-      "shell",
-      "getprop",
-      "ro.build.version.sdk",
-    ]);
-    if (
-      avd.split(/\r?\n/u)[0] !== input.device.avd ||
-      fingerprint !== input.device.fingerprint ||
-      api !== String(input.device.api)
-    ) {
-      return yield* Effect.fail(platformRuntimeError("device_mismatch"));
-    }
-  });
+  requireAndroidDeviceIdentity(input.device, (args) =>
+    adb(input.device.serial, args)
+  );
 
 const installedHash = (
   serial: string,
@@ -372,6 +355,9 @@ export const acquireAndroidBackend = (
     if (createHash("sha256").update(bytes).digest("hex") !== manifest.sha256) {
       return yield* Effect.fail(platformRuntimeError("helper_incompatible"));
     }
+    if (preparation !== undefined) {
+      yield* requireAndroidClearDataConsent(preparation);
+    }
     const resources = yield* Scope.make("sequential");
     const cleanupRegistry = AtomRegistry.make();
     const cleanupFailure = Atom.make(false).pipe(Atom.keepAlive);
@@ -552,7 +538,13 @@ export const acquireAndroidBackend = (
           Effect.andThen(
             preparation === undefined
               ? Effect.void
-              : requireAndroidAppBuild(preparation)
+              : requireAndroidAppBuild(preparation).pipe(
+                  Effect.andThen(
+                    requireAndroidPermissionState(preparation, (args) =>
+                      adb(input.device.serial, args)
+                    )
+                  )
+                )
           )
         );
       const lifecycle = makeAndroidSessionLifecycle({

@@ -24,9 +24,24 @@ const fields = [
   "appBuild",
   "appId",
   "startingState",
+  "permissions",
 ] as const;
 const activityPattern = /^[A-Za-z][A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+$/u;
+const permissionPattern = /^android\.permission\.[A-Z_]+$/u;
 const hashPattern = /^[a-f0-9]{64}$/u;
+
+const validPermissions = (input: AndroidRunInput) => {
+  const permissions = input.environment.permissions ?? [];
+  return (
+    permissions.every(
+      (entry) =>
+        permissionPattern.test(entry.permission) &&
+        ["grant", "revoke"].includes(entry.decision)
+    ) &&
+    new Set(permissions.map((entry) => entry.permission)).size ===
+      permissions.length
+  );
+};
 
 export const validateAndroidRun = (input: AndroidRunInput) =>
   Effect.gen(function* validateRun() {
@@ -45,7 +60,10 @@ export const validateAndroidRun = (input: AndroidRunInput) =>
       input.environment.appId !== input.targetApp ||
       !input.environment.appBuild ||
       !input.environment.startingState ||
-      input.setup.kind !== "restart-activity" ||
+      (input.device.kind === "physical"
+        ? input.setup.kind !== "clear-app-data"
+        : input.setup.kind !== "restart-activity") ||
+      !validPermissions(input) ||
       !activityPattern.test(input.setup.activity) ||
       input.setup.activity.split("/")[0] !== input.targetApp ||
       input.setup.conditions.length === 0 ||
@@ -76,19 +94,38 @@ export const createAndroidRun = (
     }
     const differences: AndroidEnvironmentDifference[] = fields.flatMap(
       (field) =>
-        taught.environment[field] === startup.environment[field]
+        JSON.stringify(taught.environment[field] ?? []) ===
+        JSON.stringify(startup.environment[field] ?? [])
           ? []
           : [
               {
                 field,
-                selected: startup.environment[field],
-                taught: taught.environment[field],
+                selected:
+                  field === "permissions"
+                    ? JSON.stringify(startup.environment[field] ?? [])
+                    : String(startup.environment[field]),
+                taught:
+                  field === "permissions"
+                    ? JSON.stringify(taught.environment[field] ?? [])
+                    : String(taught.environment[field]),
               },
             ]
     );
     const runId = randomUUID();
     const registry = AtomRegistry.make();
     const initialDecisions = [
+      ...(startup.device.kind === "physical"
+        ? [
+            {
+              differences: [],
+              id: randomUUID(),
+              kind: "clear-app-data" as const,
+              runId,
+              serial: startup.device.serial,
+              targetApp: startup.targetApp,
+            },
+          ]
+        : []),
       ...(differences.some((difference) => difference.field !== "startingState")
         ? [
             {
@@ -296,7 +333,17 @@ export const createAndroidRun = (
               }
               // Recheck immediately before setup. A grant cannot waive a changed selected build.
               yield* driver.preflight(startup);
-              runtime = yield* driver.start(startup);
+              let authorized = startup;
+              if (startup.device.kind === "physical") {
+                authorized = {
+                  ...startup,
+                  clearDataGrant: {
+                    serial: startup.device.serial,
+                    targetApp: startup.targetApp,
+                  },
+                };
+              }
+              runtime = yield* driver.start(authorized);
               record({ type: "setup" });
               const observation = yield* runtime.observe();
               if (

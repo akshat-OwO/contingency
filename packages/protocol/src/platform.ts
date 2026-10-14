@@ -23,7 +23,7 @@ export const AndroidPreparation = Schema.Struct({
   conditions: Schema.Array(AndroidStartingCondition).check(
     Schema.isMinLength(1)
   ),
-  kind: Schema.Literal("restart-activity"),
+  kind: Schema.Literals(["restart-activity", "clear-app-data"]),
 });
 export type AndroidPreparation = typeof AndroidPreparation.Type;
 
@@ -40,6 +40,16 @@ export const PlatformRequirements = Schema.Union([
       androidVersion: Schema.String.check(Schema.isMinLength(1)),
       appBuild: Schema.String.check(Schema.isMinLength(1)),
       appId: Schema.String.check(Schema.isMinLength(1)),
+      permissions: Schema.optionalKey(
+        Schema.Array(
+          Schema.Struct({
+            decision: Schema.Literals(["grant", "revoke"]),
+            permission: Schema.String.check(
+              Schema.isPattern(/^android\.permission\.[A-Z_]+$/u)
+            ),
+          })
+        )
+      ),
       startingState: Schema.String.check(Schema.isMinLength(1)),
     }),
     outcomes: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),

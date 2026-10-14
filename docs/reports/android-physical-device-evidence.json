@@ -1,0 +1,164 @@
+{
+  "checkedAt": "2026-10-14T14:50:53Z",
+  "physical": {
+    "device": {
+      "api": 36,
+      "fingerprint": "Nothing/AsteroidsIND/Asteroids:16/BQ2A.250721.001-BP2A.250605.031.A3/2609281204:user/release-keys",
+      "host": "local",
+      "kind": "physical",
+      "model": "A059",
+      "serial": "001593546001716"
+    },
+    "preparation": {
+      "consentRefused": true,
+      "startingScreenPassed": true,
+      "persistentDataCleared": true,
+      "notificationGrantPassed": true,
+      "notificationDenialPassed": true
+    },
+    "disconnect": {
+      "paused": true,
+      "recoveryWhileDisconnectedRefused": true,
+      "sameSerialRecovered": true,
+      "freshObservation": true
+    },
+    "privateInput": {
+      "outcome": "uncertain",
+      "reason": "input_unverified",
+      "verifiedPhysicalFill": false,
+      "postFillSemanticCheckPassed": false
+    },
+    "cleanup": {
+      "forwardsUnchanged": true,
+      "helperProcess": "",
+      "imeUnchanged": true,
+      "packagesUnchanged": true
+    },
+    "journal": [
+      "create consent-refusal Run",
+      "prepare fresh fixture with notification denial",
+      "prepare with notification grant",
+      "physical unplug paused; same serial recovered with fresh observation",
+      "start private-input runtime on fixture",
+      "native password readback masked; input remains uncertain",
+      "agent-device session did not survive private fill."
+    ]
+  },
+  "emulator": {
+    "device": {
+      "api": 36,
+      "avd": "Pixel_9",
+      "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+      "host": "local",
+      "serial": "emulator-5554"
+    },
+    "fixture": {
+      "disconnectProof": null,
+      "journal": [
+        "create consent-refusal Run",
+        "prepare fresh fixture with notification denial",
+        "prepare with notification grant",
+        "start private-input runtime on fixture",
+        "native password readback masked; input remains uncertain"
+      ],
+      "preparation": {
+        "consentRefused": true,
+        "freshState": true,
+        "notificationDenial": true,
+        "notificationGrant": true,
+        "persistentDataCleared": false
+      },
+      "privateFill": {
+        "outcome": "uncertain",
+        "reason": "input_unverified"
+      },
+      "refusals": {
+        "afterBind": "target_changed",
+        "beforeBind": "target_changed",
+        "ordinary": "target_unsupported",
+        "resolved": 1,
+        "stale": "observation_stale"
+      },
+      "sentinel": {
+        "diagnostics": {
+          "contained": false,
+          "files": 8
+        },
+        "logcatContained": false,
+        "observationsContained": false,
+        "samples": {
+          "device": 6,
+          "deviceContained": false,
+          "helperSeen": 3,
+          "host": 6,
+          "hostContained": false
+        }
+      },
+      "sessionPreserved": true
+    },
+    "privateFill": {
+      "outcome": "verified",
+      "variable": "proof.wifiPassword"
+    },
+    "refusals": {
+      "enteredIntoReplacement": false,
+      "fieldMismatch": "target_changed",
+      "foreground": "ownership_unknown",
+      "ordinaryField": "target_unsupported",
+      "resolvedValues": 0,
+      "stale": "observation_stale",
+      "windowAfterBind": ["target_changed", "window_changed"],
+      "windowBeforeBind": "target_changed"
+    },
+    "sentinel": {
+      "hostDiagnostics": {
+        "containedAfterFill": false,
+        "containedBeforeClose": false,
+        "directories": 1,
+        "files": 15
+      },
+      "logcatContained": false,
+      "observationsContained": false,
+      "processList": {
+        "device": 9,
+        "deviceContained": false,
+        "helperSeen": 2,
+        "host": 9,
+        "hostContained": false
+      },
+      "tracesAndTimeline": "Not produced: Android Teaching capture is unsupported, and private Variables are not wired into Workspace or Runs."
+    },
+    "cleanup": {
+      "forwardsUnchanged": true,
+      "imeUnchanged": true,
+      "privateHelperProcess": "",
+      "privateHelperUninstalled": true,
+      "runtimeState": {
+        "failure": null,
+        "observationId": null,
+        "outcome": "observed",
+        "phase": "closed"
+      },
+      "savedNetworksUnchanged": true
+    }
+  },
+  "workspace": {
+    "permissionRecording": true,
+    "physicalPreparationRecording": true,
+    "teachingActions": 1,
+    "exactDeviceConsent": true,
+    "refusalBlocked": true,
+    "allowedPreparationReady": true
+  },
+  "gaps": [
+    "Verified physical private fill and exact readback remain unproved.",
+    "The post-fill semantic check failed after uncertain input; the phone sentinel audit did not finish.",
+    "Wireless ADB was not exercised.",
+    "Private Variables in Workspace/Runs and signing-key custody remain outside this change."
+  ],
+  "sources": [
+    "packages/cli/scripts/verify-android-physical.ts; phone/receipt.json reached private-input proof only after all preparation and disconnect assertions passed",
+    "packages/cli/scripts/verify-android-private-text.ts; emulator-private/private-text-receipt.json",
+    "UI snapshots and agent_teaching_timeline_get under artifacts/android-physical/ui/"
+  ]
+}

@@ -4,14 +4,19 @@ import { androidCapabilities } from "./android-runtime-contract.ts";
 import type { AndroidRuntimeStartInput } from "./android-runtime-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 
+const packagePattern = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/u;
+const serialPattern = /^[A-Za-z0-9._:-]+$/u;
 const availableCapabilities = new Set(androidCapabilities);
 
 export const validateAndroidStartup = (input: AndroidRuntimeStartInput) =>
   Effect.gen(function* validateStartup() {
     if (
       input.device.host !== "local" ||
-      !input.device.serial ||
-      !input.device.avd ||
+      !serialPattern.test(input.device.serial) ||
+      !packagePattern.test(input.targetApp) ||
+      (input.device.kind === "physical"
+        ? !input.device.model
+        : !input.device.avd) ||
       !input.device.fingerprint ||
       input.device.api !== 36
     ) {

@@ -20,17 +20,30 @@ const text = Schema.String.check(
 
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceSelection = Schema.Struct({
-  device: Schema.Struct({
-    api: Schema.Literal(36),
-    avd: text,
-    fingerprint: text,
-    host: Schema.Literal("local"),
-    serial: text,
-  }),
+  device: Schema.Union([
+    Schema.Struct({
+      api: Schema.Literal(36),
+      avd: text,
+      fingerprint: text,
+      host: Schema.Literal("local"),
+      kind: Schema.optionalKey(Schema.Literal("emulator")),
+      serial: text,
+    }),
+    Schema.Struct({
+      api: Schema.Literal(36),
+      fingerprint: text,
+      host: Schema.Literal("local"),
+      kind: Schema.Literal("physical"),
+      model: text,
+      serial: text,
+    }),
+  ]),
   environment: Schema.Struct({
     androidVersion: text,
     appBuild: text,
     appId: text,
+    permissions:
+      PlatformRequirements.members[1].fields.environment.fields.permissions,
     startingState: text,
   }),
   helperConsent: Schema.Literals(["none", "install", "replace"]),
@@ -81,7 +94,12 @@ export const AndroidWorkspacePreparation = Schema.Struct({
   pending: Schema.Array(
     Schema.Struct({
       id: text,
-      kind: Schema.Literals(["run-environment-permission", "app-installation"]),
+      kind: Schema.Literals([
+        "run-environment-permission",
+        "app-installation",
+        "clear-app-data",
+      ]),
+      serial: Schema.optionalKey(text),
       targetApp: text,
     })
   ),

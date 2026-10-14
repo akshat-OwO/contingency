@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { androidDeviceLabel } from "@/components/agent/android-workspace-state";
 import {
   DockShell,
   DockSpacer,
@@ -255,7 +256,8 @@ export const PickerSheetPrototype = ({
         <main className="bg-muted/20 relative flex min-h-0 flex-1 flex-col items-center gap-2 p-4 pb-36">
           <div className="bg-background flex items-center gap-3 rounded-full border px-3 py-1 text-xs shadow-xs">
             <span>
-              {session.selection.device.avd} · {session.selection.device.serial}
+              {androidDeviceLabel(session.selection.device)} ·{" "}
+              {session.selection.device.serial}
             </span>
             <span className="text-muted-foreground">
               {session.selection.environment.appId} · build{" "}

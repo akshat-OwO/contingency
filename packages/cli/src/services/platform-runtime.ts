@@ -66,6 +66,8 @@ export interface PlatformRuntimeError {
     | "device_not_found"
     | "request_canceled"
     | "android_text_input_unverified"
+    | "input_failed"
+    | "input_unverified"
     | "field_mismatch"
     | "window_changed";
   readonly code:
@@ -89,6 +91,7 @@ export interface PlatformRuntimeError {
     | "cleanup_failed"
     | "preparation_failed"
     | "preparation_required"
+    | "clear_data_denied"
     | "permission_stale"
     | "starting_condition_failed"
     | "environment_changed";

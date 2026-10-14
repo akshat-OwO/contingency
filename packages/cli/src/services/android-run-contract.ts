@@ -29,6 +29,10 @@ export interface AndroidRunInput extends AndroidRuntimeStartInput {
     readonly role: string;
     readonly name: string;
   }[];
+  readonly clearDataGrant?: {
+    readonly serial: string;
+    readonly targetApp: string;
+  };
   readonly appInstallation?: { readonly apk: string; readonly sha256: string };
 }
 
@@ -42,9 +46,13 @@ export interface AndroidRunDecision {
   readonly id: string;
   readonly runId: string;
   readonly targetApp: string;
-  readonly kind: "run-environment-permission" | "app-installation";
+  readonly kind:
+    | "run-environment-permission"
+    | "app-installation"
+    | "clear-app-data";
   readonly differences: readonly AndroidEnvironmentDifference[];
   readonly sha256?: string;
+  readonly serial?: string;
 }
 
 export interface AndroidRunEvidence {
