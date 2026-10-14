@@ -1,0 +1,31 @@
+plugins { id 'com.android.application' version '8.12.0' }
+
+def signing = { name -> System.getenv("CONTINGENCY_ANDROID_SIGNING_${name}") }
+
+android {
+    namespace 'dev.contingency.privatetext'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'dev.contingency.privatetext'
+        minSdk 30
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+    signingConfigs {
+        release {
+            storeFile signing('KEYSTORE') ? file(signing('KEYSTORE')) : null
+            storePassword signing('PASSWORD')
+            keyAlias signing('ALIAS')
+            keyPassword signing('PASSWORD')
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    // Reproducible bytes: no build timestamps or VCS metadata in the APK.
+    dependenciesInfo { includeInApk false; includeInBundle false }
+}

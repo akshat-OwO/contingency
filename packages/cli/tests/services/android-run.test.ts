@@ -103,6 +103,8 @@ const fixture = () =>
         Effect.sync(() => {
           calls.push("close");
         }),
+      enterPrivate: () =>
+        Effect.fail(platformRuntimeError("capability_missing")),
       fill: () => Effect.void,
       recover: () => Effect.void,
       sessionId: "fixture-session",
@@ -255,7 +257,13 @@ it.effect(
             platform: "web" as const,
           },
         },
-        { ...input, requiredCapabilities: ["private-input" as const] },
+        {
+          ...input,
+          requiredCapabilities: [
+            ...input.requiredCapabilities,
+            "private-input" as const,
+          ],
+        },
         { ...input, setup: { ...input.setup, activity: "dev.outside/.Home" } },
         { ...input, setup: { ...input.setup, conditions: [] } },
       ];

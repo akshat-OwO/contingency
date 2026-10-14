@@ -58,6 +58,7 @@ export interface PlatformRuntimeError {
     | "activate"
     | "fill"
     | "back"
+    | "private-text"
     | "session-check";
   readonly backendReason?:
     | "ref_generation_mismatch"
@@ -78,6 +79,8 @@ export interface PlatformRuntimeError {
     | "helper_owned"
     | "ownership_unknown"
     | "target_unsupported"
+    | "target_changed"
+    | "private_input_uncertain"
     | "runtime_paused"
     | "runtime_closed"
     | "execution_canceled"

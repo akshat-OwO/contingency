@@ -32,7 +32,9 @@ export const validateAndroidRun = (input: AndroidRunInput) =>
   Effect.gen(function* validateRun() {
     yield* validateAndroidStartup(input);
     const required = new Set(input.requiredCapabilities);
+    // Runs do not resolve private Variables yet; only the runtime can enter them.
     if (
+      required.has("private-input") ||
       input.taught.platform !== "android" ||
       input.taught.capabilities.some((capability) => !required.has(capability))
     ) {

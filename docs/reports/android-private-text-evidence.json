@@ -1,0 +1,160 @@
+{
+  "cleanup": {
+    "forwardsUnchanged": true,
+    "imeUnchanged": true,
+    "privateHelperProcess": "",
+    "privateHelperUninstalled": true,
+    "runtimeState": {
+      "failure": null,
+      "observationId": null,
+      "outcome": "observed",
+      "phase": "closed"
+    },
+    "savedNetworksUnchanged": true
+  },
+  "device": {
+    "api": 36,
+    "avd": "Pixel_9",
+    "serial": "emulator-5554"
+  },
+  "helper": {
+    "instrumentation": "dev.contingency.privatetext/.PrivateText",
+    "packageName": "dev.contingency.privatetext",
+    "protocol": "contingency-private-text-v1",
+    "sha256": "da15f633942ab9df6cf8d5ed242617a624cad414fd0e2fbc37cee5969d562f14",
+    "signingCertificateSha256": "f5aad901eaaa4ddc5d529021a435e6f357f32a75dc437f20e5de5eec4612b0de",
+    "version": "1.0.0",
+    "versionCode": 1
+  },
+  "installationRefusal": "installation_denied",
+  "journal": [
+    {
+      "command": "start baseline runtime without private-input",
+      "outcome": "success"
+    },
+    {
+      "command": "observe baseline",
+      "outcome": "success"
+    },
+    {
+      "command": "observe baseline",
+      "outcome": "success"
+    },
+    {
+      "command": "observe baseline",
+      "outcome": "success"
+    },
+    {
+      "command": "observe baseline",
+      "outcome": "success"
+    },
+    {
+      "command": "close baseline runtime",
+      "outcome": "success"
+    },
+    {
+      "command": "start runtime with private-input",
+      "outcome": "success"
+    },
+    {
+      "command": "observe Wi-Fi settings",
+      "outcome": "success"
+    },
+    {
+      "command": "activate ^Add network$",
+      "outcome": "success"
+    },
+    {
+      "command": "observe password field",
+      "outcome": "success"
+    },
+    {
+      "command": "enter private sentinel",
+      "outcome": "success"
+    },
+    {
+      "command": "observe after private fill",
+      "outcome": "success"
+    },
+    {
+      "command": "activate ^Advanced options$",
+      "outcome": "success"
+    },
+    {
+      "command": "observe after semantic action",
+      "outcome": "success"
+    },
+    {
+      "command": "recover before field change",
+      "outcome": "success"
+    },
+    {
+      "command": "recover before foreground change",
+      "outcome": "success"
+    },
+    {
+      "command": "recover after foreground change",
+      "outcome": "success"
+    },
+    {
+      "command": "close runtime",
+      "outcome": "success"
+    }
+  ],
+  "observations": {
+    "afterFill": {
+      "backendSessionId": "contingency-android-10e8191f-0d3c-4b67-8b79-ebf331e6e13d",
+      "generation": 538709,
+      "id": "b287ffd7-10fe-41c7-b5f4-83dad87277b4",
+      "nodeCount": 173,
+      "screenshotSha256": "83deed8a0713921625a0f3d3e75a4d405b502b1c62b88f59d76f2d85acfc0fe7"
+    },
+    "afterSemantic": {
+      "backendSessionId": "contingency-android-10e8191f-0d3c-4b67-8b79-ebf331e6e13d",
+      "generation": 538710,
+      "id": "90e3111c-c2a7-4426-8d0b-ce044d0ac210",
+      "nodeCount": 63,
+      "screenshotSha256": "d126cf6d5fc59c441c288592876167a124885d33a47e03b360a4a2664b13f6c8"
+    },
+    "bound": {
+      "backendSessionId": "contingency-android-10e8191f-0d3c-4b67-8b79-ebf331e6e13d",
+      "generation": 538708,
+      "id": "ceab5cbc-08ca-41aa-9874-091e08cf0112",
+      "nodeCount": 173,
+      "screenshotSha256": "048ad2432e5f84a8053ac40b60830f90d3593a78f9809986f6705a34f634fe82"
+    }
+  },
+  "observeTimingsMs": {
+    "baseline": [2830, 2298, 2061, 1850],
+    "privateInput": [2433, 2266, 2145, 1946]
+  },
+  "privateFill": {
+    "outcome": "verified",
+    "variable": "proof.wifiPassword"
+  },
+  "refusals": {
+    "fieldMismatch": "target_changed",
+    "foreground": "ownership_unknown",
+    "resolvedValues": 0,
+    "stale": "observation_stale"
+  },
+  "sentinel": {
+    "hostDiagnostics": {
+      "containedAfterFill": false,
+      "containedBeforeClose": false,
+      "directories": 1,
+      "files": 12
+    },
+    "logcatContained": false,
+    "observationsContained": false,
+    "processList": {
+      "device": 8,
+      "deviceContained": false,
+      "helperSeen": 1,
+      "host": 8,
+      "hostContained": false
+    },
+    "tracesAndTimeline": "Not produced: Android Teaching capture is unsupported, and private Variables are not wired into Workspace or Runs."
+  },
+  "sessionPreserved": true
+}

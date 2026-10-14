@@ -84,7 +84,10 @@ Effect.scoped(
           )
         : null;
     const capabilityRefusal = yield* Effect.flip(
-      factory.start({ ...startup, requiredCapabilities: ["private-input"] })
+      factory.start({
+        ...startup,
+        requiredCapabilities: ["coordinate-actions"],
+      })
     );
     const owned = yield* audit(
       "start selected Android runtime",

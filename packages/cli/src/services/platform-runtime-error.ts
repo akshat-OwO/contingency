@@ -2,7 +2,7 @@ import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 const messages = {
   capability_missing:
-    "The experimental Android runtime does not support a required capability. Private input, coordinate input, and Teaching capture are unavailable.",
+    "The experimental Android runtime does not support a required capability. Coordinate input and Teaching capture are unavailable; private input needs the private text helper.",
   capture_incomplete:
     "Android capture is incomplete or obscured. Execution is paused.",
   cleanup_failed:
@@ -32,6 +32,8 @@ const messages = {
     "The declared Android setup is unsupported or failed. Input is blocked.",
   preparation_required:
     "Complete Android preparation and all Run decisions before input.",
+  private_input_uncertain:
+    "Private input may have reached the Android device but was not verified. Execution is paused; observe before continuing and do not retry.",
   runtime_closed: "The Android runtime is closed.",
   runtime_failed:
     "The Android backend failed. Execution is paused; dispatched input may have an uncertain outcome.",
@@ -39,6 +41,8 @@ const messages = {
     "Android execution is paused. Explicitly recover the same selected device before continuing.",
   starting_condition_failed:
     "The fresh Android observation did not satisfy the declared starting conditions.",
+  target_changed:
+    "The observed Android field or window changed. No private input was sent; take a fresh observation.",
   target_unsupported:
     "The Android target is absent, covered, private, or unsupported for this action.",
 } as const;
