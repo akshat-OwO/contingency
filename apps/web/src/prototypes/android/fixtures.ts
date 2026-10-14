@@ -490,11 +490,22 @@ export const applyCommand = (
   command: AndroidWorkspaceCommand
 ): AndroidWorkspaceSnapshot | null => {
   if (command._tag === "start") {
+    // The service derives a session's requirements from its selection, so
+    // the taps a person allowed are the only ones the device offers.
+    const { selection } = command;
     return {
       ...teaching,
       flowSkillName: command.flowSkillName,
       kind: command.kind,
-      selection: command.selection,
+      requirements: {
+        ...teaching.requirements,
+        environment: selection.environment,
+        outcomes: selection.outcomes,
+        platform: "android",
+        preparation: selection.setup,
+        reversibleActions: selection.reversibleActions,
+      },
+      selection,
     };
   }
   if (current === null) {

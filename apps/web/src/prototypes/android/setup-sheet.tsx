@@ -167,13 +167,16 @@ export const SetupSheet = ({
   const [formAtom] = useState(() => Atom.make<SetupForm>(INITIAL_FORM));
   const [form, setForm] = useAtom(formAtom);
   const app = INSTALLED_APPS.find((entry) => entry.appId === form.app);
+  const selectedEmulator = DETECTED_EMULATORS.find(
+    (entry) => entry.serial === form.device
+  );
   const apps = INSTALLED_APPS.filter((entry) =>
     `${entry.label} ${entry.appId}`
       .toLowerCase()
       .includes(form.query.toLowerCase())
   );
   const ready =
-    form.device !== null &&
+    selectedEmulator !== undefined &&
     app !== undefined &&
     form.start !== null &&
     form.outcome.trim() !== "";
@@ -196,6 +199,14 @@ export const SetupSheet = ({
           : [...current.allowed, condition],
       };
     });
+  const disallow = (condition: Condition) =>
+    setForm((current) => ({
+      ...current,
+      allowed: current.allowed.filter(
+        (entry) =>
+          entry.name !== condition.name || entry.role !== condition.role
+      ),
+    }));
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-4xl">
@@ -338,7 +349,7 @@ export const SetupSheet = ({
                       <HandIcon /> {entry.name}
                       <button
                         aria-label={`Remove ${entry.name}`}
-                        onClick={() => toggle(entry)}
+                        onClick={() => disallow(entry)}
                         type="button"
                       >
                         <XIcon className="size-3" />
@@ -383,19 +394,32 @@ export const SetupSheet = ({
           <Button
             disabled={!ready}
             onClick={() =>
-              onOpen({
-                ...FIXTURE_SELECTION,
-                helperConsent: form.helper ? "install" : "none",
-                outcomes: [{ name: form.outcome.trim(), role: "group" }],
-                reversibleActions: form.allowed,
-                setup: {
-                  ...FIXTURE_SELECTION.setup,
-                  conditions:
-                    form.start === null
-                      ? FIXTURE_SELECTION.setup.conditions
-                      : [form.start],
-                },
-              })
+              selectedEmulator === undefined || app === undefined
+                ? undefined
+                : onOpen({
+                    ...FIXTURE_SELECTION,
+                    device: {
+                      ...FIXTURE_SELECTION.device,
+                      avd: selectedEmulator.avd,
+                      serial: selectedEmulator.serial,
+                    },
+                    environment: {
+                      ...FIXTURE_SELECTION.environment,
+                      appBuild: app.appBuild,
+                      appId: app.appId,
+                    },
+                    helperConsent: form.helper ? "install" : "none",
+                    outcomes: [{ name: form.outcome.trim(), role: "group" }],
+                    reversibleActions: form.allowed,
+                    setup: {
+                      ...FIXTURE_SELECTION.setup,
+                      activity: app.activity,
+                      conditions:
+                        form.start === null
+                          ? FIXTURE_SELECTION.setup.conditions
+                          : [form.start],
+                    },
+                  })
             }
           >
             Open session
