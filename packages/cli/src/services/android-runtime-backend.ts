@@ -16,8 +16,14 @@ import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import {
+  requireAndroidDeviceIdentity,
+  runAndroidOwnerCommand,
+} from "./android-device-identity.ts";
+import {
   prepareAndroidStartingState,
   requireAndroidAppBuild,
+  requireAndroidClearDataConsent,
+  requireAndroidPermissionState,
 } from "./android-preparation.ts";
 import {
   enterAndroidPrivateText,
@@ -42,7 +48,7 @@ const execute = promisify(execFile);
 const serialPattern = /^[A-Za-z0-9._:-]+$/u;
 const packagePattern = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/u;
 const focusPattern =
-  /mCurrentFocus=(?<window>Window\{[^\n]*?\s(?:u\d+\s)?(?<packageName>[A-Za-z][A-Za-z0-9_.]+)\/[^\n}]*\})/u;
+  /mCurrentFocus=(?<window>Window\{[^\n]*?\su(?<userId>\d+)\s(?<packageName>[A-Za-z][A-Za-z0-9_.]+)\/[^\n}]*\})/u;
 const packagePathPattern =
   /^package:(?<apk>\/data\/app\/[A-Za-z0-9_./=+~-]+\/base\.apk)$/mu;
 const DaemonInfo = Schema.Struct({
@@ -129,29 +135,9 @@ const decode = <A>(schema: Schema.Codec<A>, value: string) =>
   });
 
 const requireIdentity = (input: AndroidRuntimeStartInput) =>
-  Effect.gen(function* identity() {
-    if ((yield* adb(input.device.serial, ["get-state"])) !== "device") {
-      return yield* Effect.fail(platformRuntimeError("device_disconnected"));
-    }
-    const avd = yield* adb(input.device.serial, ["emu", "avd", "name"]);
-    const fingerprint = yield* adb(input.device.serial, [
-      "shell",
-      "getprop",
-      "ro.build.fingerprint",
-    ]);
-    const api = yield* adb(input.device.serial, [
-      "shell",
-      "getprop",
-      "ro.build.version.sdk",
-    ]);
-    if (
-      avd.split(/\r?\n/u)[0] !== input.device.avd ||
-      fingerprint !== input.device.fingerprint ||
-      api !== String(input.device.api)
-    ) {
-      return yield* Effect.fail(platformRuntimeError("device_mismatch"));
-    }
-  });
+  requireAndroidDeviceIdentity(input.device, (args) =>
+    adb(input.device.serial, args)
+  );
 
 const installedHash = (
   serial: string,
@@ -160,7 +146,7 @@ const installedHash = (
   Effect.gen(function* readInstalledHelper() {
     const result = yield* adb(serial, [
       "shell",
-      `pm path ${packageName} || true`,
+      `pm path --user 0 ${packageName} || true`,
     ]);
     if (result === "") {
       return null;
@@ -203,6 +189,11 @@ const requireOwnership = (input: AndroidRuntimeStartInput) =>
     const focus = focusPattern.exec(windows)?.groups;
     if (focus?.packageName !== input.targetApp || focus.window === undefined) {
       return yield* Effect.fail(platformRuntimeError("ownership_unknown"));
+    }
+    if (focus.userId !== "0") {
+      return yield* Effect.fail(
+        platformRuntimeError("user_profile_unsupported")
+      );
     }
     return focus.window;
   });
@@ -291,11 +282,10 @@ const installPrivateTextHelper = (input: AndroidRuntimeStartInput) =>
     ) {
       return yield* Effect.fail(platformRuntimeError("installation_denied"));
     }
-    yield* adb(input.device.serial, [
-      "install",
-      ...(installed === null ? [] : ["-r"]),
-      apk,
-    ]);
+    yield* runAndroidOwnerCommand(
+      (args) => adb(input.device.serial, args),
+      ["install", "--user", "0", ...(installed === null ? [] : ["-r"]), apk]
+    );
     yield* requirePrivateTextHelper(input.device.serial);
   });
 
@@ -372,6 +362,9 @@ export const acquireAndroidBackend = (
     if (createHash("sha256").update(bytes).digest("hex") !== manifest.sha256) {
       return yield* Effect.fail(platformRuntimeError("helper_incompatible"));
     }
+    if (preparation !== undefined) {
+      yield* requireAndroidClearDataConsent(preparation);
+    }
     const resources = yield* Scope.make("sequential");
     const cleanupRegistry = AtomRegistry.make();
     const cleanupFailure = Atom.make(false).pipe(Atom.keepAlive);
@@ -419,11 +412,10 @@ export const acquireAndroidBackend = (
             platformRuntimeError("installation_denied")
           );
         }
-        yield* adb(input.device.serial, [
-          "install",
-          ...(installed === null ? [] : ["-r"]),
-          apk,
-        ]);
+        yield* runAndroidOwnerCommand(
+          (args) => adb(input.device.serial, args),
+          ["install", "--user", "0", ...(installed === null ? [] : ["-r"]), apk]
+        );
         yield* requireHelper(input.device.serial);
       }
       if (privateText) {
@@ -552,7 +544,13 @@ export const acquireAndroidBackend = (
           Effect.andThen(
             preparation === undefined
               ? Effect.void
-              : requireAndroidAppBuild(preparation)
+              : requireAndroidAppBuild(preparation).pipe(
+                  Effect.andThen(
+                    requireAndroidPermissionState(preparation, (args) =>
+                      adb(input.device.serial, args)
+                    )
+                  )
+                )
           )
         );
       const lifecycle = makeAndroidSessionLifecycle({

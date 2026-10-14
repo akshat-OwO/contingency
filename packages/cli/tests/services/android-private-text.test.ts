@@ -182,7 +182,14 @@ it.effect(
         "tcp:41000",
       ]);
       expect(helper.adbCalls.slice(-2)).toEqual([
-        ["shell", "am", "force-stop", androidPrivateTextRelease.packageName],
+        [
+          "shell",
+          "am",
+          "force-stop",
+          "--user",
+          "0",
+          androidPrivateTextRelease.packageName,
+        ],
         ["shell", `pidof ${androidPrivateTextRelease.packageName} || true`],
       ]);
     })
@@ -240,6 +247,9 @@ it.effect(
         const helper = fakeHelper({ bind: () => ({ bound: true }), fill });
         const failure = yield* Effect.flip(enter(helper));
         expect(failure.code).toBe("private_input_uncertain");
+        if (fill()?.error === "input_unverified") {
+          expect(failure.backendReason).toBe("input_unverified");
+        }
         expect(JSON.stringify(failure)).not.toContain(secret);
         expect(helper.sent.map((message) => message.op)).toEqual([
           "bind",
@@ -335,6 +345,8 @@ it.effect(
         "shell",
         "am",
         "force-stop",
+        "--user",
+        "0",
         androidPrivateTextRelease.packageName,
       ]);
       const survivor = fakeHelper({

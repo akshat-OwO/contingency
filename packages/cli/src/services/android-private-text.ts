@@ -134,6 +134,8 @@ export const privateTextInstrumentationArgs = (
   "shell",
   "am",
   "instrument",
+  "--user",
+  "0",
   "-w",
   "-r",
   "-e",
@@ -182,6 +184,8 @@ const enterOnce = (
             "shell",
             "am",
             "force-stop",
+            "--user",
+            "0",
             androidPrivateTextRelease.packageName,
           ])
           .pipe(
@@ -255,9 +259,20 @@ const enterOnce = (
         }))
       );
     if (filled.outcome !== "verified") {
-      return yield* filled.inputSent === false
-        ? refusal(filled.error)
-        : failure("private_input_uncertain");
+      if (filled.inputSent === false) {
+        return yield* refusal(filled.error);
+      }
+      if (
+        filled.error === "input_unverified" ||
+        filled.error === "input_failed"
+      ) {
+        return yield* Effect.fail({
+          ...platformRuntimeError("private_input_uncertain"),
+          backendReason: filled.error,
+          operation: "private-text" as const,
+        } satisfies PlatformRuntimeError);
+      }
+      return yield* failure("private_input_uncertain");
     }
     yield* helper.exited.pipe(
       Effect.timeoutOrElse({

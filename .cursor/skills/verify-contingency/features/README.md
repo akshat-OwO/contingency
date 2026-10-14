@@ -43,6 +43,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Android physical device](./workspace.md#android-physical-device) proves authorized app-data clearing, recorded permissions, and private text on a selected daily-use phone using a disposable app.
 - [Android preparation](./workspace.md#android-preparation) proves the internal experimental Android factory lifecycle, with explicit device selection and sanitized receipts.
 - [Android private text](./workspace.md#android-private-text) proves a private fill through the Contingency helper beside agent-device on an emulator: sentinel absence, refusals, kept agent-device session, and cleanup.
 - [Android workspace](./workspace.md#android-workspace) proves opt-in experimental Android Teaching, Takeover, Dry Run verification and purge, a later Run, and Summary readback after restart through mirrored Workspace.

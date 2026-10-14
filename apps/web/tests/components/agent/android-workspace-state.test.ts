@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 
-import { parseReversibleActions } from "@/components/agent/android-workspace-state";
+import {
+  parseAndroidPermissionDecisions,
+  parseReversibleActions,
+} from "@/components/agent/android-workspace-state";
 
 test("reads one reversible action per line", () => {
   expect(
@@ -27,4 +30,21 @@ test("allows no reversible actions", () => {
 test("rejects the list when any line is malformed", () => {
   expect(parseReversibleActions("button: Sign in\nOpen cart")).toBeUndefined();
   expect(parseReversibleActions("button:   ")).toBeUndefined();
+});
+
+test("permission declarations reject duplicates and invalid decisions", () => {
+  expect(
+    parseAndroidPermissionDecisions(
+      "revoke android.permission.CAMERA\ngrant android.permission.POST_NOTIFICATIONS"
+    )
+  ).toEqual([
+    { decision: "revoke", permission: "android.permission.CAMERA" },
+    { decision: "grant", permission: "android.permission.POST_NOTIFICATIONS" },
+  ]);
+  expect(
+    parseAndroidPermissionDecisions(
+      "grant android.permission.CAMERA\nrevoke android.permission.CAMERA"
+    )
+  ).toBeUndefined();
+  expect(parseAndroidPermissionDecisions("allow CAMERA")).toBeUndefined();
 });

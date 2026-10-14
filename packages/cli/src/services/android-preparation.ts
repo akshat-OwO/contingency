@@ -6,6 +6,11 @@ import { promisify } from "node:util";
 
 import { Effect } from "effect";
 
+import {
+  requireAndroidDeviceIdentity,
+  requireAndroidOwnerUser,
+  runAndroidOwnerCommand,
+} from "./android-device-identity.ts";
 import type { AndroidRunInput } from "./android-run-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
@@ -14,7 +19,6 @@ const execute = promisify(execFile);
 const buildPattern = /\bversionCode=(?<code>\d+)\b/u;
 const apkPattern =
   /^package: name='(?<appId>[^']+)' versionCode='(?<build>\d+)'/mu;
-const serialPattern = /^emulator-\d+$/u;
 
 const command = (file: string, args: readonly string[]) =>
   Effect.tryPromise({
@@ -44,41 +48,57 @@ export const requireAndroidAppBuild = (input: AndroidRunInput) =>
     }
   });
 
+/** Read-only validation never changes permission choices during recovery. */
+export const requireAndroidPermissionState = (
+  input: AndroidRunInput,
+  run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>,
+  code: "preparation_failed" | "environment_changed" = "environment_changed"
+) =>
+  Effect.gen(function* permissions() {
+    const decisions = input.environment.permissions ?? [];
+    if (decisions.length === 0) {
+      return;
+    }
+    const dump = yield* run(["shell", "dumpsys", "package", input.targetApp]);
+    const owner = dump
+      .split(/(?=^\s*User \d+:)/mu)
+      .find((section) => /^\s*User 0:/u.test(section));
+    if (owner === undefined) {
+      return yield* Effect.fail(platformRuntimeError(code));
+    }
+    for (const { permission, decision } of decisions) {
+      const granted = new RegExp(
+        `${permission.replaceAll(".", "\\.")}: granted=(true|false)`,
+        "u"
+      ).exec(owner)?.[1];
+      if (granted !== (decision === "grant" ? "true" : "false")) {
+        return yield* Effect.fail(platformRuntimeError(code));
+      }
+    }
+  });
+
 /** Read-only preflight never accepts current foreground state as freshness. */
 export const preflightAndroidPreparation = (
   input: AndroidRunInput,
   phase?: "installed"
 ): Effect.Effect<void, PlatformRuntimeError> =>
   Effect.gen(function* preflight() {
-    if (!serialPattern.test(input.device.serial)) {
-      return yield* Effect.fail(
-        platformRuntimeError("device_selection_required")
-      );
-    }
-    const avd = yield* adb(input, ["emu", "avd", "name"]);
-    const api = yield* adb(input, ["shell", "getprop", "ro.build.version.sdk"]);
-    const fingerprint = yield* adb(input, [
-      "shell",
-      "getprop",
-      "ro.build.fingerprint",
-    ]);
+    yield* requireAndroidDeviceIdentity(input.device, (args) =>
+      adb(input, args)
+    );
     const release = yield* adb(input, [
       "shell",
       "getprop",
       "ro.build.version.release",
     ]);
-    const emulator = yield* adb(input, ["shell", "getprop", "ro.kernel.qemu"]);
-    if (
-      avd.split(/\r?\n/u)[0] !== input.device.avd ||
-      api !== "36" ||
-      release !== input.environment.androidVersion ||
-      fingerprint !== input.device.fingerprint ||
-      emulator !== "1"
-    ) {
+    if (release !== input.environment.androidVersion) {
       return yield* Effect.fail(platformRuntimeError("device_mismatch"));
     }
     if (input.appInstallation === undefined || phase === "installed") {
       yield* requireAndroidAppBuild(input);
+      if (phase === "installed") {
+        yield* requireAndroidPermissionState(input, (args) => adb(input, args));
+      }
       return;
     }
     const installation = input.appInstallation;
@@ -109,6 +129,68 @@ export const preflightAndroidPreparation = (
     }
   });
 
+/** Checked before any installation or app mutation, including direct backend startup. */
+export const requireAndroidClearDataConsent = (input: AndroidRunInput) =>
+  Effect.gen(function* consent() {
+    if (
+      input.device.kind === "physical" &&
+      (input.setup.kind !== "clear-app-data" ||
+        input.clearDataGrant?.serial !== input.device.serial ||
+        input.clearDataGrant.targetApp !== input.targetApp)
+    ) {
+      return yield* Effect.fail(platformRuntimeError("clear_data_denied"));
+    }
+  });
+
+/** App-scoped preparation. Permission flags prevent a denied choice from prompting again. */
+export const prepareAndroidAppData = (
+  input: AndroidRunInput,
+  run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
+) =>
+  Effect.gen(function* prepareApp() {
+    yield* requireAndroidClearDataConsent(input);
+    yield* requireAndroidOwnerUser(run);
+    const mutate = (args: readonly string[]) =>
+      runAndroidOwnerCommand(run, args);
+    if (input.setup.kind === "clear-app-data") {
+      const cleared = yield* mutate([
+        "shell",
+        "pm",
+        "clear",
+        "--user",
+        "0",
+        input.targetApp,
+      ]);
+      if (cleared !== "Success") {
+        return yield* Effect.fail(platformRuntimeError("preparation_failed"));
+      }
+    }
+    for (const { permission, decision } of input.environment.permissions ??
+      []) {
+      yield* mutate([
+        "shell",
+        "pm",
+        decision,
+        "--user",
+        "0",
+        input.targetApp,
+        permission,
+      ]);
+      yield* mutate([
+        "shell",
+        "pm",
+        "set-permission-flags",
+        "--user",
+        "0",
+        input.targetApp,
+        permission,
+        "user-set",
+        "user-fixed",
+      ]);
+    }
+    yield* requireAndroidPermissionState(input, run, "preparation_failed");
+  });
+
 /** Called only after all Run decisions, inside the selected-device lock. */
 export const prepareAndroidStartingState = (
   request: AndroidRunInput,
@@ -130,10 +212,15 @@ export const prepareAndroidStartingState = (
         appInstallation: { ...request.appInstallation, apk: ownedApk },
       };
     }
+    yield* requireAndroidClearDataConsent(input);
     yield* preflightAndroidPreparation(input);
+    const mutate = (args: readonly string[]) =>
+      runAndroidOwnerCommand((commandArgs) => adb(input, commandArgs), args);
     if (input.appInstallation !== undefined) {
-      const result = yield* adb(input, [
+      const result = yield* mutate([
         "install",
+        "--user",
+        "0",
         "-r",
         input.appInstallation.apk,
       ]);
@@ -142,11 +229,21 @@ export const prepareAndroidStartingState = (
       }
     }
     yield* requireAndroidAppBuild(input);
-    yield* adb(input, ["shell", "am", "force-stop", input.targetApp]);
-    const launched = yield* adb(input, [
+    yield* mutate([
+      "shell",
+      "am",
+      "force-stop",
+      "--user",
+      "0",
+      input.targetApp,
+    ]);
+    yield* prepareAndroidAppData(input, (args) => adb(input, args));
+    const launched = yield* mutate([
       "shell",
       "am",
       "start",
+      "--user",
+      "0",
       "-W",
       "-n",
       `'${input.setup.activity}'`,

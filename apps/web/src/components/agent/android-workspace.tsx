@@ -19,7 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
 
-import { parseReversibleActions } from "./android-workspace-state";
+import {
+  parseAndroidPermissionDecisions,
+  parseReversibleActions,
+} from "./android-workspace-state";
 import {
   sessionStartGestureAtom,
   useWorkspaceGesture,
@@ -62,19 +65,33 @@ const condition = (form: HTMLFormElement, prefix: string) => ({
 });
 const selection = (
   form: HTMLFormElement,
-  actions: AndroidWorkspaceSelection["reversibleActions"]
+  actions: AndroidWorkspaceSelection["reversibleActions"],
+  permissions: NonNullable<
+    AndroidWorkspaceSelection["environment"]["permissions"]
+  >
 ): AndroidWorkspaceSelection => ({
-  device: {
-    api: 36,
-    avd: selected(form, "avd"),
-    fingerprint: selected(form, "fingerprint"),
-    host: "local",
-    serial: selected(form, "serial"),
-  },
+  device:
+    selected(form, "deviceKind") === "physical"
+      ? {
+          api: 36,
+          fingerprint: selected(form, "fingerprint"),
+          host: "local",
+          kind: "physical",
+          model: selected(form, "deviceName"),
+          serial: selected(form, "serial"),
+        }
+      : {
+          api: 36,
+          avd: selected(form, "deviceName"),
+          fingerprint: selected(form, "fingerprint"),
+          host: "local",
+          serial: selected(form, "serial"),
+        },
   environment: {
     androidVersion: selected(form, "androidVersion"),
     appBuild: selected(form, "appBuild"),
     appId: selected(form, "appId"),
+    permissions,
     startingState: selected(form, "startingState"),
   },
   helperConsent: Schema.decodeUnknownOption(
@@ -87,7 +104,10 @@ const selection = (
   setup: {
     activity: selected(form, "activity"),
     conditions: [condition(form, "starting")],
-    kind: "restart-activity",
+    kind:
+      selected(form, "deviceKind") === "physical"
+        ? "clear-app-data"
+        : "restart-activity",
   },
 });
 const Field = ({
@@ -106,11 +126,11 @@ const Field = ({
 );
 const Limits = () => (
   <p className="text-muted-foreground text-sm">
-    Experimental local API 36 emulator. Semantic actions and public fixture text
-    only. No private Variables, coordinates, arbitrary keys, cross-app input, or
-    system-dialog permissions. Ownership and dispatch use experimental host
-    checks. Screenshots and semantic snapshots are separate captures. Direct
-    device touches are outside Teaching capture.
+    Experimental local API 36 Android device. Semantic actions and public
+    fixture text only. No private Variables, coordinates, arbitrary keys,
+    cross-app input, or system-dialog permissions. Ownership and dispatch use
+    experimental host checks. Screenshots and semantic snapshots are separate
+    captures. Direct device touches are outside Teaching capture.
   </p>
 );
 
@@ -151,9 +171,11 @@ const AndroidStatus = ({
         {session.controller} control
       </p>
       <p>
-        Bound emulator {session.selection.device.serial} ·{" "}
-        {session.selection.device.avd} · Target App{" "}
-        {session.selection.environment.appId}
+        Bound device {session.selection.device.serial} ·{" "}
+        {session.selection.device.kind === "physical"
+          ? session.selection.device.model
+          : session.selection.device.avd}{" "}
+        · Target App {session.selection.environment.appId}
       </p>
       <p>
         Helper consent: {session.selection.helperConsent}. Preparation:{" "}
@@ -172,10 +194,16 @@ const AndroidStatus = ({
         <div
           key={decision.id}
           role="group"
-          aria-label="Run Environment Permission"
+          aria-label={
+            decision.kind === "clear-app-data"
+              ? "Clear Target App data"
+              : "Run Environment Permission"
+          }
         >
           <p>
-            {decision.kind} for {decision.targetApp}
+            {decision.kind === "clear-app-data"
+              ? `Contingency may clear owner user 0 data for ${decision.targetApp} on ${decision.serial}`
+              : `${decision.kind} for ${decision.targetApp}`}
           </p>
           <Button
             disabled={pending}
@@ -219,7 +247,7 @@ const AndroidStatus = ({
               })
             }
           >
-            Prepare selected emulator
+            Prepare selected device
           </Button>
         ) : null}
         {session.phase === "paused" ? (
@@ -233,7 +261,7 @@ const AndroidStatus = ({
               })
             }
           >
-            Recover same emulator
+            Recover same device
           </Button>
         ) : null}
         {session.kind === "teaching" &&
@@ -315,10 +343,12 @@ const AndroidMirror = ({
             width={observation.width}
             height={observation.height}
             className="max-h-[65vh] max-w-full object-contain"
-            alt="Selected emulator mirrored screen"
+            alt="Selected device mirrored screen"
           />
         ) : (
-          <p className="text-white">Prepare the emulator to view its screen.</p>
+          <p className="text-white">
+            Prepare the selected device to view its screen.
+          </p>
         )}
       </div>
       <div className="grid content-start gap-3">
@@ -497,6 +527,92 @@ const AndroidResults = ({
   </>
 );
 
+const AndroidSelectionForm = ({
+  pending,
+  start,
+}: {
+  readonly pending: boolean;
+  readonly start: (event: FormEvent<HTMLFormElement>) => void;
+}) => (
+  <form
+    onSubmit={start}
+    className="grid max-w-2xl gap-3 sm:grid-cols-2"
+    aria-label="Select Android device and Target App"
+  >
+    <Field name="flowSkillName" label="Flow Skill name" />
+    <label className="grid gap-1 text-sm">
+      Device kind
+      <select name="deviceKind" aria-label="Device kind">
+        <option value="emulator">Emulator</option>
+        <option value="physical">Physical device</option>
+      </select>
+    </label>
+    <Field name="serial" label="Selected device serial" />
+    <Field name="deviceName" label="Selected AVD or device model" />
+    <label className="grid gap-1 text-sm">
+      Notification permission
+      <select
+        name="notificationPermission"
+        aria-label="Notification permission"
+      >
+        <option value="unchanged">App does not request notifications</option>
+        <option value="grant">Grant before start</option>
+        <option value="revoke">Deny before start</option>
+      </select>
+    </label>
+    <label className="grid gap-1 text-sm sm:col-span-2">
+      Additional permission decisions
+      <Textarea
+        name="permissions"
+        aria-describedby="android-permissions-hint"
+        rows={3}
+      />
+      <span id="android-permissions-hint" className="text-muted-foreground">
+        One grant or revoke per line, such as revoke android.permission.CAMERA.
+        Notification permission is selected above.
+      </span>
+    </label>
+    <Field name="fingerprint" label="Selected build fingerprint" />
+    <Field name="androidVersion" label="Android release" defaultValue="16" />
+    <Field name="appId" label="Target App package" />
+    <Field name="appBuild" label="Target App versionCode" />
+    <Field name="activity" label="Starting activity" />
+    <Field name="startingState" label="Starting state description" />
+    <Field name="startingRole" label="Starting condition role" />
+    <Field name="startingName" label="Starting condition name" />
+    <div className="grid gap-1 text-sm sm:col-span-2">
+      <label className="grid gap-1">
+        Reversible actions
+        <Textarea
+          name="actions"
+          aria-describedby="android-reversible-actions-hint"
+          rows={4}
+        />
+      </label>
+      <span
+        id="android-reversible-actions-hint"
+        className="text-muted-foreground"
+      >
+        One role: name per line, such as button: Sign in. Only these controls
+        can be activated.
+      </span>
+    </div>
+    <Field name="outcomeRole" label="Required outcome role" />
+    <Field name="outcomeName" label="Required outcome name" />
+    <label>
+      Helper authorization
+      <select name="helperConsent" aria-label="Helper authorization">
+        <option value="none">Use compatible installed helper only</option>
+        <option value="install">Authorize pinned helper installation</option>
+        <option value="replace">Authorize pinned helper replacement</option>
+      </select>
+    </label>
+    <Button disabled={pending} type="submit">
+      Open experimental Android session
+    </Button>
+  </form>
+);
+
 export const AndroidWorkspace = ({
   requestedSessionId,
   onBrowser,
@@ -615,13 +731,30 @@ export const AndroidWorkspace = ({
       }));
       return;
     }
+    const notification = selected(form, "notificationPermission");
+    const declared = selected(form, "permissions");
+    const notificationLine =
+      notification === "unchanged"
+        ? ""
+        : `${notification} android.permission.POST_NOTIFICATIONS`;
+    const permissions = parseAndroidPermissionDecisions(
+      `${notificationLine}\n${declared}`
+    );
+    if (permissions === undefined) {
+      setState((current) => ({
+        ...current,
+        failure:
+          "Declare each permission once as grant or revoke followed by android.permission.NAME.",
+      }));
+      return;
+    }
     mutate({
       _tag: "start",
       flowSkillName: name,
       kind: "teaching",
       operationId: operationId(),
       recordingId: null,
-      selection: selection(form, actions),
+      selection: selection(form, actions, permissions),
     });
   };
   const input = (
@@ -684,61 +817,7 @@ export const AndroidWorkspace = ({
         </label>
       ) : null}
       {session === null ? (
-        <form
-          onSubmit={start}
-          className="grid max-w-2xl gap-3 sm:grid-cols-2"
-          aria-label="Select Android emulator and Target App"
-        >
-          <Field name="flowSkillName" label="Flow Skill name" />
-          <Field name="serial" label="Selected emulator serial" />
-          <Field name="avd" label="Selected AVD" />
-          <Field name="fingerprint" label="Selected build fingerprint" />
-          <Field
-            name="androidVersion"
-            label="Android release"
-            defaultValue="16"
-          />
-          <Field name="appId" label="Target App package" />
-          <Field name="appBuild" label="Target App versionCode" />
-          <Field name="activity" label="Starting activity" />
-          <Field name="startingState" label="Starting state description" />
-          <Field name="startingRole" label="Starting condition role" />
-          <Field name="startingName" label="Starting condition name" />
-          <div className="grid gap-1 text-sm sm:col-span-2">
-            <label className="grid gap-1">
-              Reversible actions
-              <Textarea
-                name="actions"
-                aria-describedby="android-reversible-actions-hint"
-                rows={4}
-              />
-            </label>
-            <span
-              id="android-reversible-actions-hint"
-              className="text-muted-foreground"
-            >
-              One role: name per line, such as button: Sign in. Only these
-              controls can be activated.
-            </span>
-          </div>
-          <Field name="outcomeRole" label="Required outcome role" />
-          <Field name="outcomeName" label="Required outcome name" />
-          <label>
-            Helper authorization
-            <select name="helperConsent" aria-label="Helper authorization">
-              <option value="none">Use compatible installed helper only</option>
-              <option value="install">
-                Authorize pinned helper installation
-              </option>
-              <option value="replace">
-                Authorize pinned helper replacement
-              </option>
-            </select>
-          </label>
-          <Button disabled={gesture.pending} type="submit">
-            Open experimental Android session
-          </Button>
-        </form>
+        <AndroidSelectionForm pending={gesture.pending} start={start} />
       ) : (
         <>
           <AndroidStatus

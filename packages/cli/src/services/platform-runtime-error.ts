@@ -7,14 +7,16 @@ const messages = {
     "Android capture is incomplete or obscured. Execution is paused.",
   cleanup_failed:
     "Android cleanup is incomplete. Retained owned state requires inspection before recovery.",
+  clear_data_denied:
+    "Authorize clearing the Target App data for owner user 0 on this selected device before preparation.",
   device_disconnected:
     "The selected Android device is disconnected. Execution is paused.",
   device_mismatch:
     "The selected Android device identity changed. Execution is paused.",
   device_selection_required:
-    "Explicitly select a prepared local API 36 emulator, serial, AVD, and build fingerprint.",
+    "Explicitly select a local API 36 device by serial and identity.",
   environment_changed:
-    "The selected Android app build changed. Start a new Run and review its environment.",
+    "The selected Android app build or permission state changed. Start a new Run and review its environment.",
   execution_canceled:
     "Android execution was canceled. Take a fresh observation after explicit recovery; do not replay input.",
   helper_incompatible:
@@ -45,6 +47,8 @@ const messages = {
     "The observed Android field or window changed. No private input was sent; take a fresh observation.",
   target_unsupported:
     "The Android target is absent, covered, private, or unsupported for this action.",
+  user_profile_unsupported:
+    "Android preparation and execution support only owner user 0. The active or focused profile is unsupported. Execution is paused.",
 } as const;
 
 export const platformRuntimeError = (

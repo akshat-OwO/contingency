@@ -1,6 +1,6 @@
 # Android private text beside agent-device
 
-For [issue 490](https://github.com/akshat-OwO/contingency/issues/490), the experimental Android runtime enters a private Variable through a Contingency-owned helper while stock agent-device keeps its session. The helper and agent-device take turns: agent-device runs its capture helper as one short instrumentation per command, and the private text helper holds the device only for one fill. The emulator proof passed. The physical-device proof is blocked; see [Remaining work](#remaining-work). This follows [ADR 0061](../adr/0061-android-private-text-uses-a-contingency-owned-helper.md) and does not wire private Variables into Workspace or Runs.
+For [issue 490](https://github.com/akshat-OwO/contingency/issues/490), the experimental Android runtime enters a private Variable through a Contingency-owned helper while stock agent-device keeps its session. The helper and agent-device take turns: agent-device runs its capture helper as one short instrumentation per command, and the private text helper holds the device only for one fill. The emulator proof passed. The physical-device proof remains incomplete; see [Remaining work](#remaining-work). This follows [ADR 0061](../adr/0061-android-private-text-uses-a-contingency-owned-helper.md) and does not wire private Variables into Workspace or Runs.
 
 ## Coexistence: take turns, not share
 
@@ -32,7 +32,7 @@ One fill is one helper lifetime:
 5. **Fill.** Only now does the host resolve the Variable and send the value over the socket. The helper requires the active window and the re-resolved node to have the window ID recorded at bind; otherwise it returns `window_changed` without input. It sets the text with `ACTION_SET_TEXT`, refreshes the node, and requires the text to equal the value exactly. It reports `verified`, or an error with `inputSent: true`.
 6. The helper exits. Finalizers close the socket, remove the forward, force-stop the helper package, and confirm no helper process remains. Each step runs even if an earlier one fails. Any failure returns `cleanup_failed`, even after a verified fill, and the backend keeps its device lock for inspection.
 
-On API 36, UiAutomation reads a password field's real text, so readback is exact rather than a length comparison. A device that masks password text to UiAutomation returns `input_unverified`. That result is uncertain, not verified.
+In the tested API 36 Settings password field, UiAutomation reads the real text, so readback is exact rather than a length comparison. A device that masks password text to UiAutomation returns `input_unverified`. That result is uncertain, not verified.
 
 ## Runtime contract
 
@@ -80,6 +80,6 @@ Validation passed `nub exec turbo run quality`, the CLI type check, and the Andr
 
 ## Remaining work
 
-- **Physical proof on the Nothing Phone 3a.** Not run. The runtime identifies devices with `adb emu avd name`, which works only for emulators, so it cannot start on a physical device yet. That proof also needs the maintainer's explicit authorization to select the phone's serial and install the helper.
+- **Physical proof on the Nothing Phone 3a.** Device selection and preparation now support physical devices under #484. The authorized native fixture masks password accessibility readback and returns `input_unverified`, so verified private entry remains unproved. The maintainer declined a separate Settings-dialog proof. See the [physical-device report](android-physical-device.md) for the scoped evidence and remaining gap.
 - **Signing key custody.** The release key was generated on the maintainer's machine, outside the repository. It needs a durable, backed-up home before another release.
 - **System dialogs and popups.** Fills inside a `PopupWindow` or a system dialog are refused, like other actions.

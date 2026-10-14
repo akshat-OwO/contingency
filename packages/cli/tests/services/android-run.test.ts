@@ -356,3 +356,115 @@ it.effect(
       expect(f.calls).toEqual(["setup"]);
     })
 );
+
+it.effect(
+  "requires app-data consent for each physical Run and binds it to the selected device",
+  () =>
+    Effect.gen(function* physicalConsent() {
+      const { driver, input, calls } = yield* fixture();
+      const physical: AndroidRunInput = {
+        ...input,
+        device: {
+          api: 36,
+          fingerprint: "phone-build",
+          host: "local",
+          kind: "physical",
+          model: "A059",
+          serial: "phone-serial",
+        },
+        setup: { ...input.setup, kind: "clear-app-data" },
+      };
+      let started: AndroidRunInput | undefined;
+      const run = yield* createAndroidRun(physical, {
+        ...driver,
+        start: (selected) => {
+          started = selected;
+          return driver.start(selected);
+        },
+      });
+      const consent = run
+        .state()
+        .pending.find((decision) => decision.kind === "clear-app-data");
+      expect(consent?.serial).toBe("phone-serial");
+      expect(consent?.targetApp).toBe("dev.fixture");
+      for (const decision of run
+        .state()
+        .pending.filter((entry) => entry.kind !== "clear-app-data")) {
+        yield* run.decide(decision.id, true);
+      }
+      expect((yield* Effect.flip(run.prepare())).code).toBe(
+        "preparation_required"
+      );
+      expect(calls).toEqual([]);
+      yield* run.decide(consent?.id ?? "", true);
+      yield* run.prepare();
+      expect(started?.clearDataGrant).toEqual({
+        serial: "phone-serial",
+        targetApp: "dev.fixture",
+      });
+      yield* run.close();
+      const next = yield* createAndroidRun(physical, driver);
+      const nextConsent = next
+        .state()
+        .pending.find((entry) => entry.kind === "clear-app-data");
+      expect(nextConsent?.id).not.toBe(consent?.id);
+      yield* next.decide(nextConsent?.id ?? "", false);
+      expect(next.state().phase).toBe("refused");
+      expect((yield* Effect.flip(next.prepare())).code).toBe(
+        "preparation_required"
+      );
+      expect(calls).toEqual(["setup", "close"]);
+    }).pipe(Effect.scoped)
+);
+
+it.effect(
+  "records permission differences without rewriting the taught environment",
+  () =>
+    Effect.gen(function* permissionDifference() {
+      const { driver, input } = yield* fixture();
+      const run = yield* createAndroidRun(
+        {
+          ...input,
+          environment: {
+            ...input.environment,
+            permissions: [
+              {
+                decision: "revoke",
+                permission: "android.permission.POST_NOTIFICATIONS",
+              },
+            ],
+          },
+        },
+        driver
+      );
+      expect(
+        run.state().differences.find((entry) => entry.field === "permissions")
+          ?.selected
+      ).toContain("revoke");
+      expect(run.state().taught).toEqual(input.taught);
+    }).pipe(Effect.scoped)
+);
+
+it.effect("refuses a physical Run that only restarts an activity", () =>
+  Effect.gen(function* physicalFreshness() {
+    const { driver, input, calls } = yield* fixture();
+    const result = yield* Effect.flip(
+      createAndroidRun(
+        {
+          ...input,
+          device: {
+            api: 36,
+            fingerprint: "phone-build",
+            host: "local",
+            kind: "physical",
+            model: "A059",
+            serial: "phone-serial",
+          },
+        },
+        driver
+      )
+    );
+    expect(result.code).toBe("preparation_failed");
+    expect(calls).toEqual([]);
+  }).pipe(Effect.scoped)
+);

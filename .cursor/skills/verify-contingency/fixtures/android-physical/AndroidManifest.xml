@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.contingency.physicalfixture" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="36" android:targetSdkVersion="36" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <application android:label="Contingency device proof" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <activity android:name=".MainActivity" android:exported="true" />
+    <activity android:name=".ReplacementActivity" android:exported="true" />
+  </application>
+</manifest>
