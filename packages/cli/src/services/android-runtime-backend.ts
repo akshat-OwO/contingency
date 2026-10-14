@@ -15,7 +15,10 @@ import type {
 import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
-import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
+import {
+  requireAndroidDeviceIdentity,
+  runAndroidOwnerCommand,
+} from "./android-device-identity.ts";
 import {
   prepareAndroidStartingState,
   requireAndroidAppBuild,
@@ -45,7 +48,7 @@ const execute = promisify(execFile);
 const serialPattern = /^[A-Za-z0-9._:-]+$/u;
 const packagePattern = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/u;
 const focusPattern =
-  /mCurrentFocus=(?<window>Window\{[^\n]*?\s(?:u\d+\s)?(?<packageName>[A-Za-z][A-Za-z0-9_.]+)\/[^\n}]*\})/u;
+  /mCurrentFocus=(?<window>Window\{[^\n]*?\su(?<userId>\d+)\s(?<packageName>[A-Za-z][A-Za-z0-9_.]+)\/[^\n}]*\})/u;
 const packagePathPattern =
   /^package:(?<apk>\/data\/app\/[A-Za-z0-9_./=+~-]+\/base\.apk)$/mu;
 const DaemonInfo = Schema.Struct({
@@ -143,7 +146,7 @@ const installedHash = (
   Effect.gen(function* readInstalledHelper() {
     const result = yield* adb(serial, [
       "shell",
-      `pm path ${packageName} || true`,
+      `pm path --user 0 ${packageName} || true`,
     ]);
     if (result === "") {
       return null;
@@ -186,6 +189,11 @@ const requireOwnership = (input: AndroidRuntimeStartInput) =>
     const focus = focusPattern.exec(windows)?.groups;
     if (focus?.packageName !== input.targetApp || focus.window === undefined) {
       return yield* Effect.fail(platformRuntimeError("ownership_unknown"));
+    }
+    if (focus.userId !== "0") {
+      return yield* Effect.fail(
+        platformRuntimeError("user_profile_unsupported")
+      );
     }
     return focus.window;
   });
@@ -274,11 +282,10 @@ const installPrivateTextHelper = (input: AndroidRuntimeStartInput) =>
     ) {
       return yield* Effect.fail(platformRuntimeError("installation_denied"));
     }
-    yield* adb(input.device.serial, [
-      "install",
-      ...(installed === null ? [] : ["-r"]),
-      apk,
-    ]);
+    yield* runAndroidOwnerCommand(
+      (args) => adb(input.device.serial, args),
+      ["install", "--user", "0", ...(installed === null ? [] : ["-r"]), apk]
+    );
     yield* requirePrivateTextHelper(input.device.serial);
   });
 
@@ -405,11 +412,10 @@ export const acquireAndroidBackend = (
             platformRuntimeError("installation_denied")
           );
         }
-        yield* adb(input.device.serial, [
-          "install",
-          ...(installed === null ? [] : ["-r"]),
-          apk,
-        ]);
+        yield* runAndroidOwnerCommand(
+          (args) => adb(input.device.serial, args),
+          ["install", "--user", "0", ...(installed === null ? [] : ["-r"]), apk]
+        );
         yield* requireHelper(input.device.serial);
       }
       if (privateText) {

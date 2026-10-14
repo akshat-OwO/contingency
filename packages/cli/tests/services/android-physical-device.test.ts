@@ -60,6 +60,7 @@ it.effect(
       const properties = new Map<string, string>(
         Object.entries({
           "get-state": "device",
+          "shell am get-current-user": "0",
           "shell getprop ro.build.fingerprint": "phone-build",
           "shell getprop ro.build.version.sdk": "36",
           "shell getprop ro.kernel.qemu": "",
@@ -85,6 +86,10 @@ it.effect(
           )
         )).code
       ).toBe("device_disconnected");
+      properties.set("shell am get-current-user", "10");
+      expect(
+        (yield* Effect.flip(requireAndroidDeviceIdentity(phone, adb))).code
+      ).toBe("user_profile_unsupported");
       properties.set("get-state", "offline");
       expect(
         (yield* Effect.flip(requireAndroidDeviceIdentity(phone, adb))).code
@@ -134,8 +139,11 @@ it.effect(
         Effect.sync(() => {
           const command = args.join(" ");
           calls.push(command);
+          if (command === "shell am get-current-user") {
+            return "0";
+          }
           return command.includes("dumpsys")
-            ? "android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SET|USER_FIXED ]"
+            ? "User 0: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SET|USER_FIXED ]"
             : "Success";
         });
       yield* prepareAndroidAppData(
@@ -146,9 +154,13 @@ it.effect(
         adb
       );
       expect(calls).toEqual([
-        "shell pm clear dev.fixture",
-        "shell pm revoke dev.fixture android.permission.POST_NOTIFICATIONS",
-        "shell pm set-permission-flags dev.fixture android.permission.POST_NOTIFICATIONS user-set user-fixed",
+        "shell am get-current-user",
+        "shell am get-current-user",
+        "shell pm clear --user 0 dev.fixture",
+        "shell am get-current-user",
+        "shell pm revoke --user 0 dev.fixture android.permission.POST_NOTIFICATIONS",
+        "shell am get-current-user",
+        "shell pm set-permission-flags --user 0 dev.fixture android.permission.POST_NOTIFICATIONS user-set user-fixed",
         "shell dumpsys package dev.fixture",
       ]);
       const failed = yield* Effect.flip(
@@ -186,4 +198,109 @@ it.effect(
         ["shell", "dumpsys", "package", "dev.fixture"],
       ]);
     }).pipe(Effect.scoped)
+);
+
+it.effect(
+  "refuses an active secondary user before clearing either profile",
+  () =>
+    Effect.gen(function* secondaryUser() {
+      const input = request(yield* Scope.Scope);
+      const mutations: string[] = [];
+      const failure = yield* Effect.flip(
+        prepareAndroidAppData(
+          {
+            ...input,
+            clearDataGrant: {
+              serial: phone.serial,
+              targetApp: input.targetApp,
+            },
+          },
+          (args) =>
+            Effect.sync(() => {
+              const command = args.join(" ");
+              if (command === "shell am get-current-user") {
+                return "10";
+              }
+              if (command.includes("dumpsys")) {
+                return "User 0: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false\nUser 10: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false";
+              }
+              mutations.push(command);
+              return "Success";
+            })
+        )
+      );
+      expect(failure.code).toBe("user_profile_unsupported");
+      expect(mutations).toEqual([]);
+    }).pipe(Effect.scoped)
+);
+
+it.effect("reads permissions only from owner user 0", () =>
+  Effect.gen(function* ownerPermissions() {
+    const input = request(yield* Scope.Scope);
+    yield* requireAndroidPermissionState(input, () =>
+      Effect.succeed(
+        "User 10: installed=true\n android.permission.POST_NOTIFICATIONS: granted=true\nUser 0: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false"
+      )
+    );
+  }).pipe(Effect.scoped)
+);
+
+it.effect(
+  "refuses a profile switch after consent and before the clear dispatch",
+  () =>
+    Effect.gen(function* profileSwitch() {
+      const input = request(yield* Scope.Scope);
+      const calls: string[] = [];
+      let reads = 0;
+      const failure = yield* Effect.flip(
+        prepareAndroidAppData(
+          {
+            ...input,
+            clearDataGrant: {
+              serial: phone.serial,
+              targetApp: input.targetApp,
+            },
+          },
+          (args) =>
+            Effect.sync(() => {
+              const command = args.join(" ");
+              calls.push(command);
+              if (command === "shell am get-current-user") {
+                reads += 1;
+                return reads === 1 ? "0" : "10";
+              }
+              return "Success";
+            })
+        )
+      );
+      expect(failure.code).toBe("user_profile_unsupported");
+      expect(calls).toEqual([
+        "shell am get-current-user",
+        "shell am get-current-user",
+      ]);
+    }).pipe(Effect.scoped)
+);
+
+it.effect("refuses unknown users and missing owner permission records", () =>
+  Effect.gen(function* unknownUser() {
+    const input = request(yield* Scope.Scope);
+    const failure = yield* Effect.flip(
+      prepareAndroidAppData(
+        {
+          ...input,
+          clearDataGrant: { serial: phone.serial, targetApp: input.targetApp },
+        },
+        () => Effect.succeed("unknown")
+      )
+    );
+    expect(failure.code).toBe("user_profile_unsupported");
+    const missingOwner = yield* Effect.flip(
+      requireAndroidPermissionState(input, () =>
+        Effect.succeed(
+          "User 10: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false"
+        )
+      )
+    );
+    expect(missingOwner.code).toBe("environment_changed");
+  }).pipe(Effect.scoped)
 );

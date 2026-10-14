@@ -76,6 +76,7 @@ export interface PlatformRuntimeError {
     | "capability_missing"
     | "capture_incomplete"
     | "device_selection_required"
+    | "user_profile_unsupported"
     | "device_mismatch"
     | "device_disconnected"
     | "installation_denied"

@@ -202,7 +202,7 @@ const AndroidStatus = ({
         >
           <p>
             {decision.kind === "clear-app-data"
-              ? `Contingency may clear data for ${decision.targetApp} on ${decision.serial}`
+              ? `Contingency may clear owner user 0 data for ${decision.targetApp} on ${decision.serial}`
               : `${decision.kind} for ${decision.targetApp}`}
           </p>
           <Button

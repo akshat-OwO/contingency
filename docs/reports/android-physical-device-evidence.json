@@ -152,13 +152,167 @@
   },
   "gaps": [
     "Verified physical private fill and exact readback remain unproved.",
-    "The post-fill semantic check failed after uncertain input; the phone sentinel audit did not finish.",
     "Wireless ADB was not exercised.",
-    "Private Variables in Workspace/Runs and signing-key custody remain outside this change."
+    "Private Variables in Workspace/Runs and signing-key custody remain outside this change.",
+    "Secondary-user rejection used deterministic ADB simulations; no daily-phone profiles were created or switched. USB unplug was proved on the original revision and not repeated for this profile-scoping change."
   ],
   "sources": [
     "packages/cli/scripts/verify-android-physical.ts; phone/receipt.json reached private-input proof only after all preparation and disconnect assertions passed",
     "packages/cli/scripts/verify-android-private-text.ts; emulator-private/private-text-receipt.json",
     "UI snapshots and agent_teaching_timeline_get under artifacts/android-physical/ui/"
-  ]
+  ],
+  "profileScopingRevision": {
+    "checkedAt": "2026-10-14T15:33:16.432887+00:00",
+    "supportedUser": 0,
+    "secondaryUserTests": "Active user 10 with both package profiles, switch from 0 to 10 after consent, unknown user, missing owner permissions, and conflicting per-user permissions.",
+    "physical": {
+      "cleanup": {
+        "forwardsUnchanged": true,
+        "helperProcess": "",
+        "imeUnchanged": true,
+        "packagesUnchanged": true
+      },
+      "device": {
+        "api": 36,
+        "fingerprint": "Nothing/AsteroidsIND/Asteroids:16/BQ2A.250721.001-BP2A.250605.031.A3/2609281204:user/release-keys",
+        "host": "local",
+        "kind": "physical",
+        "model": "A059",
+        "serial": "001593546001716"
+      },
+      "journal": [
+        "create consent-refusal Run",
+        "prepare fresh fixture with notification denial",
+        "prepare with notification grant",
+        "start private-input runtime on fixture",
+        "native password readback masked; input remains uncertain"
+      ],
+      "result": {
+        "_id": "Result",
+        "_tag": "Success",
+        "value": {
+          "disconnectProof": null,
+          "journal": [
+            "create consent-refusal Run",
+            "prepare fresh fixture with notification denial",
+            "prepare with notification grant",
+            "start private-input runtime on fixture",
+            "native password readback masked; input remains uncertain"
+          ],
+          "preparation": {
+            "consentRefused": true,
+            "freshState": true,
+            "notificationDenial": true,
+            "notificationGrant": true,
+            "persistentDataCleared": true
+          },
+          "privateFill": {
+            "outcome": "uncertain",
+            "reason": "input_unverified"
+          },
+          "refusals": {
+            "afterBind": "target_changed",
+            "beforeBind": "target_changed",
+            "ordinary": "target_unsupported",
+            "resolved": 1,
+            "stale": "observation_stale"
+          },
+          "sentinel": {
+            "diagnostics": {
+              "contained": false,
+              "files": 8
+            },
+            "logcatContained": false,
+            "observationsContained": false,
+            "samples": {
+              "device": 15,
+              "deviceContained": false,
+              "helperSeen": 7,
+              "host": 15,
+              "hostContained": false
+            }
+          },
+          "sessionPreserved": true
+        }
+      }
+    },
+    "emulator": {
+      "cleanup": {
+        "forwardsUnchanged": true,
+        "helperProcess": "",
+        "imeUnchanged": true,
+        "packagesUnchanged": true
+      },
+      "device": {
+        "api": 36,
+        "avd": "Pixel_9",
+        "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+        "host": "local",
+        "serial": "emulator-5554"
+      },
+      "journal": [
+        "create consent-refusal Run",
+        "prepare fresh fixture with notification denial",
+        "prepare with notification grant",
+        "start private-input runtime on fixture",
+        "native password readback masked; input remains uncertain"
+      ],
+      "result": {
+        "_id": "Result",
+        "_tag": "Success",
+        "value": {
+          "disconnectProof": null,
+          "journal": [
+            "create consent-refusal Run",
+            "prepare fresh fixture with notification denial",
+            "prepare with notification grant",
+            "start private-input runtime on fixture",
+            "native password readback masked; input remains uncertain"
+          ],
+          "preparation": {
+            "consentRefused": true,
+            "freshState": true,
+            "notificationDenial": true,
+            "notificationGrant": true,
+            "persistentDataCleared": false
+          },
+          "privateFill": {
+            "outcome": "uncertain",
+            "reason": "input_unverified"
+          },
+          "refusals": {
+            "afterBind": "target_changed",
+            "beforeBind": "target_changed",
+            "ordinary": "target_unsupported",
+            "resolved": 1,
+            "stale": "observation_stale"
+          },
+          "sentinel": {
+            "diagnostics": {
+              "contained": false,
+              "files": 8
+            },
+            "logcatContained": false,
+            "observationsContained": false,
+            "samples": {
+              "device": 6,
+              "deviceContained": false,
+              "helperSeen": 2,
+              "host": 6,
+              "hostContained": false
+            }
+          },
+          "sessionPreserved": true
+        }
+      }
+    },
+    "disconnectRerun": false,
+    "physicalProfileSwitchExercised": false,
+    "workspace": {
+      "consentNamesOwnerUser0": true,
+      "refusalBlockedPreparation": true,
+      "sessionClosed": true,
+      "evidence": "profile-fix-ui/consent.aria.txt, consent.png, refused.aria.txt"
+    }
+  }
 }

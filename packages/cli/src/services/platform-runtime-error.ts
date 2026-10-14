@@ -8,7 +8,7 @@ const messages = {
   cleanup_failed:
     "Android cleanup is incomplete. Retained owned state requires inspection before recovery.",
   clear_data_denied:
-    "Authorize clearing the Target App data on this selected device before preparation.",
+    "Authorize clearing the Target App data for owner user 0 on this selected device before preparation.",
   device_disconnected:
     "The selected Android device is disconnected. Execution is paused.",
   device_mismatch:
@@ -47,6 +47,8 @@ const messages = {
     "The observed Android field or window changed. No private input was sent; take a fresh observation.",
   target_unsupported:
     "The Android target is absent, covered, private, or unsupported for this action.",
+  user_profile_unsupported:
+    "Android preparation and execution support only owner user 0. The active or focused profile is unsupported. Execution is paused.",
 } as const;
 
 export const platformRuntimeError = (

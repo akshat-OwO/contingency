@@ -134,6 +134,8 @@ export const privateTextInstrumentationArgs = (
   "shell",
   "am",
   "instrument",
+  "--user",
+  "0",
   "-w",
   "-r",
   "-e",
@@ -182,6 +184,8 @@ const enterOnce = (
             "shell",
             "am",
             "force-stop",
+            "--user",
+            "0",
             androidPrivateTextRelease.packageName,
           ])
           .pipe(

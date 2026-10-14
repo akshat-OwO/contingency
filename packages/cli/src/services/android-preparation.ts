@@ -6,7 +6,11 @@ import { promisify } from "node:util";
 
 import { Effect } from "effect";
 
-import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
+import {
+  requireAndroidDeviceIdentity,
+  requireAndroidOwnerUser,
+  runAndroidOwnerCommand,
+} from "./android-device-identity.ts";
 import type { AndroidRunInput } from "./android-run-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
@@ -56,11 +60,17 @@ export const requireAndroidPermissionState = (
       return;
     }
     const dump = yield* run(["shell", "dumpsys", "package", input.targetApp]);
+    const owner = dump
+      .split(/(?=^\s*User \d+:)/mu)
+      .find((section) => /^\s*User 0:/u.test(section));
+    if (owner === undefined) {
+      return yield* Effect.fail(platformRuntimeError(code));
+    }
     for (const { permission, decision } of decisions) {
       const granted = new RegExp(
         `${permission.replaceAll(".", "\\.")}: granted=(true|false)`,
         "u"
-      ).exec(dump)?.[1];
+      ).exec(owner)?.[1];
       if (granted !== (decision === "grant" ? "true" : "false")) {
         return yield* Effect.fail(platformRuntimeError(code));
       }
@@ -139,19 +149,39 @@ export const prepareAndroidAppData = (
 ) =>
   Effect.gen(function* prepareApp() {
     yield* requireAndroidClearDataConsent(input);
+    yield* requireAndroidOwnerUser(run);
+    const mutate = (args: readonly string[]) =>
+      runAndroidOwnerCommand(run, args);
     if (input.setup.kind === "clear-app-data") {
-      const cleared = yield* run(["shell", "pm", "clear", input.targetApp]);
+      const cleared = yield* mutate([
+        "shell",
+        "pm",
+        "clear",
+        "--user",
+        "0",
+        input.targetApp,
+      ]);
       if (cleared !== "Success") {
         return yield* Effect.fail(platformRuntimeError("preparation_failed"));
       }
     }
     for (const { permission, decision } of input.environment.permissions ??
       []) {
-      yield* run(["shell", "pm", decision, input.targetApp, permission]);
-      yield* run([
+      yield* mutate([
+        "shell",
+        "pm",
+        decision,
+        "--user",
+        "0",
+        input.targetApp,
+        permission,
+      ]);
+      yield* mutate([
         "shell",
         "pm",
         "set-permission-flags",
+        "--user",
+        "0",
         input.targetApp,
         permission,
         "user-set",
@@ -184,9 +214,13 @@ export const prepareAndroidStartingState = (
     }
     yield* requireAndroidClearDataConsent(input);
     yield* preflightAndroidPreparation(input);
+    const mutate = (args: readonly string[]) =>
+      runAndroidOwnerCommand((commandArgs) => adb(input, commandArgs), args);
     if (input.appInstallation !== undefined) {
-      const result = yield* adb(input, [
+      const result = yield* mutate([
         "install",
+        "--user",
+        "0",
         "-r",
         input.appInstallation.apk,
       ]);
@@ -195,12 +229,21 @@ export const prepareAndroidStartingState = (
       }
     }
     yield* requireAndroidAppBuild(input);
-    yield* adb(input, ["shell", "am", "force-stop", input.targetApp]);
+    yield* mutate([
+      "shell",
+      "am",
+      "force-stop",
+      "--user",
+      "0",
+      input.targetApp,
+    ]);
     yield* prepareAndroidAppData(input, (args) => adb(input, args));
-    const launched = yield* adb(input, [
+    const launched = yield* mutate([
       "shell",
       "am",
       "start",
+      "--user",
+      "0",
       "-W",
       "-n",
       `'${input.setup.activity}'`,

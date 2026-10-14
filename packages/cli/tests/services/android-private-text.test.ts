@@ -182,7 +182,14 @@ it.effect(
         "tcp:41000",
       ]);
       expect(helper.adbCalls.slice(-2)).toEqual([
-        ["shell", "am", "force-stop", androidPrivateTextRelease.packageName],
+        [
+          "shell",
+          "am",
+          "force-stop",
+          "--user",
+          "0",
+          androidPrivateTextRelease.packageName,
+        ],
         ["shell", `pidof ${androidPrivateTextRelease.packageName} || true`],
       ]);
     })
@@ -338,6 +345,8 @@ it.effect(
         "shell",
         "am",
         "force-stop",
+        "--user",
+        "0",
         androidPrivateTextRelease.packageName,
       ]);
       const survivor = fakeHelper({
