@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,6 +33,7 @@ import type {
 } from "../src/services/android-runtime-contract.ts";
 import { makeAndroidRuntimeFactory } from "../src/services/android-runtime.ts";
 import { platformRuntimeError } from "../src/services/platform-runtime-error.ts";
+import type { PlatformRuntimeError } from "../src/services/platform-runtime.ts";
 
 const execute = promisify(execFile);
 const serial = process.env.CONTINGENCY_ANDROID_SERIAL;
@@ -104,9 +105,11 @@ const named = (observation: AndroidObservation, name: string) =>
   observation.nodes.find((node) => node.name === name && !node.covered);
 const requireField = (observation: AndroidObservation) => {
   const node = field(observation);
-  return node === undefined
-    ? Effect.fail(new Error("No password field."))
-    : Effect.succeed(node);
+  if (node === undefined) {
+    journal.push("No password field.");
+    return Effect.fail(new Error("No password field."));
+  }
+  return Effect.succeed(node);
 };
 const requireNamed = (observation: AndroidObservation, name: string) => {
   const node = named(observation, name);
@@ -114,6 +117,27 @@ const requireNamed = (observation: AndroidObservation, name: string) => {
     ? Effect.fail(new Error("Required fixture control missing."))
     : Effect.succeed(node);
 };
+const retainObservation = (
+  widget: string,
+  stage: string,
+  observation: AndroidObservation
+) =>
+  Effect.tryPromise({
+    catch: () => new Error("Could not retain fixture observation."),
+    try: async () => {
+      const destination = directory ?? "";
+      await mkdir(destination, { recursive: true });
+      const { image, ...screenshot } = observation.screenshot;
+      await writeFile(
+        path.join(destination, `${widget}-${stage}.json`),
+        `${JSON.stringify({ ...observation, screenshot }, null, 2)}\n`
+      );
+      await writeFile(
+        path.join(destination, `${widget}-${stage}.png`),
+        Buffer.from(image, "base64")
+      );
+    },
+  });
 const scanDiagnostics = (since: number, sentinel: string) =>
   Effect.tryPromise({
     catch: () => new Error("Could not inspect owned host diagnostics."),
@@ -254,172 +278,337 @@ const proveDisconnect = (run: AndroidRun) =>
     })
   );
 
+/** Wait for the fixture's focus callback, including while the private helper owns UiAutomation. */
+const launchFixture = (activity: string, filtered = false) =>
+  Effect.scoped(
+    Effect.gen(function* focusTransition() {
+      const token = randomUUID();
+      const epoch = yield* adb(["shell", "date", "+%s"]);
+      const focused = yield* Deferred.make<undefined, PlatformRuntimeError>();
+      const exited = yield* Deferred.make<undefined>();
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const child = spawn(
+            "adb",
+            [
+              "-s",
+              serial ?? "",
+              "logcat",
+              "-T",
+              `${epoch}.0`,
+              "-s",
+              "ContingencyFixture:I",
+              "*:S",
+            ],
+            { stdio: ["ignore", "pipe", "ignore"] }
+          );
+          journal.push(`focus watcher started: pid ${child.pid ?? "unknown"}`);
+          let buffered = "";
+          child.stdout.on("data", (chunk: Buffer) => {
+            buffered += chunk.toString("utf-8");
+            const lines = buffered.split("\n");
+            buffered = lines.pop() ?? "";
+            for (const line of lines) {
+              if (line.includes(`${activity} focused ${token}`)) {
+                Deferred.doneUnsafe(focused, Effect.undefined);
+              }
+            }
+          });
+          child.once("error", () =>
+            Deferred.doneUnsafe(
+              focused,
+              Effect.fail(platformRuntimeError("runtime_failed"))
+            )
+          );
+          child.once("close", () => {
+            Deferred.doneUnsafe(exited, Effect.undefined);
+            Deferred.doneUnsafe(
+              focused,
+              Effect.fail(platformRuntimeError("runtime_failed"))
+            );
+          });
+          return child;
+        }),
+        (owned) =>
+          Effect.sync(() => owned.kill()).pipe(
+            Effect.andThen(Deferred.await(exited)),
+            Effect.timeout("10 seconds"),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                journal.push(
+                  `focus watcher stopped: pid ${owned.pid ?? "unknown"}`
+                );
+              })
+            ),
+            Effect.orDie
+          )
+      );
+      yield* adb([
+        "shell",
+        "am",
+        "start",
+        "-S",
+        "--user",
+        "0",
+        "-W",
+        "-n",
+        `${targetApp}/.${activity}`,
+        "--es",
+        "focus-token",
+        token,
+        ...(filtered ? ["--ez", "filter", "true"] : []),
+      ]);
+      yield* Deferred.await(focused).pipe(
+        Effect.timeoutOrElse({
+          duration: "30 seconds",
+          orElse: () => Effect.fail(platformRuntimeError("runtime_failed")),
+        })
+      );
+      const windows = yield* adb(["shell", "dumpsys", "window"]);
+      const current = [...windows.matchAll(/mCurrentFocus=(?<window>[^\n]+)/gu)]
+        .map((match) => match.groups?.window)
+        .find((window) => window?.includes(` u0 ${targetApp}/`));
+      if (
+        !current?.includes(` u0 ${targetApp}/`) ||
+        !current.includes(activity)
+      ) {
+        return yield* Effect.fail(platformRuntimeError("ownership_unknown"));
+      }
+      journal.push(`fixture window focused: ${activity}`);
+    })
+  );
+
 const provePrivateInput = (
   startup: AndroidRuntimeStartInput,
-  started: number
+  started: number,
+  widget: "native" | "material" | "material-filtered"
 ) =>
-  Effect.gen(function* privateProof() {
-    const factory = makeAndroidRuntimeFactory();
-    const runtime = yield* audit(
-      "start private-input runtime on fixture",
-      factory.start({
-        ...startup,
-        requiredCapabilities: [
-          "semantic-actions",
-          "screenshots",
-          "private-input",
-        ],
-      })
-    );
-    const sentinel = `ctg${randomBytes(16).toString("hex")}`;
-    let resolved = 0;
-    const variable = {
-      value: Effect.sync(() => {
-        resolved += 1;
-        return Redacted.make(sentinel);
-      }),
-      variable: "proof.fixturePassword",
-    };
-    const bound = yield* runtime.observe();
-    const password = yield* requireField(bound);
-    const epoch = yield* adb(["shell", "date", "+%s"]);
-    const samples = {
-      device: 0,
-      deviceContained: false,
-      helperSeen: 0,
-      host: 0,
-      hostContained: false,
-    };
-    const sampler = yield* Effect.forkChild(
-      Effect.gen(function* sample() {
-        const deviceArgs = yield* adb(["shell", "ps", "-A", "-o", "ARGS"]);
-        samples.device += 1;
-        samples.deviceContained ||= deviceArgs.includes(sentinel);
-        if (deviceArgs.includes(androidPrivateTextRelease.packageName)) {
-          samples.helperSeen += 1;
-        }
-        const hostArgs = yield* Effect.tryPromise(() =>
-          execute("ps", ["-axo", "args"], { maxBuffer: 16 * 1024 * 1024 })
-        );
-        samples.host += 1;
-        samples.hostContained ||= hostArgs.stdout.includes(sentinel);
-      }).pipe(Effect.repeat(Schedule.spaced("50 millis")))
-    );
-    const fillResult = yield* Effect.result(
-      runtime.enterPrivate(bound.id, { ...variable, target: password.target })
-    );
-    yield* check(
-      fillResult._tag === "Failure" &&
+  Effect.scoped(
+    Effect.gen(function* privateProof() {
+      const activity =
+        widget === "native" ? "MainActivity" : "MaterialPasswordActivity";
+      yield* launchFixture(activity, widget === "material-filtered");
+      const factory = makeAndroidRuntimeFactory();
+      const runtime = yield* audit(
+        `start private-input runtime on ${widget} fixture`,
+        factory.start({
+          ...startup,
+          requiredCapabilities: [
+            "semantic-actions",
+            "screenshots",
+            "private-input",
+          ],
+          scope: yield* Scope.Scope,
+        })
+      );
+      const sentinel = `ctg${randomBytes(16).toString("hex")}`;
+      let resolved = 0;
+      const variable = {
+        value: Effect.sync(() => {
+          resolved += 1;
+          return Redacted.make(sentinel);
+        }),
+        variable: "proof.fixturePassword",
+      };
+      const bound = yield* runtime.observe();
+      yield* retainObservation(widget, "before", bound);
+      const password = yield* requireField(bound);
+      const epoch = yield* adb(["shell", "date", "+%s"]);
+      const samples = {
+        device: 0,
+        deviceContained: false,
+        helperSeen: 0,
+        host: 0,
+        hostContained: false,
+      };
+      const sampler = yield* Effect.forkChild(
+        Effect.gen(function* sample() {
+          const deviceArgs = yield* adb(["shell", "ps", "-A", "-o", "ARGS"]);
+          samples.device += 1;
+          samples.deviceContained ||= deviceArgs.includes(sentinel);
+          if (deviceArgs.includes(androidPrivateTextRelease.packageName)) {
+            samples.helperSeen += 1;
+          }
+          const hostArgs = yield* Effect.tryPromise(() =>
+            execute("ps", ["-axo", "args"], { maxBuffer: 16 * 1024 * 1024 })
+          );
+          samples.host += 1;
+          samples.hostContained ||= hostArgs.stdout.includes(sentinel);
+        }).pipe(Effect.repeat(Schedule.spaced("50 millis")))
+      );
+      const fillResult = yield* Effect.result(
+        runtime.enterPrivate(bound.id, { ...variable, target: password.target })
+      );
+      const uncertain =
+        fillResult._tag === "Failure" &&
         fillResult.failure.code === "private_input_uncertain" &&
-        fillResult.failure.backendReason === "input_unverified",
-      "Masked native field must remain uncertain after input."
-    );
-    const fill = {
-      outcome: "uncertain" as const,
-      reason: "input_unverified" as const,
-    };
-    journal.push("native password readback masked; input remains uncertain");
-    yield* Fiber.interrupt(sampler);
-    const filled = yield* runtime.recover();
-    const action = yield* requireNamed(filled, "Verify semantic action");
-    yield* runtime.dispatch(filled.id, {
-      target: action.target,
-      type: "activate",
-    });
-    const semantic = yield* runtime.observe();
-    yield* check(
-      Boolean(named(semantic, "Semantic action passed")) &&
-        semantic.backendSessionId === bound.backendSessionId,
-      "agent-device session did not survive private fill."
-    );
-    const logcat = yield* adb(["logcat", "-d", "-T", `${epoch}.0`]);
-    const diagnostics = yield* scanDiagnostics(started, sentinel);
-    const observationsContained = [bound, filled, semantic].some(
-      (observation) => JSON.stringify(observation).includes(sentinel)
-    );
-    yield* check(
-      [
-        logcat.includes(sentinel),
-        diagnostics.contained,
-        observationsContained,
-        samples.deviceContained,
-        samples.hostContained,
-        samples.helperSeen === 0,
-      ].every((contained) => !contained),
-      "Private sentinel privacy proof failed."
-    );
-    const stale = yield* Effect.flip(
-      runtime.enterPrivate(bound.id, { ...variable, target: password.target })
-    );
-    const ordinaryObservation = yield* runtime.recover();
-    const ordinary = yield* requireNamed(
-      ordinaryObservation,
-      "Public fixture field"
-    );
-    const ordinaryRefusal = yield* Effect.flip(
-      runtime.enterPrivate(ordinaryObservation.id, {
-        ...variable,
-        target: ordinary.target,
-      })
-    );
-    const replaced = yield* runtime.recover();
-    const replaceWindow = adb([
-      "shell",
-      "am",
-      "start",
-      "-W",
-      "-n",
-      `${targetApp}/.ReplacementActivity`,
-    ]);
-    yield* replaceWindow;
-    const beforeBind = yield* Effect.flip(
-      runtime.enterPrivate(replaced.id, {
-        ...variable,
-        target: (yield* requireField(replaced)).target,
-      })
-    );
-    yield* adb([
-      "shell",
-      "am",
-      "start",
-      "-W",
-      "-n",
-      `${targetApp}/.MainActivity`,
-    ]);
-    const afterBindObservation = yield* runtime.recover();
-    const afterBind = yield* Effect.flip(
-      runtime.enterPrivate(afterBindObservation.id, {
-        target: (yield* requireField(afterBindObservation)).target,
-        value: replaceWindow.pipe(Effect.as(Redacted.make(sentinel))),
-        variable: "proof.windowChange",
-      })
-    );
-    yield* check(
-      stale.code === "observation_stale" &&
-        ordinaryRefusal.code === "target_unsupported" &&
-        beforeBind.code === "target_changed" &&
-        afterBind.code === "target_changed" &&
+        fillResult.failure.backendReason === "input_unverified";
+      yield* check(
+        widget === "material"
+          ? fillResult._tag === "Success" &&
+              fillResult.success.outcome === "verified"
+          : uncertain,
+        widget === "material"
+          ? "Stock Material field must verify exact readback."
+          : "Masked or filtered field must remain uncertain after input."
+      );
+      const fill =
+        widget === "material"
+          ? { outcome: "verified" as const }
+          : {
+              outcome: "uncertain" as const,
+              reason: "input_unverified" as const,
+            };
+      journal.push(`${widget} private fill: ${fill.outcome}`);
+      yield* check(
+        resolved === 1 &&
+          runtime.state().observationId === null &&
+          runtime.state().phase ===
+            (widget === "material" ? "ready" : "paused"),
+        `${widget}: fill must consume its observation, resolve once, and preserve the expected pause state.`
+      );
+      yield* Fiber.interrupt(sampler);
+      const filled =
+        widget === "material"
+          ? yield* runtime.observe()
+          : yield* runtime.recover();
+      const action = yield* requireNamed(filled, "Verify semantic action");
+      yield* runtime.dispatch(filled.id, {
+        target: action.target,
+        type: "activate",
+      });
+      const semantic = yield* runtime.observe();
+      yield* check(
+        Boolean(named(semantic, "Semantic action passed")),
+        `${widget}: semantic action did not produce its expected outcome.`
+      );
+      yield* check(
+        filled.backendSessionId === bound.backendSessionId &&
+          semantic.backendSessionId === bound.backendSessionId,
+        `${widget}: agent-device session changed after private fill.`
+      );
+      const logcat = yield* adb(["logcat", "-d", "-T", `${epoch}.0`]);
+      const diagnostics = yield* scanDiagnostics(started, sentinel);
+      const observationsContained = [bound, filled, semantic].some(
+        (observation) => JSON.stringify(observation).includes(sentinel)
+      );
+      yield* check(
+        [
+          logcat.includes(sentinel),
+          diagnostics.contained,
+          observationsContained,
+          samples.deviceContained,
+          samples.hostContained,
+          samples.helperSeen === 0,
+        ].every((contained) => !contained),
+        "Private sentinel privacy proof failed."
+      );
+      yield* retainObservation(widget, "after", semantic);
+      const stale = yield* Effect.flip(
+        runtime.enterPrivate(bound.id, { ...variable, target: password.target })
+      );
+      const ordinaryObservation = yield* runtime.recover();
+      const ordinary = yield* requireNamed(
+        ordinaryObservation,
+        "Public fixture field"
+      );
+      const ordinaryRefusal = yield* Effect.flip(
+        runtime.enterPrivate(ordinaryObservation.id, {
+          ...variable,
+          target: ordinary.target,
+        })
+      );
+      const replaced = yield* runtime.recover();
+      const replaceWindow = launchFixture("ReplacementActivity");
+      yield* replaceWindow;
+      const beforeBind = yield* Effect.flip(
+        runtime.enterPrivate(replaced.id, {
+          ...variable,
+          target: (yield* requireField(replaced)).target,
+        })
+      );
+      yield* launchFixture(activity, widget === "material-filtered");
+      const afterBindObservation = yield* runtime.recover();
+      const afterBind = yield* Effect.flip(
+        runtime.enterPrivate(afterBindObservation.id, {
+          target: (yield* requireField(afterBindObservation)).target,
+          value: replaceWindow.pipe(Effect.as(Redacted.make(sentinel))),
+          variable: "proof.windowChange",
+        })
+      );
+      yield* launchFixture(activity, widget === "material-filtered");
+      const mismatchObservation = yield* runtime.recover();
+      const mismatchPassword = yield* requireField(mismatchObservation);
+      const removal = yield* adb([
+        "shell",
+        "am",
+        "broadcast",
+        "--user",
+        "0",
+        "-a",
+        `${targetApp}.REMOVE_PASSWORD`,
+        "-p",
+        targetApp,
+      ]);
+      yield* check(
+        removal.includes("Broadcast completed: result=1"),
+        `${widget}: fixture did not acknowledge field removal.`
+      );
+      const mismatch = yield* Effect.flip(
+        runtime.enterPrivate(mismatchObservation.id, {
+          ...variable,
+          target: mismatchPassword.target,
+        })
+      );
+      journal.push(
+        `${widget}: removed-field helper response ${mismatch.code}/${mismatch.backendReason ?? "none"}`
+      );
+      const removedObservation = yield* runtime.recover();
+      yield* check(
+        !JSON.stringify(removedObservation).includes(sentinel),
+        "Removed-field observation contained the sentinel."
+      );
+      yield* retainObservation(widget, "removed", removedObservation);
+      yield* check(
+        field(removedObservation) === undefined,
+        `${widget}: fixture did not remove its password field.`
+      );
+      for (const [name, actual, expected] of [
+        ["stale", stale.code, "observation_stale"],
+        ["ordinary", ordinaryRefusal.code, "target_unsupported"],
+        ["before-bind window", beforeBind.code, "target_changed"],
+        ["after-bind window", afterBind.code, "target_changed"],
+        ["removed field", mismatch.code, "target_changed"],
+      ]) {
+        yield* check(
+          actual === expected,
+          `${widget}: ${name} refused with ${actual}; expected ${expected}.`
+        );
+      }
+      yield* check(
         resolved === 1,
-      "Private refusal proof failed."
-    );
-    yield* runtime.close();
-    yield* check(
-      runtime.state().phase === "closed" &&
-        runtime.state().failure?.code !== "cleanup_failed",
-      "Runtime cleanup failed."
-    );
-    return {
-      afterBind,
-      beforeBind,
-      diagnostics,
-      fill,
-      observationsContained,
-      ordinaryRefusal,
-      resolved,
-      samples,
-      stale,
-    };
-  });
+        `${widget}: pre-fill refusals resolved the Variable.`
+      );
+      yield* runtime.close();
+      yield* check(
+        runtime.state().phase === "closed" &&
+          runtime.state().failure?.code !== "cleanup_failed",
+        "Runtime cleanup failed."
+      );
+      return {
+        afterBind,
+        beforeBind,
+        diagnostics,
+        fill,
+        mismatch,
+        observationsContained,
+        ordinaryRefusal,
+        resolved,
+        samples,
+        stale,
+      };
+    })
+  );
 
 Effect.gen(function* proveDevice() {
   yield* check(
@@ -624,14 +813,31 @@ Effect.gen(function* proveDevice() {
           beforeBind,
           diagnostics,
           fill,
+          mismatch,
           observationsContained,
           ordinaryRefusal,
           resolved,
           samples,
           stale,
-        } = yield* provePrivateInput(startup, started);
+        } = yield* provePrivateInput(startup, started, "native");
+        const material = yield* provePrivateInput(startup, started, "material");
+        const filtered = yield* provePrivateInput(
+          startup,
+          started,
+          "material-filtered"
+        );
         return {
           disconnectProof,
+          filteredPrivateFill: {
+            privateFill: filtered.fill,
+            sentinel: {
+              diagnostics: filtered.diagnostics,
+              logcatContained: false,
+              observationsContained: filtered.observationsContained,
+              samples: filtered.samples,
+            },
+            sessionPreserved: true,
+          },
           journal,
           preparation: {
             consentRefused: true,
@@ -644,6 +850,7 @@ Effect.gen(function* proveDevice() {
           refusals: {
             afterBind: afterBind.code,
             beforeBind: beforeBind.code,
+            fieldMismatch: mismatch.code,
             ordinary: ordinaryRefusal.code,
             resolved,
             stale: stale.code,
@@ -655,8 +862,31 @@ Effect.gen(function* proveDevice() {
             samples,
           },
           sessionPreserved: true,
+          verifiedPrivateFill: {
+            privateFill: material.fill,
+            refusals: {
+              afterBind: material.afterBind.code,
+              beforeBind: material.beforeBind.code,
+              fieldMismatch: material.mismatch.code,
+              ordinary: material.ordinaryRefusal.code,
+              resolved: material.resolved,
+              stale: material.stale.code,
+            },
+            sentinel: {
+              diagnostics: material.diagnostics,
+              logcatContained: false,
+              observationsContained: material.observationsContained,
+              samples: material.samples,
+            },
+            sessionPreserved: true,
+            widget: "material-1.13.0-password",
+          },
         };
-      })
+      }).pipe(
+        Effect.catchDefect(() =>
+          check(false, "Unexpected proof defect; input was not retried.")
+        )
+      )
     )
   );
   // Only packages absent before this proof may be removed. Runtime scopes have closed first.

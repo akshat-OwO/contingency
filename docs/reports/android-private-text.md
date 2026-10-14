@@ -1,6 +1,6 @@
 # Android private text beside agent-device
 
-For [issue 490](https://github.com/akshat-OwO/contingency/issues/490), the experimental Android runtime enters a private Variable through a Contingency-owned helper while stock agent-device keeps its session. The helper and agent-device take turns: agent-device runs its capture helper as one short instrumentation per command, and the private text helper holds the device only for one fill. The emulator proof passed. The physical-device proof remains incomplete; see [Remaining work](#remaining-work). This follows [ADR 0061](../adr/0061-android-private-text-uses-a-contingency-owned-helper.md) and does not wire private Variables into Workspace or Runs.
+For [issue 490](https://github.com/akshat-OwO/contingency/issues/490), the experimental Android runtime enters a private Variable through a Contingency-owned helper while stock agent-device keeps its session. The helper and agent-device take turns: agent-device runs its capture helper as one short instrumentation per command, and the private text helper holds the device only for one fill. The emulator Settings proof passed. The fixture proof now covers stock Material password widgets and preserves native masked-field uncertainty; see [Physical widget proof](#physical-widget-proof). This follows [ADR 0061](../adr/0061-android-private-text-uses-a-contingency-owned-helper.md) and does not wire private Variables into Workspace or Runs.
 
 ## Coexistence: take turns, not share
 
@@ -78,8 +78,27 @@ The spinner's dropdown is a `PopupWindow`. The runtime's ownership check refuses
 
 Validation passed `nub exec turbo run quality`, the CLI type check, and the Android runtime, Run, Workspace, session lifecycle, and private text service tests. The private text tests use a scripted helper for the protocol and a real loopback socket for framing.
 
+## Physical widget proof
+
+The disposable fixture now includes stock Material Components 1.13.0 `TextInputLayout` and `TextInputEditText`, with password input type. Material's accessibility delegate exposes the editable text to UiAutomation while the screen stays masked. The unchanged pinned helper reads that field after `ACTION_SET_TEXT` and compares its actual content internally. The fixture supplies no readback endpoint or accessibility override.
+
+The native `EditText` remains a negative control. A second Material field uses an Android `InputFilter` that replaces every input character with `x`. The result has the same length as the supplied sentinel, but different content. This control must return `input_unverified`; it rules out treating input acknowledgement or length equality as verified readback.
+
+The maintained [physical-device recipe](../../.cursor/skills/verify-contingency/features/workspace.md#android-physical-device) runs each widget in a scoped runtime. It requires fresh observations, semantic continuation in the same agent-device session, stale and ordinary-field refusals, removed-field refusal, and window replacement before and after bind. Native and filtered uncertainty require explicit recovery. Verified Material input continues without recovery.
+
+The proof's fixture mutations now acknowledge their completion. Window transitions force-stop only the fixture, start a fresh window, await its focus callback, and confirm the focused owner-user-0 window. Ordered removal broadcasts detach the edit control from its actual parent and acknowledge detachment. Earlier attempts exposed incomplete fixture transitions and removal from Material's outer layout instead of its internal container. Those failed receipts are retained. These fixture fixes do not establish the cause of the original #484 semantic failure.
+
+On 2026-10-14, the Nothing Phone 3a and Pixel_9 API 36 emulator completed the full fixture proof. Material exact readback, native and filtered uncertainty, same-session semantic continuation, all targeting refusals, sentinel audits, and cleanup passed. The [sanitized widget receipt](android-private-text-widget-evidence.json) records the final revision. Material used 20 host and device process samples, including six sightings of the private helper; no sample contained the sentinel. Each widget audited eight host diagnostic files. Screenshots stayed masked and every password node was named `Private field`.
+
+Traces and Teaching Timeline were not produced because this runtime entry point does not create a Teaching Recording or wire private Variables into Workspace or Runs. Phone Settings, profile changes, wireless ADB, and disconnect were not exercised in this revision.
+
+Validation passed 35 focused Android private-text, runtime, and Run service tests, the CLI type check, and a dedicated type check of both proof scripts. The restore verifier also refused a wrong password with sanitized diagnostics. The fixture was rebuilt from its final Java sources; no production helper or runtime code changed.
+
+## Signing-key custody
+
+The maintainer imported the existing release key into a private Bitwarden Secure Note and supplied its restored contents on 2026-10-14. The [restore verifier](../../packages/cli/android/private-text-helper/README.md#signing-key-custody-and-restore) signed a disposable APK with that restored private key. Its certificate matched the pinned release signer. Temporary restored files and the plaintext import were removed. Account recovery remains the maintainer's responsibility.
+
 ## Remaining work
 
-- **Physical proof on the Nothing Phone 3a.** Device selection and preparation now support physical devices under #484. The authorized native fixture masks password accessibility readback and returns `input_unverified`, so verified private entry remains unproved. The maintainer declined a separate Settings-dialog proof. See the [physical-device report](android-physical-device.md) for the scoped evidence and remaining gap.
-- **Signing key custody.** The release key was generated on the maintainer's machine, outside the repository. It needs a durable, backed-up home before another release.
+- **Widget support.** Native password fields that expose transformed accessibility text remain uncertain. Verified readback applies only to the tested stock Material widget and emulator Settings field. System-wide password-widget support is not established.
 - **System dialogs and popups.** Fills inside a `PopupWindow` or a system dialog are refused, like other actions.

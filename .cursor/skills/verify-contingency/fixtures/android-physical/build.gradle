@@ -1,0 +1,22 @@
+plugins { id 'com.android.application' version '8.12.0' }
+
+android {
+    namespace 'dev.contingency.physicalfixture'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'dev.contingency.physicalfixture'
+        minSdk 36
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+    sourceSets.main {
+        manifest.srcFile "${project.property('fixtureSource')}/AndroidManifest.xml"
+        java.srcDirs = [project.property('fixtureSource')]
+    }
+    buildTypes.release { minifyEnabled false }
+    dependenciesInfo { includeInApk false; includeInBundle false }
+}
+
+dependencies { implementation 'com.google.android.material:material:1.13.0' }

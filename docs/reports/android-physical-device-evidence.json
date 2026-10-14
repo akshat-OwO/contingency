@@ -314,5 +314,7 @@
       "sessionClosed": true,
       "evidence": "profile-fix-ui/consent.aria.txt, consent.png, refused.aria.txt"
     }
-  }
+  },
+  "scope": "Historical preparation, disconnect, Workspace and profile-scoping receipts. The later stock Material private-readback proof is recorded separately.",
+  "latestPrivateWidgetEvidence": "android-private-text-widget-evidence.json"
 }
