@@ -9,6 +9,7 @@ import { androidCapabilities } from "./android-runtime-contract.ts";
 import type {
   AndroidObservation,
   AndroidPlatformRuntime,
+  AndroidPrivateTextRequest,
   AndroidRuntimeBackend,
   AndroidRuntimeFactoryService,
   AndroidRuntimeStartInput,
@@ -153,6 +154,52 @@ export const adaptAndroidRuntime = (input: {
           })
         )
       );
+    const privateText =
+      input.startup.requiredCapabilities.includes("private-input");
+    const enterPrivate = (id: string, request: AndroidPrivateTextRequest) =>
+      lock.withPermits(1)(
+        guarded(
+          Effect.gen(function* enterAndroidPrivate() {
+            yield* requireReady;
+            const captured = registry.get(observation);
+            if (captured === null || captured.id !== id) {
+              return yield* Effect.fail(
+                platformRuntimeError("observation_stale")
+              );
+            }
+            yield* invalidate;
+            if (!privateText) {
+              return yield* Effect.fail(
+                platformRuntimeError("capability_missing")
+              );
+            }
+            const node = captured.nodes.find(
+              (candidate) => candidate.target === request.target
+            );
+            if (
+              node === undefined ||
+              node.packageName !== input.startup.targetApp ||
+              node.covered ||
+              !node.editable ||
+              // Captures redact only password fields; a value elsewhere would be exported.
+              !node.password
+            ) {
+              return yield* Effect.fail(
+                platformRuntimeError("target_unsupported")
+              );
+            }
+            yield* input.backend.validate();
+            registry.update(status, (current) => ({
+              ...current,
+              outcome: "uncertain" as const,
+            }));
+            // The helper resolves the value only after it binds the field.
+            yield* input.backend.enterPrivate(request.target, request.value);
+            yield* input.backend.validate();
+            return { outcome: "verified" as const, variable: request.variable };
+          })
+        )
+      );
     const close = lock.withPermits(1)(
       Effect.gen(function* closeAndroid() {
         if (state().phase === "closed") {
@@ -174,10 +221,15 @@ export const adaptAndroidRuntime = (input: {
     return {
       back: (id) => mutate(id, { type: "back" }),
       backendSessionId: input.backend.sessionId,
-      capabilities: androidCapabilities,
+      capabilities: privateText
+        ? androidCapabilities
+        : androidCapabilities.filter(
+            (capability) => capability !== "private-input"
+          ),
       close: () => close,
       device: input.startup.device,
       dispatch: mutate,
+      enterPrivate,
       experimental: true,
       invalidate: () => lock.withPermits(1)(invalidate),
       observe: () =>

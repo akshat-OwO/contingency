@@ -19,10 +19,18 @@ import {
   prepareAndroidStartingState,
   requireAndroidAppBuild,
 } from "./android-preparation.ts";
+import {
+  enterAndroidPrivateText,
+  makeAndroidPrivateTextHost,
+} from "./android-private-text.ts";
 import type { AndroidRunInput } from "./android-run-contract.ts";
-import { androidHelperRelease } from "./android-runtime-contract.ts";
+import {
+  androidHelperRelease,
+  androidPrivateTextRelease,
+} from "./android-runtime-contract.ts";
 import type {
   AndroidObservation,
+  AndroidPrivateTextBinding,
   AndroidRuntimeBackend,
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
@@ -34,7 +42,7 @@ const execute = promisify(execFile);
 const serialPattern = /^[A-Za-z0-9._:-]+$/u;
 const packagePattern = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/u;
 const focusPattern =
-  /mCurrentFocus=Window\{[^\n]*?\s(?:u\d+\s)?(?<packageName>[A-Za-z][A-Za-z0-9_.]+)\//u;
+  /mCurrentFocus=(?<window>Window\{[^\n]*?\s(?:u\d+\s)?(?<packageName>[A-Za-z][A-Za-z0-9_.]+)\/[^\n}]*\})/u;
 const packagePathPattern =
   /^package:(?<apk>\/data\/app\/[A-Za-z0-9_./=+~-]+\/base\.apk)$/mu;
 const DaemonInfo = Schema.Struct({
@@ -80,12 +88,28 @@ const io = <A>(
     try: operation,
   });
 
-const cleanEnvironment = () =>
-  Object.fromEntries(
+const cleanEnvironment = (privateText: boolean) => {
+  const environment: NodeJS.ProcessEnv = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) => !key.startsWith("AGENT_DEVICE_")
     )
   );
+  if (privateText) {
+    // Android allows one UiAutomation connection. One-shot capture releases it
+    // between commands, so the private text helper can take its turn.
+    environment.AGENT_DEVICE_ANDROID_SNAPSHOT_HELPER_SESSION = "0";
+  }
+  return environment;
+};
+
+/** Built output keeps the helper under `dist/android`; a source checkout reads the package. */
+export const resolvePrivateTextRelease = (moduleDirectory: string): string =>
+  path.basename(moduleDirectory) === "dist"
+    ? path.join(moduleDirectory, "android", "private-text-helper")
+    : path.resolve(
+        moduleDirectory,
+        "../../android/private-text-helper/release"
+      );
 
 /** All ADB operations bind the exact selected serial. */
 const adb = (serial: string, args: readonly string[]) =>
@@ -129,11 +153,14 @@ const requireIdentity = (input: AndroidRuntimeStartInput) =>
     }
   });
 
-const installedHash = (serial: string) =>
+const installedHash = (
+  serial: string,
+  packageName: string = androidHelperRelease.packageName
+) =>
   Effect.gen(function* readInstalledHelper() {
     const result = yield* adb(serial, [
       "shell",
-      `pm path ${androidHelperRelease.packageName} || true`,
+      `pm path ${packageName} || true`,
     ]);
     if (result === "") {
       return null;
@@ -155,6 +182,17 @@ const requireHelper = (serial: string) =>
     }
   });
 
+const requirePrivateTextHelper = (serial: string) =>
+  Effect.gen(function* validatePrivateTextHelper() {
+    if (
+      (yield* installedHash(serial, androidPrivateTextRelease.packageName)) !==
+      androidPrivateTextRelease.sha256
+    ) {
+      return yield* Effect.fail(platformRuntimeError("helper_incompatible"));
+    }
+  });
+
+/** Returns the focused window, which must belong to the target app. */
 const requireOwnership = (input: AndroidRuntimeStartInput) =>
   Effect.gen(function* ownership() {
     const windows = yield* adb(input.device.serial, [
@@ -162,9 +200,11 @@ const requireOwnership = (input: AndroidRuntimeStartInput) =>
       "dumpsys",
       "window",
     ]);
-    if (focusPattern.exec(windows)?.groups?.packageName !== input.targetApp) {
+    const focus = focusPattern.exec(windows)?.groups;
+    if (focus?.packageName !== input.targetApp || focus.window === undefined) {
       return yield* Effect.fail(platformRuntimeError("ownership_unknown"));
     }
+    return focus.window;
   });
 
 const publicNodeName = (node: SnapshotNode, targetApp: string) => {
@@ -207,12 +247,89 @@ const requireCapture = (snapshot: CaptureSnapshotResult) =>
     };
   });
 
+const PrivateTextManifest = Schema.Struct({
+  apk: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]+\.apk$/u)),
+  instrumentation: Schema.Literal(androidPrivateTextRelease.instrumentation),
+  packageName: Schema.Literal(androidPrivateTextRelease.packageName),
+  protocol: Schema.Literal(androidPrivateTextRelease.protocol),
+  sha256: Schema.Literal(androidPrivateTextRelease.sha256),
+  signingCertificateSha256: Schema.Literal(
+    androidPrivateTextRelease.signingCertificateSha256
+  ),
+  version: Schema.Literal(androidPrivateTextRelease.version),
+  versionCode: Schema.Literal(androidPrivateTextRelease.versionCode),
+});
+
+/** Installs the pinned private text helper only under an exact grant. */
+const installPrivateTextHelper = (input: AndroidRuntimeStartInput) =>
+  Effect.gen(function* installPrivateText() {
+    const release = resolvePrivateTextRelease(import.meta.dirname);
+    const manifest = yield* decode(
+      PrivateTextManifest,
+      yield* io(
+        () => readFile(path.join(release, "manifest.json"), "utf-8"),
+        "helper_incompatible"
+      )
+    );
+    const apk = path.join(release, manifest.apk);
+    const bytes = yield* io(() => readFile(apk), "helper_incompatible");
+    if (createHash("sha256").update(bytes).digest("hex") !== manifest.sha256) {
+      return yield* Effect.fail(platformRuntimeError("helper_incompatible"));
+    }
+    const installed = yield* installedHash(
+      input.device.serial,
+      androidPrivateTextRelease.packageName
+    );
+    if (installed === manifest.sha256) {
+      return;
+    }
+    const grant = input.privateTextGrant;
+    if (
+      grant?.serial !== input.device.serial ||
+      grant.sha256 !== manifest.sha256 ||
+      grant.operation !== (installed === null ? "install" : "replace")
+    ) {
+      return yield* Effect.fail(platformRuntimeError("installation_denied"));
+    }
+    yield* adb(input.device.serial, [
+      "install",
+      ...(installed === null ? [] : ["-r"]),
+      apk,
+    ]);
+    yield* requirePrivateTextHelper(input.device.serial);
+  });
+
+const privateTextBinding = (
+  node: SnapshotNode,
+  focusedWindow: string
+): AndroidPrivateTextBinding | null => {
+  const { rect } = node;
+  if (
+    node.editable !== true ||
+    node.password !== true ||
+    node.bundleId === undefined ||
+    node.type === undefined ||
+    rect === undefined
+  ) {
+    return null;
+  }
+  return {
+    bounds: [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height],
+    className: node.type,
+    focusedWindow,
+    packageName: node.bundleId,
+    password: node.password === true,
+    resourceId: node.identifier ?? null,
+  };
+};
+
 /** Isolated daemon, device lock, SDK session, and media are scope-owned. */
 export const acquireAndroidBackend = (
   input: AndroidRuntimeStartInput,
   preparation?: AndroidRunInput
 ): Effect.Effect<AndroidRuntimeBackend, PlatformRuntimeError> =>
   Effect.gen(function* acquireBackend() {
+    const privateText = input.requiredCapabilities.includes("private-input");
     if (
       !serialPattern.test(input.device.serial) ||
       !packagePattern.test(input.targetApp)
@@ -309,6 +426,9 @@ export const acquireAndroidBackend = (
         ]);
         yield* requireHelper(input.device.serial);
       }
+      if (privateText) {
+        yield* installPrivateTextHelper(input);
+      }
       // The explicitly authorized installation persists. Session cleanup never uninstalls it.
       const directory = yield* Effect.acquireRelease(
         io(() => mkdtemp(path.join(tmpdir(), "contingency-android-runtime-"))),
@@ -338,7 +458,7 @@ export const acquireAndroidBackend = (
               "--json",
             ],
             {
-              env: cleanEnvironment(),
+              env: cleanEnvironment(privateText),
               maxBuffer: 8 * 1024 * 1024,
               signal,
               timeout: 60_000,
@@ -423,6 +543,11 @@ export const acquireAndroidBackend = (
       const validateEnvironment = () =>
         requireIdentity(input).pipe(
           Effect.andThen(requireHelper(input.device.serial)),
+          Effect.andThen(
+            privateText
+              ? requirePrivateTextHelper(input.device.serial)
+              : Effect.void
+          ),
           Effect.andThen(requireOwnership(input)),
           Effect.andThen(
             preparation === undefined
@@ -457,6 +582,15 @@ export const acquireAndroidBackend = (
       const validate = () =>
         validateEnvironment().pipe(Effect.andThen(lifecycle.requireSession()));
       const fillPublic = client.interactions.fill.bind(client.interactions);
+      // Bound fields of the latest capture only; each capture replaces them.
+      const privateTargets = Atom.make<
+        ReadonlyMap<string, AndroidPrivateTextBinding>
+      >(new Map()).pipe(Atom.keepAlive);
+      cleanupRegistry.get(privateTargets);
+      const privateTextHost = makeAndroidPrivateTextHost(
+        input.device.serial,
+        (args) => adb(input.device.serial, args)
+      );
       const backend: AndroidRuntimeBackend = {
         activate: (ref) =>
           io(
@@ -473,7 +607,12 @@ export const acquireAndroidBackend = (
           ).pipe(Effect.asVoid),
         capture: () =>
           Effect.gen(function* captureAndroid() {
+            cleanupRegistry.set(privateTargets, new Map());
             yield* validate();
+            // Fields bind to a window only when it stayed focused across the snapshot.
+            const windowBefore = privateText
+              ? yield* requireOwnership(input)
+              : null;
             const snapshot = yield* io(
               (signal) =>
                 client.capture.snapshot({
@@ -496,6 +635,8 @@ export const acquireAndroidBackend = (
               );
             }
             const { generation, windowCount } = yield* requireCapture(snapshot);
+            const target = (node: SnapshotNode) =>
+              `@${node.ref.replace(/^@/u, "")}~s${generation}`;
             const id = randomUUID();
             const screenshotPath = path.join(
               directory,
@@ -531,7 +672,7 @@ export const acquireAndroidBackend = (
                 packageName: node.bundleId ?? null,
                 password: node.password === true,
                 role: node.kind ?? node.role ?? node.type ?? "unknown",
-                target: `@${node.ref.replace(/^@/u, "")}~s${generation}`,
+                target: target(node),
               })),
               ownership: {
                 focusedPackage: input.targetApp,
@@ -546,6 +687,20 @@ export const acquireAndroidBackend = (
                 image: image.toString("base64"),
               },
             };
+            const focusedWindow = privateText
+              ? yield* requireOwnership(input)
+              : null;
+            if (focusedWindow !== null && focusedWindow === windowBefore) {
+              cleanupRegistry.set(
+                privateTargets,
+                new Map(
+                  snapshot.nodes.flatMap((node) => {
+                    const binding = privateTextBinding(node, focusedWindow);
+                    return binding === null ? [] : [[target(node), binding]];
+                  })
+                )
+              );
+            }
             return result;
           }),
         close: () =>
@@ -558,6 +713,38 @@ export const acquireAndroidBackend = (
               )
             )
           ),
+        enterPrivate: (ref, value) =>
+          Effect.gen(function* enterPrivate() {
+            const binding = cleanupRegistry.get(privateTargets).get(ref);
+            cleanupRegistry.set(privateTargets, new Map());
+            if (!privateText || binding === undefined) {
+              return yield* Effect.fail(
+                platformRuntimeError("target_unsupported")
+              );
+            }
+            yield* validate();
+            // A different focused window means the observed field may be gone.
+            const requireWindow = requireOwnership(input).pipe(
+              Effect.flatMap((window) =>
+                window === binding.focusedWindow
+                  ? Effect.void
+                  : Effect.fail(platformRuntimeError("target_changed"))
+              )
+            );
+            yield* enterAndroidPrivateText(privateTextHost, {
+              binding,
+              requireWindow,
+              targetApp: input.targetApp,
+              value,
+            }).pipe(
+              // Retain the device lock: a helper process or forward may remain.
+              Effect.tapError((error) =>
+                error.code === "cleanup_failed"
+                  ? Effect.sync(() => cleanupRegistry.set(cleanupFailure, true))
+                  : Effect.void
+              )
+            );
+          }),
         fill: (ref, text) =>
           io((signal) => fillPublic({ ...options(), ref, signal, text })).pipe(
             Effect.asVoid

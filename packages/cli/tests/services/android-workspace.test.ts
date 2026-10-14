@@ -177,6 +177,8 @@ const fixture = (
             })
           ),
         close: () => Effect.void,
+        enterPrivate: () =>
+          Effect.fail(platformRuntimeError("capability_missing")),
         fill: () => Effect.void,
         recover: () => Effect.void,
         sessionId: "fixture-session",

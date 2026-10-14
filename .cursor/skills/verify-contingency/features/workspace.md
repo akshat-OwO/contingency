@@ -6,6 +6,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 
 - `android-preparation` proves declared emulator activity restart, Run-scoped environment decisions, failed starting-condition refusal, unexpected-app pause, and fresh recovery through the internal Android factory.
 
+- `android-private-text` proves a private fill through the Contingency helper beside agent-device on the Pixel_9 emulator, with sentinel absence from process lists, logcat, and diagnostics, typed refusals, a kept agent-device session, and cleanup.
 - `android-workspace` proves opt-in experimental Android Teaching in mirrored Workspace, Timeline readback and learning, Takeover refusal, Dry Run verification with Recording purge, a later Run, and Summary readback after an MCP restart.
 - `android-checkout` proves the Expo checkout fixture: Workspace Teaching of sign-in, cart, and mock checkout; ordered Timeline readback; a fresh verified Dry Run with purge; changed-build Run Environment Permission; broken-build `not-working` and `inconclusive` outcomes; ownership pause, capture loss, and same-device disconnect recovery.
 
@@ -499,6 +500,17 @@ Preconditions: Build current source. Obtain explicit selection and authorization
 - **Cleanup:** Close all owned Runs. Remove the helper only if this proof installed it. Stop only the emulator this proof started. Retain the sanitized receipt and journal. Use the normal `control-contingency cleanup` for any separate browser regression instance.
 
 This is live production-factory proof. It does not prove an Android MCP tool, Workspace permission rendering, mirrored Teaching, app updates, snapshots, destructive reset, or physical devices. Service tests separately exercise decision isolation, build drift, unsupported capabilities, outside-app setup, and undeclared activations. Settings restart establishes the declared navigation state; it does not clear application data. A journey needing cleared data or another setup procedure is unsupported.
+
+### Android private text
+
+Preconditions: Obtain explicit selection and authorization for the Pixel_9 API 36 emulator, and for installing the private text helper on it. Start only that AVD. The pinned agent-device helper must already be installed. Close every open Android session first.
+
+- **Declare selection:** Export `CONTINGENCY_ANDROID_SERIAL`, `CONTINGENCY_ANDROID_AVD=Pixel_9`, and `CONTINGENCY_ANDROID_FINGERPRINT` from the ADB readback, and `ANDROID_HOME`. Export `CONTINGENCY_ANDROID_HELPER_GRANT=none` and `CONTINGENCY_ANDROID_PRIVATE_TEXT_GRANT=install` when the private text helper is absent; use `replace` or `none` otherwise. Export `CONTINGENCY_ANDROID_EVIDENCE_DIRECTORY` to an owned directory under `artifacts/android-private-text/`.
+- **Drive the fill:** Run `nub packages/cli/scripts/verify-android-private-text.ts`. The runner opens Wi-Fi settings and **Add network**, and selects WPA/WPA2-Personal from outside the runtime because the dropdown is a popup window. It enters a generated sentinel into the password field while sampling device and host process lists. It then activates **Advanced options** through agent-device and proves stale, changed-field, non-password-field, replaced-window (before bind and between bind and fill), and foreground refusals. It returns to Settings and closes.
+- **Read evidence:** Read `private-text-receipt.json`. Require `privateFill.outcome` `verified`, `sessionPreserved` `true`, `ordinaryField` `target_unsupported`, `windowBeforeBind` `target_changed`, `windowAfterBind` `["target_changed","window_changed"]`, `enteredIntoReplacement` `false`, and `resolvedValues` `0`. Every `sentinel` flag must be `false`, and `processList.helperSeen` must be above zero. Every `cleanup` flag must be `true`, with an empty `privateHelperProcess`.
+- **Cleanup:** The runner uninstalls the private text helper only if it installed it, including on failure. Stop only the emulator this proof started.
+
+This proves the runtime's private fill on an emulator. It does not prove Workspace or Run private Variables, physical devices, or fills in popups and system dialogs.
 
 ### Android workspace
 
